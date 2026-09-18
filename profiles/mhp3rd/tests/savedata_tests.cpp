@@ -131,6 +131,7 @@ void test_store() {
           "the save uses the PSP folder layout");
     std::ifstream in(folder / "PARAM.SFO", std::ios::binary);
     const std::vector<std::uint8_t> sfo_bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
     const auto sfo = ParamSfo::parse(sfo_bytes);
     const auto offset = sfo ? sfo->data_offset("SAVEDATA_PARAMS") : std::nullopt;
     check(offset && verify_param_sfo(sfo_bytes, *offset), "PARAM.SFO carries valid hashes");
