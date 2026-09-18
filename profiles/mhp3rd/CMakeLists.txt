@@ -46,9 +46,11 @@ if(MHP3RD_RENDERER)
         # interface over the game.
         set(MHP3RD_RENDERER_SOURCES
             host/gpu/vulkan_renderer.cpp
+            host/ui/file_browser.cpp
             host/ui/input_script.cpp
             host/ui/layer.cpp
             host/ui/menu.cpp
+            host/ui/setup_screens.cpp
             host/ui/widgets.cpp
             third_party/imgui/imgui.cpp
             third_party/imgui/imgui_draw.cpp

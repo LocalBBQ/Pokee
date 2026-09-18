@@ -1,9 +1,16 @@
 #pragma once
 
-// The port's own interface, drawn with Dear ImGui over the game's window.
-// Only builds with the renderer have it.
+#include <memory>
+#include <string>
+
+// The port's own interface, drawn with Dear ImGui over the game's window: the
+// in-game menu and the first-run setup screens. Only builds with the renderer
+// have it.
 namespace mhp3rd::gpu {
 class VulkanRenderer;
+}
+namespace mhp3rd::install {
+class InstallerUi;
 }
 
 namespace mhp3rd::ui {
@@ -23,5 +30,13 @@ void draw_over_game();
 // Runs the menu over the last game frame until the player closes it. The
 // caller pauses the game around it. False: the player chose to quit.
 bool run_menu();
+
+// The setup screens as an installer front end, or null without a window.
+std::unique_ptr<install::InstallerUi> make_setup_screens();
+
+// Shows a problem that keeps the game from starting. With ask_setup, offers
+// to run the setup again. Unavailable when there is no window to show it in.
+enum class ProblemAnswer { Unavailable, Quit, SetUpAgain };
+ProblemAnswer show_problem(const std::string &title, const std::string &message, bool ask_setup);
 
 } // namespace mhp3rd::ui
