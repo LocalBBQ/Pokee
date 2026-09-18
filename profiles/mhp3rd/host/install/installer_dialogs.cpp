@@ -1,6 +1,7 @@
 // Installer front end built from SDL3's native dialogs: message boxes and the
-// system file picker. It stands in until the port has its own interface
-// screens; replacing it means implementing InstallerUi, nothing else.
+// system file picker. The port's own setup screens (host/ui) replace it
+// wherever the game's window can be created; this remains for systems where
+// it cannot, such as a machine without a working Vulkan driver.
 
 #include "install/installer.hpp"
 
@@ -167,8 +168,7 @@ std::unique_ptr<InstallerUi> make_dialog_ui() {
     return std::make_unique<DialogUi>();
 }
 
-bool report_problem(const std::string &title, const std::string &message, bool ask_setup) {
-    std::cerr << title << ": " << message << "\n";
+bool report_problem_in_dialog(const std::string &title, const std::string &message, bool ask_setup) {
     if (!dialogs_available()) return false;
     if (!ask_setup) {
         ask(SDL_MESSAGEBOX_ERROR, title.c_str(), message,
@@ -184,10 +184,7 @@ bool report_problem(const std::string &title, const std::string &message, bool a
 
 std::unique_ptr<InstallerUi> make_dialog_ui() { return nullptr; }
 
-bool report_problem(const std::string &title, const std::string &message, bool) {
-    std::cerr << title << ": " << message << "\n";
-    return false;
-}
+bool report_problem_in_dialog(const std::string &, const std::string &, bool) { return false; }
 
 #endif
 

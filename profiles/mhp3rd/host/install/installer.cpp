@@ -9,12 +9,19 @@
 #include "psprecomp/sha256.hpp"
 
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <system_error>
 #include <vector>
+
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace mhp3rd::install {
 namespace {
@@ -179,12 +186,12 @@ void install_checked(const std::filesystem::path &image, ImageStorage storage, c
     const std::filesystem::path copying = data_dir / (std::string(kCopiedImageFile) + ".part");
     const bool copy = storage == ImageStorage::Copy && !same_file(image, copied);
     if (copy) {
-        const std::uint64_t needed = inspection.info.size_bytes + kFreeSpaceMargin;
+        const std::uint64_t needed = space_needed_to_copy(inspection.info);
         std::error_code ec;
-        const auto space = std::filesystem::space(data_dir, ec);
-        if (!ec && space.available < needed)
+        const auto space = available_space(data_dir);
+        if (space && *space < needed)
             throw InstallError("Not enough free space to copy the disc image: it needs " + megabytes(needed) +
-                               " in \"" + path_to_utf8(data_dir) + "\" and " + megabytes(space.available) +
+                               " in \"" + path_to_utf8(data_dir) + "\" and " + megabytes(*space) +
                                " is free. Free up space, or choose to use the image where it is.");
         try {
             copy_with_progress(image, copying, inspection.info.size_bytes, progress);
@@ -202,13 +209,18 @@ void install_checked(const std::filesystem::path &image, ImageStorage storage, c
         }
     }
 
-    progress("Preparing the executable", 0u, 1u);
-    const std::vector<std::uint8_t> executable = prepare_executable(inspection.eboot_bin);
+    const std::string stage = "Preparing the executable";
+    progress(stage, 0u, 1u);
+    const std::vector<std::uint8_t> executable =
+        prepare_executable(inspection.eboot_bin, [&](std::uint64_t done, std::uint64_t total) {
+            progress(stage, done, total);
+        });
     const std::filesystem::path executable_path = data_dir / kExecutableFile;
     const std::filesystem::path executable_partial = data_dir / (std::string(kExecutableFile) + ".part");
     write_file(executable_partial, executable);
-    progress("Preparing the executable", 1u, 1u);
 
+    // Past this point the installation completes; a cancel would leave the
+    // copy renamed without its executable.
     UserSettings settings;
     if (storage == ImageStorage::Copy) {
         if (copy) std::filesystem::rename(copying, copied);
@@ -234,6 +246,10 @@ void install(const std::filesystem::path &image, ImageStorage storage, const std
         install_checked(image, storage, data_dir, progress);
     } catch (const InstallError &) {
         throw;
+    } catch (const InstallCancelled &) {
+        std::error_code ec;
+        std::filesystem::remove(data_dir / (std::string(kExecutableFile) + ".part"), ec);
+        throw;
     } catch (const std::filesystem::filesystem_error &e) {
         throw InstallError("Setup could not write to \"" + path_to_utf8(data_dir) + "\": " + e.code().message() + ".");
     } catch (const std::exception &e) {
@@ -241,26 +257,75 @@ void install(const std::filesystem::path &image, ImageStorage storage, const std
     }
 }
 
+void InstallerUi::run_task(const std::string &, const std::function<void()> &work) { work(); }
+
 bool run_installer(InstallerUi &ui, const std::filesystem::path &data_dir) {
-    if (!ui.introduce(data_dir)) return false;
     for (;;) {
-        const auto image = ui.choose_image();
-        if (!image) return false;
-        try {
-            const ImageInfo info = check_image(*image);
-            const auto storage = ui.choose_storage(*image, info, data_dir);
-            if (!storage) return false;
-            install(*image, *storage, data_dir,
-                    [&ui](const std::string &stage, std::uint64_t done, std::uint64_t total) {
-                        ui.progress(stage, done, total);
-                    });
-            ui.finished(data_dir);
-            return true;
-        } catch (const InstallError &e) {
-            std::cerr << "Setup: " << e.what() << "\n";
-            if (!ui.offer_retry(e.what())) return false;
+        if (!ui.introduce(data_dir)) return false;
+        for (;;) {
+            const auto image = ui.choose_image();
+            if (!image) break;  // back to the introduction
+            try {
+                ImageInfo info;
+                ui.run_task("Checking the disc image", [&] { info = check_image(*image); });
+                const auto storage = ui.choose_storage(*image, info, data_dir);
+                if (!storage) continue;  // choose another image
+                ui.run_task("Setting up", [&] {
+                    install(*image, *storage, data_dir,
+                            [&ui](const std::string &stage, std::uint64_t done, std::uint64_t total) {
+                                ui.progress(stage, done, total);
+                            });
+                });
+                ui.finished(data_dir);
+                return true;
+            } catch (const InstallCancelled &) {
+                std::cerr << "Setup: cancelled\n";
+            } catch (const InstallError &e) {
+                std::cerr << "Setup: " << e.what() << "\n";
+                if (!ui.offer_retry(e.what())) return false;
+            }
         }
     }
+}
+
+std::optional<std::uint64_t> available_space(const std::filesystem::path &data_dir) {
+    // The directory may not exist yet: ask about the nearest one that does.
+    std::error_code ec;
+    std::filesystem::path probe = std::filesystem::absolute(data_dir, ec);
+    while (!probe.empty() && !std::filesystem::exists(probe, ec)) {
+        if (probe == probe.parent_path()) break;
+        probe = probe.parent_path();
+    }
+    const auto space = std::filesystem::space(probe, ec);
+    if (ec) return std::nullopt;
+    return space.available;
+}
+
+std::uint64_t space_needed_to_copy(const ImageInfo &info) { return info.size_bytes + kFreeSpaceMargin; }
+
+namespace {
+bool setup_on_exit = false;
+}
+
+void request_setup_on_exit() { setup_on_exit = true; }
+bool setup_requested_on_exit() { return setup_on_exit; }
+
+int restart_for_setup(const char *program) {
+    // Nothing buffered survives the exec.
+    std::cout.flush();
+    std::cerr.flush();
+    // The player asked for the setup: a game directory chosen for this run
+    // would make --install skip it.
+#if defined(_WIN32)
+    _putenv_s("MHP3RD_GAME_DIR", "");
+    const intptr_t result = _execlp(program, program, "--install", nullptr);
+    (void)result;
+#else
+    unsetenv("MHP3RD_GAME_DIR");
+    execlp(program, program, "--install", static_cast<char *>(nullptr));
+#endif
+    std::cerr << "Cannot restart " << program << " for the setup; start it with --install\n";
+    return 1;
 }
 
 void print_progress(const std::string &stage, std::uint64_t done, std::uint64_t total) {

@@ -86,6 +86,7 @@ set(MHP3RD_HOST_SOURCES
     host/save_data/savedata_crypto.cpp
     host/save_data/savedata_store.cpp
     host/install/executable_preparation.cpp
+    host/install/front_end.cpp
     host/install/installer.cpp
     host/install/installer_dialogs.cpp
     host/install/user_data.cpp

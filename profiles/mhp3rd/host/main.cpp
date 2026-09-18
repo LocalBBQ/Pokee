@@ -36,8 +36,8 @@ constexpr const char *kUsage =
     "usage: MHP3rdNative [game_dir]\n"
     "       MHP3rdNative --install [image.iso [--in-place]]\n"
     "  game_dir        play from a directory holding EBOOT.ELF, disc.iso and ms0/\n"
-    "  --install       run the setup again with dialogs, then play\n"
-    "  --install image set up from image.iso without dialogs, then exit\n"
+    "  --install       run the setup again on screen, then play\n"
+    "  --install image set up from image.iso without the setup screens, then exit\n"
     "  --in-place      use the image where it is instead of copying it\n";
 
 struct Options {
@@ -133,7 +133,7 @@ std::optional<GameFiles> locate_game(const Options &options) {
             if (has_game_data(checkout_game_dir)) return files_in_game_directory(checkout_game_dir);
         }
 
-        auto ui = install::make_dialog_ui();
+        auto ui = install::make_installer_ui();
         if (!ui) {
             std::cerr << "No game data found in " << install::path_to_utf8(data_dir) << " or "
                       << checkout_game_dir.string() << ".\n"
@@ -214,6 +214,8 @@ int main(int argc, char **argv) {
 
         runtime.run(elf.runtime_entry(mhp3rd::kLoadBase), configured_max_dispatches());
         std::cout << "Runtime stopped: " << runtime.stop_reason() << "\n";
+        // "Set up game data again" in the in-game menu.
+        if (mhp3rd::install::setup_requested_on_exit()) return mhp3rd::install::restart_for_setup(argv[0]);
         std::cout << mhp3rd::kernel().describe_threads() << "\n";
         runtime.report_hle_histogram();
         return runtime.stop_reason().empty() ? 0 : 4;

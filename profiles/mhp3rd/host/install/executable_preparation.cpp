@@ -119,7 +119,8 @@ Block unwrap_payload_key(std::span<const std::uint8_t> header) {
 
 } // namespace
 
-std::vector<std::uint8_t> prepare_executable(std::span<const std::uint8_t> eboot_bin) {
+std::vector<std::uint8_t> prepare_executable(std::span<const std::uint8_t> eboot_bin,
+                                             const std::function<void(std::uint64_t, std::uint64_t)> &progress) {
     if (psprecomp::sha256_bytes(eboot_bin) != kEncryptedExecutableSha256)
         throw psprecomp::Error("EBOOT.BIN is not the supported executable of " + std::string(kGameTitle) + " (" +
                                kDiscIdDisplay + ")");
@@ -138,7 +139,17 @@ std::vector<std::uint8_t> prepare_executable(std::span<const std::uint8_t> eboot
     const Block key = unwrap_payload_key(eboot_bin.first(kHeaderSize));
     std::vector<std::uint8_t> executable(eboot_bin.begin() + kHeaderSize,
                                          eboot_bin.begin() + static_cast<std::ptrdiff_t>(kHeaderSize + padded_size));
-    cbc_decrypt(key, executable);
+    // CBC carries its chaining value in the context, so the payload decrypts
+    // in slices that report progress in between.
+    constexpr std::size_t kSlice = 1024u * 1024u;
+    const Block zero_iv{};
+    AES_ctx context{};
+    AES_init_ctx_iv(&context, key.data(), zero_iv.data());
+    for (std::size_t offset = 0; offset < executable.size(); offset += kSlice) {
+        const std::size_t length = std::min(kSlice, executable.size() - offset);
+        AES_CBC_decrypt_buffer(&context, executable.data() + offset, length);
+        if (progress) progress(offset + length, executable.size());
+    }
     executable.resize(size);
 
     if (psprecomp::sha256_bytes(executable) != kExecutableSha256)

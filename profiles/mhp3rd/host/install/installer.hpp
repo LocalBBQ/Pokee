@@ -13,14 +13,21 @@
 // executable from it.
 //
 // The logic here knows nothing about how questions are asked. InstallerUi is
-// the only thing a front end implements; the SDL message-box front end is a
-// stand-in until the port has its own interface screens.
+// the only thing a front end implements: the port's own setup screens
+// (host/ui), or SDL message boxes where those cannot be shown.
 namespace mhp3rd::install {
 
 // A problem the player can act on; what() is written for them.
 class InstallError final : public std::runtime_error {
 public:
     explicit InstallError(const std::string &message) : std::runtime_error(message) {}
+};
+
+// Thrown from a progress callback to stop an installation the player
+// cancelled. Nothing is left behind: partial files are removed.
+class InstallCancelled final : public std::exception {
+public:
+    [[nodiscard]] const char *what() const noexcept override { return "setup cancelled"; }
 };
 
 enum class ImageStorage {
@@ -40,6 +47,12 @@ ImageInfo check_image(const std::filesystem::path &path);
 // Called with the bytes done so far and the total; stage names the step.
 using ProgressFn = std::function<void(const std::string &stage, std::uint64_t done, std::uint64_t total)>;
 
+// Free space where data_dir is or would be created, if it can be told.
+[[nodiscard]] std::optional<std::uint64_t> available_space(const std::filesystem::path &data_dir);
+// Space a copy of the image needs, with a margin so the disk is not filled to
+// the last byte.
+[[nodiscard]] std::uint64_t space_needed_to_copy(const ImageInfo &info);
+
 // Checks the image, stores it according to storage and prepares the
 // executable in data_dir. Nothing in data_dir changes until the image has
 // passed its checks; files are written under temporary names and renamed at
@@ -57,8 +70,15 @@ public:
     // Copy the image or use it in place. Empty: cancelled.
     virtual std::optional<ImageStorage> choose_storage(const std::filesystem::path &image, const ImageInfo &info,
                                                        const std::filesystem::path &data_dir) = 0;
+    // Runs work that may take a while: checking an image, installing. The
+    // default runs it right here. A front end with a window runs it on
+    // another thread and keeps drawing; progress() is then called from that
+    // thread, and may throw InstallCancelled to stop the work.
+    virtual void run_task(const std::string &title, const std::function<void()> &work);
     virtual void progress(const std::string &stage, std::uint64_t done, std::uint64_t total) = 0;
     // Reports a failed check or step. True: pick another image; false: quit.
+    // Cancelling in choose_image() or choose_storage() goes back a step: to
+    // introduce(), or to choose_image().
     virtual bool offer_retry(const std::string &message) = 0;
     virtual void finished(const std::filesystem::path &data_dir) = 0;
 };
@@ -66,13 +86,24 @@ public:
 // The whole interactive flow. True when the game is installed and can start.
 bool run_installer(InstallerUi &ui, const std::filesystem::path &data_dir);
 
-// Front ends. Console progress is shared by both.
+// Front ends. Console progress is shared by all of them.
 void print_progress(const std::string &stage, std::uint64_t done, std::uint64_t total);
-// SDL dialogs, or null when this build or this session cannot show them.
+// The setup screens in the game's window, or the SDL dialogs when the window
+// cannot be created, or null when this build or session can show neither.
+std::unique_ptr<InstallerUi> make_installer_ui();
 std::unique_ptr<InstallerUi> make_dialog_ui();
-// Tells the player (dialog when possible, console always) that something
+// Tells the player (on screen when possible, console always) that something
 // prevents the game from starting. With ask_setup, offers to run the installer
 // again and returns whether the player chose to.
 bool report_problem(const std::string &title, const std::string &message, bool ask_setup);
+bool report_problem_in_dialog(const std::string &title, const std::string &message, bool ask_setup);
+
+// "Set up game data again" in the in-game menu: the game quits, and the
+// program starts again with --install once it has shut down.
+void request_setup_on_exit();
+[[nodiscard]] bool setup_requested_on_exit();
+// Replaces this process with `program --install`. Returns only on failure,
+// with the exit code to use.
+int restart_for_setup(const char *program);
 
 } // namespace mhp3rd::install
