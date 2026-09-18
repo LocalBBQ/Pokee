@@ -93,6 +93,8 @@ cmake --build out/mhp3rd --target MHP3rdNative -j 2
 
 `generate.sh` analyzes the executable and writes the recompiled C++ into `generated/`. That corpus is derived from your copy of the game, so it stays local and is never committed.
 
+Never run two builds in the same build directory at once, and prefer not to delete `.ninja_deps` or `.ninja_log`: either can cost a full rebuild. [`docs/BUILD_SYSTEM.md`](../../docs/BUILD_SYSTEM.md) explains why incremental state gets lost and how to avoid it.
+
 ## Code overlays
 
 Beyond the main executable, the game loads 355 code overlays (`*.ovl`) from `USRDIR/DATA.BIN` into 12 fixed slots at run time: mode tasks (`game_task`, `lobby_task`, …), maps (`P_m*`, `P_v*`), monsters (`em*m0`–`m3`) and weapons (`we*player00`–`03`). The ELF section table lists them as zero-sized sections, so their code is not part of `EBOOT.ELF`.
