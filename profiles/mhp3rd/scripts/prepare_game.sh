@@ -3,8 +3,9 @@
 #
 #   prepare_game.sh <image.iso> <decrypted EBOOT.ELF>
 #
-# PSPRecomp does not decrypt executables. Produce EBOOT.ELF from
-# PSP_GAME/SYSDIR/EBOOT.BIN with an external tool before running this script.
+# Produce EBOOT.ELF from PSP_GAME/SYSDIR/EBOOT.BIN with an external tool, or
+# take the one `MHP3rdNative --install <image.iso>` writes into the per-user
+# data directory, before running this script.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then

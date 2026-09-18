@@ -10,7 +10,7 @@ The project may use public hardware documentation, observable program behavior a
 
 ## Decryption
 
-The repository does not contain an EBOOT/PRX decryption implementation. A profile may document the input format it expects, but users are responsible for preparing their own legally obtained executable outside PSPRecomp.
+The framework contains no EBOOT/PRX decryption. The mhp3rd profile's installer (`profiles/mhp3rd/host/install`) prepares the game's executable from the player's own disc image: it accepts exactly one encrypted file, identified by its SHA-256, and checks its output against the SHA-256 of the executable the profile was generated from. It was written for this project from public descriptions of the file format and the crypto primitives; no code from other implementations was copied or adapted. Its AES implementation is tiny-AES-c (public domain), kept with its notice in `profiles/mhp3rd/third_party/tiny_aes`. Developers can still prepare the executable outside the project and supply it through `profiles/mhp3rd/game`.
 
 ## Profile code
 

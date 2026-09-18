@@ -55,6 +55,7 @@ Expect a full build to need several gigabytes of memory and some time: the gener
 
 ```bash
 # 1. Game data: link your disc image and decrypted executable into profiles/mhp3rd/game
+#    (or let the program set itself up from the image; see "Game data" below)
 profiles/mhp3rd/scripts/prepare_game.sh "/path/to/your.iso" /path/to/EBOOT.ELF
 
 # 2. Recompile the executable
@@ -72,9 +73,49 @@ out/mhp3rd/bin/MHP3rdNative
 
 Each step is described below.
 
-## Prepare game data
+## Game data
 
-1. Decrypt `PSP_GAME/SYSDIR/EBOOT.BIN` from your own image with an external tool. This project contains no decryption code. `tools/extract_iso.py <iso> <dir> /PSP_GAME/SYSDIR/EBOOT.BIN` extracts the encrypted file; the table above gives the hashes to check both files against.
+The program needs two things from your own copy of the game: the disc image and the game's executable. It finds them in this order:
+
+1. A directory given on the command line or in `MHP3RD_GAME_DIR`.
+2. The **per-user data directory** that the installer fills.
+3. `profiles/mhp3rd/game` in the checkout, set up by `prepare_game.sh`.
+
+If neither the per-user directory nor `profiles/mhp3rd/game` holds game data, the program starts its installer instead of the game.
+
+### Installer
+
+The installer needs only your disc image. It asks for the image with the system file dialog, checks that it is `NPJB-40001` (the disc id in `PARAM.SFO` and the SHA-256 of the encrypted executable) and says plainly when it is another release or region, or a modified image. It then prepares the game's executable from the player's own disc image, checks the result against the hash in the table above, and starts the game. Later starts go straight to the game.
+
+By default it copies the image (about 1.3 GB) into the per-user directory, so the game keeps working after the original is moved or deleted; progress is printed on the console. It can use the image where it is instead, to save space; the program then checks on every start that the image is still there and says so if it is not, offering to run the setup again.
+
+The per-user directory is SDL's preference path for `Yakumo/MHP3rd`:
+
+| System | Directory |
+| --- | --- |
+| macOS | `~/Library/Application Support/Yakumo/MHP3rd/` |
+| Linux | `~/.local/share/Yakumo/MHP3rd/` (or under `$XDG_DATA_HOME`) |
+| Windows | `%APPDATA%\Yakumo\MHP3rd\` |
+
+It holds `EBOOT.ELF`, `disc.iso` when the image was copied, and `settings.ini`, which records where the image is. Save data is not there yet: `ms0` stays in `profiles/mhp3rd/game/ms0` for now. `MHP3RD_DATA_DIR` points the program at another directory.
+
+The same setup runs without dialogs from a terminal, for scripts and for systems whose file dialog does not work:
+
+```bash
+out/mhp3rd/bin/MHP3rdNative --install "/path/to/your.iso"             # copy the image
+out/mhp3rd/bin/MHP3rdNative --install "/path/to/your.iso" --in-place  # use it where it is
+out/mhp3rd/bin/MHP3rdNative --install                                 # run the dialogs again, then play
+```
+
+`--install` with an image prepares everything and exits. A build without generated code can already run it, and the `EBOOT.ELF` it writes into the per-user directory is the executable `generate.sh` needs.
+
+On Linux the file dialog goes through the desktop portal (or `zenity`); on a Steam Deck it may need Desktop Mode the first time. The installer's dialogs are SDL3 message boxes for now; the port's own interface will replace them. A build without SDL has no dialogs and prints the `--install` command instead.
+
+### Checkout directory
+
+For development, `profiles/mhp3rd/game` works as before, with an executable decrypted by an external tool:
+
+1. Decrypt `PSP_GAME/SYSDIR/EBOOT.BIN` from your own image with an external tool, or take the `EBOOT.ELF` that `--install` wrote into the per-user directory. `tools/extract_iso.py <iso> <dir> /PSP_GAME/SYSDIR/EBOOT.BIN` extracts the encrypted file; the table above gives the hashes to check both files against.
 2. Populate `profiles/mhp3rd/game` (ignored by Git):
 
    ```bash
@@ -82,6 +123,8 @@ Each step is described below.
    ```
 
 The image itself is not unpacked: `game/disc.iso` links to it and the host reads files, and raw `sce_lbn` sectors, from it directly. `game/ms0` backs `ms0:` for save data. If you move the image later, rerun the script — the links point at absolute paths.
+
+When the per-user directory also holds an installation, it takes precedence; start with `profiles/mhp3rd/game` as an argument, or set `MHP3RD_GAME_DIR`, to use the checkout.
 
 ## Build
 
@@ -135,7 +178,7 @@ It builds with 2 parallel jobs; `-j N` changes that. `--no-build` stops after re
 ## Running
 
 ```bash
-out/mhp3rd/bin/MHP3rdNative [game_dir]       # game_dir defaults to profiles/mhp3rd/game
+out/mhp3rd/bin/MHP3rdNative [game_dir]       # see "Game data" for where it looks without game_dir
 ```
 
 The window renders at twice the PSP resolution by default (960×544). Close the window to quit (Cmd+Q on macOS, Alt+F4 on most Linux desktops); Esc does not quit, because it is reserved for the in-game menu (#11). When the game asks for a name, the on-screen keyboard answers immediately with `MHP3RD_OSK_TEXT` (default `Hunter`); set `MHP3RD_OSK_INTERACTIVE=1` to type it in the window instead (Enter confirms, Esc cancels).
@@ -179,7 +222,8 @@ Everything is set through environment variables.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `MHP3RD_GAME_DIR` | `profiles/mhp3rd/game` | Directory holding `EBOOT.ELF`, `disc.iso` and `ms0/` |
+| `MHP3RD_GAME_DIR` | unset | Directory holding `EBOOT.ELF`, `disc.iso` and `ms0/`; skips the per-user directory |
+| `MHP3RD_DATA_DIR` | SDL's preference path | Per-user data directory the installer fills |
 | `MHP3RD_OVERLAY_DIR` | `overlays/` next to the executable | Directory of overlay libraries |
 | `MHP3RD_FONT` | a system CJK font | TrueType font to rasterize game text from; macOS and common Linux CJK fonts are tried when unset |
 
@@ -188,7 +232,7 @@ Everything is set through environment variables.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `MHP3RD_INTERNAL_SCALE` | `2` | Render resolution as a multiple of 480×272 |
-| `MHP3RD_NO_RENDER` | off | Run without a window |
+| `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
@@ -236,7 +280,8 @@ Everything is set through environment variables.
 ## Host layout
 
 ```text
-host/main.cpp                    Entry point: game directory, executable check, startup
+host/main.cpp                    Entry point: finding the game data, executable check, startup
+host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
 host/kernel/kernel.{hpp,cpp}     Scheduler, waits, virtual clock, interrupts, memory
 host/kernel/iso_image.{hpp,cpp}  Read-only ISO 9660 view of the disc image
@@ -263,7 +308,7 @@ config/       Executable identity and overlay slot map
 host/         Bootstrap, kernel, HLE, graphics, audio
 scripts/      prepare_game.sh, generate.sh, build_overlays.sh, bootstrap_overlays.sh
 tools/        ISO and DATA.BIN extraction, overlay wrapping, shader embedding
-third_party/  stb_truetype
+third_party/  stb_truetype, tiny-AES-c (installer only)
 game/         Local game data: EBOOT.ELF, disc.iso, ms0/ (ignored)
 analysis/     Analyzer output and extracted overlays (ignored)
 generated/    Recompiled executable (ignored)

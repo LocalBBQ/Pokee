@@ -16,8 +16,9 @@ entry = "0x0882170C"
 gp = "0x08A2A680"
 
 [input]
-# Encrypted PSP_GAME/SYSDIR/EBOOT.BIN from the user's own disc. Decryption
-# happens outside this project.
+# Encrypted PSP_GAME/SYSDIR/EBOOT.BIN from the user's own disc. The installer
+# (host/install) prepares the executable from it; developers may also supply
+# one prepared outside the project.
 encrypted_eboot_sha256 = "79e25f3512d56e0f7bf5c48351d7d0d255269675ffc8811ac5599322bb66945e"
 # Decrypted ELF expected by this profile.
 expected_sha256 = "55c0598436c0753b04331f8e95d406f832d9217806e3a896fed0e88b33637d8c"

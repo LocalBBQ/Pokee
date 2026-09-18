@@ -69,7 +69,14 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_media.cpp
     host/hle/hle_font.cpp
     host/hle/hle_utility.cpp
+    host/install/executable_preparation.cpp
+    host/install/installer.cpp
+    host/install/installer_dialogs.cpp
+    host/install/user_data.cpp
+    third_party/tiny_aes/aes.c
 )
+# tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
+set_source_files_properties(third_party/tiny_aes/aes.c PROPERTIES LANGUAGE CXX)
 
 add_executable(MHP3rdNative
     host/main.cpp
@@ -80,7 +87,7 @@ add_executable(MHP3rdNative
 if(MHP3RD_RENDERER)
     add_dependencies(MHP3rdNative mhp3rd_shaders)
     # The sink opens its own SDL audio subsystem, so it only needs SDL to exist.
-    target_compile_definitions(MHP3rdNative PRIVATE MHP3RD_HAS_RENDERER=1 MHP3RD_HAS_SDL_AUDIO=1)
+    target_compile_definitions(MHP3rdNative PRIVATE MHP3RD_HAS_RENDERER=1 MHP3RD_HAS_SDL_AUDIO=1 MHP3RD_HAS_SDL=1)
     target_include_directories(MHP3rdNative PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders")
     target_link_libraries(MHP3rdNative PRIVATE SDL3::SDL3 Vulkan::Vulkan)
 endif()
