@@ -138,6 +138,12 @@ const std::vector<Field> &fields() {
              if (std::strcmp(t, "log") == 0) s.perf = PerfDisplay::Log;
              else s.perf = *t != '\0' && variable_flag(t) ? PerfDisplay::OverlayAndLog : PerfDisplay::Off;
          }},
+        {"text.font", "MHP3RD_FONT",
+         [](Settings &s, const std::string &t) {
+             s.font = t;
+             return true;
+         },
+         [](const Settings &s) { return s.font; }, [](Settings &s, const char *t) { s.font = t; }},
         {"audio.volume", nullptr,
          [](Settings &s, const std::string &t) { return parse_uint(t, 0u, 100u, s.volume); },
          [](const Settings &s) { return std::to_string(s.volume); }, nullptr},

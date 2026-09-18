@@ -1,21 +1,19 @@
 // sceLibFont: the PSP system fonts live in the console's internal flash, which
-// a dumped disc does not contain, so glyphs are rasterized from a TrueType font
-// on the host instead. Metrics follow the PSP ABI so guest text layout still
-// matches; the shapes are the substitute font's.
+// a dumped disc does not contain, so glyphs come from a font on the host
+// (fonts/game_font.hpp, which also describes how the game lays them out). The
+// metrics reported are those of the bitmaps drawn.
 #include "hle_common.hpp"
+
+#include "fonts/game_font.hpp"
 
 #include "psprecomp/common.hpp"
 
-#define STB_TRUETYPE_IMPLEMENTATION
-#define STBTT_STATIC
-#include "stb_truetype.h"
-
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <iostream>
-#include <vector>
 
 namespace mhp3rd {
 namespace {
@@ -29,185 +27,158 @@ constexpr std::uint32_t kPixelFormat32 = 4u;
 
 constexpr std::uint32_t kLibraryHandle = 0x00F0F000u;
 constexpr std::uint32_t kFontHandle = 0x00F0F100u;
-constexpr float kDefaultPixelHeight = 16.0f;
 
-// Candidates that ship with the common desktop systems; a Japanese face is
-// needed for the game's text.
-const char *const kFontCandidates[] = {
-    // macOS ships Hiragino Kaku Gothic W4 under its Japanese file name.
-    "/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc",
-    "/System/Library/Fonts/Hiragino Sans GB.ttc",
-    "/System/Library/Fonts/AquaKana.ttc",
-    "/Library/Fonts/Arial Unicode.ttf",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-    "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
-    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-    "C:/Windows/Fonts/msgothic.ttc",
-    "C:/Windows/Fonts/meiryo.ttc",
-};
-
-struct FontState {
-    std::vector<std::uint8_t> file;
-    stbtt_fontinfo info{};
-    bool loaded{};
-    float pixel_height{kDefaultPixelHeight};
-    float scale{};
-    int ascent{};
-    int descent{};
-    int line_gap{};
-    std::uint64_t glyphs_rendered{};
-};
-
-FontState &font() {
-    static FontState state;
-    return state;
+// MHP3RD_TRACE_FONT=1: every sceLibFont call with its arguments and results.
+bool trace_font() {
+    static const bool enabled = std::getenv("MHP3RD_TRACE_FONT") != nullptr;
+    return enabled;
 }
 
-void set_pixel_height(float height) {
-    FontState &state = font();
-    state.pixel_height = height > 1.0f ? height : kDefaultPixelHeight;
-    if (state.loaded) state.scale = stbtt_ScaleForPixelHeight(&state.info, state.pixel_height);
+#if defined(__GNUC__)
+__attribute__((format(printf, 1, 2)))
+#endif
+void trace(const char *format, ...) {
+    if (!trace_font()) return;
+    char line[512];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+    std::cerr << "[font] " << line << "\n";
 }
 
-bool load_font() {
-    FontState &state = font();
-    if (state.loaded) return true;
-    std::vector<std::string> paths;
-    if (const char *configured = std::getenv("MHP3RD_FONT")) paths.emplace_back(configured);
-    for (const char *candidate : kFontCandidates) paths.emplace_back(candidate);
-
-    for (const std::string &path : paths) {
-        std::ifstream file(path, std::ios::binary | std::ios::ate);
-        if (!file) continue;
-        const auto size = static_cast<std::streamsize>(file.tellg());
-        file.seekg(0);
-        std::vector<std::uint8_t> data(static_cast<std::size_t>(size));
-        if (!file.read(reinterpret_cast<char *>(data.data()), size)) continue;
-        const int offset = stbtt_GetFontOffsetForIndex(data.data(), 0);
-        if (offset < 0) continue;
-        state.file = std::move(data);
-        if (stbtt_InitFont(&state.info, state.file.data(), offset) == 0) {
-            state.file.clear();
-            continue;
-        }
-        stbtt_GetFontVMetrics(&state.info, &state.ascent, &state.descent, &state.line_gap);
-        state.loaded = true;
-        set_pixel_height(state.pixel_height);
-        std::cout << "Fonts: rasterizing sceLibFont glyphs from " << path << "\n";
-        return true;
-    }
-    log_once("font-missing",
-             "[font] no TrueType font found; guest text stays blank. Set MHP3RD_FONT=<path to a .ttf/.ttc>");
-    return false;
+float load_float(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    const std::uint32_t bits = memory.load32(address);
+    float value{};
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
 }
 
-std::int32_t to_fixed26(float value) { return static_cast<std::int32_t>(value * 64.0f); }
+void store_float(psprecomp::GuestMemory &memory, std::uint32_t address, float value) {
+    std::uint32_t bits{};
+    std::memcpy(&bits, &value, sizeof(bits));
+    memory.store32(address, bits);
+}
 
-// SceFontCharInfo, 60 bytes.
-void write_char_info(psprecomp::GuestMemory &memory, std::uint32_t address, int width, int height, int left, int top,
-                     float advance) {
+std::uint32_t to_fixed26(float value) {
+    return static_cast<std::uint32_t>(static_cast<std::int32_t>(value * 64.0f));
+}
+
+// SceFontCharInfo, 60 bytes: the bitmap's size and bearings in whole pixels,
+// then the same and the advances in 26.6 fixed point.
+void write_char_info(psprecomp::GuestMemory &memory, std::uint32_t address, const fonts::GlyphMetrics &glyph) {
     const auto put = [&](std::uint32_t offset, std::uint32_t value) { memory.store32(address + offset, value); };
-    put(0u, static_cast<std::uint32_t>(width));
-    put(4u, static_cast<std::uint32_t>(height));
-    put(8u, static_cast<std::uint32_t>(left));
-    put(12u, static_cast<std::uint32_t>(top));
-    put(16u, static_cast<std::uint32_t>(to_fixed26(static_cast<float>(width))));
-    put(20u, static_cast<std::uint32_t>(to_fixed26(static_cast<float>(height))));
-    const FontState &state = font();
-    put(24u, static_cast<std::uint32_t>(to_fixed26(static_cast<float>(state.ascent) * state.scale)));
-    put(28u, static_cast<std::uint32_t>(to_fixed26(static_cast<float>(state.descent) * state.scale)));
-    put(32u, static_cast<std::uint32_t>(to_fixed26(static_cast<float>(left))));       // bearing HX
-    put(36u, static_cast<std::uint32_t>(to_fixed26(static_cast<float>(top))));        // bearing HY
-    put(40u, 0u);                                                                    // bearing VX
-    put(44u, static_cast<std::uint32_t>(to_fixed26(static_cast<float>(top))));        // bearing VY
-    put(48u, static_cast<std::uint32_t>(to_fixed26(advance)));                        // advance H
-    put(52u, static_cast<std::uint32_t>(to_fixed26(state.pixel_height)));             // advance V
-    memory.store16(address + 56u, 0u);                                               // shadow flags
-    memory.store16(address + 58u, 0u);                                               // shadow id
+    put(0u, static_cast<std::uint32_t>(glyph.width));
+    put(4u, static_cast<std::uint32_t>(glyph.height));
+    put(8u, static_cast<std::uint32_t>(glyph.left));
+    put(12u, static_cast<std::uint32_t>(glyph.top));
+    put(16u, to_fixed26(static_cast<float>(glyph.width)));
+    put(20u, to_fixed26(static_cast<float>(glyph.height)));
+    put(24u, to_fixed26(static_cast<float>(fonts::kAscender)));                  // ascender
+    put(28u, to_fixed26(static_cast<float>(fonts::kAscender - fonts::kCell)));   // descender
+    put(32u, to_fixed26(static_cast<float>(glyph.left)));                        // bearing HX
+    put(36u, to_fixed26(static_cast<float>(glyph.top)));                         // bearing HY
+    put(40u, 0u);                                                                // bearing VX
+    put(44u, to_fixed26(static_cast<float>(glyph.top)));                         // bearing VY
+    put(48u, to_fixed26(glyph.advance));                                         // advance H
+    put(52u, to_fixed26(static_cast<float>(fonts::kCell)));                      // advance V
+    memory.store16(address + 56u, 0u);                                          // shadow flags
+    memory.store16(address + 58u, 0u);                                          // shadow id
 }
 
-struct GlyphBitmap {
-    std::vector<std::uint8_t> pixels;
-    int width{};
-    int height{};
-    int left{};
-    int top{};
-    float advance{};
-};
-
-bool rasterize(std::uint32_t code, GlyphBitmap &out) {
-    FontState &state = font();
-    if (!state.loaded) return false;
-    const int glyph = stbtt_FindGlyphIndex(&state.info, static_cast<int>(code));
-    int advance = 0;
-    int bearing = 0;
-    stbtt_GetGlyphHMetrics(&state.info, glyph, &advance, &bearing);
-    out.advance = static_cast<float>(advance) * state.scale;
-
-    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-    stbtt_GetGlyphBitmapBox(&state.info, glyph, state.scale, state.scale, &x0, &y0, &x1, &y1);
-    out.width = x1 - x0;
-    out.height = y1 - y0;
-    out.left = x0;
-    out.top = -y0;
-    if (out.width <= 0 || out.height <= 0) {
-        out.pixels.clear();
-        out.width = std::max(out.width, 0);
-        out.height = std::max(out.height, 0);
-        return true;
+// SceFontInfo: the maximum glyph metrics, as 26.6 fixed point and as floats,
+// then the maximum bitmap size. The game sizes its glyph cells from these, so
+// they describe the 20x20 cell every glyph is fitted into.
+void write_font_info(psprecomp::GuestMemory &memory, std::uint32_t address) {
+    const float cell = static_cast<float>(fonts::kCell);
+    const float ascender = static_cast<float>(fonts::kAscender);
+    const float values[10] = {
+        cell,             // max glyph width
+        cell,             // max glyph height
+        ascender,         // max ascender
+        ascender - cell,  // max descender
+        0.0f,             // max left X
+        ascender,         // max base Y
+        cell / 2.0f,      // min centre X
+        ascender,         // max top Y
+        cell,             // max advance X
+        cell,             // max advance Y
+    };
+    for (std::uint32_t i = 0; i < 10u; ++i) {
+        memory.store32(address + i * 4u, to_fixed26(values[i]));
+        store_float(memory, address + 40u + i * 4u, values[i]);
     }
-    out.pixels.assign(static_cast<std::size_t>(out.width) * out.height, 0u);
-    stbtt_MakeGlyphBitmap(&state.info, out.pixels.data(), out.width, out.height, out.width, state.scale, state.scale,
-                          glyph);
-    return true;
+    memory.store16(address + 80u, static_cast<std::uint16_t>(fonts::kCell));  // max glyph bitmap width
+    memory.store16(address + 82u, static_cast<std::uint16_t>(fonts::kCell));  // max glyph bitmap height
+    memory.store32(address + 84u, 0x10000u);                                  // glyph count
+    memory.store32(address + 88u, 0u);                                        // shadow map length
 }
 
-// Writes one glyph into the guest buffer described by SceFontGlyphImage.
-void blit_glyph(psprecomp::GuestMemory &memory, std::uint32_t image_address, const GlyphBitmap &glyph) {
+std::int32_t floor_div64(std::int32_t value) { return value >= 0 ? value / 64 : -((-value + 63) / 64); }
+
+// Draws one glyph into the guest buffer described by SceFontGlyphImage. The
+// position is 26.6 fixed point; its fraction becomes a subpixel shift. Pixels
+// only ever get darker ink: the game draws some glyphs twice, slightly apart,
+// to embolden them, and a second pass must not erase the first.
+void blit_glyph(psprecomp::GuestMemory &memory, std::uint32_t image_address, std::uint32_t code) {
     const std::uint32_t pixel_format = memory.load32(image_address);
-    const auto x_position = static_cast<std::int32_t>(memory.load32(image_address + 4u)) / 64;
-    const auto y_position = static_cast<std::int32_t>(memory.load32(image_address + 8u)) / 64;
+    const auto x64 = static_cast<std::int32_t>(memory.load32(image_address + 4u));
+    const auto y64 = static_cast<std::int32_t>(memory.load32(image_address + 8u));
     const std::uint32_t buffer_width = memory.load16(image_address + 12u);
     const std::uint32_t buffer_height = memory.load16(image_address + 14u);
     const std::uint32_t bytes_per_line = memory.load16(image_address + 16u);
     const std::uint32_t buffer = memory.load32(image_address + 20u);
-    if (buffer == 0u || glyph.pixels.empty()) return;
+    if (buffer == 0u) return;
+
+    const std::int32_t x_whole = floor_div64(x64);
+    const std::int32_t y_whole = floor_div64(y64);
+    const fonts::GlyphBitmap glyph = fonts::render(code, static_cast<float>(x64 - x_whole * 64) / 64.0f,
+                                                   static_cast<float>(y64 - y_whole * 64) / 64.0f);
+    if (glyph.pixels.empty()) return;
+    const std::int32_t x_origin = x_whole + glyph.x;
+    const std::int32_t y_origin = y_whole + glyph.y;
 
     for (int row = 0; row < glyph.height; ++row) {
-        const std::int32_t y = y_position + row;
+        const std::int32_t y = y_origin + row;
         if (y < 0 || static_cast<std::uint32_t>(y) >= buffer_height) continue;
+        const std::uint32_t line = buffer + static_cast<std::uint32_t>(y) * bytes_per_line;
         for (int column = 0; column < glyph.width; ++column) {
-            const std::int32_t x = x_position + column;
+            const std::int32_t x = x_origin + column;
             if (x < 0 || static_cast<std::uint32_t>(x) >= buffer_width) continue;
             const std::uint8_t value = glyph.pixels[static_cast<std::size_t>(row) * glyph.width + column];
-            const std::uint32_t line = buffer + static_cast<std::uint32_t>(y) * bytes_per_line;
+            if (value == 0u) continue;
             switch (pixel_format) {
             case kPixelFormat4:
             case kPixelFormat4Reversed: {
                 const std::uint32_t at = line + static_cast<std::uint32_t>(x) / 2u;
                 const std::uint8_t existing = memory.load8(at);
-                const std::uint8_t nibble = static_cast<std::uint8_t>(value >> 4u);
                 const bool high = pixel_format == kPixelFormat4 ? ((x & 1) != 0) : ((x & 1) == 0);
-                const std::uint8_t merged = high ? static_cast<std::uint8_t>((existing & 0x0Fu) | (nibble << 4u))
-                                                 : static_cast<std::uint8_t>((existing & 0xF0u) | nibble);
-                memory.store8(at, merged);
+                const std::uint8_t old = high ? static_cast<std::uint8_t>(existing >> 4u) : (existing & 0x0Fu);
+                const std::uint8_t nibble = std::max(old, static_cast<std::uint8_t>(value >> 4u));
+                memory.store8(at, high ? static_cast<std::uint8_t>((existing & 0x0Fu) | (nibble << 4u))
+                                       : static_cast<std::uint8_t>((existing & 0xF0u) | nibble));
                 break;
             }
-            case kPixelFormat8:
-                memory.store8(line + static_cast<std::uint32_t>(x), value);
+            case kPixelFormat8: {
+                const std::uint32_t at = line + static_cast<std::uint32_t>(x);
+                memory.store8(at, std::max(memory.load8(at), value));
                 break;
+            }
             case kPixelFormat24: {
                 const std::uint32_t at = line + static_cast<std::uint32_t>(x) * 3u;
-                memory.store8(at, value);
-                memory.store8(at + 1u, value);
-                memory.store8(at + 2u, value);
+                const std::uint8_t merged = std::max(memory.load8(at), value);
+                memory.store8(at, merged);
+                memory.store8(at + 1u, merged);
+                memory.store8(at + 2u, merged);
                 break;
             }
             case kPixelFormat32:
-            default:
-                memory.store32(line + static_cast<std::uint32_t>(x) * 4u,
-                               (static_cast<std::uint32_t>(value) << 24u) | 0x00FFFFFFu);
+            default: {
+                const std::uint32_t at = line + static_cast<std::uint32_t>(x) * 4u;
+                const std::uint8_t merged = std::max(static_cast<std::uint8_t>(memory.load32(at) >> 24u), value);
+                memory.store32(at, (static_cast<std::uint32_t>(merged) << 24u) | 0x00FFFFFFu);
                 break;
+            }
             }
         }
     }
@@ -216,63 +187,61 @@ void blit_glyph(psprecomp::GuestMemory &memory, std::uint32_t image_address, con
 } // namespace
 
 void register_font(HleRegistrar &hle) {
-    load_font();
+    fonts::ready();
 
     hle.add("sceLibFont", "sceFontNewLib", [](Runtime &rt, AllegrexContext &ctx) {
+        if (trace_font() && arg(ctx, 0) != 0u) {
+            const auto &m = rt.memory();
+            const std::uint32_t p = arg(ctx, 0);
+            trace("NewLib params=%08X userData=%08X numFonts=%u cache=%08X alloc=%08X free=%08X ra=%08X", p,
+                  m.load32(p), m.load32(p + 4u), m.load32(p + 8u), m.load32(p + 12u), m.load32(p + 16u),
+                  ctx.gpr[31]);
+        }
         if (arg(ctx, 1) != 0u) rt.memory().store32(arg(ctx, 1), 0u);
         kernel().finish(ctx, kLibraryHandle);
     });
-    hle.add("sceLibFont", "sceFontDoneLib", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
+    hle.add("sceLibFont", "sceFontDoneLib", [](Runtime &, AllegrexContext &ctx) {
+        trace("DoneLib lib=%08X", arg(ctx, 0));
+        kernel().finish(ctx, 0u);
+    });
     hle.add("sceLibFont", "sceFontGetNumFontList", [](Runtime &rt, AllegrexContext &ctx) {
+        trace("GetNumFontList lib=%08X", arg(ctx, 0));
         if (arg(ctx, 1) != 0u) rt.memory().store32(arg(ctx, 1), 0u);
         kernel().finish(ctx, 1u);
     });
     hle.add("sceLibFont", "sceFontFindOptimumFont", [](Runtime &rt, AllegrexContext &ctx) {
-        // The requested style carries the pixel size the game wants.
+        // The game asks for a Japanese font and leaves the size unset (zero):
+        // every font it opens is the host's.
         const std::uint32_t style = arg(ctx, 1);
-        if (style != 0u) {
-            const std::uint32_t bits = rt.memory().load32(style);
-            float height{};
-            std::memcpy(&height, &bits, sizeof(height));
-            if (height > 1.0f && height < 128.0f) set_pixel_height(height);
+        if (style != 0u && trace_font()) {
+            const auto &m = rt.memory();
+            trace("FindOptimumFont style=%08X h=%g v=%g hres=%g vres=%g weight=%g family=%u style=%u sub=%u "
+                  "lang=%u region=%u country=%u name='%s' file='%s' attr=%08X ra=%08X",
+                  style, static_cast<double>(load_float(m, style)), static_cast<double>(load_float(m, style + 4u)),
+                  static_cast<double>(load_float(m, style + 8u)), static_cast<double>(load_float(m, style + 12u)),
+                  static_cast<double>(load_float(m, style + 16u)), m.load16(style + 20u), m.load16(style + 22u),
+                  m.load16(style + 24u), m.load16(style + 26u), m.load16(style + 28u), m.load16(style + 30u),
+                  read_cstring(m, style + 32u, 64u).c_str(), read_cstring(m, style + 96u, 64u).c_str(),
+                  m.load32(style + 160u), ctx.gpr[31]);
         }
         if (arg(ctx, 2) != 0u) rt.memory().store32(arg(ctx, 2), 0u);
         kernel().finish(ctx, 0u);
     });
     hle.add("sceLibFont", "sceFontOpen", [](Runtime &rt, AllegrexContext &ctx) {
+        trace("Open lib=%08X index=%u mode=%u ra=%08X", arg(ctx, 0), arg(ctx, 1), arg(ctx, 2), ctx.gpr[31]);
         if (arg(ctx, 3) != 0u) rt.memory().store32(arg(ctx, 3), 0u);
-        kernel().finish(ctx, font().loaded ? kFontHandle : 0u);
+        kernel().finish(ctx, fonts::ready() ? kFontHandle : 0u);
     });
-    hle.add("sceLibFont", "sceFontClose", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
+    hle.add("sceLibFont", "sceFontClose", [](Runtime &, AllegrexContext &ctx) {
+        trace("Close font=%08X", arg(ctx, 0));
+        kernel().finish(ctx, 0u);
+    });
 
     hle.add("sceLibFont", "sceFontGetFontInfo", [](Runtime &rt, AllegrexContext &ctx) {
         const std::uint32_t address = arg(ctx, 1);
-        if (address == 0u || !font().loaded) {
-            kernel().finish(ctx, 0u);
-            return;
-        }
-        auto &memory = rt.memory();
-        const FontState &state = font();
-        const float ascender = static_cast<float>(state.ascent) * state.scale;
-        const float descender = static_cast<float>(state.descent) * state.scale;
-        const float height = state.pixel_height;
-        const std::int32_t fixed[10] = {
-            to_fixed26(height), to_fixed26(height), to_fixed26(ascender), to_fixed26(descender),
-            0,                  to_fixed26(ascender), to_fixed26(height / 2.0f), to_fixed26(ascender),
-            to_fixed26(height), to_fixed26(height),
-        };
-        for (std::uint32_t i = 0; i < 10u; ++i) memory.store32(address + i * 4u, static_cast<std::uint32_t>(fixed[i]));
-        const float floats[10] = {height, height, ascender, descender, 0.0f, ascender, height / 2.0f, ascender,
-                                  height, height};
-        for (std::uint32_t i = 0; i < 10u; ++i) {
-            std::uint32_t bits{};
-            std::memcpy(&bits, &floats[i], sizeof(bits));
-            memory.store32(address + 40u + i * 4u, bits);
-        }
-        memory.store16(address + 80u, static_cast<std::uint16_t>(height));
-        memory.store16(address + 82u, static_cast<std::uint16_t>(height));
-        memory.store32(address + 84u, 0x10000u);  // glyph count
-        memory.store32(address + 88u, 0u);        // shadow map length
+        if (address != 0u && fonts::ready()) write_font_info(rt.memory(), address);
+        trace("GetFontInfo font=%08X info=%08X max=%dx%d ascender=%d ra=%08X", arg(ctx, 0), address, fonts::kCell,
+              fonts::kCell, fonts::kAscender, ctx.gpr[31]);
         kernel().finish(ctx, 0u);
     });
 
@@ -282,22 +251,24 @@ void register_font(HleRegistrar &hle) {
             kernel().finish(ctx, 0u);
             return;
         }
-        GlyphBitmap glyph{};
-        if (!rasterize(arg(ctx, 1), glyph)) {
-            for (std::uint32_t i = 0; i < 60u; i += 4u) rt.memory().store32(address + i, 0u);
-            kernel().finish(ctx, 0u);
-            return;
-        }
-        write_char_info(rt.memory(), address, glyph.width, glyph.height, glyph.left, glyph.top, glyph.advance);
+        const fonts::GlyphMetrics glyph = fonts::ready() ? fonts::metrics(arg(ctx, 1)) : fonts::GlyphMetrics{};
+        write_char_info(rt.memory(), address, glyph);
+        trace("GetCharInfo code=%04X w=%d h=%d left=%d top=%d adv=%.2f%s ra=%08X", arg(ctx, 1), glyph.width,
+              glyph.height, glyph.left, glyph.top, static_cast<double>(glyph.advance), glyph.found ? "" : " missing",
+              ctx.gpr[31]);
         kernel().finish(ctx, 0u);
     });
 
     hle.add("sceLibFont", "sceFontGetCharGlyphImage", [](Runtime &rt, AllegrexContext &ctx) {
-        GlyphBitmap glyph{};
-        if (rasterize(arg(ctx, 1), glyph)) {
-            blit_glyph(rt.memory(), arg(ctx, 2), glyph);
-            ++font().glyphs_rendered;
+        const std::uint32_t image = arg(ctx, 2);
+        if (trace_font() && image != 0u) {
+            const auto &m = rt.memory();
+            trace("GetCharGlyphImage code=%04X fmt=%u x64=%d y64=%d buf=%ux%u bpl=%u at=%08X ra=%08X", arg(ctx, 1),
+                  m.load32(image), static_cast<std::int32_t>(m.load32(image + 4u)),
+                  static_cast<std::int32_t>(m.load32(image + 8u)), m.load16(image + 12u), m.load16(image + 14u),
+                  m.load16(image + 16u), m.load32(image + 20u), ctx.gpr[31]);
         }
+        if (image != 0u && fonts::ready()) blit_glyph(rt.memory(), image, arg(ctx, 1));
         kernel().finish(ctx, 0u);
     });
 }

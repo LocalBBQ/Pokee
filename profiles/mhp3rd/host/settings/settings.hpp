@@ -31,6 +31,9 @@ struct Settings {
     bool unthrottled{};                // let emulated time run ahead of real time
     PerfDisplay perf{PerfDisplay::Off};
 
+    // Text
+    std::string font;                  // the game's text font: path, "#face" for a collection; empty: the default
+
     // Audio
     std::uint32_t volume{100u};        // percent
     bool mute{};

@@ -119,6 +119,7 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_media.cpp
     host/hle/hle_atrac.cpp
     host/hle/hle_mpeg.cpp
+    host/fonts/game_font.cpp
     host/hle/hle_font.cpp
     host/hle/hle_utility.cpp
     host/hle/hle_savedata.cpp
