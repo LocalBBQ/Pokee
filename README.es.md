@@ -45,7 +45,7 @@ Puedes crear un personaje, recorrer la aldea y salir de caza, con sonido, teclad
 | Teclado, y mandos con cámara real en el stick derecho | Superficies curvas, diálogos de guardado, red |
 | Los 355 overlays de código, recompilados | La aldea va más lenta que otras zonas |
 
-Por ahora solo se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK). Steam Deck y Windows son las plataformas objetivo, pero todavía no se han verificado.
+Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck hasta la aldea, donde funciona con Vulkan nativo y los controles integrados. Windows es una plataforma objetivo, pero todavía no se ha verificado.
 
 El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 

@@ -43,7 +43,7 @@ You can create a character, explore the village and go on hunts, with sound, key
 | Keyboard, and gamepads with a real right-stick camera | Curved surfaces, save-data dialogs, networking |
 | All 355 code overlays recompiled | The village runs slower than other areas |
 
-Tested so far on macOS (Apple Silicon, Vulkan through MoltenVK). Steam Deck and Windows are the target platforms but have not been verified yet.
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK), and on a Steam Deck up to the village, where it runs on native Vulkan with the built-in controls. Windows is a target platform but has not been verified yet.
 
 The state of each part of the game on each platform is in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 

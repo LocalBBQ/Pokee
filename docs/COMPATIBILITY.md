@@ -13,12 +13,12 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 
 | | macOS (Apple Silicon) | Linux | Steam Deck | Windows |
 | --- | --- | --- | --- | --- |
-| Build | ✅ | ❔ [#14] | ❔ [#14] | ❔ [#13] |
-| Boot, title and menus | ✅ | ❔ | ❔ | ❔ |
-| Character creation | ✅ | ❔ | ❔ | ❔ |
-| Village | ⚠️ slower than elsewhere [#7] | ❔ | ❔ | ❔ |
+| Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ❔ [#13] |
+| Boot, title and menus | ✅ | ❔ | ✅ | ❔ |
+| Character creation | ✅ | ❔ | ✅ | ❔ |
+| Village | ⚠️ slower than elsewhere [#7] | ❔ | ✅ hot spring; the rest not checked yet | ❔ |
 | Hunts | ✅ | ❔ | ❔ | ❔ |
-| Graphics | ⚠️ no lighting or fog [#3] | ❔ | ❔ | ❔ |
+| Graphics | ⚠️ no lighting or fog [#3] | ❔ | ⚠️ no lighting or fog [#3] | ❔ |
 | Sound effects | ⚠️ run ahead of the picture [#4] | ❔ | ❔ | ❔ |
 | Music | ❌ [#5] | ❌ [#5] | ❌ [#5] | ❌ [#5] |
 | Cutscene movies | ❌ skipped [#6] | ❌ [#6] | ❌ [#6] | ❌ [#6] |
@@ -31,17 +31,18 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 
 | | macOS (Apple Silicon) | Linux | Steam Deck | Windows |
 | --- | --- | --- | --- | --- |
-| Keyboard | ✅ | ❔ | ❔ | ❔ |
+| Keyboard | ✅ | ❔ | ✅ | ❔ |
 | DualSense | ✅ | ❔ | — | ❔ |
 | DualShock 4 | ❔ | ❔ | — | ❔ |
 | Xbox controllers | ❔ | ❔ | — | ❔ |
-| Built-in controls | — | — | ❔ [#14] | — |
+| Built-in controls | — | — | ✅ in Desktop Mode; Game Mode not checked [#14] | — |
 
 ## Tested hardware
 
 | Platform | Machine | GPU and driver | Commit | Date |
 | --- | --- | --- | --- | --- |
-| macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `2934418` | 2026-09-18 |
+| macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `v0.1.0` | 2026-09-18 |
+| SteamOS 3.8.16 | Steam Deck | AMD Custom GPU 0932, RADV (Mesa 26.0.0-devel) | `fdca2f0` | 2026-09-18 |
 
 ## Updating this page
 

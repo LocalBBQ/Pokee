@@ -45,7 +45,7 @@ Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP и
 | Клавиатура и геймпады с настоящей камерой на правом стике | Кривые поверхности, диалоги сохранений, сеть |
 | Все 355 оверлеев кода рекомпилированы | Деревня работает медленнее остальных мест |
 
-Пока проверено только на macOS (Apple Silicon, Vulkan через MoltenVK). Steam Deck и Windows — целевые платформы, но на них ещё не проверялось.
+Проверено на macOS (Apple Silicon, Vulkan через MoltenVK) и на Steam Deck — до деревни включительно: там игра работает на родном Vulkan и со встроенным управлением. Windows — целевая платформа, но на ней ещё не проверялось.
 
 Состояние каждой части игры на каждой платформе — в [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 

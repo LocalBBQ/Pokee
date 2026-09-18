@@ -25,7 +25,7 @@ Not done yet:
 - **Frame pacing.** Nothing ties emulation to real time. Presentation is capped at the 60 Hz refresh while the game targets 30, so audio runs ahead of the picture and roughly half of it is dropped. `MHP3RD_TRACE_AUDIO=1` reports the drops; `MHP3RD_AUDIO_DUMP` keeps the whole stream.
 - **Networking and save-data dialogs.**
 
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK). Linux and Windows are the intended primary platforms but have not been verified yet.
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck up to the village, built with GCC in a Debian 13 container and running on native Vulkan. Windows has not been verified yet; see [the compatibility table](../../docs/COMPATIBILITY.md).
 
 ## Supported executable
 
