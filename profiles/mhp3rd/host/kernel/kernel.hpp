@@ -79,6 +79,7 @@ inline constexpr std::uint32_t kVolatileMemorySize = 0x00400000u;
 inline constexpr std::uint32_t kUserMemoryEnd = 0x0C000000u;
 
 inline constexpr std::uint64_t kVBlankPeriodUs = 16'683u;
+inline constexpr std::uint64_t kHostWaitPollUs = 1'000u;
 inline constexpr std::uint32_t kVBlankInterrupt = 30u;
 
 enum class ThreadStatus { Dormant, Ready, Running, Waiting, Dead };
@@ -92,7 +93,13 @@ enum class WaitType {
     Mutex,
     VBlank,
     ThreadEnd,
+    Host,  // a condition only the host can check, such as network data arriving
 };
+
+// Checks a host wait. Returns v0 for the thread once the wait is over, or
+// nothing to keep waiting. With `timed_out` set the deadline has passed and it
+// must return a value.
+using HostWaitPoll = std::function<std::optional<std::uint32_t>(bool timed_out)>;
 
 struct WaitState {
     WaitType type{WaitType::None};
@@ -102,6 +109,7 @@ struct WaitState {
     std::uint32_t out_address{};  // event flag result pattern pointer
     std::uint32_t timeout_address{};
     std::optional<std::uint64_t> deadline_us;
+    HostWaitPoll host_poll;       // WaitType::Host
 };
 
 struct Thread {
@@ -226,6 +234,12 @@ public:
     // Makes a waiting thread ready with v0 = result.
     void wake(Thread &thread, std::uint32_t result);
     void delay_current(AllegrexContext &ctx, std::uint64_t microseconds, std::uint32_t result = 0u);
+    // Blocks the current thread until `poll` returns a value, which becomes
+    // its v0. `poll` runs on the emulation thread every time the scheduler
+    // looks for work, and at least every kHostWaitPollUs of emulated time,
+    // which the kernel holds to real time. `timeout_us` (emulated time; none
+    // waits indefinitely) makes the last poll a timed-out one.
+    void wait_host(AllegrexContext &ctx, std::optional<std::uint64_t> timeout_us, HostWaitPoll poll);
     // Calls a guest function from an HLE import, in the calling thread, the
     // way a library calls back into the game: the function runs like any
     // other guest code, so it may block, and when it returns `on_return` gets
@@ -274,6 +288,9 @@ public:
     [[nodiscard]] bool in_interrupt() const noexcept { return interrupt_active_; }
     // Called on vblank: wakes vblank waiters and queues sub-interrupt handlers.
     void on_vblank();
+    // Runs `hook` on the emulation thread at every vblank, for host services
+    // that deliver events to the game on their own, such as the network.
+    void add_vblank_hook(std::function<void()> hook) { vblank_hooks_.push_back(std::move(hook)); }
 
     // One line per thread: state, what it waits for and where it resumes.
     [[nodiscard]] std::string describe_threads() const;
@@ -303,8 +320,8 @@ private:
     [[nodiscard]] Thread *best_ready_thread() noexcept;
     void advance_clock(std::uint64_t target_us);
     // Holds the virtual clock to real time, so the game runs at PSP speed
-    // however fast frames are drawn and presented.
-    void pace_to_real_time();
+    // however fast frames are drawn and presented. False when pacing is off.
+    bool pace_to_real_time();
     [[nodiscard]] std::optional<std::uint64_t> next_event_us() const;
     void process_timers();
     bool begin_pending_interrupt(AllegrexContext &ctx);
@@ -338,6 +355,7 @@ private:
     // Calls in progress per thread, innermost last.
     std::map<SceUID, std::vector<GuestCall>> guest_calls_;
 
+    std::vector<std::function<void()>> vblank_hooks_;
     std::deque<InterruptCall> pending_interrupts_;
     bool interrupt_active_{};
     bool interrupted_idle_{};

@@ -68,6 +68,7 @@ const char *wait_name(WaitType type) {
     case WaitType::Mutex: return "mutex";
     case WaitType::VBlank: return "vblank";
     case WaitType::ThreadEnd: return "thread-end";
+    case WaitType::Host: return "host";
     }
     return "?";
 }
@@ -375,6 +376,24 @@ void Kernel::delay_current(AllegrexContext &ctx, std::uint64_t microseconds, std
     block(ctx, wait, result);
 }
 
+void Kernel::wait_host(AllegrexContext &ctx, std::optional<std::uint64_t> timeout_us, HostWaitPoll poll) {
+    // Already satisfied: no thread switch.
+    if (const auto result = poll(false)) {
+        finish(ctx, *result);
+        return;
+    }
+    if (timeout_us && *timeout_us == 0u) {
+        finish(ctx, *poll(true));
+        return;
+    }
+    WaitState wait{};
+    wait.type = WaitType::Host;
+    if (timeout_us) wait.deadline_us = now_us_ + *timeout_us;
+    wait.host_poll = std::move(poll);
+    // The poll result replaces v0 when the wait ends.
+    block(ctx, wait, 0u);
+}
+
 void Kernel::schedule(AllegrexContext &ctx) {
     for (;;) {
         if (runtime_->stopped()) return;
@@ -410,11 +429,19 @@ void Kernel::schedule(AllegrexContext &ctx) {
 
 void Kernel::advance_clock(std::uint64_t target_us) {
     if (target_us <= now_us_) return;
+    const std::uint64_t step_us = target_us - now_us_;
     now_us_ = target_us;
-    pace_to_real_time();
+    if (pace_to_real_time()) return;
+    // Unpaced, idle time costs nothing, so a thread waiting for the network
+    // would see its PSP timeout expire long before a reply could arrive. Let
+    // real time pass with the emulated time the wait covers.
+    const bool host_wait = std::any_of(threads_.begin(), threads_.end(), [](const auto &entry) {
+        return entry.second->status == ThreadStatus::Waiting && entry.second->wait.type == WaitType::Host;
+    });
+    if (host_wait) std::this_thread::sleep_for(std::chrono::microseconds(std::min(step_us, kHostWaitPollUs)));
 }
 
-void Kernel::pace_to_real_time() {
+bool Kernel::pace_to_real_time() {
     // Virtual time jumps to the next event whenever every thread waits, so
     // without this the game runs as fast as frames can be presented: two to
     // three times PSP speed on a 60-90 Hz display. Runs without a window, and
@@ -423,7 +450,7 @@ void Kernel::pace_to_real_time() {
     if (!windowed || settings::current().unthrottled) {
         // Turning pacing back on starts from the current moment.
         pacing_started_ = false;
-        return;
+        return false;
     }
     using Clock = std::chrono::steady_clock;
     const Clock::time_point now = Clock::now();
@@ -431,7 +458,7 @@ void Kernel::pace_to_real_time() {
         pacing_started_ = true;
         pacing_real_base_ = now;
         pacing_virtual_base_ = now_us_;
-        return;
+        return true;
     }
     const std::int64_t real_us =
         std::chrono::duration_cast<std::chrono::microseconds>(now - pacing_real_base_).count();
@@ -449,6 +476,7 @@ void Kernel::pace_to_real_time() {
         pacing_real_base_ = now;
         pacing_virtual_base_ = now_us_;
     }
+    return true;
 }
 
 std::optional<std::uint64_t> Kernel::next_event_us() const {
@@ -458,7 +486,9 @@ std::optional<std::uint64_t> Kernel::next_event_us() const {
     };
     for (const auto &[uid, thread] : threads_) {
         (void)uid;
-        if (thread->status == ThreadStatus::Waiting && thread->wait.deadline_us) consider(*thread->wait.deadline_us);
+        if (thread->status != ThreadStatus::Waiting) continue;
+        if (thread->wait.deadline_us) consider(*thread->wait.deadline_us);
+        if (thread->wait.type == WaitType::Host) consider(now_us_ + kHostWaitPollUs);
     }
     for (const auto &[uid, timer] : vtimers) {
         (void)uid;
@@ -476,8 +506,19 @@ void Kernel::process_timers() {
     }
     for (auto &[uid, thread] : threads_) {
         (void)uid;
-        if (thread->status == ThreadStatus::Waiting && thread->wait.deadline_us && *thread->wait.deadline_us <= now_us_)
-            finish_wait_timeout(*thread);
+        if (thread->status != ThreadStatus::Waiting) continue;
+        if (thread->wait.type == WaitType::Host) {
+            const bool timed_out = thread->wait.deadline_us && *thread->wait.deadline_us <= now_us_;
+            std::optional<std::uint32_t> result = thread->wait.host_poll(timed_out);
+            if (timed_out && !result) result = error::kWaitTimeout;
+            if (result) {
+                thread->wait.host_poll = nullptr;
+                thread->context.set_gpr(2, *result);
+                make_ready(*thread);
+            }
+            continue;
+        }
+        if (thread->wait.deadline_us && *thread->wait.deadline_us <= now_us_) finish_wait_timeout(*thread);
     }
     for (auto &[uid, timer] : vtimers) {
         if (!timer.active || timer.handler == 0u || vtimer_value(timer) < timer.schedule_us) continue;
@@ -788,6 +829,7 @@ bool Kernel::deliver_callbacks() {
 }
 
 void Kernel::on_vblank() {
+    for (const auto &hook : vblank_hooks_) hook();
     ++vblank_count_;
     for (auto &[uid, thread] : threads_) {
         (void)uid;
