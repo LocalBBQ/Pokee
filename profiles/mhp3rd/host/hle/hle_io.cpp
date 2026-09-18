@@ -167,7 +167,11 @@ std::int64_t open_file(const std::string &full_path, std::uint32_t flags) {
 
 void write_date_time(psprecomp::GuestMemory &memory, std::uint32_t address, std::time_t time) {
     std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &time);
+#else
     localtime_r(&time, &tm);
+#endif
     memory.store16(address, static_cast<std::uint16_t>(tm.tm_year + 1900));
     memory.store16(address + 2u, static_cast<std::uint16_t>(tm.tm_mon + 1));
     memory.store16(address + 4u, static_cast<std::uint16_t>(tm.tm_mday));

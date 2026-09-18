@@ -144,7 +144,11 @@ void register_platform(HleRegistrar &hle) {
         const std::uint64_t now = guest_unix_us();
         const auto seconds = static_cast<std::time_t>(now / 1'000'000u);
         std::tm tm{};
+#if defined(_WIN32)
+        localtime_s(&tm, &seconds);
+#else
         localtime_r(&seconds, &tm);
+#endif
         auto &memory = rt.memory();
         const std::uint32_t out = arg(ctx, 0);
         memory.store16(out, static_cast<std::uint16_t>(tm.tm_year + 1900));
