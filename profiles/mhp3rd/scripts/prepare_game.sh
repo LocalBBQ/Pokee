@@ -19,7 +19,11 @@ iso="$1"
 elf="$2"
 
 expected_sha256="55c0598436c0753b04331f8e95d406f832d9217806e3a896fed0e88b33637d8c"
-actual_sha256="$(shasum -a 256 "$elf" | cut -d' ' -f1)"
+if command -v sha256sum > /dev/null; then
+    actual_sha256="$(sha256sum "$elf" | cut -d' ' -f1)"
+else
+    actual_sha256="$(shasum -a 256 "$elf" | cut -d' ' -f1)"
+fi
 if [[ "$actual_sha256" != "$expected_sha256" ]]; then
     echo "warning: $elf sha256 $actual_sha256 does not match the supported executable" >&2
 fi
