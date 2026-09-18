@@ -32,7 +32,14 @@ Third-party source, binary dependencies, shader code and notices stay beside the
 
 | Component | Used by | License | How it is included |
 | --- | --- | --- | --- |
+| [Dear ImGui](https://github.com/ocornut/imgui) 1.92.9b | mhp3rd profile: in-game menu and setup screens | MIT | Unmodified copy in `profiles/mhp3rd/third_party/imgui` with its `LICENSE.txt` |
+| [tiny-AES-c](https://github.com/kokke/tiny-AES-c) | mhp3rd profile: installer and save data | Unlicense (public domain) | Unmodified copy in `profiles/mhp3rd/third_party/tiny_aes` with its `UNLICENSE` |
+| [stb_truetype](https://github.com/nothings/stb) 1.26 | mhp3rd profile: game text | MIT or public domain | Single header, `profiles/mhp3rd/third_party/stb_truetype.h`, notice at its end |
+| [SDL3](https://www.libsdl.org/) | mhp3rd profile: window, input, audio output | zlib | External dependency, linked dynamically; Linux releases ship an unmodified build in `lib/` |
 | [FFmpeg](https://ffmpeg.org/) (`libavcodec`, `libavutil`) | mhp3rd profile: ATRAC3 music and H.264/ATRAC3plus movie decoding (`profiles/mhp3rd/host/audio/atrac_decoder.cpp`, `profiles/mhp3rd/host/movie/avc_decoder.cpp`) | LGPL-2.1-or-later (the Windows build: LGPL-3.0-or-later) | Linked dynamically; no FFmpeg source is in the repository. By default the build downloads the unmodified [FFmpeg 7.1.5 release](https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz) (SHA-256 `de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f`) and builds it with `--enable-shared --disable-static --disable-programs --disable-doc --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-network --disable-autodetect --disable-everything --enable-decoder=atrac3,atrac3p,h264 --disable-x86asm --disable-debug` (`profiles/mhp3rd/cmake/FFmpeg.cmake`). On Windows it uses the unmodified prebuilt [LGPL shared build](https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-30-13-34/ffmpeg-n7.1.5-1-g7d0e842004-win64-lgpl-shared-7.1.zip) of FFmpeg 7.1.5 (commit `7d0e842004`) from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds). The licence text and a note with the source location and configuration are copied next to the libraries. `-DMHP3RD_FFMPEG=system` uses an FFmpeg found through `pkg-config` instead |
+| [Noto Sans CJK JP](https://github.com/notofonts/noto-cjk) | mhp3rd releases: fallback font for Japanese text | SIL Open Font License 1.1 | Downloaded by the release build, shipped in `fonts/`; not in the repository |
+
+Released builds carry these notices in `profiles/mhp3rd/packaging/THIRD_PARTY_NOTICES.md`, together with the license texts; [`RELEASING.md`](RELEASING.md) describes how they are built.
 
 ## Contribution rule
 
