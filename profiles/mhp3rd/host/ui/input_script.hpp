@@ -19,6 +19,12 @@
 //   quit              close the window
 //
 // For example: MHP3RD_INPUT_SCRIPT="300:key Escape;330:shot menu;360:pad leftstick+rightstick"
+//
+// MHP3RD_INPUT_LIVE names a file read while the game runs: each line appended
+// to it is one step, and its frame counts from when the line is read, so
+// `echo "0:shot now" >> file` captures the window within a few frames. It
+// always connects the virtual pad. Used to drive two instances side by side,
+// for example in ad hoc tests.
 namespace mhp3rd::ui::script {
 
 // Reads the script and, if it presses gamepad buttons, connects the virtual pad.

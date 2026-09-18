@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -41,6 +42,9 @@ struct State {
     std::vector<Release> releases;
     // Strings handed to SDL events must outlive them.
     std::deque<std::string> strings;
+    // MHP3RD_INPUT_LIVE: a file whose appended lines are read as they come.
+    std::string live_path;
+    std::streamoff live_offset{};
 };
 
 State &state() {
@@ -127,34 +131,83 @@ void run(const Step &step) {
     }
 }
 
+// Parses `frame:action argument`; `base` is added to the frame.
+bool parse_step(std::string item, std::uint64_t base, Step &step) {
+    item = trim(item);
+    const auto colon = item.find(':');
+    if (item.empty() || colon == std::string::npos) return false;
+    step.frame = base + std::strtoull(item.substr(0, colon).c_str(), nullptr, 10);
+    const std::string rest = trim(item.substr(colon + 1u));
+    const auto space = rest.find(' ');
+    step.action = rest.substr(0, space);
+    step.argument = space == std::string::npos ? std::string{} : trim(rest.substr(space + 1u));
+    return true;
+}
+
+void sort_steps(State &s) {
+    std::stable_sort(s.steps.begin(), s.steps.end(),
+                     [](const Step &a, const Step &b) { return a.frame < b.frame; });
+}
+
+// Reads the lines appended to the live file since the last call. Their frames
+// count from now, so a line `30:pad a` presses ○ half a second after it is read.
+void read_live(State &s) {
+    std::ifstream file(s.live_path, std::ios::binary);
+    if (!file) return;
+    file.seekg(0, std::ios::end);
+    const std::streamoff size = file.tellg();
+    if (size < s.live_offset) s.live_offset = 0;  // the file was replaced
+    if (size == s.live_offset) return;
+    file.seekg(s.live_offset);
+    std::string line;
+    bool added = false;
+    while (std::getline(file, line)) {
+        if (file.eof()) break;  // an incomplete last line: read it next time
+        s.live_offset = file.tellg();
+        Step step;
+        if (parse_step(line, s.frame, step)) {
+            s.steps.push_back(step);
+            added = true;
+        }
+    }
+    if (added) sort_steps(s);
+}
+
+void attach_pad(State &s);
+
 } // namespace
 
 void attach() {
     State &s = state();
     if (s.attached) return;
     s.attached = true;
-    const char *text = std::getenv("MHP3RD_INPUT_SCRIPT");
-    if (text == nullptr) return;
-    std::stringstream list(text);
-    std::string item;
     bool uses_pad = false;
-    while (std::getline(list, item, ';')) {
-        item = trim(item);
-        const auto colon = item.find(':');
-        if (item.empty() || colon == std::string::npos) continue;
-        Step step;
-        step.frame = std::strtoull(item.substr(0, colon).c_str(), nullptr, 10);
-        const std::string rest = trim(item.substr(colon + 1u));
-        const auto space = rest.find(' ');
-        step.action = rest.substr(0, space);
-        step.argument = space == std::string::npos ? std::string{} : trim(rest.substr(space + 1u));
-        uses_pad = uses_pad || step.action == "pad" || step.action == "axis";
-        s.steps.push_back(step);
+    if (const char *live = std::getenv("MHP3RD_INPUT_LIVE"); live != nullptr && *live != '\0') {
+        s.live_path = live;
+        // Only what is appended after start-up counts.
+        std::ifstream file(s.live_path, std::ios::binary | std::ios::ate);
+        if (file) s.live_offset = file.tellg();
+        uses_pad = true;
+        std::cout << "[script] reading live input from " << s.live_path << std::endl;
     }
-    std::stable_sort(s.steps.begin(), s.steps.end(),
-                     [](const Step &a, const Step &b) { return a.frame < b.frame; });
-    std::cout << "[script] " << s.steps.size() << " steps" << std::endl;
-    if (!uses_pad) return;
+    if (const char *text = std::getenv("MHP3RD_INPUT_SCRIPT"); text != nullptr) {
+        std::stringstream list(text);
+        std::string item;
+        while (std::getline(list, item, ';')) {
+            Step step;
+            if (!parse_step(item, 0u, step)) continue;
+            uses_pad = uses_pad || step.action == "pad" || step.action == "axis";
+            s.steps.push_back(step);
+        }
+        sort_steps(s);
+        std::cout << "[script] " << s.steps.size() << " steps" << std::endl;
+    }
+    if (uses_pad) attach_pad(s);
+}
+
+namespace {
+
+void attach_pad(State &s) {
     // Scripted runs usually go on in the background, where SDL would
     // otherwise ignore the pad.
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
@@ -174,10 +227,13 @@ void attach() {
     s.pad = SDL_OpenJoystick(id);
 }
 
+} // namespace
+
 void tick() {
     State &s = state();
-    if (s.steps.empty() && s.releases.empty()) return;
+    if (s.steps.empty() && s.releases.empty() && s.live_path.empty()) return;
     ++s.frame;
+    if (!s.live_path.empty() && s.frame % 10u == 0u) read_live(s);
     for (auto it = s.releases.begin(); it != s.releases.end();) {
         if (it->frame > s.frame) {
             ++it;
