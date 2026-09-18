@@ -50,6 +50,12 @@ struct Settings {
     bool type_name{};                  // type the name when the game asks for one
     std::string name{"Hunter"};        // otherwise answer with this
 
+    // Network (ad hoc play through a PSP ad hoc server)
+    bool adhoc{};                      // wireless switch on: the game may go on line
+    std::string adhoc_server;          // host or host:port of the server; empty: none
+    std::string adhoc_nickname;        // shown to other players; empty: the hunter name
+    std::string adhoc_mac;             // this player's virtual MAC, made up on first use
+
     // Interface
     bool menu_hint_seen{};             // the "Esc / L3+R3 opens the menu" hint was shown
     std::string last_folder;           // where the setup's file browser was last used

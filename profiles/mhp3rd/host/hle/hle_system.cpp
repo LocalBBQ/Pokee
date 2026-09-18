@@ -1,6 +1,6 @@
 // UtilsForUser, LoadExecForUser, StdioForUser, ModuleMgrForUser,
-// InterruptManager, scePower, sceRtc, sceImpose, sceOpenPSID, sceWlanDrv and
-// the parameter part of sceUtility.
+// InterruptManager, scePower, sceRtc, sceImpose, sceOpenPSID and the parameter
+// part of sceUtility. sceWlanDrv is with the ad hoc calls in hle_adhoc.cpp.
 #include "hle_common.hpp"
 
 #include "overlays.hpp"
@@ -165,13 +165,6 @@ void register_platform(HleRegistrar &hle) {
         for (std::uint32_t i = 0; i < 16u; ++i) rt.memory().store8(arg(ctx, 0) + i, static_cast<std::uint8_t>(0x10u + i));
         kernel().finish(ctx, 0u);
     });
-    hle.add("sceWlanDrv", "sceWlanGetSwitchState", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
-    hle.add("sceWlanDrv", "sceWlanGetEtherAddr", [](Runtime &rt, AllegrexContext &ctx) {
-        constexpr std::uint8_t kMac[6] = {0x02, 0x00, 0x4D, 0x48, 0x50, 0x33};
-        for (std::uint32_t i = 0; i < 6u; ++i) rt.memory().store8(arg(ctx, 0) + i, kMac[i]);
-        kernel().finish(ctx, 0u);
-    });
-
     hle.add("sceUtility", "sceUtilityGetSystemParamInt", [](Runtime &rt, AllegrexContext &ctx) {
         std::uint32_t value = 0u;
         switch (arg(ctx, 0)) {

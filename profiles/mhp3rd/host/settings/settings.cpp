@@ -189,6 +189,29 @@ const std::vector<Field> &fields() {
              return true;
          },
          [](const Settings &s) { return s.name; }, [](Settings &s, const char *t) { s.name = t; }},
+        {"network.adhoc", "MHP3RD_ADHOC",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.adhoc); },
+         [](const Settings &s) { return std::string(s.adhoc ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.adhoc = variable_flag(t); }},
+        {"network.server", "MHP3RD_ADHOC_SERVER",
+         [](Settings &s, const std::string &t) {
+             s.adhoc_server = t;
+             return true;
+         },
+         [](const Settings &s) { return s.adhoc_server; }, [](Settings &s, const char *t) { s.adhoc_server = t; }},
+        {"network.nickname", "MHP3RD_ADHOC_NICKNAME",
+         [](Settings &s, const std::string &t) {
+             s.adhoc_nickname = t;
+             return true;
+         },
+         [](const Settings &s) { return s.adhoc_nickname; },
+         [](Settings &s, const char *t) { s.adhoc_nickname = t; }},
+        {"network.mac", "MHP3RD_ADHOC_MAC",
+         [](Settings &s, const std::string &t) {
+             s.adhoc_mac = t;
+             return true;
+         },
+         [](const Settings &s) { return s.adhoc_mac; }, [](Settings &s, const char *t) { s.adhoc_mac = t; }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
         {"ui.last_folder", nullptr,
          [](Settings &s, const std::string &t) {
