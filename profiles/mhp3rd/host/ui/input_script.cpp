@@ -1,0 +1,196 @@
+#include "ui/input_script.hpp"
+
+#include "ui/layer.hpp"
+
+#include "gpu/vulkan_renderer.hpp"
+
+#include <SDL3/SDL.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <deque>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace mhp3rd::ui::script {
+namespace {
+
+// Frames a scripted button stays down: ImGui samples the pad once per frame.
+constexpr std::uint64_t kHoldFrames = 4u;
+
+struct Step {
+    std::uint64_t frame{};
+    std::string action;
+    std::string argument;
+};
+
+struct State {
+    bool attached{};
+    std::deque<Step> steps;
+    std::uint64_t frame{};
+    SDL_Joystick *pad{};
+    // Releases due later: frame, key or pad buttons.
+    struct Release {
+        std::uint64_t frame{};
+        SDL_Keycode key{};
+        std::vector<SDL_GamepadButton> buttons;
+    };
+    std::vector<Release> releases;
+    // Strings handed to SDL events must outlive them.
+    std::deque<std::string> strings;
+};
+
+State &state() {
+    static State value;
+    return value;
+}
+
+std::string trim(const std::string &text) {
+    const auto first = text.find_first_not_of(" \t");
+    if (first == std::string::npos) return {};
+    return text.substr(first, text.find_last_not_of(" \t") - first + 1u);
+}
+
+void push_key(SDL_Keycode key, bool down) {
+    SDL_Event event{};
+    event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    event.key.timestamp = SDL_GetTicksNS();
+    event.key.windowID = SDL_GetWindowID(Layer::get().renderer().window());
+    event.key.key = key;
+    event.key.scancode = SDL_GetScancodeFromKey(key, nullptr);
+    event.key.down = down;
+    SDL_PushEvent(&event);
+}
+
+void run(const Step &step) {
+    State &s = state();
+    std::cout << "[script] frame " << s.frame << ": " << step.action << " " << step.argument << std::endl;
+    if (step.action == "key") {
+        const SDL_Keycode key = SDL_GetKeyFromName(step.argument.c_str());
+        if (key == SDLK_UNKNOWN) {
+            std::cout << "[script] unknown key " << step.argument << std::endl;
+            return;
+        }
+        push_key(key, true);
+        s.releases.push_back({s.frame + kHoldFrames, key, {}});
+    } else if (step.action == "pad") {
+        if (s.pad == nullptr) return;
+        std::vector<SDL_GamepadButton> buttons;
+        std::stringstream names(step.argument);
+        std::string name;
+        while (std::getline(names, name, '+')) {
+            const SDL_GamepadButton button = SDL_GetGamepadButtonFromString(name.c_str());
+            if (button == SDL_GAMEPAD_BUTTON_INVALID) {
+                std::cout << "[script] unknown button " << name << std::endl;
+                continue;
+            }
+            SDL_SetJoystickVirtualButton(s.pad, button, true);
+            buttons.push_back(button);
+        }
+        s.releases.push_back({s.frame + kHoldFrames, SDLK_UNKNOWN, buttons});
+    } else if (step.action == "axis") {
+        if (s.pad == nullptr) return;
+        const auto space = step.argument.find(' ');
+        const SDL_GamepadAxis axis = SDL_GetGamepadAxisFromString(step.argument.substr(0, space).c_str());
+        const float value = space == std::string::npos ? 0.0f : std::strtof(step.argument.c_str() + space + 1u, nullptr);
+        if (axis == SDL_GAMEPAD_AXIS_INVALID) {
+            std::cout << "[script] unknown axis " << step.argument << std::endl;
+            return;
+        }
+        SDL_SetJoystickVirtualAxis(s.pad, axis, static_cast<Sint16>(std::clamp(value, -1.0f, 1.0f) * 32767.0f));
+    } else if (step.action == "text") {
+        SDL_Event event{};
+        event.type = SDL_EVENT_TEXT_INPUT;
+        event.text.windowID = SDL_GetWindowID(Layer::get().renderer().window());
+        event.text.text = s.strings.emplace_back(step.argument).c_str();
+        SDL_PushEvent(&event);
+    } else if (step.action == "drop") {
+        SDL_Event event{};
+        event.type = SDL_EVENT_DROP_FILE;
+        event.drop.windowID = SDL_GetWindowID(Layer::get().renderer().window());
+        event.drop.data = s.strings.emplace_back(step.argument).c_str();
+        SDL_PushEvent(&event);
+    } else if (step.action == "shot") {
+        const char *dir = std::getenv("MHP3RD_SCREENSHOT_DIR");
+        const std::string name = step.argument.empty() ? "frame_" + std::to_string(s.frame) : step.argument;
+        Layer::get().renderer().capture_window((dir != nullptr ? std::string(dir) : std::string(".")) + "/" + name +
+                                               ".bmp");
+    } else if (step.action == "quit") {
+        SDL_Event event{};
+        event.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&event);
+    } else {
+        std::cout << "[script] unknown action " << step.action << std::endl;
+    }
+}
+
+} // namespace
+
+void attach() {
+    State &s = state();
+    if (s.attached) return;
+    s.attached = true;
+    const char *text = std::getenv("MHP3RD_INPUT_SCRIPT");
+    if (text == nullptr) return;
+    std::stringstream list(text);
+    std::string item;
+    bool uses_pad = false;
+    while (std::getline(list, item, ';')) {
+        item = trim(item);
+        const auto colon = item.find(':');
+        if (item.empty() || colon == std::string::npos) continue;
+        Step step;
+        step.frame = std::strtoull(item.substr(0, colon).c_str(), nullptr, 10);
+        const std::string rest = trim(item.substr(colon + 1u));
+        const auto space = rest.find(' ');
+        step.action = rest.substr(0, space);
+        step.argument = space == std::string::npos ? std::string{} : trim(rest.substr(space + 1u));
+        uses_pad = uses_pad || step.action == "pad" || step.action == "axis";
+        s.steps.push_back(step);
+    }
+    std::stable_sort(s.steps.begin(), s.steps.end(),
+                     [](const Step &a, const Step &b) { return a.frame < b.frame; });
+    std::cout << "[script] " << s.steps.size() << " steps" << std::endl;
+    if (!uses_pad) return;
+    // Scripted runs usually go on in the background, where SDL would
+    // otherwise ignore the pad.
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1u;
+    desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1u;
+    desc.name = "Yakumo input script";
+    const SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
+    if (id == 0) {
+        std::cout << "[script] cannot attach a virtual gamepad: " << SDL_GetError() << std::endl;
+        return;
+    }
+    s.pad = SDL_OpenJoystick(id);
+}
+
+void tick() {
+    State &s = state();
+    if (s.steps.empty() && s.releases.empty()) return;
+    ++s.frame;
+    for (auto it = s.releases.begin(); it != s.releases.end();) {
+        if (it->frame > s.frame) {
+            ++it;
+            continue;
+        }
+        if (it->key != SDLK_UNKNOWN) push_key(it->key, false);
+        for (SDL_GamepadButton button : it->buttons) SDL_SetJoystickVirtualButton(s.pad, button, false);
+        it = s.releases.erase(it);
+    }
+    while (!s.steps.empty() && s.steps.front().frame <= s.frame) {
+        run(s.steps.front());
+        s.steps.pop_front();
+    }
+}
+
+} // namespace mhp3rd::ui::script

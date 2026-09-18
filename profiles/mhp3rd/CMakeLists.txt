@@ -46,6 +46,10 @@ if(MHP3RD_RENDERER)
         # interface over the game.
         set(MHP3RD_RENDERER_SOURCES
             host/gpu/vulkan_renderer.cpp
+            host/ui/input_script.cpp
+            host/ui/layer.cpp
+            host/ui/menu.cpp
+            host/ui/widgets.cpp
             third_party/imgui/imgui.cpp
             third_party/imgui/imgui_draw.cpp
             third_party/imgui/imgui_tables.cpp
@@ -58,6 +62,16 @@ if(MHP3RD_RENDERER)
         set(MHP3RD_RENDERER OFF)
     endif()
 endif()
+
+# The build the in-game menu shows: `git describe` of the checkout, refreshed
+# on every build but rewritten only when it changes, so only the menu
+# recompiles after a commit.
+set(MHP3RD_VERSION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated_version/yakumo_version.hpp")
+add_custom_target(mhp3rd_version
+    COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${PROJECT_SOURCE_DIR} -DOUTPUT=${MHP3RD_VERSION_HEADER}
+            -P "${MHP3RD_PROFILE_DIR}/tools/write_version.cmake"
+    BYPRODUCTS "${MHP3RD_VERSION_HEADER}"
+    COMMENT "Checking the build version")
 
 # GE parsing, texture decoding and the audio mixer are backend independent and
 # always built; only the device the sink opens depends on SDL.
@@ -114,11 +128,12 @@ add_executable(MHP3rdNative
     $<TARGET_OBJECTS:mhp3rd_generated>
 )
 if(MHP3RD_RENDERER)
-    add_dependencies(MHP3rdNative mhp3rd_shaders)
+    add_dependencies(MHP3rdNative mhp3rd_shaders mhp3rd_version)
     # The sink opens its own SDL audio subsystem, so it only needs SDL to exist.
     target_compile_definitions(MHP3rdNative PRIVATE MHP3RD_HAS_RENDERER=1 MHP3RD_HAS_SDL_AUDIO=1 MHP3RD_HAS_SDL=1)
     target_include_directories(MHP3rdNative PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_version"
         "${MHP3RD_PROFILE_DIR}/third_party/imgui")
     target_link_libraries(MHP3rdNative PRIVATE SDL3::SDL3 Vulkan::Vulkan)
 endif()

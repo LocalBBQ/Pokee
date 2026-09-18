@@ -15,6 +15,7 @@
 #include "perf/frame_stats.hpp"
 #if defined(MHP3RD_HAS_RENDERER)
 #include "gpu/vulkan_renderer.hpp"
+#include "ui/ui.hpp"
 #endif
 
 #include <algorithm>
@@ -141,6 +142,7 @@ void present_frame(Runtime &rt) {
                                       ? (media().display.framebuffer | 0x04000000u)
                                       : media().display.framebuffer;
     const perf::Clock::time_point present_start = perf::Clock::now();
+    ui::draw_over_game();
     renderer.present(address);
     perf::add_render_time(perf::Clock::now() - present_start);
     // A frame ends when its image has been handed to the swapchain.
@@ -160,7 +162,20 @@ void present_frame(Runtime &rt) {
             std::cout << "[render] frame " << renderer.frames_presented() << " (" << renderer.draws_submitted()
                       << " draws) -> " << path << "\n";
     }
-    if (!renderer.pump_events()) rt.stop("window closed");
+    if (!renderer.pump_events()) {
+        rt.stop("window closed");
+    } else if (ui::menu_requested()) {
+        // The menu pauses the game: guest code and emulated time stand still
+        // while it runs in here, and the device stops playing.
+        audio::AudioSink::instance().set_paused(true);
+        const bool keep_playing = ui::run_menu();
+        audio::AudioSink::instance().set_paused(false);
+        // Resume at normal speed rather than racing to make up the pause, and
+        // keep the pause out of the frame statistics.
+        kernel().resync_real_time();
+        perf::restart_measurement();
+        if (!keep_playing) rt.stop("quit from the menu");
+    }
 #else
     (void)rt;
     perf::end_frame(kernel().now_us());
@@ -481,17 +496,7 @@ void register_audio(HleRegistrar &hle) {
 
 void initialize_renderer() {
 #if defined(MHP3RD_HAS_RENDERER)
-    if (std::getenv("MHP3RD_NO_RENDER") != nullptr) {
-        std::cout << "Renderer: disabled by MHP3RD_NO_RENDER\n";
-        return;
-    }
-    auto renderer = std::make_unique<gpu::VulkanRenderer>();
-    std::string error;
-    if (!renderer->initialize(gpu::RendererConfig{}, error)) {
-        std::cerr << "Renderer: unavailable (" << error << "); running headless\n";
-        return;
-    }
-    media().renderer = std::move(renderer);
+    (void)ensure_renderer();
 #else
     std::cout << "Renderer: not built\n";
 #endif
@@ -528,6 +533,25 @@ void register_media(HleRegistrar &hle) {
 #if defined(MHP3RD_HAS_RENDERER)
 gpu::VulkanRenderer *active_renderer() {
     return media().renderer && media().renderer->available() ? media().renderer.get() : nullptr;
+}
+
+gpu::VulkanRenderer *ensure_renderer() {
+    static bool tried = false;
+    if (tried) return active_renderer();
+    tried = true;
+    if (std::getenv("MHP3RD_NO_RENDER") != nullptr) {
+        std::cout << "Renderer: disabled by MHP3RD_NO_RENDER\n";
+        return nullptr;
+    }
+    auto renderer = std::make_unique<gpu::VulkanRenderer>();
+    std::string error;
+    if (!renderer->initialize(gpu::RendererConfig{}, error)) {
+        std::cerr << "Renderer: unavailable (" << error << "); running headless\n";
+        return nullptr;
+    }
+    media().renderer = std::move(renderer);
+    ui::attach(*media().renderer);
+    return media().renderer.get();
 }
 #endif
 

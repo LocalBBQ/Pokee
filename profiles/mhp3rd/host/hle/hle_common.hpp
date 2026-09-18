@@ -75,6 +75,10 @@ void register_savedata(HleRegistrar &hle, const std::filesystem::path &memory_st
 namespace gpu { class VulkanRenderer; }
 // The renderer owns the window, so HLE that needs host input goes through it.
 [[nodiscard]] gpu::VulkanRenderer *active_renderer();
+// Creates the renderer, with the window and the interface on it, the first
+// time it is needed: by the setup screens before the game starts, otherwise
+// when the game registers its media imports. Null without a window.
+gpu::VulkanRenderer *ensure_renderer();
 #endif
 
 } // namespace mhp3rd
