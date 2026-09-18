@@ -55,6 +55,88 @@ explicit `-j 2` in `add_overlay.py`. That stops new deps-log corruption and the
 memory stalls. ccache should follow the same day, because it turns the cost of
 any remaining lost state from 14 minutes into seconds.
 
+## Mitigations in place
+
+The build now implements ranks 1 to 5 and the `generate.sh` fix from item 4.
+
+| Mitigation | Where | Default | Turn off or tune |
+|---|---|---|---|
+| One Ninja per build directory (rank 1) | `cmake/BuildLock.cmake`, `cmake/ninja_locked.py.in` | on with a Ninja generator on macOS and Linux | `-DPSPRECOMP_BUILD_LOCK=OFF` |
+| Repair of a damaged `.ninja_deps` before each build (rank 4) | the same wrapper | on together with the lock | as above |
+| Warning for Ninja 1.13.2 (rank 4) | `cmake/BuildLock.cmake` | once per build directory | — |
+| ccache (rank 2) | top-level `CMakeLists.txt` | used when installed | `-DPSPRECOMP_CCACHE=OFF` |
+| Path defines only on `host/main.cpp` (item 4.4) | `profiles/mhp3rd/CMakeLists.txt` | — | — |
+| Job pool for generated code (rank 3) | `psprecomp_generated` pool, `JOB_POOL_COMPILE` on `MHP3rdNative` and every overlay | one job per 4 GiB of memory, at least 1 | `-DPSPRECOMP_GENERATED_JOBS=N` |
+| Explicit `-j` in `add_overlay.py` (rank 3) | `add_overlay.py -j N` | 2 | `-j N` |
+| No per-overlay reconfigure, one Ninja for all overlays (rank 5) | `add_overlay.py --no-build`, `build_overlays.sh [build_dir] [jobs]` | 2 jobs | second argument |
+| Regeneration keeps unchanged units (item 4.3) | `generate.sh` | — | — |
+
+How they behave:
+
+- **The lock.** CMake writes `<build>/ninja-locked` and makes it
+  `CMAKE_MAKE_PROGRAM`; the real Ninja is kept in `PSPRECOMP_REAL_NINJA`. The
+  wrapper is Appendix A with Appendix B built in and two further changes. It
+  locks every invocation except
+  `--version` and `-h`, including `-n` and `-t` tools, because loading a
+  damaged log can truncate it and `recompact`, `restat` and `clean` write it.
+  And it records the directories it holds in the environment variable
+  `PSPRECOMP_BUILD_LOCKS`, so commands that Ninja itself runs, such as the
+  CMake regeneration step (which calls `ninja -t recompact` and
+  `ninja -t restat`) or a nested `cmake --build` of the same directory, do not
+  deadlock on their own parent's lock. A reconfigure started by hand while a
+  build runs waits for that build. Compile jobs inherit the locked descriptor,
+  so the lock is released only when Ninja and all its jobs have exited. A
+  direct `ninja` call still bypasses the lock.
+- **Windows.** The lock is a no-op there, and with any generator other than
+  Ninja: `flock` does not exist, and a `.bat` shim with `msvcrt.locking` is
+  not written yet.
+- **Deps log repair.** Before a build, inside the lock, the wrapper runs the
+  validator from Appendix B. If it finds a damaged record it prints the
+  offset and runs `ninja -t recompact`, which drops the bad record and
+  everything after it once, instead of on every build as Ninja 1.13.2 does
+  by itself. It never deletes the file and never runs `ninja -t restat`.
+- **ccache.** When ccache 4.8 or later is found, the launcher also passes
+  `base_dir=<source dir>`, so paths inside the checkout are hashed relative to
+  it and a checkout at another path gets direct-mode hits. Older versions get
+  plain `ccache`; set `base_dir` in the ccache configuration for them.
+- **Job pool.** CMake 4.3 sets `JOB_POOL_COMPILE` per target, so the host
+  sources of `MHP3rdNative` share the pool with the generated units. The
+  Makefile and Visual Studio generators ignore job pools.
+
+### Ninja 1.13.2
+
+With the lock, two Ninjas no longer write one log, so the corruption in item 1
+should not happen. If it does, for example after a direct `ninja` call, the
+wrapper repairs it before the next `cmake --build`. To repair a log by hand:
+
+```bash
+ninja -C out/mhp3rd -t recompact
+```
+
+The lasting fix is Ninja 1.14.0 once it is released, or Ninja from master until then
+(`brew install --HEAD ninja`, or build it from source). CMake warns once per
+build directory when it finds 1.13.2.
+
+### Measured on the real tree
+
+Ninja 1.13.2, ccache 4.14, 8 GB of memory, `-j 2`, 89 generated units plus
+the host.
+
+| Check | Result |
+|---|---|
+| Cold build of `MHP3rdNative` (empty cache) | 708 s, never more than 2 compiler processes |
+| Second `cmake --build` started during it | waited 697 s, then `no work to do` |
+| `.ninja_deps` and `.ninja_log` deleted, rebuild from a warm cache | 1.7 s, 117 of 117 direct hits |
+| `ninja -t clean`, rebuild | 1.6 s |
+| All generated units touched, rebuild | 1.4 s, 90 of 90 direct hits |
+| Second checkout at another path, same cache | 2.6 s, 116 of 117 direct hits (the miss is `host/main.cpp`, which carries the checkout paths) |
+| `generate.sh` rerun with nothing changed | 0 units rewritten; next build `no work to do` |
+| Path record checksum broken halfway through `.ninja_deps` | plain Ninja: full recompile on each of three builds; `cmake --build`: repaired, one recompile, then `no work to do` |
+| Validator on the 1.5 MB log | 8 ms |
+| `cmake --build` killed 6 s into a build of 8 overlays, next build started at once | next build waited 177 s for the orphaned Ninja, then `no work to do`; log valid |
+| `build_overlays.sh` on 30 overlays | extraction and recompile about 22 s, then one Ninja for all 30 libraries, at most 2 compiler processes, one CMake rerun instead of 30 |
+| `add_overlay.py` for one new overlay, no explicit configure | 1.8 s; the glob check reran CMake and built the new target |
+
 ---
 
 ## 1. How the build keeps its incremental state
@@ -275,10 +357,9 @@ A cache does not stop corruption. It makes corruption cheap. It does nothing
 for item 2 (memory) and nothing for Ninja failing to see an edit (item 3), so
 it complements the lock and does not replace it.
 
-Integration (not applied): in the top-level `CMakeLists.txt`,
-`find_program(CCACHE ccache)` followed by
-`set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE})` when it is found. Or pass
-`-DCMAKE_CXX_COMPILER_LAUNCHER=ccache` per build directory.
+Integration (applied, see "Mitigations in place"): the top-level
+`CMakeLists.txt` finds ccache and sets `CMAKE_CXX_COMPILER_LAUNCHER` unless
+`PSPRECOMP_CCACHE` is off or a launcher is already set.
 
 ## 6. Mitigation: no concurrent builds in one directory
 

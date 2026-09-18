@@ -43,12 +43,13 @@ Tested on macOS (Apple Silicon, Vulkan through MoltenVK). Linux and Windows are 
 ## Requirements
 
 - CMake 3.20 or newer, Ninja and a C++20 compiler
+- Optional: `ccache`, which the build uses automatically when it is installed
 - Python 3
 - SDL3, Vulkan (the loader and headers; MoltenVK on macOS) and `glslangValidator`
 
 If SDL3, Vulkan or `glslangValidator` is missing, configuration still succeeds but builds the game **without a window**: CMake prints `mhp3rd: renderer disabled` and the program runs headless. Check for `mhp3rd: Vulkan renderer enabled` in the configure output.
 
-Expect a full build to need several gigabytes of memory and some time: the generated code is large. On an 8 GB machine keep parallelism low, for example `cmake --build out/mhp3rd -j 2`.
+Expect a full build to need several gigabytes of memory and some time: the generated code is large. With Ninja, the build compiles at most `PSPRECOMP_GENERATED_JOBS` generated units at once, whatever `-j` you pass; the default is one per 4 GiB of memory, so 2 on an 8 GB machine. Set it when configuring, for example `-DPSPRECOMP_GENERATED_JOBS=1`.
 
 ## Quick start
 
@@ -93,7 +94,15 @@ cmake --build out/mhp3rd --target MHP3rdNative -j 2
 
 `generate.sh` analyzes the executable and writes the recompiled C++ into `generated/`. That corpus is derived from your copy of the game, so it stays local and is never committed.
 
-Never run two builds in the same build directory at once, and prefer not to delete `.ninja_deps` or `.ninja_log`: either can cost a full rebuild. [`docs/BUILD_SYSTEM.md`](../../docs/BUILD_SYSTEM.md) explains why incremental state gets lost and how to avoid it.
+Rerunning `generate.sh` rewrites only the units whose code changed, so the build after it recompiles only those.
+
+The build protects its incremental state on macOS and Linux:
+
+- **One build at a time.** With Ninja, CMake runs builds through a wrapper, `out/mhp3rd/ninja-locked`, that locks the build directory. A second `cmake --build` of the same directory, from a script or by hand, prints `another build is running` and waits. The lock belongs to the running Ninja, so interrupting `cmake --build` or a script around it does not let a new build start next to the Ninja that is still running. Running `ninja` directly bypasses the lock. `-DPSPRECOMP_BUILD_LOCK=OFF` turns it off. On Windows there is no lock yet: do not start two builds of one directory.
+- **Damaged dependency log.** Before each build the wrapper checks `.ninja_deps` and repairs a damaged one with `ninja -t recompact`, which keeps every intact record. Do not delete `.ninja_deps` or `.ninja_log`: either costs a full rebuild.
+- **Compiler cache.** If `ccache` is installed, every compile goes through it, so a rebuild of unchanged code takes seconds instead of minutes, also across checkouts at different paths. `-DPSPRECOMP_CCACHE=OFF` turns it off.
+
+CMake prints a warning for Ninja 1.13.2, which cannot recover from a damaged dependency log by itself (upstream issue [#2703](https://github.com/ninja-build/ninja/issues/2703)). Building through `cmake --build` works around it; the fix is due in Ninja 1.14. [`docs/BUILD_SYSTEM.md`](../../docs/BUILD_SYSTEM.md) explains why incremental state gets lost and what the build does about it.
 
 ## Code overlays
 
@@ -102,10 +111,10 @@ Beyond the main executable, the game loads 355 code overlays (`*.ovl`) from `USR
 Build them all once:
 
 ```bash
-profiles/mhp3rd/scripts/build_overlays.sh [build_dir]
+profiles/mhp3rd/scripts/build_overlays.sh [build_dir] [jobs]
 ```
 
-It extracts every overlay from `DATA.BIN` into `analysis/overlays` and builds a shared library for each into `bin/overlays`. Libraries that already exist are skipped, so an interrupted run resumes. The game is playable before this finishes: an overlay with no library runs through the interpreter, which works but is roughly twenty times slower.
+It extracts every overlay from `DATA.BIN` into `analysis/overlays`, recompiles each one that has no library yet into `overlays/`, and then builds all their shared libraries into `bin/overlays` in a single `cmake --build` with `jobs` parallel jobs (default 2). Libraries that already exist are skipped and recompiled overlays are not recompiled again, so an interrupted run resumes. The game is playable before this finishes: an overlay with no library runs through the interpreter, which works but is roughly twenty times slower.
 
 ### How the host picks an overlay
 
@@ -120,6 +129,8 @@ To build a single overlay by hand — for example one dumped from memory with `M
 ```bash
 profiles/mhp3rd/tools/add_overlay.py out/mhp3rd /path/to/overlay_0A05E600.bin 0x0A05E600
 ```
+
+It builds with 2 parallel jobs; `-j N` changes that. `--no-build` stops after recompiling and prints the target name, for building many overlays in one run. No reconfigure is needed: CMake notices the new overlay directory by itself.
 
 ## Running
 
