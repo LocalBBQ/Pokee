@@ -584,12 +584,27 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     vkGetPhysicalDeviceSurfaceFormatsKHR(impl.physical_device, impl.surface, &format_count, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(format_count);
     vkGetPhysicalDeviceSurfaceFormatsKHR(impl.physical_device, impl.surface, &format_count, formats.data());
-    impl.swapchain_format = formats.empty() ? VK_FORMAT_B8G8R8A8_UNORM : formats.front().format;
+    // The GE's colours are already gamma-encoded, so they must reach the display
+    // unchanged: prefer a plain 8-bit UNORM format. Gamescope (Steam Deck Game
+    // Mode) lists an _SRGB format first, and presenting through it encodes the
+    // colours a second time and washes the picture out.
+    VkSurfaceFormatKHR surface_format{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+    if (!formats.empty()) {
+        surface_format = formats.front();
+        for (const VkSurfaceFormatKHR &candidate : formats) {
+            if ((candidate.format == VK_FORMAT_B8G8R8A8_UNORM || candidate.format == VK_FORMAT_R8G8B8A8_UNORM) &&
+                candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                surface_format = candidate;
+                break;
+            }
+        }
+    }
+    impl.swapchain_format = surface_format.format;
     VkSwapchainCreateInfoKHR swapchain_info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swapchain_info.surface = impl.surface;
     swapchain_info.minImageCount = std::max(capabilities.minImageCount, 2u);
     swapchain_info.imageFormat = impl.swapchain_format;
-    swapchain_info.imageColorSpace = formats.empty() ? VK_COLOR_SPACE_SRGB_NONLINEAR_KHR : formats.front().colorSpace;
+    swapchain_info.imageColorSpace = surface_format.colorSpace;
     swapchain_info.imageExtent = impl.swapchain_extent;
     swapchain_info.imageArrayLayers = 1u;
     swapchain_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
