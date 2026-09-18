@@ -20,5 +20,7 @@ fi
 cmake --build "$build_dir" --target psp_analyze psp_recomp
 mkdir -p "$profile_dir/analysis"
 "$build_dir/psp_analyze" "$elf" "$profile_dir/analysis/report.json"
-rm -rf "$profile_dir/generated"
+# Regenerate in place: psp_recomp rewrites only units whose text changed and
+# removes units that no longer exist, so unchanged units keep their timestamps
+# and are not recompiled.
 "$build_dir/psp_recomp" "$elf" --auto "$profile_dir/generated"
