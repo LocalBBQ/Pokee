@@ -9,6 +9,8 @@
 #include "ui/layer.hpp"
 #include "ui/widgets.hpp"
 
+#include "adhoc/client.hpp"
+#include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
 #include "gpu/vulkan_renderer.hpp"
 #include "install/game_identity.hpp"
@@ -29,7 +31,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -94,9 +98,9 @@ private:
     void video();
     void audio();
     void controls();
+    void network();
     void system();
     bool confirm_dialog();
-    void name_row();
 
     gpu::VulkanRenderer &renderer() { return Layer::get().renderer(); }
 
@@ -123,8 +127,8 @@ bool Menu::frame() {
     back_ = back || pad_back;
 
     begin_panel("##menu", "Yakumo", "Paused", true);
-    static const char *const kTabs[] = {"Video", "Audio", "Controls", "System"};
-    const bool switched = tab_bar(kTabs, 4, tab_) || first_frame_;
+    static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "System"};
+    const bool switched = tab_bar(kTabs, 5, tab_) || first_frame_;
     first_frame_ = false;
     begin_content();
     if (switched) {
@@ -135,10 +139,11 @@ bool Menu::frame() {
     case 0: video(); break;
     case 1: audio(); break;
     case 2: controls(); break;
+    case 3: network(); break;
     default: system(); break;
     }
     begin_footer();
-    if (tab_ == 3)
+    if (tab_ == 4)
         hints({{Control::Confirm, "Select"}, {Control::Back, "Back"}, {Control::Tabs, "Section"},
                {Control::Menu, "Resume"}});
     else
@@ -324,53 +329,60 @@ void Menu::audio() {
     }
 }
 
-void Menu::name_row() {
-    settings::Settings &s = settings::current();
-    RowOptions o = options_for("input.name", "The name given when the game asks for one and typing is off. Letters, "
-                                             "digits and punctuation from a keyboard; on a Steam Deck, Steam+X opens "
-                                             "the on-screen keyboard.");
-    static char buffer[32] = {};
-    static bool loaded = false;
-    if (!loaded || !ImGui::IsAnyItemActive()) {
-        std::snprintf(buffer, sizeof(buffer), "%s", s.name.c_str());
-        loaded = true;
-    }
+// A text field row. Returns true when an edit was committed; the new text is
+// then in `value`. `id` keeps the field's buffer apart from other rows'.
+bool text_row(const char *id, const char *label, std::string &value, std::size_t max_length, bool allow_empty,
+              bool allow_spaces, const RowOptions &o) {
+    struct Field {
+        std::array<char, 132> buffer{};
+        bool focused{};
+    };
+    static std::map<std::string, Field> fields;
+    Field &field = fields[id];
+    if (!ImGui::IsAnyItemActive() || !field.focused)
+        std::snprintf(field.buffer.data(), field.buffer.size(), "%s", value.c_str());
     const float row_height = std::round(Layer::get().font_size() * 1.9f);
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
     ImDrawList *draw = ImGui::GetWindowDrawList();
     // Highlighted like the other rows; the field reports its focus only after
     // it is drawn, so last frame's state is used.
-    static bool focused = false;
-    if (focused)
+    if (field.focused)
         draw->AddRectFilled(start, {start.x + width, start.y + row_height}, colors::kRowFocus,
                             std::round(6.0f * Layer::get().scale()));
     draw->AddText({start.x + std::round(16.0f * Layer::get().scale()),
                    start.y + (row_height - Layer::get().font_size()) * 0.5f},
-                  o.disabled ? colors::kTextDisabled : colors::kText, "Hunter name");
+                  o.disabled ? colors::kTextDisabled : colors::kText, label);
     const float field_width = std::min(width * 0.45f, Layer::get().font_size() * 12.0f);
     ImGui::SetCursorScreenPos({start.x + width - field_width - std::round(16.0f * Layer::get().scale()),
                                start.y + (row_height - ImGui::GetFrameHeight()) * 0.5f});
     ImGui::SetNextItemWidth(field_width);
     if (o.disabled) ImGui::BeginDisabled();
     const auto printable = [](ImGuiInputTextCallbackData *data) {
-        // The game stores the name as UTF-16 converted byte by byte.
-        return data->EventChar >= 0x20 && data->EventChar < 0x7F ? 0 : 1;
+        // ASCII only: the game stores names as UTF-16 converted byte by byte,
+        // and server names are host names.
+        const bool spaces = data->UserData != nullptr;
+        if (data->EventChar == ' ') return spaces ? 0 : 1;
+        return data->EventChar > 0x20 && data->EventChar < 0x7F ? 0 : 1;
     };
-    ImGui::InputText("##name", buffer, 17, ImGuiInputTextFlags_CallbackCharFilter, printable);
-    focused = ImGui::IsItemFocused();
+    const std::string widget_id = std::string("##") + id;
+    ImGui::InputText(widget_id.c_str(), field.buffer.data(), std::min(max_length + 1u, field.buffer.size()),
+                     ImGuiInputTextFlags_CallbackCharFilter, printable, allow_spaces ? &field : nullptr);
+    field.focused = ImGui::IsItemFocused();
     if (ImGui::IsItemFocused() || ImGui::IsItemHovered()) {
         std::string description = o.description;
         if (!o.note.empty()) description += "\n" + o.note;
         Layer::get().set_description(description);
     }
-    if (ImGui::IsItemDeactivatedAfterEdit() && buffer[0] != '\0') {
-        s.name = buffer;
-        settings::save();
+    bool committed = false;
+    if (ImGui::IsItemDeactivatedAfterEdit() && (allow_empty || field.buffer[0] != '\0')) {
+        value = field.buffer.data();
+        committed = true;
     }
     if (o.disabled) ImGui::EndDisabled();
     ImGui::SetCursorScreenPos({start.x, start.y + row_height});
     ImGui::Dummy({0.0f, 0.0f});
+    return committed;
 }
 
 void Menu::controls() {
@@ -454,7 +466,11 @@ void Menu::controls() {
         s.type_name = !s.type_name;
         settings::save();
     }
-    name_row();
+    if (text_row("name", "Hunter name", s.name, 16u, false, true,
+                 options_for("input.name", "The name given when the game asks for one and typing is off. Letters, "
+                                           "digits and punctuation from a keyboard; on a Steam Deck, Steam+X opens "
+                                           "the on-screen keyboard.")))
+        settings::save();
 
     section("Keyboard");
     static const std::array<std::pair<const char *, const char *>, 10> kKeys{{
@@ -486,6 +502,169 @@ void Menu::controls() {
         restore("input.type_name", s.type_name, d.type_name);
         restore("input.name", s.name, d.name);
         settings::save();
+    }
+}
+
+std::string format_duration(std::uint64_t ms) {
+    const std::uint64_t seconds = ms / 1000u;
+    if (seconds < 60u) return std::to_string(seconds) + " s";
+    if (seconds < 3600u) return std::to_string(seconds / 60u) + " min " + std::to_string(seconds % 60u) + " s";
+    return std::to_string(seconds / 3600u) + " h " + std::to_string(seconds / 60u % 60u) + " min";
+}
+
+std::string format_bytes(std::uint64_t bytes) {
+    char text[32];
+    if (bytes < 10'000u) std::snprintf(text, sizeof(text), "%llu B", static_cast<unsigned long long>(bytes));
+    else if (bytes < 10'000'000u) std::snprintf(text, sizeof(text), "%.1f KB", static_cast<double>(bytes) / 1024.0);
+    else std::snprintf(text, sizeof(text), "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    return text;
+}
+
+// One line of what the client is doing, for the menu and the overlay.
+std::string connection_text(const adhoc::Diagnostics &d) {
+    switch (d.state) {
+    case adhoc::ServerState::Off:
+        return d.server.empty() || !settings::current().adhoc ? "Off line" : "Off line (the game is not on line)";
+    case adhoc::ServerState::Connecting:
+        if (d.failed_attempts == 0u) return "Connecting…";
+        return "Reconnecting, attempt " + std::to_string(d.failed_attempts + 1u) +
+               (d.last_error.empty() ? "" : " (" + d.last_error + ")");
+    case adhoc::ServerState::Online: break;
+    }
+    std::string text = "On line";
+    if (d.online_ms) text += " for " + format_duration(*d.online_ms);
+    if (d.rtt_ms) {
+        char rtt[32];
+        std::snprintf(rtt, sizeof(rtt), ", %.0f ms round trip", *d.rtt_ms);
+        text += rtt;
+    }
+    return text;
+}
+
+std::string group_text(const adhoc::Diagnostics &d) {
+    if (d.group) {
+        std::string text = *d.group + ", " + std::to_string(d.peers.size() + 1u) + " players";
+        if (d.rejoin_ms) text += ", rejoining for " + format_duration(*d.rejoin_ms);
+        return text;
+    }
+    if (d.joining) return "Joining " + *d.joining + "…";
+    return "None";
+}
+
+std::string traffic_text(const adhoc::Traffic &t) {
+    return "in " + std::to_string(t.packets_in) + " (" + format_bytes(t.bytes_in) + "), out " +
+           std::to_string(t.packets_out) + " (" + format_bytes(t.bytes_out) + ")";
+}
+
+// The on-screen network overlay (menu: Network, or MHP3RD_ADHOC_OVERLAY).
+bool &network_overlay() {
+    static bool shown = [] {
+        const char *text = std::getenv("MHP3RD_ADHOC_OVERLAY");
+        return text != nullptr && *text != '\0' && std::string(text) != "0";
+    }();
+    return shown;
+}
+
+std::string &saved_log_path() {
+    static std::string path;
+    return path;
+}
+
+void Menu::network() {
+    settings::Settings &s = settings::current();
+    adhoc::Client &client = adhoc::Client::get();
+    const adhoc::Diagnostics d = client.diagnostics();
+    section("Ad hoc play");
+    if (toggle_row("Ad hoc play", s.adhoc,
+                   options_for("network.adhoc", "Multiplayer through a PSP ad hoc server. Off, the game says the "
+                                                "wireless switch is off. Turning it off in a gathering hall leaves "
+                                                "it."))) {
+        s.adhoc = !s.adhoc;
+        settings::save();
+        adhoc_apply_settings();
+    }
+    if (text_row("server", "Server", s.adhoc_server, 100u, true, false,
+                 options_for("network.server", "Host name or address of a PSP ad hoc server (the ports are 27312 and "
+                                               "27313). There is no default: pick one players of this game use. "
+                                               "Applies the next time the game goes on line."))) {
+        settings::save();
+        adhoc_apply_settings();
+    }
+    if (text_row("nickname", "Nickname", s.adhoc_nickname, 32u, true, true,
+                 options_for("network.nickname", "The name other players and the server see. Empty: the hunter name. "
+                                                 "Applies the next time the game goes on line."))) {
+        settings::save();
+        adhoc_apply_settings();
+    }
+
+    section("Status");
+    info_row("Connection", connection_text(d));
+    if (!d.server_address.empty()) info_row("Server address", d.server_address);
+    info_row("You", (s.adhoc_mac.empty() ? std::string("address made up on first use") : s.adhoc_mac) +
+                        (d.nickname.empty() ? "" : "   " + d.nickname));
+    info_row("Group", group_text(d));
+    for (const adhoc::PeerSummary &peer : d.peers)
+        info_row(peer.nickname.empty() ? "Player" : peer.nickname.c_str(),
+                 adhoc::format_mac(peer.mac) + "   " +
+                     (peer.last_heard_ms ? "heard " + format_duration(*peer.last_heard_ms) + " ago" : "not heard yet"));
+    for (const adhoc::SocketSummary &socket : d.sockets) {
+        const std::string label = socket.kind + " " + std::to_string(socket.port);
+        info_row(label.c_str(), socket.state + (socket.peer ? "   " + adhoc::format_mac(*socket.peer) + " port " +
+                                                                  std::to_string(socket.peer_port)
+                                                            : std::string{}));
+    }
+    if (d.relay_links_wanted != 0u)
+        info_row("Relay links", std::to_string(d.relay_links_up) + " of " + std::to_string(d.relay_links_wanted) +
+                                    " up");
+    info_row("Per second", traffic_text(d.per_second));
+    info_row("Since start", traffic_text(d.total));
+    info_row("Problems", std::to_string(d.dropped) + " datagrams dropped, " + std::to_string(d.timeouts) +
+                             " calls timed out, " + std::to_string(d.reconnects) + " reconnections");
+
+    section("Troubleshooting");
+    if (toggle_row("Network overlay", network_overlay(),
+                   {false, {}, "A small panel over the game with the connection, the group and the traffic."}))
+        network_overlay() = !network_overlay();
+    if (toggle_row("Log every call and packet", adhoc::Client::tracing(),
+                   {false, {}, "The same as MHP3RD_TRACE_ADHOC=1: every ad hoc call and packet header goes to the "
+                               "console and to the network log. Busy; for finding a problem."}))
+        adhoc::Client::set_tracing(!adhoc::Client::tracing());
+    if (button_row("Save network log",
+                   {false, {}, "Writes the recent network log and this page's state to a file in the data folder's "
+                               "logs folder, to send with a problem report."})) {
+        std::filesystem::path directory;
+        try {
+            directory = install::user_data_directory() / "logs";
+        } catch (const std::exception &) {
+            directory = "logs";
+        }
+        const std::filesystem::path path = client.save_log(directory);
+        saved_log_path() = path.empty() ? "Could not write to " + install::path_to_utf8(directory)
+                                        : install::path_to_utf8(path);
+        std::cout << "[adhoc] network log: " << saved_log_path() << std::endl;
+    }
+    if (!saved_log_path().empty()) info_row("Saved", saved_log_path());
+    if (button_row("Reconnect now", {d.state == adhoc::ServerState::Off, {},
+                                     "Drop the server connection and connect again at once. The group is joined "
+                                     "again; a quest in progress may end, as when a connection drops."}))
+        client.reconnect_now();
+    if (button_row("Disconnect", {!d.group && !d.joining, {},
+                                  "Leave the group as if the other players were lost. The game shows its own "
+                                  "disconnection message."},
+                   colors::kDanger))
+        client.disconnect_now();
+
+    ImGui::Dummy({0.0f, font_gap()});
+    if (button_row("Restore network defaults", {false, {}, "Ad hoc play off and no server. Your address stays."})) {
+        const settings::Settings &defaults = settings::defaults();
+        const auto restore = [&](const char *key, auto &value, const auto &fallback) {
+            if (settings::overridden_by(key) == nullptr) value = fallback;
+        };
+        restore("network.adhoc", s.adhoc, defaults.adhoc);
+        restore("network.server", s.adhoc_server, defaults.adhoc_server);
+        restore("network.nickname", s.adhoc_nickname, defaults.adhoc_nickname);
+        settings::save();
+        adhoc_apply_settings();
     }
 }
 
@@ -560,16 +739,18 @@ bool Menu::confirm_dialog() {
     return keep_open;
 }
 
-// The hint shown over the game until the menu has been opened once.
-void draw_hint() {
+// Seconds the menu hint has left, or a negative number once it is gone.
+double hint_seconds_left() {
     static const Clock::time_point first_frame = Clock::now();
-    const double seconds = std::chrono::duration<double>(Clock::now() - first_frame).count();
-    if (seconds > kHintSeconds) return;
+    return kHintSeconds - std::chrono::duration<double>(Clock::now() - first_frame).count();
+}
+
+// The hint shown over the game until the menu has been opened once.
+void draw_hint(double seconds_left) {
     Layer &layer = Layer::get();
-    layer.begin_frame();
     const ImGuiIO &io = ImGui::GetIO();
     const float font = layer.font_size();
-    const float alpha = static_cast<float>(std::clamp(kHintSeconds - seconds, 0.0, 1.0));
+    const float alpha = static_cast<float>(std::clamp(seconds_left, 0.0, 1.0));
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.8f, font * 0.5f});
     ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y - font}, ImGuiCond_Always, {0.5f, 1.0f});
@@ -579,7 +760,38 @@ void draw_hint() {
     hints({{Control::Menu, "Settings and pause"}});
     ImGui::End();
     ImGui::PopStyleVar(2);
-    layer.end_frame();
+}
+
+// The network overlay: a few lines in the top-right corner.
+void draw_network_overlay() {
+    const adhoc::Diagnostics d = adhoc::Client::get().diagnostics();
+    const ImGuiIO &io = ImGui::GetIO();
+    const float font = Layer::get().font_size();
+    ImGui::SetNextWindowPos({io.DisplaySize.x - font * 0.5f, font * 0.5f}, ImGuiCond_Always, {1.0f, 0.0f});
+    ImGui::SetNextWindowBgAlpha(0.7f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.3f});
+    ImGui::Begin("##network", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::SetWindowFontScale(0.75f);
+    ImGui::TextUnformatted(connection_text(d).c_str());
+    ImGui::TextUnformatted(("Group: " + group_text(d)).c_str());
+    for (const adhoc::PeerSummary &peer : d.peers)
+        ImGui::TextUnformatted(("  " + peer.nickname + (peer.last_heard_ms ? "  " + format_duration(*peer.last_heard_ms)
+                                                                           : std::string("  -")))
+                                   .c_str());
+    std::size_t streams = 0;
+    for (const adhoc::SocketSummary &socket : d.sockets)
+        if (socket.kind != "PDP" && socket.state == "established") ++streams;
+    ImGui::TextUnformatted(("Links " + std::to_string(d.relay_links_up) + "/" + std::to_string(d.relay_links_wanted) +
+                            ", streams " + std::to_string(streams))
+                               .c_str());
+    ImGui::TextUnformatted(("/s " + traffic_text(d.per_second)).c_str());
+    if (d.dropped != 0u || d.timeouts != 0u)
+        ImGui::TextUnformatted(
+            ("Dropped " + std::to_string(d.dropped) + ", timeouts " + std::to_string(d.timeouts)).c_str());
+    ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 } // namespace
@@ -590,7 +802,13 @@ void draw_over_game() {
     Layer &layer = Layer::get();
     if (!layer.attached()) return;
     script::tick();
-    if (!settings::current().menu_hint_seen) draw_hint();
+    const double hint_left = settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
+    const bool overlay = network_overlay();
+    if (hint_left <= 0.0 && !overlay) return;
+    layer.begin_frame();
+    if (hint_left > 0.0) draw_hint(hint_left);
+    if (overlay) draw_network_overlay();
+    layer.end_frame();
 }
 
 bool menu_requested() {
