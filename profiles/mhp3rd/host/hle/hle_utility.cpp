@@ -4,6 +4,8 @@
 #include "hle_common.hpp"
 #include "utility_dialog.hpp"
 
+#include "settings/settings.hpp"
+
 #if defined(MHP3RD_HAS_RENDERER)
 #include "gpu/vulkan_renderer.hpp"
 #endif
@@ -70,17 +72,13 @@ void write_utf16(psprecomp::GuestMemory &memory, std::uint32_t address, const st
     memory.store16(address + static_cast<std::uint32_t>(count) * 2u, 0u);
 }
 
-// Host typing is opt-in; see the note in sceUtilityOskInitStart.
-bool interactive_osk() {
-    static const bool enabled = std::getenv("MHP3RD_OSK_INTERACTIVE") != nullptr;
-    return enabled;
-}
+// Host typing is opt-in (MHP3RD_OSK_INTERACTIVE or the in-game menu); see the
+// note in sceUtilityOskInitStart.
+bool interactive_osk() { return settings::current().type_name; }
 
-// Name the keyboard answers with when the host is not typing one.
-std::string default_name() {
-    const char *configured = std::getenv("MHP3RD_OSK_TEXT");
-    return configured != nullptr ? configured : "Hunter";
-}
+// Name the keyboard answers with when the host is not typing one
+// (MHP3RD_OSK_TEXT or the in-game menu).
+std::string default_name() { return settings::current().name; }
 
 std::uint32_t field_address(const psprecomp::GuestMemory &memory, std::uint32_t params) {
     if (params == 0u || memory.load32(params + kOskFieldCountOffset) == 0u) return 0u;

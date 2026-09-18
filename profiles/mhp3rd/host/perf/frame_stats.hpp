@@ -9,13 +9,14 @@ namespace mhp3rd::perf {
 
 using Clock = std::chrono::steady_clock;
 
-// What MHP3RD_PERF asks for: `1` turns on the log line and the overlay, `log`
-// only the log line. The overlay can also be toggled at run time (F3).
+// What the performance setting asks for (MHP3RD_PERF, or the in-game menu):
+// the log line, the overlay or both. The overlay can also be toggled at run
+// time (F3).
 struct Options {
     bool log{};
     bool overlay{};
 };
-[[nodiscard]] const Options &options();
+[[nodiscard]] Options options();
 
 // Host frame statistics, cheap enough to collect all the time.
 //
@@ -35,6 +36,10 @@ void count_display_list();
 // Closes the current frame. `virtual_us` is the kernel's clock, which the
 // game's own frame rate and the emulation speed are measured against.
 void end_frame(std::uint64_t virtual_us);
+
+// Drops the frame and the second in progress, so time spent paused in the
+// in-game menu shows up in neither the frame times nor the next log line.
+void restart_measurement();
 
 // Shown next to the numbers: the present mode, the swapchain size and the
 // display's refresh rate (0 when SDL cannot tell).

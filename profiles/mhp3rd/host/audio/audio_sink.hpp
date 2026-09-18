@@ -35,6 +35,16 @@ public:
     void mix(std::uint64_t &cursor, const std::int16_t *frames, std::size_t count,
              std::uint32_t left_volume, std::uint32_t right_volume);
 
+    // Output gain in 0..1, from the volume and mute settings. Only the device
+    // output is scaled; MHP3RD_AUDIO_DUMP keeps the game's own levels.
+    void set_volume(float gain);
+    // Stops and restarts the device, for the in-game menu's pause. What the
+    // game queued before the pause stays in the ring and plays on resume.
+    void set_paused(bool paused);
+    // Whether a playback device is open (not with MHP3RD_NO_AUDIO, or when
+    // none could be opened).
+    [[nodiscard]] bool has_device() const;
+
     // Public only so the device callback, which lives outside the class, can
     // name it.
     struct Impl;

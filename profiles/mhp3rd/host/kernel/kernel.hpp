@@ -194,6 +194,10 @@ public:
     // Clock ---------------------------------------------------------------
     [[nodiscard]] std::uint64_t now_us() const noexcept { return now_us_; }
     [[nodiscard]] std::uint64_t vblank_count() const noexcept { return vblank_count_; }
+    // Forgets how far emulated time was ahead of or behind real time. Called
+    // after the game was paused, so it resumes at normal speed rather than
+    // racing to make up the pause.
+    void resync_real_time() noexcept { pacing_started_ = false; }
 
     // Threads -------------------------------------------------------------
     [[nodiscard]] SceUID allocate_uid() noexcept { return next_uid_++; }

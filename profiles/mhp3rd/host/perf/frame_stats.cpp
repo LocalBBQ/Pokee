@@ -1,5 +1,7 @@
 #include "frame_stats.hpp"
 
+#include "settings/settings.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -65,22 +67,30 @@ void print(const Summary &s) {
 
 } // namespace
 
-const Options &options() {
-    static const Options value = [] {
-        Options result{};
-        const char *text = std::getenv("MHP3RD_PERF");
-        if (text == nullptr || *text == '\0') return result;
-        if (std::strcmp(text, "log") == 0) {
-            result.log = true;
-            return result;
-        }
-        for (const char *off : {"0", "no", "off", "false"})
-            if (std::strcmp(text, off) == 0) return result;
-        result.log = true;
-        result.overlay = true;
-        return result;
-    }();
-    return value;
+Options options() {
+    Options result{};
+    switch (settings::current().perf) {
+    case settings::PerfDisplay::Off: break;
+    case settings::PerfDisplay::Overlay: result.overlay = true; break;
+    case settings::PerfDisplay::OverlayAndLog: result.overlay = result.log = true; break;
+    case settings::PerfDisplay::Log: result.log = true; break;
+    }
+    return result;
+}
+
+void restart_measurement() {
+    State &s = state();
+    const Clock::time_point now = Clock::now();
+    s.frame_start = now;
+    s.render = s.wait = s.overlay = Clock::duration{};
+    s.lists = 0u;
+    s.window_start = now;
+    s.window_has_clock = false;
+    s.frames = 0u;
+    s.frame_sum_ms = 0.0;
+    s.frame_max_ms = 0.0;
+    s.render_sum = s.wait_sum = s.overlay_sum = Clock::duration{};
+    s.list_sum = 0u;
 }
 
 void add_render_time(Clock::duration duration) { state().render += duration; }

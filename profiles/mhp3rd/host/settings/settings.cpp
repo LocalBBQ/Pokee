@@ -1,0 +1,272 @@
+#include "settings/settings.hpp"
+
+#include "install/user_data.hpp"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace mhp3rd::settings {
+namespace {
+
+// One setting: its key in settings.ini, the variable that overrides it, and
+// how both spell its value.
+struct Field {
+    const char *key;
+    const char *variable;  // null: no environment override
+    std::function<bool(Settings &, const std::string &)> parse;
+    std::function<std::string(const Settings &)> format;
+    // Reads the variable's value, which is spelled the way the variable has
+    // always been. Null: the variable uses the file's spelling.
+    std::function<void(Settings &, const char *)> parse_variable;
+};
+
+bool parse_bool(const std::string &text, bool &out) {
+    if (text == "1" || text == "true" || text == "on" || text == "yes") out = true;
+    else if (text == "0" || text == "false" || text == "off" || text == "no") out = false;
+    else return false;
+    return true;
+}
+
+bool parse_float(const std::string &text, float minimum, float maximum, float &out) {
+    char *end = nullptr;
+    const float value = std::strtof(text.c_str(), &end);
+    if (end == text.c_str() || *end != '\0') return false;
+    out = std::clamp(value, minimum, maximum);
+    return true;
+}
+
+bool parse_uint(const std::string &text, std::uint32_t minimum, std::uint32_t maximum, std::uint32_t &out) {
+    char *end = nullptr;
+    const unsigned long value = std::strtoul(text.c_str(), &end, 10);
+    if (end == text.c_str() || *end != '\0') return false;
+    out = static_cast<std::uint32_t>(std::clamp<unsigned long>(value, minimum, maximum));
+    return true;
+}
+
+std::string format_float(float value) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.2f", static_cast<double>(value));
+    return text;
+}
+
+// Flags the host has always read as "set means on", whatever the value.
+bool variable_present(const char *) { return true; }
+
+// Flags read the way the pad code reads them: 0, no, off and false are off.
+bool variable_flag(const char *text) {
+    for (const char *off : {"0", "no", "off", "false"})
+        if (std::strcmp(text, off) == 0) return false;
+    return true;
+}
+
+float variable_float(const char *text, float fallback, float minimum, float maximum) {
+    char *end = nullptr;
+    const float value = std::strtof(text, &end);
+    return std::clamp(end != text ? value : fallback, minimum, maximum);
+}
+
+template <typename Enum>
+struct Names {
+    std::vector<std::pair<Enum, const char *>> values;
+
+    bool parse(const std::string &text, Enum &out) const {
+        for (const auto &[value, name] : values) {
+            if (text == name) {
+                out = value;
+                return true;
+            }
+        }
+        return false;
+    }
+    [[nodiscard]] std::string format(Enum value) const {
+        for (const auto &[candidate, name] : values)
+            if (candidate == value) return name;
+        return values.front().second;
+    }
+};
+
+const Names<PresentMode> kPresentModes{
+    {{PresentMode::Fifo, "vsync"}, {PresentMode::Mailbox, "mailbox"}, {PresentMode::Immediate, "immediate"}}};
+const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"},
+                                        {PerfDisplay::Overlay, "overlay"},
+                                        {PerfDisplay::OverlayAndLog, "overlay+log"},
+                                        {PerfDisplay::Log, "log"}}};
+const Names<RightStick> kRightSticks{
+    {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
+
+#define BOOL_FIELD(key, member)                                                                                       \
+    Field {                                                                                                            \
+        key, nullptr, [](Settings &s, const std::string &t) { return parse_bool(t, s.member); },                       \
+            [](const Settings &s) { return std::string(s.member ? "1" : "0"); }, nullptr                               \
+    }
+
+const std::vector<Field> &fields() {
+    static const std::vector<Field> table = {
+        {"video.internal_scale", "MHP3RD_INTERNAL_SCALE",
+         [](Settings &s, const std::string &t) { return parse_uint(t, 1u, kMaxInternalScale, s.internal_scale); },
+         [](const Settings &s) { return std::to_string(s.internal_scale); },
+         [](Settings &s, const char *t) {
+             std::uint32_t value = s.internal_scale;
+             if (parse_uint(t, 1u, kMaxInternalScale, value)) s.internal_scale = value;
+         }},
+        {"video.window_scale", nullptr,
+         [](Settings &s, const std::string &t) { return parse_uint(t, 1u, kMaxWindowScale, s.window_scale); },
+         [](const Settings &s) { return std::to_string(s.window_scale); }, nullptr},
+        BOOL_FIELD("video.fullscreen", fullscreen),
+        {"video.present_mode", nullptr,
+         [](Settings &s, const std::string &t) { return kPresentModes.parse(t, s.present_mode); },
+         [](const Settings &s) { return kPresentModes.format(s.present_mode); }, nullptr},
+        BOOL_FIELD("video.keep_aspect", keep_aspect),
+        BOOL_FIELD("video.sharp_screen", sharp_screen),
+        BOOL_FIELD("video.sharp_textures", sharp_textures),
+        {"video.unthrottled", "MHP3RD_UNTHROTTLED",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.unthrottled); },
+         [](const Settings &s) { return std::string(s.unthrottled ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.unthrottled = variable_present(t); }},
+        {"video.performance", "MHP3RD_PERF",
+         [](Settings &s, const std::string &t) { return kPerfDisplays.parse(t, s.perf); },
+         [](const Settings &s) { return kPerfDisplays.format(s.perf); },
+         [](Settings &s, const char *t) {
+             // `1` has always meant the overlay and the log, `log` the log only.
+             if (std::strcmp(t, "log") == 0) s.perf = PerfDisplay::Log;
+             else s.perf = *t != '\0' && variable_flag(t) ? PerfDisplay::OverlayAndLog : PerfDisplay::Off;
+         }},
+        {"audio.volume", nullptr,
+         [](Settings &s, const std::string &t) { return parse_uint(t, 0u, 100u, s.volume); },
+         [](const Settings &s) { return std::to_string(s.volume); }, nullptr},
+        BOOL_FIELD("audio.mute", mute),
+        {"input.confirm", "MHP3RD_PAD_FACE",
+         [](Settings &s, const std::string &t) {
+             if (t == "south") s.confirm_south = true;
+             else if (t == "east") s.confirm_south = false;
+             else return false;
+             return true;
+         },
+         [](const Settings &s) { return std::string(s.confirm_south ? "south" : "east"); },
+         [](Settings &s, const char *t) { s.confirm_south = std::strcmp(t, "xbox") == 0 || std::strcmp(t, "south") == 0; }},
+        {"input.dead_zone", "MHP3RD_PAD_DEADZONE",
+         [](Settings &s, const std::string &t) { return parse_float(t, 0.0f, 0.9f, s.dead_zone); },
+         [](const Settings &s) { return format_float(s.dead_zone); },
+         [](Settings &s, const char *t) { s.dead_zone = variable_float(t, 0.15f, 0.0f, 0.9f); }},
+        {"input.trigger", "MHP3RD_PAD_TRIGGER",
+         [](Settings &s, const std::string &t) { return parse_float(t, 0.05f, 1.0f, s.trigger); },
+         [](const Settings &s) { return format_float(s.trigger); },
+         [](Settings &s, const char *t) { s.trigger = variable_float(t, 0.25f, 0.05f, 1.0f); }},
+        {"input.right_stick", "MHP3RD_PAD_RSTICK_DPAD",
+         [](Settings &s, const std::string &t) { return kRightSticks.parse(t, s.right_stick); },
+         [](const Settings &s) { return kRightSticks.format(s.right_stick); },
+         [](Settings &s, const char *t) { s.right_stick = variable_flag(t) ? RightStick::DPad : RightStick::Camera; }},
+        {"input.right_stick_zone", "MHP3RD_PAD_RSTICK_ZONE",
+         [](Settings &s, const std::string &t) { return parse_float(t, 0.1f, 1.0f, s.right_stick_zone); },
+         [](const Settings &s) { return format_float(s.right_stick_zone); },
+         [](Settings &s, const char *t) { s.right_stick_zone = variable_float(t, 0.5f, 0.1f, 1.0f); }},
+        BOOL_FIELD("input.invert_camera_x", invert_camera_x),
+        BOOL_FIELD("input.invert_camera_y", invert_camera_y),
+        {"input.type_name", "MHP3RD_OSK_INTERACTIVE",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.type_name); },
+         [](const Settings &s) { return std::string(s.type_name ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.type_name = variable_present(t); }},
+        {"input.name", "MHP3RD_OSK_TEXT",
+         [](Settings &s, const std::string &t) {
+             if (t.empty()) return false;
+             s.name = t;
+             return true;
+         },
+         [](const Settings &s) { return s.name; }, [](Settings &s, const char *t) { s.name = t; }},
+        BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
+        {"ui.last_folder", nullptr,
+         [](Settings &s, const std::string &t) {
+             s.last_folder = t;
+             return true;
+         },
+         [](const Settings &s) { return s.last_folder; }, nullptr},
+    };
+    return table;
+}
+
+#undef BOOL_FIELD
+
+struct State {
+    bool loaded{};
+    Settings values;
+    std::filesystem::path data_dir;
+    // What settings.ini held, so values the environment decided are written
+    // back as the file had them.
+    install::SettingsEntries file;
+    std::map<std::string, const char *> overrides;
+};
+
+State &state() {
+    static State value;
+    return value;
+}
+
+void load(State &s) {
+    s.loaded = true;
+    try {
+        s.data_dir = install::user_data_directory();
+        s.file = install::read_settings_file(s.data_dir);
+    } catch (const std::exception &e) {
+        std::cerr << "[settings] cannot read settings.ini: " << e.what() << "\n";
+    }
+    for (const Field &field : fields()) {
+        if (const auto found = s.file.find(field.key); found != s.file.end() && !field.parse(s.values, found->second))
+            std::cerr << "[settings] ignoring " << field.key << "=" << found->second << "\n";
+        if (field.variable == nullptr) continue;
+        const char *text = std::getenv(field.variable);
+        if (text == nullptr) continue;
+        field.parse_variable(s.values, text);
+        s.overrides[field.key] = field.variable;
+    }
+}
+
+} // namespace
+
+Settings &current() {
+    State &s = state();
+    if (!s.loaded) load(s);
+    return s.values;
+}
+
+const Settings &defaults() {
+    static const Settings value{};
+    return value;
+}
+
+void save() {
+    State &s = state();
+    if (!s.loaded) load(s);
+    install::SettingsEntries entries;
+    try {
+        // Re-read, so a key the installer wrote since start-up survives.
+        entries = install::read_settings_file(s.data_dir);
+        for (const Field &field : fields()) {
+            if (s.overrides.count(field.key) != 0u) {
+                const auto kept = s.file.find(field.key);
+                if (kept != s.file.end()) entries[field.key] = kept->second;
+                else entries.erase(field.key);
+                continue;
+            }
+            entries[field.key] = field.format(s.values);
+        }
+        install::write_settings_file(s.data_dir, entries);
+    } catch (const std::exception &e) {
+        std::cerr << "[settings] cannot write settings.ini: " << e.what() << "\n";
+    }
+}
+
+const char *overridden_by(const char *key) {
+    State &s = state();
+    if (!s.loaded) load(s);
+    const auto found = s.overrides.find(key);
+    return found != s.overrides.end() ? found->second : nullptr;
+}
+
+} // namespace mhp3rd::settings

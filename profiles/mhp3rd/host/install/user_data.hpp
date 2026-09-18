@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 
@@ -10,7 +11,7 @@ namespace mhp3rd::install {
 //
 //   EBOOT.ELF      the executable prepared from the player's disc image
 //   disc.iso       the copied disc image (absent when the image is used in place)
-//   settings.ini   where the disc image is
+//   settings.ini   where the disc image is, and the player's settings
 //
 // Save data is not here yet: ms0 stays where the host has always kept it.
 inline constexpr const char *kExecutableFile = "EBOOT.ELF";
@@ -21,6 +22,15 @@ inline constexpr const char *kSettingsFile = "settings.ini";
 // (or the same location computed by hand in a build without SDL). SDL creates
 // the directory if it does not exist yet.
 [[nodiscard]] std::filesystem::path user_data_directory();
+
+// Every key=value line of settings.ini. The installer owns disc_image; the
+// player's settings (host/settings) keep their keys next to it, and writing
+// one never drops the others.
+using SettingsEntries = std::map<std::string, std::string>;
+
+[[nodiscard]] SettingsEntries read_settings_file(const std::filesystem::path &data_dir);
+// Replaces settings.ini with `entries`, creating data_dir if needed.
+void write_settings_file(const std::filesystem::path &data_dir, const SettingsEntries &entries);
 
 struct UserSettings {
     // Disc image to read. Relative paths are relative to the data directory.

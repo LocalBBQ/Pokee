@@ -66,8 +66,8 @@ std::filesystem::path user_data_directory() {
 #endif
 }
 
-UserSettings load_settings(const std::filesystem::path &data_dir) {
-    UserSettings settings;
+SettingsEntries read_settings_file(const std::filesystem::path &data_dir) {
+    SettingsEntries entries;
     std::ifstream in(data_dir / kSettingsFile);
     std::string line;
     while (std::getline(in, line)) {
@@ -76,23 +76,37 @@ UserSettings load_settings(const std::filesystem::path &data_dir) {
         const auto equals = line.find('=');
         if (equals == std::string::npos) continue;
         const std::string key = trim(line.substr(0, equals));
-        const std::string value = trim(line.substr(equals + 1u));
-        if (key == "disc_image" && !value.empty()) settings.disc_image = path_from_utf8(value);
+        if (!key.empty()) entries[key] = trim(line.substr(equals + 1u));
     }
-    return settings;
+    return entries;
 }
 
-void save_settings(const std::filesystem::path &data_dir, const UserSettings &settings) {
+void write_settings_file(const std::filesystem::path &data_dir, const SettingsEntries &entries) {
+    std::filesystem::create_directories(data_dir);
     const std::filesystem::path target = data_dir / kSettingsFile;
     const std::filesystem::path partial = data_dir / (std::string(kSettingsFile) + ".part");
     {
         std::ofstream out(partial, std::ios::trunc);
-        out << "# Written by the MHP3rdNative installer.\n"
-            << "# disc_image: the disc image to play from; a relative path is inside this directory.\n"
-            << "disc_image=" << path_to_utf8(settings.disc_image) << "\n";
+        out << "# Written by MHP3rdNative: the installer and the in-game menu (Esc, or L3+R3 on a gamepad).\n"
+            << "# disc_image: the disc image to play from; a relative path is inside this directory.\n";
+        for (const auto &[key, value] : entries) out << key << "=" << value << "\n";
         if (!out) throw psprecomp::Error("Cannot write " + path_to_utf8(partial));
     }
     std::filesystem::rename(partial, target);
+}
+
+UserSettings load_settings(const std::filesystem::path &data_dir) {
+    UserSettings settings;
+    const SettingsEntries entries = read_settings_file(data_dir);
+    if (const auto found = entries.find("disc_image"); found != entries.end() && !found->second.empty())
+        settings.disc_image = path_from_utf8(found->second);
+    return settings;
+}
+
+void save_settings(const std::filesystem::path &data_dir, const UserSettings &settings) {
+    SettingsEntries entries = read_settings_file(data_dir);
+    entries["disc_image"] = path_to_utf8(settings.disc_image);
+    write_settings_file(data_dir, entries);
 }
 
 std::optional<Installation> find_installation(const std::filesystem::path &data_dir) {

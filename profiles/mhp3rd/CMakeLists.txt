@@ -80,6 +80,7 @@ set(MHP3RD_HOST_SOURCES
     host/install/installer.cpp
     host/install/installer_dialogs.cpp
     host/install/user_data.cpp
+    host/settings/settings.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.

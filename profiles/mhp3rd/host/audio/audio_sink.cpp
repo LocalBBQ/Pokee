@@ -1,5 +1,7 @@
 #include "audio/audio_sink.hpp"
 
+#include "settings/settings.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -113,6 +115,7 @@ struct AudioSink::Impl {
     std::uint64_t total_dropped{};
     std::uint64_t seconds{};
 
+    float gain{1.0f};
 #if defined(MHP3RD_HAS_SDL_AUDIO)
     SDL_AudioStream *stream{};
 #endif
@@ -202,6 +205,8 @@ void AudioSink::initialize() {
     impl.started = true;
     impl.trace = std::getenv("MHP3RD_TRACE_AUDIO") != nullptr;
     impl.enabled = std::getenv("MHP3RD_NO_AUDIO") == nullptr;
+    const settings::Settings &player = settings::current();
+    impl.gain = player.mute ? 0.0f : static_cast<float>(player.volume) / 100.0f;
 
     if (const char *path = std::getenv("MHP3RD_AUDIO_DUMP")) {
         if (impl.dump.open(path))
@@ -228,6 +233,7 @@ void AudioSink::initialize() {
         std::cerr << "Audio: SDL_OpenAudioDeviceStream failed (" << SDL_GetError() << "); running silent\n";
         return;
     }
+    SDL_SetAudioStreamGain(impl.stream, impl.gain);
     SDL_ResumeAudioStreamDevice(impl.stream);
     std::cout << "Audio: 44100 Hz stereo playback open\n";
 #else
@@ -254,6 +260,36 @@ void AudioSink::shutdown() {
                     static_cast<unsigned long long>(impl.total_dropped));
         std::fflush(stdout);
     }
+}
+
+void AudioSink::set_volume(float gain) {
+    Impl &impl = *impl_;
+    impl.gain = std::clamp(gain, 0.0f, 1.0f);
+#if defined(MHP3RD_HAS_SDL_AUDIO)
+    if (impl.stream != nullptr) {
+        SDL_SetAudioStreamGain(impl.stream, impl.gain);
+        std::cout << "Audio: output gain " << SDL_GetAudioStreamGain(impl.stream) << "\n";
+    }
+#endif
+}
+
+bool AudioSink::has_device() const {
+#if defined(MHP3RD_HAS_SDL_AUDIO)
+    return impl_->stream != nullptr;
+#else
+    return false;
+#endif
+}
+
+void AudioSink::set_paused(bool paused) {
+#if defined(MHP3RD_HAS_SDL_AUDIO)
+    Impl &impl = *impl_;
+    if (impl.stream == nullptr) return;
+    if (paused) SDL_PauseAudioStreamDevice(impl.stream);
+    else SDL_ResumeAudioStreamDevice(impl.stream);
+#else
+    (void)paused;
+#endif
 }
 
 void AudioSink::mix(std::uint64_t &cursor, const std::int16_t *frames, std::size_t count,
