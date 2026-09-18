@@ -85,11 +85,22 @@ set(MHP3RD_HOST_SOURCES
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
 set_source_files_properties(third_party/tiny_aes/aes.c PROPERTIES LANGUAGE CXX)
 
+# The recompiled game code gets a target of its own. It needs only the
+# psprecomp headers, so definitions and include paths the host adds to
+# MHP3rdNative (a renderer switch, a new library's headers) do not change its
+# compile commands and rebuild all of it. Its objects still link straight into
+# the executable, which exports their symbols to the overlay libraries.
+add_library(mhp3rd_generated OBJECT ${MHP3RD_GENERATED})
+target_include_directories(mhp3rd_generated PRIVATE
+    "${PROJECT_SOURCE_DIR}/include"
+    "${MHP3RD_PROFILE_DIR}/generated")
+set_target_properties(mhp3rd_generated PROPERTIES JOB_POOL_COMPILE psprecomp_generated)
+
 add_executable(MHP3rdNative
     host/main.cpp
     ${MHP3RD_HOST_SOURCES}
     ${MHP3RD_RENDERER_SOURCES}
-    ${MHP3RD_GENERATED}
+    $<TARGET_OBJECTS:mhp3rd_generated>
 )
 if(MHP3RD_RENDERER)
     add_dependencies(MHP3rdNative mhp3rd_shaders)
