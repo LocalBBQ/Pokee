@@ -534,7 +534,12 @@ gpu::VulkanRenderer *ensure_renderer() {
     }
     auto renderer = std::make_unique<gpu::VulkanRenderer>();
     std::string error;
-    if (!renderer->initialize(gpu::RendererConfig{}, error)) {
+    gpu::RendererConfig config;
+    // Tells windows apart when several instances run side by side, e.g. two
+    // players testing ad hoc play on one machine.
+    if (const char *title = std::getenv("MHP3RD_WINDOW_TITLE"); title != nullptr && *title != '\0')
+        config.title = title;
+    if (!renderer->initialize(config, error)) {
         std::cerr << "Renderer: unavailable (" << error << "); running headless\n";
         return nullptr;
     }
