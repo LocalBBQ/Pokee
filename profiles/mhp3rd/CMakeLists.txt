@@ -94,7 +94,10 @@ target_link_libraries(MHP3rdNative PRIVATE psprecomp_core ${CMAKE_DL_LIBS})
 set_target_properties(MHP3rdNative PROPERTIES
     ENABLE_EXPORTS TRUE
     WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-target_compile_definitions(MHP3rdNative PRIVATE
+# Absolute paths of this checkout. Only main.cpp reads them; on the target they
+# would be on every generated unit's command line, so moving the checkout would
+# rebuild all of them and no other checkout could reuse their cache entries.
+set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
     MHP3RD_DEFAULT_GAME_DIR="${MHP3RD_PROFILE_DIR}/game"
     MHP3RD_NIDS_CSV="${PROJECT_SOURCE_DIR}/configs/nids.csv")
 set_target_properties(MHP3rdNative PROPERTIES

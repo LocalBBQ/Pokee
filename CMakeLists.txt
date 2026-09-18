@@ -8,6 +8,25 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/BuildLock.cmake)
 
+# A compiler cache turns a lost .ninja_deps, a clean or a regenerated corpus
+# into seconds of cache hits instead of a full rebuild of the generated units.
+option(PSPRECOMP_CCACHE "Compile through ccache when it is installed" ON)
+if(PSPRECOMP_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(PSPRECOMP_CCACHE_PROGRAM ccache)
+    if(PSPRECOMP_CCACHE_PROGRAM)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${PSPRECOMP_CCACHE_PROGRAM}")
+        # Hash paths inside the checkout relative to it, so checkouts at other
+        # paths share cache entries (ccache 4.8+ reads settings given this way).
+        execute_process(COMMAND "${PSPRECOMP_CCACHE_PROGRAM}" --version
+            OUTPUT_VARIABLE _psprecomp_ccache_version ERROR_QUIET)
+        if(_psprecomp_ccache_version MATCHES "version ([0-9]+\\.[0-9]+)"
+           AND CMAKE_MATCH_1 VERSION_GREATER_EQUAL "4.8")
+            list(APPEND CMAKE_CXX_COMPILER_LAUNCHER "base_dir=${PROJECT_SOURCE_DIR}")
+        endif()
+        message(STATUS "Compiling through ${PSPRECOMP_CCACHE_PROGRAM}")
+    endif()
+endif()
+
 option(PSPRECOMP_BUILD_TESTS "Build reusable PSPRecomp tests" ON)
 option(PSPRECOMP_BUILD_PROFILE_TESTS "Build tests supplied by the selected profile" ON)
 set(PSPRECOMP_PROFILE "" CACHE STRING "Profile to build from profiles/<name>; empty builds only the framework")
