@@ -16,8 +16,8 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ❔ [#13] |
 | Boot, title and menus | ✅ | ❔ | ✅ | ❔ |
 | Character creation | ✅ | ❔ | ✅ | ❔ |
-| Village | ⚠️ slower than elsewhere [#7] | ❔ | ✅ hot spring; the rest not checked yet | ❔ |
-| Hunts | ✅ | ❔ | ❔ | ❔ |
+| Village | ❔ re-check since the #7 fix | ❔ | ✅ | ❔ |
+| Hunts | ✅ | ❔ | ✅ | ❔ |
 | Graphics | ⚠️ no lighting or fog [#3] | ❔ | ⚠️ no lighting or fog [#3] | ❔ |
 | Sound effects | ⚠️ run ahead of the picture [#4] | ❔ | ❔ | ❔ |
 | Music | ❌ [#5] | ❌ [#5] | ❌ [#5] | ❌ [#5] |
@@ -35,14 +35,14 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | DualSense | ✅ | ❔ | — | ❔ |
 | DualShock 4 | ❔ | ❔ | — | ❔ |
 | Xbox controllers | ❔ | ❔ | — | ❔ |
-| Built-in controls | — | — | ✅ in Desktop Mode; Game Mode not checked [#14] | — |
+| Built-in controls | — | — | ✅ Game Mode (added to Steam as a non-Steam game); ⚠️ Desktop Mode sends mouse and Esc from Steam's desktop layout | — |
 
 ## Tested hardware
 
 | Platform | Machine | GPU and driver | Commit | Date |
 | --- | --- | --- | --- | --- |
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `v0.1.0` | 2026-09-18 |
-| SteamOS 3.8.16 | Steam Deck | AMD Custom GPU 0932, RADV (Mesa 26.0.0-devel) | `fdca2f0` | 2026-09-18 |
+| SteamOS 3.8.16 | Steam Deck | AMD Custom GPU 0932, RADV (Mesa 26.0.0-devel) | `5e4b27c` | 2026-09-18 |
 
 ## Updating this page
 
