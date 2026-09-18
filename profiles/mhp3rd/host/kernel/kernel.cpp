@@ -44,6 +44,7 @@ bool trace_enabled() {
 void native_thread_exit(Runtime &, AllegrexContext &ctx) { kernel().thread_exit_stub(ctx); }
 void native_interrupt_return(Runtime &, AllegrexContext &ctx) { kernel().interrupt_return_stub(ctx); }
 void native_idle(Runtime &, AllegrexContext &ctx) { kernel().idle_stub(ctx); }
+void native_guest_call_return(Runtime &, AllegrexContext &ctx) { kernel().guest_call_return_stub(ctx); }
 void native_starvation(Runtime &, AllegrexContext &ctx) { kernel().on_starvation(ctx); }
 
 const char *status_name(ThreadStatus status) {
@@ -92,6 +93,7 @@ void Kernel::install(Runtime &runtime, std::uint32_t gp, std::uint32_t image_end
     runtime.register_function(kThreadExitStub, &native_thread_exit, "mhp3rd_thread_exit");
     runtime.register_function(kInterruptReturnStub, &native_interrupt_return, "mhp3rd_interrupt_return");
     runtime.register_function(kIdleStub, &native_idle, "mhp3rd_idle");
+    runtime.register_function(kGuestCallReturnStub, &native_guest_call_return, "mhp3rd_guest_call_return");
     std::uint64_t interval = 20'000u;
     if (const char *text = std::getenv("MHP3RD_STARVATION_INTERVAL")) interval = std::strtoull(text, nullptr, 0);
     psprecomp::set_runtime_starvation_hook(&native_starvation, interval);
@@ -848,6 +850,29 @@ void Kernel::interrupt_return_stub(AllegrexContext &ctx) {
 void Kernel::thread_exit_stub(AllegrexContext &ctx) {
     exit_current_thread(ctx, static_cast<std::int32_t>(ctx.gpr[2]), current_thread() != nullptr &&
                                                                          current_thread()->name == "module_start");
+}
+
+void Kernel::call_guest(AllegrexContext &ctx, std::uint32_t function, const std::array<std::uint32_t, 4> &arguments,
+                        GuestCallReturn on_return) {
+    guest_calls_[current_uid_].push_back(GuestCall{ctx.gpr[31], std::move(on_return)});
+    for (std::uint32_t i = 0; i < 4u; ++i) ctx.set_gpr(4u + i, arguments[i]);
+    ctx.set_gpr(31, kGuestCallReturnStub);
+    // A pc other than the import's own tells the import wrapper not to return.
+    ctx.pc = function;
+}
+
+void Kernel::guest_call_return_stub(AllegrexContext &ctx) {
+    auto found = guest_calls_.find(current_uid_);
+    if (found == guest_calls_.end() || found->second.empty()) {
+        runtime_->stop("guest call returned in a thread that made none");
+        return;
+    }
+    GuestCall call = std::move(found->second.back());
+    found->second.pop_back();
+    if (found->second.empty()) guest_calls_.erase(found);
+    ctx.set_gpr(31, call.return_address);
+    ctx.pc = call.return_address;
+    call.on_return(ctx, ctx.gpr[2]);
 }
 
 void Kernel::idle_stub(AllegrexContext &ctx) {

@@ -38,9 +38,9 @@ You can create a character, explore the village and go on hunts, with sound, key
 | --- | --- |
 | Booting, menus, character creation, saves in the PSP's own format | **Lighting and fog** — scenes are flatter than they should be, and coloured markers over NPCs come out white |
 | The village and hunting areas | **Frame pacing** — nothing ties the game to real time yet, so sound runs ahead of the picture |
-| 3D models, animation, textures, transparency | **Cutscene movies** are skipped |
-| Sound effects and music | Curved surfaces, networking |
-| Keyboard, and gamepads with a real right-stick camera | The village runs slower than other areas |
+| 3D models, animation, textures, transparency | Curved surfaces, networking |
+| Sound effects, music and cutscene movies | The village runs slower than other areas |
+| Keyboard, and gamepads with a real right-stick camera | |
 | All 355 code overlays recompiled | |
 
 Tested on macOS (Apple Silicon, Vulkan through MoltenVK), and on a Steam Deck up to the village, where it runs on native Vulkan with the built-in controls. Windows is a target platform but has not been verified yet.
@@ -53,7 +53,7 @@ The state of each part of the game on each platform is in [`docs/COMPATIBILITY.m
 - CMake 3.20 or newer, Ninja and a C++20 compiler
 - Python 3
 - SDL3, Vulkan and `glslangValidator`
-- Optional: FFmpeg (`libavcodec`, `libavutil`) for the music; without it the game runs with the music silent
+- Optional: FFmpeg (`libavcodec`, `libavutil`) for the music and the movies; without it the music is silent and the movies are skipped
 - A few gigabytes of free memory for the build; the recompiled code is large
 
 ## Getting started
@@ -77,7 +77,6 @@ Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu: it pauses
 
 - Lighting and fog
 - Frame pacing, which also fixes sound running ahead
-- Cutscene movies
 - Builds verified on Steam Deck and Windows
 
 ## How it works
@@ -124,7 +123,7 @@ To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [
 
 - [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — the recompilation framework this project builds on
 - [SDL3](https://www.libsdl.org/) — windowing, input and audio output
-- [FFmpeg](https://ffmpeg.org/) — music decoding
+- [FFmpeg](https://ffmpeg.org/) — music and movie decoding
 - [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — rendering
 - [stb_truetype](https://github.com/nothings/stb) — font rasterization
 - [svanheulen/mhef](https://github.com/svanheulen/mhef) — community documentation of the game's archive format

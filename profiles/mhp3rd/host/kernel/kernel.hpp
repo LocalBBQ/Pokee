@@ -70,6 +70,7 @@ inline constexpr std::uint32_t kMutexRecursiveNotAllowed = 0x800201C8u;
 inline constexpr std::uint32_t kThreadExitStub = 0x08800000u;
 inline constexpr std::uint32_t kInterruptReturnStub = 0x08800004u;
 inline constexpr std::uint32_t kIdleStub = 0x08800008u;
+inline constexpr std::uint32_t kGuestCallReturnStub = 0x0880000Cu;
 // Kernel partition scratch used by the host (boot arguments, interrupt stack).
 inline constexpr std::uint32_t kBootArgumentAddress = 0x08100000u;
 inline constexpr std::uint32_t kInterruptStackTop = 0x08200000u;
@@ -225,6 +226,15 @@ public:
     // Makes a waiting thread ready with v0 = result.
     void wake(Thread &thread, std::uint32_t result);
     void delay_current(AllegrexContext &ctx, std::uint64_t microseconds, std::uint32_t result = 0u);
+    // Calls a guest function from an HLE import, in the calling thread, the
+    // way a library calls back into the game: the function runs like any
+    // other guest code, so it may block, and when it returns `on_return` gets
+    // its v0 with `ctx` back at the import's return address. `on_return` then
+    // either finishes the import or makes another call. Use it instead of
+    // finish(), as the last thing the import does.
+    using GuestCallReturn = std::function<void(AllegrexContext &, std::uint32_t)>;
+    void call_guest(AllegrexContext &ctx, std::uint32_t function, const std::array<std::uint32_t, 4> &arguments,
+                    GuestCallReturn on_return);
     void set_dispatch_enabled(bool enabled) noexcept { dispatch_enabled_ = enabled; }
     [[nodiscard]] bool dispatch_enabled() const noexcept { return dispatch_enabled_; }
 
@@ -275,6 +285,7 @@ public:
     void thread_exit_stub(AllegrexContext &ctx);
     void interrupt_return_stub(AllegrexContext &ctx);
     void idle_stub(AllegrexContext &ctx);
+    void guest_call_return_stub(AllegrexContext &ctx);
 
 private:
     struct FreeRange {
@@ -319,6 +330,13 @@ private:
 
     std::map<SceUID, MemoryBlock> blocks_;
     std::vector<FreeRange> free_ranges_;
+
+    struct GuestCall {
+        std::uint32_t return_address{};
+        GuestCallReturn on_return;
+    };
+    // Calls in progress per thread, innermost last.
+    std::map<SceUID, std::vector<GuestCall>> guest_calls_;
 
     std::deque<InterruptCall> pending_interrupts_;
     bool interrupt_active_{};

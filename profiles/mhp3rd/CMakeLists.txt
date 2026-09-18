@@ -75,10 +75,10 @@ add_custom_target(mhp3rd_version
     BYPRODUCTS "${MHP3RD_VERSION_HEADER}"
     COMMENT "Checking the build version")
 
-# FFmpeg decodes the game's ATRAC3 music. It is optional and linked as shared
-# libraries found through pkg-config; without it the build still succeeds and
-# streamed music stays silent.
-option(MHP3RD_FFMPEG "Decode music with FFmpeg (libavcodec) when it is installed" ON)
+# FFmpeg decodes the game's ATRAC3 music and its movies. It is optional and
+# linked as shared libraries found through pkg-config; without it the build
+# still succeeds, the music stays silent and the movies are skipped.
+option(MHP3RD_FFMPEG "Decode music and movies with FFmpeg (libavcodec) when it is installed" ON)
 set(MHP3RD_HAS_FFMPEG OFF)
 if(MHP3RD_FFMPEG)
     find_package(PkgConfig QUIET)
@@ -87,18 +87,20 @@ if(MHP3RD_FFMPEG)
     endif()
     if(MHP3RD_LIBAV_FOUND)
         set(MHP3RD_HAS_FFMPEG ON)
-        message(STATUS "mhp3rd: FFmpeg libavcodec ${MHP3RD_LIBAV_libavcodec_VERSION} found; streamed music enabled")
+        message(STATUS "mhp3rd: FFmpeg libavcodec ${MHP3RD_LIBAV_libavcodec_VERSION} found; music and movies enabled")
     else()
-        message(STATUS "mhp3rd: FFmpeg (libavcodec, libavutil) not found through pkg-config; streamed music will be silent")
+        message(STATUS "mhp3rd: FFmpeg (libavcodec, libavutil) not found through pkg-config; music will be silent and movies skipped")
     endif()
 else()
-    message(STATUS "mhp3rd: FFmpeg disabled by MHP3RD_FFMPEG=OFF; streamed music will be silent")
+    message(STATUS "mhp3rd: FFmpeg disabled by MHP3RD_FFMPEG=OFF; music will be silent and movies skipped")
 endif()
 
 # GE parsing, texture decoding and the audio mixer are backend independent and
 # always built; only the device the sink opens depends on SDL.
 set(MHP3RD_HOST_SOURCES
     host/audio/atrac_decoder.cpp
+    host/movie/avc_decoder.cpp
+    host/movie/psmf_demuxer.cpp
     host/audio/audio_sink.cpp
     host/audio/sas_core.cpp
     host/gpu/ge_state.cpp
@@ -116,6 +118,7 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_system.cpp
     host/hle/hle_media.cpp
     host/hle/hle_atrac.cpp
+    host/hle/hle_mpeg.cpp
     host/hle/hle_font.cpp
     host/hle/hle_utility.cpp
     host/hle/hle_savedata.cpp

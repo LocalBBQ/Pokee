@@ -142,6 +142,16 @@ void present_frame(Runtime &rt) {
                                       ? (media().display.framebuffer | 0x04000000u)
                                       : media().display.framebuffer;
     const perf::Clock::time_point present_start = perf::Clock::now();
+    // The GE only draws into VRAM, so a framebuffer in main memory was
+    // written by the CPU (the movie player's sceJpegCsc) and has to be shown
+    // from memory.
+    constexpr std::uint32_t kPixelFormat8888 = 3u;
+    const DisplayState &display = media().display;
+    if ((address & 0x1F000000u) != kEdramBase && display.pixel_format == kPixelFormat8888) {
+        const std::size_t bytes = static_cast<std::size_t>(display.buffer_width) * display.height * 4u;
+        renderer.upload_frame(address, rt.memory().raw_pointer(address, bytes), display.width, display.height,
+                              display.buffer_width);
+    }
     ui::draw_over_game();
     renderer.present(address);
     perf::add_render_time(perf::Clock::now() - present_start);
@@ -502,28 +512,7 @@ void initialize_renderer() {
 #endif
 }
 
-// Movie playback is not implemented. Reporting "no data" from the stream calls
-// makes the guest treat the movie as finished instead of waiting for frames
-// that never arrive, so intros and cut-scenes are skipped.
-void register_movie_skip(HleRegistrar &hle) {
-    constexpr std::uint32_t kMpegNoData = 0x80618001u;
-    const auto succeed = [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); };
-    const auto no_data = [](Runtime &, AllegrexContext &ctx) {
-        log_once("mpeg-skip", "[mpeg] movie playback is not implemented; reporting the stream as finished");
-        kernel().finish(ctx, kMpegNoData);
-    };
-    for (const char *name : {"sceMpegInit", "sceMpegFinish", "sceMpegDelete", "sceMpegRegistStream",
-                             "sceMpegUnRegistStream", "sceMpegFlushAllStream", "sceMpegInitAu",
-                             "sceMpegAvcInitYCbCr", "sceMpegRingbufferDestruct", "sceMpegFreeAvcEsBuf"})
-        hle.try_add("sceMpeg", name, succeed);
-    for (const char *name : {"sceMpegGetAvcAu", "sceMpegGetAtracAu", "sceMpegAvcDecode", "sceMpegAtracDecode",
-                             "sceMpegAvcDecodeYCbCr", "sceMpegAvcDecodeStopYCbCr", "sceMpegAvcDecodeDetail",
-                             "sceMpegAvcConvertToYuv420"})
-        hle.try_add("sceMpeg", name, no_data);
-}
-
 void register_media(HleRegistrar &hle) {
-    register_movie_skip(hle);
     initialize_renderer();
     register_display_ctrl(hle);
     register_ge(hle);

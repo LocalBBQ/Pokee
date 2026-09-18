@@ -40,9 +40,9 @@ Puedes crear un personaje, recorrer la aldea y salir de caza, con sonido, teclad
 | --- | --- |
 | Arranque, menús, creación de personaje, partidas guardadas en el formato de la propia PSP | **Iluminación y niebla**: las escenas se ven más planas de lo debido y los marcadores de color sobre los NPC salen blancos |
 | La aldea y las zonas de caza | **Ritmo de fotogramas**: el juego aún no está sincronizado con el tiempo real, así que el sonido se adelanta a la imagen |
-| Modelos 3D, animación, texturas, transparencias | **Las cinemáticas** se saltan |
-| Efectos de sonido y música | Superficies curvas, red |
-| Teclado, y mandos con cámara real en el stick derecho | La aldea va más lenta que otras zonas |
+| Modelos 3D, animación, texturas, transparencias | Superficies curvas, red |
+| Efectos de sonido, música y cinemáticas | La aldea va más lenta que otras zonas |
+| Teclado, y mandos con cámara real en el stick derecho | |
 | Los 355 overlays de código, recompilados | |
 
 Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck hasta la aldea, donde funciona con Vulkan nativo y los controles integrados. Windows es una plataforma objetivo, pero todavía no se ha verificado.
@@ -55,7 +55,7 @@ El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILI
 - CMake 3.20 o posterior, Ninja y un compilador de C++20
 - Python 3
 - SDL3, Vulkan y `glslangValidator`
-- Opcional: FFmpeg (`libavcodec`, `libavutil`) para la música; sin él, el juego funciona sin música
+- Opcional: FFmpeg (`libavcodec`, `libavutil`) para la música y las cinemáticas; sin él, no hay música y las cinemáticas se saltan
 - Varios gigabytes de memoria libre para compilar: el código recompilado es grande
 
 ## Primeros pasos
@@ -79,7 +79,6 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo:
 
 - Iluminación y niebla
 - Ritmo de fotogramas, que también corrige el adelanto del sonido
-- Cinemáticas
 - Compilaciones verificadas en Steam Deck y Windows
 
 ## Cómo funciona
@@ -126,7 +125,7 @@ Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](docs/PROFILE_G
 
 - [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp): el framework de recompilación sobre el que se construye el proyecto
 - [SDL3](https://www.libsdl.org/): ventana, entrada y salida de audio
-- [FFmpeg](https://ffmpeg.org/): decodificación de la música
+- [FFmpeg](https://ffmpeg.org/): decodificación de la música y el vídeo
 - [Vulkan](https://www.vulkan.org/) y [MoltenVK](https://github.com/KhronosGroup/MoltenVK): renderizado
 - [stb_truetype](https://github.com/nothings/stb): rasterización de fuentes
 - [svanheulen/mhef](https://github.com/svanheulen/mhef): documentación de la comunidad sobre el formato de archivo del juego

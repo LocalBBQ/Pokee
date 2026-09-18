@@ -369,6 +369,19 @@ struct VulkanRenderer::Impl {
     void *overlay_mapped{};
     std::vector<std::uint32_t> overlay_pixels;
 
+    // Frames the game writes to memory without the GE (upload_frame): copied
+    // through a mapped staging buffer into an image the size of the frame,
+    // then scaled into the target of the address the game shows.
+    VkImage upload_image{};
+    VkDeviceMemory upload_memory{};
+    VkImageView upload_view{};
+    VkExtent2D upload_extent{};
+    VkBuffer upload_staging{};
+    VkDeviceMemory upload_staging_memory{};
+    void *upload_mapped{};
+    void destroy_upload();
+    bool create_upload(std::uint32_t width, std::uint32_t height, std::string &error);
+
     // One offscreen target per guest framebuffer address. The game draws into
     // several (double buffering, render to texture), and only the address passed
     // to sceDisplaySetFrameBuf is shown.
@@ -1268,7 +1281,9 @@ VulkanRenderer::Impl::Target *VulkanRenderer::Impl::target_for(std::uint32_t add
 
     Target target{};
     if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_R8G8B8A8_UNORM,
-                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, target.color,
+                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                      target.color,
                       target.color_memory, target.color_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return nullptr;
     if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_D32_SFLOAT,
@@ -1286,6 +1301,49 @@ VulkanRenderer::Impl::Target *VulkanRenderer::Impl::target_for(std::uint32_t add
     if (!check(vkCreateFramebuffer(device, &info, nullptr, &target.framebuffer), "vkCreateFramebuffer", error))
         return nullptr;
     return &targets.emplace(address, target).first->second;
+}
+
+void VulkanRenderer::Impl::destroy_upload() {
+    if (upload_mapped != nullptr) vkUnmapMemory(device, upload_staging_memory);
+    vkDestroyBuffer(device, upload_staging, nullptr);
+    vkFreeMemory(device, upload_staging_memory, nullptr);
+    vkDestroyImageView(device, upload_view, nullptr);
+    vkDestroyImage(device, upload_image, nullptr);
+    vkFreeMemory(device, upload_memory, nullptr);
+    upload_mapped = nullptr;
+    upload_staging = VK_NULL_HANDLE;
+    upload_staging_memory = VK_NULL_HANDLE;
+    upload_view = VK_NULL_HANDLE;
+    upload_image = VK_NULL_HANDLE;
+    upload_memory = VK_NULL_HANDLE;
+    upload_extent = {};
+}
+
+bool VulkanRenderer::Impl::create_upload(std::uint32_t width, std::uint32_t height, std::string &error) {
+    destroy_upload();
+    if (!create_image(width, height, VK_FORMAT_R8G8B8A8_UNORM,
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, upload_image, upload_memory,
+                      upload_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
+        return false;
+    const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4u;
+    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = bytes;
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!check(vkCreateBuffer(device, &buffer_info, nullptr, &upload_staging), "vkCreateBuffer", error)) return false;
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(device, upload_staging, &requirements);
+    VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocate.allocationSize = requirements.size;
+    allocate.memoryTypeIndex = find_memory_type(
+        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!check(vkAllocateMemory(device, &allocate, nullptr, &upload_staging_memory), "vkAllocateMemory", error))
+        return false;
+    vkBindBufferMemory(device, upload_staging, upload_staging_memory, 0u);
+    if (!check(vkMapMemory(device, upload_staging_memory, 0u, bytes, 0u, &upload_mapped), "vkMapMemory", error))
+        return false;
+    upload_extent = {width, height};
+    return true;
 }
 
 void VulkanRenderer::Impl::begin_pass(std::uint32_t address) {
@@ -1889,6 +1947,62 @@ void VulkanRenderer::begin_frame() {
     impl.recording = true;
 }
 
+void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint8_t *pixels, std::uint32_t width,
+                                  std::uint32_t height, std::uint32_t stride) {
+    Impl &impl = *impl_;
+    if (!impl.ready || pixels == nullptr || width == 0u || height == 0u || stride < width) return;
+    if (!impl.recording) begin_frame();
+    impl.end_pass();
+    std::string error;
+    if (impl.upload_extent.width != width || impl.upload_extent.height != height) {
+        // Nothing recorded so far this frame uses the old image yet.
+        vkDeviceWaitIdle(impl.device);
+        if (!impl.create_upload(width, height, error)) {
+            std::cerr << "Renderer: cannot upload frames (" << error << ")\n";
+            impl.destroy_upload();
+            return;
+        }
+    }
+    Impl::Target *target = impl.target_for(display_address, error);
+    if (target == nullptr) return;
+
+    // The staging buffer is free: the frame fence was waited on in begin_frame.
+    auto *staging = static_cast<std::uint8_t *>(impl.upload_mapped);
+    for (std::uint32_t row = 0; row < height; ++row)
+        std::memcpy(staging + static_cast<std::size_t>(row) * width * 4u,
+                    pixels + static_cast<std::size_t>(row) * stride * 4u, static_cast<std::size_t>(width) * 4u);
+    impl.transition(impl.command_buffer, impl.upload_image, VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    copy.imageExtent = {width, height, 1u};
+    vkCmdCopyBufferToImage(impl.command_buffer, impl.upload_staging, impl.upload_image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
+    impl.transition(impl.command_buffer, impl.upload_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // A new target has no contents to keep; an old one rests in the layout
+    // the render pass expects.
+    impl.transition(impl.command_buffer, target->color,
+                    target->initialized ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    if (!target->initialized) {
+        impl.transition(impl.command_buffer, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+        target->initialized = true;
+    }
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    blit.srcOffsets[1] = {static_cast<std::int32_t>(width), static_cast<std::int32_t>(height), 1};
+    blit.dstSubresource = blit.srcSubresource;
+    blit.dstOffsets[1] = {static_cast<std::int32_t>(impl.target_extent.width),
+                          static_cast<std::int32_t>(impl.target_extent.height), 1};
+    vkCmdBlitImage(impl.command_buffer, impl.upload_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target->color,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+    impl.transition(impl.command_buffer, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    impl.last_drawn_target = display_address;
+}
+
 void VulkanRenderer::begin_display_list() {
     if (impl_) impl_->list_texture_keys.clear();
 }
@@ -2370,6 +2484,7 @@ void VulkanRenderer::shutdown() {
     vkDestroyImageView(impl.device, impl.overlay_view, nullptr);
     vkDestroyImage(impl.device, impl.overlay_image, nullptr);
     vkFreeMemory(impl.device, impl.overlay_memory, nullptr);
+    impl.destroy_upload();
     for (auto &[key, pipeline] : impl.pipelines) vkDestroyPipeline(impl.device, pipeline, nullptr);
     impl.pipelines.clear();
     if (impl.vertex_mapped != nullptr) vkUnmapMemory(impl.device, impl.vertex_memory);

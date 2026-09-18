@@ -26,7 +26,7 @@ Third-party source, binary dependencies, shader code and notices stay beside the
 
 | Component | Used by | License | How it is included |
 | --- | --- | --- | --- |
-| [FFmpeg](https://ffmpeg.org/) (`libavcodec`, `libavutil`) | mhp3rd profile: ATRAC3 music decoding (`profiles/mhp3rd/host/audio/atrac_decoder.cpp`) | LGPL-2.1-or-later | Optional external dependency, found at configure time through `pkg-config` and linked dynamically; no FFmpeg source is in the repository |
+| [FFmpeg](https://ffmpeg.org/) (`libavcodec`, `libavutil`) | mhp3rd profile: ATRAC3 music and H.264/ATRAC3plus movie decoding (`profiles/mhp3rd/host/audio/atrac_decoder.cpp`, `profiles/mhp3rd/host/movie/avc_decoder.cpp`) | LGPL-2.1-or-later | Optional external dependency, found at configure time through `pkg-config` and linked dynamically; no FFmpeg source is in the repository |
 
 ## Contribution rule
 

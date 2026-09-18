@@ -69,6 +69,13 @@ public:
     // a separate offscreen target per guest framebuffer address, so only the
     // displayed one reaches the window.
     void present(std::uint32_t display_address);
+    // Shows a frame the game wrote to memory itself instead of drawing it
+    // with the GE, as the movie player does: the next present of
+    // `display_address` shows these `width` x `height` pixels (R, G, B, A in
+    // memory order, rows `stride` pixels apart), scaled to the target. Call
+    // it at most once per presented frame.
+    void upload_frame(std::uint32_t display_address, const std::uint8_t *pixels, std::uint32_t width,
+                      std::uint32_t height, std::uint32_t stride);
 
     // Writes the last rendered frame as a BMP; returns false if it could not be
     // read back. Used for screenshots without touching the window system.
