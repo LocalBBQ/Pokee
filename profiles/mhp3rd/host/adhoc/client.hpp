@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -80,6 +81,58 @@ struct StreamInfo {
     std::uint64_t received{};
 };
 
+struct PeerSummary {
+    Mac mac{};
+    std::string nickname;
+    std::uint64_t in_group_ms{};                // since the server announced it
+    std::optional<std::uint64_t> last_heard_ms; // since its last datagram
+};
+
+struct SocketSummary {
+    std::string kind;   // "PDP", "PTP listen", "PTP open", "PTP accepted"
+    int handle{};
+    std::uint16_t port{};
+    std::string state;
+    std::optional<Mac> peer;
+    std::uint16_t peer_port{};
+    bool relay_linked{};
+};
+
+struct Traffic {
+    std::uint64_t packets_in{};
+    std::uint64_t packets_out{};
+    std::uint64_t bytes_in{};
+    std::uint64_t bytes_out{};
+};
+
+// A copy of the client's state for the network panel, published by the
+// network thread a few times a second.
+struct Diagnostics {
+    bool active{};
+    std::string server;          // as configured
+    std::string server_address;  // what it resolved to, when connected
+    std::string nickname;
+    Mac mac{};
+    std::string product;
+    ServerState state{ServerState::Off};
+    std::uint32_t failed_attempts{};
+    std::uint64_t reconnects{};
+    std::string last_error;
+    std::optional<std::uint64_t> online_ms;  // time since the login
+    std::optional<double> rtt_ms;            // the server connection's TCP round trip, where the OS reports it
+    std::optional<std::string> group;
+    std::optional<std::string> joining;      // a join the server has not confirmed yet
+    std::optional<std::uint64_t> rejoin_ms;  // time since the group was lost, while rejoining
+    std::vector<PeerSummary> peers;
+    std::vector<SocketSummary> sockets;
+    std::size_t relay_links_up{};
+    std::size_t relay_links_wanted{};
+    Traffic total;
+    Traffic per_second;
+    std::uint64_t dropped{};   // datagrams dropped: no link, full buffers, oversized
+    std::uint64_t timeouts{};  // blocking ad hoc calls that ended in a PSP timeout
+};
+
 class Client {
 public:
     static Client &get();
@@ -135,7 +188,26 @@ public:
     void ptp_close(int handle);
     [[nodiscard]] std::vector<int> ptp_handles() const;
 
+    // Diagnostics ---------------------------------------------------------------
+    [[nodiscard]] Diagnostics diagnostics() const;
+    // Drops the server connection and connects again at once; the group is
+    // rejoined, and streams end as on a lost connection.
+    void reconnect_now();
+    // Leaves the group as if the connection to the others was lost: the game
+    // gets the PSP's disconnect event. Stays logged in.
+    void disconnect_now();
+    void note_timeout();
+
+    // Every call and packet header is logged to the console and to the log
+    // buffer while this is on. MHP3RD_TRACE_ADHOC sets it at start.
     [[nodiscard]] static bool tracing();
+    static void set_tracing(bool enabled);
+    // Adds a line to the log buffer, and to the console when `print` is set or
+    // tracing is on.
+    static void log(const std::string &line, bool print);
+    // Writes the log buffer and a snapshot of diagnostics() into `directory`
+    // as adhoc-<date>-<time>.log. Returns the file's path; empty on failure.
+    [[nodiscard]] std::filesystem::path save_log(const std::filesystem::path &directory) const;
 
 private:
     Client();

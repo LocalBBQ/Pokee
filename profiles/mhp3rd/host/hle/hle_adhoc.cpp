@@ -18,6 +18,7 @@
 #include "hle_common.hpp"
 
 #include "adhoc/client.hpp"
+#include "adhoc/session.hpp"
 #include "settings/settings.hpp"
 #include "utility_dialog.hpp"
 
@@ -92,6 +93,7 @@ constexpr std::uint32_t kNetconfActionConnectAdhoc = 2u;
 constexpr std::uint32_t kNetconfResultCancelled = 1u;
 
 constexpr const char *kDefaultProduct = "ULJM05800";
+constexpr std::uint32_t kErrorWaitTimeout = error::kWaitTimeout;
 
 bool trace_adhoc() { return Client::tracing(); }
 
@@ -104,8 +106,9 @@ std::string describe_args(const AllegrexContext &ctx, unsigned count) {
 void trace_line(const std::string &line) {
     if (!trace_adhoc()) return;
     const Thread *thread = kernel().current_thread();
-    std::cerr << "[adhoc] " << line << " thread=" << (thread != nullptr ? thread->name : "interrupt")
-              << " t=" << kernel().now_us() / 1000u << "ms" << std::endl;
+    Client::log("[adhoc] " + line + " thread=" + (thread != nullptr ? thread->name : std::string("interrupt")) +
+                    " t=" + std::to_string(kernel().now_us() / 1000u) + "ms",
+                true);
 }
 
 // Finishes an import and logs it.
@@ -127,6 +130,8 @@ void block(AllegrexContext &ctx, const char *name, unsigned argc, std::uint32_t 
     kernel().wait_host(ctx, timeout_us != 0u ? std::optional<std::uint64_t>(timeout_us) : std::nullopt,
                        [label, poll = std::move(poll)](bool timed_out) -> std::optional<std::uint32_t> {
                            const auto result = poll(timed_out);
+                           if (timed_out && result && (*result == err::kTimeout || *result == kErrorWaitTimeout))
+                               Client::get().note_timeout();
                            if (result && trace_adhoc())
                                trace_line(label + " ends = " + psprecomp::hex32(*result) +
                                           (timed_out ? " (timed out)" : ""));
@@ -830,7 +835,7 @@ void register_netconf(HleRegistrar &hle) {
             ensure_hooked();
             if (!settings::current().adhoc || settings::current().adhoc_server.empty()) {
                 netconf.result = err::kCtlTimeout;
-                std::cerr << "[adhoc] no ad hoc server is set up (menu: Network); the connection fails" << std::endl;
+                Client::log("[adhoc] no ad hoc server is set up (menu: Network); the connection fails", true);
             } else {
                 start_client();
                 (void)Client::get().take_events();
@@ -874,6 +879,17 @@ void register_netconf(HleRegistrar &hle) {
 }
 
 } // namespace
+
+void adhoc_apply_settings() {
+    if (!state().ctl_initialized) return;
+    if (!settings::current().adhoc || settings::current().adhoc_server.empty()) {
+        // Off line now: the client reports the lost group to the game.
+        start_client();
+        return;
+    }
+    // A running session keeps its server and name until the game goes on line again.
+    if (Client::get().server_state() == adhoc::ServerState::Off) start_client();
+}
 
 void register_adhoc(HleRegistrar &hle) {
     register_net(hle);

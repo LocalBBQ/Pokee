@@ -6,7 +6,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -214,21 +217,48 @@ void tune_socket(Socket s) {
 #endif
 }
 
-std::mutex &log_mutex() {
-    static std::mutex mutex;
-    return mutex;
+// The last lines logged, for "Save network log".
+constexpr std::size_t kLogLines = 6000;
+
+struct LogBuffer {
+    std::mutex mutex;
+    std::deque<std::string> lines;
+};
+
+LogBuffer &log_buffer() {
+    static LogBuffer buffer;
+    return buffer;
 }
 
-void trace(const std::string &line) {
-    if (!Client::tracing()) return;
-    std::lock_guard lock(log_mutex());
-    std::cerr << "[adhoc-net] " << line << std::endl;
+std::atomic<bool> &tracing_flag() {
+    static std::atomic<bool> flag{[] {
+        const char *text = std::getenv("MHP3RD_TRACE_ADHOC");
+        return text != nullptr && *text != '\0' && std::strcmp(text, "0") != 0;
+    }()};
+    return flag;
 }
 
-void report(const std::string &line) {
-    std::lock_guard lock(log_mutex());
-    std::cerr << "[adhoc] " << line << std::endl;
+std::string wall_clock() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+    const auto millis =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &seconds);
+#else
+    localtime_r(&seconds, &tm);
+#endif
+    char text[32];
+    std::snprintf(text, sizeof(text), "%02d:%02d:%02d.%03d", tm.tm_hour, tm.tm_min, tm.tm_sec,
+                  static_cast<int>(millis));
+    return text;
 }
+
+// Network events always go to the log buffer; to the console only while
+// tracing, unless they are reports a player should see.
+void trace(const std::string &line) { Client::log("[adhoc-net] " + line, false); }
+void report(const std::string &line) { Client::log("[adhoc] " + line, true); }
 
 // Retry delays that double from `first` up to `limit`.
 struct Backoff {
@@ -425,7 +455,7 @@ struct Client::Impl {
     Link ctl;
     bool logged_in{};
     bool stop_ctl{};  // close `ctl` on the network thread
-    Backoff ctl_backoff{milliseconds(500), milliseconds(15000)};
+    Backoff ctl_backoff{milliseconds(500), milliseconds(8000)};
     Clock::time_point ctl_retry_at{};
     Clock::time_point last_ping{};
     std::uint32_t failed_attempts{};
@@ -448,6 +478,20 @@ struct Client::Impl {
     };
     std::map<Mac, PeerEntry> peers;
     std::vector<CtlEvent> events;
+
+    // Diagnostics.
+    std::string last_error;
+    std::uint64_t reconnects{};
+    std::optional<Clock::time_point> online_since;
+    bool reconnect_requested{};
+    Traffic traffic;
+    std::uint64_t dropped{};
+    std::uint64_t timeouts{};
+    std::map<Mac, Clock::time_point> heard;
+    mutable std::mutex snapshot_mutex;
+    Diagnostics snapshot;
+    Clock::time_point snapshot_at{};
+    Traffic snapshot_traffic;
 
     // Sockets.
     int next_handle{1};
@@ -522,6 +566,9 @@ struct Client::Impl {
     }
 
     void on_ctl_lost(const char *why) {
+        last_error = why;
+        online_since.reset();
+        if (logged_in) ++reconnects;
         if (logged_in || ctl.active()) report(std::string("lost the server connection: ") + why);
         ctl.close();
         logged_in = false;
@@ -640,6 +687,7 @@ struct Client::Impl {
 
     void on_logged_in() {
         logged_in = true;
+        online_since = Clock::now();
         ctl_backoff.reset();
         failed_attempts = 0;
         last_ping = Clock::now();
@@ -663,6 +711,16 @@ struct Client::Impl {
             ctl.close();
         }
         if (!active || identity.server.empty()) return;
+        if (reconnect_requested) {
+            reconnect_requested = false;
+            if (ctl.active()) {
+                report("reconnecting now, as asked");
+                on_ctl_lost("reconnect requested");
+            }
+            ctl_backoff.reset();
+            ctl_retry_at = now;
+            addresses.clear();  // resolve again: the address may have changed
+        }
         if (join_started && !game_connected && now - *join_started > kRequestTimeout) {
             report("could not join group " + wanted_group.value_or("?") + ": the server did not answer");
             events.push_back(CtlEvent::Error);
@@ -780,8 +838,12 @@ struct Client::Impl {
             offset += socket.partial_size;
             trace("relay < pdp " + std::to_string(handle) + " from " + format_mac(datagram.source) + " port " +
                   std::to_string(datagram.port) + " size " + std::to_string(datagram.data.size()));
+            ++traffic.packets_in;
+            traffic.bytes_in += datagram.data.size();
+            heard[datagram.source] = Clock::now();
             if (socket.received_bytes + datagram.data.size() > socket.capacity) {
                 trace("pdp " + std::to_string(handle) + " buffer full; datagram dropped");
+                ++dropped;
                 continue;
             }
             socket.received_bytes += datagram.data.size();
@@ -916,10 +978,126 @@ struct Client::Impl {
             if (in.size() - offset - relay::kPtpHeaderSize < size) break;
             socket.received.append(in.data() + offset + relay::kPtpHeaderSize, size);
             socket.received_total += size;
+            ++traffic.packets_in;
+            traffic.bytes_in += size;
+            heard[socket.peer] = Clock::now();
             offset += relay::kPtpHeaderSize + size;
             trace("relay < ptp " + std::to_string(handle) + " data " + std::to_string(size));
         }
         in.erase(0, offset);
+    }
+
+    std::optional<double> ctl_rtt_ms() const {
+        if (!ctl.open) return std::nullopt;
+#if defined(__APPLE__) && defined(TCP_CONNECTION_INFO)
+        tcp_connection_info info{};
+        socklen_t length = sizeof(info);
+        if (getsockopt(ctl.socket, IPPROTO_TCP, TCP_CONNECTION_INFO, &info, &length) == 0 && info.tcpi_srtt != 0u)
+            return static_cast<double>(info.tcpi_srtt);
+#elif defined(__linux__) && defined(TCP_INFO)
+        tcp_info info{};
+        socklen_t length = sizeof(info);
+        if (getsockopt(ctl.socket, IPPROTO_TCP, TCP_INFO, &info, &length) == 0 && info.tcpi_rtt != 0u)
+            return static_cast<double>(info.tcpi_rtt) / 1000.0;
+#endif
+        return std::nullopt;
+    }
+
+    // Copies the state the network panel shows. Runs on the network thread
+    // with `mutex` held.
+    void publish() {
+        const auto now = Clock::now();
+        const auto ms = [&](Clock::time_point since) {
+            return static_cast<std::uint64_t>(std::chrono::duration_cast<milliseconds>(now - since).count());
+        };
+        Diagnostics d;
+        d.active = active;
+        d.server = identity.server;
+        d.server_address = server && ctl.open ? server->describe() : std::string{};
+        d.nickname = identity.nickname;
+        d.mac = identity.mac;
+        d.product = identity.product;
+        d.state = !active || identity.server.empty() ? ServerState::Off
+                  : logged_in                        ? ServerState::Online
+                                                     : ServerState::Connecting;
+        d.failed_attempts = failed_attempts;
+        d.reconnects = reconnects;
+        d.last_error = last_error;
+        if (online_since) d.online_ms = ms(*online_since);
+        d.rtt_ms = ctl_rtt_ms();
+        if (game_connected && wanted_group) d.group = wanted_group;
+        else if (wanted_group) d.joining = wanted_group;
+        if (lost_since) d.rejoin_ms = ms(*lost_since);
+        for (const auto &[mac, entry] : peers) {
+            PeerSummary peer;
+            peer.mac = mac;
+            peer.nickname = entry.peer.nickname;
+            const auto joined = Clock::time_point(milliseconds(entry.peer.joined_ms));
+            peer.in_group_ms = ms(joined);
+            if (const auto found = heard.find(mac); found != heard.end()) peer.last_heard_ms = ms(found->second);
+            d.peers.push_back(peer);
+        }
+        for (const auto &[handle, socket] : datagrams) {
+            if (socket.closing) continue;
+            SocketSummary summary;
+            summary.kind = "PDP";
+            summary.handle = handle;
+            summary.port = socket.port;
+            summary.relay_linked = socket.link.open;
+            summary.state = socket.link.open ? "linked" : (joined ? "linking" : "waiting for a group");
+            d.sockets.push_back(summary);
+            ++d.relay_links_wanted;
+            if (socket.link.open) ++d.relay_links_up;
+        }
+        for (const auto &[handle, socket] : streams) {
+            if (socket.closing) continue;
+            SocketSummary summary;
+            summary.kind = socket.kind == StreamKind::Listen    ? "PTP listen"
+                           : socket.kind == StreamKind::Connect ? "PTP open"
+                                                                : "PTP accepted";
+            summary.handle = handle;
+            summary.port = socket.local_port;
+            summary.relay_linked = socket.link.open;
+            if (socket.kind != StreamKind::Listen) {
+                summary.peer = socket.peer;
+                summary.peer_port = socket.peer_port;
+            }
+            switch (socket.state) {
+            case StreamState::Closed: summary.state = "closed"; break;
+            case StreamState::Listening:
+                summary.state = std::string(socket.link.open ? "listening" : "linking") +
+                                (socket.backlog.empty() ? "" : ", " + std::to_string(socket.backlog.size()) +
+                                                                   " waiting");
+                break;
+            case StreamState::Opening: summary.state = "connecting"; break;
+            case StreamState::Established: summary.state = "established"; break;
+            case StreamState::Failed: summary.state = "refused"; break;
+            case StreamState::Disconnected: summary.state = "disconnected"; break;
+            }
+            d.sockets.push_back(summary);
+            if (socket.state == StreamState::Listening || socket.state == StreamState::Established ||
+                socket.state == StreamState::Opening) {
+                ++d.relay_links_wanted;
+                if (socket.link.open) ++d.relay_links_up;
+            }
+        }
+        d.total = traffic;
+        const double seconds = std::chrono::duration<double>(now - snapshot_at).count();
+        if (seconds > 0.0 && snapshot_at != Clock::time_point{}) {
+            const auto rate = [&](std::uint64_t current, std::uint64_t previous) {
+                return static_cast<std::uint64_t>(static_cast<double>(current - previous) / seconds + 0.5);
+            };
+            d.per_second.packets_in = rate(traffic.packets_in, snapshot_traffic.packets_in);
+            d.per_second.packets_out = rate(traffic.packets_out, snapshot_traffic.packets_out);
+            d.per_second.bytes_in = rate(traffic.bytes_in, snapshot_traffic.bytes_in);
+            d.per_second.bytes_out = rate(traffic.bytes_out, snapshot_traffic.bytes_out);
+        }
+        d.dropped = dropped;
+        d.timeouts = timeouts;
+        snapshot_at = now;
+        snapshot_traffic = traffic;
+        std::lock_guard lock(snapshot_mutex);
+        snapshot = std::move(d);
     }
 
     // The network thread. Holds the lock except in poll() and name lookups.
@@ -992,6 +1170,7 @@ struct Client::Impl {
                 if (!socket.link.input.empty()) parse_datagrams(handle, socket);
             for (auto &[handle, socket] : streams)
                 if (!socket.link.input.empty()) parse_stream(handle, socket);
+            if (Clock::now() - snapshot_at >= milliseconds(250)) publish();
         }
         std::lock_guard lock(mutex);
         ctl.close();
@@ -1008,12 +1187,99 @@ Client &Client::get() {
 Client::Client() : impl_(std::make_unique<Impl>()) {}
 Client::~Client() = default;
 
-bool Client::tracing() {
-    static const bool enabled = [] {
-        const char *text = std::getenv("MHP3RD_TRACE_ADHOC");
-        return text != nullptr && *text != '\0' && std::strcmp(text, "0") != 0;
-    }();
-    return enabled;
+bool Client::tracing() { return tracing_flag().load(std::memory_order_relaxed); }
+
+void Client::set_tracing(bool enabled) {
+    tracing_flag() = enabled;
+    log(std::string("[adhoc] tracing ") + (enabled ? "on" : "off"), true);
+}
+
+void Client::log(const std::string &line, bool print) {
+    LogBuffer &buffer = log_buffer();
+    std::lock_guard lock(buffer.mutex);
+    if (print || tracing()) std::cerr << line << std::endl;
+    buffer.lines.push_back(wall_clock() + " " + line);
+    if (buffer.lines.size() > kLogLines) buffer.lines.pop_front();
+}
+
+Diagnostics Client::diagnostics() const {
+    std::lock_guard lock(impl_->snapshot_mutex);
+    return impl_->snapshot;
+}
+
+void Client::reconnect_now() {
+    std::lock_guard lock(impl_->mutex);
+    impl_->reconnect_requested = true;
+}
+
+void Client::disconnect_now() {
+    std::lock_guard lock(impl_->mutex);
+    Impl &s = *impl_;
+    if (!s.game_connected && !s.wanted_group) return;
+    report("disconnecting from the group, as asked");
+    if (s.logged_in) s.send_ctl(ctl::opcode_only(ctl::kDisconnect), "disconnect");
+    s.lose_group_for_good();
+}
+
+void Client::note_timeout() {
+    std::lock_guard lock(impl_->mutex);
+    ++impl_->timeouts;
+}
+
+std::filesystem::path Client::save_log(const std::filesystem::path &dir) const {
+    const Diagnostics d = diagnostics();
+    std::vector<std::string> lines;
+    {
+        LogBuffer &buffer = log_buffer();
+        std::lock_guard lock(buffer.mutex);
+        lines.assign(buffer.lines.begin(), buffer.lines.end());
+    }
+    const std::time_t now = std::time(nullptr);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &now);
+#else
+    localtime_r(&now, &tm);
+#endif
+    char name[64];
+    std::strftime(name, sizeof(name), "adhoc-%Y%m%d-%H%M%S.log", &tm);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::filesystem::path path = dir / name;
+    for (int suffix = 2; std::filesystem::exists(path, ec) && suffix < 100; ++suffix)
+        path = dir / (std::string(name).substr(0, std::strlen(name) - 4u) + "-" + std::to_string(suffix) + ".log");
+    std::ofstream out(path, std::ios::binary);
+    if (!out) return {};
+    const auto state = [](ServerState value) {
+        switch (value) {
+        case ServerState::Off: return "off";
+        case ServerState::Connecting: return "connecting";
+        case ServerState::Online: return "online";
+        }
+        return "?";
+    };
+    out << "Yakumo ad hoc log\n\n";
+    out << "server: " << (d.server.empty() ? "(none)" : d.server) << " -> "
+        << (d.server_address.empty() ? "-" : d.server_address) << "\n";
+    out << "state: " << state(d.state) << ", failed attempts " << d.failed_attempts << ", reconnects " << d.reconnects
+        << ", last error: " << (d.last_error.empty() ? "-" : d.last_error) << "\n";
+    out << "me: " << format_mac(d.mac) << " \"" << d.nickname << "\" " << d.product << "\n";
+    if (d.rtt_ms) out << "round trip: " << *d.rtt_ms << " ms\n";
+    out << "group: " << d.group.value_or(d.joining ? *d.joining + " (joining)" : "-") << "\n";
+    for (const PeerSummary &peer : d.peers)
+        out << "peer: " << format_mac(peer.mac) << " \"" << peer.nickname << "\" in group " << peer.in_group_ms
+            << " ms, heard " << (peer.last_heard_ms ? std::to_string(*peer.last_heard_ms) + " ms ago" : "never")
+            << "\n";
+    for (const SocketSummary &socket : d.sockets)
+        out << "socket " << socket.handle << ": " << socket.kind << " port " << socket.port << " " << socket.state
+            << (socket.peer ? " peer " + format_mac(*socket.peer) + " port " + std::to_string(socket.peer_port) : "")
+            << "\n";
+    out << "traffic: in " << d.total.packets_in << " packets / " << d.total.bytes_in << " bytes, out "
+        << d.total.packets_out << " packets / " << d.total.bytes_out << " bytes; dropped " << d.dropped
+        << ", timeouts " << d.timeouts << "\n\n";
+    for (const std::string &line : lines) out << line << "\n";
+    if (!out) return {};
+    return path;
 }
 
 void Client::start(const Identity &identity) {
@@ -1032,8 +1298,12 @@ void Client::start(const Identity &identity) {
     s.ctl_backoff.reset();
     s.ctl_retry_at = Clock::now();
     s.failed_attempts = 0;
+    // A group left this way is a normal disconnect to the game.
+    if (s.game_connected) s.events.push_back(CtlEvent::Disconnected);
     s.game_connected = false;
     s.wanted_group.reset();
+    s.join_started.reset();
+    s.lost_since.reset();
     s.clear_group_state();
     s.close_relay_links(true);
     if (identity.server.empty()) report("no ad hoc server is configured; ad hoc play is offline");
@@ -1180,14 +1450,21 @@ bool Client::pdp_send(int handle, const Mac &destination, std::uint16_t port, co
     DatagramSocket &socket = found->second;
     if (!socket.link.active() || !s.joined) {
         trace("pdp " + std::to_string(handle) + " not linked; datagram to " + format_mac(destination) + " dropped");
+        ++s.dropped;
         return true;
     }
-    if (size > relay::kPdpBlockMax) return true;
+    if (size > relay::kPdpBlockMax) {
+        ++s.dropped;
+        return true;
+    }
     const auto queue = [&](const Mac &target) {
         if (socket.link.output.size() > kMaxQueuedOutput) {
             trace("pdp " + std::to_string(handle) + " send queue full; datagram dropped");
+            ++s.dropped;
             return;
         }
+        ++s.traffic.packets_out;
+        s.traffic.bytes_out += size;
         socket.link.output += relay::pdp_header(target, port, static_cast<std::uint32_t>(size));
         socket.link.output.append(static_cast<const char *>(data), size);
         trace("relay > pdp " + std::to_string(handle) + " to " + format_mac(target) + " port " + std::to_string(port) +
@@ -1331,6 +1608,10 @@ std::size_t Client::ptp_send(int handle, const void *data, std::size_t size) {
         done += block;
     }
     socket.sent_total += count;
+    if (count != 0u) {
+        ++impl_->traffic.packets_out;
+        impl_->traffic.bytes_out += count;
+    }
     if (count != 0u) trace("relay > ptp " + std::to_string(handle) + " data " + std::to_string(count));
     return count;
 }
