@@ -11,7 +11,7 @@ The game boots, loads its overlays, creates a character, walks the village and p
 | Code | The whole executable (362 478 instructions, 89 units) and all 355 code overlays are recompiled ahead of time; an interpreter covers anything they miss |
 | Kernel | Threads with a deterministic virtual clock, semaphores, event flags, mutexes, callbacks, VTimers, partition memory, VBlank interrupts, file I/O straight from the disc image |
 | Imports | 185 of 296 implemented; the rest are logging stubs that return 0 |
-| Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, blending, depth and alpha test, sprites, per-framebuffer render targets |
+| Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, per-vertex lighting (four directional, point or spot lights and the full material model) and fog, blending, depth and alpha test, sprites, per-framebuffer render targets |
 | Audio | `sceSasCore` voice mixing, `sceAudio` output and ATRAC3 music through `sceAtrac3plus` |
 | Movies | PSMF playback through `sceMpeg` and `sceJpegCsc`: H.264 video and ATRAC3plus sound |
 | Input | Keyboard and SDL3 gamepads, including the HD release's second analog stick |
@@ -20,7 +20,6 @@ The game boots, loads its overlays, creates a character, walks the village and p
 
 Not done yet:
 
-- **Lighting and fog.** Lit geometry is drawn with a flat white stand-in, which is why scenes look flatter than they should and coloured markers over NPCs come out white.
 - **Curved surfaces** (Bézier and spline patches).
 - **Frame pacing.** Nothing ties emulation to real time. Presentation is capped at the 60 Hz refresh while the game targets 30, so audio runs ahead of the picture and roughly half of it is dropped. `MHP3RD_TRACE_AUDIO=1` reports the drops; `MHP3RD_AUDIO_DUMP` keeps the whole stream.
 - **Networking.**
@@ -321,6 +320,8 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either. Emulated time is not held to real time |
 | `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn (menu: Game speed) |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
+| `MHP3RD_NO_LIGHTING` | off | Draw lit geometry with the flat white stand-in used before lighting existed, and without fog, to compare a scene with and without them |
+| `MHP3RD_NO_FOG` | off | Turn fog off and keep lighting |
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
 | `MHP3RD_PERF` | off | `1` shows the performance overlay and logs frame statistics once per second; `log` only logs them (menu: Performance). See [Performance statistics](#performance-statistics) |

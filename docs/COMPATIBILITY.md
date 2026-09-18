@@ -18,7 +18,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Character creation | ✅ | ❔ | ✅ | ❔ |
 | Village | ❔ re-check since the #7 fix | ❔ | ✅ | ❔ |
 | Hunts | ✅ | ❔ | ✅ | ❔ |
-| Graphics | ⚠️ no lighting or fog [#3] | ❔ | ⚠️ no lighting or fog [#3] | ❔ |
+| Graphics | ✅ lighting and fog in character creation and the village | ❔ | ⚠️ no lighting or fog before [#3]; not re-checked since | ❔ |
 | Sound effects | ⚠️ run ahead of the picture [#4] | ❔ | ❔ | ❔ |
 | Music | ✅ with FFmpeg | ❔ | ❔ | ❔ |
 | Cutscene movies | ✅ with FFmpeg; the opening movie checked | ❔ | ❔ | ❔ |

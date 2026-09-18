@@ -22,7 +22,7 @@ Before you start, write down the commit you are testing: `git rev-parse --short 
 | 4 | In character creation, change each option | The character model is whole and textured, animates, and changes with each option |
 | 5 | Enter a name, confirm, and save to a slot when asked | The console logs `[savedata] saved … ULJM05800 (encrypted)` and the game moves on to the hot spring scene |
 | 6 | Watch the hot spring scene | Water, steam and the waterfall draw correctly; characters have soft shadows, not white patches |
-| 7 | Talk through the scene and walk out | The village loads; the marker over an NPC is white rather than red (see #3) |
+| 7 | Talk through the scene and walk out | The village loads; the marker over an NPC's head is red, characters are shaded, and distant geometry fades into the fog |
 | 8 | Walk around the village | Everything draws; it runs slower than elsewhere (see #7) |
 | 9 | Take a quest and depart | The quest map loads with the HUD, the minimap and the character's weapon |
 | 10 | Hunt a small monster | Monsters appear and animate; attacks, hits and sound effects work |
