@@ -2,6 +2,8 @@
 
 layout(location = 0) in vec2 frag_texcoord;
 layout(location = 1) in vec4 frag_color;
+layout(location = 2) in vec3 frag_specular;
+layout(location = 3) in float frag_fog;
 layout(location = 0) out vec4 out_color;
 
 layout(set = 0, binding = 0) uniform sampler2D guest_texture;
@@ -12,6 +14,20 @@ layout(push_constant) uniform Push {
     vec4 texture_params; // x: texture enabled, y: texture function, z: alpha ref, w: alpha func
     vec4 uv_transform;
 } push;
+
+// Only the fog colour is read here; the block is described in ge.vert.
+layout(set = 1, binding = 0) uniform Lighting {
+    mat4 world;
+    vec4 view_z;
+    vec4 flags;
+    vec4 emissive;
+    vec4 material_ambient;
+    vec4 material_diffuse;
+    vec4 material_specular;
+    vec4 ambient;
+    vec4 fog;
+    vec4 fog_color;
+} lighting;
 
 void main() {
     vec4 color = frag_color;
@@ -28,6 +44,11 @@ void main() {
             color = texel;
         }
     }
+
+    // A separate specular term is added after texturing, then fog blends
+    // towards its colour; neither touches alpha.
+    color.rgb = min(color.rgb + frag_specular, vec3(1.0));
+    if (lighting.flags.z > 0.5) color.rgb = mix(lighting.fog_color.rgb, color.rgb, clamp(frag_fog, 0.0, 1.0));
 
     // PSP alpha test, evaluated per fragment.
     int alpha_function = int(push.texture_params.w + 0.5);

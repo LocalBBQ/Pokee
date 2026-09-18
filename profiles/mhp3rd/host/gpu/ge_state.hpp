@@ -110,6 +110,45 @@ struct ViewportState {
     float offset_x{}, offset_y{};  // screen-space origin, 16 bits with 4 fractional
 };
 
+// One of the GE's four lights. The register layout below was read off the
+// running game with MHP3RD_TRACE_LIGHTING, not taken from a reference table.
+struct LightState {
+    bool enabled{};
+    std::uint32_t kind{};         // bits 0..1: diffuse, diffuse + specular, powered diffuse
+    std::uint32_t type{};         // bits 8..9: directional, point, spot
+    std::array<float, 3> position{};   // the direction towards the light, for a directional one
+    std::array<float, 3> direction{};  // spot axis
+    std::array<float, 3> attenuation{1.0f, 0.0f, 0.0f};  // constant, linear, quadratic
+    float spot_exponent{};
+    float spot_cutoff{};          // cosine of the cone's half angle
+    std::uint32_t ambient{};      // 0x00BBGGRR, as every colour register
+    std::uint32_t diffuse{};
+    std::uint32_t specular{};
+};
+
+// Material and light registers a lit draw is evaluated with. The material
+// ambient colour and alpha stay in DrawCall::material_color, which unlit draws
+// use as well.
+struct LightingState {
+    std::uint32_t material_update{};     // 0x53: which terms the vertex colour replaces
+    std::uint32_t material_emissive{};   // 0x54
+    std::uint32_t material_diffuse{};    // 0x56
+    std::uint32_t material_specular{};   // 0x57
+    float specular_power{1.0f};          // 0x5B
+    std::uint32_t ambient_color{};       // 0x5C: global ambient light
+    std::uint32_t ambient_alpha{0xFFu};  // 0x5D
+    std::uint32_t mode{};                // 0x5E: 1 keeps specular apart, added after texturing
+    bool reverse_normals{};              // 0x51
+    std::array<LightState, 4> lights{};
+};
+
+struct FogState {
+    bool enabled{};
+    float end{};    // 0xCD: fog is complete at this view distance
+    float scale{};  // 0xCE: 1 / (end - start)
+    std::uint32_t color{};
+};
+
 // A draw call: decoded vertices plus the state they are drawn with.
 struct DrawCall {
     PrimitiveType primitive{};
@@ -129,6 +168,9 @@ struct DrawCall {
     std::uint32_t vertex_type{};
     std::uint32_t material_color{0xFFFFFFFFu};
     bool lighting_enabled{};
+    bool has_vertex_color{};             // the vertex type carries a colour
+    LightingState lighting;
+    FogState fog;
     std::array<float, 16> world{};
     std::array<float, 16> view{};
     std::array<float, 16> projection{};
@@ -177,6 +219,8 @@ private:
     std::uint32_t clear_flags_{};
     std::uint32_t material_color_{0xFFFFFFFFu};
     bool lighting_enabled_{};
+    LightingState lighting_{};
+    FogState fog_{};
     std::uint32_t vertex_type_{};
     std::uint32_t vertex_address_{};
     std::uint32_t index_address_{};

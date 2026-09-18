@@ -47,7 +47,39 @@ struct GpuVertex {
     float x{}, y{}, z{}, w{1.0f};
     float u{}, v{};
     std::uint32_t color{};
+    float nx{}, ny{}, nz{};
 };
+
+// Per-draw lighting and fog state, laid out as the std140 `Lighting` block in
+// ge.vert. It lives in the vertex buffer, next to the vertices it lights, and
+// is bound through a dynamic uniform buffer offset.
+struct LightingBlock {
+    std::array<float, 16> world{};
+    std::array<float, 4> view_z{};
+    std::array<float, 4> flags{};             // lighting, vertex colour, fog, material update mask
+    std::array<float, 4> emissive{};          // w: specular power
+    std::array<float, 4> material_ambient{};
+    std::array<float, 4> material_diffuse{};  // w: separate specular
+    std::array<float, 4> material_specular{}; // w: reverse normals
+    std::array<float, 4> ambient{};
+    std::array<float, 4> fog{};
+    std::array<float, 4> fog_color{};
+    std::array<std::array<float, 4>, 4> light_position{};
+    std::array<std::array<float, 4>, 4> light_direction{};
+    std::array<std::array<float, 4>, 4> light_attenuation{};
+    std::array<std::array<float, 4>, 4> light_spot{};
+    std::array<std::array<float, 4>, 4> light_ambient{};
+    std::array<std::array<float, 4>, 4> light_diffuse{};
+    std::array<std::array<float, 4>, 4> light_specular{};
+};
+
+static_assert(sizeof(LightingBlock) == 656u, "LightingBlock must match the std140 layout in ge.vert");
+
+// A GE colour register (0x00BBGGRR) as 0..1 floats, with an explicit alpha.
+std::array<float, 4> unpack_color(std::uint32_t color, float alpha = 1.0f) {
+    return {static_cast<float>(color & 0xFFu) / 255.0f, static_cast<float>((color >> 8u) & 0xFFu) / 255.0f,
+            static_cast<float>((color >> 16u) & 0xFFu) / 255.0f, alpha};
+}
 
 // Pipeline variants the GE state can produce.
 struct PipelineKey {
@@ -417,6 +449,9 @@ struct VulkanRenderer::Impl {
     VkPipelineLayout pipeline_layout{};
     VkDescriptorSetLayout descriptor_layout{};
     VkDescriptorPool descriptor_pool{};
+    VkDescriptorSetLayout lighting_layout{};
+    VkDescriptorSet lighting_descriptor{};
+    VkDeviceSize uniform_alignment{256u};
     VkSampler sampler{};        // linear
     VkSampler sharp_sampler{};  // nearest, for the sharp texture setting
     std::map<PipelineKey, VkPipeline> pipelines;
@@ -425,6 +460,11 @@ struct VulkanRenderer::Impl {
     VkDeviceMemory vertex_memory{};
     void *vertex_mapped{};
     VkDeviceSize vertex_offset{};
+    // The lighting block most recently written this frame, reused while the
+    // state stays the same; begin_frame() drops it with the vertex buffer.
+    LightingBlock last_lighting{};
+    VkDeviceSize last_lighting_offset{};
+    bool last_lighting_valid{};
 
     Texture white_texture{};
     std::map<std::uint64_t, Texture> textures;
@@ -793,13 +833,29 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                "vkCreateDescriptorSetLayout", error))
         return false;
 
-    VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                   static_cast<std::uint32_t>(kMaxCachedTextures + 1u)};
+    // Set 1: the per-draw lighting block, a window into the vertex buffer.
+    VkDescriptorSetLayoutBinding lighting_binding{};
+    lighting_binding.binding = 0u;
+    lighting_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    lighting_binding.descriptorCount = 1u;
+    lighting_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo lighting_layout_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    lighting_layout_info.bindingCount = 1u;
+    lighting_layout_info.pBindings = &lighting_binding;
+    if (!check(vkCreateDescriptorSetLayout(impl.device, &lighting_layout_info, nullptr, &impl.lighting_layout),
+               "vkCreateDescriptorSetLayout", error))
+        return false;
+
+    const std::array<VkDescriptorPoolSize, 2> pool_sizes{
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                             static_cast<std::uint32_t>(kMaxCachedTextures + 1u)},
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1u},
+    };
     VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_info.maxSets = static_cast<std::uint32_t>(kMaxCachedTextures + 1u);
-    pool_info.poolSizeCount = 1u;
-    pool_info.pPoolSizes = &pool_size;
+    pool_info.maxSets = static_cast<std::uint32_t>(kMaxCachedTextures + 2u);
+    pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
+    pool_info.pPoolSizes = pool_sizes.data();
     if (!check(vkCreateDescriptorPool(impl.device, &pool_info, nullptr, &impl.descriptor_pool),
                "vkCreateDescriptorPool", error))
         return false;
@@ -807,8 +863,9 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     VkPushConstantRange push_range{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u,
                                    sizeof(PushConstants)};
     VkPipelineLayoutCreateInfo pipeline_layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    pipeline_layout_info.setLayoutCount = 1u;
-    pipeline_layout_info.pSetLayouts = &impl.descriptor_layout;
+    const std::array<VkDescriptorSetLayout, 2> set_layouts{impl.descriptor_layout, impl.lighting_layout};
+    pipeline_layout_info.setLayoutCount = static_cast<std::uint32_t>(set_layouts.size());
+    pipeline_layout_info.pSetLayouts = set_layouts.data();
     pipeline_layout_info.pushConstantRangeCount = 1u;
     pipeline_layout_info.pPushConstantRanges = &push_range;
     if (!check(vkCreatePipelineLayout(impl.device, &pipeline_layout_info, nullptr, &impl.pipeline_layout),
@@ -852,7 +909,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = kVertexBufferBytes;
-    buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!check(vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.vertex_buffer), "vkCreateBuffer", error))
         return false;
@@ -866,6 +923,26 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         return false;
     vkBindBufferMemory(impl.device, impl.vertex_buffer, impl.vertex_memory, 0u);
     vkMapMemory(impl.device, impl.vertex_memory, 0u, kVertexBufferBytes, 0u, &impl.vertex_mapped);
+
+    {
+        VkPhysicalDeviceProperties device_properties{};
+        vkGetPhysicalDeviceProperties(impl.physical_device, &device_properties);
+        impl.uniform_alignment = std::max<VkDeviceSize>(device_properties.limits.minUniformBufferOffsetAlignment, 16u);
+        VkDescriptorSetAllocateInfo lighting_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        lighting_info.descriptorPool = impl.descriptor_pool;
+        lighting_info.descriptorSetCount = 1u;
+        lighting_info.pSetLayouts = &impl.lighting_layout;
+        if (!check(vkAllocateDescriptorSets(impl.device, &lighting_info, &impl.lighting_descriptor),
+                   "vkAllocateDescriptorSets", error))
+            return false;
+        VkDescriptorBufferInfo lighting_buffer{impl.vertex_buffer, 0u, sizeof(LightingBlock)};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = impl.lighting_descriptor;
+        write.descriptorCount = 1u;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        write.pBufferInfo = &lighting_buffer;
+        vkUpdateDescriptorSets(impl.device, 1u, &write, 0u, nullptr);
+    }
 
     const std::uint32_t white = 0xFFFFFFFFu;
     impl.white_texture = impl.create_texture(1u, 1u, &white);
@@ -1508,10 +1585,11 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
     stages[1].module = fragment_shader;
 
     VkVertexInputBindingDescription binding{0u, sizeof(GpuVertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    std::array<VkVertexInputAttributeDescription, 3> attributes{
+    std::array<VkVertexInputAttributeDescription, 4> attributes{
         VkVertexInputAttributeDescription{0u, 0u, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(GpuVertex, x)},
         VkVertexInputAttributeDescription{1u, 0u, VK_FORMAT_R32G32_SFLOAT, offsetof(GpuVertex, u)},
         VkVertexInputAttributeDescription{2u, 0u, VK_FORMAT_R8G8B8A8_UNORM, offsetof(GpuVertex, color)},
+        VkVertexInputAttributeDescription{3u, 0u, VK_FORMAT_R32G32B32_SFLOAT, offsetof(GpuVertex, nx)},
     };
     VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vertex_input.vertexBindingDescriptionCount = 1u;
@@ -1943,6 +2021,7 @@ void VulkanRenderer::begin_frame() {
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(impl.command_buffer, &begin);
     impl.vertex_offset = 0u;
+    impl.last_lighting_valid = false;
     impl.pass_active = false;
     impl.recording = true;
 }
@@ -2021,13 +2100,16 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // both their colour and the alpha that makes them faint.
     //
     // Only unlit draws, though. Lighting on means the material colour is one term
-    // of a sum the lights complete: handing it over as the finished colour was
-    // tried, and it turned every character a flat muddy brown. Lit geometry
-    // keeps the white stand-in until there is real lighting — which is also why
-    // the red marker over an NPC's head still comes out white.
+    // of a sum the lights complete, which the vertex shader evaluates; handing
+    // it over as the finished colour turned every character a flat muddy brown.
+    // MHP3RD_NO_LIGHTING leaves lit geometry with the old white stand-in and
+    // turns fog off too, which is how everything was drawn before either
+    // existed; MHP3RD_NO_FOG turns off fog alone.
     static const bool no_material_color = std::getenv("MHP3RD_NO_MATERIAL_COLOR") != nullptr;
-    const bool use_material_color =
-        !no_material_color && ((call.vertex_type >> 2u) & 7u) == 0u && !call.lighting_enabled;
+    static const bool no_lighting = std::getenv("MHP3RD_NO_LIGHTING") != nullptr;
+    static const bool no_fog = no_lighting || std::getenv("MHP3RD_NO_FOG") != nullptr;
+    const bool lit = call.lighting_enabled && !no_lighting && !call.through && !call.clear_mode;
+    const bool use_material_color = !no_material_color && !call.has_vertex_color && !call.lighting_enabled;
     const auto push_vertex = [&](const Vertex &vertex) {
         GpuVertex out{};
         out.x = vertex.position[0];
@@ -2036,6 +2118,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         out.u = vertex.texcoord[0];
         out.v = vertex.texcoord[1];
         out.color = use_material_color ? call.material_color : vertex.color;
+        out.nx = vertex.normal[0];
+        out.ny = vertex.normal[1];
+        out.nz = vertex.normal[2];
         impl.scratch.push_back(out);
     };
     const auto vertex_at = [&](std::size_t index) -> const Vertex & {
@@ -2080,6 +2165,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             // its first vertex carries z = 0 and only the second the clear depth.
             a.position[2] = b.position[2];
             a.color = b.color;
+            a.normal = b.normal;
             Vertex top_right = b;
             top_right.position[1] = a.position[1];
             top_right.texcoord[1] = a.texcoord[1];
@@ -2208,8 +2294,69 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         }
     }
 
+    // The lighting block goes into the vertex buffer ahead of the vertices,
+    // unless the previous draw left an identical one. Unlit, unfogged draws all
+    // share a block of zeros apart from the world matrix, which they ignore.
+    LightingBlock block{};
+    const bool fogged = call.fog.enabled && !no_fog && !call.through && !call.clear_mode;
+    if (lit || fogged) {
+        const LightingState &state = call.lighting;
+        block.world = call.world;
+        const auto view_world = multiply(call.view, call.world);
+        block.view_z = {view_world[2], view_world[6], view_world[10], view_world[14]};
+        block.flags = {lit ? 1.0f : 0.0f, call.has_vertex_color ? 1.0f : 0.0f, fogged ? 1.0f : 0.0f,
+                       static_cast<float>(state.material_update)};
+        block.emissive = unpack_color(state.material_emissive, state.specular_power);
+        block.material_ambient =
+            unpack_color(call.material_color, static_cast<float>(call.material_color >> 24u) / 255.0f);
+        block.material_diffuse = unpack_color(state.material_diffuse, static_cast<float>(state.mode));
+        block.material_specular = unpack_color(state.material_specular, state.reverse_normals ? 1.0f : 0.0f);
+        block.ambient = unpack_color(state.ambient_color, static_cast<float>(state.ambient_alpha) / 255.0f);
+        block.fog = {call.fog.end, call.fog.scale, 0.0f, 0.0f};
+        block.fog_color = unpack_color(call.fog.color);
+        for (std::size_t i = 0; i < state.lights.size(); ++i) {
+            const LightState &light = state.lights[i];
+            block.light_position[i] = {light.position[0], light.position[1], light.position[2],
+                                       light.enabled ? 1.0f : 0.0f};
+            block.light_direction[i] = {light.direction[0], light.direction[1], light.direction[2],
+                                        static_cast<float>(light.type)};
+            block.light_attenuation[i] = {light.attenuation[0], light.attenuation[1], light.attenuation[2],
+                                          static_cast<float>(light.kind)};
+            block.light_spot[i] = {light.spot_exponent, light.spot_cutoff, 0.0f, 0.0f};
+            block.light_ambient[i] = unpack_color(light.ambient);
+            block.light_diffuse[i] = unpack_color(light.diffuse);
+            block.light_specular[i] = unpack_color(light.specular);
+        }
+        if (!lit) {
+            // Fog alone needs only the view-space z row.
+            const auto keep_view_z = block.view_z;
+            const auto keep_fog = block.fog;
+            const auto keep_fog_color = block.fog_color;
+            block = LightingBlock{};
+            block.view_z = keep_view_z;
+            block.flags[2] = 1.0f;
+            block.fog = keep_fog;
+            block.fog_color = keep_fog_color;
+        }
+    }
+    const bool reuse_lighting =
+        impl.last_lighting_valid && std::memcmp(&block, &impl.last_lighting, sizeof(block)) == 0;
+    VkDeviceSize lighting_offset = impl.last_lighting_offset;
+    VkDeviceSize vertex_start = impl.vertex_offset;
+    if (!reuse_lighting) {
+        lighting_offset = (impl.vertex_offset + impl.uniform_alignment - 1u) / impl.uniform_alignment *
+                          impl.uniform_alignment;
+        vertex_start = lighting_offset + sizeof(LightingBlock);
+    }
     const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
-    if (impl.vertex_offset + bytes > kVertexBufferBytes) return;
+    if (vertex_start + bytes > kVertexBufferBytes) return;
+    if (!reuse_lighting) {
+        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + lighting_offset, &block, sizeof(block));
+        impl.last_lighting = block;
+        impl.last_lighting_offset = lighting_offset;
+        impl.last_lighting_valid = true;
+        impl.vertex_offset = vertex_start;
+    }
     std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
                 static_cast<std::size_t>(bytes));
 
@@ -2333,6 +2480,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     vkCmdBindPipeline(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdBindDescriptorSets(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.pipeline_layout, 0u, 1u,
                             &texture.descriptor, 0u, nullptr);
+    const auto dynamic_offset = static_cast<std::uint32_t>(lighting_offset);
+    vkCmdBindDescriptorSets(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.pipeline_layout, 1u, 1u,
+                            &impl.lighting_descriptor, 1u, &dynamic_offset);
     vkCmdPushConstants(impl.command_buffer, impl.pipeline_layout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(push), &push);
     const VkDeviceSize offset = impl.vertex_offset;
@@ -2494,6 +2644,7 @@ void VulkanRenderer::shutdown() {
     vkDestroySampler(impl.device, impl.sharp_sampler, nullptr);
     vkDestroyDescriptorPool(impl.device, impl.descriptor_pool, nullptr);
     vkDestroyDescriptorSetLayout(impl.device, impl.descriptor_layout, nullptr);
+    vkDestroyDescriptorSetLayout(impl.device, impl.lighting_layout, nullptr);
     vkDestroyPipelineLayout(impl.device, impl.pipeline_layout, nullptr);
     vkDestroyShaderModule(impl.device, impl.vertex_shader, nullptr);
     vkDestroyShaderModule(impl.device, impl.fragment_shader, nullptr);

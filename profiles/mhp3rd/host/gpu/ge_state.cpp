@@ -30,8 +30,10 @@ enum Command : std::uint32_t {
     kOffsetAddress = 0x13,
     kOrigin = 0x14,
     kLightingEnable = 0x17,
+    kLightEnable0 = 0x18,  // to 0x1B, one per light
     kCullFaceEnable = 0x1D,
     kTextureMapEnable = 0x1E,
+    kFogEnable = 0x1F,
     kAlphaBlendEnable = 0x21,
     kAlphaTestEnable = 0x22,
     kDepthTestEnable = 0x23,
@@ -61,8 +63,32 @@ enum Command : std::uint32_t {
     // mask (3 and 7), 0x55 and 0x56 carry colours, 0x58 carries an alpha (0 and
     // 0xFF) and 0x5B a float. That fixes the run as update, emissive, ambient,
     // diffuse, specular, alpha — and an unlit draw takes ambient and alpha.
+    kReverseNormal = 0x51,
+    kMaterialUpdate = 0x53,
+    kMaterialEmissive = 0x54,
     kMaterialAmbient = 0x55,
+    kMaterialDiffuse = 0x56,
+    kMaterialSpecular = 0x57,
     kMaterialAlpha = 0x58,
+    kMaterialSpecularPower = 0x5B,
+    // The light block, traced the same way: 0x5C is a colour and 0x5D an
+    // alpha (0xFF); 0x5F..0x62 hold one type word per light; 0x63..0x6E three
+    // floats per light, the positions, which the game fills with unit axes such
+    // as (0, 0, 1), (1, 1, 1) and (-1, -1, -1) for its three directional
+    // lights; then directions, attenuations, spot exponents and cutoffs; and
+    // 0x8F..0x9A three colours per light — ambient 0x4C4C4C, a diffuse that
+    // the game animates, and a specular of 0 — ending right before CULL.
+    kAmbientColor = 0x5C,
+    kAmbientAlpha = 0x5D,
+    kLightMode = 0x5E,
+    kLightType0 = 0x5F,
+    kLightPosition0 = 0x63,
+    kLightDirection0 = 0x6F,
+    kLightAttenuation0 = 0x7B,
+    kSpotExponent0 = 0x87,
+    kSpotCutoff0 = 0x8B,
+    kLightColor0 = 0x8F,
+    kLightColorEnd = 0x9A,
     kCull = 0x9B,
     kFrameBufferPointer = 0x9C,
     kFrameBufferWidth = 0x9D,
@@ -81,6 +107,10 @@ enum Command : std::uint32_t {
     kTextureWrap = 0xC7,
     kTextureFunction = 0xC9,
     kTextureFlush = 0xCB,
+    // Fog: 0xCD and 0xCE are floats (65000 and 1.0 in the menus), 0xCF a colour.
+    kFogEnd = 0xCD,
+    kFogScale = 0xCE,
+    kFogColor = 0xCF,
     kFrameBufferPixelFormat = 0xD2,
     kClearMode = 0xD3,
     kScissor1 = 0xD4,
@@ -446,6 +476,24 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
 
     case kMaterialAmbient: material_color_ = (material_color_ & 0xFF000000u) | (data & 0x00FFFFFFu); break;
     case kMaterialAlpha: material_color_ = (material_color_ & 0x00FFFFFFu) | ((data & 0xFFu) << 24u); break;
+    case kReverseNormal: lighting_.reverse_normals = (data & 1u) != 0u; break;
+    case kMaterialUpdate: lighting_.material_update = data & 7u; break;
+    case kMaterialEmissive: lighting_.material_emissive = data & 0x00FFFFFFu; break;
+    case kMaterialDiffuse: lighting_.material_diffuse = data & 0x00FFFFFFu; break;
+    case kMaterialSpecular: lighting_.material_specular = data & 0x00FFFFFFu; break;
+    case kMaterialSpecularPower: lighting_.specular_power = decode_float24(data); break;
+    case kAmbientColor: lighting_.ambient_color = data & 0x00FFFFFFu; break;
+    case kAmbientAlpha: lighting_.ambient_alpha = data & 0xFFu; break;
+    case kLightMode: lighting_.mode = data & 1u; break;
+    case kLightEnable0:
+    case kLightEnable0 + 1:
+    case kLightEnable0 + 2:
+    case kLightEnable0 + 3: lighting_.lights[command - kLightEnable0].enabled = (data & 1u) != 0u; break;
+
+    case kFogEnable: fog_.enabled = (data & 1u) != 0u; break;
+    case kFogEnd: fog_.end = decode_float24(data); break;
+    case kFogScale: fog_.scale = decode_float24(data); break;
+    case kFogColor: fog_.color = data & 0x00FFFFFFu; break;
 
     case kWorldMatrixNumber: world_write_index_ = data & 0xFu; break;
     case kViewMatrixNumber: view_write_index_ = data & 0xFu; break;
@@ -486,6 +534,16 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         break;
     }
 
+    case kLightType0:
+    case kLightType0 + 1:
+    case kLightType0 + 2:
+    case kLightType0 + 3: {
+        LightState &light = lighting_.lights[command - kLightType0];
+        light.kind = data & 3u;
+        light.type = (data >> 8u) & 3u;
+        break;
+    }
+
     case kClearMode:
         // Bit 0 enables clear mode; bits 8..10 select which buffers it writes
         // (color, alpha/stencil, depth).
@@ -499,7 +557,30 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         break;
 
     default:
-        ++unhandled_commands_;
+        // The per-light runs: three floats per light for positions, directions
+        // and attenuations, one float for the spot exponent and cutoff, and
+        // three colours per light.
+        if (command >= kLightPosition0 && command < kLightDirection0) {
+            const std::uint32_t at = command - kLightPosition0;
+            lighting_.lights[at / 3u].position[at % 3u] = decode_float24(data);
+        } else if (command >= kLightDirection0 && command < kLightAttenuation0) {
+            const std::uint32_t at = command - kLightDirection0;
+            lighting_.lights[at / 3u].direction[at % 3u] = decode_float24(data);
+        } else if (command >= kLightAttenuation0 && command < kSpotExponent0) {
+            const std::uint32_t at = command - kLightAttenuation0;
+            lighting_.lights[at / 3u].attenuation[at % 3u] = decode_float24(data);
+        } else if (command >= kSpotExponent0 && command < kSpotCutoff0) {
+            lighting_.lights[command - kSpotExponent0].spot_exponent = decode_float24(data);
+        } else if (command >= kSpotCutoff0 && command < kLightColor0) {
+            lighting_.lights[command - kSpotCutoff0].spot_cutoff = decode_float24(data);
+        } else if (command >= kLightColor0 && command <= kLightColorEnd) {
+            const std::uint32_t at = command - kLightColor0;
+            LightState &light = lighting_.lights[at / 3u];
+            std::uint32_t &color = at % 3u == 0u ? light.ambient : at % 3u == 1u ? light.diffuse : light.specular;
+            color = data & 0x00FFFFFFu;
+        } else {
+            ++unhandled_commands_;
+        }
         break;
     }
 }
@@ -525,6 +606,9 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     call.vertex_type = vertex_type_;
     call.material_color = material_color_;
     call.lighting_enabled = lighting_enabled_;
+    call.has_vertex_color = ((vertex_type_ >> 2u) & 7u) != 0u;
+    call.lighting = lighting_;
+    call.fog = fog_;
     call.world = world_;
     call.view = view_;
     call.projection = projection_;
