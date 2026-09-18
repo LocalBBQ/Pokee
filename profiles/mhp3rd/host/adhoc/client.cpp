@@ -203,7 +203,7 @@ void tune_socket(Socket s) {
 #if defined(__APPLE__)
     int idle = 5;
     setsockopt(s, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle));
-#elif defined(TCP_KEEPIDLE)
+#elif defined(TCP_KEEPIDLE) && !defined(_WIN32)
     int idle = 5;
     int interval = 2;
     int count = 4;
