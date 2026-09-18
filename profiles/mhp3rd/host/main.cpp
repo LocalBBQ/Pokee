@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -27,7 +28,50 @@
 #include <string>
 #include <thread>
 
+#if defined(__linux__)
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
+
 namespace {
+
+// configs/nids.csv, compiled in (see tools/embed_nids.cmake), so the program
+// needs nothing from the checkout it was built in.
+struct EmbeddedNid {
+    const char *library;
+    std::uint32_t nid;
+    const char *name;
+};
+constexpr EmbeddedNid kEmbeddedNids[] = {
+#include "nid_table.inc"
+};
+
+#if defined(__linux__)
+// Chained AOT calls nest native frames deeply and need the 64 MiB stack the
+// other platforms get from their linker. ELF has no such option: the main
+// thread's stack is sized by RLIMIT_STACK when the program starts, so raise the
+// limit and start again once. A launcher that already ran `ulimit -s 65536`
+// never gets here.
+void ensure_main_stack(char **argv) {
+    constexpr rlim_t kWanted = 64ull * 1024u * 1024u;
+    constexpr const char *kMarker = "MHP3RD_STACK_RAISED";
+    rlimit limit{};
+    if (getrlimit(RLIMIT_STACK, &limit) != 0) return;
+    if (limit.rlim_cur == RLIM_INFINITY || limit.rlim_cur >= kWanted) return;
+    if (std::getenv(kMarker) != nullptr) return;
+    const rlim_t target = limit.rlim_max == RLIM_INFINITY || limit.rlim_max >= kWanted ? kWanted : limit.rlim_max;
+    if (target <= limit.rlim_cur) {
+        std::cerr << "warning: the stack is limited to " << (limit.rlim_cur >> 20) << " MiB and cannot be raised to 64 MiB\n";
+        return;
+    }
+    limit.rlim_cur = target;
+    if (setrlimit(RLIMIT_STACK, &limit) != 0) return;
+    setenv(kMarker, "1", 1);
+    execv("/proc/self/exe", argv);
+    // Still here: carry on with the stack there is.
+    std::cerr << "warning: could not restart with a larger stack; deep call chains may overflow\n";
+}
+#endif
 
 std::uint64_t configured_max_dispatches() {
     constexpr std::uint64_t default_limit = 4'000'000'000ull;
@@ -107,16 +151,45 @@ bool has_game_data(const std::filesystem::path &game_dir) {
            std::filesystem::exists(std::filesystem::symlink_status(game_dir / "disc.iso", ec));
 }
 
+// profiles/mhp3rd/game in the checkout this was built from, for developer
+// builds; empty in a release build, which must not depend on the machine it
+// was built on.
+std::filesystem::path checkout_game_directory() {
+#if defined(MHP3RD_DEFAULT_GAME_DIR)
+    return MHP3RD_DEFAULT_GAME_DIR;
+#else
+    return {};
+#endif
+}
+
+// ms0 of an installation lives in the per-user data directory with the rest
+// of it. Saves a developer build made in the checkout before that stay in use
+// until ms0 exists in the data directory.
+std::filesystem::path installed_memory_stick(const std::filesystem::path &data_dir,
+                                             const std::filesystem::path &checkout_game_dir) {
+    const std::filesystem::path memory_stick = mhp3rd::memory_stick_directory(data_dir);
+    std::error_code ec;
+    if (!checkout_game_dir.empty() && !std::filesystem::exists(memory_stick, ec)) {
+        const std::filesystem::path legacy = mhp3rd::memory_stick_directory(checkout_game_dir);
+        if (std::filesystem::is_directory(legacy / "PSP" / "SAVEDATA", ec)) {
+            std::cerr << "note: using the saves in " << legacy.string() << "; move that directory to "
+                      << memory_stick.string() << " to keep them with the installation\n";
+            return legacy;
+        }
+    }
+    return memory_stick;
+}
+
 // Finds the game: an explicit game_dir, then the per-user data directory the
-// installer fills, then profiles/mhp3rd/game. With neither, runs the installer.
-// Empty when the player quit or nothing could be set up.
+// installer fills, then profiles/mhp3rd/game in a developer build. With none of
+// them, runs the installer. Empty when the player quit or nothing could be set up.
 std::optional<GameFiles> locate_game(const Options &options) {
     namespace install = mhp3rd::install;
     if (options.game_dir) return files_in_game_directory(*options.game_dir);
     if (const char *dir = std::getenv("MHP3RD_GAME_DIR"); dir != nullptr && *dir != '\0')
         return files_in_game_directory(dir);
 
-    const std::filesystem::path checkout_game_dir = MHP3RD_DEFAULT_GAME_DIR;
+    const std::filesystem::path checkout_game_dir = checkout_game_directory();
     const std::filesystem::path data_dir = install::user_data_directory();
     bool run_setup = options.install;
     for (;;) {
@@ -127,8 +200,7 @@ std::optional<GameFiles> locate_game(const Options &options) {
                     GameFiles files;
                     files.executable = installed->executable;
                     files.disc_image = installed->disc_image;
-                    // Save data stays where it has always been for now.
-                    files.memory_stick = mhp3rd::memory_stick_directory(checkout_game_dir);
+                    files.memory_stick = installed_memory_stick(data_dir, checkout_game_dir);
                     return files;
                 }
                 const std::string where = install::path_to_utf8(installed->disc_image);
@@ -143,13 +215,14 @@ std::optional<GameFiles> locate_game(const Options &options) {
                 run_setup = true;
                 continue;
             }
-            if (has_game_data(checkout_game_dir)) return files_in_game_directory(checkout_game_dir);
+            if (!checkout_game_dir.empty() && has_game_data(checkout_game_dir))
+                return files_in_game_directory(checkout_game_dir);
         }
 
         auto ui = install::make_installer_ui();
         if (!ui) {
-            std::cerr << "No game data found in " << install::path_to_utf8(data_dir) << " or "
-                      << checkout_game_dir.string() << ".\n"
+            std::cerr << "No game data found in " << install::path_to_utf8(data_dir)
+                      << (checkout_game_dir.empty() ? std::string() : " or " + checkout_game_dir.string()) << ".\n"
                       << "Set up from your disc image of " << install::kGameTitle << " (" << install::kDiscIdDisplay
                       << ") with:\n  MHP3rdNative --install /path/to/image.iso\n";
             return std::nullopt;
@@ -226,6 +299,9 @@ int run_adhoc_server(int argc, char **argv) {
 } // namespace
 
 int main(int argc, char **argv) {
+#if defined(__linux__)
+    ensure_main_stack(argv);
+#endif
     try {
         if (argc > 1 && std::string(argv[1]) == "--adhoc-server") return run_adhoc_server(argc, argv);
         Options options;
@@ -259,7 +335,7 @@ int main(int argc, char **argv) {
             throw psprecomp::Error("Executable does not match the 64 MiB MHP3rd HD layout");
 
         psprecomp::Runtime runtime(mhp3rd::kGuestRamBytes);
-        runtime.nids().load_csv(MHP3RD_NIDS_CSV);
+        for (const EmbeddedNid &entry : kEmbeddedNids) runtime.nids().add(entry.library, entry.nid, entry.name);
         (void)elf.load_and_relocate(runtime.memory(), mhp3rd::kLoadBase);
         psprecomp::register_generated_functions(runtime);
         mhp3rd::install_profile(runtime, elf, paths);

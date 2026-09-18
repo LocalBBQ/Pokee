@@ -1,5 +1,7 @@
 #include "ui/layer.hpp"
 
+#include "app_paths.hpp"
+
 #include "ui/input_script.hpp"
 #include "ui/widgets.hpp"
 
@@ -17,8 +19,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <iterator>
+#include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace mhp3rd::ui {
 namespace {
@@ -32,7 +37,8 @@ constexpr auto kEscapeWindow = std::chrono::milliseconds(100);
 constexpr auto kMinFrameTime = std::chrono::microseconds(8'333);
 
 // Text faces with Latin and Cyrillic, then a Japanese face merged in for file
-// names. The first one found is used.
+// names. The first one found is used; a release's own font in fonts/ is the
+// last resort for the Japanese face.
 const char *const kTextFonts[] = {
     "/System/Library/Fonts/SFNS.ttf",
     "/System/Library/Fonts/Helvetica.ttc",
@@ -51,6 +57,9 @@ const char *const kJapaneseFonts[] = {
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/run/host/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/run/host/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
     "C:/Windows/Fonts/meiryo.ttc",
     "C:/Windows/Fonts/msgothic.ttc",
 };
@@ -77,11 +86,13 @@ void load_fonts() {
         std::cout << "[ui] no system font found; using Dear ImGui's own\n";
         return;
     }
-    for (const char *candidate : kJapaneseFonts) {
-        if (!exists(candidate)) continue;
+    std::vector<std::string> japanese(std::begin(kJapaneseFonts), std::end(kJapaneseFonts));
+    for (const std::filesystem::path &bundled : bundled_fonts()) japanese.push_back(install::path_to_utf8(bundled));
+    for (const std::string &candidate : japanese) {
+        if (!exists(candidate.c_str())) continue;
         ImFontConfig merge;
         merge.MergeMode = true;
-        io.Fonts->AddFontFromFileTTF(candidate, 0.0f, &merge);
+        io.Fonts->AddFontFromFileTTF(candidate.c_str(), 0.0f, &merge);
         break;
     }
 }

@@ -1,5 +1,7 @@
 #include "fonts/game_font.hpp"
 
+#include "app_paths.hpp"
+
 #include "install/user_data.hpp"
 #include "settings/settings.hpp"
 
@@ -52,6 +54,10 @@ const char *const kFontCandidates[] = {
     "/usr/share/fonts/truetype/fonts-japanese-gothic.ttf",
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    // Inside a Flatpak the host's fonts appear under /run/host/fonts.
+    "/run/host/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/run/host/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/run/host/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
     "C:/Windows/Fonts/msgothic.ttc",
     "C:/Windows/Fonts/meiryo.ttc",
 };
@@ -339,6 +345,11 @@ void load(State &s) {
         for (const char *candidate : kFontCandidates) {
             s.fallback = load_face(candidate, 0, error);
             if (s.fallback) break;
+        }
+        // A release's own font in fonts/ next to the executable comes last.
+        for (const std::filesystem::path &bundled : bundled_fonts()) {
+            if (s.fallback) break;
+            s.fallback = load_face(install::path_to_utf8(bundled), 0, error);
         }
     }
     const std::string &value = settings::current().font;

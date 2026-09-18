@@ -84,6 +84,7 @@ include("${MHP3RD_PROFILE_DIR}/cmake/FFmpeg.cmake")
 # GE parsing, texture decoding and the audio mixer are backend independent and
 # always built; only the device the sink opens depends on SDL.
 set(MHP3RD_HOST_SOURCES
+    host/app_paths.cpp
     host/audio/atrac_decoder.cpp
     host/movie/avc_decoder.cpp
     host/movie/psmf_demuxer.cpp
@@ -174,12 +175,42 @@ target_link_libraries(MHP3rdNative PRIVATE Threads::Threads)
 set_target_properties(MHP3rdNative PROPERTIES
     ENABLE_EXPORTS TRUE
     WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-# Absolute paths of this checkout. Only main.cpp reads them; on the target they
-# would be on every generated unit's command line, so moving the checkout would
-# rebuild all of them and no other checkout could reuse their cache entries.
-set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
-    MHP3RD_DEFAULT_GAME_DIR="${MHP3RD_PROFILE_DIR}/game"
-    MHP3RD_NIDS_CSV="${PROJECT_SOURCE_DIR}/configs/nids.csv")
+# The NID table is compiled in, so the program reads nothing from the checkout
+# it was built in.
+set(MHP3RD_NIDS_CSV "${PROJECT_SOURCE_DIR}/configs/nids.csv")
+set(MHP3RD_NIDS_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_nids/nid_table.inc")
+add_custom_command(
+    OUTPUT "${MHP3RD_NIDS_INC}"
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${MHP3RD_NIDS_CSV} -DOUTPUT=${MHP3RD_NIDS_INC}
+            -P "${MHP3RD_PROFILE_DIR}/tools/embed_nids.cmake"
+    DEPENDS "${MHP3RD_NIDS_CSV}" "${MHP3RD_PROFILE_DIR}/tools/embed_nids.cmake"
+    COMMENT "Embedding the NID table")
+target_sources(MHP3rdNative PRIVATE "${MHP3RD_NIDS_INC}")
+target_include_directories(MHP3rdNative PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated_nids")
+
+# A release build runs from wherever it is unpacked: it has no fallback to
+# this checkout's game directory, and on Linux it finds the libraries it ships
+# in lib/ next to the executable and nothing else.
+option(MHP3RD_RELEASE "Build for distribution: no checkout paths, libraries from lib/ next to the executable" OFF)
+if(NOT MHP3RD_RELEASE)
+    # The checkout's profiles/mhp3rd/game, a developer fallback after the
+    # per-user data directory. Only main.cpp reads it; on the target it would be
+    # on every generated unit's command line, so moving the checkout would
+    # rebuild all of them and no other checkout could reuse their cache entries.
+    set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+        MHP3RD_DEFAULT_GAME_DIR="${MHP3RD_PROFILE_DIR}/game")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set_target_properties(MHP3rdNative PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN/lib")
+    # The C++ runtime is linked in statically, so a build made against an old
+    # glibc runs wherever that glibc does, and its symbols stay private: the
+    # executable exports its own symbols to the overlay libraries, and a
+    # second, exported libstdc++ would clash with the system's one that the
+    # graphics driver loads.
+    set(MHP3RD_RELEASE_LINK_OPTIONS -static-libstdc++ "LINKER:--exclude-libs,libstdc++.a:libsupc++.a")
+    target_link_options(MHP3rdNative PRIVATE ${MHP3RD_RELEASE_LINK_OPTIONS})
+endif()
 set_target_properties(MHP3rdNative PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     JOB_POOL_COMPILE psprecomp_generated)
@@ -279,6 +310,9 @@ function(mhp3rd_add_overlay meta_path)
         endif()
     else()
         target_compile_options(${target} PRIVATE -O${PSPRECOMP_GENERATED_OPT_LEVEL} -g0)
+    endif()
+    if(MHP3RD_RELEASE_LINK_OPTIONS)
+        target_link_options(${target} PRIVATE ${MHP3RD_RELEASE_LINK_OPTIONS})
     endif()
     set_target_properties(${target} PROPERTIES
         JOB_POOL_COMPILE psprecomp_generated
