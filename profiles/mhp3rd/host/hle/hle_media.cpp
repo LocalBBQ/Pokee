@@ -485,12 +485,9 @@ void initialize_renderer() {
         std::cout << "Renderer: disabled by MHP3RD_NO_RENDER\n";
         return;
     }
-    gpu::RendererConfig config;
-    if (const char *scale = std::getenv("MHP3RD_INTERNAL_SCALE"))
-        config.internal_scale = static_cast<std::uint32_t>(std::strtoul(scale, nullptr, 10));
     auto renderer = std::make_unique<gpu::VulkanRenderer>();
     std::string error;
-    if (!renderer->initialize(config, error)) {
+    if (!renderer->initialize(gpu::RendererConfig{}, error)) {
         std::cerr << "Renderer: unavailable (" << error << "); running headless\n";
         return;
     }

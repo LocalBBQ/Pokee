@@ -3,8 +3,17 @@
 #include "ge_state.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
+
+#include "settings/settings.hpp"
+
+union SDL_Event;
+struct SDL_Window;
+struct SDL_Gamepad;
+struct ImDrawData;
 
 namespace mhp3rd::gpu {
 
@@ -21,8 +30,6 @@ struct PadState {
 };
 
 struct RendererConfig {
-    std::uint32_t internal_scale{2u};  // multiples of 480x272
-    bool vsync{true};
     std::string title{"MHP3rdNative"};
 };
 
@@ -66,6 +73,50 @@ public:
     // Writes the last rendered frame as a BMP; returns false if it could not be
     // read back. Used for screenshots without touching the window system.
     bool capture_frame(const std::string &path);
+    // Writes the next presented window image, with the interface over it, as
+    // a BMP once it has been drawn.
+    void capture_window(const std::string &path);
+
+    // Display settings, applied at once. The initial values come from
+    // settings::current() in initialize().
+    void set_internal_scale(std::uint32_t scale);
+    void set_window_scale(std::uint32_t scale);
+    void set_fullscreen(bool fullscreen);
+    void set_present_mode(settings::PresentMode mode);
+    [[nodiscard]] bool supports_present_mode(settings::PresentMode mode) const;
+    void set_keep_aspect(bool keep_aspect);
+    void set_sharp_screen(bool sharp);
+    void set_sharp_textures(bool sharp);
+    void set_perf_overlay(bool visible);
+
+    [[nodiscard]] SDL_Window *window() const noexcept;
+    [[nodiscard]] std::string device_name() const;
+    // The pad the game reads, or null.
+    [[nodiscard]] SDL_Gamepad *gamepad() const noexcept;
+
+    // The port's own interface (host/ui). Every window event is offered to
+    // the hook first; returning true keeps it from the game.
+    void set_event_hook(std::function<bool(const SDL_Event &)> hook);
+    // While off, the game reads a neutral pad. Turning it back on ignores the
+    // buttons still held until they are released, so the button that closed
+    // a menu does not reach the game.
+    void set_game_input(bool enabled);
+    void request_quit() noexcept;
+    // The game's on-screen keyboard is taking typed text.
+    [[nodiscard]] bool text_input_active() const noexcept;
+
+    // Sets up Dear ImGui's Vulkan backend on this window; the caller has
+    // created the ImGui context and its SDL3 backend.
+    bool initialize_ui(std::string &error);
+    void shutdown_ui();
+    // ImGui_ImplVulkan_NewFrame, before ImGui::NewFrame.
+    void begin_ui_frame();
+    // Draw data from ImGui::Render, drawn over the next presented image.
+    void set_ui_draw_data(ImDrawData *draw_data);
+    // Presents a frame outside the game's own flips: the last game frame when
+    // there is one and `show_game` is set, a plain background otherwise, with
+    // the interface over it. Used while the game is paused or not started.
+    void present_ui(bool show_game);
 
     [[nodiscard]] std::uint64_t frames_presented() const noexcept;
     [[nodiscard]] std::uint64_t draws_submitted() const noexcept;

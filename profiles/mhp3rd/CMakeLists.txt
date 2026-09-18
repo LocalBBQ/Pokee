@@ -42,7 +42,16 @@ if(MHP3RD_RENDERER)
                     "${MHP3RD_PROFILE_DIR}/tools/embed_shaders.py"
             COMMENT "Compiling GE shaders to SPIR-V")
         add_custom_target(mhp3rd_shaders DEPENDS "${MHP3RD_SHADER_INC}")
-        set(MHP3RD_RENDERER_SOURCES host/gpu/vulkan_renderer.cpp)
+        # Dear ImGui (third_party/imgui, unmodified) draws the port's own
+        # interface over the game.
+        set(MHP3RD_RENDERER_SOURCES
+            host/gpu/vulkan_renderer.cpp
+            third_party/imgui/imgui.cpp
+            third_party/imgui/imgui_draw.cpp
+            third_party/imgui/imgui_tables.cpp
+            third_party/imgui/imgui_widgets.cpp
+            third_party/imgui/backends/imgui_impl_sdl3.cpp
+            third_party/imgui/backends/imgui_impl_vulkan.cpp)
         message(STATUS "mhp3rd: Vulkan renderer enabled")
     else()
         message(STATUS "mhp3rd: renderer disabled (SDL3, Vulkan or glslang not found)")
@@ -107,7 +116,9 @@ if(MHP3RD_RENDERER)
     add_dependencies(MHP3rdNative mhp3rd_shaders)
     # The sink opens its own SDL audio subsystem, so it only needs SDL to exist.
     target_compile_definitions(MHP3rdNative PRIVATE MHP3RD_HAS_RENDERER=1 MHP3RD_HAS_SDL_AUDIO=1 MHP3RD_HAS_SDL=1)
-    target_include_directories(MHP3rdNative PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders")
+    target_include_directories(MHP3rdNative PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
+        "${MHP3RD_PROFILE_DIR}/third_party/imgui")
     target_link_libraries(MHP3rdNative PRIVATE SDL3::SDL3 Vulkan::Vulkan)
 endif()
 target_include_directories(MHP3rdNative PRIVATE
