@@ -8,6 +8,28 @@ A native port of **Monster Hunter Portable 3rd HD Ver.** made by static recompil
 
 > **This project does not include any part of the game.** You need your own copy of Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`). The build recompiles the game from that copy on your machine, and none of the result can be redistributed.
 
+## Legal disclaimer
+
+**Yakumo** is an independent, open-source project and is not affiliated with, authorized by, sponsored by, or endorsed by CAPCOM, Sony, or any of their affiliates.
+
+Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP, and all related trademarks, game assets, artwork, audio, characters, and other intellectual property belong to their respective owners.
+
+**Yakumo** does not include or distribute the original game, disc image, executable files, game data, textures, models, audio, video, or other copyrighted assets.
+
+To use **Yakumo**, users must provide the required files from their own legally obtained copy of Monster Hunter Portable 3rd HD Ver. for PlayStation 3.
+
+Users are solely responsible for obtaining, dumping, extracting, and using their game copy in accordance with the laws applicable in their jurisdiction.
+
+**Yakumo** does not support, provide, link to, or encourage the use of unauthorized or pirated copies of the game.
+
+Any references to the original game or its trademarks are made solely for identification, compatibility, and interoperability purposes.
+
+Screenshots and other depictions of the original game may be used solely to document or demonstrate **Yakumo's** functionality. All depicted third-party game content remains the property of its respective rights holders.
+
+The license covering **Yakumo** applies only to the project's own original code and materials and does not grant any rights to third-party intellectual property.
+
+**Yakumo** provides the software, not the game. You must provide your own legally obtained copy.
+
 ## Status: almost playable
 
 You can create a character, explore the village and go on hunts, with sound, keyboard and gamepad. The game is not yet playable end to end without rough edges:
@@ -81,7 +103,7 @@ The recompiled code itself is generated locally from your copy of the game and i
 
 ## Built on PSPRecomp
 
-Yakumo is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
+**Yakumo** is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
 
 ```bash
 cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
@@ -108,5 +130,3 @@ To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [
 ## License
 
 The repository is distributed under the MIT License; see [`LICENSE`](LICENSE). Third-party files keep their own notices beside them — currently `profiles/mhp3rd/third_party/stb_truetype.h`, under MIT or public domain.
-
-Monster Hunter is a trademark of its owner. This project is not affiliated with or endorsed by its publisher.

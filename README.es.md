@@ -10,6 +10,28 @@ Una versión nativa de **Monster Hunter Portable 3rd HD Ver.** hecha mediante re
 
 > Esto es una traducción. Si difiere del [README en inglés](README.md), prevalece el inglés. La documentación detallada está en inglés.
 
+## Aviso legal
+
+**Yakumo** es un proyecto independiente y de código abierto, y no está afiliado, autorizado, patrocinado ni respaldado por CAPCOM, Sony ni ninguna de sus filiales.
+
+Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP y todas las marcas comerciales, recursos del juego, ilustraciones, audio, personajes y demás propiedad intelectual relacionados pertenecen a sus respectivos propietarios.
+
+**Yakumo** no incluye ni distribuye el juego original, la imagen de disco, los archivos ejecutables, los datos del juego, las texturas, los modelos, el audio, el vídeo ni otros recursos protegidos por derechos de autor.
+
+Para usar **Yakumo**, los usuarios deben aportar los archivos necesarios a partir de su propia copia adquirida legalmente de Monster Hunter Portable 3rd HD Ver. para PlayStation 3.
+
+Los usuarios son los únicos responsables de obtener, volcar, extraer y usar su copia del juego conforme a las leyes aplicables en su jurisdicción.
+
+**Yakumo** no admite, proporciona, enlaza ni fomenta el uso de copias no autorizadas o piratas del juego.
+
+Cualquier referencia al juego original o a sus marcas comerciales se hace únicamente con fines de identificación, compatibilidad e interoperabilidad.
+
+Las capturas de pantalla y otras representaciones del juego original solo pueden usarse para documentar o mostrar el funcionamiento de **Yakumo**. Todo el contenido de terceros que aparezca sigue siendo propiedad de sus respectivos titulares.
+
+La licencia de **Yakumo** se aplica únicamente al código y los materiales originales del propio proyecto y no concede ningún derecho sobre la propiedad intelectual de terceros.
+
+**Yakumo** proporciona el software, no el juego. Debes aportar tu propia copia adquirida legalmente.
+
 ## Estado: casi jugable
 
 Puedes crear un personaje, recorrer la aldea y salir de caza, con sonido, teclado y mando. Todavía no se puede jugar de principio a fin sin asperezas:
@@ -83,7 +105,7 @@ El código recompilado se genera localmente a partir de tu copia del juego y nun
 
 ## Basado en PSPRecomp
 
-Yakumo está construido sobre [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), un framework de recompilación estática para software de PSP. El framework no depende de ningún juego y se puede compilar por separado:
+**Yakumo** está construido sobre [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), un framework de recompilación estática para software de PSP. El framework no depende de ningún juego y se puede compilar por separado:
 
 ```bash
 cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
@@ -110,5 +132,3 @@ Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](docs/PROFILE_G
 ## Licencia
 
 El repositorio se distribuye bajo la licencia MIT; consulta [`LICENSE`](LICENSE). Los archivos de terceros conservan sus propias licencias junto a ellos; actualmente, `profiles/mhp3rd/third_party/stb_truetype.h`, bajo MIT o de dominio público.
-
-Monster Hunter es una marca comercial de su propietario. Este proyecto no está afiliado a su editor ni cuenta con su respaldo.
