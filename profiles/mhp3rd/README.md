@@ -286,7 +286,11 @@ Nothing is drawn for the save-data or message dialogs yet ([#33](https://github.
 2. Quit the game, and copy the whole folder into `profiles/mhp3rd/game/ms0/PSP/SAVEDATA/`, replacing any folder of the same name. Keep a copy of the one you replace: it holds all three character slots.
 3. Start the game. The title screen leads to character select with the imported characters.
 
-To take a save back to a PSP, copy the same folder the other way. The downloaded-quest folder `ULJM05800QST` can be copied the same way; the game has not been seen reading it yet.
+To take a save back to a PSP, copy the same folder the other way. The downloaded-quest folder `ULJM05800QST` is copied the same way.
+
+### Downloadable content
+
+The game keeps downloaded quests and equipment in the `ULJM05800QST` save folder and reads it through the save-data utility, like an ordinary save (AUTOLOAD of `ULJM05800QST` / `MHP3RD.BIN`). The download servers are long gone, so the in-game download mode's network side stays unimplemented. To use DLC you already have, put your `ULJM05800QST` folder into `game/ms0/PSP/SAVEDATA/`, then open the game's download menu to install the quests. The project does not host, bundle or link to DLC files.
 
 This release (`NPJB-40001`) asks for the original PSP release's folder names (`ULJM05800`), and the key it passes is the PSP release's: a downloaded-quest folder written by a PSP running `ULJM-05800` passes every check with it and decrypts. The two releases therefore share one save format, and saves should move between them in both directions; a save from this release has not yet been loaded on a PSP. When there is no save of its own, the game also looks for saves of *Monster Hunter Portable 2nd G* (`ULJM05500`) and *Monster Hunter Diary: Poka Poka Airu Village* (`ULJM05710`); those would be read from `ms0` the same way, which has not been tried.
 
