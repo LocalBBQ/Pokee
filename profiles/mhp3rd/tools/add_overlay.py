@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Turn an overlay dump into a shared library MHP3rdNative loads at run time.
 
-    add_overlay.py <build_dir> <overlay.bin> <base_address>
+    add_overlay.py [-j N] <build_dir> <overlay.bin> <base_address>
 
 Steps: identify the dump from its header (name, sizes, FNV-1a hash of the header
 and the code after it), wrap it in a minimal ELF, run psp_recomp with a
-per-overlay symbol prefix, then build the one CMake target for that overlay. The
-executable is not relinked.
+per-overlay symbol prefix, then build the one CMake target for that overlay with
+N parallel jobs (default 2). The executable is not relinked.
 """
 
+import argparse
 import os
 import re
 import struct
@@ -41,10 +42,14 @@ def parse_header(data, base):
 
 
 def main(argv):
-    if len(argv) != 4:
-        print(__doc__.strip(), file=sys.stderr)
-        return 2
-    build_dir, dump_path, base_text = argv[1], argv[2], argv[3]
+    parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0],
+                                     usage=__doc__.strip().splitlines()[2].strip())
+    parser.add_argument("-j", "--jobs", type=int, default=2, help="parallel build jobs (default 2)")
+    parser.add_argument("build_dir")
+    parser.add_argument("dump_path")
+    parser.add_argument("base_text")
+    options = parser.parse_args(argv[1:])
+    build_dir, dump_path, base_text = options.build_dir, options.dump_path, options.base_text
     base = int(base_text, 0)
     data = open(dump_path, "rb").read()
     name, image_size, code_size = parse_header(data, base)
@@ -67,7 +72,8 @@ def main(argv):
                   f"hash=0x{digest:016X}\nsource={os.path.basename(dump_path)}\n")
 
     subprocess.run(["cmake", "-S", REPO_DIR, "-B", build_dir], check=True)
-    subprocess.run(["cmake", "--build", build_dir, "--target", f"overlay_{prefix}"], check=True)
+    subprocess.run(["cmake", "--build", build_dir, "--target", f"overlay_{prefix}",
+                    "-j", str(options.jobs)], check=True)
     print(f"overlay {name}: {code_size} bytes of code at {base:#010x}")
     print(f"library: {os.path.join(build_dir, 'bin', 'overlays')}")
     return 0

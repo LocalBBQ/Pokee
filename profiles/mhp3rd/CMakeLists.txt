@@ -101,7 +101,8 @@ set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
     MHP3RD_DEFAULT_GAME_DIR="${MHP3RD_PROFILE_DIR}/game"
     MHP3RD_NIDS_CSV="${PROJECT_SOURCE_DIR}/configs/nids.csv")
 set_target_properties(MHP3rdNative PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    JOB_POOL_COMPILE psprecomp_generated)
 
 # Chained AOT calls nest native frames; give the guest-executing main thread
 # the same 64 MiB stack the Windows profiles use.
@@ -167,6 +168,7 @@ function(mhp3rd_add_overlay meta_path)
         target_compile_options(${target} PRIVATE -O${PSPRECOMP_GENERATED_OPT_LEVEL} -g0)
     endif()
     set_target_properties(${target} PROPERTIES
+        JOB_POOL_COMPILE psprecomp_generated
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON
         PREFIX ""

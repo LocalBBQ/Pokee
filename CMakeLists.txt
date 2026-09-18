@@ -27,6 +27,21 @@ if(PSPRECOMP_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     endif()
 endif()
 
+# Each generated AOT unit takes well over a gigabyte to compile. Ninja runs the
+# compiles of targets in this pool at most this many at a time, whatever -j
+# the build was started with. The default allows one per 4 GiB of memory.
+cmake_host_system_information(RESULT _psprecomp_memory_mib QUERY TOTAL_PHYSICAL_MEMORY)
+math(EXPR _psprecomp_default_jobs "${_psprecomp_memory_mib} / 4096")
+if(_psprecomp_default_jobs LESS 1)
+    set(_psprecomp_default_jobs 1)
+endif()
+set(PSPRECOMP_GENERATED_JOBS "${_psprecomp_default_jobs}" CACHE STRING
+    "Maximum concurrent compiles of generated AOT code (Ninja generators only)")
+if(NOT PSPRECOMP_GENERATED_JOBS MATCHES "^[1-9][0-9]*$")
+    message(FATAL_ERROR "PSPRECOMP_GENERATED_JOBS must be a positive integer")
+endif()
+set_property(GLOBAL APPEND PROPERTY JOB_POOLS psprecomp_generated=${PSPRECOMP_GENERATED_JOBS})
+
 option(PSPRECOMP_BUILD_TESTS "Build reusable PSPRecomp tests" ON)
 option(PSPRECOMP_BUILD_PROFILE_TESTS "Build tests supplied by the selected profile" ON)
 set(PSPRECOMP_PROFILE "" CACHE STRING "Profile to build from profiles/<name>; empty builds only the framework")
