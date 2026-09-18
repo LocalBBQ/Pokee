@@ -10,18 +10,19 @@ The game boots, loads its overlays, creates a character or loads a save, walks t
 | --- | --- |
 | Code | The whole executable (362 478 instructions, 89 units) and all 355 code overlays are recompiled ahead of time; an interpreter covers anything they miss |
 | Kernel | Threads with a deterministic virtual clock, semaphores, event flags, mutexes, callbacks, VTimers, partition memory, VBlank interrupts, file I/O straight from the disc image |
-| Imports | 185 of 296 implemented; the rest are logging stubs that return 0 |
+| Imports | 244 of 296 implemented; the rest are logging stubs that return 0 |
 | Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, per-vertex lighting (four directional, point or spot lights and the full material model) and fog, blending, depth and alpha test, sprites, per-framebuffer render targets |
 | Audio | `sceSasCore` voice mixing, `sceAudio` output and ATRAC3 music through `sceAtrac3plus` |
 | Movies | PSMF playback through `sceMpeg` and `sceJpegCsc`: H.264 video and ATRAC3plus sound |
 | Input | Keyboard and SDL3 gamepads, including the HD release's second analog stick |
 | Text | `sceLibFont` glyphs rasterized from a host TrueType font |
 | Saves | The save-data utility, with saves in the PSP's own format: a save copied from a PSP loads, and one made here can be copied back |
+| Multiplayer | Ad hoc play through PSP ad hoc servers: two instances have met in a gathering hall and started a quest together; play with PPSSPP and on public servers is still to be tested. See [Multiplayer](#multiplayer-ad-hoc) |
 
 Not done yet:
 
 - **Curved surfaces** (Bézier and spline patches).
-- **Networking.** The ad hoc client for multiplayer is in review ([#2](https://github.com/TeamGDB/Yakumo/issues/2)).
+- **Infrastructure networking** (`sceHttp`, `sceNetInet`): the game's download mode. Ad hoc multiplayer works.
 - **Dialog screens.** The save-data and message dialogs work but draw nothing; each answers as if the player confirmed it ([#33](https://github.com/TeamGDB/Yakumo/issues/33)).
 - **Rendering details:** a framebuffer used as a texture shows noise, on the quest reward screen for one ([#48](https://github.com/TeamGDB/Yakumo/issues/48)); some text glyphs are clipped ([#53](https://github.com/TeamGDB/Yakumo/issues/53)); tiled 2D screens show faint seams above ×1 ([#55](https://github.com/TeamGDB/Yakumo/issues/55)).
 
@@ -259,10 +260,13 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Controls | Right stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
 | Controls | When the game asks for a name | `input.type_name` | `MHP3RD_OSK_INTERACTIVE` | Use the name below, or type it in the window |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter` |
+| Network | Ad hoc play | `network.adhoc` | `MHP3RD_ADHOC` | Off (default) or on; off, the game reports the wireless switch as off |
+| Network | Server | `network.server` | `MHP3RD_ADHOC_SERVER` | Host name or address of a PSP ad hoc server, optionally `host:port`; empty by default |
+| Network | Nickname | `network.nickname` | `MHP3RD_ADHOC_NICKNAME` | The name other players see; empty uses the hunter name |
 
 Everything applies without a restart; the name settings take effect the next time the game asks for a name. The Controls section also lists the keyboard's keys, and the System section has *Resume*, *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), with the build version, the data folder and the GPU. Each section has a button that restores its defaults.
 
-The file also keeps `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
+The Network section also shows the connection and has the troubleshooting tools described under [Multiplayer](#multiplayer-ad-hoc). The file also keeps `network.mac`, the address other players know you by (made up the first time you go on line; `MHP3RD_ADHOC_MAC` overrides it), `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
 
 The interface is drawn with [Dear ImGui](third_party/imgui/README.md). Its text uses a system font: San Francisco or Helvetica on macOS, Noto Sans, DejaVu Sans or Liberation Sans on Linux, Segoe UI on Windows, with a Japanese font merged in for file names; `MHP3RD_UI_FONT` names another `.ttf`. It scales with the window: about 27-pixel text on a Steam Deck's 1280×800 screen.
 
@@ -311,6 +315,109 @@ out/mhp3rd/bin/mhp3rd_savedata_tests --check profiles/mhp3rd/game/ms0/PSP/SAVEDA
 ```
 
 `<key>` is the 32-digit key the game passes to the save-data utility; a run with `MHP3RD_TRACE_SAVEDATA=1` prints it as `key=` on every request for the game's own save. The program reports whether the hashes in `PARAM.SFO` and the data file's hash match and whether the file decrypts. Without arguments it runs the self-tests, which need no game data.
+
+## Multiplayer (ad hoc)
+
+The PSP game plays together through ad hoc wireless: up to four consoles in the same room. Yakumo carries that over the internet through a **PSP ad hoc server**, the same servers PSP and PPSSPP players use, so you can hunt with other Yakumo players and, as the protocol is the same, with players on PPSSPP (not tested yet). Nothing has to be forwarded on your router: all game traffic goes through the server.
+
+A server has two parts, both over TCP: the matchmaking service on port **27312**, which knows who is in which gathering hall, and a relay on port **27313**, which carries the game's own traffic between the players. Yakumo needs both, so pick a server that runs the relay (servers list it as *AemuPostoffice* data mode).
+
+### Setting it up
+
+1. Open the menu (Esc, or L3+R3) and go to **Network**.
+2. Turn **Ad hoc play** on.
+3. Enter the **Server**: a host name or IP address, `host:port` if its matchmaking port is not 27312. There is no default; see [Choosing a server](#choosing-a-server).
+4. Optionally set a **Nickname**; otherwise the other players see your hunter name.
+5. Close the menu. In the village, go up the stairs to the gathering hall entrance and choose **Online Guild Hall** (✕), then a hall. Everyone who picks the same hall number on the same server meets there.
+
+Server and nickname changes apply the next time the game goes on line: leave the hall and enter it again. Turning ad hoc play off while in a hall takes you out of it, as if the connection dropped. The address other players know you by (`network.mac` in `settings.ini`) is made up once and kept.
+
+Everyone in a hall must play the same game: this release and the PSP's *Monster Hunter Portable 3rd* (`ULJM-05800`) are the same game on the server, so players of the PSP version on PPSSPP can join.
+
+### Choosing a server
+
+PPSSPP's list of public ad hoc servers is in its [`assets/adhoc-servers.json`](https://github.com/hrydgard/ppsspp/blob/master/assets/adhoc-servers.json); its entries say which games each server's community plays and which data mode it runs. Choose one that runs the relay and whose players play Monster Hunter, near you if you can, and agree on it with the people you want to play with. Each server has a status page (usually on port 8888) that shows who is on line in which game.
+
+Public servers are run by volunteers. Yakumo keeps one connection to the matchmaking service and one to the relay per game socket, and pings the matchmaking service every two seconds, like the other clients.
+
+### Running your own server
+
+For playing in one household, or for testing, run [aemu_postoffice](https://github.com/Kethen/aemu_postoffice), the server most public servers use. It is a separate program under its own licence; nothing of it is part of Yakumo.
+
+Natively, on macOS or Linux (a C++20 compiler is all it needs):
+
+```bash
+git clone --recursive https://github.com/Kethen/aemu_postoffice
+cd aemu_postoffice/server_cpp
+bash build_linux.sh
+./aemu_postoffice          # config.json and game_db.json must be next to it
+```
+
+In a container (Docker or Podman), from the same `aemu_postoffice` checkout:
+
+```bash
+docker run --rm -it -p 27312:27312 -p 27313:27313 -p 8888:8888 \
+  -v "$PWD":/src -w /src/server_cpp debian:stable \
+  bash -c 'apt-get update && apt-get install -y g++ && bash build_linux.sh && ./aemu_postoffice'
+```
+
+Then use `127.0.0.1` as the server on the same machine, or the machine's LAN address on the others. Open TCP 27312 and 27313 in its firewall for other machines. The server log shows every login, group join and relay session, and `http://<server>:8888/` lists who is on line.
+
+### Two instances on one machine
+
+Each instance needs its own settings (for its own address and nickname) and its own copy of the save:
+
+```bash
+# once: a game directory per instance with its own save
+mkdir -p ~/yakumo-b/ms0/PSP/SAVEDATA
+ln -s /path/to/disc.iso ~/yakumo-b/disc.iso
+ln -s /path/to/EBOOT.ELF ~/yakumo-b/EBOOT.ELF
+cp -R profiles/mhp3rd/game/ms0/PSP/SAVEDATA/ULJM05800 ~/yakumo-b/ms0/PSP/SAVEDATA/
+
+# each instance: its own data directory, window title, server and nickname
+MHP3RD_DATA_DIR=~/yakumo-a-data MHP3RD_WINDOW_TITLE="Yakumo A" MHP3RD_ADHOC=1 \
+  MHP3RD_ADHOC_SERVER=127.0.0.1 MHP3RD_ADHOC_NICKNAME=HunterA out/mhp3rd/bin/MHP3rdNative profiles/mhp3rd/game
+MHP3RD_DATA_DIR=~/yakumo-b-data MHP3RD_WINDOW_TITLE="Yakumo B" MHP3RD_ADHOC=1 \
+  MHP3RD_ADHOC_SERVER=127.0.0.1 MHP3RD_ADHOC_NICKNAME=HunterB out/mhp3rd/bin/MHP3rdNative ~/yakumo-b
+```
+
+Two characters from one save are fine in one hall, since the game tells players apart by their address, and each instance makes up its own.
+
+### When something goes wrong
+
+The menu's **Network** section shows what the connection is doing, updated live:
+
+| Row | Shows |
+| --- | --- |
+| Connection | Off line, connecting, reconnecting (with the attempt and the last error), or on line with how long and the server connection's round trip |
+| You | Your address and nickname |
+| Group | The hall's group (`MHP3Q000` is Hall 01) and how many players are in it, or that it is being rejoined after a dropped connection |
+| One row per player | Their address and how long ago their last packet arrived |
+| One row per socket | Each ad hoc socket the game has open: its kind (PDP datagrams, PTP streams), port, state and peer |
+| Relay links | How many of the sockets' relay connections are up |
+| Per second, Since start | Packets and bytes in and out |
+| Problems | Datagrams dropped, calls that timed out, reconnections |
+
+Below it:
+
+- **Network overlay** shows the connection, the group, its players and the traffic in the top-right corner while you play. `MHP3RD_ADHOC_OVERLAY=1` turns it on at start.
+- **Log every call and packet** is the same as `MHP3RD_TRACE_ADHOC=1`: every ad hoc call the game makes, with its arguments and result, and every packet header goes to the console and to the network log.
+- **Save network log** writes the recent network log and the section's state to `logs/adhoc-<date>-<time>.log` in the data folder (menu: System, *Open the data folder*). Attach it to a problem report, ideally with the log turned on before the problem happens.
+- **Reconnect now** drops the server connection and connects again; the hall is joined again. **Disconnect** leaves the hall as if the other players were lost. The game reacts to both as to a real dropped connection.
+
+Common problems:
+
+- *The game says the wireless switch is off*: ad hoc play is off in the menu.
+- *Connecting never finishes*: the server name is wrong, the server is down, or a firewall blocks TCP 27312. The console says `cannot reach the ad hoc server` or `cannot resolve`.
+- *You are in a hall but see nobody*: the other player is on another server, in another hall, or playing a game the server does not group with this one. The server's status page shows where everyone is.
+- *Players see each other but a quest cannot be joined or the hall drops*: the server has no relay (TCP 27313), or it is blocked. **Relay links** stays below its total.
+- *The connection drops in a quest*: when the server connection comes back within ten seconds, the hall is rejoined; the quest itself usually ends, as it would on a PSP. After ten seconds the game is told the connection is lost.
+
+### How it works
+
+The game uses the PSP's ad hoc libraries (`sceNetAdhocctl`, `sceNetAdhoc`, and the network configuration dialog `sceUtilityNetconf`). Entering the Online Guild Hall, it scans for halls, then asks the network dialog to join the hall's group (`MHP3Q000` for Hall 01); Yakumo joins it on the server and the dialog finishes when the server confirms. In the hall every console broadcasts its state over PDP (datagrams on port 10000), which Yakumo sends through the relay to each player in the group. A quest is a PTP stream: the host listens on port 20001 and each joining player connects to it, also through the relay.
+
+One network thread owns every connection to the server, so the game never waits for the network except where a PSP call itself blocks, and then no longer than the call's own timeout. While the menu is open the game is paused but the connection stays up.
 
 ## Configuration
 
@@ -361,6 +468,16 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_OSK_INTERACTIVE` | off | Type the name in the window instead (menu: When the game asks for a name) |
 | `MHP3RD_AUTO_CONFIRM` | off | Press ○ every N frames, to walk through menus unattended |
 
+### Network
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `MHP3RD_ADHOC` | off | `1` turns ad hoc play on (menu: Ad hoc play) |
+| `MHP3RD_ADHOC_SERVER` | none | PSP ad hoc server, `host` or `host:port` (menu: Server) |
+| `MHP3RD_ADHOC_NICKNAME` | the hunter name | Name other players see (menu: Nickname) |
+| `MHP3RD_ADHOC_MAC` | made up once | The address other players know you by, `xx:xx:xx:xx:xx:xx` |
+| `MHP3RD_ADHOC_OVERLAY` | off | `1` shows the network overlay from the start |
+
 ### Diagnostics
 
 | Variable | Effect |
@@ -382,7 +499,9 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TRACE_MPEG=1` | Every `sceMpeg` and `sceJpegCsc` call, and each call the ring buffer makes to the game's read callback |
 | `MHP3RD_SAS_NO_ENV=1` | Hold every SAS voice at full envelope, to separate an envelope bug from a decoding one |
 | `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes |
+| `MHP3RD_TRACE_ADHOC=1` | Every ad hoc, network dialog and wireless call with its arguments and result, and every packet header sent to or received from the ad hoc server (menu: Network, *Log every call and packet*) |
 | `MHP3RD_INPUT_SCRIPT` | Scripted keys, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu and the setup without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick` |
+| `MHP3RD_INPUT_LIVE` | A file read while the game runs; each line appended to it is an input-script step timed from when it is read, to drive two instances side by side |
 | `MHP3RD_DUMP_OVERLAYS` | Directory to dump an overlay that has no library into |
 | `PSPRECOMP_NO_INTERPRETER=1` | Stop at uncompiled code instead of interpreting it |
 | `PSPRECOMP_MAX_DISPATCHES` | Stop after this many dispatches |
@@ -436,6 +555,8 @@ host/hle/hle_font.cpp            sceLibFont over a host font
 host/fonts/game_font.*           The game's text font: loading, fitting glyphs into the game's cells, fallback, installed fonts
 host/hle/hle_utility.cpp         sceUtility on-screen keyboard and message dialog
 host/hle/hle_savedata.cpp        sceUtility save-data dialog
+host/hle/hle_adhoc.cpp           sceNet, sceNetAdhoc, sceNetAdhocctl, sceNetAdhocDiscover, sceWlanDrv, sceUtilityNetconf
+host/adhoc/                      Client for PSP ad hoc servers: wire formats, network thread, diagnostics
 host/hle/utility_dialog.hpp      Status life cycle shared by the dialogs
 host/save_data/                  AES-128, PARAM.SFO, the save-data encryption and hashes, save folders
 host/gpu/ge_state.{hpp,cpp}      GE command state machine: display lists to draw calls

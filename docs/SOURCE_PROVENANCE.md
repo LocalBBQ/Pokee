@@ -16,6 +16,10 @@ The framework contains no EBOOT/PRX decryption. The mhp3rd profile's installer (
 
 `profiles/mhp3rd/host/save_data` implements the PSP save-data format — the `PARAM.SFO` layout, the encryption of the data file and the hashes that protect a save — so that saves can be exchanged with a PSP. It was written for this project from public descriptions of the PSP save data format, with no code copied or adapted from other implementations, and checked against saves made by a PSP. Its AES-128 cipher is the same tiny-AES-c the installer uses; the self-tests check it against FIPS-197 and the CMAC built on it against RFC 4493. The fixed key values it uses are published technical constants. None of it decrypts executables.
 
+## Ad hoc networking
+
+`profiles/mhp3rd/host/adhoc` and `profiles/mhp3rd/host/hle/hle_adhoc.cpp` let the game's ad hoc play reach other players through the PSP ad hoc servers players already run. The client was written for this project from the protocols' documented and observed behaviour: the servers' published packet layouts, opcodes and ports, and the traffic between the game and a server. No code was copied or adapted from other implementations. The PSP library calls it serves follow their public API descriptions and the game's own calls, traced while it runs. No server is part of the repository; tests run one as a separate program.
+
 ## Profile code
 
 A profile owns its generated AOT corpus, address-specific lowering, HLE behavior and native fast paths. Those files remain isolated under `profiles/<id>` so they do not become hidden dependencies of the generic framework.
