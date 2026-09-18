@@ -379,14 +379,17 @@ void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, con
         const std::uint32_t output_length = arg(ctx, 5);
         auto &memory = rt.memory();
         switch (command) {
-        case 0x02015804u: {  // register memory stick insert/eject callback
-            // The game waits for the first notification before it continues, so
+        case 0x02015804u:    // register memory stick insert/eject callback (ms0:)
+        case 0x02415821u: {  // the same for fatms0:
+            // The game waits for the first notification before it continues, and
+            // refuses to save while it has not been told a card is inserted, so
             // report the card as present right away.
             const std::uint32_t callback = input != 0u ? memory.load32(input) : 0u;
             if (callback != 0u) kernel().notify_callback(static_cast<SceUID>(callback), 1u);
             break;
         }
         case 0x02015805u: // unregister
+        case 0x02415822u:
             break;
         case 0x02025801u: // memory stick state: 4 = inserted and ready
         case 0x02025806u: // memory stick inserted
