@@ -232,7 +232,8 @@ Everything is set through environment variables.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `MHP3RD_INTERNAL_SCALE` | `2` | Render resolution as a multiple of 480×272 |
-| `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either |
+| `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either. Emulated time is not held to real time |
+| `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
@@ -283,7 +284,7 @@ Everything is set through environment variables.
 With `MHP3RD_PERF=1` the game draws a small overlay into the top-left corner of the presented image, so it appears in window and Steam screenshots and in `MHP3RD_SCREENSHOT_DIR` captures, and prints one line per second to stdout, flushed as it is written:
 
 ```text
-[perf] fps 59.9 game 30.0 speed 200% | frame avg 16.7 max 18.0 ms | guest 1.2 render 0.4 wait 15.0 ms | lists 120/s | FIFO 960x544 60Hz | overlay 0.02 ms
+[perf] fps 30.0 game 30.0 speed 100% | frame avg 33.4 max 34.7 ms | guest 4.1 render 9.8 wait 19.5 ms | lists 60/s | FIFO 1440x816 90Hz | overlay 0.05 ms
 ```
 
 `MHP3RD_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The statistics are collected all the time, so turning them on changes nothing else.
@@ -294,11 +295,11 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | --- | --- |
 | `fps` | Frames presented per second of real time |
 | `game` | Frames the game flips per second of *emulated* time: its own frame rate, 30 when it keeps up with its target |
-| `speed` | Emulated time per real time. Nothing ties emulation to the wall clock yet (#4), so this is above 100% whenever presentation outpaces the game's 30 fps |
+| `speed` | Emulated time per real time: 100% when the game runs at PSP speed. The kernel holds its clock to real time, so it stays at 100% unless frames take longer than the game's frame time; below 100% the game runs slow |
 | `frame avg`, `max` | Real time between presents over the last second |
 | `guest` | The rest of the frame: recompiled code, HLE, the kernel, input and audio |
 | `render` | CPU time turning display lists into Vulkan commands and recording the present |
-| `wait` | Time blocked on the GPU: the frame fence, swapchain acquire, queue submit and present, and the queue idle waits of texture uploads. With FIFO presentation, pacing to the display shows up here |
+| `wait` | Time blocked on the GPU: the frame fence, swapchain acquire, queue submit and present, and the queue idle waits of texture uploads. With FIFO presentation, pacing to the display shows up here, and so does the time the kernel waits to hold the game to real time |
 | `lists` | Display lists enqueued per second of real time |
 | last part | Present mode, swapchain size and the display's refresh rate as SDL reports it |
 | `overlay` | CPU time spent drawing the overlay, when it is shown |

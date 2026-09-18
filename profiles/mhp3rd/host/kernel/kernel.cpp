@@ -1,10 +1,13 @@
 #include "kernel.hpp"
 
+#include "perf/frame_stats.hpp"
 #include "psprecomp/common.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <thread>
 
 namespace mhp3rd {
 namespace {
@@ -403,7 +406,43 @@ void Kernel::schedule(AllegrexContext &ctx) {
 }
 
 void Kernel::advance_clock(std::uint64_t target_us) {
-    if (target_us > now_us_) now_us_ = target_us;
+    if (target_us <= now_us_) return;
+    now_us_ = target_us;
+    pace_to_real_time();
+}
+
+void Kernel::pace_to_real_time() {
+    // Virtual time jumps to the next event whenever every thread waits, so
+    // without this the game runs as fast as frames can be presented: two to
+    // three times PSP speed on a 60-90 Hz display. Runs without a window, and
+    // MHP3RD_UNTHROTTLED, keep the unpaced clock.
+    static const bool enabled =
+        std::getenv("MHP3RD_UNTHROTTLED") == nullptr && std::getenv("MHP3RD_NO_RENDER") == nullptr;
+    if (!enabled) return;
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point now = Clock::now();
+    if (!pacing_started_) {
+        pacing_started_ = true;
+        pacing_real_base_ = now;
+        pacing_virtual_base_ = now_us_;
+        return;
+    }
+    const std::int64_t real_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(now - pacing_real_base_).count();
+    const std::int64_t virtual_us = static_cast<std::int64_t>(now_us_ - pacing_virtual_base_);
+    const std::int64_t ahead_us = virtual_us - real_us;
+    // Ahead of real time: wait. More than a tenth of a second behind (a slow
+    // frame, a load): drop the debt instead of racing to make it up.
+    constexpr std::int64_t kMinSleepUs = 1000;
+    constexpr std::int64_t kMaxSleepUs = 100000;
+    constexpr std::int64_t kMaxLagUs = 100000;
+    if (ahead_us >= kMinSleepUs) {
+        std::this_thread::sleep_for(std::chrono::microseconds(std::min(ahead_us, kMaxSleepUs)));
+        perf::add_wait_time(Clock::now() - now);
+    } else if (ahead_us < -kMaxLagUs) {
+        pacing_real_base_ = now;
+        pacing_virtual_base_ = now_us_;
+    }
 }
 
 std::optional<std::uint64_t> Kernel::next_event_us() const {

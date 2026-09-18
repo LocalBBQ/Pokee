@@ -4,6 +4,7 @@
 #include "psprecomp/runtime.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -286,6 +287,9 @@ private:
     void schedule(AllegrexContext &ctx);
     [[nodiscard]] Thread *best_ready_thread() noexcept;
     void advance_clock(std::uint64_t target_us);
+    // Holds the virtual clock to real time, so the game runs at PSP speed
+    // however fast frames are drawn and presented.
+    void pace_to_real_time();
     [[nodiscard]] std::optional<std::uint64_t> next_event_us() const;
     void process_timers();
     bool begin_pending_interrupt(AllegrexContext &ctx);
@@ -301,6 +305,9 @@ private:
     std::uint64_t next_ready_sequence_{1u};
     std::map<SceUID, std::unique_ptr<Thread>> threads_;
     std::uint64_t now_us_{};
+    bool pacing_started_{};
+    std::chrono::steady_clock::time_point pacing_real_base_{};
+    std::uint64_t pacing_virtual_base_{};
     std::uint64_t next_vblank_us_{kVBlankPeriodUs};
     std::uint64_t vblank_count_{};
     bool dispatch_enabled_{true};

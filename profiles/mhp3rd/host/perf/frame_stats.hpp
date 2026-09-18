@@ -23,7 +23,8 @@ struct Options {
 // which is also where the renderer presents. Within it, time spent turning
 // display lists into Vulkan commands and recording the present is "render",
 // time blocked on the GPU — the frame fence, swapchain acquire, queue submit
-// and present, and texture uploads waiting for the queue — is "wait", and
+// and present, and texture uploads waiting for the queue — or holding the
+// game to real time is "wait", and
 // everything else — recompiled code, HLE, the kernel, input — is "guest".
 // Render includes the waits that happen inside it; the summary subtracts them.
 void add_render_time(Clock::duration duration);
