@@ -79,6 +79,7 @@ void install_profile(Runtime &runtime, const psprecomp::Elf32Image &elf, const P
     register_io(hle, paths.disc_image, paths.memory_stick);
     register_system(hle);
     register_media(hle);
+    register_atrac(hle);
     register_font(hle);
     register_utility(hle, paths.memory_stick);
 

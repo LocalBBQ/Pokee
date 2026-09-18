@@ -12,7 +12,7 @@ The game boots, loads its overlays, creates a character, walks the village and p
 | Kernel | Threads with a deterministic virtual clock, semaphores, event flags, mutexes, callbacks, VTimers, partition memory, VBlank interrupts, file I/O straight from the disc image |
 | Imports | 185 of 296 implemented; the rest are logging stubs that return 0 |
 | Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, blending, depth and alpha test, sprites, per-framebuffer render targets |
-| Audio | `sceSasCore` voice mixing and `sceAudio` output |
+| Audio | `sceSasCore` voice mixing, `sceAudio` output and ATRAC3 music through `sceAtrac3plus` |
 | Input | Keyboard and SDL3 gamepads, including the HD release's second analog stick |
 | Text | `sceLibFont` glyphs rasterized from a host TrueType font |
 | Saves | The save-data utility, with saves in the PSP's own format: a save copied from a PSP loads, and one made here can be copied back |
@@ -21,7 +21,6 @@ Not done yet:
 
 - **Lighting and fog.** Lit geometry is drawn with a flat white stand-in, which is why scenes look flatter than they should and coloured markers over NPCs come out white.
 - **Curved surfaces** (Bézier and spline patches).
-- **Streamed music.** It is ATRAC3 and still silent; sound effects and SAS-driven music play.
 - **Movies.** `sceMpeg` reports every stream as finished, so cutscene videos are skipped.
 - **Frame pacing.** Nothing ties emulation to real time. Presentation is capped at the 60 Hz refresh while the game targets 30, so audio runs ahead of the picture and roughly half of it is dropped. `MHP3RD_TRACE_AUDIO=1` reports the drops; `MHP3RD_AUDIO_DUMP` keeps the whole stream.
 - **Networking.**
@@ -48,8 +47,11 @@ Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck up 
 - Optional: `ccache`, which the build uses automatically when it is installed
 - Python 3
 - SDL3, Vulkan (the loader and headers; MoltenVK on macOS) and `glslangValidator`
+- Optional: FFmpeg's `libavcodec` and `libavutil`, found through `pkg-config`, to decode the streamed music
 
 If SDL3, Vulkan or `glslangValidator` is missing, configuration still succeeds but builds the game **without a window**: CMake prints `mhp3rd: renderer disabled` and the program runs headless. Check for `mhp3rd: Vulkan renderer enabled` in the configure output.
+
+The streamed music is ATRAC3, decoded by FFmpeg's shared libraries. Install them with `brew install ffmpeg` on macOS or `apt install libavcodec-dev libavutil-dev libswscale-dev` on Debian and Ubuntu. Configuration reports `mhp3rd: FFmpeg libavcodec … found; streamed music enabled`; without FFmpeg it prints that the music will be silent and builds the game without it, and `-DMHP3RD_FFMPEG=OFF` leaves it out on purpose.
 
 Expect a full build to need several gigabytes of memory and some time: the generated code is large. With Ninja, the build compiles at most `PSPRECOMP_GENERATED_JOBS` generated units at once, whatever `-j` you pass; the default is one per 4 GiB of memory, so 2 on an 8 GB machine. Set it when configuring, for example `-DPSPRECOMP_GENERATED_JOBS=1`.
 
@@ -357,6 +359,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TRACE_MATERIAL=1` | Every distinct value the game writes to the GE material registers |
 | `MHP3RD_NO_CULL=1`, `MHP3RD_NO_DEPTH=1` | Disable face culling or the depth test, to bisect missing geometry |
 | `MHP3RD_TRACE_AUDIO=1` | One line per second of output: frames, peak, RMS, silence and drops |
+| `MHP3RD_TRACE_ATRAC=1` | Every `sceAtrac3plus` call with its arguments, result and decode position |
 | `MHP3RD_SAS_NO_ENV=1` | Hold every SAS voice at full envelope, to separate an envelope bug from a decoding one |
 | `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes |
 | `MHP3RD_INPUT_SCRIPT` | Scripted keys, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu and the setup without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick` |
@@ -407,6 +410,7 @@ host/hle/hle_sysmem.cpp          SysMemUserForUser, sceSuspendForUser, sceDmac
 host/hle/hle_io.cpp              IoFileMgrForUser, sceUmdUser
 host/hle/hle_system.cpp          Utils, LoadExec, Stdio, ModuleMgr, interrupts, power, RTC
 host/hle/hle_media.cpp           sceDisplay, sceCtrl, sceGe_user, sceAudio, sceSasCore
+host/hle/hle_atrac.cpp           sceAtrac3plus: ATRAC3 music decoded frame by frame, loops, positions
 host/hle/hle_font.cpp            sceLibFont over a host TrueType font
 host/hle/hle_utility.cpp         sceUtility on-screen keyboard and message dialog
 host/hle/hle_savedata.cpp        sceUtility save-data dialog
@@ -419,6 +423,7 @@ host/perf/frame_stats.*          Frame timing, the per-second summary and the [p
 host/perf/perf_overlay.*         Performance overlay drawn on the CPU with a built-in 5x7 font
 host/audio/audio_sink.*          SDL3 playback device and the mixing ring buffer
 host/audio/sas_core.*            Software SAS: VAG decoding, pitch, envelopes, 32 voices
+host/audio/atrac_decoder.*       ATRAC3 and ATRAC3plus frames to PCM through FFmpeg's libavcodec
 ```
 
 Every import runs at the outer dispatch level, so a blocking import saves the caller's context with `pc = $ra` and loads another thread's context; the runtime's thread identity check keeps generated code from resuming in the wrong thread.

@@ -40,10 +40,10 @@ Puedes crear un personaje, recorrer la aldea y salir de caza, con sonido, teclad
 | --- | --- |
 | Arranque, menús, creación de personaje, partidas guardadas en el formato de la propia PSP | **Iluminación y niebla**: las escenas se ven más planas de lo debido y los marcadores de color sobre los NPC salen blancos |
 | La aldea y las zonas de caza | **Ritmo de fotogramas**: el juego aún no está sincronizado con el tiempo real, así que el sonido se adelanta a la imagen |
-| Modelos 3D, animación, texturas, transparencias | **La música en streaming** no suena; los efectos de sonido sí |
-| Efectos de sonido y música por SAS | **Las cinemáticas** se saltan |
-| Teclado, y mandos con cámara real en el stick derecho | Superficies curvas, red |
-| Los 355 overlays de código, recompilados | La aldea va más lenta que otras zonas |
+| Modelos 3D, animación, texturas, transparencias | **Las cinemáticas** se saltan |
+| Efectos de sonido y música | Superficies curvas, red |
+| Teclado, y mandos con cámara real en el stick derecho | La aldea va más lenta que otras zonas |
+| Los 355 overlays de código, recompilados | |
 
 Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck hasta la aldea, donde funciona con Vulkan nativo y los controles integrados. Windows es una plataforma objetivo, pero todavía no se ha verificado.
 
@@ -55,6 +55,7 @@ El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILI
 - CMake 3.20 o posterior, Ninja y un compilador de C++20
 - Python 3
 - SDL3, Vulkan y `glslangValidator`
+- Opcional: FFmpeg (`libavcodec`, `libavutil`) para la música; sin él, el juego funciona sin música
 - Varios gigabytes de memoria libre para compilar: el código recompilado es grande
 
 ## Primeros pasos
@@ -78,7 +79,7 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo:
 
 - Iluminación y niebla
 - Ritmo de fotogramas, que también corrige el adelanto del sonido
-- Música en streaming y cinemáticas
+- Cinemáticas
 - Compilaciones verificadas en Steam Deck y Windows
 
 ## Cómo funciona
@@ -125,6 +126,7 @@ Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](docs/PROFILE_G
 
 - [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp): el framework de recompilación sobre el que se construye el proyecto
 - [SDL3](https://www.libsdl.org/): ventana, entrada y salida de audio
+- [FFmpeg](https://ffmpeg.org/): decodificación de la música
 - [Vulkan](https://www.vulkan.org/) y [MoltenVK](https://github.com/KhronosGroup/MoltenVK): renderizado
 - [stb_truetype](https://github.com/nothings/stb): rasterización de fuentes
 - [svanheulen/mhef](https://github.com/svanheulen/mhef): documentación de la comunidad sobre el formato de archivo del juego

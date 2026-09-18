@@ -24,6 +24,10 @@ A profile owns its generated AOT corpus, address-specific lowering, HLE behavior
 
 Third-party source, binary dependencies, shader code and notices stay beside the profile that needs them. Their original copyright and license notices must be preserved.
 
+| Component | Used by | License | How it is included |
+| --- | --- | --- | --- |
+| [FFmpeg](https://ffmpeg.org/) (`libavcodec`, `libavutil`) | mhp3rd profile: ATRAC3 music decoding (`profiles/mhp3rd/host/audio/atrac_decoder.cpp`) | LGPL-2.1-or-later | Optional external dependency, found at configure time through `pkg-config` and linked dynamically; no FFmpeg source is in the repository |
+
 ## Contribution rule
 
 Do not paste or adapt source from a project whose license is incompatible with the destination file. Reimplement required behavior from specifications, observations or independently documented semantics, and record the source of third-party material when it is intentionally included under a compatible license.

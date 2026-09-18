@@ -67,6 +67,7 @@ void register_sysmem(HleRegistrar &hle);
 void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, const std::filesystem::path &memory_stick);
 void register_system(HleRegistrar &hle);
 void register_media(HleRegistrar &hle);
+void register_atrac(HleRegistrar &hle);
 void register_font(HleRegistrar &hle);
 void register_utility(HleRegistrar &hle, const std::filesystem::path &memory_stick);
 void register_savedata(HleRegistrar &hle, const std::filesystem::path &memory_stick);

@@ -20,7 +20,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Hunts | ✅ | ❔ | ✅ | ❔ |
 | Graphics | ⚠️ no lighting or fog [#3] | ❔ | ⚠️ no lighting or fog [#3] | ❔ |
 | Sound effects | ⚠️ run ahead of the picture [#4] | ❔ | ❔ | ❔ |
-| Music | ❌ [#5] | ❌ [#5] | ❌ [#5] | ❌ [#5] |
+| Music | ✅ with FFmpeg | ❔ | ❔ | ❔ |
 | Cutscene movies | ❌ skipped [#6] | ❌ [#6] | ❌ [#6] | ❌ [#6] |
 | Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ❔ | ❔ |
 | Multiplayer | ❌ [#2] | ❌ [#2] | ❌ [#2] | ❌ [#2] |

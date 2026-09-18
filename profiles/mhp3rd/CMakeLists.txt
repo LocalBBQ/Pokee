@@ -75,9 +75,30 @@ add_custom_target(mhp3rd_version
     BYPRODUCTS "${MHP3RD_VERSION_HEADER}"
     COMMENT "Checking the build version")
 
+# FFmpeg decodes the game's ATRAC3 music. It is optional and linked as shared
+# libraries found through pkg-config; without it the build still succeeds and
+# streamed music stays silent.
+option(MHP3RD_FFMPEG "Decode music with FFmpeg (libavcodec) when it is installed" ON)
+set(MHP3RD_HAS_FFMPEG OFF)
+if(MHP3RD_FFMPEG)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(MHP3RD_LIBAV QUIET IMPORTED_TARGET libavcodec libavutil)
+    endif()
+    if(MHP3RD_LIBAV_FOUND)
+        set(MHP3RD_HAS_FFMPEG ON)
+        message(STATUS "mhp3rd: FFmpeg libavcodec ${MHP3RD_LIBAV_libavcodec_VERSION} found; streamed music enabled")
+    else()
+        message(STATUS "mhp3rd: FFmpeg (libavcodec, libavutil) not found through pkg-config; streamed music will be silent")
+    endif()
+else()
+    message(STATUS "mhp3rd: FFmpeg disabled by MHP3RD_FFMPEG=OFF; streamed music will be silent")
+endif()
+
 # GE parsing, texture decoding and the audio mixer are backend independent and
 # always built; only the device the sink opens depends on SDL.
 set(MHP3RD_HOST_SOURCES
+    host/audio/atrac_decoder.cpp
     host/audio/audio_sink.cpp
     host/audio/sas_core.cpp
     host/gpu/ge_state.cpp
@@ -94,6 +115,7 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_io.cpp
     host/hle/hle_system.cpp
     host/hle/hle_media.cpp
+    host/hle/hle_atrac.cpp
     host/hle/hle_font.cpp
     host/hle/hle_utility.cpp
     host/hle/hle_savedata.cpp
@@ -138,6 +160,11 @@ if(MHP3RD_RENDERER)
         "${CMAKE_CURRENT_BINARY_DIR}/generated_version"
         "${MHP3RD_PROFILE_DIR}/third_party/imgui")
     target_link_libraries(MHP3rdNative PRIVATE SDL3::SDL3 Vulkan::Vulkan)
+endif()
+# The host only: the generated code never sees FFmpeg.
+if(MHP3RD_HAS_FFMPEG)
+    target_compile_definitions(MHP3rdNative PRIVATE MHP3RD_HAS_FFMPEG=1)
+    target_link_libraries(MHP3rdNative PRIVATE PkgConfig::MHP3RD_LIBAV)
 endif()
 target_include_directories(MHP3rdNative PRIVATE
     "${MHP3RD_PROFILE_DIR}/host"
