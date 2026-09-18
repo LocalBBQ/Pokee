@@ -124,6 +124,7 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_font.cpp
     host/hle/hle_utility.cpp
     host/hle/hle_savedata.cpp
+    host/hle/hle_adhoc.cpp
     host/save_data/aes128.cpp
     host/save_data/param_sfo.cpp
     host/save_data/savedata_crypto.cpp

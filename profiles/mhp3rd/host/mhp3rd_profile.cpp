@@ -83,6 +83,7 @@ void install_profile(Runtime &runtime, const psprecomp::Elf32Image &elf, const P
     register_mpeg(hle);
     register_font(hle);
     register_utility(hle, paths.memory_stick);
+    register_adhoc(hle);
 
     const bool strict = std::getenv("MHP3RD_STRICT_HLE") != nullptr;
     std::size_t stubbed = 0u;

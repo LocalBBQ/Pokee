@@ -72,6 +72,7 @@ void register_mpeg(HleRegistrar &hle);
 void register_font(HleRegistrar &hle);
 void register_utility(HleRegistrar &hle, const std::filesystem::path &memory_stick);
 void register_savedata(HleRegistrar &hle, const std::filesystem::path &memory_stick);
+void register_adhoc(HleRegistrar &hle);
 
 #if defined(MHP3RD_HAS_RENDERER)
 namespace gpu { class VulkanRenderer; }
