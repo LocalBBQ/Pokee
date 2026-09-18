@@ -357,6 +357,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TRACE_GE=1` | Log the first draws of the run with their state |
 | `MHP3RD_TRACE_3D=1` | Per-frame counts of transformed draws, their targets and screen-space bounds |
 | `MHP3RD_TRACE_MATERIAL=1` | Every distinct value the game writes to the GE material registers |
+| `MHP3RD_TRACE_LIGHTING=1` | Every distinct value the game writes to the GE light and fog registers, and one line per distinct register state a lit draw is made with |
 | `MHP3RD_NO_CULL=1`, `MHP3RD_NO_DEPTH=1` | Disable face culling or the depth test, to bisect missing geometry |
 | `MHP3RD_TRACE_AUDIO=1` | One line per second of output: frames, peak, RMS, silence and drops |
 | `MHP3RD_TRACE_ATRAC=1` | Every `sceAtrac3plus` call with its arguments, result and decode position |

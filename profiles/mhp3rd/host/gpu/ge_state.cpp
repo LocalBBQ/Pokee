@@ -320,6 +320,19 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         if (++values[data] == 1u && values.size() <= 24u)
             std::cout << "[material] cmd=0x" << std::hex << command << " value=0x" << data << std::dec << "\n";
     }
+    // MHP3RD_TRACE_LIGHTING does the same for the registers around that run
+    // that lighting and fog may live in: the enables after 0x17, 0x50..0x52,
+    // 0x5D..0x9A and 0xC8..0xD0. Each value is also shown as a 24-bit float,
+    // since several of them carry one.
+    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr;
+        trace && ((command >= 0x18u && command <= 0x20u) || (command >= 0x50u && command <= 0x52u) ||
+                  (command >= 0x5Du && command <= 0x9Au) || (command >= 0xC8u && command <= 0xD0u))) {
+        static std::map<std::uint32_t, std::map<std::uint32_t, std::uint64_t>> seen;
+        auto &values = seen[command];
+        if (++values[data] == 1u && values.size() <= 16u)
+            std::cout << "[lighting] cmd=0x" << std::hex << command << " value=0x" << data << std::dec
+                      << " float=" << decode_float24(data) << "\n";
+    }
     switch (command) {
     // Addresses in a display list are relative: BASE supplies four high bits and
     // OFFSET_ADDR is added on top of them. Conflating the two — and letting
@@ -561,6 +574,28 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
         index_address_ += count * (index_type == 1u ? 1u : index_type == 2u ? 2u : 4u);
     else
         vertex_address_ += stride * count;
+
+    // Which register values a lit draw is actually made with: one line per
+    // distinct combination of vertex type, enables and material registers,
+    // printed with every non-zero register lighting may read. Light positions
+    // and colours are left out of the key because the game animates them.
+    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr; trace && lighting_enabled_) {
+        static std::map<std::vector<std::uint32_t>, std::uint64_t> seen;
+        std::vector<std::uint32_t> key{vertex_type_};
+        for (std::uint32_t command = 0x18u; command <= 0x1Fu; ++command) key.push_back(registers_[command]);
+        for (std::uint32_t command = 0x50u; command <= 0x5Eu; ++command) key.push_back(registers_[command]);
+        if (++seen[key] == 1u && seen.size() <= 256u) {
+            std::cout << "[lit-draw] vtype=0x" << std::hex << vertex_type_ << " verts=" << std::dec
+                      << call.vertices.size() << " n0=(" << call.vertices[0].normal[0] << ","
+                      << call.vertices[0].normal[1] << "," << call.vertices[0].normal[2] << ") c0=0x" << std::hex
+                      << call.vertices[0].color << " regs";
+            for (std::uint32_t command = 0x18u; command <= 0x1Fu; ++command)
+                std::cout << " " << command << ":" << registers_[command];
+            for (std::uint32_t command = 0x50u; command <= 0x9Au; ++command)
+                if (registers_[command] != 0u) std::cout << " " << command << ":" << registers_[command];
+            std::cout << std::dec << "\n";
+        }
+    }
 
     ++draw_count_;
     vertex_count_ += call.vertices.size();
