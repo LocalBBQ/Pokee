@@ -57,6 +57,8 @@ set(MHP3RD_HOST_SOURCES
     host/audio/sas_core.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
+    host/perf/frame_stats.cpp
+    host/perf/perf_overlay.cpp
     host/overlays.cpp
     host/mhp3rd_profile.cpp
     host/kernel/kernel.cpp

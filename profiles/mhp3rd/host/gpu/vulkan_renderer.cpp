@@ -2,6 +2,9 @@
 
 #include "texture_decode.hpp"
 
+#include "perf/frame_stats.hpp"
+#include "perf/perf_overlay.hpp"
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
@@ -150,6 +153,16 @@ float env_float(const char *name, float fallback) {
     return end != text ? value : fallback;
 }
 
+const char *present_mode_name(VkPresentModeKHR mode) {
+    switch (mode) {
+    case VK_PRESENT_MODE_IMMEDIATE_KHR: return "IMMEDIATE";
+    case VK_PRESENT_MODE_MAILBOX_KHR: return "MAILBOX";
+    case VK_PRESENT_MODE_FIFO_KHR: return "FIFO";
+    case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return "FIFO_RELAXED";
+    default: return "OTHER";
+    }
+}
+
 bool env_flag(const char *name, bool fallback) {
     const char *text = std::getenv(name);
     if (text == nullptr) return fallback;
@@ -279,6 +292,20 @@ struct VulkanRenderer::Impl {
     VkFence frame_fence{};
     VkSemaphore image_available{};
     VkSemaphore render_finished{};
+    VkPresentModeKHR present_mode{VK_PRESENT_MODE_FIFO_KHR};
+
+    // Performance overlay: drawn on the CPU, copied through a mapped staging
+    // buffer into a small image and scaled onto the swapchain image after the
+    // game frame, so screenshots of the window include it.
+    bool overlay_visible{};
+    bool overlay_ready{};
+    VkImage overlay_image{};
+    VkDeviceMemory overlay_memory{};
+    VkImageView overlay_view{};
+    VkBuffer overlay_staging{};
+    VkDeviceMemory overlay_staging_memory{};
+    void *overlay_mapped{};
+    std::vector<std::uint32_t> overlay_pixels;
 
     // One offscreen target per guest framebuffer address. The game draws into
     // several (double buffering, render to texture), and only the address passed
@@ -454,6 +481,9 @@ struct VulkanRenderer::Impl {
     }
 
     Target *target_for(std::uint32_t address, std::string &error);
+    bool create_overlay(std::string &error);
+    void record_overlay(VkImage destination);
+    void update_display_info();
     void begin_pass(std::uint32_t address);
     void end_pass();
     VkPipeline pipeline_for(const PipelineKey &key);
@@ -610,7 +640,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     swapchain_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     swapchain_info.preTransform = capabilities.currentTransform;
     swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    swapchain_info.presentMode = config.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+    impl.present_mode = config.vsync ? VK_PRESENT_MODE_FIFO_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR;
+    swapchain_info.presentMode = impl.present_mode;
     swapchain_info.clipped = VK_TRUE;
     if (!check(vkCreateSwapchainKHR(impl.device, &swapchain_info, nullptr, &impl.swapchain), "vkCreateSwapchainKHR",
                error))
@@ -744,12 +775,89 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     const std::uint32_t white = 0xFFFFFFFFu;
     impl.white_texture = impl.create_texture(1u, 1u, &white);
 
+    // The overlay is optional: without it the game still runs, only unmeasured
+    // on screen.
+    std::string overlay_error;
+    impl.overlay_ready = impl.create_overlay(overlay_error);
+    if (!impl.overlay_ready) std::cout << "[perf] overlay unavailable: " << overlay_error << "\n";
+    impl.overlay_visible = impl.overlay_ready && perf::options().overlay;
+    impl.update_display_info();
+
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(impl.physical_device, &properties);
     std::cout << "Renderer: Vulkan on " << properties.deviceName << ", target " << impl.target_extent.width << "x"
               << impl.target_extent.height << "\n";
     impl.ready = true;
     return true;
+}
+
+bool VulkanRenderer::Impl::create_overlay(std::string &error) {
+    if (!create_image(perf::kOverlayWidth, perf::kOverlayHeight, VK_FORMAT_R8G8B8A8_UNORM,
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, overlay_image, overlay_memory,
+                      overlay_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
+        return false;
+    overlay_pixels.assign(static_cast<std::size_t>(perf::kOverlayWidth) * perf::kOverlayHeight, 0u);
+    const VkDeviceSize bytes = overlay_pixels.size() * sizeof(std::uint32_t);
+    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = bytes;
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!check(vkCreateBuffer(device, &buffer_info, nullptr, &overlay_staging), "vkCreateBuffer", error)) return false;
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(device, overlay_staging, &requirements);
+    VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocate.allocationSize = requirements.size;
+    allocate.memoryTypeIndex = find_memory_type(
+        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!check(vkAllocateMemory(device, &allocate, nullptr, &overlay_staging_memory), "vkAllocateMemory", error))
+        return false;
+    vkBindBufferMemory(device, overlay_staging, overlay_staging_memory, 0u);
+    return check(vkMapMemory(device, overlay_staging_memory, 0u, bytes, 0u, &overlay_mapped), "vkMapMemory", error);
+}
+
+// Draws the overlay over the top-left corner of the swapchain image, which is
+// in TRANSFER_DST layout with the game frame already blitted into it. The
+// staging buffer is free to rewrite: the frame fence has been waited on before
+// any recording of this frame started.
+void VulkanRenderer::Impl::record_overlay(VkImage destination) {
+    const std::uint32_t scale = perf::overlay_scale(swapchain_extent.height);
+    const std::uint32_t inset = 4u * scale;
+    const std::uint32_t width = perf::kOverlayWidth * scale;
+    const std::uint32_t height = perf::kOverlayHeight * scale;
+    if (inset + width > swapchain_extent.width || inset + height > swapchain_extent.height) return;
+
+    perf::draw_overlay(overlay_pixels.data());
+    std::memcpy(overlay_mapped, overlay_pixels.data(), overlay_pixels.size() * sizeof(std::uint32_t));
+    transition(command_buffer, overlay_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    copy.imageExtent = {perf::kOverlayWidth, perf::kOverlayHeight, 1u};
+    vkCmdCopyBufferToImage(command_buffer, overlay_staging, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u,
+                           &copy);
+    transition(command_buffer, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // The game frame was blitted into the same image just before; order the
+    // two writes.
+    transition(command_buffer, destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    blit.srcOffsets[1] = {static_cast<std::int32_t>(perf::kOverlayWidth),
+                          static_cast<std::int32_t>(perf::kOverlayHeight), 1};
+    blit.dstSubresource = blit.srcSubresource;
+    blit.dstOffsets[0] = {static_cast<std::int32_t>(inset), static_cast<std::int32_t>(inset), 0};
+    blit.dstOffsets[1] = {static_cast<std::int32_t>(inset + width), static_cast<std::int32_t>(inset + height), 1};
+    vkCmdBlitImage(command_buffer, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_NEAREST);
+}
+
+void VulkanRenderer::Impl::update_display_info() {
+    float refresh = 0.0f;
+    if (const SDL_DisplayID display = SDL_GetDisplayForWindow(window); display != 0u) {
+        if (const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(display); mode != nullptr)
+            refresh = mode->refresh_rate;
+    }
+    perf::set_display_info(present_mode_name(present_mode), swapchain_extent.width, swapchain_extent.height, refresh);
 }
 
 VulkanRenderer::Impl::Target *VulkanRenderer::Impl::target_for(std::uint32_t address, std::string &error) {
@@ -856,8 +964,12 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1u;
     submit.pCommandBuffers = &commands;
+    // Uploads are synchronous: the GPU finishes everything queued before this
+    // returns, which counts as waiting rather than rendering.
+    const perf::Clock::time_point wait_start = perf::Clock::now();
     vkQueueSubmit(queue, 1u, &submit, VK_NULL_HANDLE);
     vkQueueWaitIdle(queue);
+    perf::add_wait_time(perf::Clock::now() - wait_start);
     vkFreeCommandBuffers(device, command_pool, 1u, &commands);
     vkDestroyBuffer(device, staging, nullptr);
     vkFreeMemory(device, staging_memory, nullptr);
@@ -902,7 +1014,9 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         for (auto it = textures.begin(); it != textures.end(); ++it) {
             if (it->second.last_used < oldest->second.last_used) oldest = it;
         }
+        const perf::Clock::time_point wait_start = perf::Clock::now();
         vkQueueWaitIdle(queue);
+        perf::add_wait_time(perf::Clock::now() - wait_start);
         destroy_texture(oldest->second);
         textures.erase(oldest);
     }
@@ -1009,6 +1123,11 @@ bool VulkanRenderer::pump_events() {
         // every other event while the on-screen keyboard is up.
         if (event.type == SDL_EVENT_GAMEPAD_ADDED) impl_->open_gamepad(event.gdevice.which);
         if (event.type == SDL_EVENT_GAMEPAD_REMOVED) impl_->close_gamepad(event.gdevice.which);
+        // F3 toggles the performance overlay. No pad combination: L3+R3 is
+        // reserved for the in-game menu.
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F3 && !event.key.repeat && impl_->overlay_ready)
+            impl_->overlay_visible = !impl_->overlay_visible;
+        if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) impl_->update_display_info();
 
         if (!impl_->text_input_active) continue;
         if (event.type == SDL_EVENT_TEXT_INPUT) {
@@ -1108,7 +1227,9 @@ bool VulkanRenderer::text_input_cancelled() const noexcept { return impl_ && imp
 void VulkanRenderer::begin_frame() {
     Impl &impl = *impl_;
     if (!impl.ready || impl.recording) return;
+    const perf::Clock::time_point wait_start = perf::Clock::now();
     vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
+    perf::add_wait_time(perf::Clock::now() - wait_start);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
     vkResetCommandBuffer(impl.command_buffer, 0u);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1489,8 +1610,10 @@ void VulkanRenderer::present(std::uint32_t display_address) {
     impl.presented_target = displayed != impl.targets.end() ? displayed->first : 0u;
 
     std::uint32_t image_index = 0u;
+    const perf::Clock::time_point acquire_start = perf::Clock::now();
     const VkResult acquired =
         vkAcquireNextImageKHR(impl.device, impl.swapchain, UINT64_MAX, impl.image_available, VK_NULL_HANDLE, &image_index);
+    perf::add_wait_time(perf::Clock::now() - acquire_start);
     const bool can_present = (acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR) && source != VK_NULL_HANDLE;
     if (can_present) {
         VkImage target = impl.swapchain_images[image_index];
@@ -1506,6 +1629,11 @@ void VulkanRenderer::present(std::uint32_t display_address) {
                               static_cast<std::int32_t>(impl.swapchain_extent.height), 1};
         vkCmdBlitImage(impl.command_buffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+        if (impl.overlay_visible) {
+            const perf::Clock::time_point overlay_start = perf::Clock::now();
+            impl.record_overlay(target);
+            perf::add_overlay_time(perf::Clock::now() - overlay_start);
+        }
         impl.transition(impl.command_buffer, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         impl.transition(impl.command_buffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -1524,7 +1652,10 @@ void VulkanRenderer::present(std::uint32_t display_address) {
         submit.signalSemaphoreCount = 1u;
         submit.pSignalSemaphores = &impl.render_finished;
     }
+    // MoltenVK waits for the next drawable here rather than in the acquire.
+    const perf::Clock::time_point submit_start = perf::Clock::now();
     vkQueueSubmit(impl.queue, 1u, &submit, impl.frame_fence);
+    perf::add_wait_time(perf::Clock::now() - submit_start);
 
     if (can_present) {
         VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -1533,7 +1664,9 @@ void VulkanRenderer::present(std::uint32_t display_address) {
         present.swapchainCount = 1u;
         present.pSwapchains = &impl.swapchain;
         present.pImageIndices = &image_index;
+        const perf::Clock::time_point present_start = perf::Clock::now();
         vkQueuePresentKHR(impl.queue, &present);
+        perf::add_wait_time(perf::Clock::now() - present_start);
     }
     impl.recording = false;
     ++impl.frames;
@@ -1627,6 +1760,25 @@ bool VulkanRenderer::capture_frame(const std::string &path) {
     vkDestroyBuffer(impl.device, staging, nullptr);
     vkFreeMemory(impl.device, staging_memory, nullptr);
 
+    // The capture is the game's own target, before the window blit; draw the
+    // overlay over it the same way, so captures show what the window shows.
+    if (impl.overlay_visible) {
+        const std::uint32_t scale = perf::overlay_scale(height);
+        const std::uint32_t inset = 4u * scale;
+        if (inset + perf::kOverlayWidth * scale <= width && inset + perf::kOverlayHeight * scale <= height) {
+            for (std::uint32_t y = 0; y < perf::kOverlayHeight * scale; ++y) {
+                std::uint8_t *row = file.data() + 54u + static_cast<std::size_t>(height - 1u - (inset + y)) * row_bytes;
+                for (std::uint32_t x = 0; x < perf::kOverlayWidth * scale; ++x) {
+                    const std::uint32_t pixel = impl.overlay_pixels[(y / scale) * perf::kOverlayWidth + x / scale];
+                    std::uint8_t *destination = row + (inset + x) * 3u;
+                    destination[0] = static_cast<std::uint8_t>(pixel >> 16u);
+                    destination[1] = static_cast<std::uint8_t>(pixel >> 8u);
+                    destination[2] = static_cast<std::uint8_t>(pixel);
+                }
+            }
+        }
+    }
+
     std::ofstream out(path, std::ios::binary);
     if (!out) return false;
     out.write(reinterpret_cast<const char *>(file.data()), static_cast<std::streamsize>(file.size()));
@@ -1650,6 +1802,12 @@ void VulkanRenderer::shutdown() {
     for (auto &[key, texture] : impl.textures) impl.destroy_texture(texture);
     impl.textures.clear();
     impl.destroy_texture(impl.white_texture);
+    if (impl.overlay_mapped != nullptr) vkUnmapMemory(impl.device, impl.overlay_staging_memory);
+    vkDestroyBuffer(impl.device, impl.overlay_staging, nullptr);
+    vkFreeMemory(impl.device, impl.overlay_staging_memory, nullptr);
+    vkDestroyImageView(impl.device, impl.overlay_view, nullptr);
+    vkDestroyImage(impl.device, impl.overlay_image, nullptr);
+    vkFreeMemory(impl.device, impl.overlay_memory, nullptr);
     for (auto &[key, pipeline] : impl.pipelines) vkDestroyPipeline(impl.device, pipeline, nullptr);
     impl.pipelines.clear();
     if (impl.vertex_mapped != nullptr) vkUnmapMemory(impl.device, impl.vertex_memory);

@@ -12,6 +12,7 @@
 #include "psprecomp/common.hpp"
 
 #include "gpu/ge_state.hpp"
+#include "perf/frame_stats.hpp"
 #if defined(MHP3RD_HAS_RENDERER)
 #include "gpu/vulkan_renderer.hpp"
 #endif
@@ -88,6 +89,7 @@ MediaState &media() {
 void run_ge_list(Runtime &rt, std::uint32_t id) {
     auto found = media().ge_lists.find(id);
     if (found == media().ge_lists.end()) return;
+    const perf::Clock::time_point start = perf::Clock::now();
     GeList &list = found->second;
     const GeCallback *callback = nullptr;
     if (const auto cb = media().ge_callbacks.find(list.callback); cb != media().ge_callbacks.end())
@@ -121,19 +123,27 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
     }
     list.done = finished;
     media().ge.set_draw_sink(nullptr);
+    perf::add_render_time(perf::Clock::now() - start);
 }
 
 void present_frame(Runtime &rt) {
     // Overlays are swapped between frames; re-check before drawing the next one.
     revalidate_overlays(rt);
 #if defined(MHP3RD_HAS_RENDERER)
-    if (!media().renderer || !media().renderer->available()) return;
+    if (!media().renderer || !media().renderer->available()) {
+        perf::end_frame(kernel().now_us());
+        return;
+    }
     gpu::VulkanRenderer &renderer = *media().renderer;
     // The guest passes a VRAM offset when the high byte is zero.
     const std::uint32_t address = (media().display.framebuffer & 0xFF000000u) == 0u
                                       ? (media().display.framebuffer | 0x04000000u)
                                       : media().display.framebuffer;
+    const perf::Clock::time_point present_start = perf::Clock::now();
     renderer.present(address);
+    perf::add_render_time(perf::Clock::now() - present_start);
+    // A frame ends when its image has been handed to the swapchain.
+    perf::end_frame(kernel().now_us());
 
     // Optional frame capture, independent of the window.
     static const char *screenshot_dir = std::getenv("MHP3RD_SCREENSHOT_DIR");
@@ -152,6 +162,7 @@ void present_frame(Runtime &rt) {
     if (!renderer.pump_events()) rt.stop("window closed");
 #else
     (void)rt;
+    perf::end_frame(kernel().now_us());
 #endif
 }
 
@@ -247,6 +258,7 @@ void register_ge(HleRegistrar &hle) {
         list.stall = arg(ctx, 1) & 0x0FFFFFFFu;
         list.callback = static_cast<std::int32_t>(arg(ctx, 2));
         media().ge_lists[id] = std::move(list);
+        perf::count_display_list();
         run_ge_list(rt, id);
         kernel().finish(ctx, id);
     };
