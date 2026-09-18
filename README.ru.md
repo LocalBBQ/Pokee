@@ -62,12 +62,12 @@ Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP и
 
 Коротко:
 
-1. Подключите образ диска и расшифрованный исполняемый файл к профилю скриптом `profiles/mhp3rd/scripts/prepare_game.sh`. Исполняемый файл должен совпадать с SHA-256 из README профиля.
+1. Подготовьте исполняемый файл игры из своего образа диска: один раз соберите `MHP3rdNative` без рекомпилированного кода и запустите его с `--install /путь/к/образу.iso`. Сторонний инструмент расшифровки не нужен. Затем подключите образ и этот файл к профилю скриптом `profiles/mhp3rd/scripts/prepare_game.sh`.
 2. Выполните конфигурацию, сгенерируйте рекомпилированный код скриптом `profiles/mhp3rd/scripts/generate.sh` и соберите `MHP3rdNative`.
 3. Рекомпилируйте оверлеи кода скриптом `profiles/mhp3rd/scripts/build_overlays.sh` (в первый раз около 40 минут; прерванная сборка продолжается с места остановки).
 4. Запустите `out/mhp3rd/bin/MHP3rdNative`.
 
-Полная инструкция со всеми настройками — в [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md).
+Полная инструкция со всеми настройками — в [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Сборка на Windows только из образа диска, по шагам: [`docs/BUILDING_WINDOWS.md`](docs/BUILDING_WINDOWS.md).
 
 ## Управление
 

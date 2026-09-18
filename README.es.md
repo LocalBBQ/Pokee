@@ -62,12 +62,12 @@ El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILI
 
 En resumen:
 
-1. Enlaza tu imagen de disco y el ejecutable descifrado con el perfil mediante `profiles/mhp3rd/scripts/prepare_game.sh`. El ejecutable debe coincidir con el SHA-256 indicado en el README del perfil.
+1. Prepara el ejecutable del juego a partir de tu imagen de disco: compila `MHP3rdNative` una vez sin código recompilado y ejecútalo con `--install /ruta/a/la/imagen.iso`. No hace falta ninguna herramienta de descifrado externa. Después enlaza la imagen y ese ejecutable con el perfil mediante `profiles/mhp3rd/scripts/prepare_game.sh`.
 2. Configura, genera el código recompilado con `profiles/mhp3rd/scripts/generate.sh` y compila `MHP3rdNative`.
 3. Recompila los overlays de código con `profiles/mhp3rd/scripts/build_overlays.sh` (unos 40 minutos la primera vez; si se interrumpe, continúa donde se quedó).
 4. Ejecuta `out/mhp3rd/bin/MHP3rdNative`.
 
-Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md).
+Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Compilar en Windows solo con la imagen de disco, paso a paso: [`docs/BUILDING_WINDOWS.md`](docs/BUILDING_WINDOWS.md).
 
 ## Controles
 

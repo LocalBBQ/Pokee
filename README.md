@@ -60,12 +60,12 @@ The state of each part of the game on each platform is in [`docs/COMPATIBILITY.m
 
 In short:
 
-1. Link your disc image and decrypted executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`. The executable must match the SHA-256 listed in the profile's README.
+1. Prepare the game's executable from your disc image: build `MHP3rdNative` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`.
 2. Configure, generate the recompiled code with `profiles/mhp3rd/scripts/generate.sh`, and build `MHP3rdNative`.
 3. Recompile the code overlays with `profiles/mhp3rd/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
 4. Run `out/mhp3rd/bin/MHP3rdNative`.
 
-The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md).
+The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Building on Windows from nothing but the disc image, step by step: [`docs/BUILDING_WINDOWS.md`](docs/BUILDING_WINDOWS.md).
 
 ## Controls
 
