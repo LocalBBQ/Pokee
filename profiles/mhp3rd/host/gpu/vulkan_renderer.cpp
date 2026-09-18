@@ -985,9 +985,11 @@ bool VulkanRenderer::pump_events() {
     if (!impl_ || impl_->window == nullptr) return false;
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        // Closing the window is the only way out. Esc used to quit as well, but
+        // Steam's desktop controller layout on a Steam Deck sends Esc from the B
+        // button, which is also the game's confirm button, so confirming a menu
+        // closed the game. Esc is reserved for the in-game menu instead.
         if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) impl_->quit = true;
-        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE && !impl_->text_input_active)
-            impl_->quit = true;
         // Hot-plug is handled before the text-input branch below, which skips
         // every other event while the on-screen keyboard is up.
         if (event.type == SDL_EVENT_GAMEPAD_ADDED) impl_->open_gamepad(event.gdevice.which);

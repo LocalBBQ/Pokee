@@ -138,7 +138,7 @@ It builds with 2 parallel jobs; `-j N` changes that. `--no-build` stops after re
 out/mhp3rd/bin/MHP3rdNative [game_dir]       # game_dir defaults to profiles/mhp3rd/game
 ```
 
-The window renders at twice the PSP resolution by default (960×544). **Esc** closes it. When the game asks for a name, the on-screen keyboard answers immediately with `MHP3RD_OSK_TEXT` (default `Hunter`); set `MHP3RD_OSK_INTERACTIVE=1` to type it in the window instead (Enter confirms, Esc cancels).
+The window renders at twice the PSP resolution by default (960×544). Close the window to quit (Cmd+Q on macOS, Alt+F4 on most Linux desktops); Esc does not quit, because it is reserved for the in-game menu (#11). When the game asks for a name, the on-screen keyboard answers immediately with `MHP3RD_OSK_TEXT` (default `Hunter`); set `MHP3RD_OSK_INTERACTIVE=1` to type it in the window instead (Enter confirms, Esc cancels).
 
 ### Keyboard
 
