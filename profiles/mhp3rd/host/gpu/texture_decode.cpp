@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 
 namespace mhp3rd::gpu {
@@ -232,6 +233,10 @@ bool decode_texture(const GuestMemory &memory, const TextureState &texture, std:
     return true;
 }
 
+// Textures up to this size are keyed by all of their contents, larger ones by
+// one word in every 256 bytes.
+constexpr std::uint32_t kFullKeyBytes = 64u * 1024u;
+
 std::uint64_t texture_key(const GuestMemory &memory, const TextureState &texture) {
     // Address, layout and a sample of the contents: guest textures are often
     // rewritten in place, so the key has to notice changed pixels.
@@ -252,10 +257,30 @@ std::uint64_t texture_key(const GuestMemory &memory, const TextureState &texture
                                           : texture.width * texture.height / 2u;
     // Resolve the texture once; this runs for every textured draw.
     if (const std::uint8_t *data = memory.raw_pointer(texture.address, static_cast<std::size_t>(size) + 3u)) {
-        for (std::uint32_t offset = 0; offset < size; offset += 256u) {
-            std::uint32_t word{};
-            std::memcpy(&word, data + offset, sizeof(word));
-            mix(word);
+        // MHP3RD_SAMPLED_TEXTURE_KEYS=1 samples small textures too, as before.
+        static const bool sampled = std::getenv("MHP3RD_SAMPLED_TEXTURE_KEYS") != nullptr;
+        if (size <= kFullKeyBytes && !sampled) {
+            // Small textures are read whole: the game's text atlas gains one
+            // glyph at a time, and a sample misses most of them. Four
+            // independent lanes keep this cheap.
+            std::uint64_t lanes[4] = {key, key ^ 0x9E3779B97F4A7C15ull, key ^ 0xC2B2AE3D27D4EB4Full,
+                                      key ^ 0x165667B19E3779F9ull};
+            std::uint32_t offset = 0;
+            for (; offset + 32u <= size; offset += 32u) {
+                for (int lane = 0; lane < 4; ++lane) {
+                    std::uint64_t word{};
+                    std::memcpy(&word, data + offset + static_cast<std::uint32_t>(lane) * 8u, sizeof(word));
+                    lanes[lane] = (lanes[lane] ^ word) * 0x100000001B3ull;
+                }
+            }
+            for (const std::uint64_t lane : lanes) mix(lane);
+            for (; offset < size; ++offset) mix(data[offset]);
+        } else {
+            for (std::uint32_t offset = 0; offset < size; offset += 256u) {
+                std::uint32_t word{};
+                std::memcpy(&word, data + offset, sizeof(word));
+                mix(word);
+            }
         }
     } else {
         for (std::uint32_t offset = 0; offset < size; offset += 256u) {
