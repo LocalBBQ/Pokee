@@ -20,7 +20,7 @@ The installer accepts only `NPJB-40001`: the disc id in `PARAM.SFO` must match, 
 
 | Tool | Notes |
 | --- | --- |
-| Visual Studio 2022 or its Build Tools | The *Desktop development with C++* workload (MSVC and the Windows SDK) |
+| MSVC: Visual Studio 2022 or newer, or just the free *Build Tools for Visual Studio* | The *Desktop development with C++* workload (MSVC and the Windows SDK). The IDE itself is not needed. `clang-cl` works on top of the same workload. MinGW has not been tried; the build files are written for MSVC |
 | CMake 3.20 or newer and Ninja | Visual Studio's own copies work, and so do standalone ones on `PATH` |
 | Python 3 | On `PATH` as `python3` or `python` |
 | Git for Windows | Git Bash runs the `.sh` scripts in `profiles/mhp3rd/scripts/` |
@@ -32,7 +32,7 @@ Plan for about 10 GB of free disk space for the build and several GB of free mem
 
 ## Steps
 
-Open **x64 Native Tools Command Prompt for VS 2022**, so that the MSVC compiler is on `PATH`. From it, start Git Bash so the scripts run with the same environment:
+Open the **x64 Native Tools Command Prompt** of your Visual Studio or Build Tools, so that the MSVC compiler is on `PATH`. From it, start Git Bash so the scripts run with the same environment:
 
 ```bat
 "C:\Program Files\Git\bin\bash.exe"
