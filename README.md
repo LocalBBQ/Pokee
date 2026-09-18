@@ -49,7 +49,16 @@ Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in 
 
 The state of each part of the game on each platform is in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
+## Play
+
+A prebuilt release needs nothing but your disc image. Download one from the [releases page](https://github.com/TeamGDB/Yakumo/releases), start it, and point the first-run setup at your image: it checks the image, prepares the game from it and keeps everything in a per-user directory.
+
+- **Linux and Steam Deck:** a Flatpak bundle and a portable tarball. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling.
+- **macOS and Windows:** no prebuilt release yet; build from source as below.
+
 ## Requirements
+
+Building from source is a fully supported way to play. It needs:
 
 - Your own copy of the game (see above)
 - CMake 3.20 or newer, Ninja and a C++20 compiler

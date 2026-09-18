@@ -14,6 +14,8 @@ About fifteen minutes. It walks through every part of the game that currently wo
 
 Before you start, write down the commit you are testing: `git rev-parse --short HEAD`. A result is only useful with it.
 
+A released build is tested the same way. Note its version and which download it is (Flatpak or tarball) instead of the commit, start it through its launcher (`flatpak run io.github.teamgdb.Yakumo` or `./yakumo`, from a terminal to see the console), and start from a fresh data directory: for the Flatpak, move `~/.var/app/io.github.teamgdb.Yakumo` aside; for the tarball, `~/.local/share/Yakumo`. The first start then runs the setup from your disc image, which is part of the test. [`LINUX.md`](LINUX.md) says where a release keeps its saves.
+
 | # | Step | Expected |
 | --- | --- | --- |
 | 1 | Start `out/mhp3rd/bin/MHP3rdNative` | A window opens; the console lists 355 overlay corpora, the renderer and the audio device |

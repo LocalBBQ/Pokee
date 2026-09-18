@@ -51,7 +51,16 @@ Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una St
 
 El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
+## Jugar
+
+Una versión publicada solo necesita tu imagen de disco. Descárgala desde la [página de versiones](https://github.com/TeamGDB/Yakumo/releases), iníciala e indica tu imagen en la configuración inicial: comprueba la imagen, prepara el juego a partir de ella y lo guarda todo en un directorio del usuario.
+
+- **Linux y Steam Deck:** un paquete Flatpak y un archivo portátil. [`docs/LINUX.md`](docs/LINUX.md) (en inglés) explica la instalación, el primer inicio, el modo de juego, dónde están las partidas guardadas, cómo actualizar y cómo desinstalar.
+- **macOS y Windows:** todavía no hay versiones publicadas; compila desde el código fuente como se describe a continuación.
+
 ## Requisitos
+
+Compilar desde el código fuente es una forma plenamente compatible de jugar. Se necesita:
 
 - Tu propia copia del juego (ver arriba)
 - CMake 3.20 o posterior, Ninja y un compilador de C++20

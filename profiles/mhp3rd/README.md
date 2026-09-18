@@ -87,7 +87,7 @@ The program needs two things from your own copy of the game: the disc image and 
 
 1. A directory given on the command line or in `MHP3RD_GAME_DIR`.
 2. The **per-user data directory** that the installer fills.
-3. `profiles/mhp3rd/game` in the checkout, set up by `prepare_game.sh`.
+3. `profiles/mhp3rd/game` in the checkout, set up by `prepare_game.sh`. A release build (`-DMHP3RD_RELEASE=ON`, see [Release builds](#release-builds)) has no checkout and skips this.
 
 If neither the per-user directory nor `profiles/mhp3rd/game` holds game data, the program starts its installer instead of the game.
 
@@ -111,7 +111,9 @@ The per-user directory is SDL's preference path for `Yakumo/MHP3rd`:
 | Linux | `~/.local/share/Yakumo/MHP3rd/` (or under `$XDG_DATA_HOME`) |
 | Windows | `%APPDATA%\Yakumo\MHP3rd\` |
 
-It holds `EBOOT.ELF`, `disc.iso` when the image was copied, and `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu). Save data is not there yet: `ms0` stays in `profiles/mhp3rd/game/ms0` for now. `MHP3RD_DATA_DIR` points the program at another directory.
+It holds `EBOOT.ELF`, `disc.iso` when the image was copied, `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu), and `ms0`, the memory stick with the [saves](#saving-and-loading). `MHP3RD_DATA_DIR` points the program at another directory. The Flatpak keeps this directory inside its own data directory, `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/`.
+
+Saves made before `ms0` moved here stay where they were, in `profiles/mhp3rd/game/ms0`: a developer build keeps using them, and says so at start, until the per-user directory has an `ms0` of its own. Move the folder there to switch.
 
 The same setup runs without any screens from a terminal, for scripts and headless machines:
 
@@ -160,6 +162,10 @@ The build protects its incremental state on macOS and Linux:
 - **Compiler cache.** If `ccache` is installed, every compile goes through it, so a rebuild of unchanged code takes seconds instead of minutes, also across checkouts at different paths. `-DPSPRECOMP_CCACHE=OFF` turns it off.
 
 CMake prints a warning for Ninja 1.13.2, which cannot recover from a damaged dependency log by itself (upstream issue [#2703](https://github.com/ninja-build/ninja/issues/2703)). Building through `cmake --build` works around it; the fix is due in Ninja 1.14. [`docs/BUILD_SYSTEM.md`](../../docs/BUILD_SYSTEM.md) explains why incremental state gets lost and what the build does about it.
+
+## Release builds
+
+Players can use a prebuilt release instead of building: it contains the program with the recompiled code and all overlay libraries, but no game data, and sets the game up from the player's disc image on first start. `-DMHP3RD_RELEASE=ON` builds the executable for that: it reads nothing from the checkout, and on Linux it loads the libraries it ships from `lib/` next to itself and links the C++ runtime statically. [`docs/RELEASING.md`](../../docs/RELEASING.md) describes how a release is built and published; `scripts/release_linux.sh` builds the Linux artifacts, and `packaging/` holds their manifests, launcher and third-party notices.
 
 ## Code overlays
 
@@ -306,7 +312,7 @@ The interface is drawn with [Dear ImGui](third_party/imgui/README.md). Its text 
 
 ## Game text
 
-The game draws its text with the PSP's system font, which lives in the console's flash and is not on the disc, so Yakumo draws those glyphs from a font on your computer. *Font* in the menu's Video page lists the installed fonts that have every Latin letter, digit and punctuation mark, marked *Japanese* when they also have the kana and kanji the game still shows. Characters a font lacks come from the default font: Hiragino Sans on macOS, Noto Sans CJK on Linux and the Steam Deck (the `fonts-noto-cjk` package or its equivalent), MS Gothic or Meiryo on Windows. To use a font that is not installed, put its `.ttf`, `.otf`, `.ttc` or `.otc` file into the `fonts` folder of the per-user directory (*Open the fonts folder* in the same section); those are listed first. A preview line under the setting shows the choice the way the game draws it.
+The game draws its text with the PSP's system font, which lives in the console's flash and is not on the disc, so Yakumo draws those glyphs from a font on your computer. *Font* in the menu's Video page lists the installed fonts that have every Latin letter, digit and punctuation mark, marked *Japanese* when they also have the kana and kanji the game still shows. Characters a font lacks come from the default font: Hiragino Sans on macOS, Noto Sans CJK on Linux and the Steam Deck (the `fonts-noto-cjk` package or its equivalent; a release falls back to the copy it ships), MS Gothic or Meiryo on Windows. To use a font that is not installed, put its `.ttf`, `.otf`, `.ttc` or `.otc` file into the `fonts` folder of the per-user directory (*Open the fonts folder* in the same section); those are listed first. A preview line under the setting shows the choice the way the game draws it.
 
 A change applies at once: Yakumo makes the game draw every character again the next time it shows it, so text already on screen changes within a frame or two.
 
@@ -314,7 +320,7 @@ How the text is laid out, as traced with `MHP3RD_TRACE_FONT=1`: the game sizes a
 
 ## Saving and loading
 
-The game saves through the PSP's save-data utility, which the host implements. Saves live where a PSP keeps them, under the directory that backs `ms0:` — `profiles/mhp3rd/game/ms0` unless `MHP3RD_GAME_DIR` or the `game_dir` argument points elsewhere:
+The game saves through the PSP's save-data utility, which the host implements. Saves live where a PSP keeps them, under the directory that backs `ms0:`: `ms0` in the [per-user data directory](#installer) for an installation, or `ms0` in the game directory when the game runs from one (`profiles/mhp3rd/game`, `MHP3RD_GAME_DIR` or the `game_dir` argument):
 
 ```text
 game/ms0/PSP/SAVEDATA/ULJM05800/
@@ -331,7 +337,7 @@ Nothing is drawn for the save-data or message dialogs yet ([#33](https://github.
 ### Importing a save from a PSP
 
 1. On the PSP's memory stick, find `PSP/SAVEDATA/ULJM05800` — the folder of *Monster Hunter Portable 3rd*.
-2. Quit the game, and copy the whole folder into `profiles/mhp3rd/game/ms0/PSP/SAVEDATA/`, replacing any folder of the same name. Keep a copy of the one you replace: it holds all three character slots.
+2. Quit the game, and copy the whole folder into `ms0/PSP/SAVEDATA/` in the directory above (for example `~/.local/share/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/`), creating the folders if they do not exist yet, and replacing any folder of the same name. Keep a copy of the one you replace: it holds all three character slots.
 3. Start the game. The title screen leads to character select with the imported characters.
 
 To take a save back to a PSP, copy the same folder the other way. The downloaded-quest folder `ULJM05800QST` is copied the same way.
@@ -483,9 +489,9 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `MHP3RD_GAME_DIR` | unset | Directory holding `EBOOT.ELF`, `disc.iso` and `ms0/` (the saves); skips the per-user directory |
-| `MHP3RD_DATA_DIR` | SDL's preference path | Per-user data directory the installer fills |
+| `MHP3RD_DATA_DIR` | SDL's preference path | Per-user data directory the installer fills, with the saves in its `ms0/` |
 | `MHP3RD_OVERLAY_DIR` | `overlays/` next to the executable | Directory of overlay libraries |
-| `MHP3RD_FONT` | a system CJK font | Font to draw the game's text with: a `.ttf`, `.otf`, `.ttc` or `.otc` file, with `#N` after the path for the Nth face of a collection. Glyphs it lacks come from the default, a Japanese system font (Hiragino on macOS, Noto Sans CJK on Linux, MS Gothic or Meiryo on Windows) |
+| `MHP3RD_FONT` | a system CJK font | Font to draw the game's text with: a `.ttf`, `.otf`, `.ttc` or `.otc` file, with `#N` after the path for the Nth face of a collection. Glyphs it lacks come from the default, a Japanese system font (Hiragino on macOS, Noto Sans CJK on Linux, MS Gothic or Meiryo on Windows; inside a Flatpak, the host's Noto Sans CJK under `/run/host/fonts`), and last the font a release ships in `fonts/` next to the executable |
 | `MHP3RD_UI_FONT` | a system font | TrueType font for Yakumo's menu and setup screens |
 
 ### Video
@@ -595,6 +601,7 @@ The overlay shows the same numbers and a graph of the last 192 frame times, from
 
 ```text
 host/main.cpp                    Entry point: finding the game data, executable check, startup
+host/app_paths.{hpp,cpp}         The executable's own location, and what a release ships next to it
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/settings/                   Player settings: settings.ini, environment overrides, defaults
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
@@ -635,8 +642,9 @@ Every import runs at the outer dispatch level, so a blocking import saves the ca
 ```text
 config/       Executable identity and overlay slot map
 host/         Bootstrap, kernel, HLE, graphics, audio
-scripts/      prepare_game.sh, generate.sh, build_overlays.sh, bootstrap_overlays.sh
-tools/        ISO and DATA.BIN extraction, overlay wrapping, shader embedding
+scripts/      prepare_game.sh, generate.sh, build_overlays.sh, bootstrap_overlays.sh, release_linux.sh
+packaging/    Release packaging: third-party notices; linux/ holds the Flatpak manifest, launcher and SDK build
+tools/        ISO and DATA.BIN extraction, overlay wrapping, shader and NID table embedding
 tests/        Save-data self-tests and save checker (mhp3rd_savedata_tests)
 third_party/  stb_truetype, tiny-AES-c (installer and saves), Dear ImGui (menu and setup screens)
 game/         Local game data: EBOOT.ELF, disc.iso, ms0/ (ignored)
