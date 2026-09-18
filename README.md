@@ -70,13 +70,14 @@ The full instructions, including every setting, are in [`profiles/mhp3rd/README.
 
 On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera. On a keyboard the arrow keys are the D-pad, I/J/K/L the analog stick, X and Z are ○ and ✕, A and S are □ and △, Q and W are L and R, and Enter is START. Both tables are in the [profile README](profiles/mhp3rd/README.md#running).
 
+Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu: it pauses the game and holds the settings for video, sound and controls, which are kept between runs. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
+
 ## Roadmap
 
 - Lighting and fog
 - Frame pacing, which also fixes sound running ahead
 - Streamed music and cutscene movies
 - Builds verified on Steam Deck and Windows
-- An in-game settings menu
 
 ## How it works
 

@@ -87,9 +87,15 @@ If neither the per-user directory nor `profiles/mhp3rd/game` holds game data, th
 
 ### Installer
 
-The installer needs only your disc image. It asks for the image with the system file dialog, checks that it is `NPJB-40001` (the disc id in `PARAM.SFO` and the SHA-256 of the encrypted executable) and says plainly when it is another release or region, or a modified image. It then prepares the game's executable from the player's own disc image, checks the result against the hash in the table above, and starts the game. Later starts go straight to the game.
+The installer needs only your disc image. It runs as a few screens in the game's window, all of them usable with a gamepad alone, a keyboard or a mouse:
 
-By default it copies the image (about 1.3 GB) into the per-user directory, so the game keeps working after the original is moved or deleted; progress is printed on the console. It can use the image where it is instead, to save space; the program then checks on every start that the image is still there and says so if it is not, offering to run the setup again.
+1. **Welcome**: what is needed and where the data goes.
+2. **Choose the disc image** in Yakumo's own file browser. It starts in your home folder (later in the folder where you last found an image) and lists folders and `.iso` files with their sizes; *Showing .iso only* switches to all files. The row of places above the list holds Home, Downloads, Desktop and Documents, and every removable drive: SD cards and USB drives under `/run/media` and `/media` on Linux (a Steam Deck's SD card among them), volumes under `/Volumes` on macOS, drive letters on Windows. Confirm opens a folder or picks a file; back goes up a folder, and from the top back to the welcome screen. On a gamepad, △ (Y) switches between .iso files and all files. A file dropped onto the window is taken as well, on this screen and on the welcome screen. *System dialog…* opens the system's file dialog instead; it is not offered under gamescope (Steam Deck Game Mode), where that dialog does not appear.
+3. **Checks**: the image must be `NPJB-40001` (the disc id in `PARAM.SFO` and the SHA-256 of the encrypted executable). A wrong release or region, a modified image, a PlayStation 3 disc image, a compressed (`.cso`) image or a file that is no disc image at all each get a screen that says so plainly, with *Choose another file*.
+4. **Copy or use in place**: copying (the default) puts the image (about 1.3 GB) into the per-user directory, so the game keeps working after the original is moved or deleted; the screen shows the free space and refuses the copy when there is not enough. Using the image where it is saves the space; the program then checks on every start that the image is still there and says so if it is not, offering to run the setup again.
+5. **Progress**: a progress bar for the copy and for preparing the game's executable from the image, which is then checked against the hash in the table above. The work runs off the window's thread, so the window stays responsive; *Cancel* (or back) stops it and removes what it wrote.
+
+The game then starts. Later starts go straight to the game. The in-game menu's *Set up game data again…* runs the same setup: the game closes and the program starts again with `--install`.
 
 The per-user directory is SDL's preference path for `Yakumo/MHP3rd`:
 
@@ -99,19 +105,19 @@ The per-user directory is SDL's preference path for `Yakumo/MHP3rd`:
 | Linux | `~/.local/share/Yakumo/MHP3rd/` (or under `$XDG_DATA_HOME`) |
 | Windows | `%APPDATA%\Yakumo\MHP3rd\` |
 
-It holds `EBOOT.ELF`, `disc.iso` when the image was copied, and `settings.ini`, which records where the image is. Save data is not there yet: `ms0` stays in `profiles/mhp3rd/game/ms0` for now. `MHP3RD_DATA_DIR` points the program at another directory.
+It holds `EBOOT.ELF`, `disc.iso` when the image was copied, and `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu). Save data is not there yet: `ms0` stays in `profiles/mhp3rd/game/ms0` for now. `MHP3RD_DATA_DIR` points the program at another directory.
 
-The same setup runs without dialogs from a terminal, for scripts and for systems whose file dialog does not work:
+The same setup runs without any screens from a terminal, for scripts and headless machines:
 
 ```bash
 out/mhp3rd/bin/MHP3rdNative --install "/path/to/your.iso"             # copy the image
 out/mhp3rd/bin/MHP3rdNative --install "/path/to/your.iso" --in-place  # use it where it is
-out/mhp3rd/bin/MHP3rdNative --install                                 # run the dialogs again, then play
+out/mhp3rd/bin/MHP3rdNative --install                                 # run the setup screens again, then play
 ```
 
 `--install` with an image prepares everything and exits. A build without generated code can already run it, and the `EBOOT.ELF` it writes into the per-user directory is the executable `generate.sh` needs.
 
-On Linux the file dialog goes through the desktop portal (or `zenity`); on a Steam Deck it may need Desktop Mode the first time. The installer's dialogs are SDL3 message boxes for now; the port's own interface will replace them. A build without SDL has no dialogs and prints the `--install` command instead.
+When the window cannot be created, for example without a working Vulkan driver, the installer falls back to SDL3 message boxes and the system file dialog (on Linux through the desktop portal or `zenity`). A build without SDL shows neither and prints the `--install` command instead.
 
 ### Checkout directory
 
@@ -183,7 +189,7 @@ It builds with 2 parallel jobs; `-j N` changes that. `--no-build` stops after re
 out/mhp3rd/bin/MHP3rdNative [game_dir]       # see "Game data" for where it looks without game_dir
 ```
 
-The window renders at twice the PSP resolution by default (960×544). Close the window to quit (Cmd+Q on macOS, Alt+F4 on most Linux desktops); Esc does not quit, because it is reserved for the in-game menu (#11). When the game asks for a name, the on-screen keyboard answers immediately with `MHP3RD_OSK_TEXT` (default `Hunter`); set `MHP3RD_OSK_INTERACTIVE=1` to type it in the window instead (Enter confirms, Esc cancels).
+The window renders at twice the PSP resolution by default (960×544). Esc, or L3+R3 on a gamepad, opens the [in-game menu](#in-game-menu); quit from there, or close the window (Cmd+Q on macOS, Alt+F4 on most Linux desktops). When the game asks for a name, the on-screen keyboard answers immediately with the name set in the menu (default `Hunter`); the menu can switch to typing it in the window instead (Enter confirms, Esc cancels).
 
 ### Keyboard
 
@@ -198,6 +204,8 @@ The window renders at twice the PSP resolution by default (960×544). Close the 
 | Q / W | L / R |
 | Enter | START |
 | Right Shift, Backspace | SELECT |
+| Esc | In-game menu |
+| F3 | Performance overlay on or off |
 
 The keyboard has no binding for the HD release's second stick; use a gamepad for the right-stick camera. Keys are only read while the window has focus.
 
@@ -213,8 +221,47 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | D-pad | D-pad |
 | Left stick | Analog stick |
 | Right stick | The HD release's second stick (camera) |
+| L3 + R3 (both sticks pressed) | In-game menu |
 
-The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. `MHP3RD_PAD_FACE=xbox` moves confirm to the bottom button for pads labelled the other way round.
+The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. The menu's *Confirm button* setting (or `MHP3RD_PAD_FACE=xbox`) moves confirm to the bottom button for pads labelled the other way round.
+
+## In-game menu
+
+Esc, or L3+R3 on a gamepad, opens Yakumo's menu over the game; the same again, back at its top level or Start closes it. Esc never quits the game: Steam's desktop controller layout on a Steam Deck sends Esc with the B button, so an Esc that arrives together with a gamepad button is ignored.
+
+While the menu is open the game is paused: no guest code runs, emulated time stands still, the audio device stops, and the last frame stays behind the menu, dimmed. Input goes to the menu only; buttons still held when it closes reach the game only after they are released. On resume the kernel's clock picks up from real time again, so the game neither races to make up the pause nor counts it in the `[perf]` statistics.
+
+The menu follows the game's confirm convention: with the default layout the right face button (○ on a PlayStation pad, B on a Steam Deck) selects and the bottom one goes back, as in the game; with *Confirm button* set to the bottom button, both swap. The footer shows the buttons of the pad in use (PlayStation shapes or letters) or the keys, and a line explaining the focused setting. L1/R1 (LB/RB), or Q/W on the keyboard, switch between the sections. Left and right change a value; confirm steps it forward.
+
+Every change applies at once and is saved to `settings.ini` in the per-user directory, next to the installer's `disc_image`. A setting whose environment variable is set is decided by that variable for the run: the menu shows it greyed with *Set by MHP3RD_…* and leaves the file's value alone. So the order is: environment variable, then `settings.ini`, then the default.
+
+| Section | Setting | Key in `settings.ini` | Variable | Values |
+| --- | --- | --- | --- | --- |
+| Video | Resolution | `video.internal_scale` | `MHP3RD_INTERNAL_SCALE` | ×1–×6 of 480×272 (the variable allows up to ×8); default ×2 |
+| Video | Display | `video.fullscreen` | | Window or fullscreen |
+| Video | Window size | `video.window_scale` | | ×1–×4 of 480×272; default ×2 |
+| Video | Aspect ratio | `video.keep_aspect` | | Original (black bars) or stretched to the window |
+| Video | Scaling filter | `video.sharp_screen` | | Smooth or sharp scaling of the finished picture to the window |
+| Video | Texture filter | `video.sharp_textures` | | Smooth (bilinear) or sharp (nearest) texture sampling |
+| Video | Vsync | `video.present_mode` | | On (FIFO), or off through mailbox or immediate presentation where the driver offers them |
+| Video | Game speed | `video.unthrottled` | `MHP3RD_UNTHROTTLED` | Normal (held to real time) or unlimited |
+| Video | Performance | `video.performance` | `MHP3RD_PERF` | Off, overlay, overlay and log, log only |
+| Audio | Volume | `audio.volume` | | 0–100% |
+| Audio | Mute | `audio.mute` | | |
+| Controls | Confirm button | `input.confirm` | `MHP3RD_PAD_FACE` | Right (○, Japanese) or bottom (Western) |
+| Controls | Stick dead zone | `input.dead_zone` | `MHP3RD_PAD_DEADZONE` | 0–50% |
+| Controls | Trigger point | `input.trigger` | `MHP3RD_PAD_TRIGGER` | 5–100% |
+| Controls | Right stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off |
+| Controls | Invert camera horizontally / vertically | `input.invert_camera_x`, `input.invert_camera_y` | | For the right-stick camera |
+| Controls | Right stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
+| Controls | When the game asks for a name | `input.type_name` | `MHP3RD_OSK_INTERACTIVE` | Use the name below, or type it in the window |
+| Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter` |
+
+Everything applies without a restart; the name settings take effect the next time the game asks for a name. The Controls section also lists the keyboard's keys, and the System section has *Resume*, *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), with the build version, the data folder and the GPU. Each section has a button that restores its defaults.
+
+The file also keeps `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
+
+The interface is drawn with [Dear ImGui](third_party/imgui/README.md). Its text uses a system font: San Francisco or Helvetica on macOS, Noto Sans, DejaVu Sans or Liberation Sans on Linux, Segoe UI on Windows, with a Japanese font merged in for file names; `MHP3RD_UI_FONT` names another `.ttf`. It scales with the window: about 27-pixel text on a Steam Deck's 1280×800 screen.
 
 ## Saving and loading
 
@@ -252,7 +299,7 @@ out/mhp3rd/bin/mhp3rd_savedata_tests --check profiles/mhp3rd/game/ms0/PSP/SAVEDA
 
 ## Configuration
 
-Everything is set through environment variables.
+The settings a player needs are in the [in-game menu](#in-game-menu). Environment variables remain for everything else, and override the menu's settings for the run where they overlap.
 
 ### Game and paths
 
@@ -262,18 +309,19 @@ Everything is set through environment variables.
 | `MHP3RD_DATA_DIR` | SDL's preference path | Per-user data directory the installer fills |
 | `MHP3RD_OVERLAY_DIR` | `overlays/` next to the executable | Directory of overlay libraries |
 | `MHP3RD_FONT` | a system CJK font | TrueType font to rasterize game text from; macOS and common Linux CJK fonts are tried when unset |
+| `MHP3RD_UI_FONT` | a system font | TrueType font for Yakumo's menu and setup screens |
 
 ### Video
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `MHP3RD_INTERNAL_SCALE` | `2` | Render resolution as a multiple of 480×272 |
+| `MHP3RD_INTERNAL_SCALE` | `2` | Render resolution as a multiple of 480×272 (menu: Resolution) |
 | `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either. Emulated time is not held to real time |
-| `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn |
+| `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn (menu: Game speed) |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
-| `MHP3RD_PERF` | off | `1` shows the performance overlay and logs frame statistics once per second; `log` only logs them. See [Performance statistics](#performance-statistics) |
+| `MHP3RD_PERF` | off | `1` shows the performance overlay and logs frame statistics once per second; `log` only logs them (menu: Performance). See [Performance statistics](#performance-statistics) |
 
 ### Audio
 
@@ -286,13 +334,13 @@ Everything is set through environment variables.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button |
-| `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel |
-| `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press L/R |
-| `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice |
-| `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that |
-| `MHP3RD_OSK_TEXT` | `Hunter` | Name the on-screen keyboard answers with |
-| `MHP3RD_OSK_INTERACTIVE` | off | Type the name in the window instead |
+| `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button (menu: Confirm button) |
+| `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel (menu: Stick dead zone) |
+| `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press L/R (menu: Trigger point) |
+| `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Right stick) |
+| `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Right stick D-pad point) |
+| `MHP3RD_OSK_TEXT` | `Hunter` | Name the on-screen keyboard answers with (menu: Hunter name) |
+| `MHP3RD_OSK_INTERACTIVE` | off | Type the name in the window instead (menu: When the game asks for a name) |
 | `MHP3RD_AUTO_CONFIRM` | off | Press ○ every N frames, to walk through menus unattended |
 
 ### Diagnostics
@@ -311,6 +359,7 @@ Everything is set through environment variables.
 | `MHP3RD_TRACE_AUDIO=1` | One line per second of output: frames, peak, RMS, silence and drops |
 | `MHP3RD_SAS_NO_ENV=1` | Hold every SAS voice at full envelope, to separate an envelope bug from a decoding one |
 | `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes |
+| `MHP3RD_INPUT_SCRIPT` | Scripted keys, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu and the setup without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick` |
 | `MHP3RD_DUMP_OVERLAYS` | Directory to dump an overlay that has no library into |
 | `PSPRECOMP_NO_INTERPRETER=1` | Stop at uncompiled code instead of interpreting it |
 | `PSPRECOMP_MAX_DISPATCHES` | Stop after this many dispatches |
@@ -324,7 +373,7 @@ With `MHP3RD_PERF=1` the game draws a small overlay into the top-left corner of 
 [perf] fps 30.0 game 30.0 speed 100% | frame avg 33.4 max 34.7 ms | guest 4.1 render 9.8 wait 19.5 ms | lists 60/s | FIFO 1440x816 90Hz | overlay 0.05 ms
 ```
 
-`MHP3RD_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The statistics are collected all the time, so turning them on changes nothing else.
+`MHP3RD_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The menu's *Performance* setting chooses the same modes, plus the overlay without the log. The statistics are collected all the time, so turning them on changes nothing else.
 
 A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer presents) to the next.
 
@@ -348,6 +397,8 @@ The overlay shows the same numbers and a graph of the last 192 frame times, from
 ```text
 host/main.cpp                    Entry point: finding the game data, executable check, startup
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
+host/settings/                   Player settings: settings.ini, environment overrides, defaults
+host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
 host/kernel/kernel.{hpp,cpp}     Scheduler, waits, virtual clock, interrupts, memory
 host/kernel/iso_image.{hpp,cpp}  Read-only ISO 9660 view of the disc image
@@ -380,7 +431,7 @@ host/         Bootstrap, kernel, HLE, graphics, audio
 scripts/      prepare_game.sh, generate.sh, build_overlays.sh, bootstrap_overlays.sh
 tools/        ISO and DATA.BIN extraction, overlay wrapping, shader embedding
 tests/        Save-data self-tests and save checker (mhp3rd_savedata_tests)
-third_party/  stb_truetype, tiny-AES-c
+third_party/  stb_truetype, tiny-AES-c (installer and saves), Dear ImGui (menu and setup screens)
 game/         Local game data: EBOOT.ELF, disc.iso, ms0/ (ignored)
 analysis/     Analyzer output and extracted overlays (ignored)
 generated/    Recompiled executable (ignored)

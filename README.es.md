@@ -72,13 +72,14 @@ Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/
 
 En un mando, los botones están donde esperas: en un mando de PlayStation el círculo confirma y la equis vuelve atrás, como indican los mensajes del juego, y el stick derecho mueve la cámara. En el teclado, las flechas son la cruceta, I/J/K/L el stick analógico, X y Z son ○ y ✕, A y S son □ y △, Q y W son L y R, y Enter es START. Ambas tablas están en el [README del perfil](profiles/mhp3rd/README.md#running).
 
+Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo: pausa el juego y reúne los ajustes de imagen, sonido y controles, que se guardan para la próxima vez. El primer arranque prepara el juego a partir de tu imagen de disco en la misma ventana, y basta con un mando para hacerlo.
+
 ## Hoja de ruta
 
 - Iluminación y niebla
 - Ritmo de fotogramas, que también corrige el adelanto del sonido
 - Música en streaming y cinemáticas
 - Compilaciones verificadas en Steam Deck y Windows
-- Un menú de ajustes dentro del juego
 
 ## Cómo funciona
 
