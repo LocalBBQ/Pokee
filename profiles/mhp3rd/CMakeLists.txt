@@ -125,6 +125,7 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_utility.cpp
     host/hle/hle_savedata.cpp
     host/hle/hle_adhoc.cpp
+    host/adhoc/client.cpp
     host/save_data/aes128.cpp
     host/save_data/param_sfo.cpp
     host/save_data/savedata_crypto.cpp
@@ -177,6 +178,12 @@ target_include_directories(MHP3rdNative PRIVATE
     "${MHP3RD_PROFILE_DIR}/third_party"
     "${MHP3RD_PROFILE_DIR}/generated")
 target_link_libraries(MHP3rdNative PRIVATE psprecomp_core ${CMAKE_DL_LIBS})
+if(WIN32)
+    # The ad hoc client's sockets.
+    target_link_libraries(MHP3rdNative PRIVATE ws2_32)
+endif()
+find_package(Threads REQUIRED)
+target_link_libraries(MHP3rdNative PRIVATE Threads::Threads)
 # The overlay libraries resolve psprecomp and runtime symbols against the
 # executable that loads them, so it has to export them.
 set_target_properties(MHP3rdNative PROPERTIES
