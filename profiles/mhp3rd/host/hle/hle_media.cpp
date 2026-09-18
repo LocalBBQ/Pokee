@@ -109,6 +109,7 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
     if (media().renderer && media().renderer->available()) {
         gpu::VulkanRenderer &renderer = *media().renderer;
         const psprecomp::GuestMemory &memory = rt.memory();
+        renderer.begin_display_list();
         media().ge.set_draw_sink([&renderer, &memory](const gpu::DrawCall &call) { renderer.submit(call, memory); });
     }
 #endif

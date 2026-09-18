@@ -54,6 +54,9 @@ public:
     [[nodiscard]] bool quit_requested() const noexcept;
 
     void begin_frame();
+    // Call before walking each display list. Guest memory cannot change while a
+    // list is walked, so texture contents are hashed once per list, not per draw.
+    void begin_display_list();
     void submit(const DrawCall &call, const GuestMemory &memory);
     // Ends the frame and shows the target the guest just flipped to. Draws go to
     // a separate offscreen target per guest framebuffer address, so only the

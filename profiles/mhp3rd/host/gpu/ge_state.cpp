@@ -183,12 +183,32 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
     const std::uint32_t stride = align_up(offset, biggest) * morph_count;
     if (stride == 0u) return 0u;
 
+    // Resolve the whole vertex run once and read it directly; a run that is not
+    // contiguous in host memory falls back to checked loads.
+    const std::uint8_t *data =
+        count != 0u ? memory.raw_pointer(address, static_cast<std::size_t>(count) * stride) : nullptr;
+    const auto load8 = [&](std::uint32_t at) -> std::uint8_t {
+        return data != nullptr ? data[at - address] : memory.load8(at);
+    };
+    const auto load16 = [&](std::uint32_t at) -> std::uint16_t {
+        if (data == nullptr) return memory.load16(at);
+        std::uint16_t value{};
+        std::memcpy(&value, data + (at - address), sizeof(value));
+        return value;
+    };
+    const auto load32 = [&](std::uint32_t at) -> std::uint32_t {
+        if (data == nullptr) return memory.load32(at);
+        std::uint32_t value{};
+        std::memcpy(&value, data + (at - address), sizeof(value));
+        return value;
+    };
+
     const auto read_unsigned = [&](std::uint32_t at, std::uint32_t type) -> float {
         switch (type) {
-        case 1u: return static_cast<float>(memory.load8(at));
-        case 2u: return static_cast<float>(memory.load16(at));
+        case 1u: return static_cast<float>(load8(at));
+        case 2u: return static_cast<float>(load16(at));
         case 3u: {
-            const std::uint32_t bits = memory.load32(at);
+            const std::uint32_t bits = load32(at);
             float value{};
             std::memcpy(&value, &bits, sizeof(value));
             return value;
@@ -199,10 +219,10 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
 
     const auto read_component = [&](std::uint32_t at, std::uint32_t type) -> float {
         switch (type) {
-        case 1u: return static_cast<float>(static_cast<std::int8_t>(memory.load8(at)));
-        case 2u: return static_cast<float>(static_cast<std::int16_t>(memory.load16(at)));
+        case 1u: return static_cast<float>(static_cast<std::int8_t>(load8(at)));
+        case 2u: return static_cast<float>(static_cast<std::int16_t>(load16(at)));
         case 3u: {
-            const std::uint32_t bits = memory.load32(at);
+            const std::uint32_t bits = load32(at);
             float value{};
             std::memcpy(&value, &bits, sizeof(value));
             return value;
@@ -226,8 +246,8 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
             vertex.texcoord[1] = read_unsigned(base + texcoord_offset + component, texcoord_type) * scale;
         }
         if (color_offset != 0xFFFFFFFFu) {
-            const std::uint32_t raw = color_component == 2u ? memory.load16(base + color_offset)
-                                                            : memory.load32(base + color_offset);
+            const std::uint32_t raw = color_component == 2u ? load16(base + color_offset)
+                                                            : load32(base + color_offset);
             vertex.color = expand_color(raw, color_type);
         }
         if (normal_offset != 0xFFFFFFFFu) {
@@ -249,7 +269,7 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
                 float value = read_component(base + position_offset + axis * component, position_type);
                 // Through-mode Z is unsigned in the 16-bit case.
                 if (through && axis == 2u && position_type == 2u)
-                    value = static_cast<float>(memory.load16(base + position_offset + axis * component));
+                    value = static_cast<float>(load16(base + position_offset + axis * component));
                 vertex.position[axis] = value * scale;
             }
         }
@@ -499,27 +519,39 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
 
     const std::uint32_t index_type = (vertex_type_ >> 11u) & 3u;
     std::uint32_t vertex_count = count;
+    std::uint32_t first_vertex = 0u;
     if (index_type != 0u && index_address_ != 0u) {
         // A list that points its indices outside RAM is malformed; skip the draw
         // rather than faulting the whole runtime on it.
         if (!memory.contains(index_address_, count * (index_type == 1u ? 1u : index_type == 2u ? 2u : 4u))) return;
         call.indices.reserve(count);
+        std::uint32_t lowest = 0xFFFFFFFFu;
         std::uint32_t highest = 0u;
         for (std::uint32_t i = 0; i < count; ++i) {
             std::uint32_t index = 0u;
             if (index_type == 1u) index = memory.load8(index_address_ + i);
             else if (index_type == 2u) index = memory.load16(index_address_ + i * 2u);
             else index = memory.load32(index_address_ + i * 4u);
+            lowest = std::min(lowest, index);
             highest = std::max(highest, index);
             call.indices.push_back(static_cast<std::uint16_t>(index));
         }
-        vertex_count = highest + 1u;
+        // Games draw a mesh as many indexed prims into one shared vertex
+        // buffer. Decode only the vertices this prim references, not the
+        // whole buffer from vertex 0, and rebase its indices onto them.
+        if (count != 0u) {
+            first_vertex = lowest;
+            for (std::uint16_t &index : call.indices) index = static_cast<std::uint16_t>(index - lowest);
+        }
+        vertex_count = count != 0u ? highest - lowest + 1u : 0u;
     }
 
     const std::uint32_t probe = decode_vertices(memory, vertex_address_, vertex_type_, 0u, call.vertices);
-    if (probe == 0u || !memory.contains(vertex_address_, static_cast<std::size_t>(probe) * vertex_count)) return;
+    if (probe == 0u) return;
+    const std::uint32_t first_address = vertex_address_ + first_vertex * probe;
+    if (!memory.contains(first_address, static_cast<std::size_t>(probe) * vertex_count)) return;
     const std::uint32_t stride =
-        decode_vertices(memory, vertex_address_, vertex_type_, vertex_count, call.vertices, bone_matrices_.data());
+        decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices, bone_matrices_.data());
     if (stride == 0u || call.vertices.empty()) return;
     // A prim leaves VADDR/IADDR alone but advances the pointer it consumed, so
     // a run of prims can share one setup. An indexed prim consumes indices, not

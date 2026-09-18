@@ -353,6 +353,19 @@ struct VulkanRenderer::Impl {
     Texture white_texture{};
     std::map<std::uint64_t, Texture> textures;
     std::uint64_t texture_clock{};
+    // texture_key results for the display list being walked, by the state that
+    // feeds the key; cleared by begin_display_list().
+    struct TextureKeyInput {
+        std::uint32_t address{};
+        std::uint32_t buffer_width{};
+        std::uint32_t size{};
+        std::uint32_t format{};
+        std::uint32_t clut_address{};
+        std::uint32_t clut_format{};
+        bool swizzled{};
+        auto operator<=>(const TextureKeyInput &) const = default;
+    };
+    std::map<TextureKeyInput, std::uint64_t> list_texture_keys;
 
     std::vector<GpuVertex> scratch;
     PadState pad{};
@@ -1000,7 +1013,16 @@ void VulkanRenderer::Impl::destroy_texture(Texture &texture) {
 
 VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemory &memory,
                                                                  const TextureState &state) {
-    const std::uint64_t key = texture_key(memory, state);
+    const TextureKeyInput input{state.address,
+                                state.buffer_width,
+                                static_cast<std::uint32_t>(state.width) << 16u | state.height,
+                                static_cast<std::uint32_t>(state.format),
+                                state.clut_address,
+                                state.clut_format,
+                                state.swizzled};
+    auto [memo, inserted] = list_texture_keys.try_emplace(input, 0u);
+    if (inserted) memo->second = texture_key(memory, state);
+    const std::uint64_t key = memo->second;
     const auto found = textures.find(key);
     if (found != textures.end()) {
         found->second.last_used = ++texture_clock;
@@ -1238,6 +1260,10 @@ void VulkanRenderer::begin_frame() {
     impl.vertex_offset = 0u;
     impl.pass_active = false;
     impl.recording = true;
+}
+
+void VulkanRenderer::begin_display_list() {
+    if (impl_) impl_->list_texture_keys.clear();
 }
 
 void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
