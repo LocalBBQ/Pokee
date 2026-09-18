@@ -10,11 +10,12 @@ The game boots, loads its overlays, creates a character, walks the village and p
 | --- | --- |
 | Code | The whole executable (362 478 instructions, 89 units) and all 355 code overlays are recompiled ahead of time; an interpreter covers anything they miss |
 | Kernel | Threads with a deterministic virtual clock, semaphores, event flags, mutexes, callbacks, VTimers, partition memory, VBlank interrupts, file I/O straight from the disc image |
-| Imports | 177 of 296 implemented; the rest are logging stubs that return 0 |
+| Imports | 185 of 296 implemented; the rest are logging stubs that return 0 |
 | Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, blending, depth and alpha test, sprites, per-framebuffer render targets |
 | Audio | `sceSasCore` voice mixing and `sceAudio` output |
 | Input | Keyboard and SDL3 gamepads, including the HD release's second analog stick |
 | Text | `sceLibFont` glyphs rasterized from a host TrueType font |
+| Saves | The save-data utility, with saves in the PSP's own format: a save copied from a PSP loads, and one made here can be copied back |
 
 Not done yet:
 
@@ -23,7 +24,8 @@ Not done yet:
 - **Streamed music.** It is ATRAC3 and still silent; sound effects and SAS-driven music play.
 - **Movies.** `sceMpeg` reports every stream as finished, so cutscene videos are skipped.
 - **Frame pacing.** Nothing ties emulation to real time. Presentation is capped at the 60 Hz refresh while the game targets 30, so audio runs ahead of the picture and roughly half of it is dropped. `MHP3RD_TRACE_AUDIO=1` reports the drops; `MHP3RD_AUDIO_DUMP` keeps the whole stream.
-- **Networking and save-data dialogs.**
+- **Networking.**
+- **Dialog screens.** The save-data and message dialogs work but draw nothing; each answers as if the player confirmed it ([#33](https://github.com/TeamGDB/Yakumo/issues/33)).
 
 Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck up to the village, built with GCC in a Debian 13 container and running on native Vulkan. Windows has not been verified yet; see [the compatibility table](../../docs/COMPATIBILITY.md).
 
@@ -214,6 +216,40 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 
 The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. `MHP3RD_PAD_FACE=xbox` moves confirm to the bottom button for pads labelled the other way round.
 
+## Saving and loading
+
+The game saves through the PSP's save-data utility, which the host implements. Saves live where a PSP keeps them, under the directory that backs `ms0:` — `profiles/mhp3rd/game/ms0` unless `MHP3RD_GAME_DIR` or the `game_dir` argument points elsewhere:
+
+```text
+game/ms0/PSP/SAVEDATA/ULJM05800/
+    PARAM.SFO      titles, the file list and the hashes that protect the save
+    MHP3RD.BIN     the game data, encrypted
+    ICON0.PNG      icon shown in the PSP's save list
+    PIC1.PNG       background shown in the PSP's save list
+```
+
+`MHP3RD.BIN` is encrypted and `PARAM.SFO` hashed exactly as the PSP's save-data utility does it, with the key the game supplies, so a folder can move between this port and a PSP's memory stick unchanged. The one field that cannot be reproduced is a hash made with a key unique to each PSP; the port writes a placeholder there. Copying a save made here onto a real PSP has not been tried yet.
+
+Nothing is drawn for the save-data or message dialogs yet ([#33](https://github.com/TeamGDB/Yakumo/issues/33)): the game's own screens ask where to save and show the result, and the system dialogs answer as if the player confirmed them. The log shows each request and each message, for example `[savedata] AUTOSAVE (1) game="ULJM05800" …` followed by `[savedata] saved 1183744 bytes to …`.
+
+### Importing a save from a PSP
+
+1. On the PSP's memory stick, find `PSP/SAVEDATA/ULJM05800` — the folder of *Monster Hunter Portable 3rd*.
+2. Quit the game, and copy the whole folder into `profiles/mhp3rd/game/ms0/PSP/SAVEDATA/`, replacing any folder of the same name. Keep a copy of the one you replace: it holds all three character slots.
+3. Start the game. The title screen leads to character select with the imported characters.
+
+To take a save back to a PSP, copy the same folder the other way. The downloaded-quest folder `ULJM05800QST` can be copied the same way; the game has not been seen reading it yet.
+
+This release (`NPJB-40001`) asks for the original PSP release's folder names (`ULJM05800`), and the key it passes is the PSP release's: a downloaded-quest folder written by a PSP running `ULJM-05800` passes every check with it and decrypts. The two releases therefore share one save format, and saves should move between them in both directions; a save from this release has not yet been loaded on a PSP. When there is no save of its own, the game also looks for saves of *Monster Hunter Portable 2nd G* (`ULJM05500`) and *Monster Hunter Diary: Poka Poka Airu Village* (`ULJM05710`); those would be read from `ms0` the same way, which has not been tried.
+
+To check a save folder without starting the game — for example one that the game reports as corrupted — run the save-data test program on it:
+
+```bash
+out/mhp3rd/bin/mhp3rd_savedata_tests --check profiles/mhp3rd/game/ms0/PSP/SAVEDATA/ULJM05800 MHP3RD.BIN <key>
+```
+
+`<key>` is the 32-digit key the game passes to the save-data utility; a run with `MHP3RD_TRACE_SAVEDATA=1` prints it as `key=` on every request for the game's own save. The program reports whether the hashes in `PARAM.SFO` and the data file's hash match and whether the file decrypts. Without arguments it runs the self-tests, which need no game data.
+
 ## Configuration
 
 Everything is set through environment variables.
@@ -222,7 +258,7 @@ Everything is set through environment variables.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `MHP3RD_GAME_DIR` | unset | Directory holding `EBOOT.ELF`, `disc.iso` and `ms0/`; skips the per-user directory |
+| `MHP3RD_GAME_DIR` | unset | Directory holding `EBOOT.ELF`, `disc.iso` and `ms0/` (the saves); skips the per-user directory |
 | `MHP3RD_DATA_DIR` | SDL's preference path | Per-user data directory the installer fills |
 | `MHP3RD_OVERLAY_DIR` | `overlays/` next to the executable | Directory of overlay libraries |
 | `MHP3RD_FONT` | a system CJK font | TrueType font to rasterize game text from; macOS and common Linux CJK fonts are tried when unset |
@@ -265,6 +301,7 @@ Everything is set through environment variables.
 | --- | --- |
 | `MHP3RD_STRICT_HLE=1` | Do not bind logging stubs; stop at the first unimplemented import |
 | `MHP3RD_TRACE_KERNEL=1`, `MHP3RD_TRACE_IO=1` | Trace thread and file activity |
+| `MHP3RD_TRACE_SAVEDATA=1` | Log every field of each save-data request and each status poll |
 | `MHP3RD_TRACE_SYNC=1` | Trace semaphores, event flags and mutexes; `MHP3RD_TRACE_SYNC_LIMIT` caps the lines (default 4000) |
 | `MHP3RD_STARVATION_INTERVAL` | Dispatches between virtual-clock advances in code that never calls an import |
 | `MHP3RD_TRACE_GE=1` | Log the first draws of the run with their state |
@@ -320,7 +357,10 @@ host/hle/hle_io.cpp              IoFileMgrForUser, sceUmdUser
 host/hle/hle_system.cpp          Utils, LoadExec, Stdio, ModuleMgr, interrupts, power, RTC
 host/hle/hle_media.cpp           sceDisplay, sceCtrl, sceGe_user, sceAudio, sceSasCore
 host/hle/hle_font.cpp            sceLibFont over a host TrueType font
-host/hle/hle_utility.cpp         sceUtility on-screen keyboard
+host/hle/hle_utility.cpp         sceUtility on-screen keyboard and message dialog
+host/hle/hle_savedata.cpp        sceUtility save-data dialog
+host/hle/utility_dialog.hpp      Status life cycle shared by the dialogs
+host/save_data/                  AES-128, PARAM.SFO, the save-data encryption and hashes, save folders
 host/gpu/ge_state.{hpp,cpp}      GE command state machine: display lists to draw calls
 host/gpu/vulkan_renderer.*       Vulkan backend, window and input
 host/gpu/shaders/                GLSL, compiled to SPIR-V and embedded at build time
@@ -339,7 +379,8 @@ config/       Executable identity and overlay slot map
 host/         Bootstrap, kernel, HLE, graphics, audio
 scripts/      prepare_game.sh, generate.sh, build_overlays.sh, bootstrap_overlays.sh
 tools/        ISO and DATA.BIN extraction, overlay wrapping, shader embedding
-third_party/  stb_truetype, tiny-AES-c (installer only)
+tests/        Save-data self-tests and save checker (mhp3rd_savedata_tests)
+third_party/  stb_truetype, tiny-AES-c
 game/         Local game data: EBOOT.ELF, disc.iso, ms0/ (ignored)
 analysis/     Analyzer output and extracted overlays (ignored)
 generated/    Recompiled executable (ignored)

@@ -22,7 +22,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Sound effects | ⚠️ run ahead of the picture [#4] | ❔ | ❔ | ❔ |
 | Music | ❌ [#5] | ❌ [#5] | ❌ [#5] | ❌ [#5] |
 | Cutscene movies | ❌ skipped [#6] | ❌ [#6] | ❌ [#6] | ❌ [#6] |
-| Saving and loading | ❌ [#1] | ❌ [#1] | ❌ [#1] | ❌ [#1] |
+| Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ❔ | ❔ |
 | Multiplayer | ❌ [#2] | ❌ [#2] | ❌ [#2] | ❌ [#2] |
 
 Rows marked ❌ on every platform are missing features rather than platform problems.
@@ -42,6 +42,7 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | Platform | Machine | GPU and driver | Commit | Date |
 | --- | --- | --- | --- | --- |
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `v0.1.0` | 2026-09-18 |
+| macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `3480dc2` (saving and loading) | 2026-09-18 |
 | SteamOS 3.8.16 | Steam Deck | AMD Custom GPU 0932, RADV (Mesa 26.0.0-devel) | `5e4b27c` | 2026-09-18 |
 
 ## Updating this page
@@ -59,3 +60,4 @@ To report a result without editing the page, open a **Test report** issue.
 [#7]: https://github.com/TeamGDB/Yakumo/issues/7
 [#13]: https://github.com/TeamGDB/Yakumo/issues/13
 [#14]: https://github.com/TeamGDB/Yakumo/issues/14
+[#33]: https://github.com/TeamGDB/Yakumo/issues/33

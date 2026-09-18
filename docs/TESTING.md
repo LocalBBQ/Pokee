@@ -20,7 +20,7 @@ Before you start, write down the commit you are testing: `git rev-parse --short 
 | 2 | Wait through the logos | Movies are skipped (see #6) and the title screen appears; streamed music is silent (see #5) |
 | 3 | Start a new game | Character creation appears |
 | 4 | In character creation, change each option | The character model is whole and textured, animates, and changes with each option |
-| 5 | Enter a name and confirm | The game moves on to the hot spring scene |
+| 5 | Enter a name, confirm, and save to a slot when asked | The console logs `[savedata] saved … ULJM05800 (encrypted)` and the game moves on to the hot spring scene |
 | 6 | Watch the hot spring scene | Water, steam and the waterfall draw correctly; characters have soft shadows, not white patches |
 | 7 | Talk through the scene and walk out | The village loads; the marker over an NPC is white rather than red (see #3) |
 | 8 | Walk around the village | Everything draws; it runs slower than elsewhere (see #7) |
@@ -29,8 +29,8 @@ Before you start, write down the commit you are testing: `git rev-parse --short 
 | 11 | Stand still with no input for ten seconds | The character and the camera stay still |
 | 12 | Move the camera with the right stick, if you have a gamepad | The camera turns and stops when the stick is released |
 | 13 | Return to the village | The village loads again |
-
-Once saving works ([#1](https://github.com/TeamGDB/Yakumo/issues/1)), the test gains a save, a restart and a load.
+| 14 | Close the window and start the game again | The console logs `[savedata] loaded … (decrypted)`; after the title screen, character select lists the character from step 5 |
+| 15 | Pick that character | The game continues from the save |
 
 ### What to watch for throughout
 

@@ -36,11 +36,11 @@ You can create a character, explore the village and go on hunts, with sound, key
 
 | Works | Missing or rough |
 | --- | --- |
-| Booting, menus, character creation | **Lighting and fog** — scenes are flatter than they should be, and coloured markers over NPCs come out white |
+| Booting, menus, character creation, saves in the PSP's own format | **Lighting and fog** — scenes are flatter than they should be, and coloured markers over NPCs come out white |
 | The village and hunting areas | **Frame pacing** — nothing ties the game to real time yet, so sound runs ahead of the picture |
 | 3D models, animation, textures, transparency | **Streamed music** is silent; sound effects play |
 | Sound effects and SAS-driven music | **Cutscene movies** are skipped |
-| Keyboard, and gamepads with a real right-stick camera | Curved surfaces, save-data dialogs, networking |
+| Keyboard, and gamepads with a real right-stick camera | Curved surfaces, networking |
 | All 355 code overlays recompiled | The village runs slower than other areas |
 
 Tested on macOS (Apple Silicon, Vulkan through MoltenVK), and on a Steam Deck up to the village, where it runs on native Vulkan with the built-in controls. Windows is a target platform but has not been verified yet.

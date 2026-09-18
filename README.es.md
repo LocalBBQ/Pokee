@@ -38,11 +38,11 @@ Puedes crear un personaje, recorrer la aldea y salir de caza, con sonido, teclad
 
 | Funciona | Falta o tiene problemas |
 | --- | --- |
-| Arranque, menús, creación de personaje | **Iluminación y niebla**: las escenas se ven más planas de lo debido y los marcadores de color sobre los NPC salen blancos |
+| Arranque, menús, creación de personaje, partidas guardadas en el formato de la propia PSP | **Iluminación y niebla**: las escenas se ven más planas de lo debido y los marcadores de color sobre los NPC salen blancos |
 | La aldea y las zonas de caza | **Ritmo de fotogramas**: el juego aún no está sincronizado con el tiempo real, así que el sonido se adelanta a la imagen |
 | Modelos 3D, animación, texturas, transparencias | **La música en streaming** no suena; los efectos de sonido sí |
 | Efectos de sonido y música por SAS | **Las cinemáticas** se saltan |
-| Teclado, y mandos con cámara real en el stick derecho | Superficies curvas, diálogos de guardado, red |
+| Teclado, y mandos con cámara real en el stick derecho | Superficies curvas, red |
 | Los 355 overlays de código, recompilados | La aldea va más lenta que otras zonas |
 
 Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck hasta la aldea, donde funciona con Vulkan nativo y los controles integrados. Windows es una plataforma objetivo, pero todavía no se ha verificado.
