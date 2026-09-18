@@ -33,7 +33,6 @@ for round in $(seq 1 "$iterations"); do
     echo "=== adding overlay $base from $path"
     python3 "$profile_dir/tools/add_overlay.py" "$build_dir" "$path" "$base" | tail -2
 
-    cmake -S "$repo_dir" -B "$build_dir" > /dev/null
     cmake --build "$build_dir" --target MHP3rdNative -j 3 > "$log_dir/build_round$round.log" 2>&1 ||
         { echo "build failed; see $log_dir/build_round$round.log"; exit 1; }
 done

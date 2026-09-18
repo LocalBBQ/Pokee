@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Turn an overlay dump into a shared library MHP3rdNative loads at run time.
 
-    add_overlay.py [-j N] <build_dir> <overlay.bin> <base_address>
+    add_overlay.py [-j N] [--no-build] <build_dir> <overlay.bin> <base_address>
 
 Steps: identify the dump from its header (name, sizes, FNV-1a hash of the header
 and the code after it), wrap it in a minimal ELF, run psp_recomp with a
 per-overlay symbol prefix, then build the one CMake target for that overlay with
-N parallel jobs (default 2). The executable is not relinked.
+N parallel jobs (default 2). The executable is not relinked. --no-build stops
+after psp_recomp and prints the target name, so a caller can build many
+overlays in one Ninja run.
 """
 
 import argparse
@@ -17,7 +19,6 @@ import subprocess
 import sys
 
 PROFILE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPO_DIR = os.path.dirname(os.path.dirname(PROFILE_DIR))
 OVERLAY_DIR = os.path.join(PROFILE_DIR, "overlays")
 HEADER_BYTES = 64
 
@@ -45,6 +46,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0],
                                      usage=__doc__.strip().splitlines()[2].strip())
     parser.add_argument("-j", "--jobs", type=int, default=2, help="parallel build jobs (default 2)")
+    parser.add_argument("--no-build", action="store_true", help="recompile only; print the target")
     parser.add_argument("build_dir")
     parser.add_argument("dump_path")
     parser.add_argument("base_text")
@@ -66,12 +68,16 @@ def main(argv):
     subprocess.run([os.path.join(build_dir, "psp_recomp"), elf_path, "--auto", target,
                     base_text, "--prefix", prefix], check=True)
     # The metadata the host identifies the corpus by. CMake reads it to configure
-    # the library entry point, so write it before reconfiguring.
+    # the library entry point. The build does not need an explicit reconfigure:
+    # the CONFIGURE_DEPENDS glob over overlays/*/meta.txt notices the new
+    # directory and reruns CMake on its own.
     with open(os.path.join(target, "meta.txt"), "w") as out:
         out.write(f"base=0x{base:08X}\nname={name}\nsize={image_size}\ncode_size={code_size}\n"
                   f"hash=0x{digest:016X}\nsource={os.path.basename(dump_path)}\n")
 
-    subprocess.run(["cmake", "-S", REPO_DIR, "-B", build_dir], check=True)
+    if options.no_build:
+        print(f"target: overlay_{prefix}")
+        return 0
     subprocess.run(["cmake", "--build", build_dir, "--target", f"overlay_{prefix}",
                     "-j", str(options.jobs)], check=True)
     print(f"overlay {name}: {code_size} bytes of code at {base:#010x}")
