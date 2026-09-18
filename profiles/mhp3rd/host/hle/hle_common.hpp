@@ -68,7 +68,8 @@ void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, con
 void register_system(HleRegistrar &hle);
 void register_media(HleRegistrar &hle);
 void register_font(HleRegistrar &hle);
-void register_utility(HleRegistrar &hle);
+void register_utility(HleRegistrar &hle, const std::filesystem::path &memory_stick);
+void register_savedata(HleRegistrar &hle, const std::filesystem::path &memory_stick);
 
 #if defined(MHP3RD_HAS_RENDERER)
 namespace gpu { class VulkanRenderer; }

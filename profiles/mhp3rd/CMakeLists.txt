@@ -71,6 +71,11 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_media.cpp
     host/hle/hle_font.cpp
     host/hle/hle_utility.cpp
+    host/hle/hle_savedata.cpp
+    host/save_data/aes128.cpp
+    host/save_data/param_sfo.cpp
+    host/save_data/savedata_crypto.cpp
+    host/save_data/savedata_store.cpp
     host/install/executable_preparation.cpp
     host/install/installer.cpp
     host/install/installer_dialogs.cpp
@@ -112,6 +117,22 @@ set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
 set_target_properties(MHP3rdNative PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     JOB_POOL_COMPILE psprecomp_generated)
+
+# Save-data checks that need no game data: crypto test vectors and round trips.
+add_executable(mhp3rd_savedata_tests
+    tests/savedata_tests.cpp
+    host/save_data/aes128.cpp
+    host/save_data/param_sfo.cpp
+    host/save_data/savedata_crypto.cpp
+    host/save_data/savedata_store.cpp
+    third_party/tiny_aes/aes.c)
+target_include_directories(mhp3rd_savedata_tests PRIVATE
+    "${MHP3RD_PROFILE_DIR}/host"
+    "${MHP3RD_PROFILE_DIR}/third_party")
+set_target_properties(mhp3rd_savedata_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_savedata_tests COMMAND mhp3rd_savedata_tests)
+endif()
 
 # Chained AOT calls nest native frames; give the guest-executing main thread
 # the same 64 MiB stack the Windows profiles use.

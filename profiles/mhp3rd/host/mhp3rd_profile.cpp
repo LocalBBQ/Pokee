@@ -64,6 +64,8 @@ std::uint32_t load_image_end(const psprecomp::Elf32Image &elf) {
 
 } // namespace
 
+std::filesystem::path memory_stick_directory(const std::filesystem::path &game_dir) { return game_dir / "ms0"; }
+
 void install_profile(Runtime &runtime, const psprecomp::Elf32Image &elf, const ProfilePaths &paths) {
     const auto module = elf.find_module_info(runtime.memory(), kLoadBase);
     if (!module) throw psprecomp::Error("PSP module info not found in executable");
@@ -78,7 +80,7 @@ void install_profile(Runtime &runtime, const psprecomp::Elf32Image &elf, const P
     register_system(hle);
     register_media(hle);
     register_font(hle);
-    register_utility(hle);
+    register_utility(hle, paths.memory_stick);
 
     const bool strict = std::getenv("MHP3RD_STRICT_HLE") != nullptr;
     std::size_t stubbed = 0u;

@@ -1,7 +1,8 @@
-// sceUtility dialogs. Only the on-screen keyboard is a real implementation: the
-// guest cannot continue without the name it asks for, and the host can collect
-// it from the window. The remaining dialogs report "finished" immediately.
+// sceUtility dialogs: the on-screen keyboard and the message dialog. The
+// save-data dialog is in hle_savedata.cpp. None of them draws anything yet;
+// each answers the way a player confirming it would.
 #include "hle_common.hpp"
+#include "utility_dialog.hpp"
 
 #if defined(MHP3RD_HAS_RENDERER)
 #include "gpu/vulkan_renderer.hpp"
@@ -157,13 +158,75 @@ void register_osk(HleRegistrar &hle) {
     });
 }
 
+// SceUtilityMsgDialogParams, after the common dialog header.
+namespace msg {
+constexpr std::uint32_t kMode = 0x34u;         // 0: error code, 1: text
+constexpr std::uint32_t kErrorValue = 0x38u;
+constexpr std::uint32_t kMessage = 0x3Cu;      // char[512], UTF-8
+constexpr std::uint32_t kOptions = 0x23Cu;
+constexpr std::uint32_t kButtonPressed = 0x240u;
+constexpr std::uint32_t kMinimumSize = 0x244u;
+
+constexpr std::uint32_t kModeError = 0u;
+constexpr std::uint32_t kOptionYesNo = 0x10u;
+constexpr std::uint32_t kOptionDefaultNo = 0x100u;
+constexpr std::uint32_t kPressedYes = 1u;
+} // namespace msg
+
+DialogLifecycle &msg_dialog() {
+    static DialogLifecycle dialog;
+    return dialog;
+}
+
+// With no dialog UI, every message is answered at once as if the player
+// pressed confirm: "OK" for a notice, "Yes" for a question. The text is
+// logged so the conversation can be followed.
+void register_msg_dialog(HleRegistrar &hle) {
+    hle.add("sceUtility", "sceUtilityMsgDialogInitStart", [](Runtime &rt, AllegrexContext &ctx) {
+        auto &memory = rt.memory();
+        const std::uint32_t params = arg(ctx, 0);
+        const std::uint32_t size = memory.load32(params + dialog_common::kSizeOffset);
+        const std::uint32_t mode = memory.load32(params + msg::kMode);
+        const std::uint32_t options = size >= msg::kMinimumSize ? memory.load32(params + msg::kOptions) : 0u;
+        if (mode == msg::kModeError) {
+            std::cerr << "[msgdialog] error " << psprecomp::hex32(memory.load32(params + msg::kErrorValue)) << "\n";
+        } else {
+            std::cerr << "[msgdialog] \"" << read_cstring(memory, params + msg::kMessage, 512u) << "\""
+                      << ((options & msg::kOptionYesNo) != 0u ? " [yes/no]" : "")
+                      << ((options & msg::kOptionDefaultNo) != 0u ? " [default no]" : "") << " -> "
+                      << ((options & msg::kOptionYesNo) != 0u ? "yes" : "ok") << "\n";
+        }
+        if (size >= msg::kMinimumSize) memory.store32(params + msg::kButtonPressed, msg::kPressedYes);
+        memory.store32(params + dialog_common::kResultOffset, 0u);
+        msg_dialog().start();
+        kernel().finish(ctx, 0u);
+    });
+
+    hle.add("sceUtility", "sceUtilityMsgDialogUpdate", [](Runtime &, AllegrexContext &ctx) {
+        (void)msg_dialog().poll();
+        kernel().finish(ctx, 0u);
+    });
+
+    hle.add("sceUtility", "sceUtilityMsgDialogGetStatus", [](Runtime &, AllegrexContext &ctx) {
+        kernel().finish(ctx, msg_dialog().poll());
+    });
+
+    hle.add("sceUtility", "sceUtilityMsgDialogShutdownStart", [](Runtime &, AllegrexContext &ctx) {
+        if (!msg_dialog().active()) {
+            kernel().finish(ctx, kErrorUtilityInvalidStatus);
+            return;
+        }
+        if (!msg_dialog().shutdown()) std::cerr << "[msgdialog] ShutdownStart before the dialog finished\n";
+        kernel().finish(ctx, 0u);
+    });
+}
+
 } // namespace
 
-void register_utility(HleRegistrar &hle) {
-    // Only the keyboard is implemented. The message and save-data dialogs stay
-    // logging stubs that report "not running": the guest then skips them, while
-    // a half-implemented life cycle made it wait for a dialog that never ends.
+void register_utility(HleRegistrar &hle, const std::filesystem::path &memory_stick) {
     register_osk(hle);
+    register_msg_dialog(hle);
+    register_savedata(hle, memory_stick);
 }
 
 } // namespace mhp3rd

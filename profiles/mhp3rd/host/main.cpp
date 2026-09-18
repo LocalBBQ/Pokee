@@ -80,7 +80,7 @@ GameFiles files_in_game_directory(const std::filesystem::path &game_dir) {
     GameFiles files;
     files.executable = game_dir / "EBOOT.ELF";
     files.disc_image = game_dir / "disc.iso";
-    files.memory_stick = game_dir / "ms0";
+    files.memory_stick = mhp3rd::memory_stick_directory(game_dir);
     if (!std::filesystem::exists(files.disc_image)) {
         std::cerr << "warning: " << files.disc_image.string() << " not found; disc0: is unavailable\n";
         files.disc_image.clear();
@@ -115,7 +115,7 @@ std::optional<GameFiles> locate_game(const Options &options) {
                     files.executable = installed->executable;
                     files.disc_image = installed->disc_image;
                     // Save data stays where it has always been for now.
-                    files.memory_stick = checkout_game_dir / "ms0";
+                    files.memory_stick = mhp3rd::memory_stick_directory(checkout_game_dir);
                     return files;
                 }
                 const std::string where = install::path_to_utf8(installed->disc_image);

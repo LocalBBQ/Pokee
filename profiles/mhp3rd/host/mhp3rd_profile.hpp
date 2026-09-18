@@ -22,6 +22,12 @@ struct ProfilePaths {
 // that runs module_start.
 void install_profile(psprecomp::Runtime &runtime, const psprecomp::Elf32Image &elf, const ProfilePaths &paths);
 
+// The host directory that backs ms0:, where the game's saves live under
+// PSP/SAVEDATA. This is the only place that decides it; the rest of the host
+// receives the result, so moving saves to a per-user location changes only
+// this function.
+[[nodiscard]] std::filesystem::path memory_stick_directory(const std::filesystem::path &game_dir);
+
 // Overlay slots, from the executable's section table. They sit inside the load
 // image's reserved BSS, and the game copies code into them at run time, so a
 // jump into one stops the runtime until that overlay has its own corpus.
