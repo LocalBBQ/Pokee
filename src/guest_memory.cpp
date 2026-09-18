@@ -305,15 +305,22 @@ const std::uint8_t *GuestMemory::raw_pointer(std::uint32_t address, std::size_t 
     return nullptr;
 }
 
+// The host renderer reads display lists, vertices and textures through these,
+// so a whole value is read through one range check when it lies in one region.
+// A value that wraps the end of EDRAM, or an invalid address, takes the
+// per-byte path, which keeps the original wrapping and error behaviour.
 std::uint8_t GuestMemory::load8(std::uint32_t address) const {
+    if (const std::uint8_t *source = raw_pointer(address, 1u)) return *source;
     const auto r = resolve(address, 1u);
     return region_bytes(r.region)[r.offset];
 }
 std::uint16_t GuestMemory::load16(std::uint32_t address) const {
+    if (const std::uint8_t *source = raw_pointer(address, 2u)) return read_le16(source);
     return static_cast<std::uint16_t>(load8(address)) |
            static_cast<std::uint16_t>(static_cast<std::uint16_t>(load8(address + 1u)) << 8u);
 }
 std::uint32_t GuestMemory::load32(std::uint32_t address) const {
+    if (const std::uint8_t *source = raw_pointer(address, 4u)) return read_le32(source);
     return static_cast<std::uint32_t>(load8(address)) |
            (static_cast<std::uint32_t>(load8(address + 1u)) << 8u) |
            (static_cast<std::uint32_t>(load8(address + 2u)) << 16u) |

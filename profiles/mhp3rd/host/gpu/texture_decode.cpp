@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 
 namespace mhp3rd::gpu {
 namespace {
@@ -249,9 +250,18 @@ std::uint64_t texture_key(const GuestMemory &memory, const TextureState &texture
     const std::uint32_t bits = bits_per_texel(texture.format);
     const std::uint32_t size = bits != 0u ? texture.width * texture.height * bits / 8u
                                           : texture.width * texture.height / 2u;
-    for (std::uint32_t offset = 0; offset < size; offset += 256u) {
-        if (!memory.contains(texture.address + offset, 4u)) break;
-        mix(memory.load32(texture.address + offset));
+    // Resolve the texture once; this runs for every textured draw.
+    if (const std::uint8_t *data = memory.raw_pointer(texture.address, static_cast<std::size_t>(size) + 3u)) {
+        for (std::uint32_t offset = 0; offset < size; offset += 256u) {
+            std::uint32_t word{};
+            std::memcpy(&word, data + offset, sizeof(word));
+            mix(word);
+        }
+    } else {
+        for (std::uint32_t offset = 0; offset < size; offset += 256u) {
+            if (!memory.contains(texture.address + offset, 4u)) break;
+            mix(memory.load32(texture.address + offset));
+        }
     }
     if (texture.clut_address != 0u && memory.contains(texture.clut_address, 4u))
         mix(memory.load32(texture.clut_address));
