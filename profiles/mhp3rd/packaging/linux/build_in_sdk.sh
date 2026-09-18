@@ -112,6 +112,10 @@ cmake --build "$build" -j "$jobs" --target MHP3rdNative mhp3rd_savedata_tests
 
 step "Building the overlay libraries"
 "$profile_dir/scripts/build_overlays.sh" "$build" "$jobs"
+# build_overlays.sh skips libraries that already exist. A library left from an
+# earlier run must still match this executable's headers and flags, which only
+# Ninja's dependency tracking can tell: bring every target up to date.
+cmake --build "$build" -j "$jobs"
 
 step "Staging"
 rm -rf "$stage"
