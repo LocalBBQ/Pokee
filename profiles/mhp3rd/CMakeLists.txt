@@ -68,6 +68,7 @@ if(MHP3RD_RENDERER)
         # Dear ImGui (third_party/imgui, unmodified) draws the port's own
         # interface over the game.
         set(MHP3RD_RENDERER_SOURCES
+            host/gpu/replacement_textures.cpp
             host/gpu/vulkan_renderer.cpp
             host/ui/file_browser.cpp
             host/ui/font_menu.cpp
@@ -121,6 +122,7 @@ set(MHP3RD_HOST_SOURCES
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
+    host/gpu/texture_pack.cpp
     host/perf/frame_stats.cpp
     host/perf/perf_overlay.cpp
     host/overlays.cpp

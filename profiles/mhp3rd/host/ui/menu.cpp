@@ -260,6 +260,18 @@ void Menu::video() {
         renderer().set_sharp_textures(s.sharp_textures);
         settings::save();
     }
+    {
+        RowOptions o = options_for("video.texture_pack",
+                                   "Draws the images of an HD texture pack (PPSSPP's textures.ini format) instead of "
+                                   "the game's own. Put the pack in " +
+                                       gpu::VulkanRenderer::texture_pack_folder() + ".");
+        if (o.note.empty()) o.note = renderer().texture_pack_status();
+        if (choice_row("Texture pack", s.texture_pack ? "On" : "Off", o)) {
+            s.texture_pack = !s.texture_pack;
+            renderer().set_texture_pack(s.texture_pack);
+            settings::save();
+        }
+    }
     section("Timing");
     {
         struct Mode {
@@ -314,6 +326,7 @@ void Menu::video() {
         restore("video.aspect", s.aspect, d.aspect);
         restore("video.sharp_screen", s.sharp_screen, d.sharp_screen);
         restore("video.sharp_textures", s.sharp_textures, d.sharp_textures);
+        restore("video.texture_pack", s.texture_pack, d.texture_pack);
         restore("video.present_mode", s.present_mode, d.present_mode);
         restore("video.unthrottled", s.unthrottled, d.unthrottled);
         restore("video.performance", s.perf, d.perf);
@@ -323,6 +336,7 @@ void Menu::video() {
         renderer().set_aspect(s.aspect);
         renderer().set_sharp_screen(s.sharp_screen);
         renderer().set_sharp_textures(s.sharp_textures);
+        renderer().set_texture_pack(s.texture_pack);
         renderer().set_present_mode(s.present_mode);
         renderer().set_perf_overlay(perf::options().overlay);
         settings::save();

@@ -1,6 +1,11 @@
 #include "vulkan_renderer.hpp"
 
+#include "replacement_textures.hpp"
 #include "texture_decode.hpp"
+#include "texture_pack.hpp"
+
+#include "install/game_identity.hpp"
+#include "install/user_data.hpp"
 
 #include "perf/frame_stats.hpp"
 #include "perf/perf_overlay.hpp"
@@ -440,6 +445,12 @@ struct VulkanRenderer::Impl {
         VkImageView view{};
         VkDescriptorSet descriptor{};
         std::uint64_t last_used{};
+        // The texture pack's image for this texture, looked up once when the
+        // texture was uploaded; drawn instead once it is on the GPU.
+        std::shared_ptr<Replacement> replacement;
+        // How far down a 512-tall texture has been drawn, which decides how
+        // much of it the pack's hash covers; see texture_pack.hpp.
+        std::uint16_t max_seen_v{};
     };
 
     RendererConfig config;
@@ -698,6 +709,17 @@ struct VulkanRenderer::Impl {
 
     Texture white_texture{};
     std::map<std::uint64_t, Texture> textures;
+    // HD texture pack (texture_pack.hpp). `pack` is null while the setting
+    // is off or no pack is installed; turning the setting on or off takes
+    // effect at the next begin_frame().
+    std::unique_ptr<TexturePack> pack;
+    std::unique_ptr<TextureDumper> dumper;
+    ReplacementTextures replacements;
+    bool pack_wanted{};
+    bool pack_applied{};
+    std::string pack_status;
+    void apply_texture_pack();
+    [[nodiscard]] VkDescriptorSet texture_descriptor(const GuestMemory &memory, const DrawCall &call);
     std::uint64_t texture_clock{};
     // texture_key results for the display list being walked, by the state that
     // feeds the key; cleared by begin_display_list().
@@ -881,7 +903,7 @@ struct VulkanRenderer::Impl {
     void begin_pass(std::uint32_t address);
     void end_pass();
     VkPipeline pipeline_for(const PipelineKey &key);
-    Texture &texture_for(const GuestMemory &memory, const TextureState &state);
+    Texture &texture_for(const GuestMemory &memory, const DrawCall &call);
     void trace_framebuffer_texture(const DrawCall &call);
     // A render target the texture reads, with the texture's first texel as a
     // pixel position inside it; see framebuffer_texture().
@@ -1236,6 +1258,23 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     const std::uint32_t white = 0xFFFFFFFFu;
     impl.white_texture = impl.create_texture(1u, 1u, &white);
+
+    // Texture packs are optional too: without the GPU side, none is loaded.
+    std::string replacement_error;
+    if (impl.replacements.initialize({impl.physical_device, impl.device, impl.queue, impl.queue_family,
+                                      impl.descriptor_layout},
+                                     replacement_error)) {
+        impl.replacements.set_sharp(impl.sharp_textures);
+        impl.pack_wanted = player.texture_pack;
+        impl.pack_applied = !impl.pack_wanted;
+        impl.apply_texture_pack();
+    } else {
+        std::cout << "[texpack] unavailable: " << replacement_error << "\n";
+    }
+    if (const char *dump = std::getenv("MHP3RD_TEXTURE_DUMP"); dump != nullptr && *dump != '\0') {
+        impl.dumper = std::make_unique<TextureDumper>(dump);
+        std::cout << "[texpack] writing new textures to " << dump << "\n";
+    }
 
     // The overlay is optional: without it the game still runs, only unmeasured
     // on screen.
@@ -1834,8 +1873,29 @@ void VulkanRenderer::Impl::destroy_texture(Texture &texture) {
     texture = Texture{};
 }
 
-VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemory &memory,
-                                                                 const TextureState &state) {
+namespace {
+
+// The largest V a draw reads from a 512-tall texture, the way texture packs
+// track it: through-mode draws give theirs, and anything else counts as the
+// whole texture.
+std::uint16_t drawn_max_v(const DrawCall &call) {
+    if (!call.through) return 512u;
+    float max_v = 0.0f;
+    for (const Vertex &vertex : call.vertices) max_v = std::max(max_v, vertex.texcoord[1]);
+    return static_cast<std::uint16_t>(std::clamp(max_v, 0.0f, 512.0f));
+}
+
+// A texture's seen height after a draw that read down to `drawn`.
+std::uint16_t update_max_seen_v(std::uint16_t seen, std::uint16_t drawn, bool through) {
+    if (!through) return 512u;
+    if (seen == 0u) return drawn > 0u ? std::max<std::uint16_t>(272u, drawn) : 0u;
+    return drawn > seen ? 512u : seen;
+}
+
+} // namespace
+
+VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemory &memory, const DrawCall &call) {
+    const TextureState &state = call.texture;
     const TextureKeyInput input{state.address,
                                 state.buffer_width,
                                 static_cast<std::uint32_t>(state.width) << 16u | state.height,
@@ -1848,8 +1908,18 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
     const std::uint64_t key = memo->second;
     const auto found = textures.find(key);
     if (found != textures.end()) {
-        found->second.last_used = ++texture_clock;
-        return found->second;
+        Texture &texture = found->second;
+        texture.last_used = ++texture_clock;
+        // A 512-tall texture drawn further down than before is hashed again
+        // over the rows now in use, and may find another image.
+        if (pack && state.height == 512u && texture.max_seen_v < 512u) {
+            const std::uint16_t seen = update_max_seen_v(texture.max_seen_v, drawn_max_v(call), call.through);
+            if (seen != texture.max_seen_v) {
+                texture.max_seen_v = seen;
+                texture.replacement = pack->find(memory, state, seen);
+            }
+        }
+        return texture;
     }
     std::vector<std::uint32_t> pixels;
     if (!decode_texture(memory, state, pixels) || pixels.empty()) {
@@ -1866,6 +1936,16 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         }
         return white_texture;
     }
+    const std::uint16_t max_seen_v =
+        state.height == 512u ? update_max_seen_v(0u, drawn_max_v(call), call.through) : 0u;
+    if (dumper) {
+        static const TexturePackOptions kDumpOptions = [] {
+            TexturePackOptions options;
+            options.ignore_address = true;
+            return options;
+        }();
+        dumper->dump(memory, state, max_seen_v, pack ? pack->options() : kDumpOptions, pixels.data());
+    }
 
     if (textures.size() >= kMaxCachedTextures) {
         auto oldest = textures.begin();
@@ -1880,7 +1960,56 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
     }
     Texture texture = create_texture(state.width, state.height, pixels.data());
     if (texture.descriptor == VK_NULL_HANDLE) return white_texture;
-    return textures.emplace(key, texture).first->second;
+    texture.max_seen_v = max_seen_v;
+    // The pack's hash reads the whole texture, so it is taken here, once per
+    // upload, and never on the per-draw path above.
+    if (pack) texture.replacement = pack->find(memory, state, max_seen_v);
+    return textures.emplace(key, std::move(texture)).first->second;
+}
+
+VkDescriptorSet VulkanRenderer::Impl::texture_descriptor(const GuestMemory &memory, const DrawCall &call) {
+    Texture &texture = texture_for(memory, call);
+    if (texture.replacement && pack) {
+        // Until the image is decoded and on the GPU, the original is drawn.
+        if (const VkDescriptorSet replaced = replacements.descriptor(*texture.replacement, *pack, frames))
+            return replaced;
+    }
+    return texture.descriptor;
+}
+
+void VulkanRenderer::Impl::apply_texture_pack() {
+    if (pack_applied == pack_wanted) return;
+    pack_applied = pack_wanted;
+    // Every cached texture is dropped, so the next draws decode the originals
+    // again and, with the pack on, look them up in it. Off draws exactly what
+    // no pack draws.
+    vkDeviceWaitIdle(device);
+    replacements.clear();
+    for (auto &[key, texture] : textures) destroy_texture(texture);
+    textures.clear();
+    list_texture_keys.clear();
+    pack.reset();
+    pack_status.clear();
+    if (!pack_wanted) {
+        pack_status = "Off";
+        return;
+    }
+    // MHP3RD_TEXTURE_PACK may name the folder; otherwise the pack lives in
+    // textures/<disc id>/ in the per-user data directory.
+    std::filesystem::path folder = install::user_data_directory() / "textures" / install::kDiscId;
+    if (const char *variable = std::getenv("MHP3RD_TEXTURE_PACK"); variable != nullptr) {
+        const std::string value = variable;
+        if (!value.empty() && value != "1" && value != "on" && value != "yes" && value != "true") folder = value;
+    }
+    std::string error;
+    pack = TexturePack::open(folder, install::kDiscId, error);
+    if (!pack) {
+        pack_status = "Not installed";
+        std::cout << "[texpack] " << error << "\n";
+        return;
+    }
+    pack_status = std::to_string(pack->entry_count()) + " textures";
+    std::cout << "[texpack] " << pack->entry_count() << " textures from " << folder.string() << "\n";
 }
 
 namespace {
@@ -2614,6 +2743,24 @@ void VulkanRenderer::set_sharp_screen(bool sharp) {
     if (impl_) impl_->sharp_screen = sharp;
 }
 
+void VulkanRenderer::set_texture_pack(bool enabled) {
+    // Applied at the next begin_frame(), where no frame is being recorded.
+    if (impl_) impl_->pack_wanted = enabled;
+}
+
+std::string VulkanRenderer::texture_pack_status() const {
+    if (!impl_) return {};
+    const Impl &impl = *impl_;
+    if (impl.pack_wanted != impl.pack_applied) return impl.pack_wanted ? "Loading" : "Off";
+    if (!impl.pack) return impl.pack_status;
+    return impl.pack_status + ", " + std::to_string(impl.replacements.resident_count()) + " on the GPU (" +
+           std::to_string(impl.replacements.resident_bytes() >> 20u) + " MB)";
+}
+
+std::string VulkanRenderer::texture_pack_folder() {
+    return (install::user_data_directory() / "textures" / install::kDiscId).string();
+}
+
 void VulkanRenderer::set_sharp_textures(bool sharp) {
     Impl &impl = *impl_;
     if (!impl.ready || impl.recording || impl.sharp_textures == sharp) return;
@@ -2632,6 +2779,7 @@ void VulkanRenderer::set_sharp_textures(bool sharp) {
     };
     rewrite(impl.white_texture);
     for (auto &[key, texture] : impl.textures) rewrite(texture);
+    impl.replacements.set_sharp(sharp);
     for (auto &[address, target] : impl.targets) {
         for (std::size_t i = 0; i < target.copy_descriptors.size(); ++i) {
             if (target.copy_descriptors[i] == VK_NULL_HANDLE) continue;
@@ -2756,6 +2904,8 @@ void VulkanRenderer::begin_frame() {
     vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
     perf::add_wait_time(perf::Clock::now() - wait_start);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
+    impl.apply_texture_pack();
+    impl.replacements.begin_frame(impl.frames);
     if (impl.writeback_in_flight) {
         impl.writeback_pixels.resize(static_cast<std::size_t>(kPspWidth) * kPspHeight);
         std::memcpy(impl.writeback_pixels.data(), impl.writeback_mapped, impl.writeback_pixels.size() * 4u);
@@ -3303,7 +3453,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                                  (uv[2] * width + static_cast<float>(source.x)) / static_cast<float>(kPspWidth),
                                  (uv[3] * height + static_cast<float>(source.y)) / static_cast<float>(kPspHeight)};
         } else {
-            texture_descriptor = impl.texture_for(memory, call.texture).descriptor;
+            texture_descriptor = impl.texture_descriptor(memory, call);
         }
     }
 
@@ -3708,6 +3858,9 @@ void VulkanRenderer::shutdown() {
     if (impl.ui_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, impl.ui_render_pass, nullptr);
     for (auto &[key, texture] : impl.textures) impl.destroy_texture(texture);
     impl.textures.clear();
+    impl.replacements.shutdown();
+    impl.pack.reset();
+    impl.dumper.reset();
     impl.destroy_texture(impl.white_texture);
     if (impl.overlay_mapped != nullptr) vkUnmapMemory(impl.device, impl.overlay_staging_memory);
     vkDestroyBuffer(impl.device, impl.overlay_staging, nullptr);

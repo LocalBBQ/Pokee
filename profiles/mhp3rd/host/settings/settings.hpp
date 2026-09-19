@@ -43,6 +43,7 @@ struct Settings {
     Aspect aspect{Aspect::Original};
     bool sharp_screen{};               // nearest instead of linear scaling to the window
     bool sharp_textures{};             // nearest instead of linear texture sampling
+    bool texture_pack{true};           // draw an installed HD texture pack's images instead of the game's
     bool unthrottled{};                // let emulated time run ahead of real time
     PerfDisplay perf{PerfDisplay::Off};
 

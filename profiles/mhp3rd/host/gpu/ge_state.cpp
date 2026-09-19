@@ -455,6 +455,7 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         texture_.clut_address = resolve_ge_address((texture_.clut_address & 0x00FFFFFFu) | ((data << 8u) & 0xFF000000u));
         break;
     case kClutFormat:
+        texture_.clut_format_word = (command << 24u) | data;
         texture_.clut_format = data & 3u;
         texture_.clut_shift = (data >> 2u) & 0x1Fu;
         texture_.clut_mask = (data >> 8u) & 0xFFu;
@@ -622,9 +623,19 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         break;
     }
 
+    case kLoadClut: {
+        // Blocks of 32 bytes. The PSP reads at most 0x3F of them; a count of
+        // exactly 0x40 still loads, which some games rely on.
+        const std::uint32_t blocks = (data & 0x7Fu) == 0x40u ? 0x40u : (data & 0x3Fu);
+        if (blocks != 0u) {
+            texture_.clut_load_bytes = blocks * 32u;
+            texture_.clut_max_bytes = std::max(texture_.clut_max_bytes, texture_.clut_load_bytes);
+        }
+        break;
+    }
+
     case kNop:
     case kTextureFlush:
-    case kLoadClut:
         break;
 
     default:

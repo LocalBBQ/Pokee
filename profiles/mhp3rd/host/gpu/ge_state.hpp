@@ -58,6 +58,12 @@ struct TextureState {
     std::uint32_t clut_shift{};
     std::uint32_t clut_mask{};
     std::uint32_t clut_offset{};
+    // For texture packs, which hash the palette as it was loaded: the CLUT
+    // format command word as the GE received it (command byte included), the
+    // bytes the last CLUT load read, and the most any load has read.
+    std::uint32_t clut_format_word{0xC5000000u};
+    std::uint32_t clut_load_bytes{};
+    std::uint32_t clut_max_bytes{};
     std::uint32_t function{};        // TFX: modulate/decal/blend/replace/add
     bool alpha_from_texture{};       // TCC
     std::uint32_t min_filter{};

@@ -136,6 +136,15 @@ public:
     void set_aspect(settings::Aspect aspect);
     void set_sharp_screen(bool sharp);
     void set_sharp_textures(bool sharp);
+    // Draws an installed HD texture pack's images instead of the game's own
+    // textures (texture_pack.hpp). Takes effect from the next frame; off
+    // draws exactly what no pack would.
+    void set_texture_pack(bool enabled);
+    // For the menu: "Off", "Not installed", or how many textures the pack has
+    // and how many of them are on the GPU.
+    [[nodiscard]] std::string texture_pack_status() const;
+    // Where the player puts a pack: textures/<disc id> in the data directory.
+    [[nodiscard]] static std::string texture_pack_folder();
     void set_perf_overlay(bool visible);
 
     // The shape the game's 3D view should have, width over height: the

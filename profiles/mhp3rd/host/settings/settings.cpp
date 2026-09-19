@@ -156,6 +156,11 @@ const std::vector<Field> &fields() {
          [](const Settings &s) { return kAspects.format(s.aspect); }, nullptr},
         BOOL_FIELD("video.sharp_screen", sharp_screen),
         BOOL_FIELD("video.sharp_textures", sharp_textures),
+        {"video.texture_pack", "MHP3RD_TEXTURE_PACK",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.texture_pack); },
+         [](const Settings &s) { return std::string(s.texture_pack ? "1" : "0"); },
+         // 0/off/no/false turn it off; anything else, a folder included, on.
+         [](Settings &s, const char *t) { s.texture_pack = variable_flag(t); }},
         {"video.unthrottled", "MHP3RD_UNTHROTTLED",
          [](Settings &s, const std::string &t) { return parse_bool(t, s.unthrottled); },
          [](const Settings &s) { return std::string(s.unthrottled ? "1" : "0"); },
