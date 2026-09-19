@@ -52,12 +52,6 @@ public:
     bool pump_events();
     [[nodiscard]] PadState pad() const noexcept;
 
-    // Host text entry, used while the guest shows its on-screen keyboard.
-    void begin_text_input(const std::string &initial);
-    void end_text_input();
-    [[nodiscard]] std::string text_input() const;
-    [[nodiscard]] bool text_input_confirmed() const noexcept;
-    [[nodiscard]] bool text_input_cancelled() const noexcept;
     [[nodiscard]] bool quit_requested() const noexcept;
 
     void begin_frame();
@@ -109,8 +103,11 @@ public:
     // a menu does not reach the game.
     void set_game_input(bool enabled);
     void request_quit() noexcept;
-    // The game's on-screen keyboard is taking typed text.
-    [[nodiscard]] bool text_input_active() const noexcept;
+    // While held, the window keeps showing the frame on screen when hold
+    // began instead of the frames the game flips to. The game blanks its
+    // screen while the PSP's own keyboard would cover it; the port's keyboard
+    // is drawn over the held frame instead.
+    void hold_frame(bool hold);
 
     // Sets up Dear ImGui's Vulkan backend on this window; the caller has
     // created the ImGui context and its SDL3 backend.

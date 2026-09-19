@@ -189,6 +189,19 @@ const char *shoulder_name(bool right) {
     return right ? "RB" : "LB";
 }
 
+// The button left of the pad's centre, as the pad in use names it.
+const char *select_name() {
+    SDL_Gamepad *pad = Layer::get().attached() ? Layer::get().renderer().gamepad() : nullptr;
+    switch (pad != nullptr ? SDL_GetGamepadType(pad) : SDL_GAMEPAD_TYPE_UNKNOWN) {
+    case SDL_GAMEPAD_TYPE_PS3: return "Select";
+    case SDL_GAMEPAD_TYPE_PS4: return "Share";
+    case SDL_GAMEPAD_TYPE_PS5: return "Create";
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: return "−";
+    default: return "View";
+    }
+}
+
 } // namespace
 
 ImGuiStyle make_style(float scale, float font_size) {
@@ -611,7 +624,9 @@ void hints(std::initializer_list<Hint> list) {
     const float gap = px(6.0f);
     for (const Hint &hint : list) {
         // The browser's file filter switch has a button on the pad only.
-        if (hint.control == Control::Toggle && !pad) continue;
+        const bool pad_only = hint.control == Control::Toggle || hint.control == Control::Shift ||
+                              hint.control == Control::Space || hint.control == Control::Symbols;
+        if (pad_only && !pad) continue;
         float x = at.x;
         const auto cap = [&](const char *text) { x += draw_cap(draw, {x, at.y}, text, false) + gap; };
         const auto arrows = [&] {
@@ -646,7 +661,22 @@ void hints(std::initializer_list<Hint> list) {
             }
             break;
         case Control::Start: cap(pad ? "Start" : "Enter"); break;
-        case Control::Toggle: x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_NORTH) + gap; break;
+        case Control::Toggle:
+        case Control::Space: x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_NORTH) + gap; break;
+        case Control::Delete:
+            if (pad) x += draw_face(draw, {x, at.y}, back) + gap;
+            else cap("Backspace");
+            break;
+        case Control::Shift: x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_WEST) + gap; break;
+        case Control::Symbols: cap(select_name()); break;
+        case Control::Cursor:
+            if (pad) {
+                cap(shoulder_name(false));
+                cap(shoulder_name(true));
+            } else {
+                arrows();
+            }
+            break;
         }
         draw->AddText({x + px(2.0f), at.y}, colors::kTextDim, hint.text);
         at.x = x + ImGui::CalcTextSize(hint.text).x + px(26.0f);

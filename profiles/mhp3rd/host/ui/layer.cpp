@@ -167,8 +167,6 @@ bool Layer::handle_event(const SDL_Event &event) {
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP:
         if (event.key.key == SDLK_ESCAPE) {
-            // The game's own text entry takes Esc as "cancel".
-            if (!interactive_ && renderer_->text_input_active()) return false;
             if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) escape_pending_ = now;
             return true;
         }

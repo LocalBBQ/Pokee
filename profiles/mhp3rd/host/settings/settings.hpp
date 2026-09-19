@@ -18,6 +18,8 @@ namespace mhp3rd::settings {
 enum class PresentMode { Fifo, Mailbox, Immediate };
 enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class RightStick { Camera, DPad, Off };
+// What answers the game when it asks for text such as the hunter's name.
+enum class NameEntry { Keyboard, Fixed };
 
 struct Settings {
     // Video
@@ -47,8 +49,8 @@ struct Settings {
     float right_stick_zone{0.5f};
     bool invert_camera_x{};
     bool invert_camera_y{};
-    bool type_name{};                  // type the name when the game asks for one
-    std::string name{"Hunter"};        // otherwise answer with this
+    NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once
+    std::string name{"Hunter"};        // the fixed name
 
     // Network (ad hoc play through a PSP ad hoc server)
     bool adhoc{};                      // wireless switch on: the game may go on line

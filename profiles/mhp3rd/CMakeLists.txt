@@ -52,6 +52,7 @@ if(MHP3RD_RENDERER)
             host/ui/layer.cpp
             host/ui/menu.cpp
             host/ui/setup_screens.cpp
+            host/ui/text_input.cpp
             host/ui/widgets.cpp
             third_party/imgui/imgui.cpp
             third_party/imgui/imgui_draw.cpp

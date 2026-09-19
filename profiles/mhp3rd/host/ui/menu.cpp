@@ -7,6 +7,7 @@
 #include "ui/font_menu.hpp"
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
+#include "ui/text_input.hpp"
 #include "ui/widgets.hpp"
 
 #include "adhoc/client.hpp"
@@ -21,6 +22,7 @@
 #include "yakumo_version.hpp"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #include <SDL3/SDL.h>
 
@@ -33,7 +35,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,6 +49,9 @@ using Clock = std::chrono::steady_clock;
 // Seconds the "how to open the menu" hint stays up at start, until the menu
 // has been opened once.
 constexpr double kHintSeconds = 12.0;
+// The longest hunter name the game takes: its name buffer holds 12
+// characters and a terminator.
+constexpr std::size_t kHunterNameLength = 12u;
 // Resolutions the menu offers. MHP3RD_INTERNAL_SCALE goes up to 8, but a
 // setting that runs out of video memory would fail on every start.
 constexpr int kMenuMaxInternalScale = 6;
@@ -116,6 +123,11 @@ private:
 
 bool Menu::frame() {
     Layer &layer = Layer::get();
+    // A text field's keyboard takes the whole screen until it closes.
+    if (text_input_open()) {
+        text_input_frame();
+        return true;
+    }
     if (layer.take_menu_toggle()) return false;
     const bool back = layer.take_back();
     // The pad's back button closes the menu too, once nothing is being edited.
@@ -330,15 +342,27 @@ void Menu::audio() {
 }
 
 // A text field row. Returns true when an edit was committed; the new text is
-// then in `value`. `id` keeps the field's buffer apart from other rows'.
+// then in `value`. `id` keeps the field's state apart from other rows'.
+// Activated with a gamepad, the field opens the on-screen keyboard; with a
+// keyboard or mouse it is edited in place.
+struct TextField {
+    std::array<char, 132> buffer{};
+    bool focused{};
+    std::optional<std::string> entered;  // from the on-screen keyboard
+};
+
 bool text_row(const char *id, const char *label, std::string &value, std::size_t max_length, bool allow_empty,
-              bool allow_spaces, const RowOptions &o) {
-    struct Field {
-        std::array<char, 132> buffer{};
-        bool focused{};
-    };
-    static std::map<std::string, Field> fields;
-    Field &field = fields[id];
+              const std::function<bool(char32_t)> &allowed, const RowOptions &o) {
+    static std::map<std::string, TextField> fields;
+    TextField &field = fields[id];
+    if (field.entered) {
+        const std::string entered = std::move(*field.entered);
+        field.entered.reset();
+        if (allow_empty || !entered.empty()) {
+            value = entered;
+            return true;
+        }
+    }
     if (!ImGui::IsAnyItemActive() || !field.focused)
         std::snprintf(field.buffer.data(), field.buffer.size(), "%s", value.c_str());
     const float row_height = std::round(Layer::get().font_size() * 1.9f);
@@ -358,16 +382,26 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
                                start.y + (row_height - ImGui::GetFrameHeight()) * 0.5f});
     ImGui::SetNextItemWidth(field_width);
     if (o.disabled) ImGui::BeginDisabled();
-    const auto printable = [](ImGuiInputTextCallbackData *data) {
-        // ASCII only: the game stores names as UTF-16 converted byte by byte,
-        // and server names are host names.
-        const bool spaces = data->UserData != nullptr;
-        if (data->EventChar == ' ') return spaces ? 0 : 1;
-        return data->EventChar > 0x20 && data->EventChar < 0x7F ? 0 : 1;
+    const auto filter = [](ImGuiInputTextCallbackData *data) {
+        const auto *accepts = static_cast<const std::function<bool(char32_t)> *>(data->UserData);
+        return (*accepts)(static_cast<char32_t>(data->EventChar)) ? 0 : 1;
     };
     const std::string widget_id = std::string("##") + id;
     ImGui::InputText(widget_id.c_str(), field.buffer.data(), std::min(max_length + 1u, field.buffer.size()),
-                     ImGuiInputTextFlags_CallbackCharFilter, printable, allow_spaces ? &field : nullptr);
+                     ImGuiInputTextFlags_CallbackCharFilter, filter,
+                     const_cast<std::function<bool(char32_t)> *>(&allowed));
+    if (ImGui::IsItemActivated() && Layer::get().input_device() == InputDevice::Gamepad) {
+        ImGui::ClearActiveID();
+        TextInputRequest request;
+        request.title = label;
+        request.prompt = o.description;
+        request.initial = value;
+        request.max_length = max_length;
+        request.allowed = allowed;
+        open_text_input(std::move(request), [key = std::string(id)](std::optional<std::string> text) {
+            if (text) fields[key].entered = std::move(*text);
+        });
+    }
     field.focused = ImGui::IsItemFocused();
     if (ImGui::IsItemFocused() || ImGui::IsItemHovered()) {
         std::string description = o.description;
@@ -384,6 +418,9 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
     ImGui::Dummy({0.0f, 0.0f});
     return committed;
 }
+
+// Host names: printable ASCII without spaces.
+bool host_character(char32_t c) { return c > 0x20u && c < 0x7Fu; }
 
 void Menu::controls() {
     settings::Settings &s = settings::current();
@@ -460,16 +497,20 @@ void Menu::controls() {
     }
 
     section("Hunter name");
-    if (choice_row("When the game asks for a name", s.type_name ? "Type it" : "Use the name below",
-                   options_for("input.type_name", "Type it: the game waits while you type in the window; Enter "
-                                                  "confirms, Esc cancels. Otherwise the name below is given at once."))) {
-        s.type_name = !s.type_name;
-        settings::save();
+    {
+        const bool keyboard = s.name_entry == settings::NameEntry::Keyboard;
+        if (choice_row("When the game asks for a name", keyboard ? "On-screen keyboard" : "Use the name below",
+                       options_for("input.name_entry",
+                                   "On-screen keyboard: type the name with the gamepad or the keyboard while the "
+                                   "game waits. Otherwise the name below is given at once."))) {
+            s.name_entry = keyboard ? settings::NameEntry::Fixed : settings::NameEntry::Keyboard;
+            settings::save();
+        }
     }
-    if (text_row("name", "Hunter name", s.name, 16u, false, true,
-                 options_for("input.name", "The name given when the game asks for one and typing is off. Letters, "
-                                           "digits and punctuation from a keyboard; on a Steam Deck, Steam+X opens "
-                                           "the on-screen keyboard.")))
+    if (text_row("name", "Hunter name", s.name, kHunterNameLength, false, hunter_name_character,
+                 options_for("input.name", "Given when the game asks for a name and the on-screen keyboard is "
+                                           "off, and to other players when the network nickname is empty. "
+                                           "Letters, digits, spaces and simple punctuation.")))
         settings::save();
 
     section("Keyboard");
@@ -499,7 +540,7 @@ void Menu::controls() {
         restore("input.right_stick_zone", s.right_stick_zone, d.right_stick_zone);
         restore("input.invert_camera_x", s.invert_camera_x, d.invert_camera_x);
         restore("input.invert_camera_y", s.invert_camera_y, d.invert_camera_y);
-        restore("input.type_name", s.type_name, d.type_name);
+        restore("input.name_entry", s.name_entry, d.name_entry);
         restore("input.name", s.name, d.name);
         settings::save();
     }
@@ -583,14 +624,14 @@ void Menu::network() {
         settings::save();
         adhoc_apply_settings();
     }
-    if (text_row("server", "Server", s.adhoc_server, 100u, true, false,
+    if (text_row("server", "Server", s.adhoc_server, 100u, true, host_character,
                  options_for("network.server", "Host name or address of a PSP ad hoc server (the ports are 27312 and "
                                                "27313). There is no default: pick one players of this game use. "
                                                "Applies the next time the game goes on line."))) {
         settings::save();
         adhoc_apply_settings();
     }
-    if (text_row("nickname", "Nickname", s.adhoc_nickname, 32u, true, true,
+    if (text_row("nickname", "Nickname", s.adhoc_nickname, 32u, true, printable_ascii,
                  options_for("network.nickname", "The name other players and the server see. Empty: the hunter name. "
                                                  "Applies the next time the game goes on line."))) {
         settings::save();
@@ -802,6 +843,13 @@ void draw_over_game() {
     Layer &layer = Layer::get();
     if (!layer.attached()) return;
     script::tick();
+    // The game's keyboard request: drawn over every game frame until done.
+    if (text_input_open()) {
+        layer.begin_frame();
+        text_input_frame();
+        layer.end_frame();
+        return;
+    }
     const double hint_left = settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
     const bool overlay = network_overlay();
     if (hint_left <= 0.0 && !overlay) return;
@@ -813,7 +861,7 @@ void draw_over_game() {
 
 bool menu_requested() {
     Layer &layer = Layer::get();
-    return layer.attached() && layer.take_menu_toggle();
+    return layer.attached() && !text_input_open() && layer.take_menu_toggle();
 }
 
 bool run_menu() {

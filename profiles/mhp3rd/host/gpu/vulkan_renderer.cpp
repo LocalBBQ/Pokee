@@ -431,6 +431,10 @@ struct VulkanRenderer::Impl {
     std::uint32_t current_target{};
     std::uint32_t last_drawn_target{};
     std::uint32_t presented_target{};
+    // A copy of the frame shown when hold_frame() began; only its colour
+    // image is used.
+    Target held{};
+    bool holding{};
     // Per-frame tally, so "no 3D" can be told from "3D drawn somewhere else".
     std::uint32_t frame_through_draws{};
     std::uint32_t frame_transformed_draws{};
@@ -487,10 +491,6 @@ struct VulkanRenderer::Impl {
     PadState pad{};
     SDL_Gamepad *gamepad{};
     SDL_JoystickID gamepad_id{};
-    bool text_input_active{};
-    bool text_confirmed{};
-    bool text_cancelled{};
-    std::string text;
     bool recording{};
     bool quit{};
     bool ready{};
@@ -500,7 +500,14 @@ struct VulkanRenderer::Impl {
     // Only the first pad is used; a second one arriving is ignored rather than
     // stealing the stick from whoever is already playing.
     void open_gamepad(SDL_JoystickID id) {
-        if (gamepad != nullptr) return;
+        if (gamepad != nullptr) {
+            // The virtual pad of MHP3RD_INPUT_SCRIPT takes over from a real
+            // one, so a controller within reach does not steal a scripted run.
+            const char *name = SDL_GetGamepadNameForID(id);
+            if (name == nullptr || std::strcmp(name, "Yakumo input script") != 0) return;
+            SDL_CloseGamepad(gamepad);
+            gamepad = nullptr;
+        }
         SDL_Gamepad *device = SDL_OpenGamepad(id);
         if (device == nullptr) {
             std::cout << "[pad] SDL_OpenGamepad failed: " << SDL_GetError() << "\n";
@@ -1677,19 +1684,9 @@ bool VulkanRenderer::pump_events() {
         if (impl_->event_hook && impl_->event_hook(event)) continue;
         if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F3 && !event.key.repeat && impl_->overlay_ready)
             impl_->overlay_visible = !impl_->overlay_visible;
-
-        if (!impl_->text_input_active) continue;
-        if (event.type == SDL_EVENT_TEXT_INPUT) {
-            impl_->text += event.text.text;
-        } else if (event.type == SDL_EVENT_KEY_DOWN) {
-            if (event.key.key == SDLK_RETURN || event.key.key == SDLK_KP_ENTER) impl_->text_confirmed = true;
-            else if (event.key.key == SDLK_ESCAPE) impl_->text_cancelled = true;
-            else if (event.key.key == SDLK_BACKSPACE && !impl_->text.empty()) impl_->text.pop_back();
-        }
     }
-    // While typing, the keyboard drives text rather than the pad; while a menu
-    // is open, nothing reaches the game.
-    if (impl_->text_input_active || !impl_->game_input) {
+    // While a menu or the on-screen keyboard is open, nothing reaches the game.
+    if (!impl_->game_input) {
         impl_->pad = PadState{};
         return !impl_->quit;
     }
@@ -1776,7 +1773,52 @@ void VulkanRenderer::request_quit() noexcept {
     if (impl_) impl_->quit = true;
 }
 
-bool VulkanRenderer::text_input_active() const noexcept { return impl_ && impl_->text_input_active; }
+void VulkanRenderer::hold_frame(bool hold) {
+    if (!impl_) return;
+    Impl &impl = *impl_;
+    if (!impl.ready || hold == impl.holding) return;
+    if (!hold) {
+        impl.holding = false;
+        vkDeviceWaitIdle(impl.device);
+        impl.destroy_target(impl.held);
+        impl.held = {};
+        return;
+    }
+    const auto shown = impl.targets.find(impl.presented_target);
+    if (shown == impl.targets.end() || !shown->second.initialized) return;
+    std::string error;
+    if (!impl.create_image(impl.target_extent.width, impl.target_extent.height, VK_FORMAT_R8G8B8A8_UNORM,
+                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                               VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                           impl.held.color, impl.held.color_memory, impl.held.color_view, VK_IMAGE_ASPECT_COLOR_BIT,
+                           error)) {
+        std::cerr << "Renderer: cannot hold the frame (" << error << ")\n";
+        impl.destroy_target(impl.held);
+        impl.held = {};
+        return;
+    }
+    // The shown target and the copy both rest in the layout presenting
+    // expects of a game frame.
+    const VkImage source = shown->second.color;
+    const VkImage copy_to = impl.held.color;
+    const VkExtent2D extent = impl.target_extent;
+    impl.run_commands([&](VkCommandBuffer commands) {
+        impl.transition(commands, source, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        impl.transition(commands, copy_to, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageCopy region{};
+        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+        region.dstSubresource = region.srcSubresource;
+        region.extent = {extent.width, extent.height, 1u};
+        vkCmdCopyImage(commands, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, copy_to,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        impl.transition(commands, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        impl.transition(commands, copy_to, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    });
+    impl.holding = true;
+}
 
 SDL_Window *VulkanRenderer::window() const noexcept { return impl_ ? impl_->window : nullptr; }
 std::string VulkanRenderer::device_name() const { return impl_ ? impl_->device_name : std::string{}; }
@@ -1793,6 +1835,8 @@ void VulkanRenderer::set_internal_scale(std::uint32_t scale) {
     // into it, so the paused frame behind the menu, and render-to-texture
     // targets the game reads back, stay intact.
     vkDeviceWaitIdle(impl.device);
+    // A held frame has the old size; let the game's own frames show again.
+    hold_frame(false);
     std::map<std::uint32_t, Impl::Target> old_targets = std::move(impl.targets);
     impl.targets.clear();
     const VkExtent2D old_extent = impl.target_extent;
@@ -1988,26 +2032,6 @@ void VulkanRenderer::present_ui(bool show_game) {
     }
     impl.submit_and_present(source, false);
 }
-
-void VulkanRenderer::begin_text_input(const std::string &initial) {
-    if (!impl_ || impl_->window == nullptr) return;
-    impl_->text = initial;
-    impl_->text_confirmed = false;
-    impl_->text_cancelled = false;
-    impl_->text_input_active = true;
-    SDL_StartTextInput(impl_->window);
-    std::cout << "[osk] type the name in the game window, Enter confirms, Esc cancels\n";
-}
-
-void VulkanRenderer::end_text_input() {
-    if (!impl_ || impl_->window == nullptr) return;
-    impl_->text_input_active = false;
-    SDL_StopTextInput(impl_->window);
-}
-
-std::string VulkanRenderer::text_input() const { return impl_ ? impl_->text : std::string{}; }
-bool VulkanRenderer::text_input_confirmed() const noexcept { return impl_ && impl_->text_confirmed; }
-bool VulkanRenderer::text_input_cancelled() const noexcept { return impl_ && impl_->text_cancelled; }
 
 void VulkanRenderer::begin_frame() {
     Impl &impl = *impl_;
@@ -2523,8 +2547,9 @@ void VulkanRenderer::present(std::uint32_t display_address) {
     // Show the target the guest flipped to; fall back to whatever was drawn last.
     auto displayed = impl.targets.find(display_address);
     if (displayed == impl.targets.end()) displayed = impl.targets.find(impl.last_drawn_target);
-    const VkImage source = displayed != impl.targets.end() ? displayed->second.color : VK_NULL_HANDLE;
+    VkImage source = displayed != impl.targets.end() ? displayed->second.color : VK_NULL_HANDLE;
     impl.presented_target = displayed != impl.targets.end() ? displayed->first : 0u;
+    if (impl.holding) source = impl.held.color;
     impl.submit_and_present(source, true);
     ++impl.frames;
 }
@@ -2650,6 +2675,9 @@ void VulkanRenderer::shutdown() {
     vkDestroyShaderModule(impl.device, impl.fragment_shader, nullptr);
     for (auto &[address, target] : impl.targets) impl.destroy_target(target);
     impl.targets.clear();
+    impl.destroy_target(impl.held);
+    impl.held = {};
+    impl.holding = false;
     vkDestroyRenderPass(impl.device, impl.render_pass, nullptr);
     vkDestroySemaphore(impl.device, impl.image_available, nullptr);
     vkDestroySemaphore(impl.device, impl.render_finished, nullptr);

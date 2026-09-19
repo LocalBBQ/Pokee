@@ -100,6 +100,11 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"},
                                         {PerfDisplay::Log, "log"}}};
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
+const Names<NameEntry> kNameEntries{{{NameEntry::Keyboard, "keyboard"}, {NameEntry::Fixed, "fixed"}}};
+
+// Written by earlier versions: 1 typed the name into the window, which the
+// on-screen keyboard now covers.
+constexpr const char *kRetiredTypeNameKey = "input.type_name";
 
 #define BOOL_FIELD(key, member)                                                                                       \
     Field {                                                                                                            \
@@ -178,10 +183,12 @@ const std::vector<Field> &fields() {
          [](Settings &s, const char *t) { s.right_stick_zone = variable_float(t, 0.5f, 0.1f, 1.0f); }},
         BOOL_FIELD("input.invert_camera_x", invert_camera_x),
         BOOL_FIELD("input.invert_camera_y", invert_camera_y),
-        {"input.type_name", "MHP3RD_OSK_INTERACTIVE",
-         [](Settings &s, const std::string &t) { return parse_bool(t, s.type_name); },
-         [](const Settings &s) { return std::string(s.type_name ? "1" : "0"); },
-         [](Settings &s, const char *t) { s.type_name = variable_present(t); }},
+        {"input.name_entry", "MHP3RD_OSK_MODE",
+         [](Settings &s, const std::string &t) { return kNameEntries.parse(t, s.name_entry); },
+         [](const Settings &s) { return kNameEntries.format(s.name_entry); },
+         [](Settings &s, const char *t) {
+             if (!kNameEntries.parse(t, s.name_entry)) std::cerr << "[settings] MHP3RD_OSK_MODE: keyboard or fixed\n";
+         }},
         {"input.name", "MHP3RD_OSK_TEXT",
          [](Settings &s, const std::string &t) {
              if (t.empty()) return false;
@@ -257,6 +264,13 @@ void load(State &s) {
         field.parse_variable(s.values, text);
         s.overrides[field.key] = field.variable;
     }
+    // A fixed name in the environment is meant for unattended runs, which
+    // nobody is there to type in, so it also answers at once unless
+    // MHP3RD_OSK_MODE says otherwise.
+    if (s.overrides.count("input.name_entry") == 0u && std::getenv("MHP3RD_OSK_TEXT") != nullptr) {
+        s.values.name_entry = NameEntry::Fixed;
+        s.overrides["input.name_entry"] = "MHP3RD_OSK_TEXT";
+    }
 }
 
 } // namespace
@@ -288,6 +302,7 @@ void save() {
             }
             entries[field.key] = field.format(s.values);
         }
+        entries.erase(kRetiredTypeNameKey);
         install::write_settings_file(s.data_dir, entries);
     } catch (const std::exception &e) {
         std::cerr << "[settings] cannot write settings.ini: " << e.what() << "\n";

@@ -55,6 +55,10 @@ public:
     std::optional<std::filesystem::path> take_dropped_file();
     [[nodiscard]] bool window_closed() const noexcept { return window_closed_; }
 
+    // False while a face button held since the screen opened is still down;
+    // gamepad presses count only once it is released.
+    [[nodiscard]] bool gamepad_armed() const noexcept { return gamepad_armed_; }
+
     // What the player last used, for the button hints.
     [[nodiscard]] InputDevice input_device() const noexcept { return device_; }
     // Whether confirm is the south face button (the pad setting); the menu

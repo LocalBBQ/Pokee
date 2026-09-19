@@ -218,6 +218,7 @@ void attach_pad(State &s) {
     desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
     desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1u;
     desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1u;
+    // The renderer gives the game this pad over a real one by its name.
     desc.name = "Yakumo input script";
     const SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
     if (id == 0) {

@@ -87,8 +87,22 @@ void paragraph(const std::string &text, ImU32 color = colors::kText);
 void heading(const std::string &text);
 
 // Button hints for the footer, drawn with the glyphs of the pad in use or the
-// keys of the keyboard.
-enum class Control { Confirm, Back, Tabs, Change, Menu, Start, Toggle };
+// keys of the keyboard. Toggle, Shift, Space and Symbols exist on the pad only
+// and are skipped for the keyboard.
+enum class Control {
+    Confirm,
+    Back,
+    Tabs,
+    Change,
+    Menu,
+    Start,
+    Toggle,   // the top face button
+    Delete,   // the back face button; Backspace
+    Shift,    // the left face button
+    Space,    // the top face button
+    Symbols,  // Select, Share, Create or View, as the pad names it
+    Cursor,   // the shoulder buttons; the arrow keys
+};
 struct Hint {
     Control control;
     const char *text;
