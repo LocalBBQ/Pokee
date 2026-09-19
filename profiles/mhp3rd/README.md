@@ -366,7 +366,7 @@ Hosting and joining turn **Ad hoc play** on and fill in **Server** (the host's o
 
 **Ports.** The built-in server listens on every network interface on TCP **27312** (matchmaking) and **27313** (relay); a host answers address checks on UDP 27312 and announces itself to UDP **27314** on the local network, by broadcast and on the multicast group 239.255.27.14. On a LAN or a VPN nothing needs to be forwarded, though a firewall on the host may ask to let Yakumo accept connections: allow it (on Windows, for private networks). To host over the plain internet, forward TCP 27312 and 27313 on the host's router to the host, and give the others your public address; a VPN is usually simpler. `network.host_port` in `settings.ini` (or `MHP3RD_ADHOC_HOST_PORT`) moves the server to another port pair, for example when another server already uses 27312; others then join `address:port`.
 
-**PPSSPP players** can join a session hosted in Yakumo: in PPSSPP, set the ad hoc server to the host's address and use the relay (*AemuPostoffice*) data mode.
+**PPSSPP players** should be able to join a session hosted in Yakumo, since the server speaks the same protocols (not tested yet): in PPSSPP, set the ad hoc server to the host's address and use the relay (*AemuPostoffice*) data mode.
 
 **A server without the game.** `MHP3rdNative --adhoc-server [port]` runs the same server alone in a terminal, announced on the local network, and prints the addresses to join; Ctrl+C stops it. It needs neither game data nor a window.
 
