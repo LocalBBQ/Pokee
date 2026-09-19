@@ -18,7 +18,9 @@ The framework contains no EBOOT/PRX decryption. The mhp3rd profile's installer (
 
 ## Ad hoc networking
 
-`profiles/mhp3rd/host/adhoc` and `profiles/mhp3rd/host/hle/hle_adhoc.cpp` let the game's ad hoc play reach other players through the PSP ad hoc servers players already run. The client was written for this project from the protocols' documented and observed behaviour: the servers' published packet layouts, opcodes and ports, and the traffic between the game and a server. No code was copied or adapted from other implementations. The PSP library calls it serves follow their public API descriptions and the game's own calls, traced while it runs. No server is part of the repository; tests run one as a separate program.
+`profiles/mhp3rd/host/adhoc` and `profiles/mhp3rd/host/hle/hle_adhoc.cpp` let the game's ad hoc play reach other players through the PSP ad hoc servers players already run. The client was written for this project from the protocols' documented and observed behaviour: the servers' published packet layouts, opcodes and ports, and the traffic between the game and a server. No code was copied or adapted from other implementations. The PSP library calls it serves follow their public API descriptions and the game's own calls, traced while it runs.
+
+The built-in server (`server.cpp`, used by *Host a session* and `--adhoc-server`) was also written for this project from the same protocols' documented and observed behaviour: the packet layouts, opcodes, ports and the order of the messages a server sends, checked against the project's own client. No code, structure or text was copied or adapted from other server implementations. The local network discovery protocol (`discovery.cpp`) is the project's own design.
 
 ## Profile code
 

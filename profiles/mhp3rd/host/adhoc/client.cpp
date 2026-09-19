@@ -144,9 +144,11 @@ struct LogBuffer {
     std::deque<std::string> lines;
 };
 
+// Never destroyed: the client's, server's and discovery's threads log until
+// their singletons are torn down at exit, in whatever order that happens.
 LogBuffer &log_buffer() {
-    static LogBuffer buffer;
-    return buffer;
+    static LogBuffer *buffer = new LogBuffer;
+    return *buffer;
 }
 
 std::atomic<bool> &tracing_flag() {

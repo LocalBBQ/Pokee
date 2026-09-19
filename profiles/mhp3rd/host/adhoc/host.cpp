@@ -25,9 +25,12 @@ struct HostState {
     std::uint16_t port{};
 };
 
+// Never destroyed: the discovery thread asks the server for its player count
+// until the process ends, and a server still running at exit simply ends
+// with it, which its players see as a lost connection.
 HostState &host() {
-    static HostState state;
-    return state;
+    static HostState *state = new HostState;
+    return *state;
 }
 
 void remember(const std::string &address) {

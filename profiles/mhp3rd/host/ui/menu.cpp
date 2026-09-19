@@ -661,7 +661,8 @@ void play_together() {
         if (addresses.empty()) info_row("Your addresses", "No network is connected");
         for (const adhoc::LocalAddress &address : addresses) {
             const std::string text = address.address + suffix;
-            const std::string label = text + "   " + address.network + " (" + address.interface + ")";
+            const std::string label =
+                text + "   " + address.network + " (" + address.interface + ")###address " + address.address;
             if (button_row(label.c_str(),
                            {false, {},
                             "Copies this address. Players on the same network find you under Join; over a VPN "
@@ -680,7 +681,8 @@ void play_together() {
             ImGui::PopID();
         }
         ImGui::PopID();
-        if (button_row("Stop hosting",
+        // One ID for Host and Stop, so the focus stays on the row.
+        if (button_row("Stop hosting###hosting",
                        {false, {},
                         "Stops the server. Everyone in the session is disconnected, as when a connection drops."},
                        colors::kDanger)) {
@@ -688,7 +690,7 @@ void play_together() {
             copied.clear();
         }
     } else {
-        if (button_row("Host a session",
+        if (button_row("Host a session###hosting",
                        {false, {},
                         "Runs a server in this game for the others to join: no other program, no port forwarding "
                         "on a local network or a VPN. Then everyone enters the Online Guild Hall."}))
@@ -708,7 +710,7 @@ void play_together() {
     for (const adhoc::FoundHost &host : hosts) {
         const std::string address = host.join_address();
         const std::string label = (joined(address) ? "Joined " : "Join ") + host.info.name + "   " + address + ", " +
-                                  players_text(host.info.players);
+                                  players_text(host.info.players) + "###found " + std::to_string(host.info.session);
         if (button_row(label.c_str(), {false, {}, "A session hosted on this network. Joining it takes you out of any "
                                                   "other; then enter the Online Guild Hall."}))
             adhoc_join(address);
@@ -723,10 +725,11 @@ void play_together() {
         typed_address.clear();
     }
     for (const std::string &address : s.adhoc_recent) {
-        std::string detail = "recent";
-        for (const adhoc::FoundHost &host : hosts)
-            if (host.join_address() == address) detail = host.info.name + ", " + players_text(host.info.players);
-        const std::string label = (joined(address) ? "Joined " : "Join ") + address + "   " + detail;
+        // A recent session that is announcing is listed above already.
+        if (std::any_of(hosts.begin(), hosts.end(),
+                        [&](const adhoc::FoundHost &host) { return host.join_address() == address; }))
+            continue;
+        const std::string label = (joined(address) ? "Joined " : "Join ") + address + "   recent###recent " + address;
         if (button_row(label.c_str(), {false, {}, "A session you joined before."})) adhoc_join(address);
     }
 }
