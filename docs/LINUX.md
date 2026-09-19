@@ -127,7 +127,7 @@ flatpak override --user --filesystem=/mnt/games:ro io.github.teamgdb.Yakumo
 
 The tarball runs without installing anything. It needs:
 
-- x86-64 Linux with glibc 2.31 or newer: Ubuntu 20.04, Debian 11, Fedora 32, SteamOS 3 or anything newer
+- x86-64 Linux with glibc 2.29 or newer: Ubuntu 20.04, Debian 11, Fedora 31, SteamOS 3 or anything newer
 - A Vulkan driver and the Vulkan loader (`libvulkan.so.1`): Mesa on AMD and Intel, or NVIDIA's driver
 - Wayland or X11, and PipeWire, PulseAudio or ALSA for sound
 

@@ -99,7 +99,7 @@ check_no_game_data() {
             00505346*) bad+=("$file (PARAM.SFO)") ;;
         esac
         if [[ "$(stat -c %s "$file")" -gt 32774 ]] &&
-           [[ "$(dd if="$file" bs=1 skip=32769 count=5 2>/dev/null)" == "CD001" ]]; then
+           [[ "$(dd if="$file" bs=1 skip=32769 count=5 2>/dev/null | tr -d '\0')" == "CD001" ]]; then
             bad+=("$file (disc image)")
         fi
     done < <(find "$root" -print0)

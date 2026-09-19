@@ -16,7 +16,7 @@ directory, under ms0/PSP/SAVEDATA.
     ./yakumo --install /path/to/image.iso   set up from a terminal instead
     ./yakumo --help                         all options
 
-Needs: an x86-64 Linux with glibc 2.31 or newer, a Vulkan driver (Mesa on
+Needs: an x86-64 Linux with glibc 2.29 or newer, a Vulkan driver (Mesa on
 AMD and Intel, or NVIDIA's), and Wayland or X11. On a Steam Deck the
 Flatpak is easier; see the guide below.
 
