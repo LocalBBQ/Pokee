@@ -719,7 +719,7 @@ void play_together() {
     if (text_row("join_address", "Address", typed_address, 100u, true, address_character,
                  {false, {},
                   "The host's address, for a VPN without broadcast such as Tailscale: the host's screen lists it. "
-                  "Enter joins."}) &&
+                  "Confirming it joins."}) &&
         !typed_address.empty()) {
         adhoc_join(typed_address);
         typed_address.clear();
