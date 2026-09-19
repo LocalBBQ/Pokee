@@ -496,26 +496,39 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
     case kOffsetX: viewport_.offset_x = static_cast<float>(data & 0xFFFFu) / 16.0f; break;
     case kOffsetY: viewport_.offset_y = static_cast<float>(data & 0xFFFFu) / 16.0f; break;
 
-    case kMaterialAmbient: material_color_ = (material_color_ & 0xFF000000u) | (data & 0x00FFFFFFu); break;
-    case kMaterialAlpha: material_color_ = (material_color_ & 0x00FFFFFFu) | ((data & 0xFFu) << 24u); break;
-    case kReverseNormal: lighting_.reverse_normals = (data & 1u) != 0u; break;
-    case kMaterialUpdate: lighting_.material_update = data & 7u; break;
-    case kMaterialEmissive: lighting_.material_emissive = data & 0x00FFFFFFu; break;
-    case kMaterialDiffuse: lighting_.material_diffuse = data & 0x00FFFFFFu; break;
-    case kMaterialSpecular: lighting_.material_specular = data & 0x00FFFFFFu; break;
-    case kMaterialSpecularPower: lighting_.specular_power = decode_float24(data); break;
-    case kAmbientColor: lighting_.ambient_color = data & 0x00FFFFFFu; break;
-    case kAmbientAlpha: lighting_.ambient_alpha = data & 0xFFu; break;
-    case kLightMode: lighting_.mode = data & 1u; break;
+    // The material registers; each write moves material_version_.
+    case kMaterialAmbient:
+        material_color_ = (material_color_ & 0xFF000000u) | (data & 0x00FFFFFFu);
+        ++material_version_;
+        break;
+    case kMaterialAlpha:
+        material_color_ = (material_color_ & 0x00FFFFFFu) | ((data & 0xFFu) << 24u);
+        ++material_version_;
+        break;
+    case kReverseNormal: lighting_.reverse_normals = (data & 1u) != 0u; ++material_version_; break;
+    case kMaterialUpdate: lighting_.material_update = data & 7u; ++material_version_; break;
+    case kMaterialEmissive: lighting_.material_emissive = data & 0x00FFFFFFu; ++material_version_; break;
+    case kMaterialDiffuse: lighting_.material_diffuse = data & 0x00FFFFFFu; ++material_version_; break;
+    case kMaterialSpecular: lighting_.material_specular = data & 0x00FFFFFFu; ++material_version_; break;
+    case kMaterialSpecularPower: lighting_.specular_power = decode_float24(data); ++material_version_; break;
+    case kLightMode: lighting_.mode = data & 1u; ++material_version_; break;
+
+    // The lighting environment: global ambient, lights and fog parameters;
+    // each write moves environment_version_.
+    case kAmbientColor: lighting_.ambient_color = data & 0x00FFFFFFu; ++environment_version_; break;
+    case kAmbientAlpha: lighting_.ambient_alpha = data & 0xFFu; ++environment_version_; break;
     case kLightEnable0:
     case kLightEnable0 + 1:
     case kLightEnable0 + 2:
-    case kLightEnable0 + 3: lighting_.lights[command - kLightEnable0].enabled = (data & 1u) != 0u; break;
+    case kLightEnable0 + 3:
+        lighting_.lights[command - kLightEnable0].enabled = (data & 1u) != 0u;
+        ++environment_version_;
+        break;
 
     case kFogEnable: fog_.enabled = (data & 1u) != 0u; break;
-    case kFogEnd: fog_.end = decode_float24(data); break;
-    case kFogScale: fog_.scale = decode_float24(data); break;
-    case kFogColor: fog_.color = data & 0x00FFFFFFu; break;
+    case kFogEnd: fog_.end = decode_float24(data); ++environment_version_; break;
+    case kFogScale: fog_.scale = decode_float24(data); ++environment_version_; break;
+    case kFogColor: fog_.color = data & 0x00FFFFFFu; ++environment_version_; break;
 
     case kWorldMatrixNumber: world_write_index_ = data & 0xFu; break;
     case kViewMatrixNumber: view_write_index_ = data & 0xFu; break;
@@ -563,6 +576,7 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         LightState &light = lighting_.lights[command - kLightType0];
         light.kind = data & 3u;
         light.type = (data >> 8u) & 3u;
+        ++environment_version_;
         break;
     }
 
@@ -638,7 +652,9 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         } else {
             ++unhandled_commands_;
             trace_unhandled(command, data);
+            break;
         }
+        ++environment_version_;
         break;
     }
 }
@@ -716,6 +732,8 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     call.has_vertex_color = ((vertex_type_ >> 2u) & 7u) != 0u;
     call.lighting = lighting_;
     call.fog = fog_;
+    call.environment_version = environment_version_;
+    call.material_version = material_version_;
     call.world = world_;
     call.view = view_;
     call.projection = projection_;

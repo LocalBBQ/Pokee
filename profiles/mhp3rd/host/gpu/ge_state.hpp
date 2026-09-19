@@ -171,6 +171,12 @@ struct DrawCall {
     bool has_vertex_color{};             // the vertex type carries a colour
     LightingState lighting;
     FogState fog;
+    // Change counters: environment_version moves whenever a register behind
+    // the lights, the global ambient colour or the fog parameters is written,
+    // material_version whenever one behind the material is. Equal versions
+    // mean equal state, so the renderer can skip rebuilding what it derived.
+    std::uint64_t environment_version{};
+    std::uint64_t material_version{};
     std::array<float, 16> world{};
     std::array<float, 16> view{};
     std::array<float, 16> projection{};
@@ -242,6 +248,8 @@ private:
     bool lighting_enabled_{};
     LightingState lighting_{};
     FogState fog_{};
+    std::uint64_t environment_version_{1u};
+    std::uint64_t material_version_{1u};
     std::uint32_t vertex_type_{};
     std::uint32_t vertex_address_{};
     std::uint32_t index_address_{};

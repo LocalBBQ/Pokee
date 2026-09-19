@@ -20,21 +20,16 @@ layout(location = 4) flat out vec4 frag_uv_rect;
 
 layout(push_constant) uniform Push {
     mat4 transform;      // WVP, or identity for through vertices
-    vec4 viewport;       // xy: target size in PSP pixels, zw: unused
+    vec4 viewport;       // xy: target size in PSP pixels, z: through, w: 1 fog + 2 lighting
     vec4 texture_params; // x: texture enabled, y: texture function, z: alpha ref, w: alpha func
     vec4 uv_transform;   // xy: scale, zw: offset
+    vec4 view_z;         // row of view * world that gives view-space z
 } push;
 
-// Per-draw lighting and fog state; the layout matches LightingBlock on the host.
-// Colours are 0..1; flags hold small integers stored as floats.
-layout(set = 1, binding = 0) uniform Lighting {
-    mat4 world;
-    vec4 view_z;            // row of view * world that gives view-space z
-    vec4 flags;             // x: lighting, y: vertex has a colour, z: fog, w: material update mask
-    vec4 emissive;          // rgb; w: specular power
-    vec4 material_ambient;  // rgba
-    vec4 material_diffuse;  // rgb; w: 1 keeps specular apart
-    vec4 material_specular; // rgb; w: reverse normals
+// The lighting environment, shared by every draw until the game changes it;
+// the layout matches EnvironmentBlock on the host. Colours are 0..1; small
+// integers are stored as floats.
+layout(set = 1, binding = 0) uniform Environment {
     vec4 ambient;           // global ambient light, rgba
     vec4 fog;               // x: end, y: scale
     vec4 fog_color;
@@ -47,6 +42,16 @@ layout(set = 1, binding = 0) uniform Lighting {
     vec4 light_specular[4];
 } lighting;
 
+// A lit draw's world matrix and material; the layout matches ObjectBlock.
+layout(set = 1, binding = 1) uniform Object {
+    mat4 world;
+    vec4 flags;             // y: vertex has a colour, w: material update mask
+    vec4 emissive;          // rgb; w: specular power
+    vec4 material_ambient;  // rgba
+    vec4 material_diffuse;  // rgb; w: 1 keeps specular apart
+    vec4 material_specular; // rgb; w: reverse normals
+} object;
+
 // The GE's per-vertex lighting, evaluated in world space: emissive, plus the
 // global ambient light times the material ambient, plus for each enabled light
 // its ambient, diffuse and specular terms, scaled by distance attenuation and
@@ -54,22 +59,22 @@ layout(set = 1, binding = 0) uniform Lighting {
 // the ambient (bit 0), diffuse (bit 1) and specular (bit 2) material colours;
 // a vertex without a colour keeps the material ones.
 void light_vertex(out vec4 color, out vec3 separate_specular) {
-    int mask = int(lighting.flags.w + 0.5);
-    bool has_color = lighting.flags.y > 0.5;
-    vec4 ambient_material = (has_color && (mask & 1) != 0) ? in_color : lighting.material_ambient;
-    vec3 diffuse_material = (has_color && (mask & 2) != 0) ? in_color.rgb : lighting.material_diffuse.rgb;
-    vec3 specular_material = (has_color && (mask & 4) != 0) ? in_color.rgb : lighting.material_specular.rgb;
-    float power = lighting.emissive.w;
+    int mask = int(object.flags.w + 0.5);
+    bool has_color = object.flags.y > 0.5;
+    vec4 ambient_material = (has_color && (mask & 1) != 0) ? in_color : object.material_ambient;
+    vec3 diffuse_material = (has_color && (mask & 2) != 0) ? in_color.rgb : object.material_diffuse.rgb;
+    vec3 specular_material = (has_color && (mask & 4) != 0) ? in_color.rgb : object.material_specular.rgb;
+    float power = object.emissive.w;
 
-    vec3 world_position = (lighting.world * vec4(in_position.xyz, 1.0)).xyz;
+    vec3 world_position = (object.world * vec4(in_position.xyz, 1.0)).xyz;
     // Skinned normals come out of the bone matrices far from unit length, so
     // the GE's normalisation after the transform matters.
-    vec3 normal = mat3(lighting.world) * in_normal;
+    vec3 normal = mat3(object.world) * in_normal;
     float length_squared = dot(normal, normal);
     normal = length_squared > 0.0 ? normal * inversesqrt(length_squared) : vec3(0.0, 0.0, 1.0);
-    if (lighting.material_specular.w > 0.5) normal = -normal;
+    if (object.material_specular.w > 0.5) normal = -normal;
 
-    vec3 sum = lighting.emissive.rgb + lighting.ambient.rgb * ambient_material.rgb;
+    vec3 sum = object.emissive.rgb + lighting.ambient.rgb * ambient_material.rgb;
     vec3 specular = vec3(0.0);
     for (int i = 0; i < 4; ++i) {
         if (lighting.light_position[i].w < 0.5) continue;
@@ -103,7 +108,7 @@ void light_vertex(out vec4 color, out vec3 separate_specular) {
         }
     }
     float alpha = lighting.ambient.a * ambient_material.a;
-    if (lighting.material_diffuse.w > 0.5) {
+    if (object.material_diffuse.w > 0.5) {
         separate_specular = clamp(specular, 0.0, 1.0);
     } else {
         sum += specular;
@@ -126,11 +131,12 @@ void main() {
         vec2 ndc = vec2(in_position.x / push.viewport.x, in_position.y / push.viewport.y) * 2.0 - 1.0;
         gl_Position = vec4(ndc, clamp(in_position.z / 65535.0, 0.0, 1.0), 1.0);
     } else {
-        if (lighting.flags.x > 0.5) light_vertex(frag_color, frag_specular);
+        int enables = int(push.viewport.w + 0.5);
+        if ((enables & 2) != 0) light_vertex(frag_color, frag_specular);
         // Fog runs linearly from 1 (clear) to 0 (fogged) with view-space z,
         // which is negative in front of the camera: (z + end) * scale.
-        if (lighting.flags.z > 0.5)
-            frag_fog = (dot(lighting.view_z, vec4(in_position.xyz, 1.0)) + lighting.fog.x) * lighting.fog.y;
+        if ((enables & 1) != 0)
+            frag_fog = (dot(push.view_z, vec4(in_position.xyz, 1.0)) + lighting.fog.x) * lighting.fog.y;
         vec4 clip = push.transform * vec4(in_position.xyz, 1.0);
         // PSP clip space follows OpenGL with z in [-w, w]; Vulkan clips against
         // [0, w], so without this remap the near half of every frustum is lost.
