@@ -13,7 +13,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 
 | | macOS (Apple Silicon) | Linux | Steam Deck | Windows |
 | --- | --- | --- | --- | --- |
-| Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ✅ MSVC 19.44 [#13] |
+| Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ✅ MSVC 19.44, all 355 overlay DLLs [#13] |
 | Boot, title and menus | ✅ | ❔ | ✅ | ✅ |
 | Character creation | ✅ | ❔ | ✅ | ❔ |
 | Village | ✅ | ❔ | ✅ | ❔ |

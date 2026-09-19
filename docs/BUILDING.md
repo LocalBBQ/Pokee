@@ -79,7 +79,7 @@ For Game Mode, add a small launch script to Steam as a non-Steam game. The scrip
 
 ## Windows
 
-> **Status:** the game builds with MSVC and plays, but closes at the first save (#13). Please report problems with a **Test report** issue.
+> **Status:** the game builds with MSVC, including all 355 overlay DLLs, and plays, but closes at the first save (#13). Please report problems with a **Test report** issue.
 
 | Tool | Notes |
 | --- | --- |
@@ -107,6 +107,7 @@ Then follow the [build steps](#build-steps) in that Bash, with these differences
 Windows specifics:
 - **Data directory.** Step 2 writes `EBOOT.ELF` and `settings.ini` to the per-user data directory. It takes precedence over `profiles/mhp3rd/game`, and both hold the same data after step 3.
 - **Symbolic links.** `prepare_game.sh` links the disc image into `profiles/mhp3rd/game`. Git Bash copies the file instead unless Windows Developer Mode is on and `MSYS=winsymlinks:nativestrict` is exported. A copy works too; it costs about 1.3 GB.
+- **Overlay DLLs.** Each overlay links against the executable's import library. The runtime (`psprecomp_core`) is an object library, so its objects belong to the executable and `WINDOWS_EXPORT_ALL_SYMBOLS` exports them to the overlays.
 - **No build lock.** Unlike macOS and Linux, the build does not lock its directory on Windows yet, so never run two builds of the same directory at once.
 - **Out of memory** while compiling a generated unit means the parallelism is too high. Rerun the same `cmake --build` with `-j 1`; it continues where it stopped.
 
@@ -161,6 +162,7 @@ The generated code is its own object library, and every compile goes through `cc
 | --- | --- | --- |
 | Host code: kernel, HLE, renderer, audio, interface, settings | The files you changed, then a relink | Seconds |
 | A shader | The embedded shaders and the renderer | Seconds |
+| The runtime's sources in `src/` | Those files, then every tool and executable that links the runtime | Seconds to a minute |
 | `profiles/mhp3rd/CMakeLists.txt` (flags, sources) | Host files only; the generated units have their own flags | Seconds to a minute |
 | Headers in `include/psprecomp/` (the runtime the generated code uses) | All 89 generated units **and** all 355 overlays | The full build again, unless `ccache` already holds that exact version |
 | The recompiler, then `generate.sh` | Only the units whose generated text changed | Depends on the change |
