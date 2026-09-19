@@ -79,7 +79,7 @@ For Game Mode, add a small launch script to Steam as a non-Steam game. The scrip
 
 ## Windows
 
-> **Status:** the game builds with MSVC, including all 355 overlay DLLs, and plays, but closes at the first save (#13). Please report problems with a **Test report** issue.
+> **Status:** the game builds with MSVC, including all 355 overlay DLLs, and plays. Creating a character, saving several times, restarting the game and loading the save have been tested on Windows 11. Please report problems with a **Test report** issue.
 
 | Tool | Notes |
 | --- | --- |

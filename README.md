@@ -45,7 +45,7 @@ You can load a save copied from a PSP or start a new game, hunt, and save your p
 | All 355 code overlays recompiled | |
 | Multiplayer: through the ad hoc servers PSP players use, or hosted from the game on a LAN or VPN | |
 
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in Game Mode with native Vulkan and the built-in controls. Windows builds with MSVC and the game starts, but it closes at the first save (#13).
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Game Mode with native Vulkan and the built-in controls, and on Windows 11 with MSVC. On Windows, creating a character, saving several times, restarting the game and loading the save all work.
 
 The state of each part of the game on each platform is in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
@@ -87,7 +87,6 @@ Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu: it pauses
 ## Roadmap
 
 - Prebuilt releases, starting with Linux and the Steam Deck (#29)
-- Windows: fix the crash at the first save (#13)
 - 60 fps through frame interpolation, with the game still simulating at 30 (#39)
 
 ## How it works

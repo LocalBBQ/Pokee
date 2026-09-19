@@ -22,7 +22,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Sound effects | ❔ re-check [#4]: the game now runs at real time | ❔ | ❔ | ❔ |
 | Music | ✅ with FFmpeg | ❔ | ❔ | ❔ |
 | Cutscene movies | ✅ with FFmpeg; the opening movie checked | ❔ | ❔ | ❔ |
-| Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ❌ closes at the first save [#13] |
+| Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ✅ a new character saves and loads after restarting the game [#13] |
 | Downloadable content | ✅ a player's `ULJM05800QST` folder is read by the download menu | ❔ | ❔ | ❔ |
 | Multiplayer | ✅ with a Steam Deck through an ad hoc server: hall and a full quest [#2] | ❔ | ✅ with a Mac through an ad hoc server: hall and a full quest [#2] | ❔ |
 
@@ -48,6 +48,7 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | SteamOS 3.8.16 | Steam Deck | AMD Custom GPU 0932, RADV (Mesa 26.0.0-devel) | `v0.3.0` | 2026-09-18 |
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `v0.3.0` | 2026-09-19 |
 | Windows 11 Pro | x64 PC | AMD Radeon RX 6500 XT | `98e2468` | 2026-09-19 |
+| Windows 11 Pro | x64 PC | AMD Radeon RX 6500 XT | `b67cd7a` (saving and loading) | 2026-09-20 |
 
 ## Updating this page
 

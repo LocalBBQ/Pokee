@@ -47,7 +47,7 @@ Puedes cargar una partida copiada de una PSP o empezar una nueva, salir de caza 
 | Los 355 overlays de código, recompilados | |
 | Multijugador: a través de los servidores ad hoc que usan los jugadores de PSP, o con anfitrión desde el propio juego en una red local o VPN | |
 
-Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck en el modo de juego, con Vulkan nativo y los controles integrados. En Windows compila con MSVC y el juego arranca, pero se cierra en el primer guardado (#13).
+Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK), en una Steam Deck en el modo de juego, con Vulkan nativo y los controles integrados, y en Windows 11 con MSVC. En Windows funcionan la creación de un personaje, varios guardados consecutivos, el reinicio del juego y la carga de la partida guardada.
 
 El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
@@ -89,7 +89,6 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo:
 ## Hoja de ruta
 
 - Compilaciones listas para usar, empezando por Linux y Steam Deck (#29)
-- Windows: corregir el cierre en el primer guardado (#13)
 - 60 fps mediante interpolación de fotogramas, con el juego simulando todavía a 30 (#39)
 
 ## Cómo funciona

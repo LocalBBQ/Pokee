@@ -26,7 +26,7 @@ Not done yet:
 - **Dialog screens.** The save-data and message dialogs work but draw nothing; each answers as if the player confirmed it ([#33](https://github.com/TeamGDB/Yakumo/issues/33)).
 - **Performance:** on a Steam Deck, the lighting path costs enough CPU to slow the busiest village spots slightly below full speed ([#7](https://github.com/TeamGDB/Yakumo/issues/7)); `MHP3RD_NO_LIGHTING=1` avoids it until that is fixed.
 
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in Game Mode, built with GCC in a Debian 13 container and running on native Vulkan. On Windows the game builds with MSVC and starts, but closes at the first save ([#13](https://github.com/TeamGDB/Yakumo/issues/13)); see [the compatibility table](../../docs/COMPATIBILITY.md).
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Game Mode, built with GCC in a Debian 13 container and running on native Vulkan, and on Windows 11 with MSVC. On Windows, creating a character, saving several times, restarting the game and loading the save all work; see [the compatibility table](../../docs/COMPATIBILITY.md).
 
 ## Supported executable
 
