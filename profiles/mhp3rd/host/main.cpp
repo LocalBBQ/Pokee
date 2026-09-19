@@ -1,5 +1,7 @@
 #include "mhp3rd_profile.hpp"
 
+#include "app_paths.hpp"
+
 #include "adhoc/client.hpp"
 #include "adhoc/discovery.hpp"
 #include "adhoc/server.hpp"
@@ -67,7 +69,10 @@ void ensure_main_stack(char **argv) {
     limit.rlim_cur = target;
     if (setrlimit(RLIMIT_STACK, &limit) != 0) return;
     setenv(kMarker, "1", 1);
-    execv("/proc/self/exe", argv);
+    // Through the resolved path: executing /proc/self/exe itself would rename
+    // the process to "exe".
+    const std::filesystem::path self = mhp3rd::executable_path();
+    execv(self.empty() ? "/proc/self/exe" : self.c_str(), argv);
     // Still here: carry on with the stack there is.
     std::cerr << "warning: could not restart with a larger stack; deep call chains may overflow\n";
 }
