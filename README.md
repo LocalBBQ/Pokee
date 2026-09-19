@@ -67,7 +67,7 @@ In short:
 3. Recompile the code overlays with `profiles/mhp3rd/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
 4. Run `out/mhp3rd/bin/MHP3rdNative`.
 
-The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Building on Windows from nothing but the disc image, step by step: [`docs/BUILDING_WINDOWS.md`](docs/BUILDING_WINDOWS.md).
+The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Building on Windows from nothing but the disc image, step by step: [`docs/BUILDING_WINDOWS.md`](docs/BUILDING_WINDOWS.md). Every platform, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md).
 
 ## Controls
 

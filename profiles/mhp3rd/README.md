@@ -75,7 +75,7 @@ profiles/mhp3rd/scripts/build_overlays.sh
 out/mhp3rd/bin/MHP3rdNative
 ```
 
-Each step is described below.
+Each step is described below. [`docs/BUILDING.md`](../../docs/BUILDING.md) covers the platforms, how long each stage takes, and working on the code without full rebuilds.
 
 ## Game data
 
