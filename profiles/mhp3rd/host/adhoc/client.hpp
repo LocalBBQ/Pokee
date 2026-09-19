@@ -75,7 +75,8 @@ struct StreamInfo {
     Mac peer{};
     std::uint16_t peer_port{};
     std::size_t readable{};    // bytes waiting to be received
-    std::size_t unsent{};      // bytes queued but not yet handed to the host socket
+    std::size_t unsent{};      // bytes queued but not yet handed to the host socket, with relay framing
+    std::size_t unsent_data{}; // the game's data among them
     std::size_t capacity{};
     std::uint64_t sent{};
     std::uint64_t received{};

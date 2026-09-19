@@ -1579,6 +1579,12 @@ StreamInfo Client::ptp_info(int handle) const {
     info.peer_port = socket.peer_port;
     info.readable = socket.kind == StreamKind::Listen ? socket.backlog.size() : socket.received.size();
     info.unsent = socket.link.output.size();
+    // The game's data among the queued bytes. The game's stream messages are
+    // small, so the queue holds at most a block or two, each with a 4-byte
+    // size in front; before the relay link is up it holds the init record.
+    info.unsent_data = socket.link.open && socket.link.output.size() > relay::kPtpHeaderSize
+                           ? socket.link.output.size() - relay::kPtpHeaderSize
+                           : 0u;
     info.capacity = socket.capacity;
     info.sent = socket.sent_total;
     info.received = socket.received_total;

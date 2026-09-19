@@ -83,7 +83,9 @@ constexpr std::uint32_t kPtpEstablished = 4u;
 // Guest structure sizes.
 constexpr std::uint32_t kPeerInfoSize = 152u;  // next, nickname[128], mac[6], pad[2], flags, u64 last seen
 constexpr std::uint32_t kScanInfoSize = 28u;   // next, channel, group[8], bssid[6], pad[2], mode
-constexpr std::uint32_t kPtpStatSize = 36u;    // next, id, mac[6], peer mac[6], port, peer port, sent, received, state
+// next, id, mac[6], peer mac[6], port, peer port, bytes waiting to be sent,
+// bytes waiting to be received, state
+constexpr std::uint32_t kPtpStatSize = 36u;
 constexpr std::uint32_t kAdhocChannel = 1u;
 
 // Netconf: SceUtilityNetconfParam after the common dialog header.
@@ -683,7 +685,7 @@ void register_ptp(HleRegistrar &hle) {
         const std::uint32_t data = arg(ctx, 1);
         const std::uint32_t length_address = arg(ctx, 2);
         if (const auto result = try_stream_send(memory, socket->handle, data, length_address))
-            return done(ctx, name, 5, *result);
+            return done(ctx, name, 5, *result, "len " + std::to_string(memory.load32(length_address)));
         if (arg(ctx, 4) != 0u) return done(ctx, name, 5, err::kWouldBlock);
         block(ctx, name, 5, arg(ctx, 3),
               [&memory, id, data, length_address](bool timed_out) -> std::optional<std::uint32_t> {
@@ -704,8 +706,10 @@ void register_ptp(HleRegistrar &hle) {
         auto &memory = rt.memory();
         const std::uint32_t buffer = arg(ctx, 1);
         const std::uint32_t length_address = arg(ctx, 2);
+        const std::uint32_t asked = memory.load32(length_address);
         if (const auto result = try_stream_receive(memory, socket->handle, buffer, length_address))
-            return done(ctx, name, 5, *result);
+            return done(ctx, name, 5, *result,
+                        "asked " + std::to_string(asked) + " got " + std::to_string(memory.load32(length_address)));
         if (arg(ctx, 4) != 0u) return done(ctx, name, 5, err::kWouldBlock);
         block(ctx, name, 5, arg(ctx, 3),
               [&memory, id, buffer, length_address](bool timed_out) -> std::optional<std::uint32_t> {
@@ -768,8 +772,11 @@ void register_ptp(HleRegistrar &hle) {
             write_mac(memory, entry + 14u, info.peer);
             memory.store16(entry + 20u, info.local_port);
             memory.store16(entry + 22u, info.peer_port);
-            memory.store32(entry + 24u, static_cast<std::uint32_t>(info.sent));
-            memory.store32(entry + 28u, static_cast<std::uint32_t>(info.received));
+            // What the socket buffers hold now, not running totals: the game
+            // reads these as buffer occupancy, and totals that only grow
+            // made the quest host close the stream after about 1 KB.
+            memory.store32(entry + 24u, static_cast<std::uint32_t>(info.unsent_data));
+            memory.store32(entry + 28u, static_cast<std::uint32_t>(socket.listener ? 0u : info.readable));
             std::uint32_t status = kPtpClosed;
             if (info.state == adhoc::StreamState::Listening) status = kPtpListen;
             else if (info.state == adhoc::StreamState::Opening) status = kPtpSynSent;
