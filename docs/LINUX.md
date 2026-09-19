@@ -66,23 +66,26 @@ Everything Yakumo keeps is in the Flatpak's own data directory:
         PSP/SAVEDATA/ULJM05800/   your saves
 ```
 
-It survives updates and is removed only if you ask for it (see [Uninstall](#uninstall)). Back up `ms0` to keep your saves safe.
+It survives updates and is removed only if you ask for it (see [Uninstall](#uninstall)). To keep your saves safe, use *Back up saves…* in Yakumo's menu (System section), which copies them to `save-backups` in this directory or to a folder you choose, or back up `ms0` yourself.
 
 ### Import a save from a PSP
 
-Saves use the PSP's own format, so a save from a PSP's memory stick works unchanged:
+Saves use the PSP's own format, so a save from a PSP's memory stick or from PPSSPP works unchanged. Yakumo's menu imports it, with a gamepad:
 
-1. Quit Yakumo.
-2. On the PSP's memory stick, find `PSP/SAVEDATA/ULJM05800`, the folder of *Monster Hunter Portable 3rd*.
-3. Copy that whole folder into `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/`. Create the folders if they do not exist yet:
+1. Put the save where Yakumo can see it: connect the memory stick or SD card, or copy the folder into your home folder. On a PSP's memory stick the folder of *Monster Hunter Portable 3rd* is `PSP/SAVEDATA/ULJM05800`, with downloaded quests in `ULJM05800QST`.
+2. In the game, open the menu (L3+R3, or Esc) and go to **System → Import save…**.
+3. Open the save folder, or choose *Import from this folder* on a folder that holds several, such as the memory stick's `PSP/SAVEDATA`. Removable drives are in the row of places at the top.
+4. Check what is shown, with the save it replaces, and confirm. The replaced save is kept in `ms0/PSP/SAVEDATA/.backup/`, not deleted.
+5. Choose **Restart now**: the game reads saves at the title screen, which then leads to character select with the imported characters.
 
-   ```bash
-   mkdir -p ~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA
-   cp -r /path/to/memory-stick/PSP/SAVEDATA/ULJM05800 ~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/
-   ```
+**System → Back up saves…** copies your saves to `save-backups` in the data directory above, and **Open the saves folder** and **Open the backups folder** show where they are. The Flatpak reads your home folder and removable drives but writes only to its own data directory, so *Export save…* and backups to another folder fail there: back up to the backups folder, then copy the backup from it. The [profile README](../profiles/mhp3rd/README.md#importing-a-save-from-a-psp) describes the checks and the backups.
 
-   If a `ULJM05800` folder is already there, keep a copy of it first: it holds all three character slots.
-4. Start Yakumo. The title screen leads to character select with the imported characters.
+By hand, with Yakumo closed, copy the folder into `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/`, keeping a copy of any `ULJM05800` folder already there first: it holds all three character slots.
+
+```bash
+mkdir -p ~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA
+cp -r /path/to/memory-stick/PSP/SAVEDATA/ULJM05800 ~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/
+```
 
 In Dolphin, the file manager, Ctrl+H shows hidden folders such as `.var` in your home folder.
 

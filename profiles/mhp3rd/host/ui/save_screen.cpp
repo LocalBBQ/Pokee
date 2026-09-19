@@ -15,6 +15,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -107,9 +108,21 @@ std::string file_url(const std::string &path) {
     return url;
 }
 
+// The Flatpak reads the player's folders but writes only to its own data
+// directory, so an export or a backup elsewhere fails there.
+void sandbox_note() {
+    if (std::getenv("FLATPAK_ID") == nullptr) return;
+    ImGui::Indent(px(16.0f));
+    paragraph("The Flatpak can read your folders but write only to its own data folder. Back up to the backups "
+              "folder instead, then copy the backup from there: Open the backups folder shows it.",
+              colors::kTextDim);
+    ImGui::Unindent(px(16.0f));
+}
+
 std::string names_text(const std::vector<std::string> &names) {
     std::string text;
-    for (const std::string &name : names) text += (text.empty() ? "" : ", ") + sd::save_label(name);
+    for (std::size_t i = 0; i < names.size(); ++i)
+        text += (i == 0 ? "" : i + 1 == names.size() ? " and " : ", ") + sd::save_label(names[i]);
     return text;
 }
 
@@ -383,6 +396,7 @@ void exported_screen(bool back) {
         ImGui::Unindent(px(16.0f));
     } else {
         info_row("Not exported", s.exported.error);
+        sandbox_note();
     }
     ImGui::Dummy({0.0f, px(12.0f)});
     if (button_row("Done", {false, {}, "Back to the menu."})) close();
@@ -454,6 +468,7 @@ void backed_up_screen(bool back) {
         info_row("To", utf8(s.backed_up.folder));
     } else {
         info_row("Not backed up", s.backed_up.error);
+        sandbox_note();
     }
     ImGui::Dummy({0.0f, px(12.0f)});
     if (button_row("Open the folder", {false, {}, "Show the backup in the file manager."}))

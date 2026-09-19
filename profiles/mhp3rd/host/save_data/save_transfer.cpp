@@ -43,6 +43,13 @@ std::optional<std::vector<std::uint8_t>> read_file(const fs::path &path) {
     return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+// A path as UTF-8, for messages and names; path::string() can throw on
+// Windows for names outside the system code page.
+std::string text(const fs::path &path) {
+    const std::u8string utf8 = path.u8string();
+    return std::string(reinterpret_cast<const char *>(utf8.data()), utf8.size());
+}
+
 bool has_param_sfo(const fs::path &folder) {
     std::error_code ec;
     return fs::is_regular_file(folder / kParamSfo, ec);
@@ -73,12 +80,12 @@ bool copy_folder_files(const fs::path &from, const fs::path &to, std::string &er
     std::error_code ec;
     fs::create_directories(to, ec);
     if (ec) {
-        error = "cannot create " + to.string() + ": " + ec.message();
+        error = "cannot create " + text(to) + ": " + ec.message();
         return false;
     }
     fs::directory_iterator it(from, ec);
     if (ec) {
-        error = "cannot read " + from.string() + ": " + ec.message();
+        error = "cannot read " + text(from) + ": " + ec.message();
         return false;
     }
     for (; it != fs::directory_iterator(); it.increment(ec)) {
@@ -87,7 +94,7 @@ bool copy_folder_files(const fs::path &from, const fs::path &to, std::string &er
         if (!entry.is_regular_file(ec)) continue;
         const fs::path target = to / entry.path().filename();
         if (!fs::copy_file(entry.path(), target, fs::copy_options::overwrite_existing, ec)) {
-            error = "cannot copy " + entry.path().filename().string() + ": " + ec.message();
+            error = "cannot copy " + text(entry.path().filename()) + ": " + ec.message();
             return false;
         }
         const auto time = entry.last_write_time(ec);
@@ -95,7 +102,7 @@ bool copy_folder_files(const fs::path &from, const fs::path &to, std::string &er
         ec.clear();
     }
     if (ec) {
-        error = "cannot read " + from.string() + ": " + ec.message();
+        error = "cannot read " + text(from) + ": " + ec.message();
         return false;
     }
     return true;
@@ -168,7 +175,7 @@ FolderSummary summarize_folder(const fs::path &folder) {
 SaveCheck check_save_folder(const fs::path &folder, const std::optional<Block> &key) {
     SaveCheck check;
     check.folder = folder;
-    check.name = folder.filename().string();
+    check.name = text(folder.filename());
     std::error_code ec;
     const fs::path sfo_path = folder / kParamSfo;
     if (!fs::is_regular_file(sfo_path, ec)) {
@@ -272,7 +279,7 @@ std::vector<SaveCheck> find_saves(const fs::path &picked, const std::optional<Bl
         std::error_code ec;
         std::vector<fs::path> folders;
         for (fs::directory_iterator it(base, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
-            const std::string name = it->path().filename().string();
+            const std::string name = text(it->path().filename());
             if (name.empty() || name[0] == '.') continue;
             if (it->is_directory(ec) && has_param_sfo(it->path())) folders.push_back(it->path());
         }
@@ -369,7 +376,7 @@ ExportResult export_saves(const fs::path &memory_stick, const fs::path &target,
     }
     std::error_code ec;
     if (!fs::is_directory(target, ec)) {
-        result.error = "The folder " + target.string() + " does not exist.";
+        result.error = "The folder " + text(target) + " does not exist.";
         return result;
     }
     result.folder = unused_path(target, "MHP3rd saves " + timestamp_for_path(time));
@@ -439,7 +446,7 @@ BackupResult back_up_saves(const fs::path &memory_stick, const fs::path &folder,
         if (fs::exists(destination, ec)) fs::remove_all(destination, ec);
         if (!ec) fs::rename(partial, destination, ec);
         if (ec) {
-            result.error = "cannot write " + destination.string() + ": " + ec.message();
+            result.error = "cannot write " + text(destination) + ": " + ec.message();
             return result;
         }
         result.saved.push_back(name);
