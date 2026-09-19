@@ -269,6 +269,7 @@ private:
     std::uint32_t bone_write_index_{};
 
     std::vector<std::uint32_t> call_stack_;
+    DrawCall call_;  // reused by draw_primitive for every draw
     DrawSink draw_sink_;
     SignalSink signal_sink_;
     TransferSink transfer_sink_;

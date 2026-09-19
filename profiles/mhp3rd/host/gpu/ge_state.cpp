@@ -713,7 +713,11 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     const auto primitive = static_cast<PrimitiveType>((data >> 16u) & 7u);
     if (count == 0u || vertex_address_ == 0u) return;
 
-    DrawCall call{};
+    // One DrawCall is reused for every draw, so its vertex and index vectors
+    // keep their capacity instead of being allocated and freed per draw.
+    DrawCall &call = call_;
+    call.vertices.clear();
+    call.indices.clear();
     call.primitive = primitive;
     call.through = (vertex_type_ & (1u << 23u)) != 0u;
     call.texture = texture_;
@@ -746,17 +750,35 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
         // A list that points its indices outside RAM is malformed; skip the draw
         // rather than faulting the whole runtime on it.
         if (!memory.contains(index_address_, count * (index_type == 1u ? 1u : index_type == 2u ? 2u : 4u))) return;
-        call.indices.reserve(count);
+        const std::uint32_t index_size = index_type == 1u ? 1u : index_type == 2u ? 2u : 4u;
+        // Resolve the index run once; a run that is not contiguous in host
+        // memory falls back to checked loads.
+        const std::uint8_t *raw = memory.raw_pointer(index_address_, static_cast<std::size_t>(count) * index_size);
+        call.indices.resize(count);
         std::uint32_t lowest = 0xFFFFFFFFu;
         std::uint32_t highest = 0u;
         for (std::uint32_t i = 0; i < count; ++i) {
             std::uint32_t index = 0u;
-            if (index_type == 1u) index = memory.load8(index_address_ + i);
-            else if (index_type == 2u) index = memory.load16(index_address_ + i * 2u);
-            else index = memory.load32(index_address_ + i * 4u);
+            if (raw != nullptr) {
+                if (index_type == 1u) {
+                    index = raw[i];
+                } else if (index_type == 2u) {
+                    std::uint16_t value{};
+                    std::memcpy(&value, raw + i * 2u, sizeof(value));
+                    index = value;
+                } else {
+                    std::memcpy(&index, raw + i * 4u, sizeof(index));
+                }
+            } else if (index_type == 1u) {
+                index = memory.load8(index_address_ + i);
+            } else if (index_type == 2u) {
+                index = memory.load16(index_address_ + i * 2u);
+            } else {
+                index = memory.load32(index_address_ + i * 4u);
+            }
             lowest = std::min(lowest, index);
             highest = std::max(highest, index);
-            call.indices.push_back(static_cast<std::uint16_t>(index));
+            call.indices[i] = static_cast<std::uint16_t>(index);
         }
         // Games draw a mesh as many indexed prims into one shared vertex
         // buffer. Decode only the vertices this prim references, not the
