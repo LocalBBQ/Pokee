@@ -349,19 +349,20 @@ struct TextField {
     std::array<char, 132> buffer{};
     bool focused{};
     std::optional<std::string> entered;  // from the on-screen keyboard
+    bool refocus{};                      // the keyboard closed; focus the row again
 };
 
 bool text_row(const char *id, const char *label, std::string &value, std::size_t max_length, bool allow_empty,
               const std::function<bool(char32_t)> &allowed, const RowOptions &o) {
     static std::map<std::string, TextField> fields;
     TextField &field = fields[id];
+    bool committed = false;
     if (field.entered) {
-        const std::string entered = std::move(*field.entered);
-        field.entered.reset();
-        if (allow_empty || !entered.empty()) {
-            value = entered;
-            return true;
+        if (allow_empty || !field.entered->empty()) {
+            value = std::move(*field.entered);
+            committed = true;
         }
+        field.entered.reset();
     }
     if (!ImGui::IsAnyItemActive() || !field.focused)
         std::snprintf(field.buffer.data(), field.buffer.size(), "%s", value.c_str());
@@ -399,8 +400,15 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
         request.max_length = max_length;
         request.allowed = allowed;
         open_text_input(std::move(request), [key = std::string(id)](std::optional<std::string> text) {
-            if (text) fields[key].entered = std::move(*text);
+            TextField &closed = fields[key];
+            closed.refocus = true;
+            if (text) closed.entered = std::move(*text);
         });
+    }
+    // The menu was not drawn while the keyboard was up, so its focus is lost.
+    if (field.refocus && !text_input_open()) {
+        field.refocus = false;
+        ImGui::FocusItem();
     }
     field.focused = ImGui::IsItemFocused();
     if (ImGui::IsItemFocused() || ImGui::IsItemHovered()) {
@@ -408,7 +416,6 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
         if (!o.note.empty()) description += "\n" + o.note;
         Layer::get().set_description(description);
     }
-    bool committed = false;
     if (ImGui::IsItemDeactivatedAfterEdit() && (allow_empty || field.buffer[0] != '\0')) {
         value = field.buffer.data();
         committed = true;
