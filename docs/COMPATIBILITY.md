@@ -18,7 +18,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Character creation | ✅ | ❔ | ✅ | ❔ |
 | Village | ✅ | ❔ | ✅ | ❔ |
 | Hunts | ✅ | ❔ | ✅ | ❔ |
-| Graphics | ✅ lighting and fog; ⚠️ noise behind the quest reward screen [#48], clipped glyphs [#53], seams on tiled 2D screens [#55] | ❔ | ✅ lighting and fog; ⚠️ noise behind the quest reward screen [#48] | ❔ |
+| Graphics | ✅ lighting, fog, the quest reward screen and tiled 2D screens | ❔ | ✅ lighting, fog, the quest reward screen and tiled 2D screens; ⚠️ lighting slows the busiest village spots slightly [#7] | ❔ |
 | Sound effects | ❔ re-check [#4]: the game now runs at real time | ❔ | ❔ | ❔ |
 | Music | ✅ with FFmpeg | ❔ | ❔ | ❔ |
 | Cutscene movies | ✅ with FFmpeg; the opening movie checked | ❔ | ❔ | ❔ |
@@ -65,6 +65,3 @@ To report a result without editing the page, open a **Test report** issue.
 [#13]: https://github.com/TeamGDB/Yakumo/issues/13
 [#14]: https://github.com/TeamGDB/Yakumo/issues/14
 [#33]: https://github.com/TeamGDB/Yakumo/issues/33
-[#48]: https://github.com/TeamGDB/Yakumo/issues/48
-[#53]: https://github.com/TeamGDB/Yakumo/issues/53
-[#55]: https://github.com/TeamGDB/Yakumo/issues/55

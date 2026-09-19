@@ -36,14 +36,14 @@ You can load a save copied from a PSP or start a new game, hunt, and save your p
 
 | Works | Missing or rough |
 | --- | --- |
-| Booting, menus, character creation, the village and hunting areas | The quest reward screen shows noise behind its panels (#48) |
-| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP | Faint seams on tiled 2D screens above ×1 (#55) |
-| 3D models, animation, textures, transparency, lighting and fog | Curved surfaces; the save-data dialogs draw nothing yet (#33) |
-| Sound effects, streamed music and cutscene movies (with FFmpeg) | |
-| Keyboard, and gamepads with a real right-stick camera | |
-| An in-game menu with video, audio and control settings | |
+| Booting, menus, character creation, the village and hunting areas | On a Steam Deck, lighting slows the busiest village spots slightly below full speed (#7) |
+| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and back up from the menu | Curved surfaces; the save-data dialogs draw nothing yet (#33) |
+| 3D models, animation, textures, transparency, lighting and fog | |
+| Sound effects, streamed music and cutscene movies | |
+| Keyboard, and gamepads with a real right-stick camera; an on-screen keyboard for names | |
+| An in-game menu with video, audio, control, network and save settings | |
 | All 355 code overlays recompiled | |
-| Multiplayer through the ad hoc servers PSP players use: gathering hall and quests together | |
+| Multiplayer: through the ad hoc servers PSP players use, or hosted from the game on a LAN or VPN | |
 
 Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in Game Mode with native Vulkan and the built-in controls. Windows builds with MSVC and the game starts, but it closes at the first save (#13).
 

@@ -24,7 +24,7 @@ Not done yet:
 - **Curved surfaces** (Bézier and spline patches).
 - **Infrastructure networking** (`sceHttp`, `sceNetInet`): the game's download mode. Ad hoc multiplayer works.
 - **Dialog screens.** The save-data and message dialogs work but draw nothing; each answers as if the player confirmed it ([#33](https://github.com/TeamGDB/Yakumo/issues/33)).
-- **Rendering details:** a framebuffer used as a texture shows noise, on the quest reward screen for one ([#48](https://github.com/TeamGDB/Yakumo/issues/48)); some text glyphs are clipped ([#53](https://github.com/TeamGDB/Yakumo/issues/53)); tiled 2D screens show faint seams above ×1 ([#55](https://github.com/TeamGDB/Yakumo/issues/55)).
+- **Performance:** on a Steam Deck, the lighting path costs enough CPU to slow the busiest village spots slightly below full speed ([#7](https://github.com/TeamGDB/Yakumo/issues/7)); `MHP3RD_NO_LIGHTING=1` avoids it until that is fixed.
 
 Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in Game Mode, built with GCC in a Debian 13 container and running on native Vulkan. On Windows the game builds with MSVC and starts, but closes at the first save ([#13](https://github.com/TeamGDB/Yakumo/issues/13)); see [the compatibility table](../../docs/COMPATIBILITY.md).
 
