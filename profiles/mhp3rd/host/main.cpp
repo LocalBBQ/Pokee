@@ -1,5 +1,8 @@
 #include "mhp3rd_profile.hpp"
 
+#include "adhoc/discovery.hpp"
+#include "adhoc/server.hpp"
+
 #include "install/game_identity.hpp"
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
@@ -10,13 +13,17 @@
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/sha256.hpp"
 
+#include <atomic>
 #include <cerrno>
+#include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -35,10 +42,14 @@ std::uint64_t configured_max_dispatches() {
 constexpr const char *kUsage =
     "usage: MHP3rdNative [game_dir]\n"
     "       MHP3rdNative --install [image.iso [--in-place]]\n"
+    "       MHP3rdNative --adhoc-server [port]\n"
     "  game_dir        play from a directory holding EBOOT.ELF, disc.iso and ms0/\n"
     "  --install       run the setup again on screen, then play\n"
     "  --install image set up from image.iso without the setup screens, then exit\n"
-    "  --in-place      use the image where it is instead of copying it\n";
+    "  --in-place      use the image where it is instead of copying it\n"
+    "  --adhoc-server  run only the ad hoc server that Network > Host a session\n"
+    "                  starts, on TCP port (default 27312) and the next one up,\n"
+    "                  announced on the local network, until Ctrl+C\n";
 
 struct Options {
     std::optional<std::filesystem::path> game_dir;
@@ -161,10 +172,59 @@ int install_from_command_line(const Options &options) {
     return 0;
 }
 
+std::atomic<bool> stop_server{false};
+
+extern "C" void on_stop_signal(int) { stop_server = true; }
+
+// The built-in ad hoc server without the game, for leaving it running.
+int run_adhoc_server(int argc, char **argv) {
+    using namespace mhp3rd::adhoc;
+    ServerConfig config;
+    config.print_events = true;
+    if (argc > 2) {
+        const unsigned long port = std::strtoul(argv[2], nullptr, 10);
+        if (port < 1024u || port > 65534u) {
+            std::cerr << "MHP3rdNative: --adhoc-server takes a port from 1024 to 65534\n";
+            return 2;
+        }
+        config.adhocctl_port = static_cast<std::uint16_t>(port);
+    }
+    Server server;
+    if (!server.start(config)) {
+        std::cerr << "Cannot start the ad hoc server: " << server.status().error << "\n";
+        return 1;
+    }
+    std::string name = local_host_name();
+    if (name.empty()) name = "Yakumo server";
+    Discovery::get().start_announcing(config.adhocctl_port, [&server, name] {
+        Announcement info;
+        info.name = name;
+        const ServerStatus status = server.status();
+        info.players = static_cast<unsigned>(status.players.size());
+        info.product = status.players.empty() ? "ULJM05800" : status.players.front().product;
+        return info;
+    });
+    const std::string suffix =
+        config.adhocctl_port == kAdhocctlPort ? std::string() : ":" + std::to_string(config.adhocctl_port);
+    std::cout << "Ad hoc server on TCP " << config.adhocctl_port << " and " << relay_port_for(config.adhocctl_port)
+              << ", announced on the local network as \"" << name << "\".\nPlayers join with one of:\n";
+    for (const LocalAddress &address : local_addresses())
+        std::cout << "  " << address.address << suffix << "   (" << address.network << ", " << address.interface
+                  << ")\n";
+    std::cout << "Ctrl+C stops it." << std::endl;
+    std::signal(SIGINT, on_stop_signal);
+    std::signal(SIGTERM, on_stop_signal);
+    while (!stop_server) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    Discovery::get().stop_announcing();
+    server.stop();
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
     try {
+        if (argc > 1 && std::string(argv[1]) == "--adhoc-server") return run_adhoc_server(argc, argv);
         Options options;
         try {
             options = parse_options(argc, argv);

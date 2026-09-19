@@ -111,6 +111,9 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_savedata.cpp
     host/hle/hle_adhoc.cpp
     host/adhoc/client.cpp
+    host/adhoc/discovery.cpp
+    host/adhoc/host.cpp
+    host/adhoc/server.cpp
     host/save_data/aes128.cpp
     host/save_data/param_sfo.cpp
     host/save_data/savedata_crypto.cpp
@@ -161,8 +164,8 @@ target_include_directories(MHP3rdNative PRIVATE
     "${MHP3RD_PROFILE_DIR}/generated")
 target_link_libraries(MHP3rdNative PRIVATE psprecomp_core ${CMAKE_DL_LIBS})
 if(WIN32)
-    # The ad hoc client's sockets.
-    target_link_libraries(MHP3rdNative PRIVATE ws2_32)
+    # The ad hoc client's and server's sockets, and the list of interfaces.
+    target_link_libraries(MHP3rdNative PRIVATE ws2_32 iphlpapi)
 endif()
 find_package(Threads REQUIRED)
 target_link_libraries(MHP3rdNative PRIVATE Threads::Threads)
@@ -195,6 +198,23 @@ target_include_directories(mhp3rd_savedata_tests PRIVATE
 set_target_properties(mhp3rd_savedata_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_savedata_tests COMMAND mhp3rd_savedata_tests)
+endif()
+
+# The built-in ad hoc server against the client and a raw protocol peer, and
+# local network discovery, all over the loopback address.
+add_executable(mhp3rd_adhoc_tests
+    tests/adhoc_tests.cpp
+    host/adhoc/client.cpp
+    host/adhoc/discovery.cpp
+    host/adhoc/server.cpp)
+target_include_directories(mhp3rd_adhoc_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_adhoc_tests PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(mhp3rd_adhoc_tests PRIVATE ws2_32 iphlpapi)
+endif()
+set_target_properties(mhp3rd_adhoc_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_adhoc_tests COMMAND mhp3rd_adhoc_tests)
 endif()
 
 # Chained AOT calls nest native frames; give the guest-executing main thread

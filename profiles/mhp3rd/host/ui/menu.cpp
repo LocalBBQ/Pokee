@@ -11,6 +11,7 @@
 #include "ui/widgets.hpp"
 
 #include "adhoc/client.hpp"
+#include "adhoc/discovery.hpp"
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
 #include "gpu/vulkan_renderer.hpp"
@@ -433,6 +434,13 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
 // Host names: printable ASCII without spaces.
 bool host_character(char32_t c) { return c > 0x20u && c < 0x7Fu; }
 
+// What an address to join may hold: a host name or IPv4 address, a colon and
+// a port, or an IPv6 address in brackets.
+bool address_character(char32_t c) {
+    return (c >= U'0' && c <= U'9') || (c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z') || c == U'.' ||
+           c == U':' || c == U'-' || c == U'[' || c == U']';
+}
+
 void Menu::controls() {
     settings::Settings &s = settings::current();
     section("Gamepad");
@@ -622,23 +630,125 @@ std::string &saved_log_path() {
     return path;
 }
 
+// "MHP3Q000" is Hall 01 in the game's list.
+std::string group_name(const std::string &group) {
+    if (group.size() == 8u && group.compare(0, 5, "MHP3Q") == 0 &&
+        std::all_of(group.begin() + 5, group.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+        char text[16];
+        std::snprintf(text, sizeof(text), "Hall %02d", std::atoi(group.c_str() + 5) + 1);
+        return text;
+    }
+    return group;
+}
+
+std::string players_text(std::size_t count) {
+    return std::to_string(count) + (count == 1u ? " player" : " players");
+}
+
+// Hosting and joining a session.
+void play_together() {
+    settings::Settings &s = settings::current();
+    static std::string copied;
+    static std::string typed_address;
+    section("Play together");
+    if (adhoc_hosting()) {
+        const adhoc::ServerStatus status = adhoc_host_status();
+        const std::string suffix =
+            status.adhocctl_port == adhoc::kAdhocctlPort ? std::string() : ":" + std::to_string(status.adhocctl_port);
+        info_row("Hosting", players_text(status.players.size()) + " connected. Everyone now enters the Online Guild "
+                                                                  "Hall and picks the same hall.");
+        const std::vector<adhoc::LocalAddress> addresses = adhoc::local_addresses();
+        if (addresses.empty()) info_row("Your addresses", "No network is connected");
+        for (const adhoc::LocalAddress &address : addresses) {
+            const std::string text = address.address + suffix;
+            const std::string label = text + "   " + address.network + " (" + address.interface + ")";
+            if (button_row(label.c_str(),
+                           {false, {},
+                            "Copies this address. Players on the same network find you under Join; over a VPN "
+                            "without broadcast, such as Tailscale, they type your VPN address there."})) {
+                SDL_SetClipboardText(text.c_str());
+                copied = text;
+            }
+        }
+        if (!copied.empty()) info_row("Copied", copied);
+        ImGui::PushID("hosted players");
+        for (std::size_t i = 0; i < status.players.size(); ++i) {
+            const adhoc::ServerPlayer &player = status.players[i];
+            ImGui::PushID(static_cast<int>(i));
+            info_row(player.nickname.c_str(),
+                     player.address + "   " + (player.group ? group_name(*player.group) : std::string("not in a hall")));
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+        if (button_row("Stop hosting",
+                       {false, {},
+                        "Stops the server. Everyone in the session is disconnected, as when a connection drops."},
+                       colors::kDanger)) {
+            adhoc_host_stop();
+            copied.clear();
+        }
+    } else {
+        if (button_row("Host a session",
+                       {false, {},
+                        "Runs a server in this game for the others to join: no other program, no port forwarding "
+                        "on a local network or a VPN. Then everyone enters the Online Guild Hall."}))
+            adhoc_host_start();
+        if (const std::string error = adhoc_host_error(); !error.empty()) info_row("Cannot host", error);
+    }
+
+    section("Join a session");
+    adhoc::Discovery &discovery = adhoc::Discovery::get();
+    discovery.start_listening();
+    discovery.query(s.adhoc_recent);
+    const std::vector<adhoc::FoundHost> hosts = discovery.hosts();
+    const bool hosting = adhoc_hosting();
+    const auto joined = [&](const std::string &address) {
+        return !hosting && s.adhoc && s.adhoc_server == address;
+    };
+    for (const adhoc::FoundHost &host : hosts) {
+        const std::string address = host.join_address();
+        const std::string label = (joined(address) ? "Joined " : "Join ") + host.info.name + "   " + address + ", " +
+                                  players_text(host.info.players);
+        if (button_row(label.c_str(), {false, {}, "A session hosted on this network. Joining it takes you out of any "
+                                                  "other; then enter the Online Guild Hall."}))
+            adhoc_join(address);
+    }
+    if (hosts.empty()) info_row("On this network", "Looking for hosted sessions…");
+    if (text_row("join_address", "Address", typed_address, 100u, true, address_character,
+                 {false, {},
+                  "The host's address, for a VPN without broadcast such as Tailscale: the host's screen lists it. "
+                  "Enter joins."}) &&
+        !typed_address.empty()) {
+        adhoc_join(typed_address);
+        typed_address.clear();
+    }
+    for (const std::string &address : s.adhoc_recent) {
+        std::string detail = "recent";
+        for (const adhoc::FoundHost &host : hosts)
+            if (host.join_address() == address) detail = host.info.name + ", " + players_text(host.info.players);
+        const std::string label = (joined(address) ? "Joined " : "Join ") + address + "   " + detail;
+        if (button_row(label.c_str(), {false, {}, "A session you joined before."})) adhoc_join(address);
+    }
+}
+
 void Menu::network() {
     settings::Settings &s = settings::current();
     adhoc::Client &client = adhoc::Client::get();
     const adhoc::Diagnostics d = client.diagnostics();
+    play_together();
     section("Ad hoc play");
     if (toggle_row("Ad hoc play", s.adhoc,
-                   options_for("network.adhoc", "Multiplayer through a PSP ad hoc server. Off, the game says the "
-                                                "wireless switch is off. Turning it off in a gathering hall leaves "
-                                                "it."))) {
+                   options_for("network.adhoc", "Multiplayer with other players. Off, the game says the wireless "
+                                                "switch is off. Turning it off in a gathering hall leaves it."))) {
         s.adhoc = !s.adhoc;
         settings::save();
         adhoc_apply_settings();
     }
     if (text_row("server", "Server", s.adhoc_server, 100u, true, host_character,
-                 options_for("network.server", "Host name or address of a PSP ad hoc server (the ports are 27312 and "
-                                               "27313). There is no default: pick one players of this game use. "
-                                               "Applies the next time the game goes on line."))) {
+                 options_for("network.server", "The session or PSP ad hoc server the game goes on line with: host "
+                                               "name or address, host:port if it is not on 27312. Joining fills "
+                                               "it in; for a public server, type its name. Applies the next time "
+                                               "the game goes on line."))) {
         settings::save();
         adhoc_apply_settings();
     }
@@ -651,6 +761,29 @@ void Menu::network() {
 
     section("Status");
     info_row("Connection", connection_text(d));
+    if (adhoc_hosting()) {
+        const adhoc::ServerStatus st = adhoc_host_status();
+        info_row("Server", "TCP " + std::to_string(st.adhocctl_port) + " and " + std::to_string(st.relay_port) +
+                               ", up " + format_duration(st.uptime_ms) + ", " + players_text(st.players.size()) +
+                               ", " + std::to_string(st.groups) + " halls, " + std::to_string(st.relay_sessions) +
+                               " relay connections, " + std::to_string(st.streams) + " streams");
+        info_row("Relayed", std::to_string(st.relayed_packets) + " packets (" + format_bytes(st.relayed_bytes) +
+                                "), " + std::to_string(st.dropped) + " datagrams dropped");
+    }
+    {
+        const adhoc::DiscoveryStatus ds = adhoc::Discovery::get().status();
+        std::string text = ds.listening ? "Listening on UDP " + std::to_string(adhoc::kDiscoveryPort) + ", " +
+                                              std::to_string(ds.hosts) + " hosts heard"
+                                        : (ds.listen_error.empty() ? "Not listening" : ds.listen_error);
+        if (ds.announcing)
+            text += "; announcing " + ds.announce_note + ", " + std::to_string(ds.announcements_sent) + " sent, " +
+                    std::to_string(ds.queries_answered) + " queries answered";
+        info_row("Discovery", text);
+        for (const adhoc::FoundHost &host : adhoc::Discovery::get().hosts())
+            info_row(("Host " + host.info.name).c_str(),
+                     host.join_address() + ", " + players_text(host.info.players) + ", " + host.info.product +
+                         ", heard " + format_duration(host.heard_ms) + " ago");
+    }
     if (!d.server_address.empty()) info_row("Server address", d.server_address);
     info_row("You", (s.adhoc_mac.empty() ? std::string("address made up on first use") : s.adhoc_mac) +
                         (d.nickname.empty() ? "" : "   " + d.nickname));
@@ -843,6 +976,8 @@ void draw_network_overlay() {
                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::SetWindowFontScale(0.75f);
     ImGui::TextUnformatted(connection_text(d).c_str());
+    if (adhoc_hosting())
+        ImGui::TextUnformatted(("Hosting: " + players_text(adhoc_host_status().players.size())).c_str());
     ImGui::TextUnformatted(("Group: " + group_text(d)).c_str());
     for (const adhoc::PeerSummary &peer : d.peers)
         ImGui::TextUnformatted(("  " + peer.nickname + (peer.last_heard_ms ? "  " + format_duration(*peer.last_heard_ms)

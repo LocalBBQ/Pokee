@@ -238,7 +238,7 @@ State &state() {
 void start_client() {
     const settings::Settings &s = settings::current();
     adhoc::Identity identity;
-    identity.server = s.adhoc ? s.adhoc_server : std::string{};
+    identity.server = s.adhoc ? adhoc_server_address() : std::string{};
     identity.nickname = nickname();
     identity.mac = own_mac();
     identity.product = state().product;
@@ -840,9 +840,11 @@ void register_netconf(HleRegistrar &hle) {
             const std::string group = read_cstring(memory, adhoc_param, 8u);
             note += " group \"" + group + "\" timeout " + std::to_string(memory.load32(adhoc_param + 8u));
             ensure_hooked();
-            if (!settings::current().adhoc || settings::current().adhoc_server.empty()) {
+            if (!settings::current().adhoc || adhoc_server_address().empty()) {
                 netconf.result = err::kCtlTimeout;
-                Client::log("[adhoc] no ad hoc server is set up (menu: Network); the connection fails", true);
+                Client::log("[adhoc] no session to join and no server is set up (menu: Network); the connection "
+                            "fails",
+                            true);
             } else {
                 start_client();
                 (void)Client::get().take_events();
@@ -887,20 +889,23 @@ void register_netconf(HleRegistrar &hle) {
 
 } // namespace
 
-void adhoc_apply_settings() {
+void adhoc_apply_settings(bool switch_now) {
     if (!state().ctl_initialized) return;
-    if (!settings::current().adhoc || settings::current().adhoc_server.empty()) {
+    if (!settings::current().adhoc || adhoc_server_address().empty()) {
         // Off line now: the client reports the lost group to the game.
         start_client();
         return;
     }
-    // A running session keeps its server and name until the game goes on line again.
-    if (Client::get().server_state() == adhoc::ServerState::Off) start_client();
+    // A running session keeps its server and name until the game goes on line
+    // again, unless the player picked another session to be in.
+    if (switch_now || Client::get().server_state() == adhoc::ServerState::Off) start_client();
 }
+
+std::string adhoc_player_name() { return nickname(); }
 
 bool adhoc_session_active() {
     const adhoc::Diagnostics d = Client::get().diagnostics();
-    return Client::get().in_group() || d.joining.has_value() || d.rejoin_ms.has_value();
+    return adhoc_hosting() || Client::get().in_group() || d.joining.has_value() || d.rejoin_ms.has_value();
 }
 
 void register_adhoc(HleRegistrar &hle) {

@@ -227,6 +227,30 @@ const std::vector<Field> &fields() {
          [](Settings &s, const std::string &t) { return parse_bool(t, s.menu_pause_multiplayer); },
          [](const Settings &s) { return std::string(s.menu_pause_multiplayer ? "1" : "0"); },
          [](Settings &s, const char *t) { s.menu_pause_multiplayer = variable_flag(t); }},
+        {"network.recent", nullptr,
+         [](Settings &s, const std::string &t) {
+             s.adhoc_recent.clear();
+             std::size_t start = 0;
+             while (start <= t.size()) {
+                 const std::size_t end = std::min(t.find(',', start), t.size());
+                 if (end > start) s.adhoc_recent.push_back(t.substr(start, end - start));
+                 start = end + 1u;
+             }
+             return true;
+         },
+         [](const Settings &s) {
+             std::string text;
+             for (const std::string &address : s.adhoc_recent) text += (text.empty() ? "" : ",") + address;
+             return text;
+         },
+         nullptr},
+        {"network.host_port", "MHP3RD_ADHOC_HOST_PORT",
+         [](Settings &s, const std::string &t) { return parse_uint(t, 1024u, 65534u, s.adhoc_host_port); },
+         [](const Settings &s) { return std::to_string(s.adhoc_host_port); },
+         [](Settings &s, const char *t) {
+             std::uint32_t value = s.adhoc_host_port;
+             if (parse_uint(t, 1024u, 65534u, value)) s.adhoc_host_port = value;
+         }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
         {"ui.last_folder", nullptr,
          [](Settings &s, const std::string &t) {

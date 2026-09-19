@@ -26,6 +26,12 @@ using Mac = std::array<std::uint8_t, 6>;
 inline constexpr std::uint16_t kAdhocctlPort = 27312;
 inline constexpr std::uint16_t kRelayPort = 27313;
 
+// A server on another adhocctl port has its relay on the next port up, so
+// 27312 goes with 27313 as everywhere else.
+[[nodiscard]] constexpr std::uint16_t relay_port_for(std::uint16_t adhocctl_port) {
+    return adhocctl_port == 0xFFFFu ? kRelayPort : static_cast<std::uint16_t>(adhocctl_port + 1u);
+}
+
 inline constexpr Mac kBroadcastMac{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 [[nodiscard]] std::string format_mac(const Mac &mac);
@@ -106,6 +112,23 @@ inline std::string connect(std::string_view group) {
 }
 inline std::string opcode_only(Opcode opcode) { return std::string(1u, static_cast<char>(opcode)); }
 
+// Client to server: sizes including the opcode, 0 for an opcode a client
+// never sends.
+//   Login:   mac[6], nickname[128], product code[9]
+//   Connect: group name[8]
+//   Chat:    message[64]
+[[nodiscard]] constexpr std::size_t client_packet_size(std::uint8_t opcode) {
+    switch (opcode) {
+    case kPing: return 1u;
+    case kLogin: return 1u + 6u + kNicknameLength + kProductCodeLength;
+    case kConnect: return 1u + kGroupNameLength;
+    case kDisconnect: return 1u;
+    case kScan: return 1u;
+    case kChat: return 1u + kChatLength;
+    default: return 0u;
+    }
+}
+
 // Server to client: sizes including the opcode, 0 for an opcode a server
 // never sends.
 //   Connect:      nickname[128], mac[6], u32 peer id (an address or a number)
@@ -125,6 +148,42 @@ inline std::string opcode_only(Opcode opcode) { return std::string(1u, static_ca
     case kChat: return 1u + kChatLength + kNicknameLength;
     default: return 0u;
     }
+}
+
+// Server to client packets.
+inline std::string peer_joined(std::string_view nickname, const Mac &mac, std::uint32_t id) {
+    std::string out;
+    wire::put8(out, kConnect);
+    wire::put_fixed(out, nickname.substr(0, kNicknameLength - 1u), kNicknameLength);
+    wire::put_mac(out, mac);
+    wire::put32(out, id);
+    return out;
+}
+inline std::string peer_left(std::uint32_t id) {
+    std::string out;
+    wire::put8(out, kDisconnect);
+    wire::put32(out, id);
+    return out;
+}
+inline std::string scan_result(std::string_view group, const Mac &host) {
+    std::string out;
+    wire::put8(out, kScan);
+    wire::put_fixed(out, group, kGroupNameLength);
+    wire::put_mac(out, host);
+    return out;
+}
+inline std::string joined(const Mac &host) {
+    std::string out;
+    wire::put8(out, kConnectBssid);
+    wire::put_mac(out, host);
+    return out;
+}
+inline std::string chat_message(std::string_view message, std::string_view nickname) {
+    std::string out;
+    wire::put8(out, kChat);
+    wire::put_fixed(out, message.substr(0, kChatLength - 1u), kChatLength);
+    wire::put_fixed(out, nickname.substr(0, kNicknameLength - 1u), kNicknameLength);
+    return out;
 }
 
 } // namespace ctl
@@ -177,6 +236,13 @@ inline std::string pdp_header(const Mac &mac, std::uint16_t port, std::uint32_t 
 // incoming connection; a connecting or accepted socket receives one when the
 // stream is established.
 inline constexpr std::size_t kPtpNoticeSize = 10u;
+
+inline std::string ptp_notice(const Mac &mac, std::uint16_t port) {
+    std::string out;
+    put_address(out, mac);
+    wire::put16(out, port);
+    return out;
+}
 
 // Stream data: u32 size, then the data.
 inline constexpr std::size_t kPtpHeaderSize = 4u;

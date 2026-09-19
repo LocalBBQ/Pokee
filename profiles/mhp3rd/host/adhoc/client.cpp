@@ -1,5 +1,7 @@
 #include "adhoc/client.hpp"
 
+#include "adhoc/sockets.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -16,26 +18,6 @@
 #include <sstream>
 #include <thread>
 
-#if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <cerrno>
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
-#endif
 
 namespace mhp3rd::adhoc {
 
@@ -71,80 +53,17 @@ constexpr auto kPendingConnectionLife = milliseconds(4500);
 constexpr std::size_t kMaxQueuedOutput = 512u * 1024u;
 constexpr std::size_t kReadChunk = 16u * 1024u;
 
-// Sockets ----------------------------------------------------------------------
-
-#if defined(_WIN32)
-using Socket = SOCKET;
-constexpr Socket kNoSocket = INVALID_SOCKET;
-using PollEntry = WSAPOLLFD;
-void close_socket(Socket s) { closesocket(s); }
-int socket_error() { return WSAGetLastError(); }
-bool would_block(int error) { return error == WSAEWOULDBLOCK; }
-bool connect_pending(int error) { return error == WSAEWOULDBLOCK || error == WSAEINPROGRESS; }
-int poll_sockets(PollEntry *entries, std::size_t count, int timeout_ms) {
-    if (count == 0u) {
-        Sleep(static_cast<DWORD>(timeout_ms));
-        return 0;
-    }
-    return WSAPoll(entries, static_cast<ULONG>(count), timeout_ms);
-}
-bool set_nonblocking(Socket s) {
-    u_long enabled = 1;
-    return ioctlsocket(s, FIONBIO, &enabled) == 0;
-}
-struct WinsockSession {
-    WinsockSession() {
-        WSADATA data;
-        WSAStartup(MAKEWORD(2, 2), &data);
-    }
-    ~WinsockSession() { WSACleanup(); }
-};
-#else
-using Socket = int;
-constexpr Socket kNoSocket = -1;
-using PollEntry = pollfd;
-void close_socket(Socket s) { ::close(s); }
-int socket_error() { return errno; }
-bool would_block(int error) { return error == EWOULDBLOCK || error == EAGAIN || error == EINTR; }
-bool connect_pending(int error) { return error == EINPROGRESS || error == EINTR; }
-int poll_sockets(PollEntry *entries, std::size_t count, int timeout_ms) {
-    return ::poll(entries, static_cast<nfds_t>(count), timeout_ms);
-}
-bool set_nonblocking(Socket s) {
-    const int flags = fcntl(s, F_GETFL, 0);
-    return flags >= 0 && fcntl(s, F_SETFL, flags | O_NONBLOCK) == 0;
-}
-#endif
-
-#if defined(MSG_NOSIGNAL)
-constexpr int kSendFlags = MSG_NOSIGNAL;
-#else
-constexpr int kSendFlags = 0;
-#endif
-
-struct Address {
-    sockaddr_storage storage{};
-    socklen_t length{};
-
-    Address with_port(std::uint16_t port) const {
-        Address copy = *this;
-        if (copy.storage.ss_family == AF_INET)
-            reinterpret_cast<sockaddr_in *>(&copy.storage)->sin_port = htons(port);
-        else if (copy.storage.ss_family == AF_INET6)
-            reinterpret_cast<sockaddr_in6 *>(&copy.storage)->sin6_port = htons(port);
-        return copy;
-    }
-
-    std::string describe() const {
-        char host[NI_MAXHOST] = {};
-        char service[NI_MAXSERV] = {};
-        if (getnameinfo(reinterpret_cast<const sockaddr *>(&storage), length, host, sizeof(host), service,
-                        sizeof(service), NI_NUMERICHOST | NI_NUMERICSERV) != 0)
-            return "?";
-        return storage.ss_family == AF_INET6 ? "[" + std::string(host) + "]:" + service
-                                             : std::string(host) + ":" + service;
-    }
-};
+using net::Address;
+using net::close_socket;
+using net::connect_pending;
+using net::kNoSocket;
+using net::kSendFlags;
+using net::PollEntry;
+using net::poll_sockets;
+using net::set_nonblocking;
+using net::Socket;
+using net::socket_error;
+using net::would_block;
 
 // "host", "host:port", "[v6]" or "[v6]:port".
 void split_server(const std::string &server, std::string &host, std::uint16_t &port) {
@@ -438,9 +357,7 @@ struct Client::Impl {
     mutable std::mutex mutex;
     std::thread thread;
     std::atomic<bool> quit{false};
-#if defined(_WIN32)
-    WinsockSession winsock;
-#endif
+    net::WinsockSession winsock;
 
     // What the game asked for.
     bool active{};
@@ -452,6 +369,7 @@ struct Client::Impl {
     std::size_t address_index{};
     bool resolving{};
     std::optional<Address> server;  // the adhocctl address that last worked
+    std::uint16_t relay_port{kRelayPort};
     Link ctl;
     bool logged_in{};
     bool stop_ctl{};  // close `ctl` on the network thread
@@ -774,7 +692,7 @@ struct Client::Impl {
         }
     }
 
-    Address relay_address() const { return server->with_port(kRelayPort); }
+    Address relay_address() const { return server->with_port(relay_port); }
 
     void start_relay(Link &link, const std::string &init, const std::string &what) {
         if (!link.start(relay_address())) return;
@@ -1139,6 +1057,10 @@ struct Client::Impl {
                 std::string host;
                 std::uint16_t port = kAdhocctlPort;
                 split_server(to_resolve, host, port);
+                {
+                    std::lock_guard lock(mutex);
+                    relay_port = relay_port_for(port);
+                }
                 trace("resolving " + host);
                 std::vector<Address> found = resolve(host, port);
                 std::lock_guard lock(mutex);

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // The player's settings: what the in-game menu changes and settings.ini in the
 // per-user data directory keeps.
@@ -57,6 +58,8 @@ struct Settings {
     std::string adhoc_server;          // host or host:port of the server; empty: none
     std::string adhoc_nickname;        // shown to other players; empty: the hunter name
     std::string adhoc_mac;             // this player's virtual MAC, made up on first use
+    std::vector<std::string> adhoc_recent;  // sessions joined lately, the latest first
+    std::uint32_t adhoc_host_port{27312};   // the built-in server's adhocctl port; the relay is on the next
 
     // Interface
     bool menu_pause{true};             // opening the menu pauses the game
