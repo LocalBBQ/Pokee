@@ -55,7 +55,7 @@ The state of each part of the game on each platform is in [`docs/COMPATIBILITY.m
 - CMake 3.20 or newer, Ninja and a C++20 compiler
 - Python 3
 - SDL3, Vulkan and `glslangValidator`
-- Optional: FFmpeg (`libavcodec`, `libavutil`) for the music and the movies; without it the music is silent and the movies are skipped
+- `make` and a C compiler on macOS and Linux: the build makes its own FFmpeg for the music and the movies. Nothing to install for it on Windows
 - A few gigabytes of free memory for the build; the recompiled code is large
 
 ## Getting started

@@ -47,11 +47,15 @@ Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in 
 - Optional: `ccache`, which the build uses automatically when it is installed
 - Python 3
 - SDL3, Vulkan (the loader and headers; MoltenVK on macOS) and `glslangValidator`
-- Optional: FFmpeg's `libavcodec` and `libavutil`, found through `pkg-config`, to decode the streamed music and the movies
+- `make` and a C compiler on macOS and Linux, to build FFmpeg (see below)
 
 If SDL3, Vulkan or `glslangValidator` is missing, configuration still succeeds but builds the game **without a window**: CMake prints `mhp3rd: renderer disabled` and the program runs headless. Check for `mhp3rd: Vulkan renderer enabled` in the configure output.
 
-The streamed music (ATRAC3) and the movies (H.264 with ATRAC3plus sound) are decoded by FFmpeg's shared libraries. Install them with `brew install ffmpeg` on macOS or `apt install libavcodec-dev libavutil-dev libswscale-dev` on Debian and Ubuntu. Configuration reports `mhp3rd: FFmpeg libavcodec … found; music and movies enabled`; without FFmpeg it prints that the music will be silent and the movies skipped, and builds the game without them. `-DMHP3RD_FFMPEG=OFF` leaves FFmpeg out on purpose.
+The streamed music (ATRAC3) and the movies (H.264 with ATRAC3plus sound) are decoded by FFmpeg's shared `libavcodec` and `libavutil`. FFmpeg is part of the normal build; `MHP3RD_FFMPEG` chooses where it comes from (`cmake/FFmpeg.cmake` holds the pins):
+
+- `bundled`, the default. The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds it with only the ATRAC3, ATRAC3plus and H.264 decoders, as LGPL-2.1-or-later shared libraries (configure stops if the result is not LGPL only). This takes a few minutes, once per build directory; a new version or configuration rebuilds it. The libraries and FFmpeg's licence go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, where FFmpeg's `configure` does not run with MSVC, it downloads a pinned, checksum-verified prebuilt LGPL shared FFmpeg 7.1.5 and puts its DLLs next to `MHP3rdNative.exe` (see [BUILDING.md](../../docs/BUILDING.md#ffmpeg)). Configuration reports `mhp3rd: bundled FFmpeg 7.1.5 …; music and movies enabled`. To build offline, put the archive in `out/mhp3rd/_deps/downloads/` (`MHP3RD_FFMPEG_DOWNLOAD_DIR`) first.
+- `system` uses the FFmpeg that `pkg-config` finds, for example from `brew install ffmpeg` on macOS or `apt install libavcodec-dev libavutil-dev` on Debian and Ubuntu, and stops if there is none.
+- `OFF` builds without FFmpeg. This is possible but not recommended: the game then has no music and skips its movies, and configure prints a warning saying so.
 
 Expect a full build to need several gigabytes of memory and some time: the generated code is large. With Ninja, the build compiles at most `PSPRECOMP_GENERATED_JOBS` generated units at once, whatever `-j` you pass; the default is one per 4 GiB of memory, so 2 on an 8 GB machine. Set it when configuring, for example `-DPSPRECOMP_GENERATED_JOBS=1`.
 

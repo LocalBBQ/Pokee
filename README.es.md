@@ -57,7 +57,7 @@ El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILI
 - CMake 3.20 o posterior, Ninja y un compilador de C++20
 - Python 3
 - SDL3, Vulkan y `glslangValidator`
-- Opcional: FFmpeg (`libavcodec`, `libavutil`) para la música y las cinemáticas; sin él, no hay música y las cinemáticas se saltan
+- `make` y un compilador de C en macOS y Linux: la compilación hace su propio FFmpeg para la música y las cinemáticas. En Windows no hay que instalar nada para ello
 - Varios gigabytes de memoria libre para compilar: el código recompilado es grande
 
 ## Primeros pasos

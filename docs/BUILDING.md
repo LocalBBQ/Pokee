@@ -40,10 +40,10 @@ The generated units are very large, so compiling them needs a lot of memory. The
 Tested on Apple Silicon.
 
 ```bash
-brew install cmake ninja python ccache pkg-config sdl3 molten-vk vulkan-loader vulkan-headers glslang ffmpeg
+brew install cmake ninja python ccache pkg-config sdl3 molten-vk vulkan-loader vulkan-headers glslang
 ```
 
-MoltenVK provides Vulkan on top of Metal. `ffmpeg` decodes the streamed music and the movies; see [FFmpeg](#ffmpeg).
+MoltenVK provides Vulkan on top of Metal. FFmpeg is not needed: the build makes its own; see [FFmpeg](#ffmpeg).
 
 ## Linux
 
@@ -51,7 +51,7 @@ Tested on Debian 13 and on the Steam Deck. Any distribution with SDL3 packages w
 
 ```bash
 sudo apt install build-essential cmake ninja-build python3 ccache pkg-config \
-    libsdl3-dev libvulkan-dev glslang-tools libavcodec-dev libavutil-dev
+    libsdl3-dev libvulkan-dev glslang-tools
 ```
 
 Older releases, for example Ubuntu 24.04, have no SDL3 package. Build SDL3 from source there, or build in a Debian 13 container as described for the Steam Deck below.
@@ -71,7 +71,7 @@ SteamOS keeps its system read-only, so build inside a container and run the resu
 distrobox create --name yakumo --image debian:trixie
 distrobox enter yakumo -- sudo apt update
 distrobox enter yakumo -- sudo apt install -y build-essential cmake ninja-build python3 ccache pkg-config \
-    libsdl3-dev libvulkan-dev glslang-tools libavcodec-dev libavutil-dev
+    libsdl3-dev libvulkan-dev glslang-tools
 distrobox enter yakumo      # then follow the steps below inside the container
 ```
 
@@ -89,7 +89,7 @@ For Game Mode, add a small launch script to Steam as a non-Steam game. The scrip
 | Git for Windows | Git Bash runs the `.sh` scripts in `profiles/mhp3rd/scripts/` |
 | Vulkan SDK (LunarG) | The Vulkan loader and headers, plus `glslangValidator` for the shaders |
 | SDL3 | For example the official `SDL3-devel-*-VC.zip`; pass its directory in `CMAKE_PREFIX_PATH` when configuring |
-| FFmpeg | See [FFmpeg](#ffmpeg) |
+| FFmpeg | Nothing to install: the build downloads a pinned prebuilt FFmpeg and puts its DLLs next to the executable. See [FFmpeg](#ffmpeg) |
 
 Plan for about 10 GB of free disk space and several GB of free memory.
 
@@ -102,7 +102,7 @@ Open the **x64 Native Tools Command Prompt** of your Visual Studio or Build Tool
 Then follow the [build steps](#build-steps) in that Bash, with these differences:
 - **SDL3 location.** Add `-DCMAKE_PREFIX_PATH="C:/path/to/SDL3"` to the first `cmake` command.
 - **Paths.** The executable is `out/mhp3rd/bin/MHP3rdNative.exe`, and the per-user data directory is `$APPDATA/Yakumo/MHP3rd`.
-- **DLLs.** Before playing, copy `SDL3.dll`, and the FFmpeg DLLs, next to `MHP3rdNative.exe`, or put their directories on `PATH`.
+- **DLLs.** Before playing, copy `SDL3.dll` next to `MHP3rdNative.exe`, or put its directory on `PATH`. The FFmpeg DLLs are already there.
 
 Windows specifics:
 - **Data directory.** Step 2 writes `EBOOT.ELF` and `settings.ini` to the per-user data directory. It takes precedence over `profiles/mhp3rd/game`, and both hold the same data after step 3.
@@ -150,7 +150,17 @@ Stage 5 is resumable. If it stops, run it again: overlays that are already built
 
 ### FFmpeg
 
-The streamed music (ATRAC3) and the movies (H.264) are decoded by FFmpeg's `libavcodec`. The build can go without it (`-DMHP3RD_FFMPEG=OFF`), but that is not recommended: the game then has no music and skips its movies. Configure reports which one you got.
+The streamed music (ATRAC3, ATRAC3plus) and the movies (H.264) are decoded by FFmpeg's `libavcodec`. FFmpeg is part of the normal build and needs no setup. `MHP3RD_FFMPEG` chooses where it comes from:
+
+| `MHP3RD_FFMPEG` | What you get |
+| --- | --- |
+| `bundled` (default) | The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds a minimal LGPL configuration with just the three decoders the game uses. This takes a few minutes, once; later configures and builds reuse it. The libraries go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, see below |
+| `system` | The `libavcodec` and `libavutil` that `pkg-config` finds, for example from `brew install ffmpeg` or `apt install libavcodec-dev libavutil-dev`. Configure stops if there are none |
+| `OFF` | No FFmpeg. Not recommended: the game then has no music and skips its movies, and configure warns about it |
+
+The bundled build needs `make` and a C compiler, which the tools above already include. Offline, put `ffmpeg-7.1.5.tar.xz` (or the Windows `.zip`) in `out/mhp3rd/_deps/downloads/` before configuring. `profiles/mhp3rd/cmake/FFmpeg.cmake` holds the pinned versions and checksums.
+
+**On Windows** FFmpeg's `configure` needs a POSIX shell and `make`, which the MSVC toolchain lacks, so `bundled` downloads a pinned prebuilt instead: the LGPL shared build of FFmpeg 7.1.5 from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), checked against its SHA-256. It needs no extra setup. Configure copies `avcodec-61.dll`, `avutil-59.dll` and `swresample-5.dll`, with FFmpeg's licence, next to `MHP3rdNative.exe`, and reports `mhp3rd: bundled FFmpeg 7.1.5 (prebuilt, LGPL); music and movies enabled`.
 
 ## Working on the code
 
@@ -208,5 +218,5 @@ MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo 
 | The compiler is killed, or the machine swaps, while compiling generated units | Too many large units at once: configure with `-DPSPRECOMP_GENERATED_JOBS=1` |
 | The game crashes right after starting on Linux | The main thread's stack is too small: start it after `ulimit -s 65536` |
 | `another build is running` | A build of the same directory is still going. Wait, or find the leftover `ninja` process |
-| No music and no movies | FFmpeg was not found at configure time; see [FFmpeg](#ffmpeg) |
+| No music and no movies | The build was configured with `-DMHP3RD_FFMPEG=OFF`, or the FFmpeg libraries next to the executable are missing; see [FFmpeg](#ffmpeg) |
 | `No game data found` | Run step 2 (`--install`) or step 3 (`prepare_game.sh`), or set `MHP3RD_GAME_DIR` |

@@ -57,7 +57,7 @@ Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP и
 - CMake 3.20 или новее, Ninja и компилятор C++20
 - Python 3
 - SDL3, Vulkan и `glslangValidator`
-- Необязательно: FFmpeg (`libavcodec`, `libavutil`) для музыки и видеороликов; без него музыки нет, а ролики пропускаются
+- `make` и компилятор C на macOS и Linux: сборка сама собирает FFmpeg для музыки и видеороликов. На Windows для него ничего устанавливать не нужно
 - Несколько гигабайт свободной памяти для сборки: рекомпилированный код большой
 
 ## С чего начать
