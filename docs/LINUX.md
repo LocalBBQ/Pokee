@@ -2,7 +2,7 @@
 
 This guide is for players using a prebuilt release. To build Yakumo yourself instead, follow [`profiles/mhp3rd/README.md`](../profiles/mhp3rd/README.md); building from source stays fully supported.
 
-A release contains the program and no part of the game. You need your own disc image of **Monster Hunter Portable 3rd HD Ver.** (`NPJB-40001`), as an uncompressed `.iso` file. The first start sets the game up from it.
+A release does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of **Monster Hunter Portable 3rd HD Ver.** (`NPJB-40001`): its disc image, as an uncompressed `.iso` file. The first start checks that copy, accepts only the original release, and sets the game up from it.
 
 Each [release](https://github.com/TeamGDB/Yakumo/releases) has two Linux downloads:
 

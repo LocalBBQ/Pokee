@@ -16,9 +16,12 @@
       software, with Vulkan graphics, gamepad support and PSP-compatible saves.
     </p>
     <p>
-      Yakumo does not include the game. The first start asks for your own disc
-      image of Monster Hunter Portable 3rd HD Ver. (NPJB-40001) and sets the
-      game up from it.
+      Yakumo does not include any game assets or original game files: no disc
+      image, no copy of the game's executable or data, and no textures, models,
+      audio or video from the game. You must provide the files from your own
+      legally obtained copy of Monster Hunter Portable 3rd HD Ver. (NPJB-40001):
+      the first start checks that copy, accepts only the original release, and
+      sets the game up from it.
     </p>
     <p>
       Yakumo is an independent project, not affiliated with or endorsed by

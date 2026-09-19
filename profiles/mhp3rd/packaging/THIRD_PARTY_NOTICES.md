@@ -2,7 +2,7 @@
 
 Yakumo is distributed under the MIT License (`Yakumo-LICENSE.txt`). Its released builds also contain the third-party software listed here, each under its own license. The license texts are in the same directory as this file: `licenses/` in the tarball, and `/app/share/licenses/io.github.teamgdb.Yakumo/` (also `/app/lib/yakumo/licenses/`) in the Flatpak.
 
-Yakumo contains no part of the game. The game data comes from the player's own disc image.
+Yakumo does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of the game.
 
 ## Compiled into the program
 

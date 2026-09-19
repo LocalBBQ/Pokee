@@ -1,6 +1,6 @@
 # Releasing
 
-A release gives players the program ready to run: the executable with the recompiled game code built in and the 355 overlay libraries, but no game data. On first start it asks for the player's own disc image and prepares the game from it (see [Installer](../profiles/mhp3rd/README.md#installer)).
+A release gives players the program ready to run: the executable with the recompiled game code built in and the 355 overlay libraries. Like the repository, it does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. On first start it asks for the files from the player's own legally obtained copy, the disc image, checks it, accepts only the original release, and prepares the game from it (see [Installer](../profiles/mhp3rd/README.md#installer)).
 
 Releases are built by maintainers, not by CI: the recompiled code is generated from the game's executable, so a build needs a copy of the game. The game data stays on the maintainer's machine. Every artifact is checked for it before it is published.
 

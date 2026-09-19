@@ -1,8 +1,12 @@
 Yakumo for Linux (x86-64)
 =========================
 
-A native port of Monster Hunter Portable 3rd HD Ver. It does not include the
-game: you need your own disc image of it (NPJB-40001).
+A native port of Monster Hunter Portable 3rd HD Ver. Yakumo does not include
+any game assets or original game files: no disc image, no copy of the game's
+executable or data, and no textures, models, audio or video from the game.
+You must provide the files from your own legally obtained copy of the game
+(NPJB-40001): its disc image. The first start checks that copy and accepts
+only the original release.
 
 Start it with
 
