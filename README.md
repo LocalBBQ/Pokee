@@ -6,7 +6,7 @@
 
 A native port of **Monster Hunter Portable 3rd HD Ver.** made by static recompilation: the game's PSP code is translated ahead of time into C++ and compiled for your machine, then run on a reimplementation of the PSP system software. It is not an emulator — there is no interpreter or JIT at the heart of it — and it is not a decompilation.
 
-> **This project does not include any part of the game.** You need your own copy of Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`). The build recompiles the game from that copy on your machine, and none of the result can be redistributed.
+> **This project does not include any game assets.** You must provide the files from your own legally obtained copy of Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`) to install or build Yakumo.
 
 ## Legal disclaimer
 
@@ -14,7 +14,7 @@ A native port of **Monster Hunter Portable 3rd HD Ver.** made by static recompil
 
 Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP, and all related trademarks, game assets, artwork, audio, characters, and other intellectual property belong to their respective owners.
 
-**Yakumo** does not include or distribute the original game, disc image, executable files, game data, textures, models, audio, video, or other copyrighted assets.
+**Yakumo** does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of Monster Hunter Portable 3rd HD Ver. to install or build **Yakumo**; the installer checks that copy and accepts only the original release.
 
 To use **Yakumo**, users must provide the required files from their own legally obtained copy of Monster Hunter Portable 3rd HD Ver. for PlayStation 3.
 

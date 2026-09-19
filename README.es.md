@@ -6,7 +6,7 @@
 
 Una versión nativa de **Monster Hunter Portable 3rd HD Ver.** hecha mediante recompilación estática: el código de PSP del juego se traduce de antemano a C++ y se compila para tu equipo, y después se ejecuta sobre una reimplementación del software de sistema de la PSP. No es un emulador —no hay un intérprete ni un JIT en su núcleo— ni tampoco una decompilación.
 
-> **Este proyecto no incluye ninguna parte del juego.** Necesitas tu propia copia de Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`). La compilación recompila el juego a partir de esa copia en tu equipo, y el resultado no se puede redistribuir.
+> **Este proyecto no incluye ningún recurso del juego.** Para instalar o compilar Yakumo debes aportar los archivos de tu propia copia legal de Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`).
 
 > Esto es una traducción. Si difiere del [README en inglés](README.md), prevalece el inglés. La documentación detallada está en inglés.
 
@@ -16,7 +16,7 @@ Una versión nativa de **Monster Hunter Portable 3rd HD Ver.** hecha mediante re
 
 Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP y todas las marcas comerciales, recursos del juego, ilustraciones, audio, personajes y demás propiedad intelectual relacionados pertenecen a sus respectivos propietarios.
 
-**Yakumo** no incluye ni distribuye el juego original, la imagen de disco, los archivos ejecutables, los datos del juego, las texturas, los modelos, el audio, el vídeo ni otros recursos protegidos por derechos de autor.
+**Yakumo** no incluye ningún recurso del juego ni archivos originales del juego: ni la imagen de disco, ni una copia del ejecutable o de los datos del juego, ni texturas, modelos, audio o vídeo del juego. Para instalar o compilar **Yakumo** debes aportar los archivos de tu propia copia legal de Monster Hunter Portable 3rd HD Ver.; el instalador comprueba esa copia y solo acepta la edición original.
 
 Para usar **Yakumo**, los usuarios deben aportar los archivos necesarios a partir de su propia copia adquirida legalmente de Monster Hunter Portable 3rd HD Ver. para PlayStation 3.
 
