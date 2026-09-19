@@ -12,6 +12,11 @@ layout(location = 0) out vec2 frag_texcoord;
 layout(location = 1) out vec4 frag_color;
 layout(location = 2) out vec3 frag_specular;
 layout(location = 3) out float frag_fog;
+// Through-mode tiles: the texture coordinates the tile may sample, as min.xy,
+// max.xy. The vertex carries them in texels, in in_normal.xy and
+// (in_normal.z, in_position.w), which through-mode vertices do not use
+// otherwise; see clamp_through_quads() in vulkan_renderer.cpp.
+layout(location = 4) flat out vec4 frag_uv_rect;
 
 layout(push_constant) uniform Push {
     mat4 transform;      // WVP, or identity for through vertices
@@ -112,7 +117,11 @@ void main() {
     frag_color = in_color;
     frag_specular = vec3(0.0);
     frag_fog = 1.0;
+    frag_uv_rect = vec4(-1e30, -1e30, 1e30, 1e30);
     if (push.viewport.z > 0.5) {
+        vec4 rect = vec4(in_normal.xy, in_normal.z, in_position.w);
+        frag_uv_rect = vec4(rect.xy * push.uv_transform.xy + push.uv_transform.zw,
+                            rect.zw * push.uv_transform.xy + push.uv_transform.zw);
         // Screen-space vertices: pixels to clip space.
         vec2 ndc = vec2(in_position.x / push.viewport.x, in_position.y / push.viewport.y) * 2.0 - 1.0;
         gl_Position = vec4(ndc, clamp(in_position.z / 65535.0, 0.0, 1.0), 1.0);

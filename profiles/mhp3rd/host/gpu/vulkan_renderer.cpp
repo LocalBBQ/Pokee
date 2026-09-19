@@ -53,6 +53,65 @@ struct GpuVertex {
     float nx{}, ny{}, nz{};
 };
 
+constexpr float kNoClamp = 1e30f;
+
+void set_uv_rect(GpuVertex &vertex, float u_min, float v_min, float u_max, float v_max) {
+    vertex.nx = u_min;
+    vertex.ny = v_min;
+    vertex.nz = u_max;
+    vertex.w = v_max;
+}
+
+// A through-mode tile is an axis-aligned rectangle of pixels showing an
+// axis-aligned rectangle of texels, usually a piece of an atlas. At 480x272
+// the raster samples the texels only between the centres of its edge pixels;
+// at a higher internal resolution it also samples between those centres and
+// the edges, where bilinear filtering pulls in the neighbouring atlas texels
+// (or the far side of the texture) and leaves a faint grid along the tile
+// edges. The six vertices from `first` get the texel range the 480x272
+// raster samples, which the fragment shader clamps to. That range contains
+// every sample a 480x272 target takes, so at x1 nothing changes.
+void clamp_through_quad(std::vector<GpuVertex> &vertices, std::size_t first, float texture_width,
+                        float texture_height) {
+    if (first + 6u > vertices.size()) return;
+    float x0 = vertices[first].x, x1 = x0, y0 = vertices[first].y, y1 = y0;
+    for (std::size_t i = first; i < first + 6u; ++i) {
+        x0 = std::min(x0, vertices[i].x);
+        x1 = std::max(x1, vertices[i].x);
+        y0 = std::min(y0, vertices[i].y);
+        y1 = std::max(y1, vertices[i].y);
+    }
+    if (x1 - x0 < 1.0f || y1 - y0 < 1.0f) return;
+    // Texture coordinates must follow x and y alone: one u at each vertical
+    // edge, one v at each horizontal edge.
+    float u_at_x0 = 0.0f, u_at_x1 = 0.0f, v_at_y0 = 0.0f, v_at_y1 = 0.0f;
+    bool seen[4]{};
+    for (std::size_t i = first; i < first + 6u; ++i) {
+        const GpuVertex &vertex = vertices[i];
+        const bool left = vertex.x == x0, top = vertex.y == y0;
+        if (!left && vertex.x != x1) return;
+        if (!top && vertex.y != y1) return;
+        float &u = left ? u_at_x0 : u_at_x1;
+        float &v = top ? v_at_y0 : v_at_y1;
+        bool &u_seen = seen[left ? 0 : 1];
+        bool &v_seen = seen[top ? 2 : 3];
+        if (u_seen && u != vertex.u) return;
+        if (v_seen && v != vertex.v) return;
+        u = vertex.u;
+        v = vertex.v;
+        u_seen = v_seen = true;
+    }
+    const float u_min = std::min(u_at_x0, u_at_x1), u_max = std::max(u_at_x0, u_at_x1);
+    const float v_min = std::min(v_at_y0, v_at_y1), v_max = std::max(v_at_y0, v_at_y1);
+    // A range beyond the texture repeats it on purpose.
+    if (u_min < 0.0f || v_min < 0.0f || u_max > texture_width || v_max > texture_height) return;
+    // Half a pixel, in texels.
+    const float inset_u = 0.5f * (u_max - u_min) / (x1 - x0);
+    const float inset_v = 0.5f * (v_max - v_min) / (y1 - y0);
+    for (std::size_t i = first; i < first + 6u; ++i)
+        set_uv_rect(vertices[i], u_min + inset_u, v_min + inset_v, u_max - inset_u, v_max - inset_v);
+}
+
 // Per-draw lighting and fog state, laid out as the std140 `Lighting` block in
 // ge.vert. It lives in the vertex buffer, next to the vertices it lights, and
 // is bound through a dynamic uniform buffer offset.
@@ -2603,6 +2662,23 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     }
     if (impl.scratch.empty()) return;
 
+    // Through-mode vertices carry the texel range they may sample in the
+    // otherwise unused normal and w; see clamp_through_quad().
+    // MHP3RD_NO_SPRITE_CLAMP lets them sample anywhere, as before.
+    if (call.through) {
+        for (GpuVertex &vertex : impl.scratch) set_uv_rect(vertex, -kNoClamp, -kNoClamp, kNoClamp, kNoClamp);
+        static const bool no_sprite_clamp = std::getenv("MHP3RD_NO_SPRITE_CLAMP") != nullptr;
+        const bool quads = call.primitive == PrimitiveType::Sprites ||
+                           ((call.primitive == PrimitiveType::TriangleStrip ||
+                             call.primitive == PrimitiveType::TriangleFan) &&
+                            count == 4u);
+        if (!no_sprite_clamp && call.texture.enabled && !call.clear_mode && quads) {
+            for (std::size_t first = 0; first + 6u <= impl.scratch.size(); first += 6u)
+                clamp_through_quad(impl.scratch, first, static_cast<float>(call.texture.width),
+                                   static_cast<float>(call.texture.height));
+        }
+    }
+
     static const bool trace = std::getenv("MHP3RD_TRACE_GE") != nullptr;
     if (trace && impl.draws < 400u) {
         const GpuVertex &first = impl.scratch.front();
@@ -2618,6 +2694,44 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                   << " stride=" << call.target.color_stride << " blend=" << (call.blend.enabled ? 1 : 0) << "\n";
     }
 
+
+    // MHP3RD_TRACE_SPRITES=N: every through-mode sprite of frame N, with the
+    // texture state it samples, to find the tiles a 2D screen is built from.
+    static const std::uint64_t trace_sprites_frame = [] {
+        const char *text = std::getenv("MHP3RD_TRACE_SPRITES");
+        return text != nullptr ? std::strtoull(text, nullptr, 10) : ~0ull;
+    }();
+    if (impl.frames == trace_sprites_frame && call.primitive != PrimitiveType::Sprites) {
+        float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, u0 = 1e9f, v0 = 1e9f, u1 = -1e9f, v1 = -1e9f;
+        for (std::size_t i = 0; i < count; ++i) {
+            const Vertex &v = vertex_at(i);
+            x0 = std::min(x0, v.position[0]); x1 = std::max(x1, v.position[0]);
+            y0 = std::min(y0, v.position[1]); y1 = std::max(y1, v.position[1]);
+            u0 = std::min(u0, v.texcoord[0]); u1 = std::max(u1, v.texcoord[0]);
+            v0 = std::min(v0, v.texcoord[1]); v1 = std::max(v1, v.texcoord[1]);
+        }
+        std::cout << "[sprite] other prim=" << static_cast<int>(call.primitive) << (call.through ? " through" : " transform")
+                  << " n=" << count << " pos=(" << x0 << "," << y0 << ")-(" << x1 << "," << y1 << ") uv=(" << u0
+                  << "," << v0 << ")-(" << u1 << "," << v1 << ") tex=" << (call.texture.enabled ? 1 : 0) << " 0x"
+                  << std::hex << call.texture.address << std::dec << " " << call.texture.width << "x"
+                  << call.texture.height << " fmt=" << static_cast<int>(call.texture.format)
+                  << " filter=" << call.texture.min_filter << "/" << call.texture.mag_filter << "\n";
+    }
+    if (call.through && call.primitive == PrimitiveType::Sprites && impl.frames == trace_sprites_frame) {
+        for (std::size_t i = 0; i + 1u < count; i += 2u) {
+            const Vertex &a = vertex_at(i);
+            const Vertex &b = vertex_at(i + 1u);
+            std::cout << "[sprite] pos=(" << a.position[0] << "," << a.position[1] << ")-(" << b.position[0] << ","
+                      << b.position[1] << ") uv=(" << a.texcoord[0] << "," << a.texcoord[1] << ")-("
+                      << b.texcoord[0] << "," << b.texcoord[1] << ") tex=" << (call.texture.enabled ? 1 : 0)
+                      << " 0x" << std::hex << call.texture.address << std::dec << " " << call.texture.width << "x"
+                      << call.texture.height << " fmt=" << static_cast<int>(call.texture.format)
+                      << " filter=" << call.texture.min_filter << "/" << call.texture.mag_filter
+                      << " wrap=" << call.texture.wrap_s << "/" << call.texture.wrap_t
+                      << " blend=" << (call.blend.enabled ? 1 : 0) << " color=0x" << std::hex << b.color << std::dec
+                      << "\n";
+        }
+    }
 
     // Deep dump of the first transformed draws: matrices, raw positions and the
     // same positions after a CPU-side transform, so a geometry that never shows

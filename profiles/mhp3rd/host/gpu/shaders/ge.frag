@@ -4,6 +4,7 @@ layout(location = 0) in vec2 frag_texcoord;
 layout(location = 1) in vec4 frag_color;
 layout(location = 2) in vec3 frag_specular;
 layout(location = 3) in float frag_fog;
+layout(location = 4) flat in vec4 frag_uv_rect;
 layout(location = 0) out vec4 out_color;
 
 layout(set = 0, binding = 0) uniform sampler2D guest_texture;
@@ -32,7 +33,7 @@ layout(set = 1, binding = 0) uniform Lighting {
 void main() {
     vec4 color = frag_color;
     if (push.texture_params.x > 0.5) {
-        vec4 texel = texture(guest_texture, frag_texcoord);
+        vec4 texel = texture(guest_texture, clamp(frag_texcoord, frag_uv_rect.xy, frag_uv_rect.zw));
         int function = int(push.texture_params.y + 0.5);
         if (function == 0) {          // modulate
             color *= texel;
