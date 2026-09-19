@@ -363,6 +363,8 @@ int main(int argc, char **argv) {
         mhp3rd::adhoc_shutdown();
         // "Set up game data again" in the in-game menu.
         if (mhp3rd::install::setup_requested_on_exit()) return mhp3rd::install::restart_for_setup(argv[0]);
+        // "Restart now" after importing a save.
+        if (mhp3rd::install::restart_requested_on_exit()) return mhp3rd::install::restart(argv);
         std::cout << mhp3rd::kernel().describe_threads() << "\n";
         runtime.report_hle_histogram();
         return runtime.stop_reason().empty() ? 0 : 4;

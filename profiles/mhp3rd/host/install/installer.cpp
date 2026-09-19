@@ -1,5 +1,7 @@
 #include "install/installer.hpp"
 
+#include "app_paths.hpp"
+
 #include "install/executable_preparation.hpp"
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
@@ -305,6 +307,25 @@ std::uint64_t space_needed_to_copy(const ImageInfo &info) { return info.size_byt
 
 namespace {
 bool setup_on_exit = false;
+bool restart_on_exit = false;
+}
+
+void request_restart_on_exit() { restart_on_exit = true; }
+bool restart_requested_on_exit() { return restart_on_exit; }
+
+int restart(char **argv) {
+    std::cout.flush();
+    std::cerr.flush();
+    const std::filesystem::path self = executable_path();
+    const std::string program = self.empty() ? std::string(argv[0]) : self.string();
+#if defined(_WIN32)
+    const intptr_t result = _execv(program.c_str(), argv);
+    (void)result;
+#else
+    execv(program.c_str(), argv);
+#endif
+    std::cerr << "Cannot restart " << program << "; start it again to load the imported save\n";
+    return 1;
 }
 
 void request_setup_on_exit() { setup_on_exit = true; }

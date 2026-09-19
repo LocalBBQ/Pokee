@@ -7,6 +7,7 @@
 #include "ui/font_menu.hpp"
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
+#include "ui/save_screen.hpp"
 #include "ui/text_input.hpp"
 #include "ui/widgets.hpp"
 
@@ -19,6 +20,7 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "perf/frame_stats.hpp"
+#include "save_data/save_transfer.hpp"
 #include "settings/settings.hpp"
 #include "yakumo_version.hpp"
 
@@ -138,8 +140,9 @@ bool Menu::frame() {
     const ImGuiKey cancel = layer.confirm_south() ? ImGuiKey_GamepadFaceRight : ImGuiKey_GamepadFaceDown;
     const bool pad_back = ImGui::IsKeyPressed(cancel, false);
     const bool start = ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false);
-    // Back closes the font list before it closes the menu.
-    const bool font_list_was_open = tab_ == 0 && font_list_open();
+    // Back closes the font list, or the save import and export, before it
+    // closes the menu.
+    const bool font_list_was_open = (tab_ == 0 && font_list_open()) || (tab_ == 4 && save_screen_open());
     back_ = back || pad_back;
 
     begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
@@ -857,6 +860,14 @@ void Menu::network() {
 }
 
 void Menu::system() {
+    if (save_screen(back_)) {
+        if (take_restart_request()) {
+            install::request_restart_on_exit();
+            quit_ = true;
+            close_ = true;
+        }
+        return;
+    }
     std::string data_dir;
     try {
         data_dir = install::path_to_utf8(install::user_data_directory());
@@ -892,10 +903,15 @@ void Menu::system() {
                    colors::kDanger))
         confirm_ = Confirm::Quit;
 
+    section("Saves");
+    save_rows();
+
     section("About");
     info_row("Yakumo", std::string(kYakumoVersion));
     info_row("Game", std::string(install::kGameTitle) + " (" + install::kDiscIdDisplay + ")");
     info_row("Data folder", data_dir);
+    if (!savedata::memory_stick().empty())
+        info_row("Saves folder", install::path_to_utf8(savedata::memory_stick() / "PSP" / "SAVEDATA"));
     info_row("Graphics", "Vulkan on " + renderer().device_name());
     info_row("Interface", std::string("Dear ImGui ") + IMGUI_VERSION);
 }

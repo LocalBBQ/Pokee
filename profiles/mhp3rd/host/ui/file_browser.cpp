@@ -89,7 +89,10 @@ fs::path FileBrowser::home() {
     return fs::current_path();
 }
 
-FileBrowser::FileBrowser(const fs::path &folder) : dialog_(std::make_shared<SystemDialog>()) {
+FileBrowser::FileBrowser(const fs::path &folder) : FileBrowser(folder, Options{}) {}
+
+FileBrowser::FileBrowser(const fs::path &folder, Options options)
+    : options_(std::move(options)), dialog_(std::make_shared<SystemDialog>()) {
     find_places();
     open(!folder.empty() && is_folder(folder) ? folder : home());
 }
@@ -136,6 +139,11 @@ void FileBrowser::find_places() {
 #endif
 }
 
+bool FileBrowser::listed(const fs::path &file) const {
+    const std::string extension = lower(install::path_to_utf8(file.extension()));
+    return std::find(options_.extensions.begin(), options_.extensions.end(), extension) != options_.extensions.end();
+}
+
 void FileBrowser::open(const fs::path &folder, fs::path focus) {
     std::error_code ec;
     fs::path target = fs::absolute(folder, ec).lexically_normal();
@@ -159,10 +167,12 @@ void FileBrowser::open(const fs::path &folder, fs::path focus) {
             item.path = entry.path();
             item.name = name;
             item.directory = is_folder(entry.path());
+            item.choosable = item.directory ? options_.choose_on_open && options_.choose_on_open(entry.path())
+                                            : listed(entry.path());
             if (!item.directory) {
                 std::error_code size_error;
                 if (!fs::is_regular_file(entry.path(), size_error)) continue;
-                if (!show_all_ && lower(install::path_to_utf8(entry.path().extension())) != ".iso") {
+                if (!show_all_ && !listed(entry.path())) {
                     ++hidden;
                     continue;
                 }
@@ -226,7 +236,7 @@ FileBrowser::Result FileBrowser::frame(bool back) {
         if (chip("##place", place.name, folder_ == place.path)) go_to = place.path;
         ImGui::PopID();
     }
-    if (chip("##all", show_all_ ? "Showing all files" : "Showing .iso only")) {
+    if (chip("##all", show_all_ ? "Showing all files" : "Showing " + options_.filter_name + " only")) {
         show_all_ = !show_all_;
         open(folder_);
     }
@@ -234,6 +244,7 @@ FileBrowser::Result FileBrowser::frame(bool back) {
     const bool gamescope = std::getenv("GAMESCOPE_WAYLAND_DISPLAY") != nullptr;
     if (!gamescope && chip("##system", "System dialog\u2026")) {
         static const SDL_DialogFileFilter kFilters[] = {{"Disc images (*.iso)", "iso"}, {"All files", "*"}};
+        const bool folders = !options_.choose_folder.empty();
         auto *state = new std::shared_ptr<SystemDialog>(dialog_);
         const auto callback = [](void *userdata, const char *const *files, int) {
             auto *shared = static_cast<std::shared_ptr<SystemDialog> *>(userdata);
@@ -245,7 +256,8 @@ FileBrowser::Result FileBrowser::frame(bool back) {
             delete shared;
         };
         const std::string start = install::path_to_utf8(folder_);
-        SDL_ShowOpenFileDialog(callback, state, Layer::get().renderer().window(), kFilters, 2, start.c_str(), false);
+        if (folders) SDL_ShowOpenFolderDialog(callback, state, Layer::get().renderer().window(), start.c_str(), false);
+        else SDL_ShowOpenFileDialog(callback, state, Layer::get().renderer().window(), kFilters, 2, start.c_str(), false);
     }
     ImGui::NewLine();
 
@@ -262,6 +274,14 @@ FileBrowser::Result FileBrowser::frame(bool back) {
     ImGui::BeginChild("entries", {0.0f, 0.0f}, ImGuiChildFlags_NavFlattened);
     std::optional<std::size_t> activated;
     bool up = false;
+    bool choose_here = false;
+    if (!options_.choose_folder.empty()) {
+        if (focus_first_) {
+            focus_next_row();
+            focus_first_ = false;
+        }
+        if (list_row("##choose", options_.choose_folder, "", ListIcon::Folder, true)) choose_here = true;
+    }
     if (has_parent) {
         if (focus_first_) {
             focus_next_row();
@@ -279,7 +299,7 @@ FileBrowser::Result FileBrowser::frame(bool back) {
         ImGui::PushID(static_cast<int>(i));
         const bool iso = !entry.directory && lower(install::path_to_utf8(entry.path.extension())) == ".iso";
         const ListIcon icon = entry.directory ? ListIcon::Folder : iso ? ListIcon::Disc : ListIcon::File;
-        if (list_row("##entry", entry.name, entry.directory ? "" : human_size(entry.size), icon, iso)) activated = i;
+        if (list_row("##entry", entry.name, entry.directory ? "" : human_size(entry.size), icon, entry.choosable)) activated = i;
         ImGui::PopID();
     }
     focus_.reset();
@@ -292,10 +312,10 @@ FileBrowser::Result FileBrowser::frame(bool back) {
     } else if (entries_.empty() || (hidden_files_ > 0 && !show_all_)) {
         ImGui::Dummy({0.0f, font * 0.3f});
         ImGui::Indent(std::round(16.0f * Layer::get().scale()));
-        std::string note = entries_.empty() ? "No folders or disc images here." : "";
+        std::string note = entries_.empty() ? options_.empty_note : "";
         if (hidden_files_ > 0 && !show_all_)
             note += (note.empty() ? "" : " ") + std::to_string(hidden_files_) + " other file" +
-                    (hidden_files_ == 1 ? " is" : "s are") + " hidden; only .iso images are listed.";
+                    (hidden_files_ == 1 ? " is" : "s are") + " hidden; only " + options_.listed_name + " are listed.";
         paragraph(note, colors::kTextDim);
         ImGui::Unindent(std::round(16.0f * Layer::get().scale()));
     }
@@ -303,8 +323,16 @@ FileBrowser::Result FileBrowser::frame(bool back) {
 
     if (!go_to.empty()) open(go_to);
     if (up) open(parent, folder_);
+    if (choose_here) {
+        chosen_ = folder_;
+        return Result::Chosen;
+    }
     if (activated) {
         const Entry entry = entries_[*activated];
+        if (entry.directory && entry.choosable) {
+            chosen_ = entry.path;
+            return Result::Chosen;
+        }
         if (entry.directory) {
             open(entry.path);
         } else {

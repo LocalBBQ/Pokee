@@ -386,4 +386,66 @@ ExportResult export_saves(const fs::path &memory_stick, const fs::path &target,
     return result;
 }
 
+std::vector<std::string> saves_to_back_up(const fs::path &memory_stick) {
+    std::vector<std::string> names;
+    const fs::path root = memory_stick / "PSP" / "SAVEDATA";
+    for (const std::string_view name : kSaveFolderNames)
+        if (has_param_sfo(root / std::string(name))) names.emplace_back(name);
+    return names;
+}
+
+fs::path backup_folder(const fs::path &target, std::optional<std::chrono::system_clock::time_point> time) {
+    return time ? unused_path(target, timestamp_for_path(*time)) : target;
+}
+
+std::vector<std::string> backup_conflicts(const fs::path &memory_stick, const fs::path &folder) {
+    std::vector<std::string> taken;
+    std::error_code ec;
+    for (const std::string &name : saves_to_back_up(memory_stick))
+        if (fs::exists(folder / name, ec)) taken.push_back(name);
+    return taken;
+}
+
+BackupResult back_up_saves(const fs::path &memory_stick, const fs::path &folder, bool replace) {
+    BackupResult result;
+    result.folder = folder;
+    const std::vector<std::string> names = saves_to_back_up(memory_stick);
+    if (names.empty()) {
+        result.error = "There is no save to back up yet.";
+        return result;
+    }
+    if (!replace && !backup_conflicts(memory_stick, folder).empty()) {
+        result.error = "An earlier backup is in the way.";
+        return result;
+    }
+    const fs::path root = memory_stick / "PSP" / "SAVEDATA";
+    for (const std::string &name : names) {
+        std::error_code ec;
+        const fs::path destination = folder / name;
+        if (same_folder(root / name, destination)) {
+            result.error = "The backup would replace the save itself.";
+            return result;
+        }
+        // Copy beside the destination, then swap: a failed copy leaves an
+        // earlier backup as it was.
+        const fs::path partial = folder / ("." + name + ".partial");
+        fs::remove_all(partial, ec);
+        std::string error;
+        if (!copy_folder_files(root / name, partial, error)) {
+            fs::remove_all(partial, ec);
+            result.error = error;
+            return result;
+        }
+        if (fs::exists(destination, ec)) fs::remove_all(destination, ec);
+        if (!ec) fs::rename(partial, destination, ec);
+        if (ec) {
+            result.error = "cannot write " + destination.string() + ": " + ec.message();
+            return result;
+        }
+        result.saved.push_back(name);
+    }
+    result.ok = true;
+    return result;
+}
+
 } // namespace mhp3rd::savedata

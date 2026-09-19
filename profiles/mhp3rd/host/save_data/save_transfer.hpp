@@ -103,4 +103,31 @@ struct ExportResult {
 ExportResult export_saves(const std::filesystem::path &memory_stick, const std::filesystem::path &target,
                           std::chrono::system_clock::time_point time);
 
+// The folders a backup holds: every folder of this game on the memory stick,
+// the install data included.
+[[nodiscard]] std::vector<std::string> saves_to_back_up(const std::filesystem::path &memory_stick);
+
+// Where a backup goes. With a time, a new folder named by it:
+// <target>/2026-09-19_19-05-12/ULJM05800, ... ("-2" and so on when taken).
+// Without, the save folders go straight into <target>.
+[[nodiscard]] std::filesystem::path backup_folder(const std::filesystem::path &target,
+                                                  std::optional<std::chrono::system_clock::time_point> time);
+
+// The save folders an untimed backup into `folder` would replace.
+[[nodiscard]] std::vector<std::string> backup_conflicts(const std::filesystem::path &memory_stick,
+                                                        const std::filesystem::path &folder);
+
+struct BackupResult {
+    bool ok{};
+    std::string error;
+    std::filesystem::path folder;
+    std::vector<std::string> saved;  // folder names
+};
+
+// Copies the save folders into `folder` (from backup_folder). A save folder
+// already there is replaced only with `replace`, which the player confirms;
+// it is replaced whole, and only once its new copy is complete.
+BackupResult back_up_saves(const std::filesystem::path &memory_stick, const std::filesystem::path &folder,
+                           bool replace);
+
 } // namespace mhp3rd::savedata

@@ -106,4 +106,13 @@ void request_setup_on_exit();
 // with the exit code to use.
 int restart_for_setup(const char *program);
 
+// "Restart now" after a save import in the in-game menu: the game quits, and
+// the program starts again as it was started, which returns to the title
+// screen, where the game reads its saves.
+void request_restart_on_exit();
+[[nodiscard]] bool restart_requested_on_exit();
+// Replaces this process with a new run of the same program and arguments.
+// Returns only on failure, with the exit code to use.
+int restart(char **argv);
+
 } // namespace mhp3rd::install

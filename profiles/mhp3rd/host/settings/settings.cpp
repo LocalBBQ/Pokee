@@ -252,6 +252,7 @@ const std::vector<Field> &fields() {
              if (parse_uint(t, 1024u, 65534u, value)) s.adhoc_host_port = value;
          }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
+        BOOL_FIELD("saves.backup_timestamp", backup_timestamp),
         {"ui.last_folder", nullptr,
          [](Settings &s, const std::string &t) {
              s.last_folder = t;

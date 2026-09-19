@@ -286,6 +286,38 @@ void test_transfer() {
     check(export_saves(dest, target, time).folder != exported.folder, "a second export does not replace the first");
     check(!export_saves(root / "nothing", target, time).ok, "there is nothing to export without saves");
 
+    // Backups: named by time, or plain names that replace only when asked.
+    const fs::path backups = root / "backups";
+    fs::create_directories(backups);
+    check(saves_to_back_up(dest) == std::vector<std::string>{"ULJM05800"}, "the installed saves are backed up");
+    const fs::path timed = backup_folder(backups, time);
+    check(timed == backups / stamp, "a timed backup is a folder named by its time");
+    const BackupResult timed_result = back_up_saves(dest, timed, false);
+    check(timed_result.ok && file_bytes(timed / "ULJM05800" / "MHP3RD.BIN") ==
+                                 file_bytes(dest_saves / "ULJM05800" / "MHP3RD.BIN"),
+          "a timed backup copies the save");
+    check(backup_folder(backups, time) == backups / (stamp + "-2"), "a second timed backup gets its own folder");
+    check(backup_folder(backups, std::nullopt) == backups, "an untimed backup uses the folder as it is");
+    check(backup_conflicts(dest, backups).empty(), "no earlier untimed backup is in the way");
+    check(back_up_saves(dest, backups, false).ok, "an untimed backup is written");
+    check(backup_conflicts(dest, backups) == std::vector<std::string>{"ULJM05800"},
+          "an earlier untimed backup is found");
+    // Make the installed save differ from the backup, then back up again.
+    make_save(newer, "ULJM05800", "", key, 0x55u);
+    check(import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULJM05800", key), dest,
+                      backup_directory(dest_saves, time))
+              .ok,
+          "another save is imported");
+    const auto earlier = file_bytes(backups / "ULJM05800" / "MHP3RD.BIN");
+    check(!back_up_saves(dest, backups, false).ok && file_bytes(backups / "ULJM05800" / "MHP3RD.BIN") == earlier,
+          "an earlier backup is not replaced without asking");
+    check(back_up_saves(dest, backups, true).ok && file_bytes(backups / "ULJM05800" / "MHP3RD.BIN") ==
+                                                       file_bytes(dest_saves / "ULJM05800" / "MHP3RD.BIN"),
+          "an earlier backup is replaced when the player agrees");
+    check(!fs::exists(backups / ".ULJM05800.partial"), "no partial backup is left behind");
+    check(!back_up_saves(dest, dest_saves, true).ok && load_save(dest, files).status == LoadStatus::Ok,
+          "a backup never replaces the save itself");
+
     fs::remove_all(root);
 }
 
