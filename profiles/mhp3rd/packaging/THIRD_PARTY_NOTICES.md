@@ -22,6 +22,14 @@ Rasterizes the game's text. Copyright (c) 2017 Sean Barrett. Used under the publ
 
 <https://github.com/nothings/stb>
 
+### stb_image 2.30 and stb_image_write 1.16
+
+Read and write the PNG images of HD texture packs. Copyright (c) 2017 Sean Barrett. Used under the same public-domain dedication as stb_truetype above. <https://github.com/nothings/stb>
+
+### xxHash 0.8.3
+
+Hashes textures for HD texture packs. Copyright (c) 2012-2021 Yann Collet. BSD 2-Clause License: `xxHash-LICENSE.txt`. <https://github.com/Cyan4973/xxHash>
+
 ## Shipped as separate libraries
 
 These are dynamically linked shared libraries in `lib/` next to the executable (`/app/lib/yakumo/lib/` in the Flatpak). They are unmodified builds of the upstream releases below. You may replace them with your own builds of the same or a compatible version.

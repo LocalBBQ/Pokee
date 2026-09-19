@@ -262,10 +262,14 @@ void Menu::video() {
     }
     {
         RowOptions o = options_for("video.texture_pack",
-                                   "Draws the images of an HD texture pack (PPSSPP's textures.ini format) instead of "
-                                   "the game's own. Put the pack in " +
-                                       gpu::VulkanRenderer::texture_pack_folder() + ".");
-        if (o.note.empty()) o.note = renderer().texture_pack_status();
+                                   "Draws an HD texture pack's images instead of the game's own. Packs use PPSSPP's "
+                                   "textures.ini format and go in textures/NPJB40001 in Yakumo's data folder.");
+        // The footer shows the note under the description: what is loaded,
+        // or where the pack was looked for.
+        if (o.note.empty()) {
+            const std::string status = renderer().texture_pack_status();
+            o.note = status == "Not installed" ? "No pack in " + gpu::VulkanRenderer::texture_pack_folder() : status;
+        }
         if (choice_row("Texture pack", s.texture_pack ? "On" : "Off", o)) {
             s.texture_pack = !s.texture_pack;
             renderer().set_texture_pack(s.texture_pack);

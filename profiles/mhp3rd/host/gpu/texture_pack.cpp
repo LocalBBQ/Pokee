@@ -40,13 +40,17 @@ constexpr std::size_t kMaxDecodedBytes = 256u * 1024u * 1024u;
 // packs for this game stay well below it.
 constexpr int kMaxImageSide = 8192;
 
-bool trace_enabled() {
+} // namespace
+
+bool texture_pack_trace() {
     static const bool trace = [] {
         const char *value = std::getenv("MHP3RD_TRACE_TEXTURE_PACK");
         return value != nullptr && *value != '\0' && std::strcmp(value, "0") != 0;
     }();
     return trace;
 }
+
+namespace {
 
 std::string trim(std::string_view text) {
     std::size_t begin = 0u;
@@ -178,15 +182,18 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
     const std::uint64_t range_key = static_cast<std::uint64_t>(address) << 32u |
                                     static_cast<std::uint64_t>(width) << 16u | height;
     if (const auto range = options.hash_ranges.find(range_key); range != options.hash_ranges.end()) {
+        // The pack replaces only this part of the texture.
         width = range->second.first;
         height = range->second.second;
-    } else if (height == 512u && max_seen_v != 0u && max_seen_v < 512u) {
+        covered_width = width;
+        covered_height = height;
+    } else {
+        covered_width = width;
+        covered_height = height;
         // 512-tall textures drawn in through mode are hashed only down to the
-        // lowest row a draw has used.
-        height = max_seen_v;
+        // lowest row a draw has used; their image still covers all of it.
+        if (height == 512u && max_seen_v != 0u && max_seen_v < 512u) height = max_seen_v;
     }
-    covered_width = width;
-    covered_height = height;
 
     float reduce = 1.0f;
     if (options.reduce_hash) {
@@ -459,7 +466,7 @@ std::shared_ptr<Replacement> TexturePack::find(const GuestMemory &memory, const 
         return nullptr;
     const auto entry = lookup(entries_, key);
     const bool found = entry != entries_.end() && !entry->second.empty();
-    if (trace_enabled()) {
+    if (texture_pack_trace()) {
         std::cout << "[texpack] 0x" << std::hex << texture.address << std::dec << " " << texture.width << "x"
                   << texture.height << " fmt=" << static_cast<int>(texture.format) << " key "
                   << format_texture_pack_key(key)
@@ -588,7 +595,7 @@ void TexturePack::decode(Replacement &replacement) {
         decoded_bytes_ += pixels.size();
     }
     replacement.pixels = std::move(pixels);
-    if (trace_enabled())
+    if (texture_pack_trace())
         std::cout << "[texpack] decoded " << replacement.name << " " << full_width << "x" << full_height << "\n";
     replacement.state.store(Replacement::State::Decoded, std::memory_order_release);
 }

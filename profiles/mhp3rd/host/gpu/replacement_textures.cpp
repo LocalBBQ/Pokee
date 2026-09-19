@@ -158,6 +158,9 @@ VkDescriptorSet ReplacementTextures::descriptor(Replacement &replacement, Textur
         replacement.state.store(Replacement::State::Failed, std::memory_order_release);
         return VK_NULL_HANDLE;
     }
+    if (texture_pack_trace())
+        std::cout << "[texpack] frame " << frame << ": uploaded " << replacement.name << " (" << (resident->bytes >> 10u)
+                  << " KiB with mips)\n";
     uploaded_this_frame_ += replacement.pixels.size();
     resident->last_used = frame;
     resident_bytes_ += resident->bytes;

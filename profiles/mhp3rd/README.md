@@ -111,7 +111,7 @@ The per-user directory is SDL's preference path for `Yakumo/MHP3rd`:
 | Linux | `~/.local/share/Yakumo/MHP3rd/` (or under `$XDG_DATA_HOME`) |
 | Windows | `%APPDATA%\Yakumo\MHP3rd\` |
 
-It holds `EBOOT.ELF`, `disc.iso` when the image was copied, `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu), and `ms0`, the memory stick with the [saves](#saving-and-loading). `MHP3RD_DATA_DIR` points the program at another directory. The Flatpak keeps this directory inside its own data directory, `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/`.
+It holds `EBOOT.ELF`, `disc.iso` when the image was copied, `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu), `ms0`, the memory stick with the [saves](#saving-and-loading), and `textures/NPJB40001` when you install an [HD texture pack](#hd-texture-packs). `MHP3RD_DATA_DIR` points the program at another directory. The Flatpak keeps this directory inside its own data directory, `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/`.
 
 Saves made before `ms0` moved here stay where they were, in `profiles/mhp3rd/game/ms0`: a developer build keeps using them, and says so at start, until the per-user directory has an `ms0` of its own. Move the folder there to switch.
 
@@ -300,6 +300,7 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Video | Aspect ratio | `video.aspect` | | `original` (the PSP's shape, black bars; the default), `stretch` (stretched to the window) or `fill` (the game's view takes the window's shape). Older versions wrote `video.keep_aspect`, which is still read and written |
 | Video | Scaling filter | `video.sharp_screen` | | Smooth or sharp scaling of the finished picture to the window |
 | Video | Texture filter | `video.sharp_textures` | | Smooth (bilinear) or sharp (nearest) texture sampling |
+| Video | Texture pack | `video.texture_pack` | `MHP3RD_TEXTURE_PACK` | On (default) or off: draw an installed [HD texture pack](#hd-texture-packs) instead of the game's textures. The footer shows how many textures the pack has and how many are on the GPU, or where the pack was looked for |
 | Video | Vsync | `video.present_mode` | | On (FIFO), or off through mailbox or immediate presentation where the driver offers them |
 | Video | Game speed | `video.unthrottled` | `MHP3RD_UNTHROTTLED` | Normal (held to real time) or unlimited |
 | Video | Performance | `video.performance` | `MHP3RD_PERF` | Off, overlay, overlay and log, log only |
@@ -343,6 +344,27 @@ The game draws its text with the PSP's system font, which lives in the console's
 A change applies at once: Yakumo makes the game draw every character again the next time it shows it, so text already on screen changes within a frame or two.
 
 How the text is laid out, as traced with `MHP3RD_TRACE_FONT=1`: the game sizes a glyph cell in a texture atlas from the font's maximum glyph size, renders each glyph into a 20×20 buffer and copies that whole buffer into the cell, and draws text as one sprite per cell, half a character wide for Latin letters and full width for Japanese ones. Yakumo reports a 20×20 maximum so cells and buffer match, and fits every glyph inside its cell with a pixel of margin, shifting it and, when it is too large, scaling it down, so no font can spill into a neighbour or lose its edges. The size of the text is therefore fixed by the game; *Weight* is the adjustment that fits within it.
+
+## HD texture packs
+
+Yakumo loads HD texture packs made for PPSSPP, in its `textures.ini` format, without conversion. None is included or downloaded: install one yourself by copying the pack's folder, the one that holds `textures.ini`, to `textures/NPJB40001` in the [per-user directory](#installer):
+
+| System | Pack folder |
+| --- | --- |
+| macOS | `~/Library/Application Support/Yakumo/MHP3rd/textures/NPJB40001/` |
+| Linux, Steam Deck | `~/.local/share/Yakumo/MHP3rd/textures/NPJB40001/` |
+| Flatpak | `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/textures/NPJB40001/` (a copy, not a link to a folder outside the sandbox) |
+| Windows | `%APPDATA%\Yakumo\MHP3rd\textures\NPJB40001\` |
+
+*Open the data folder* in the menu's System section opens the per-user directory. A pack made for the PSP release (`ULJM05800`) works only if it says it supports `NPJB40001` too; rename its folder. *Texture pack* in the Video section turns the pack on and off while the game runs; off draws exactly the game's own textures again. The footer under that setting shows how many textures the pack lists, or *No pack in …* with the folder Yakumo looked in.
+
+How it works:
+
+- **Keys.** Each texture is hashed once, when the renderer first uploads it, never per draw: `xxh64` or `xxh32` over its bytes in guest memory, with the dimensions and, for paletted textures, the palette's hash in the key, as the pack's `[options]` choose. `ignoreAddress`, `reduceHash`, `[hashranges]`, `[reducehashranges]`, `[filtering]`, `[games]`, the wildcard keys that leave the address, palette or data hash out, empty entries that keep a texture as it is, and images in the pack's top folder named by their key are all honoured. Packs that use the old `quick` hash, zipped packs (`textures.zip`), and DDS, KTX2 and ZIM images are not supported; PNG is.
+- **Loading.** Images are read and decoded on background threads; the original texture is drawn until its replacement is on the GPU, usually a frame or two after it first appears. Each image is uploaded with a full set of mip levels, so a large image stays smooth at a distance. Its size does not matter: texture coordinates address the whole texture, so a 4× image covers exactly what the original covered, 2D screens included. A file name a pack spells in another case than the file on disk is still found, which matters on Linux.
+- **Memory.** Images on the GPU are kept within a budget, 1 GiB by default (`MHP3RD_TEXTURE_PACK_MEMORY`); when a new scene needs more, the images drawn least recently are dropped and loaded again when they are next drawn. The village with a full pack needs about 250 MB.
+
+`MHP3RD_TRACE_TEXTURE_PACK=1` logs each texture's key and what the pack does with it, each image decoded and uploaded, and once a second how many draws used a replacement. To make a pack, `MHP3RD_TEXTURE_DUMP=<folder>` writes every texture the game uploads, once, as a PNG named by its key; the folder gets a `textures.ini` that makes it a pack as it is, and edited images in it replace the game's.
 
 ## Saving and loading
 
@@ -544,6 +566,9 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_NO_LIGHTING` | off | Draw lit geometry with the flat white stand-in used before lighting existed, and without fog, to compare a scene with and without them |
 | `MHP3RD_NO_FOG` | off | Turn fog off and keep lighting |
 | `MHP3RD_NO_FB_TEXTURES` | off | Decode every texture from guest memory, as before, instead of sampling the render target when the game textures from a framebuffer it drew, and stop writing framebuffers back to guest memory for the shown frame and for GE block transfers |
+| `MHP3RD_TEXTURE_PACK` | unset | `0` turns the [HD texture pack](#hd-texture-packs) off, `1` on; a folder path loads the pack from that folder instead (menu: Texture pack) |
+| `MHP3RD_TEXTURE_PACK_MEMORY` | `1024` | Megabytes of GPU memory for texture pack images; the least recently drawn are dropped above it |
+| `MHP3RD_TEXTURE_DUMP` | unset | Write every texture the game uploads, once, as a PNG named by its texture pack key into this folder, to start a pack from |
 | `MHP3RD_NO_SPRITE_CLAMP` | off | Let 2D tiles sample outside their own texels, as before; above ×1 this shows faint lines along the tile edges of 2D screens |
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
@@ -639,6 +664,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_TRACE_SPRITES=N` | Every through-mode draw of presented frame N: sprites one by one, other primitives by their bounds, with positions, texture coordinates and texture state |
 | `MHP3RD_TRACE_MATERIAL=1` | Every distinct value the game writes to the GE material registers |
 | `MHP3RD_TRACE_LIGHTING=1` | Every distinct value the game writes to the GE light and fog registers, and one line per distinct register state a lit draw is made with |
+| `MHP3RD_TRACE_TEXTURE_PACK=1` | Each texture's texture pack key and what the pack does with it (its image, kept as it is, or not listed), each image decoded and uploaded, and once a second the draws that used a replacement and the images and megabytes on the GPU |
 | `MHP3RD_SAMPLED_TEXTURE_KEYS=1` | Recognise changed textures of up to 64 KiB by one word in every 256 bytes, as for larger ones, instead of by all of their contents. Glyphs the game adds to its text atlas are then often missed, and text shows stale or missing characters |
 | `MHP3RD_NO_CULL=1`, `MHP3RD_NO_DEPTH=1` | Disable face culling or the depth test, to bisect missing geometry |
 | `MHP3RD_TRACE_AUDIO=1` | One line per second of output: frames, peak, RMS, silence and drops |
@@ -713,6 +739,8 @@ host/hle/utility_dialog.hpp      Status life cycle shared by the dialogs
 host/save_data/                  AES-128, PARAM.SFO, the save-data encryption and hashes, save folders
 host/gpu/ge_state.{hpp,cpp}      GE command state machine: display lists to draw calls
 host/gpu/vulkan_renderer.*       Vulkan backend, window and input
+host/gpu/texture_pack.*          HD texture packs: textures.ini, texture keys, background image decoding, texture dumps
+host/gpu/replacement_textures.*  Texture pack images on the GPU: uploads with mip levels, memory budget
 host/gpu/shaders/                GLSL, compiled to SPIR-V and embedded at build time
 host/perf/frame_stats.*          Frame timing, the per-second summary and the [perf] log line
 host/perf/perf_overlay.*         Performance overlay drawn on the CPU with a built-in 5x7 font

@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -718,6 +719,7 @@ struct VulkanRenderer::Impl {
     bool pack_wanted{};
     bool pack_applied{};
     std::string pack_status;
+    std::uint64_t replaced_draws{};  // this second, for MHP3RD_TRACE_TEXTURE_PACK
     void apply_texture_pack();
     [[nodiscard]] VkDescriptorSet texture_descriptor(const GuestMemory &memory, const DrawCall &call);
     std::uint64_t texture_clock{};
@@ -1971,8 +1973,10 @@ VkDescriptorSet VulkanRenderer::Impl::texture_descriptor(const GuestMemory &memo
     Texture &texture = texture_for(memory, call);
     if (texture.replacement && pack) {
         // Until the image is decoded and on the GPU, the original is drawn.
-        if (const VkDescriptorSet replaced = replacements.descriptor(*texture.replacement, *pack, frames))
+        if (const VkDescriptorSet replaced = replacements.descriptor(*texture.replacement, *pack, frames)) {
+            ++replaced_draws;
             return replaced;
+        }
     }
     return texture.descriptor;
 }
@@ -2004,7 +2008,8 @@ void VulkanRenderer::Impl::apply_texture_pack() {
     std::string error;
     pack = TexturePack::open(folder, install::kDiscId, error);
     if (!pack) {
-        pack_status = "Not installed";
+        std::error_code ec;
+        pack_status = std::filesystem::is_directory(folder, ec) ? "Not loaded: " + error : "Not installed";
         std::cout << "[texpack] " << error << "\n";
         return;
     }
@@ -2906,6 +2911,12 @@ void VulkanRenderer::begin_frame() {
     vkResetFences(impl.device, 1u, &impl.frame_fence);
     impl.apply_texture_pack();
     impl.replacements.begin_frame(impl.frames);
+    if (texture_pack_trace() && impl.pack && impl.frames % 60u == 0u) {
+        std::cout << "[texpack] frame " << impl.frames << ": " << impl.replaced_draws << " draws replaced in 60 frames, "
+                  << impl.replacements.resident_count() << " images on the GPU ("
+                  << (impl.replacements.resident_bytes() >> 20u) << " MB)\n";
+        impl.replaced_draws = 0u;
+    }
     if (impl.writeback_in_flight) {
         impl.writeback_pixels.resize(static_cast<std::size_t>(kPspWidth) * kPspHeight);
         std::memcpy(impl.writeback_pixels.data(), impl.writeback_mapped, impl.writeback_pixels.size() * 4u);

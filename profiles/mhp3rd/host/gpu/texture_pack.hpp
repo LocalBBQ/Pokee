@@ -80,6 +80,9 @@ struct TexturePackKey {
     bool operator==(const TexturePackKey &) const = default;
 };
 
+// MHP3RD_TRACE_TEXTURE_PACK: log every lookup, decode and upload.
+[[nodiscard]] bool texture_pack_trace();
+
 // "0000000022585cbda625131a"
 [[nodiscard]] std::string format_texture_pack_key(const TexturePackKey &key);
 
