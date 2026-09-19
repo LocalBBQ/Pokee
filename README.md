@@ -36,13 +36,14 @@ You can load a save copied from a PSP or start a new game, hunt, and save your p
 
 | Works | Missing or rough |
 | --- | --- |
-| Booting, menus, character creation, the village and hunting areas | **Multiplayer**: the ad hoc client is written but not merged yet (#2) |
-| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP | The quest reward screen shows noise behind its panels (#48) |
-| 3D models, animation, textures, transparency, lighting and fog | Text glyphs are sometimes clipped (#53); faint seams on tiled 2D screens above ×1 (#55) |
-| Sound effects, streamed music and cutscene movies (with FFmpeg) | Curved surfaces; the save-data dialogs draw nothing yet (#33) |
+| Booting, menus, character creation, the village and hunting areas | The quest reward screen shows noise behind its panels (#48) |
+| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP | Faint seams on tiled 2D screens above ×1 (#55) |
+| 3D models, animation, textures, transparency, lighting and fog | Curved surfaces; the save-data dialogs draw nothing yet (#33) |
+| Sound effects, streamed music and cutscene movies (with FFmpeg) | |
 | Keyboard, and gamepads with a real right-stick camera | |
 | An in-game menu with video, audio and control settings | |
 | All 355 code overlays recompiled | |
+| Multiplayer through the ad hoc servers PSP players use: gathering hall and quests together | |
 
 Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in Game Mode with native Vulkan and the built-in controls. Windows builds with MSVC and the game starts, but it closes at the first save (#13).
 
@@ -76,7 +77,6 @@ Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu: it pauses
 
 ## Roadmap
 
-- Multiplayer through the ad hoc servers PSP players already use (#2)
 - Prebuilt releases, starting with Linux and the Steam Deck (#29)
 - Windows: fix the crash at the first save (#13)
 - 60 fps through frame interpolation, with the game still simulating at 30 (#39)

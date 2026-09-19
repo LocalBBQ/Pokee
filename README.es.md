@@ -38,13 +38,14 @@ Puedes cargar una partida copiada de una PSP o empezar una nueva, salir de caza 
 
 | Funciona | Falta o tiene problemas |
 | --- | --- |
-| Arranque, menús, creación de personaje, la aldea y las zonas de caza | **Multijugador**: el cliente ad hoc está escrito pero aún no se ha integrado (#2) |
-| Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP | La pantalla de recompensas tras una misión muestra ruido detrás de sus paneles (#48) |
-| Modelos 3D, animación, texturas, transparencias, iluminación y niebla | Algunos caracteres del texto salen recortados (#53); costuras finas en pantallas 2D por mosaicos por encima de ×1 (#55) |
-| Efectos de sonido, música en streaming y cinemáticas (con FFmpeg) | Superficies curvas; los diálogos de guardado todavía no dibujan nada (#33) |
+| Arranque, menús, creación de personaje, la aldea y las zonas de caza | La pantalla de recompensas tras una misión muestra ruido detrás de sus paneles (#48) |
+| Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP | Costuras finas en pantallas 2D por mosaicos por encima de ×1 (#55) |
+| Modelos 3D, animación, texturas, transparencias, iluminación y niebla | Superficies curvas; los diálogos de guardado todavía no dibujan nada (#33) |
+| Efectos de sonido, música en streaming y cinemáticas (con FFmpeg) | |
 | Teclado, y mandos con cámara real en el stick derecho | |
 | Un menú dentro del juego con ajustes de vídeo, sonido y controles | |
 | Los 355 overlays de código, recompilados | |
+| Multijugador a través de los servidores ad hoc que usan los jugadores de PSP: sala de reunión y misiones juntos | |
 
 Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck en el modo de juego, con Vulkan nativo y los controles integrados. En Windows compila con MSVC y el juego arranca, pero se cierra en el primer guardado (#13).
 
@@ -78,7 +79,6 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo:
 
 ## Hoja de ruta
 
-- Multijugador a través de los servidores ad hoc que ya usan los jugadores de PSP (#2)
 - Compilaciones listas para usar, empezando por Linux y Steam Deck (#29)
 - Windows: corregir el cierre en el primer guardado (#13)
 - 60 fps mediante interpolación de fotogramas, con el juego simulando todavía a 30 (#39)

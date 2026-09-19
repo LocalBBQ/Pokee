@@ -24,7 +24,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Cutscene movies | ✅ with FFmpeg; the opening movie checked | ❔ | ❔ | ❔ |
 | Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ❌ closes at the first save [#13] |
 | Downloadable content | ✅ a player's `ULJM05800QST` folder is read by the download menu | ❔ | ❔ | ❔ |
-| Multiplayer | ❌ [#2] | ❌ [#2] | ❌ [#2] | ❌ [#2] |
+| Multiplayer | ✅ with a Steam Deck through an ad hoc server: hall and a full quest [#2] | ❔ | ✅ with a Mac through an ad hoc server: hall and a full quest [#2] | ❔ |
 
 Rows marked ❌ on every platform are missing features rather than platform problems.
 
