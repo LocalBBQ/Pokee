@@ -58,22 +58,40 @@ journalctl --user -fu yakumo-release     # follow it
 
 ### Check
 
-On a machine with the game, before publishing. Use a temporary data directory so the check does not touch your own installation:
+On a machine with the game, before publishing.
+
+**Never touch a player's own installation or data.** `~/.var/app/io.github.teamgdb.Yakumo` is shared by every installation of the Flatpak, and `~/.local/share/Yakumo` by every tarball: they hold the player's settings, copied disc image and saves. So on a machine where someone plays:
+
+- never uninstall, reinstall or replace an installed Yakumo, and never use `--delete-data`;
+- never delete or overwrite anything in those directories, or in Steam's files;
+- run every check with its data in a throwaway directory of your own, and clean up only what you created there.
 
 ```bash
-# The tarball: set up from the disc image alone, then boot without a window.
-mkdir -p /tmp/yakumo-check && tar -xzf out/release-linux/dist/yakumo-*-linux-x86_64.tar.gz -C /tmp/yakumo-check
-export MHP3RD_DATA_DIR=/tmp/yakumo-check/data
-/tmp/yakumo-check/yakumo-*/yakumo --install /path/to/your.iso
-MHP3RD_NO_RENDER=1 MHP3RD_NO_AUDIO=1 timeout 120 /tmp/yakumo-check/yakumo-*/yakumo
+check=$(mktemp -d)
+
+# The tarball: set up from the disc image alone into a temporary data
+# directory, then boot without a window.
+tar -xzf out/release-linux/dist/yakumo-*-linux-x86_64.tar.gz -C "$check"
+export MHP3RD_DATA_DIR="$check/data"
+"$check"/yakumo-*/yakumo --install /path/to/your.iso
+MHP3RD_NO_RENDER=1 MHP3RD_NO_AUDIO=1 timeout 120 "$check"/yakumo-*/yakumo
 unset MHP3RD_DATA_DIR
 
-# The Flatpak: install the bundle, set up and boot the same way.
-flatpak install --user out/release-linux/dist/yakumo-*-linux-x86_64.flatpak
-flatpak run --env=MHP3RD_NO_RENDER=1 --env=MHP3RD_NO_AUDIO=1 io.github.teamgdb.Yakumo --install /path/to/your.iso
-flatpak run --env=MHP3RD_NO_RENDER=1 --env=MHP3RD_NO_AUDIO=1 --command=sh io.github.teamgdb.Yakumo -c 'timeout 120 yakumo'
-flatpak uninstall --user --delete-data io.github.teamgdb.Yakumo
+# The Flatpak, without installing it: run the committed tree from the build's
+# repository with the same runtime, pointing its data at the temporary
+# directory. This leaves any installed Yakumo and its data alone.
+ostree --repo=out/release-linux/flatpak/repo checkout --user-mode \
+    app/io.github.teamgdb.Yakumo/x86_64/stable "$check/app"
+flatpak run --command=bash --filesystem="$check" --filesystem=/path/to/iso-folder:ro \
+    --env=MHP3RD_DATA_DIR="$check/flatpak-data" --env=MHP3RD_NO_RENDER=1 --env=MHP3RD_NO_AUDIO=1 \
+    org.freedesktop.Platform//25.08 -c \
+    "$check/app/files/lib/yakumo/yakumo --install /path/to/your.iso &&
+     timeout 120 $check/app/files/lib/yakumo/yakumo"
+
+rm -rf "$check"
 ```
+
+This checks the Flatpak's files on its runtime, not its sandbox permissions. Check those on a machine where Yakumo is not installed, with `flatpak install --user` of the bundle and `flatpak run` using `--env=MHP3RD_DATA_DIR=` pointing at a temporary directory. Uninstall it afterwards without `--delete-data`, and delete only that temporary directory.
 
 The boot should print the executable's SHA-256, `Functions:` with a non-zero count, and overlays being installed as the game loads them; the run then ends at the timeout. Then play the release once with a window, a gamepad, a save and a reload, following [`TESTING.md`](TESTING.md), on a Steam Deck in Game Mode as well.
 
