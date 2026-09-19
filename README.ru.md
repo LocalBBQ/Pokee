@@ -69,7 +69,7 @@ Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP и
 3. Рекомпилируйте оверлеи кода скриптом `profiles/mhp3rd/scripts/build_overlays.sh` (в первый раз около 40 минут; прерванная сборка продолжается с места остановки).
 4. Запустите `out/mhp3rd/bin/MHP3rdNative`.
 
-Полная инструкция со всеми настройками — в [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Сборка на Windows только из образа диска, по шагам: [`docs/BUILDING_WINDOWS.md`](docs/BUILDING_WINDOWS.md). Сборка на всех платформах, сколько длится каждый этап и как работать с кодом без полной пересборки: [`docs/BUILDING.md`](docs/BUILDING.md).
+Полная инструкция со всеми настройками — в [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Сборка на всех платформах, включая Windows, сколько длится каждый этап и как работать с кодом без полной пересборки: [`docs/BUILDING.md`](docs/BUILDING.md).
 
 ## Управление
 

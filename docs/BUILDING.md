@@ -16,6 +16,8 @@ The game's executable and its 355 code overlays are MIPS code for the PSP. The b
 | 4. Compile the executable | Compile the 89 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhp3rd --target MHP3rdNative` |
 | 5. Overlays | Extract the 355 code overlays from the disc image's `DATA.BIN`, recompile each one, and build a shared library per overlay | `profiles/mhp3rd/scripts/build_overlays.sh` |
 
+The installer accepts only `NPJB-40001`: the disc id in `PARAM.SFO` must match, and so must the SHA-256 of the encrypted `EBOOT.BIN`. Fan translation patches that change only `USRDIR/DATA.BIN` keep that executable and are accepted. The English patch v6.1.0 has been checked: its `EBOOT.BIN` and all 355 code overlays are identical to the original's.
+
 The generated code and the overlays are derived from your copy of the game. They stay on your machine: `generated/`, `overlays/`, `analysis/` and `game/` are ignored by Git.
 
 ### Where the time goes
@@ -77,7 +79,36 @@ For Game Mode, add a small launch script to Steam as a non-Steam game. The scrip
 
 ## Windows
 
-See [BUILDING_WINDOWS.md](BUILDING_WINDOWS.md): the MSVC toolchain, SDL3, the Vulkan SDK and Git Bash for the scripts. The steps are the same as below.
+> **Status:** the game builds with MSVC and plays, but closes at the first save (#13). Please report problems with a **Test report** issue.
+
+| Tool | Notes |
+| --- | --- |
+| MSVC: Visual Studio 2022 or newer, or just the free *Build Tools for Visual Studio* | The *Desktop development with C++* workload (MSVC and the Windows SDK). The IDE itself is not needed. `clang-cl` works on top of the same workload. MinGW has not been tried; the build files are written for MSVC |
+| CMake 3.20 or newer and Ninja | Visual Studio's own copies work, and so do standalone ones on `PATH` |
+| Python 3 | On `PATH` as `python3`. The `python3` that Windows ships by default only opens the Microsoft Store and does not work, so install Python and make sure its `python3` comes first on `PATH` |
+| Git for Windows | Git Bash runs the `.sh` scripts in `profiles/mhp3rd/scripts/` |
+| Vulkan SDK (LunarG) | The Vulkan loader and headers, plus `glslangValidator` for the shaders |
+| SDL3 | For example the official `SDL3-devel-*-VC.zip`; pass its directory in `CMAKE_PREFIX_PATH` when configuring |
+| FFmpeg | See [FFmpeg](#ffmpeg) |
+
+Plan for about 10 GB of free disk space and several GB of free memory.
+
+Open the **x64 Native Tools Command Prompt** of your Visual Studio or Build Tools, so that the MSVC compiler is on `PATH`. From it, start Git Bash, so the scripts run with the same environment:
+
+```bat
+"C:\Program Files\Git\bin\bash.exe"
+```
+
+Then follow the [build steps](#build-steps) in that Bash, with these differences:
+- **SDL3 location.** Add `-DCMAKE_PREFIX_PATH="C:/path/to/SDL3"` to the first `cmake` command.
+- **Paths.** The executable is `out/mhp3rd/bin/MHP3rdNative.exe`, and the per-user data directory is `$APPDATA/Yakumo/MHP3rd`.
+- **DLLs.** Before playing, copy `SDL3.dll`, and the FFmpeg DLLs, next to `MHP3rdNative.exe`, or put their directories on `PATH`.
+
+Windows specifics:
+- **Data directory.** Step 2 writes `EBOOT.ELF` and `settings.ini` to the per-user data directory. It takes precedence over `profiles/mhp3rd/game`, and both hold the same data after step 3.
+- **Symbolic links.** `prepare_game.sh` links the disc image into `profiles/mhp3rd/game`. Git Bash copies the file instead unless Windows Developer Mode is on and `MSYS=winsymlinks:nativestrict` is exported. A copy works too; it costs about 1.3 GB.
+- **No build lock.** Unlike macOS and Linux, the build does not lock its directory on Windows yet, so never run two builds of the same directory at once.
+- **Out of memory** while compiling a generated unit means the parallelism is too high. Rerun the same `cmake --build` with `-j 1`; it continues where it stopped.
 
 ## Build steps
 

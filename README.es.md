@@ -69,7 +69,7 @@ En resumen:
 3. Recompila los overlays de código con `profiles/mhp3rd/scripts/build_overlays.sh` (unos 40 minutos la primera vez; si se interrumpe, continúa donde se quedó).
 4. Ejecuta `out/mhp3rd/bin/MHP3rdNative`.
 
-Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Compilar en Windows solo con la imagen de disco, paso a paso: [`docs/BUILDING_WINDOWS.md`](docs/BUILDING_WINDOWS.md). Todas las plataformas, cuánto dura cada etapa y cómo trabajar en el código sin recompilarlo todo: [`docs/BUILDING.md`](docs/BUILDING.md).
+Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Todas las plataformas, Windows incluido, cuánto dura cada etapa y cómo trabajar en el código sin recompilarlo todo: [`docs/BUILDING.md`](docs/BUILDING.md).
 
 ## Controles
 
