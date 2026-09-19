@@ -77,9 +77,10 @@ const char *const kFontFolders[] = {
 #endif
 };
 
-// Glyphs that set a face's size: the tallest and deepest shapes of the text the
-// game shows, Latin and Japanese.
-constexpr char32_t kSizingSample[] = U"AHMWbdfghjklpqy()[]0123456789あアがギ装備剣竜龍【】";
+// Glyphs that set a face's size: the tallest and deepest letters of the text
+// the game shows, Latin and Japanese. Brackets and other symbols that reach
+// further are fitted one by one instead, so they do not shrink every letter.
+constexpr char32_t kSizingSample[] = U"AHMWbdfghjklpqy0123456789あアがギ装備剣竜龍";
 // A face offered in the menu has every printable ASCII character. It is marked
 // Japanese when it also has these.
 constexpr char32_t kJapaneseSample[] = U"あいうアイウー、。【】装備剣竜龍素材";
@@ -237,12 +238,10 @@ struct Face {
     float em{};     // pixels per em
 };
 
-// Picks the em size: as large as kMaxEm allows while the sample's tallest
-// glyph still fits above the baseline and its deepest below it.
-void size_face(Face &face) {
+// How far the face's letters reach above and below the baseline, in ems.
+void measure(const Face &face, float &above, float &below) {
     const float units = stbtt_ScaleForMappingEmToPixels(&face.info, 1.0f);  // em per unit
-    float above = 0.0f;
-    float below = 0.0f;
+    above = below = 0.0f;
     for (const char32_t *c = kSizingSample; *c != 0; ++c) {
         const int glyph = stbtt_FindGlyphIndex(&face.info, static_cast<int>(*c));
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
@@ -250,10 +249,28 @@ void size_face(Face &face) {
         above = std::max(above, static_cast<float>(y1) * units);
         below = std::max(below, static_cast<float>(-y0) * units);
     }
+}
+
+// Picks the row of the cell the face's baseline goes on, from how far its
+// letters reach above and below it.
+int pick_baseline(const Face &face) {
+    float above = 0.0f, below = 0.0f;
+    measure(face, above, below);
+    if (above + below <= 0.0f) return kBaseline;
+    const float rows = static_cast<float>(kInkBottom - kInkTop);
+    return std::clamp(kInkTop + static_cast<int>(std::lround(rows * above / (above + below))), kInkTop + 10,
+                      kInkBottom - 3);
+}
+
+// Picks the em size: as large as kMaxEm allows while the sample's tallest
+// glyph still fits above the baseline and its deepest below it.
+void size_face(Face &face, int baseline) {
+    float above = 0.0f, below = 0.0f;
+    measure(face, above, below);
     float em = kMaxEm;
     // Rasterised boxes round outwards, so leave half a pixel on each side.
-    if (above > 0.0f) em = std::min(em, (static_cast<float>(kBaseline - kInkTop) - 0.5f) / above);
-    if (below > 0.0f) em = std::min(em, (static_cast<float>(kInkBottom - kBaseline) - 0.5f) / below);
+    if (above > 0.0f) em = std::min(em, (static_cast<float>(baseline - kInkTop) - 0.5f) / above);
+    if (below > 0.0f) em = std::min(em, (static_cast<float>(kInkBottom - baseline) - 0.5f) / below);
     face.em = std::max(em, kMinEm);
     face.scale = stbtt_ScaleForMappingEmToPixels(&face.info, face.em);
 }
@@ -280,7 +297,6 @@ std::unique_ptr<Face> load_face(const std::string &path, int index, std::string 
     if (face->name.empty()) face->name = install::path_to_utf8(install::path_from_utf8(path).filename());
     face->path = path;
     face->index = index;
-    size_face(*face);
     return face;
 }
 
@@ -302,6 +318,7 @@ struct State {
     std::unique_ptr<Face> fallback;
     std::string problem;
     int bold{};
+    int baseline{kBaseline};  // row of the cell the baselines are on
     std::unordered_map<std::uint32_t, Layout> layouts;
     std::unordered_map<std::uint64_t, GlyphBitmap> bitmaps;
     std::atomic<std::uint64_t> generation{};
@@ -338,12 +355,19 @@ void load(State &s) {
         }
     }
     const Face *used = s.chosen ? s.chosen.get() : s.fallback.get();
+    // The chosen face decides where the baseline is; the fallback is sized
+    // to the same one so their letters line up.
+    if (used != nullptr) {
+        s.baseline = pick_baseline(*used);
+        if (s.chosen) size_face(*s.chosen, s.baseline);
+        if (s.fallback) size_face(*s.fallback, s.baseline);
+    }
     if (used == nullptr) {
         std::cout << "[font] no TrueType font found; the game's text stays blank. Choose one in the menu or set "
                      "MHP3RD_FONT=<path to a .ttf, .otf or .ttc>\n";
         return;
     }
-    std::cout << "Fonts: game text from " << used->name << " (" << used->path << "), " << used->em << " px em";
+    std::cout << "Fonts: game text from " << used->name << " (" << used->path << "), " << used->em << " px em, baseline " << s.baseline;
     if (s.chosen && s.fallback) std::cout << "; missing glyphs from " << s.fallback->name;
     std::cout << "\n";
 }
@@ -409,10 +433,12 @@ Layout lay_out(State &s, std::uint32_t code) {
         return layout;
     }
     // Vertically the game puts the bitmap's top at kBaseline - top.
+    // The top is reported relative to kBaseline, so the face's own baseline
+    // lands on s.baseline.
     int top = -y0;
-    top = std::min(top, kBaseline - kInkTop);
-    top = std::max(top, kBaseline + m.height - kInkBottom);
-    m.top = top;
+    top = std::min(top, s.baseline - kInkTop);
+    top = std::max(top, s.baseline + m.height - kInkBottom);
+    m.top = top + kBaseline - s.baseline;
     // Full-width characters are placed at the left bearing.
     m.left = std::clamp(x0, kInkLeft, kInkRight - m.width);
     m.advance = std::max(m.advance, static_cast<float>(m.left + m.width));

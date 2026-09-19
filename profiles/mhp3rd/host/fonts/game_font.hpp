@@ -49,8 +49,9 @@ inline constexpr int kInkLeft = 1;
 inline constexpr int kInkRight = 19;   // exclusive
 inline constexpr int kInkTop = 0;
 inline constexpr int kInkBottom = 20;  // exclusive
-// Row of the baseline inside the cell: 16 rows for ascenders, 4 for
-// descenders.
+// Row of the baseline inside the cell, as reported to the game. Each face's
+// own baseline goes on the row that best splits the cell between its
+// ascenders and descenders; glyph tops are reported relative to this one.
 inline constexpr int kBaseline = 16;
 // The maximum ascender reported in the font info: the game adds 1.
 inline constexpr int kAscender = kBaseline - 1;
