@@ -19,6 +19,7 @@
 #endif
 
 #include <algorithm>
+#include <cstring>
 #include <array>
 #include <cstdlib>
 #include <iostream>
@@ -87,6 +88,37 @@ MediaState &media() {
 
 // Runs a display list: the GE state machine produces draw calls for the
 // renderer and raises the guest's signal/finish callbacks in interrupt context.
+// A GE block transfer, row by row. A source in a framebuffer the renderer drew
+// is written back to guest memory first: the game copies the last frame of a
+// hunt this way and textures the quest reward screen's background from it.
+void block_transfer(Runtime &rt, const gpu::BlockTransfer &transfer) {
+    psprecomp::GuestMemory &memory = rt.memory();
+#if defined(MHP3RD_HAS_RENDERER)
+    if (media().renderer && media().renderer->available())
+        media().renderer->read_back_framebuffer(transfer.source, memory);
+#endif
+    const std::size_t row_bytes = static_cast<std::size_t>(transfer.width) * transfer.bytes_per_pixel;
+    for (std::uint32_t row = 0; row < transfer.height; ++row) {
+        const std::uint32_t from =
+            transfer.source +
+            ((transfer.source_y + row) * transfer.source_stride + transfer.source_x) * transfer.bytes_per_pixel;
+        const std::uint32_t to = transfer.destination + ((transfer.destination_y + row) * transfer.destination_stride +
+                                                          transfer.destination_x) *
+                                                             transfer.bytes_per_pixel;
+        const std::uint8_t *source = memory.raw_pointer(from, row_bytes);
+        std::uint8_t *destination = memory.raw_pointer(to, row_bytes);
+        if (source == nullptr || destination == nullptr) {
+            log_once("ge-transfer-range", "[ge] block transfer outside guest memory skipped");
+            return;
+        }
+        std::memmove(destination, source, row_bytes);
+    }
+#if defined(MHP3RD_HAS_RENDERER)
+    // Textures already looked up in this list may have changed.
+    if (media().renderer && media().renderer->available()) media().renderer->begin_display_list();
+#endif
+}
+
 void run_ge_list(Runtime &rt, std::uint32_t id) {
     auto found = media().ge_lists.find(id);
     if (found == media().ge_lists.end()) return;
@@ -114,6 +146,7 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
         media().ge.set_draw_sink([&renderer, &memory](const gpu::DrawCall &call) { renderer.submit(call, memory); });
     }
 #endif
+    media().ge.set_transfer_sink([&rt](const gpu::BlockTransfer &transfer) { block_transfer(rt, transfer); });
 
     bool finished = false;
     try {
@@ -125,6 +158,7 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
     }
     list.done = finished;
     media().ge.set_draw_sink(nullptr);
+    media().ge.set_transfer_sink(nullptr);
     perf::add_render_time(perf::Clock::now() - start);
 }
 

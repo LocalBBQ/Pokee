@@ -65,6 +65,11 @@ public:
     // bytes. Call once per frame before present(). MHP3RD_NO_FB_TEXTURES turns
     // it off along with sampling render targets as textures.
     void write_back_frame(GuestMemory &memory);
+    // Before a GE block transfer reads guest memory: when `source` lies in a
+    // framebuffer the renderer drew, finishes the work queued so far and
+    // writes that framebuffer back to guest memory, so the copy gets the
+    // picture. Waits for the GPU. MHP3RD_NO_FB_TEXTURES turns it off.
+    void read_back_framebuffer(std::uint32_t source, GuestMemory &memory);
     // Ends the frame and shows the target the guest just flipped to. Draws go to
     // a separate offscreen target per guest framebuffer address, so only the
     // displayed one reaches the window.

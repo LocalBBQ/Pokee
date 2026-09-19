@@ -475,6 +475,8 @@ struct VulkanRenderer::Impl {
     bool create_writeback(std::string &error);
     void destroy_writeback();
     void record_writeback(std::uint32_t address);
+    // Stores 480x272 RGBA pixels into the guest framebuffer `frame` describes.
+    void store_frame(GuestMemory &memory, const WritebackFrame &frame, const std::uint32_t *pixels);
     // Numbers draws into targets across all of them, for Target::draw_serial.
     std::uint64_t target_draw_counter{};
     std::uint32_t current_target{};
@@ -1468,6 +1470,8 @@ VulkanRenderer::Impl::Target *VulkanRenderer::Impl::target_for(std::uint32_t add
     info.layers = 1u;
     if (!check(vkCreateFramebuffer(device, &info, nullptr, &target.framebuffer), "vkCreateFramebuffer", error))
         return nullptr;
+    static const bool trace = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
+    if (trace) std::cout << "[fbtex] frame " << frames << " new render target 0x" << std::hex << address << std::dec << "\n";
     return &targets.emplace(address, target).first->second;
 }
 
@@ -2949,13 +2953,68 @@ void VulkanRenderer::write_back_frame(GuestMemory &memory) {
     Impl &impl = *impl_;
     if (!impl.ready || !impl.writeback_has_pixels) return;
     impl.writeback_has_pixels = false;
-    const Impl::WritebackFrame frame = impl.writeback_ready;
+    impl.store_frame(memory, impl.writeback_ready, impl.writeback_pixels.data());
+}
+
+void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &memory) {
+    Impl &impl = *impl_;
+    static const bool disabled = std::getenv("MHP3RD_NO_FB_TEXTURES") != nullptr;
+    if (!impl.ready || disabled) return;
+    const std::uint32_t wanted = GuestMemory::canonical(source);
+    std::uint32_t found = 0u;
+    bool any = false;
+    for (const auto &[address, target] : impl.targets) {
+        if (!target.initialized || target.guest_words.empty()) continue;
+        const std::uint32_t base = GuestMemory::canonical(address);
+        const std::uint32_t bytes = target.stride * kPspHeight * framebuffer_bytes_per_pixel(target.format);
+        if (wanted >= base && wanted - base < bytes) {
+            found = address;
+            any = true;
+            break;
+        }
+    }
+    if (!any) return;
+    if (!impl.recording) begin_frame();
+    impl.end_pass();
+    impl.record_writeback(found);
+    if (!impl.writeback_in_flight) return;
+    // Run everything recorded so far and carry on recording afterwards.
+    vkEndCommandBuffer(impl.command_buffer);
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1u;
+    submit.pCommandBuffers = &impl.command_buffer;
+    const perf::Clock::time_point wait_start = perf::Clock::now();
+    vkQueueSubmit(impl.queue, 1u, &submit, impl.frame_fence);
+    vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
+    perf::add_wait_time(perf::Clock::now() - wait_start);
+    vkResetFences(impl.device, 1u, &impl.frame_fence);
+    vkResetCommandBuffer(impl.command_buffer, 0u);
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(impl.command_buffer, &begin);
+    impl.vertex_offset = 0u;
+    impl.last_lighting_valid = false;
+    impl.writeback_in_flight = false;
+    std::vector<std::uint32_t> pixels(static_cast<std::size_t>(kPspWidth) * kPspHeight);
+    std::memcpy(pixels.data(), impl.writeback_mapped, pixels.size() * 4u);
+    impl.store_frame(memory, impl.writeback_recorded, pixels.data());
+    // A write-back still waiting from an earlier frame is older than this one.
+    if (impl.writeback_ready.address == found) impl.writeback_has_pixels = false;
+    static const bool trace = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
+    if (trace)
+        std::cout << "[fbtex] frame " << impl.frames << " read framebuffer 0x" << std::hex << found << std::dec
+                  << " back for a block transfer\n";
+}
+
+void VulkanRenderer::Impl::store_frame(GuestMemory &memory, const WritebackFrame &frame,
+                                       const std::uint32_t *pixels) {
+    Impl &impl = *this;
     const std::uint32_t bytes_per_pixel = framebuffer_bytes_per_pixel(frame.format);
     const std::size_t bytes = static_cast<std::size_t>(frame.stride) * kPspHeight * bytes_per_pixel;
     std::uint8_t *out = memory.raw_pointer(frame.address, bytes);
     if (out == nullptr) return;
     for (std::uint32_t y = 0; y < kPspHeight; ++y) {
-        const std::uint32_t *row = impl.writeback_pixels.data() + static_cast<std::size_t>(y) * kPspWidth;
+        const std::uint32_t *row = pixels + static_cast<std::size_t>(y) * kPspWidth;
         std::uint8_t *line = out + static_cast<std::size_t>(y) * frame.stride * bytes_per_pixel;
         if (frame.format == 3u) {
             std::memcpy(line, row, static_cast<std::size_t>(kPspWidth) * 4u);

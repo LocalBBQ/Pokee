@@ -124,6 +124,27 @@ enum Command : std::uint32_t {
     kBlendFixedA = 0xE0,
     kBlendFixedB = 0xE1,
     kDepthWriteDisable = 0xE7,
+    // Block transfer registers, read off a trace of the quest reward screen,
+    // which copies the 16-bit framebuffer at 0x04000000 (512 pixels a row) to
+    // 0x093E7EF0 in main memory and then textures from there as 512x512 5650
+    // with a row length of 512:
+    //   0xB2 0x000000  0xB3 0x040100  source 0x04000000, row length 256
+    //   0xB4 0x3E7EF0  0xB5 0x090100  destination 0x093E7EF0, row length 256
+    //   0xEB 0, 0xEC 0                source and destination position (only 0
+    //                                 seen so far; taken as packed like the size)
+    //   0xEE 0x043CFF                 size: 255 | 271 << 10, so 256 x 272
+    //   0xEA 1                        start, 4 bytes a pixel
+    // As with the texture pointers, the width register carries the high byte
+    // of the address. 256 four-byte pixels are the 512 two-byte pixels of a
+    // framebuffer row, so the kick's bit 0 selects 4 bytes a pixel over 2.
+    kTransferSourceAddress = 0xB2,
+    kTransferSourceWidth = 0xB3,
+    kTransferDestinationAddress = 0xB4,
+    kTransferDestinationWidth = 0xB5,
+    kTransferStart = 0xEA,
+    kTransferSourcePosition = 0xEB,
+    kTransferDestinationPosition = 0xEC,
+    kTransferSize = 0xEE,
 };
 
 // GE pointers carry their high byte in the companion width register; when that
@@ -551,6 +572,41 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         clear_mode_ = (data & 1u) != 0u;
         clear_flags_ = (data >> 8u) & 7u;
         break;
+
+    case kTransferSourceAddress:
+    case kTransferSourceWidth:
+    case kTransferDestinationAddress:
+    case kTransferDestinationWidth:
+    case kTransferSourcePosition:
+    case kTransferDestinationPosition:
+    case kTransferSize:
+        break;  // read from registers_ when the transfer starts
+    case kTransferStart: {
+        BlockTransfer transfer{};
+        const auto address = [&](std::uint32_t low, std::uint32_t width) {
+            return resolve_ge_address(((registers_[width] << 8u) & 0xFF000000u) | (registers_[low] & 0x00FFFFFFu));
+        };
+        transfer.source = address(kTransferSourceAddress, kTransferSourceWidth);
+        transfer.source_stride = registers_[kTransferSourceWidth] & 0xFFFFu;
+        transfer.destination = address(kTransferDestinationAddress, kTransferDestinationWidth);
+        transfer.destination_stride = registers_[kTransferDestinationWidth] & 0xFFFFu;
+        transfer.source_x = registers_[kTransferSourcePosition] & 0x3FFu;
+        transfer.source_y = (registers_[kTransferSourcePosition] >> 10u) & 0x3FFu;
+        transfer.destination_x = registers_[kTransferDestinationPosition] & 0x3FFu;
+        transfer.destination_y = (registers_[kTransferDestinationPosition] >> 10u) & 0x3FFu;
+        transfer.width = (registers_[kTransferSize] & 0x3FFu) + 1u;
+        transfer.height = ((registers_[kTransferSize] >> 10u) & 0x3FFu) + 1u;
+        transfer.bytes_per_pixel = (data & 1u) != 0u ? 4u : 2u;
+        static const bool trace = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
+        if (trace)
+            std::cout << "[fbtex] block transfer 0x" << std::hex << transfer.source << std::dec << " ("
+                      << transfer.source_x << "," << transfer.source_y << " row " << transfer.source_stride
+                      << ") -> 0x" << std::hex << transfer.destination << std::dec << " (" << transfer.destination_x
+                      << "," << transfer.destination_y << " row " << transfer.destination_stride << ") "
+                      << transfer.width << "x" << transfer.height << " x" << transfer.bytes_per_pixel << " bytes\n";
+        if (transfer_sink_) transfer_sink_(transfer);
+        break;
+    }
 
     case kNop:
     case kTextureFlush:

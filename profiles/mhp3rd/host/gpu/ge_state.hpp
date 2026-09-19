@@ -177,15 +177,35 @@ struct DrawCall {
     std::array<float, 16> texture_matrix{};
 };
 
+// A GE block transfer: a rectangle of `width` x `height` pixels of
+// `bytes_per_pixel` bytes copied from one buffer to another, each with its own
+// row length in pixels. Addresses are those of the buffers' first pixel.
+struct BlockTransfer {
+    std::uint32_t source{};
+    std::uint32_t source_stride{};
+    std::uint32_t source_x{};
+    std::uint32_t source_y{};
+    std::uint32_t destination{};
+    std::uint32_t destination_stride{};
+    std::uint32_t destination_x{};
+    std::uint32_t destination_y{};
+    std::uint32_t width{};
+    std::uint32_t height{};
+    std::uint32_t bytes_per_pixel{};
+};
+
 // Executes display lists and reports the draw calls they produce. The backend
 // installs a sink; with no sink the lists are still parsed (for callbacks).
 class GeState {
 public:
     using DrawSink = std::function<void(const DrawCall &)>;
     using SignalSink = std::function<void(std::uint32_t signal, std::uint32_t pc)>;
+    using TransferSink = std::function<void(const BlockTransfer &)>;
 
     void set_draw_sink(DrawSink sink) { draw_sink_ = std::move(sink); }
     void set_signal_sink(SignalSink sink) { signal_sink_ = std::move(sink); }
+    // Block transfers are carried out by the sink, which can write guest memory.
+    void set_transfer_sink(TransferSink sink) { transfer_sink_ = std::move(sink); }
 
     // Runs commands from `pc` until `stall` (0 = no stall) or END. Returns the
     // address execution stopped at; `finished` reports whether the list ended.
@@ -243,6 +263,7 @@ private:
     std::vector<std::uint32_t> call_stack_;
     DrawSink draw_sink_;
     SignalSink signal_sink_;
+    TransferSink transfer_sink_;
     std::uint64_t draw_count_{};
     std::uint64_t vertex_count_{};
     std::uint64_t unhandled_commands_{};
