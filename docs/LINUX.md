@@ -104,6 +104,10 @@ flatpak uninstall --user io.github.teamgdb.Yakumo
 
 This keeps your data. To remove it as well, **including your saves and the copied disc image**, add `--delete-data`, or delete `~/.var/app/io.github.teamgdb.Yakumo`. `flatpak uninstall --unused` then removes a runtime nothing else uses. Remove the Steam shortcut from the library as with any game.
 
+### Multiplayer
+
+Ad hoc multiplayer works in the Flatpak as it does elsewhere: open **Network** in Yakumo's menu (Esc, or L3+R3) to host a session or join one, on your home network, over a VPN, or through an ad hoc server. The [profile README](../profiles/mhp3rd/README.md#multiplayer-ad-hoc) explains how. SteamOS has no firewall by default. On a desktop with one, allow TCP 27312 and 27313 to host, and UDP 27314 for sessions on your network to show up. On a VPN without broadcast, such as Tailscale, type the host's address instead of waiting for it to be listed.
+
 ### Permissions
 
 The Flatpak asks for as little as the game needs:
@@ -114,10 +118,11 @@ The Flatpak asks for as little as the game needs:
 | GPU (`dri`) | Vulkan rendering |
 | Input devices | Gamepads, including the Deck's built-in controls and Steam Input in Game Mode |
 | PulseAudio (PipeWire serves it on current systems) | Sound |
+| Network | Ad hoc multiplayer: joining a server, hosting a session with the built-in server, and finding sessions on the local network |
 | Home folder, read-only | Finding your disc image with the gamepad file browser. The desktop's file dialog needs no permission, but it is not available in Game Mode. |
 | `/run/media` and `/media`, read-only | Disc images on SD cards and USB drives |
 
-No network access, and Yakumo writes only to its own data directory. If your image is somewhere else, for example on a second drive mounted under `/mnt`, give Yakumo read access to it:
+Yakumo writes only to its own data directory. It uses the network only for multiplayer, when you host or join a session. If your image is somewhere else, for example on a second drive mounted under `/mnt`, give Yakumo read access to it:
 
 ```bash
 flatpak override --user --filesystem=/mnt/games:ro io.github.teamgdb.Yakumo

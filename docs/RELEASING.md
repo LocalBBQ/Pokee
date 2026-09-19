@@ -24,8 +24,8 @@ Flathub cannot host the Flatpak: its builders compile everything from source, an
 
 1. Checks the game data a source build uses: `profiles/mhp3rd/game/EBOOT.ELF` (the SHA-256 in the profile README) and `profiles/mhp3rd/game/disc.iso`. `prepare_game.sh` sets both up; `MHP3rdNative --install` produces the executable from the image.
 2. Starts the Steam Runtime 3 "sniper" SDK container (Debian 11, glibc 2.31), pinned by digest in `packaging/linux/sources.sh`, and runs `packaging/linux/build_in_sdk.sh` in it, which
-   - builds SDL3 and FFmpeg from source archives pinned by version and SHA-256 in `sources.sh`. FFmpeg gets only `libavcodec` and `libavutil` with the ATRAC3, ATRAC3plus and H.264 decoders, and the build stops unless FFmpeg's configure reports the LGPL and no GPL or non-free parts;
-   - configures Yakumo with `-DMHP3RD_RELEASE=ON` and GCC 14, generates the recompiled code, builds `MHP3rdNative` and runs the save-data self-tests;
+   - builds SDL3 from a source archive pinned by version and SHA-256 in `sources.sh`;
+   - configures Yakumo with `-DMHP3RD_RELEASE=ON`, `-DMHP3RD_FFMPEG=bundled` and GCC 14. The bundled FFmpeg is built by `cmake/FFmpeg.cmake` with only `libavcodec` and `libavutil` and the ATRAC3, ATRAC3plus and H.264 decoders, and configuring stops unless FFmpeg reports the LGPL with no GPL or non-free parts. The build then generates the recompiled code, builds `MHP3rdNative` and runs the save-data self-tests;
    - builds all overlay libraries with `build_overlays.sh`;
    - stages the program with the libraries it needs, the fallback Japanese font and the license texts, strips it, and checks that every library resolves, that no binary needs `libstdc++.so`, and which glibc version it needs.
 3. Packs the tarball from the staged tree, with the launcher, in a reproducible order and with fixed timestamps.
@@ -83,4 +83,4 @@ Create the release on GitHub with the tag of the commit that was built, and atta
 
 ### Updating a bundled component
 
-Change its version and SHA-256 in `packaging/linux/sources.sh` and the matching entry in `THIRD_PARTY_NOTICES.md`; the script refuses to pack when the two disagree. A new FFmpeg configure option goes into both as well. To move to a newer SDK, update its digest in `sources.sh`; to move to a newer Flatpak runtime, update `FLATPAK_RUNTIME_VERSION` and `runtime-version` in the manifest together.
+Change its version and SHA-256 where it is pinned, `packaging/linux/sources.sh` for SDL3 and the font or `cmake/FFmpeg.cmake` for FFmpeg, and the matching entry in `THIRD_PARTY_NOTICES.md`; the script refuses to pack when they disagree. A new FFmpeg configure option goes into both as well. To move to a newer SDK, update its digest in `sources.sh`; to move to a newer Flatpak runtime, update `FLATPAK_RUNTIME_VERSION` and `runtime-version` in the manifest together.

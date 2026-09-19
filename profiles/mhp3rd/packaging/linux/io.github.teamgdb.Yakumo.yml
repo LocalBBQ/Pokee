@@ -29,6 +29,13 @@ finish-args:
   - --device=input
   # Music, sound effects and movie audio.
   - --socket=pulseaudio
+  # Ad hoc multiplayer: connecting to a PSP ad hoc server (TCP), hosting a
+  # session with the built-in server (listening on TCP 27312 and 27313, and
+  # answering address checks on UDP 27312), and finding and announcing
+  # sessions on the local network (UDP 27314, broadcast and multicast
+  # 239.255.27.14). The sandbox then shares the host's network, so all of
+  # this works as it does outside it; only the host's firewall applies.
+  - --share=network
   # Picking the disc image. The system file dialog (the file chooser portal)
   # needs no permission, but it is missing under Game Mode's gamescope, where
   # the built-in gamepad file browser is the only way; that browser can only

@@ -35,7 +35,7 @@ Window, input and audio output. Copyright (C) 1997-2026 Sam Lantinga. zlib Licen
 
 ### FFmpeg 7.1.5
 
-Decodes the game's ATRAC3 and ATRAC3plus audio and its H.264 movies. FFmpeg is licensed under the GNU Lesser General Public License, version 2.1 or later: `FFmpeg-COPYING.LGPLv2.1.txt`. This build contains no GPL or non-free parts. <https://ffmpeg.org/>
+Decodes the game's ATRAC3 and ATRAC3plus audio and its H.264 movies. FFmpeg is licensed under the GNU Lesser General Public License, version 2.1 or later: `FFmpeg-COPYING.LGPLv2.1.txt`, with the source and configuration also noted in `FFmpeg-SOURCE.txt`. This build contains no GPL or non-free parts. <https://ffmpeg.org/>
 
 - Libraries: `libavcodec.so.61` and `libavutil.so.59`
 - Source: <https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz> (SHA-256 `de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f`), not modified
@@ -45,7 +45,7 @@ Decodes the game's ATRAC3 and ATRAC3plus audio and its H.264 movies. FFmpeg is l
   ./configure --prefix=<prefix> --enable-shared --disable-static --disable-programs --disable-doc --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-network --disable-autodetect --disable-everything --enable-decoder=atrac3,atrac3p,h264 --disable-x86asm --disable-debug
   ```
 
-- Built by `profiles/mhp3rd/packaging/linux/build_in_sdk.sh` in the Yakumo repository, <https://github.com/TeamGDB/Yakumo>, with the versions and checksums pinned in `profiles/mhp3rd/packaging/linux/sources.sh`.
+- Built by the Yakumo build itself, `profiles/mhp3rd/cmake/FFmpeg.cmake` in <https://github.com/TeamGDB/Yakumo>, which pins the version, checksum and configuration above.
 
 **Source offer.** The exact FFmpeg source archive above is published on the same release page as every Yakumo build that contains it. For at least three years after we distribute a build, we will also provide that source to anyone who asks through the project's issue tracker, <https://github.com/TeamGDB/Yakumo/issues>, at no more than the cost of providing it.
 

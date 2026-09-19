@@ -2,8 +2,9 @@
 # Builds everything a Linux release contains, inside the Steam Runtime 3
 # "sniper" SDK container that scripts/release_linux.sh starts:
 #
-#   1. SDL3 and a minimal LGPL FFmpeg from the sources pinned in sources.sh
-#   2. the recompiled executable (generate.sh, then MHP3rdNative)
+#   1. SDL3 from the source pinned in sources.sh
+#   2. the recompiled executable (generate.sh, then MHP3rdNative), with the
+#      LGPL-only FFmpeg the build bundles (cmake/FFmpeg.cmake)
 #   3. all 355 overlay libraries (build_overlays.sh)
 #   4. a staging tree with the executable, overlays/, lib/, fonts/ and
 #      licenses/, the part both the tarball and the Flatpak ship
@@ -53,7 +54,6 @@ stamp_matches() { [[ -f "$deps/.$1.stamp" && "$(cat "$deps/.$1.stamp")" == "$2" 
 
 step "Fetching pinned sources"
 fetch "SDL3-$SDL3_VERSION.tar.gz" "$SDL3_URL" "$SDL3_SHA256"
-fetch "ffmpeg-$FFMPEG_VERSION.tar.xz" "$FFMPEG_URL" "$FFMPEG_SHA256"
 fetch NotoSansCJKjp-Regular.otf "$NOTO_CJK_URL" "$NOTO_CJK_SHA256"
 fetch NotoSansCJK-LICENSE.txt "$NOTO_CJK_LICENSE_URL" "$NOTO_CJK_LICENSE_SHA256"
 
@@ -70,33 +70,17 @@ if ! stamp_matches sdl3 "$sdl_stamp"; then
     echo "$sdl_stamp" > "$deps/.sdl3.stamp"
 fi
 
-ffmpeg_stamp="$FFMPEG_VERSION $FFMPEG_SHA256 ${FFMPEG_CONFIGURE_FLAGS[*]}"
-if ! stamp_matches ffmpeg "$ffmpeg_stamp"; then
-    step "Building FFmpeg $FFMPEG_VERSION (LGPL, decoders: atrac3, atrac3p, h264)"
-    rm -rf "$deps_build/ffmpeg-$FFMPEG_VERSION"
-    tar -xJf "$sources/ffmpeg-$FFMPEG_VERSION.tar.xz" -C "$deps_build"
-    (
-        cd "$deps_build/ffmpeg-$FFMPEG_VERSION"
-        ./configure --prefix="$deps" "${FFMPEG_CONFIGURE_FLAGS[@]}" | tee configure.out
-        # The LGPL obligations in THIRD_PARTY_NOTICES.md assume exactly this.
-        grep -q '^License: LGPL version 2.1 or later' configure.out
-        grep -q '^#define CONFIG_GPL 0' config.h
-        grep -q '^#define CONFIG_NONFREE 0' config.h
-        make -j "$jobs"
-        make install
-    )
-    echo "$ffmpeg_stamp" > "$deps/.ffmpeg.stamp"
-fi
-
 step "Configuring Yakumo (release)"
 cmake -S "$repo_dir" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DPSPRECOMP_PROFILE=mhp3rd \
     -DMHP3RD_RELEASE=ON \
+    -DMHP3RD_FFMPEG=bundled \
+    -DMHP3RD_FFMPEG_DOWNLOAD_DIR="$sources" \
     -DCMAKE_PREFIX_PATH="$deps" \
     -DPSPRECOMP_GENERATED_JOBS="$jobs" | tee "$work/configure.log"
 # A release without the renderer or without music would configure fine; refuse it.
-for feature in "mhp3rd: Vulkan renderer enabled" "mhp3rd: FFmpeg libavcodec"; do
+for feature in "mhp3rd: Vulkan renderer enabled" "mhp3rd: bundled FFmpeg"; do
     if ! grep -q "$feature" "$work/configure.log"; then
         echo "error: configure did not report '$feature'" >&2
         exit 1
@@ -126,18 +110,22 @@ strip --strip-unneeded "$stage/MHP3rdNative" "$stage/overlays/"*.so
 
 # The libraries built above that the executable needs, directly or through
 # each other, under the names the loader looks for.
+# SDL3 comes from the dependency prefix, FFmpeg from the build's bin/lib.
 needed() { objdump -p "$1" | awk '$1 == "NEEDED" { print $2 }'; }
 pending=("$stage/MHP3rdNative")
 while [[ ${#pending[@]} -gt 0 ]]; do
     current="${pending[0]}"
     pending=("${pending[@]:1}")
     for soname in $(needed "$current"); do
-        if [[ -e "$deps/lib/$soname" && ! -e "$stage/lib/$soname" ]]; then
-            cp -L "$deps/lib/$soname" "$stage/lib/$soname"
+        [[ -e "$stage/lib/$soname" ]] && continue
+        for dir in "$build/bin/lib" "$deps/lib"; do
+            [[ -e "$dir/$soname" ]] || continue
+            cp -L "$dir/$soname" "$stage/lib/$soname"
             chmod 644 "$stage/lib/$soname"
             strip --strip-unneeded "$stage/lib/$soname"
             pending+=("$stage/lib/$soname")
-        fi
+            break
+        done
     done
 done
 
@@ -145,7 +133,9 @@ cp "$sources/NotoSansCJKjp-Regular.otf" "$stage/fonts/"
 cp "$repo_dir/LICENSE" "$stage/licenses/Yakumo-LICENSE.txt"
 cp "$here/../THIRD_PARTY_NOTICES.md" "$stage/licenses/THIRD_PARTY_NOTICES.md"
 cp "$deps_build/SDL3-$SDL3_VERSION/LICENSE.txt" "$stage/licenses/SDL3-LICENSE.txt"
-cp "$deps_build/ffmpeg-$FFMPEG_VERSION/COPYING.LGPLv2.1" "$stage/licenses/FFmpeg-COPYING.LGPLv2.1.txt"
+# The FFmpeg build leaves its licence and a note of its source and configure
+# line next to the libraries.
+cp "$build/bin/lib/FFmpeg-COPYING.LGPLv2.1.txt" "$build/bin/lib/FFmpeg-SOURCE.txt" "$stage/licenses/"
 cp "$profile_dir/third_party/imgui/LICENSE.txt" "$stage/licenses/DearImGui-LICENSE.txt"
 cp "$profile_dir/third_party/tiny_aes/UNLICENSE" "$stage/licenses/tiny-AES-c-UNLICENSE.txt"
 cp "$sources/NotoSansCJK-LICENSE.txt" "$stage/licenses/NotoSansCJK-OFL.txt"

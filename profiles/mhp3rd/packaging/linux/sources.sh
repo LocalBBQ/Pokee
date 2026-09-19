@@ -1,37 +1,14 @@
 # Third-party sources a Linux release bundles, pinned by version and SHA-256.
 # Sourced by build_in_sdk.sh and scripts/release_linux.sh. When a version
-# changes here, update THIRD_PARTY_NOTICES.md to match; the release script
-# refuses to package when they disagree.
+# changes here or in cmake/FFmpeg.cmake, update THIRD_PARTY_NOTICES.md to
+# match; the release script refuses to package when they disagree.
 
 SDL3_VERSION=3.4.16
 SDL3_URL="https://github.com/libsdl-org/SDL/releases/download/release-${SDL3_VERSION}/SDL3-${SDL3_VERSION}.tar.gz"
 SDL3_SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68
 
-FFMPEG_VERSION=7.1.5
-FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
-FFMPEG_SHA256=de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f
-
-# Only what the game needs: libavcodec and libavutil with the ATRAC3,
-# ATRAC3plus and H.264 decoders. The host has its own PSMF demuxer and converts
-# pixels itself, so no demuxer, parser, scaler or resampler is built. No GPL or
-# non-free parts: the result is LGPL-2.1-or-later.
-FFMPEG_CONFIGURE_FLAGS=(
-    --enable-shared
-    --disable-static
-    --disable-programs
-    --disable-doc
-    --disable-avdevice
-    --disable-avformat
-    --disable-avfilter
-    --disable-swscale
-    --disable-swresample
-    --disable-network
-    --disable-autodetect
-    --disable-everything
-    --enable-decoder=atrac3,atrac3p,h264
-    --disable-x86asm
-    --disable-debug
-)
+# FFmpeg is not pinned here: the build itself downloads, checks and builds the
+# LGPL-only FFmpeg it bundles (cmake/FFmpeg.cmake, MHP3RD_FFMPEG=bundled).
 
 # Japanese text needs a CJK font. Releases carry one as a fallback for systems
 # (and Flatpak runtimes) without one.

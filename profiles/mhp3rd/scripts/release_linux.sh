@@ -63,10 +63,22 @@ fail() { echo "error: $*" >&2; exit 1; }
 
 sha256() { sha256sum "$1" | cut -d' ' -f1; }
 
+# The FFmpeg the build bundles, as pinned in cmake/FFmpeg.cmake.
+ffmpeg_cmake="$profile_dir/cmake/FFmpeg.cmake"
+cmake_value() { sed -n "s/^set($1 \(.*\))\$/\1/p" "$ffmpeg_cmake" | head -1; }
+FFMPEG_VERSION="$(cmake_value MHP3RD_FFMPEG_VERSION)"
+FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+FFMPEG_FLAGS="$(sed -n '/^set(MHP3RD_FFMPEG_CONFIGURE_FLAGS/,/)/p' "$ffmpeg_cmake" |
+    sed 's/^set(MHP3RD_FFMPEG_CONFIGURE_FLAGS//; s/)$//' | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')"
+[[ -n "$FFMPEG_VERSION" && -n "$FFMPEG_FLAGS" ]] || fail "cannot read the FFmpeg pins from $ffmpeg_cmake"
+grep -qF "\"$FFMPEG_URL\"" "$ffmpeg_cmake" ||
+    grep -qF 'https://ffmpeg.org/releases/ffmpeg-${MHP3RD_FFMPEG_VERSION}.tar.xz' "$ffmpeg_cmake" ||
+    fail "unexpected FFmpeg source URL in $ffmpeg_cmake"
+
 # The notices must describe exactly what is bundled.
 notices="$profile_dir/packaging/THIRD_PARTY_NOTICES.md"
 for pinned in "SDL3 $SDL3_VERSION" "FFmpeg $FFMPEG_VERSION" "$FFMPEG_URL" "$SDL3_URL" \
-              "./configure --prefix=<prefix> ${FFMPEG_CONFIGURE_FLAGS[*]}"; do
+              "./configure --prefix=<prefix> $FFMPEG_FLAGS"; do
     grep -qF -- "$pinned" "$notices" || fail "THIRD_PARTY_NOTICES.md does not mention: $pinned"
 done
 
@@ -220,7 +232,8 @@ fi
 step "Checksums"
 # The LGPL source of the FFmpeg the artifacts contain goes on the same release
 # page (see THIRD_PARTY_NOTICES.md).
-cp "$work/sources/ffmpeg-$FFMPEG_VERSION.tar.xz" "$dist/"
+cp "$work/sources/ffmpeg-$FFMPEG_VERSION.tar.xz" "$dist/" ||
+    fail "the FFmpeg source archive is not in $work/sources"
 (
     cd "$dist"
     shopt -s nullglob
@@ -234,6 +247,6 @@ cp "$work/sources/ffmpeg-$FFMPEG_VERSION.tar.xz" "$dist/"
     echo "Flatpak runtime: org.freedesktop.Platform//$FLATPAK_RUNTIME_VERSION"
     echo "Needs glibc: $(sed 's/GLIBC_//' "$work/stage/glibc-floor.txt") or newer"
     echo "SDL3 $SDL3_VERSION, FFmpeg $FFMPEG_VERSION"
-    echo "FFmpeg configured with: ./configure --prefix=<prefix> ${FFMPEG_CONFIGURE_FLAGS[*]}"
+    echo "FFmpeg configured with: ./configure --prefix=<prefix> $FFMPEG_FLAGS"
 } > "$dist/BUILDINFO.txt"
 ls -l "$dist"
