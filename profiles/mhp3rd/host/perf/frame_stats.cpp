@@ -20,6 +20,7 @@ struct State {
     Clock::time_point frame_start{Clock::now()};
     Clock::duration render{};
     Clock::duration wait{};
+    Clock::duration pacing{};
     Clock::duration overlay{};
     std::uint32_t lists{};
 
@@ -32,6 +33,7 @@ struct State {
     double frame_max_ms{};
     Clock::duration render_sum{};
     Clock::duration wait_sum{};
+    Clock::duration pacing_sum{};
     Clock::duration overlay_sum{};
     std::uint32_t list_sum{};
 
@@ -82,19 +84,20 @@ void restart_measurement() {
     State &s = state();
     const Clock::time_point now = Clock::now();
     s.frame_start = now;
-    s.render = s.wait = s.overlay = Clock::duration{};
+    s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
     s.window_start = now;
     s.window_has_clock = false;
     s.frames = 0u;
     s.frame_sum_ms = 0.0;
     s.frame_max_ms = 0.0;
-    s.render_sum = s.wait_sum = s.overlay_sum = Clock::duration{};
+    s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
 }
 
 void add_render_time(Clock::duration duration) { state().render += duration; }
 void add_wait_time(Clock::duration duration) { state().wait += duration; }
+void add_pacing_time(Clock::duration duration) { state().pacing += duration; }
 void add_overlay_time(Clock::duration duration) { state().overlay += duration; }
 void count_display_list() { ++state().lists; }
 
@@ -123,9 +126,10 @@ void end_frame(std::uint64_t virtual_us) {
     s.frame_max_ms = std::max(s.frame_max_ms, frame_ms);
     s.render_sum += s.render;
     s.wait_sum += s.wait;
+    s.pacing_sum += s.pacing;
     s.overlay_sum += s.overlay;
     s.list_sum += s.lists;
-    s.render = s.wait = s.overlay = Clock::duration{};
+    s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
 
     const double window_ms = to_ms(now - s.window_start);
@@ -141,9 +145,12 @@ void end_frame(std::uint64_t virtual_us) {
     out.lists = static_cast<double>(s.list_sum) * 1000.0 / window_ms;
     out.frame_avg_ms = s.frame_sum_ms / frames;
     out.frame_max_ms = s.frame_max_ms;
-    out.wait_ms = to_ms(s.wait_sum) / frames;
-    // Waits happen inside the timed render calls; count them once.
-    out.render_ms = std::max(0.0, to_ms(s.render_sum) / frames - out.wait_ms);
+    const double gpu_wait_ms = to_ms(s.wait_sum) / frames;
+    out.wait_ms = gpu_wait_ms + to_ms(s.pacing_sum) / frames;
+    // GPU waits happen inside the timed render calls; count them once. Pacing
+    // happens outside them, so subtracting it too hid the render time
+    // whenever the game was ahead of real time.
+    out.render_ms = std::max(0.0, to_ms(s.render_sum) / frames - gpu_wait_ms);
     out.guest_ms = std::max(0.0, out.frame_avg_ms - out.render_ms - out.wait_ms);
     out.overlay_ms = to_ms(s.overlay_sum) / frames;
     out.present_mode = s.present_mode;
@@ -157,7 +164,7 @@ void end_frame(std::uint64_t virtual_us) {
     s.frames = 0u;
     s.frame_sum_ms = 0.0;
     s.frame_max_ms = 0.0;
-    s.render_sum = s.wait_sum = s.overlay_sum = Clock::duration{};
+    s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
 }
 

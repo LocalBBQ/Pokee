@@ -471,7 +471,7 @@ bool Kernel::pace_to_real_time() {
     constexpr std::int64_t kMaxLagUs = 100000;
     if (ahead_us >= kMinSleepUs) {
         std::this_thread::sleep_for(std::chrono::microseconds(std::min(ahead_us, kMaxSleepUs)));
-        perf::add_wait_time(Clock::now() - now);
+        perf::add_pacing_time(Clock::now() - now);
     } else if (ahead_us < -kMaxLagUs) {
         pacing_real_base_ = now;
         pacing_virtual_base_ = now_us_;

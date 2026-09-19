@@ -606,7 +606,7 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | `speed` | Emulated time per real time: 100% when the game runs at PSP speed. The kernel holds its clock to real time, so it stays at 100% unless frames take longer than the game's frame time; below 100% the game runs slow |
 | `frame avg`, `max` | Real time between presents over the last second |
 | `guest` | The rest of the frame: recompiled code, HLE, the kernel, input and audio |
-| `render` | CPU time turning display lists into Vulkan commands and recording the present |
+| `render` | CPU time turning display lists into Vulkan commands and recording the present, without the GPU waits inside it. The kernel's hold to real time happens outside it and does not reduce it |
 | `wait` | Time blocked on the GPU: the frame fence, swapchain acquire, queue submit and present, and the queue idle waits of texture uploads. With FIFO presentation, pacing to the display shows up here, and so does the time the kernel waits to hold the game to real time |
 | `lists` | Display lists enqueued per second of real time |
 | last part | Present mode, swapchain size and the display's refresh rate as SDL reports it |

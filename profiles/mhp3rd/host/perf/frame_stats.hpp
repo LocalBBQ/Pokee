@@ -27,9 +27,13 @@ struct Options {
 // and present, and texture uploads waiting for the queue — or holding the
 // game to real time is "wait", and
 // everything else — recompiled code, HLE, the kernel, input — is "guest".
-// Render includes the waits that happen inside it; the summary subtracts them.
+// Render includes the GPU waits that happen inside it; the summary subtracts
+// those, and only those, from it.
 void add_render_time(Clock::duration duration);
+// Time blocked on the GPU inside a render call.
 void add_wait_time(Clock::duration duration);
+// Time spent holding the game to real time, outside any render call.
+void add_pacing_time(Clock::duration duration);
 void add_overlay_time(Clock::duration duration);
 void count_display_list();
 
