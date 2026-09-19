@@ -1,7 +1,9 @@
 #include "mhp3rd_profile.hpp"
 
+#include "adhoc/client.hpp"
 #include "adhoc/discovery.hpp"
 #include "adhoc/server.hpp"
+#include "adhoc/session.hpp"
 
 #include "install/game_identity.hpp"
 #include "install/installer.hpp"
@@ -215,8 +217,9 @@ int run_adhoc_server(int argc, char **argv) {
     std::signal(SIGINT, on_stop_signal);
     std::signal(SIGTERM, on_stop_signal);
     while (!stop_server) std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    Discovery::get().stop_announcing();
+    Discovery::get().shutdown();
     server.stop();
+    Client::get().shutdown();
     return 0;
 }
 
@@ -274,12 +277,16 @@ int main(int argc, char **argv) {
 
         runtime.run(elf.runtime_entry(mhp3rd::kLoadBase), configured_max_dispatches());
         std::cout << "Runtime stopped: " << runtime.stop_reason() << "\n";
+        // Quit from the menu, a closed window or the game ending: the network
+        // threads stop here, while everything they use still exists.
+        mhp3rd::adhoc_shutdown();
         // "Set up game data again" in the in-game menu.
         if (mhp3rd::install::setup_requested_on_exit()) return mhp3rd::install::restart_for_setup(argv[0]);
         std::cout << mhp3rd::kernel().describe_threads() << "\n";
         runtime.report_hle_histogram();
         return runtime.stop_reason().empty() ? 0 : 4;
     } catch (const std::exception &e) {
+        mhp3rd::adhoc_shutdown();
         std::cerr << "MHP3rdNative error: " << e.what() << "\n";
         return 1;
     }

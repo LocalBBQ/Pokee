@@ -146,6 +146,8 @@ public:
     void start(const Identity &identity);
     // Leaves the group, closes every socket and logs out.
     void stop();
+    // stop(), then ends the network thread for good. Called once at exit.
+    void shutdown() noexcept;
 
     // Matchmaking -------------------------------------------------------------
     [[nodiscard]] ServerState server_state() const;

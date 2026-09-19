@@ -708,7 +708,14 @@ struct Server::Impl {
 
 Server::Server() : impl_(std::make_unique<Impl>()) {}
 
-Server::~Server() { stop(); }
+// Safe whenever it runs: a running server is stopped and its thread joined,
+// and nothing escapes.
+Server::~Server() {
+    try {
+        stop();
+    } catch (...) {
+    }
+}
 
 bool Server::start(const ServerConfig &config) {
     stop();

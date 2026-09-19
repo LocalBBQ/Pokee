@@ -107,6 +107,10 @@ public:
 
     [[nodiscard]] DiscoveryStatus status() const;
 
+    // Stops announcing and listening and ends the discovery thread for good,
+    // so the announcement callback is never called again. Called once at exit.
+    void shutdown() noexcept;
+
 private:
     Discovery();
     struct Impl;

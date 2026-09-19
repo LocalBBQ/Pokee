@@ -105,6 +105,19 @@ std::string adhoc_host_error() {
 
 adhoc::ServerStatus adhoc_host_status() { return host().server.status(); }
 
+void adhoc_shutdown() noexcept {
+    try {
+        HostState &state = host();
+        std::lock_guard lock(state.mutex);
+        adhoc::Discovery::get().shutdown();
+        state.server.stop();
+        state.port = 0u;
+    } catch (...) {
+    }
+    adhoc::Discovery::get().shutdown();
+    adhoc::Client::get().shutdown();
+}
+
 void adhoc_join(const std::string &address) {
     if (address.empty()) return;
     if (adhoc_hosting()) {

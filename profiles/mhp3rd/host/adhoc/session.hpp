@@ -40,6 +40,10 @@ void adhoc_host_stop();
 [[nodiscard]] std::string adhoc_host_error();
 [[nodiscard]] adhoc::ServerStatus adhoc_host_status();
 
+// Stops hosting, discovery and the client, and joins their threads. Called
+// once when the game ends, however it ends, before static destructors run.
+void adhoc_shutdown() noexcept;
+
 // Joining: makes `address` ("host" or "host:port") the server, remembers it
 // among the recent ones, turns ad hoc play on and uses it at once. Stops
 // hosting first if this instance hosts.

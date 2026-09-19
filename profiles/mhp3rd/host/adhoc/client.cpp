@@ -1103,9 +1103,20 @@ struct Client::Impl {
     }
 };
 
+// Never destroyed: its thread is stopped by shutdown() before the process
+// exits, not by static destruction in an order nobody controls.
 Client &Client::get() {
-    static Client client;
-    return client;
+    static Client *client = new Client;
+    return *client;
+}
+
+void Client::shutdown() noexcept {
+    try {
+        stop();
+        impl_->quit = true;
+        if (impl_->thread.joinable()) impl_->thread.join();
+    } catch (...) {
+    }
 }
 
 Client::Client() : impl_(std::make_unique<Impl>()) {}

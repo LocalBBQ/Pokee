@@ -490,9 +490,24 @@ struct Discovery::Impl {
     }
 };
 
+// Never destroyed; see shutdown().
 Discovery &Discovery::get() {
-    static Discovery discovery;
-    return discovery;
+    static Discovery *discovery = new Discovery;
+    return *discovery;
+}
+
+void Discovery::shutdown() noexcept {
+    try {
+        {
+            std::lock_guard lock(impl_->mutex);
+            impl_->announcing = false;
+            impl_->announce_info = nullptr;
+            impl_->listening = false;
+        }
+        impl_->quit = true;
+        if (impl_->thread.joinable()) impl_->thread.join();
+    } catch (...) {
+    }
 }
 
 Discovery::Discovery() : impl_(std::make_unique<Impl>()) {}

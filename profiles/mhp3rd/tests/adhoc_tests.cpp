@@ -9,6 +9,7 @@
 #include "adhoc/sockets.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <functional>
 #include <iostream>
@@ -307,10 +308,59 @@ void discovery(std::uint16_t port) {
                   << ")" << std::endl;
 }
 
+// A process that hosts, with a player in a group and discovery running, and
+// then leaves main(): with `tidy`, after shutting the network down as the
+// game does; without, leaving everything to exit, which must not abort either.
+int exit_while_hosting(bool tidy) {
+    static Server server;  // destroyed by exit() while its thread runs, unless tidy
+    const std::uint16_t port = start_server(server);
+    if (port == 0u) return 3;
+    Discovery::get().start_listening();
+    Discovery::get().start_announcing(port, [] {
+        Announcement info;
+        info.name = "Exiting host";
+        info.product = kProduct;
+        info.players = static_cast<unsigned>(server.status().players.size());
+        return info;
+    });
+    Client &client = Client::get();
+    Identity identity;
+    identity.server = "127.0.0.1:" + std::to_string(port);
+    identity.nickname = "Leaver";
+    identity.mac = kMacA;
+    identity.product = kProduct;
+    client.start(identity);
+    client.join(kGroup);
+    if (!wait_until([&] { return client.in_group(); })) return 3;
+    (void)client.pdp_open(10000, 8192);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));  // announcing, relaying
+    if (tidy) {
+        Discovery::get().shutdown();
+        server.stop();
+        client.shutdown();
+    }
+    return 0;
+}
+
+// Runs this program again in one of the exit modes; true when it exited with 0.
+bool exits_cleanly(const char *self, const char *mode) {
+    const std::string command = std::string("\"") + self + "\" " + mode;
+    const int status = std::system(command.c_str());
+    return status == 0;
+}
+
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
     WinsockSession winsock;
+    if (argc > 1 && std::string(argv[1]) == "--exit-while-hosting") return exit_while_hosting(false);
+    if (argc > 1 && std::string(argv[1]) == "--exit-after-shutdown") return exit_while_hosting(true);
+    check(exits_cleanly(argv[0], "--exit-after-shutdown"), "a hosting process that shuts down exits with 0");
+    // The race this guards against, a thread using what exit() already
+    // destroyed, does not show every time.
+    bool clean = true;
+    for (int run = 0; run < 5 && clean; ++run) clean = exits_cleanly(argv[0], "--exit-while-hosting");
+    check(clean, "a hosting process that just returns exits with 0, five times");
     server_and_client();
     discovery(37500);
     std::cout << (failures == 0 ? "all ad hoc tests passed" : std::to_string(failures) + " failed") << std::endl;
