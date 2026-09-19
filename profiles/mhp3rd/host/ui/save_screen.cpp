@@ -109,12 +109,12 @@ std::string file_url(const std::string &path) {
 }
 
 // The Flatpak reads the player's folders but writes only to its own data
-// directory, so an export or a backup elsewhere fails there.
+// directory and to Downloads, so an export or a backup elsewhere fails there.
 void sandbox_note() {
     if (std::getenv("FLATPAK_ID") == nullptr) return;
     ImGui::Indent(px(16.0f));
-    paragraph("The Flatpak can read your folders but write only to its own data folder. Back up to the backups "
-              "folder instead, then copy the backup from there: Open the backups folder shows it.",
+    paragraph("The Flatpak can read your folders but write only to its own data folder and to Downloads. Pick "
+              "Downloads or the backups folder; Open the backups folder shows where that is.",
               colors::kTextDim);
     ImGui::Unindent(px(16.0f));
 }

@@ -48,6 +48,9 @@ finish-args:
   - --filesystem=/run/media:ro
   #   Removable drives on Debian and Ubuntu.
   - --filesystem=/media:ro
+  #   Downloads, writable: the menu's Export save and Back up saves write
+  #   there, so saves can leave the sandbox without file managers or a terminal.
+  - --filesystem=xdg-download
 
 modules:
   - name: yakumo

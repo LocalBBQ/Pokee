@@ -78,7 +78,7 @@ Saves use the PSP's own format, so a save from a PSP's memory stick or from PPSS
 4. Check what is shown, with the save it replaces, and confirm. The replaced save is kept in `ms0/PSP/SAVEDATA/.backup/`, not deleted.
 5. Choose **Restart now**: the game reads saves at the title screen, which then leads to character select with the imported characters.
 
-**System → Back up saves…** copies your saves to `save-backups` in the data directory above, and **Open the saves folder** and **Open the backups folder** show where they are. The Flatpak reads your home folder and removable drives but writes only to its own data directory, so *Export save…* and backups to another folder fail there: back up to the backups folder, then copy the backup from it. The [profile README](../profiles/mhp3rd/README.md#importing-a-save-from-a-psp) describes the checks and the backups.
+**System → Back up saves…** copies your saves to `save-backups` in the data directory above, and **Open the saves folder** and **Open the backups folder** show where they are. The Flatpak reads your home folder and removable drives, but it writes only to its own data directory and to your **Downloads** folder. So *Export save…* and backups work when you pick Downloads or the backups folder; any other folder fails. The [profile README](../profiles/mhp3rd/README.md#importing-a-save-from-a-psp) describes the checks and the backups.
 
 By hand, with Yakumo closed, copy the folder into `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/`, keeping a copy of any `ULJM05800` folder already there first: it holds all three character slots.
 
@@ -124,6 +124,7 @@ The Flatpak asks for as little as the game needs:
 | Network | Ad hoc multiplayer: joining a server, hosting a session with the built-in server, and finding sessions on the local network |
 | Home folder, read-only | Finding your disc image with the gamepad file browser. The desktop's file dialog needs no permission, but it is not available in Game Mode. |
 | `/run/media` and `/media`, read-only | Disc images on SD cards and USB drives |
+| Downloads folder, read and write | Where *Export save…* and *Back up saves…* can write outside the app's own data directory |
 
 Yakumo writes only to its own data directory. It uses the network only for multiplayer, when you host or join a session. If your image is somewhere else, for example on a second drive mounted under `/mnt`, give Yakumo read access to it:
 
