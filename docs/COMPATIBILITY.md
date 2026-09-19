@@ -13,16 +13,17 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 
 | | macOS (Apple Silicon) | Linux | Steam Deck | Windows |
 | --- | --- | --- | --- | --- |
-| Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ❔ [#13] |
-| Boot, title and menus | ✅ | ❔ | ✅ | ❔ |
+| Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ✅ MSVC 19.44 [#13] |
+| Boot, title and menus | ✅ | ❔ | ✅ | ✅ |
 | Character creation | ✅ | ❔ | ✅ | ❔ |
-| Village | ❔ re-check since the #7 fix | ❔ | ✅ | ❔ |
+| Village | ✅ | ❔ | ✅ | ❔ |
 | Hunts | ✅ | ❔ | ✅ | ❔ |
-| Graphics | ✅ lighting and fog in character creation and the village | ❔ | ⚠️ no lighting or fog before [#3]; not re-checked since | ❔ |
-| Sound effects | ⚠️ run ahead of the picture [#4] | ❔ | ❔ | ❔ |
+| Graphics | ✅ lighting and fog; ⚠️ noise behind the quest reward screen [#48], clipped glyphs [#53], seams on tiled 2D screens [#55] | ❔ | ✅ lighting and fog; ⚠️ noise behind the quest reward screen [#48] | ❔ |
+| Sound effects | ❔ re-check [#4]: the game now runs at real time | ❔ | ❔ | ❔ |
 | Music | ✅ with FFmpeg | ❔ | ❔ | ❔ |
 | Cutscene movies | ✅ with FFmpeg; the opening movie checked | ❔ | ❔ | ❔ |
-| Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ❔ | ❔ |
+| Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ❌ closes at the first save [#13] |
+| Downloadable content | ✅ a player's `ULJM05800QST` folder is read by the download menu | ❔ | ❔ | ❔ |
 | Multiplayer | ❌ [#2] | ❌ [#2] | ❌ [#2] | ❌ [#2] |
 
 Rows marked ❌ on every platform are missing features rather than platform problems.
@@ -44,6 +45,9 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `v0.1.0` | 2026-09-18 |
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `3480dc2` (saving and loading) | 2026-09-18 |
 | SteamOS 3.8.16 | Steam Deck | AMD Custom GPU 0932, RADV (Mesa 26.0.0-devel) | `5e4b27c` | 2026-09-18 |
+| SteamOS 3.8.16 | Steam Deck | AMD Custom GPU 0932, RADV (Mesa 26.0.0-devel) | `v0.3.0` | 2026-09-18 |
+| macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `v0.3.0` | 2026-09-19 |
+| Windows 11 Pro | x64 PC | AMD Radeon RX 6500 XT | `98e2468` | 2026-09-19 |
 
 ## Updating this page
 
@@ -61,3 +65,6 @@ To report a result without editing the page, open a **Test report** issue.
 [#13]: https://github.com/TeamGDB/Yakumo/issues/13
 [#14]: https://github.com/TeamGDB/Yakumo/issues/14
 [#33]: https://github.com/TeamGDB/Yakumo/issues/33
+[#48]: https://github.com/TeamGDB/Yakumo/issues/48
+[#53]: https://github.com/TeamGDB/Yakumo/issues/53
+[#55]: https://github.com/TeamGDB/Yakumo/issues/55

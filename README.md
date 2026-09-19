@@ -30,20 +30,21 @@ The license covering **Yakumo** applies only to the project's own original code 
 
 **Yakumo** provides the software, not the game. You must provide your own legally obtained copy.
 
-## Status: almost playable
+## Status: playable
 
-You can create a character, explore the village and go on hunts, with sound, keyboard and gamepad. The game is not yet playable end to end without rough edges:
+You can load a save copied from a PSP or start a new game, hunt, and save your progress, with music, the opening movie, lighting, a keyboard or a gamepad, and an in-game settings menu (Esc, or L3+R3). The game runs at the PSP's speed, 30 frames per second.
 
 | Works | Missing or rough |
 | --- | --- |
-| Booting, menus, character creation, saves in the PSP's own format | **Lighting and fog** — scenes are flatter than they should be, and coloured markers over NPCs come out white |
-| The village and hunting areas | **Frame pacing** — nothing ties the game to real time yet, so sound runs ahead of the picture |
-| 3D models, animation, textures, transparency | Curved surfaces, networking |
-| Sound effects, music and cutscene movies | The village runs slower than other areas |
+| Booting, menus, character creation, the village and hunting areas | **Multiplayer**: the ad hoc client is written but not merged yet (#2) |
+| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP | The quest reward screen shows noise behind its panels (#48) |
+| 3D models, animation, textures, transparency, lighting and fog | Text glyphs are sometimes clipped (#53); faint seams on tiled 2D screens above ×1 (#55) |
+| Sound effects, streamed music and cutscene movies (with FFmpeg) | Curved surfaces; the save-data dialogs draw nothing yet (#33) |
 | Keyboard, and gamepads with a real right-stick camera | |
+| An in-game menu with video, audio and control settings | |
 | All 355 code overlays recompiled | |
 
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK), and on a Steam Deck up to the village, where it runs on native Vulkan with the built-in controls. Windows is a target platform but has not been verified yet.
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in Game Mode with native Vulkan and the built-in controls. Windows builds with MSVC and the game starts, but it closes at the first save (#13).
 
 The state of each part of the game on each platform is in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
@@ -75,9 +76,10 @@ Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu: it pauses
 
 ## Roadmap
 
-- Lighting and fog
-- Frame pacing, which also fixes sound running ahead
-- Builds verified on Steam Deck and Windows
+- Multiplayer through the ad hoc servers PSP players already use (#2)
+- Prebuilt releases, starting with Linux and the Steam Deck (#29)
+- Windows: fix the crash at the first save (#13)
+- 60 fps through frame interpolation, with the game still simulating at 30 (#39)
 
 ## How it works
 

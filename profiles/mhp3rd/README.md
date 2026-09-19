@@ -4,7 +4,7 @@ This profile builds `MHP3rdNative` for **Monster Hunter Portable 3rd HD Ver.** (
 
 ## Status
 
-The game boots, loads its overlays, creates a character, walks the village and plays a hunt, with sound, a keyboard and a gamepad.
+The game boots, loads its overlays, creates a character or loads a save, walks the village, plays hunts and saves, with sound, music, movies, lighting, a keyboard and a gamepad, at the PSP's speed.
 
 | Area | State |
 | --- | --- |
@@ -21,11 +21,11 @@ The game boots, loads its overlays, creates a character, walks the village and p
 Not done yet:
 
 - **Curved surfaces** (Bézier and spline patches).
-- **Frame pacing.** Nothing ties emulation to real time. Presentation is capped at the 60 Hz refresh while the game targets 30, so audio runs ahead of the picture and roughly half of it is dropped. `MHP3RD_TRACE_AUDIO=1` reports the drops; `MHP3RD_AUDIO_DUMP` keeps the whole stream.
-- **Networking.**
+- **Networking.** The ad hoc client for multiplayer is in review ([#2](https://github.com/TeamGDB/Yakumo/issues/2)).
 - **Dialog screens.** The save-data and message dialogs work but draw nothing; each answers as if the player confirmed it ([#33](https://github.com/TeamGDB/Yakumo/issues/33)).
+- **Rendering details:** a framebuffer used as a texture shows noise, on the quest reward screen for one ([#48](https://github.com/TeamGDB/Yakumo/issues/48)); some text glyphs are clipped ([#53](https://github.com/TeamGDB/Yakumo/issues/53)); tiled 2D screens show faint seams above ×1 ([#55](https://github.com/TeamGDB/Yakumo/issues/55)).
 
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck up to the village, built with GCC in a Debian 13 container and running on native Vulkan. Windows has not been verified yet; see [the compatibility table](../../docs/COMPATIBILITY.md).
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK) and on a Steam Deck in Game Mode, built with GCC in a Debian 13 container and running on native Vulkan. On Windows the game builds with MSVC and starts, but closes at the first save ([#13](https://github.com/TeamGDB/Yakumo/issues/13)); see [the compatibility table](../../docs/COMPATIBILITY.md).
 
 ## Supported executable
 

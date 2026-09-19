@@ -32,20 +32,21 @@ La licencia de **Yakumo** se aplica únicamente al código y los materiales orig
 
 **Yakumo** proporciona el software, no el juego. Debes aportar tu propia copia adquirida legalmente.
 
-## Estado: casi jugable
+## Estado: jugable
 
-Puedes crear un personaje, recorrer la aldea y salir de caza, con sonido, teclado y mando. Todavía no se puede jugar de principio a fin sin asperezas:
+Puedes cargar una partida copiada de una PSP o empezar una nueva, salir de caza y guardar tu progreso, con música, la cinemática inicial, iluminación, teclado o mando, y un menú de ajustes dentro del juego (Esc, o L3+R3). El juego va a la velocidad de la PSP, 30 fotogramas por segundo.
 
 | Funciona | Falta o tiene problemas |
 | --- | --- |
-| Arranque, menús, creación de personaje, partidas guardadas en el formato de la propia PSP | **Iluminación y niebla**: las escenas se ven más planas de lo debido y los marcadores de color sobre los NPC salen blancos |
-| La aldea y las zonas de caza | **Ritmo de fotogramas**: el juego aún no está sincronizado con el tiempo real, así que el sonido se adelanta a la imagen |
-| Modelos 3D, animación, texturas, transparencias | Superficies curvas, red |
-| Efectos de sonido, música y cinemáticas | La aldea va más lenta que otras zonas |
+| Arranque, menús, creación de personaje, la aldea y las zonas de caza | **Multijugador**: el cliente ad hoc está escrito pero aún no se ha integrado (#2) |
+| Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP | La pantalla de recompensas tras una misión muestra ruido detrás de sus paneles (#48) |
+| Modelos 3D, animación, texturas, transparencias, iluminación y niebla | Algunos caracteres del texto salen recortados (#53); costuras finas en pantallas 2D por mosaicos por encima de ×1 (#55) |
+| Efectos de sonido, música en streaming y cinemáticas (con FFmpeg) | Superficies curvas; los diálogos de guardado todavía no dibujan nada (#33) |
 | Teclado, y mandos con cámara real en el stick derecho | |
+| Un menú dentro del juego con ajustes de vídeo, sonido y controles | |
 | Los 355 overlays de código, recompilados | |
 
-Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck hasta la aldea, donde funciona con Vulkan nativo y los controles integrados. Windows es una plataforma objetivo, pero todavía no se ha verificado.
+Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK) y en una Steam Deck en el modo de juego, con Vulkan nativo y los controles integrados. En Windows compila con MSVC y el juego arranca, pero se cierra en el primer guardado (#13).
 
 El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
@@ -77,9 +78,10 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo:
 
 ## Hoja de ruta
 
-- Iluminación y niebla
-- Ritmo de fotogramas, que también corrige el adelanto del sonido
-- Compilaciones verificadas en Steam Deck y Windows
+- Multijugador a través de los servidores ad hoc que ya usan los jugadores de PSP (#2)
+- Compilaciones listas para usar, empezando por Linux y Steam Deck (#29)
+- Windows: corregir el cierre en el primer guardado (#13)
+- 60 fps mediante interpolación de fotogramas, con el juego simulando todavía a 30 (#39)
 
 ## Cómo funciona
 
