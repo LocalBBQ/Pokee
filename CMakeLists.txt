@@ -109,7 +109,10 @@ if(PSPRECOMP_LTO)
     endif()
 endif()
 
-add_library(psprecomp_core STATIC
+# Keep the runtime as an object library so profile executables own its objects.
+# On Windows this also lets WINDOWS_EXPORT_ALL_SYMBOLS include runtime symbols
+# in the executable's import library for separately linked overlay modules.
+add_library(psprecomp_core OBJECT
     src/decoder.cpp
     src/deflate.cpp
     src/elf32.cpp
