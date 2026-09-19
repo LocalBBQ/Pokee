@@ -33,6 +33,7 @@ struct Settings {
 
     // Text
     std::string font;                  // the game's text font: path, "#face" for a collection; empty: the default
+    std::uint32_t font_weight{1u};     // columns the game's glyphs are thickened by, 0 to kMaxFontWeight
 
     // Audio
     std::uint32_t volume{100u};        // percent
@@ -56,6 +57,7 @@ struct Settings {
 
 inline constexpr std::uint32_t kMaxInternalScale = 8u;
 inline constexpr std::uint32_t kMaxWindowScale = 4u;
+inline constexpr std::uint32_t kMaxFontWeight = 2u;
 
 // Loads the settings on first use.
 [[nodiscard]] Settings &current();

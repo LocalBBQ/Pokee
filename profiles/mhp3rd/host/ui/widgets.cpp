@@ -447,6 +447,20 @@ bool button_row(const char *label, const RowOptions &options, ImU32 color) {
     return r.pressed && !options.disabled;
 }
 
+bool value_row(const char *label, const std::string &value, const RowOptions &options) {
+    const Row r = row(label, options);
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    const float mid_y = (r.min.y + r.max.y) * 0.5f;
+    const bool live = (r.focused || r.hovered) && !options.disabled;
+    const ImU32 chevron = options.disabled ? colors::kTextDisabled : live ? colors::kAccent : colors::kTextDim;
+    const float x = r.max.x - px(16.0f) - font() * 0.3f;
+    const float s = font() * 0.28f;
+    draw->AddLine({x - s, mid_y - s * 1.6f}, {x + s * 0.6f, mid_y}, chevron, px(2.0f));
+    draw->AddLine({x + s * 0.6f, mid_y}, {x - s, mid_y + s * 1.6f}, chevron, px(2.0f));
+    draw_value(r, value, options, px(16.0f) + font() * 1.1f, live ? colors::kAccentBright : colors::kText);
+    return r.pressed && !options.disabled;
+}
+
 bool list_row(const char *id, const std::string &name, const std::string &detail, ListIcon icon, bool highlight) {
     const Row r = row(id, {});
     ImDrawList *draw = ImGui::GetWindowDrawList();

@@ -114,6 +114,64 @@ void write_font_info(psprecomp::GuestMemory &memory, std::uint32_t address) {
     memory.store32(address + 88u, 0u);                                        // shadow map length
 }
 
+// The game keeps every glyph it has drawn in a texture atlas and draws it
+// again only once the atlas needs the cell for another glyph, which can take a
+// whole play session. To change the font while the game runs, the host makes
+// the game forget those glyphs: its text code (traced from the call that asks
+// for glyph images) keeps, in the object that owns the atlas, a table from
+// character code to atlas cell, where 0xFFFF means "not drawn yet". Clearing
+// it makes the game draw each character again the next time it shows it.
+constexpr std::uint32_t kGlyphImageCaller = 0x088EA3A4u;   // return address of the game's only call
+constexpr std::uint32_t kCellWidthOffset = 276u;            // u8, from the font info's maximum width
+constexpr std::uint32_t kCellHeightOffset = 277u;           // u8
+constexpr std::uint32_t kCellCountOffset = 286u;            // u16, cells in the whole atlas
+constexpr std::uint32_t kCodeToCellOffset = 22168u;         // u16 per character code below 0xFFF0
+constexpr std::uint32_t kCodeToCellEntries = 0xFFF0u;
+constexpr std::uint32_t kAtlasPages = 8u;
+
+struct GameGlyphCache {
+    psprecomp::GuestMemory *memory{};
+    std::uint32_t object{};  // 0: not recognised
+};
+
+GameGlyphCache &game_cache() {
+    static GameGlyphCache value;
+    return value;
+}
+
+// The game's cell count for our cell size: 256x256 pages, cells a cell width
+// apart and the cell height plus 2 apart.
+constexpr std::uint32_t expected_cells() {
+    return (256u / fonts::kCell) * (256u / (fonts::kCell + 2u)) * kAtlasPages;
+}
+
+// Remembers the object whose atlas the game is filling, once its layout
+// matches what the game's text code builds from our font info.
+void note_game_cache(psprecomp::GuestMemory &memory, const AllegrexContext &ctx) {
+    GameGlyphCache &cache = game_cache();
+    cache.memory = &memory;
+    if (cache.object != 0u || ctx.gpr[31] != kGlyphImageCaller) return;
+    const std::uint32_t object = ctx.gpr[17];  // s1 in that function
+    if (!memory.contains(object, kCodeToCellOffset + kCodeToCellEntries * 2u)) return;
+    if (memory.load8(object + kCellWidthOffset) != fonts::kCell ||
+        memory.load8(object + kCellHeightOffset) != fonts::kCell ||
+        memory.load16(object + kCellCountOffset) != expected_cells())
+        return;
+    cache.object = object;
+    trace("game glyph cache at %08X", object);
+}
+
+void forget_game_glyphs() {
+    const GameGlyphCache &cache = game_cache();
+    if (cache.memory == nullptr || cache.object == 0u) {
+        std::cout << "[font] the game has not drawn any text yet; nothing to redraw\n";
+        return;
+    }
+    for (std::uint32_t code = 0; code < kCodeToCellEntries; ++code)
+        cache.memory->store16(cache.object + kCodeToCellOffset + code * 2u, 0xFFFFu);
+    std::cout << "[font] the game redraws its text with the new font\n";
+}
+
 std::int32_t floor_div64(std::int32_t value) { return value >= 0 ? value / 64 : -((-value + 63) / 64); }
 
 // Draws one glyph into the guest buffer described by SceFontGlyphImage. The
@@ -188,6 +246,7 @@ void blit_glyph(psprecomp::GuestMemory &memory, std::uint32_t image_address, std
 
 void register_font(HleRegistrar &hle) {
     fonts::ready();
+    fonts::set_reload_hook(forget_game_glyphs);
 
     hle.add("sceLibFont", "sceFontNewLib", [](Runtime &rt, AllegrexContext &ctx) {
         if (trace_font() && arg(ctx, 0) != 0u) {
@@ -268,6 +327,7 @@ void register_font(HleRegistrar &hle) {
                   static_cast<std::int32_t>(m.load32(image + 8u)), m.load16(image + 12u), m.load16(image + 14u),
                   m.load16(image + 16u), m.load32(image + 20u), ctx.gpr[31]);
         }
+        note_game_cache(rt.memory(), ctx);
         if (image != 0u && fonts::ready()) blit_glyph(rt.memory(), image, arg(ctx, 1));
         kernel().finish(ctx, 0u);
     });

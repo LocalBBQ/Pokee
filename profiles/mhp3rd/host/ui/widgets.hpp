@@ -63,6 +63,9 @@ bool slider_row(const char *label, int &value, int minimum, int maximum, int ste
                 const RowOptions &options = {});
 // An action. Returns true when activated.
 bool button_row(const char *label, const RowOptions &options = {}, ImU32 color = colors::kText);
+// A setting chosen on a screen of its own: its value, and a chevron that
+// opens that screen. Returns true when activated.
+bool value_row(const char *label, const std::string &value, const RowOptions &options = {});
 // An entry of a list such as the file browser's: an icon, a name and a
 // detail on the right. `id` keeps rows with equal names apart.
 enum class ListIcon { None, Folder, ParentFolder, File, Disc, Drive };

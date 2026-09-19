@@ -47,6 +47,7 @@ if(MHP3RD_RENDERER)
         set(MHP3RD_RENDERER_SOURCES
             host/gpu/vulkan_renderer.cpp
             host/ui/file_browser.cpp
+            host/ui/font_menu.cpp
             host/ui/input_script.cpp
             host/ui/layer.cpp
             host/ui/menu.cpp

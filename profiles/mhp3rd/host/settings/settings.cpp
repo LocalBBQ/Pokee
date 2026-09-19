@@ -144,6 +144,9 @@ const std::vector<Field> &fields() {
              return true;
          },
          [](const Settings &s) { return s.font; }, [](Settings &s, const char *t) { s.font = t; }},
+        {"text.weight", nullptr,
+         [](Settings &s, const std::string &t) { return parse_uint(t, 0u, kMaxFontWeight, s.font_weight); },
+         [](const Settings &s) { return std::to_string(s.font_weight); }, nullptr},
         {"audio.volume", nullptr,
          [](Settings &s, const std::string &t) { return parse_uint(t, 0u, 100u, s.volume); },
          [](const Settings &s) { return std::to_string(s.volume); }, nullptr},

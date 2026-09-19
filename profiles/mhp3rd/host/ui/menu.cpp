@@ -4,6 +4,7 @@
 
 #include "ui/ui.hpp"
 
+#include "ui/font_menu.hpp"
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
 #include "ui/widgets.hpp"
@@ -104,6 +105,7 @@ private:
     bool close_{};
     bool quit_{};
     bool was_editing_{};
+    bool back_{};  // the back button was pressed this frame
     Confirm confirm_{Confirm::None};
     bool confirm_opened_{};  // the confirmation was on screen last frame
 };
@@ -116,6 +118,9 @@ bool Menu::frame() {
     const ImGuiKey cancel = layer.confirm_south() ? ImGuiKey_GamepadFaceRight : ImGuiKey_GamepadFaceDown;
     const bool pad_back = ImGui::IsKeyPressed(cancel, false);
     const bool start = ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false);
+    // Back closes the font list before it closes the menu.
+    const bool font_list_was_open = tab_ == 0 && font_list_open();
+    back_ = back || pad_back;
 
     begin_panel("##menu", "Yakumo", "Paused", true);
     static const char *const kTabs[] = {"Video", "Audio", "Controls", "System"};
@@ -146,7 +151,7 @@ bool Menu::frame() {
 
     if (confirm_ != Confirm::None) {
         if ((back || pad_back) && confirm_opened_) confirm_ = Confirm::None;
-    } else if (((back || pad_back) && !was_editing_) || start) {
+    } else if (!font_list_was_open && (((back || pad_back) && !was_editing_) || start)) {
         close_ = true;
     }
     if (!confirm_dialog()) return false;
@@ -155,6 +160,7 @@ bool Menu::frame() {
 }
 
 void Menu::video() {
+    if (font_list(back_)) return;
     settings::Settings &s = settings::current();
     section("Picture");
     {
@@ -255,6 +261,7 @@ void Menu::video() {
             settings::save();
         }
     }
+    font_rows();
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore video defaults", {false, {}, "Every setting on this page back to how Yakumo ships."})) {
         const settings::Settings &d = settings::defaults();

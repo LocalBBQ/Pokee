@@ -83,9 +83,11 @@ bool ready();
 // Renders `code` shifted right by shift_x and down by shift_y, both in [0, 1).
 [[nodiscard]] GlyphBitmap render(std::uint32_t code, float shift_x, float shift_y);
 
-// Rereads the font setting and clears every cached glyph, so the next glyph
-// the game asks for comes from the new font.
+// Rereads the font settings and clears every cached glyph, so the next glyph
+// the game asks for comes from the new font, then runs the hook.
 void reload();
+// Called by reload(): makes the game forget the glyphs it has already drawn.
+void set_reload_hook(void (*hook)());
 // Counts reload() calls.
 [[nodiscard]] std::uint64_t generation();
 

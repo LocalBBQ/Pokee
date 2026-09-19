@@ -288,6 +288,7 @@ std::unique_ptr<Face> load_face(const std::string &path, int index, std::string 
 struct Layout {
     const Face *face{};
     int glyph{};
+    int bold{};        // columns of horizontal emboldening
     float scale_x{};
     float scale_y{};
     GlyphMetrics metrics;
@@ -300,6 +301,7 @@ struct State {
     std::unique_ptr<Face> chosen;    // null: the fallback is used for everything
     std::unique_ptr<Face> fallback;
     std::string problem;
+    int bold{};
     std::unordered_map<std::uint32_t, Layout> layouts;
     std::unordered_map<std::uint64_t, GlyphBitmap> bitmaps;
     std::atomic<std::uint64_t> generation{};
@@ -314,6 +316,7 @@ void load(State &s) {
     s.loaded = true;
     s.chosen.reset();
     s.problem.clear();
+    s.bold = static_cast<int>(settings::current().font_weight);
     std::string error;
     if (!s.fallback) {
         for (const char *candidate : kFontCandidates) {
@@ -376,7 +379,9 @@ Layout lay_out(State &s, std::uint32_t code) {
     int advance = 0, bearing = 0;
     stbtt_GetGlyphHMetrics(&face.info, layout.glyph, &advance, &bearing);
 
-    constexpr int kMaxWidth = kInkRight - kInkLeft;
+    // Emboldening widens the bitmap by that many columns.
+    layout.bold = s.bold;
+    const int kMaxWidth = kInkRight - kInkLeft - layout.bold;
     constexpr int kMaxHeight = kInkBottom - kInkTop;
     float scale = face.scale;
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
@@ -395,6 +400,7 @@ Layout lay_out(State &s, std::uint32_t code) {
     layout.natural_y0 = y0;
     m.width = std::max(x1 - x0, 0);
     m.height = std::max(y1 - y0, 0);
+    if (m.width > 0) m.width += layout.bold;
     m.advance = static_cast<float>(advance) * scale;
     if (m.width == 0 || m.height == 0) {
         m.width = m.height = 0;
@@ -499,6 +505,30 @@ void scan() {
     c.done = true;
 }
 
+// Thickens vertical strokes: each pixel takes the darkest of itself and the
+// `columns` pixels to its left, which widens the bitmap by that much. The game
+// squeezes a half-width character's cell to about a third of its width on
+// screen, so its vertical strokes come out much thinner than its horizontal
+// ones, too thin for the one-pixel shadow some text has.
+void embolden(GlyphBitmap &bitmap, int columns) {
+    const int width = bitmap.width + columns;
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(width) * static_cast<std::size_t>(bitmap.height), 0u);
+    for (int y = 0; y < bitmap.height; ++y) {
+        const std::uint8_t *in = bitmap.pixels.data() + static_cast<std::size_t>(y) * bitmap.width;
+        std::uint8_t *row = out.data() + static_cast<std::size_t>(y) * width;
+        for (int x = 0; x < width; ++x) {
+            std::uint8_t value = 0;
+            for (int j = 0; j <= columns; ++j) {
+                const int from = x - j;
+                if (from >= 0 && from < bitmap.width) value = std::max(value, in[from]);
+            }
+            row[x] = value;
+        }
+    }
+    bitmap.pixels = std::move(out);
+    bitmap.width = width;
+}
+
 } // namespace
 
 bool ready() {
@@ -532,9 +562,12 @@ GlyphBitmap render(std::uint32_t code, float shift_x, float shift_y) {
         if (!bitmap.pixels.empty())
             stbtt_MakeGlyphBitmapSubpixel(&layout.face->info, bitmap.pixels.data(), bitmap.width, bitmap.height,
                                           bitmap.width, layout.scale_x, layout.scale_y, fx, fy, layout.glyph);
+        if (layout.bold > 0 && !bitmap.pixels.empty()) embolden(bitmap, layout.bold);
     }
     return s.bitmaps.emplace(key, std::move(bitmap)).first->second;
 }
+
+static void (*reload_hook)() = nullptr;
 
 void reload() {
     State &s = state();
@@ -542,7 +575,10 @@ void reload() {
     s.bitmaps.clear();
     load(s);
     ++s.generation;
+    if (reload_hook != nullptr) reload_hook();
 }
+
+void set_reload_hook(void (*hook)()) { reload_hook = hook; }
 
 std::uint64_t generation() { return state().generation.load(); }
 
