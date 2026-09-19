@@ -1,6 +1,6 @@
-// The in-game menu: Esc, or L3+R3 on a gamepad. It pauses the game and holds
-// every player setting; each change applies at once and is saved to
-// settings.ini straight away.
+// The in-game menu: Esc, or L3+R3 on a gamepad. It holds every player setting;
+// each change applies at once and is saved to settings.ini straight away. It
+// pauses the game, or, as the settings say, stays over the running game.
 
 #include "ui/ui.hpp"
 
@@ -39,6 +39,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mhp3rd::ui {
@@ -95,6 +96,7 @@ float gain(const settings::Settings &s) { return s.mute ? 0.0f : static_cast<flo
 
 class Menu {
 public:
+    explicit Menu(bool paused) : paused_(paused) {}
     // One frame; false once the menu closes.
     bool frame();
     [[nodiscard]] bool quit() const noexcept { return quit_; }
@@ -111,6 +113,7 @@ private:
 
     gpu::VulkanRenderer &renderer() { return Layer::get().renderer(); }
 
+    bool paused_{};  // the game is paused behind the menu, rather than running
     int tab_{};
     bool first_frame_{true};
     bool close_{};
@@ -138,7 +141,7 @@ bool Menu::frame() {
     const bool font_list_was_open = tab_ == 0 && font_list_open();
     back_ = back || pad_back;
 
-    begin_panel("##menu", "Yakumo", "Paused", true);
+    begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
     static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "System"};
     const bool switched = tab_bar(kTabs, 5, tab_) || first_frame_;
     first_frame_ = false;
@@ -331,7 +334,8 @@ void Menu::audio() {
         sink.set_volume(gain(s));
         settings::save();
     }
-    info_row("Device", device ? "44100 Hz stereo, paused while this menu is open" : "None");
+    info_row("Device", device ? (paused_ ? "44100 Hz stereo, paused while this menu is open" : "44100 Hz stereo")
+                              : "None");
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore audio defaults", {!device, {}, "Full volume, not muted."})) {
         s.volume = settings::defaults().volume;
@@ -725,6 +729,22 @@ void Menu::system() {
     }
     section("Game");
     if (button_row("Resume", {false, {}, "Back to the game."})) close_ = true;
+    settings::Settings &s = settings::current();
+    if (toggle_row("Pause the game when the menu opens", s.menu_pause,
+                   options_for("ui.menu_pause", "On: the game stops while this menu is open. Off: it keeps running "
+                                                "and playing sound behind the menu, which takes all input. Applies "
+                                                "the next time the menu opens."))) {
+        s.menu_pause = !s.menu_pause;
+        settings::save();
+    }
+    if (toggle_row("Pause during multiplayer", s.menu_pause_multiplayer,
+                   options_for("ui.menu_pause_multiplayer",
+                               "In ad hoc play the game keeps running behind the menu unless this is on: a paused "
+                               "game stops answering the other players and can drop a quest. Applies the next time "
+                               "the menu opens."))) {
+        s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
+        settings::save();
+    }
     if (button_row("Open the data folder", {false, {}, "Show Yakumo's data folder in the file manager."})) {
         if (!SDL_OpenURL(file_url(data_dir).c_str()))
             std::cout << "[menu] cannot open " << data_dir << ": " << SDL_GetError() << "\n";
@@ -842,6 +862,38 @@ void draw_network_overlay() {
     ImGui::PopStyleVar();
 }
 
+// The menu while it is open over the running game, and a quit chosen in it.
+std::optional<Menu> &menu_over_game_state() {
+    static std::optional<Menu> menu;
+    return menu;
+}
+bool &quit_requested() {
+    static bool requested = false;
+    return requested;
+}
+Clock::time_point &menu_opened_at() {
+    static Clock::time_point opened;
+    return opened;
+}
+
+void note_menu_opened(bool paused) {
+    settings::Settings &s = settings::current();
+    if (!s.menu_hint_seen) {
+        s.menu_hint_seen = true;
+        settings::save();
+    }
+    std::cout << (paused ? "[menu] opened; the game is paused" : "[menu] opened; the game keeps running")
+              << std::endl;
+    menu_opened_at() = Clock::now();
+}
+
+void note_menu_closed(bool quit) {
+    const double seconds = std::chrono::duration<double>(Clock::now() - menu_opened_at()).count();
+    char text[64];
+    std::snprintf(text, sizeof(text), "%.1f", seconds);
+    std::cout << "[menu] closed after " << text << " s" << (quit ? "; quitting" : "") << std::endl;
+}
+
 } // namespace
 
 bool attach(gpu::VulkanRenderer &renderer) { return Layer::get().attach(renderer); }
@@ -850,21 +902,50 @@ void draw_over_game() {
     Layer &layer = Layer::get();
     if (!layer.attached()) return;
     script::tick();
-    // The game's keyboard request: drawn over every game frame until done.
-    if (text_input_open()) {
+    std::optional<Menu> &menu = menu_over_game_state();
+    // The game's keyboard request: drawn over every game frame until done. A
+    // keyboard opened from the menu over the running game is the menu's.
+    if (text_input_open() && !menu) {
         layer.begin_frame();
         text_input_frame();
         layer.end_frame();
         return;
     }
-    const double hint_left = settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
+    const double hint_left = menu || settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
     const bool overlay = network_overlay();
-    if (hint_left <= 0.0 && !overlay) return;
+    if (hint_left <= 0.0 && !overlay && !menu) return;
     layer.begin_frame();
     if (hint_left > 0.0) draw_hint(hint_left);
     if (overlay) draw_network_overlay();
+    if (menu && !menu->frame()) {
+        const bool quit = menu->quit() || layer.window_closed();
+        menu.reset();
+        layer.set_interactive(false);
+        layer.renderer().set_game_input(true);
+        note_menu_closed(quit);
+        if (quit) quit_requested() = true;
+    }
     layer.end_frame();
 }
+
+bool menu_pauses() {
+    const settings::Settings &s = settings::current();
+    return adhoc_session_active() ? s.menu_pause_multiplayer : s.menu_pause;
+}
+
+void open_menu_over_game() {
+    std::optional<Menu> &menu = menu_over_game_state();
+    if (menu) return;
+    Layer &layer = Layer::get();
+    note_menu_opened(false);
+    layer.renderer().set_game_input(false);
+    layer.set_interactive(true);
+    menu.emplace(false);
+}
+
+bool menu_over_game() { return menu_over_game_state().has_value(); }
+
+bool take_quit_request() { return std::exchange(quit_requested(), false); }
 
 bool menu_requested() {
     Layer &layer = Layer::get();
@@ -873,23 +954,14 @@ bool menu_requested() {
 
 bool run_menu() {
     Layer &layer = Layer::get();
-    settings::Settings &s = settings::current();
-    if (!s.menu_hint_seen) {
-        s.menu_hint_seen = true;
-        settings::save();
-    }
-    std::cout << "[menu] opened; the game is paused" << std::endl;
-    const Clock::time_point opened = Clock::now();
+    note_menu_opened(true);
     layer.renderer().set_game_input(false);
     layer.set_interactive(true);
-    Menu menu;
+    Menu menu(true);
     const bool window_open = layer.run([&] { return menu.frame(); }, true);
     layer.set_interactive(false);
     layer.renderer().set_game_input(true);
-    const double seconds = std::chrono::duration<double>(Clock::now() - opened).count();
-    char text[64];
-    std::snprintf(text, sizeof(text), "%.1f", seconds);
-    std::cout << "[menu] closed after " << text << " s" << (menu.quit() ? "; quitting" : "") << std::endl;
+    note_menu_closed(menu.quit());
     return window_open && !menu.quit();
 }
 

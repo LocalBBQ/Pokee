@@ -898,6 +898,11 @@ void adhoc_apply_settings() {
     if (Client::get().server_state() == adhoc::ServerState::Off) start_client();
 }
 
+bool adhoc_session_active() {
+    const adhoc::Diagnostics d = Client::get().diagnostics();
+    return Client::get().in_group() || d.joining.has_value() || d.rejoin_ms.has_value();
+}
+
 void register_adhoc(HleRegistrar &hle) {
     register_net(hle);
     register_adhocctl(hle);

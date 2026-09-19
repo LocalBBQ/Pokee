@@ -7,4 +7,8 @@ namespace mhp3rd {
 // nickname is used the next time the game goes on line.
 void adhoc_apply_settings();
 
+// True while the game is in an ad hoc group or joining one: pausing it then
+// would stop it answering the other players.
+[[nodiscard]] bool adhoc_session_active();
+
 } // namespace mhp3rd

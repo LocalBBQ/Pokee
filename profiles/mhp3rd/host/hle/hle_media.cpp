@@ -174,17 +174,25 @@ void present_frame(Runtime &rt) {
     }
     if (!renderer.pump_events()) {
         rt.stop("window closed");
-    } else if (ui::menu_requested()) {
-        // The menu pauses the game: guest code and emulated time stand still
-        // while it runs in here, and the device stops playing.
-        audio::AudioSink::instance().set_paused(true);
-        const bool keep_playing = ui::run_menu();
-        audio::AudioSink::instance().set_paused(false);
-        // Resume at normal speed rather than racing to make up the pause, and
-        // keep the pause out of the frame statistics.
-        kernel().resync_real_time();
-        perf::restart_measurement();
-        if (!keep_playing) rt.stop("quit from the menu");
+    } else if (ui::take_quit_request()) {
+        rt.stop("quit from the menu");
+    } else if (!ui::menu_over_game() && ui::menu_requested()) {
+        if (ui::menu_pauses()) {
+            // The menu pauses the game: guest code and emulated time stand
+            // still while it runs in here, and the device stops playing.
+            audio::AudioSink::instance().set_paused(true);
+            const bool keep_playing = ui::run_menu();
+            audio::AudioSink::instance().set_paused(false);
+            // Resume at normal speed rather than racing to make up the pause,
+            // and keep the pause out of the frame statistics.
+            kernel().resync_real_time();
+            perf::restart_measurement();
+            if (!keep_playing) rt.stop("quit from the menu");
+        } else {
+            // The game keeps running, sound and pacing included; the menu is
+            // drawn over each frame and takes all input until it closes.
+            ui::open_menu_over_game();
+        }
     }
 #else
     (void)rt;

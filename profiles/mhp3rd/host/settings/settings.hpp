@@ -59,6 +59,8 @@ struct Settings {
     std::string adhoc_mac;             // this player's virtual MAC, made up on first use
 
     // Interface
+    bool menu_pause{true};             // opening the menu pauses the game
+    bool menu_pause_multiplayer{};     // ...also during ad hoc play, where a paused game stops answering its peers
     bool menu_hint_seen{};             // the "Esc / L3+R3 opens the menu" hint was shown
     std::string last_folder;           // where the setup's file browser was last used
 };

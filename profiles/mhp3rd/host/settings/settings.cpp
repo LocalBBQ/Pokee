@@ -219,6 +219,14 @@ const std::vector<Field> &fields() {
              return true;
          },
          [](const Settings &s) { return s.adhoc_mac; }, [](Settings &s, const char *t) { s.adhoc_mac = t; }},
+        {"ui.menu_pause", "MHP3RD_MENU_PAUSE",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.menu_pause); },
+         [](const Settings &s) { return std::string(s.menu_pause ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.menu_pause = variable_flag(t); }},
+        {"ui.menu_pause_multiplayer", "MHP3RD_MENU_PAUSE_MULTIPLAYER",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.menu_pause_multiplayer); },
+         [](const Settings &s) { return std::string(s.menu_pause_multiplayer ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.menu_pause_multiplayer = variable_flag(t); }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
         {"ui.last_folder", nullptr,
          [](Settings &s, const std::string &t) {
