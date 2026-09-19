@@ -12,8 +12,10 @@
 #include "save_data/param_sfo.hpp"
 #include "save_data/savedata_crypto.hpp"
 #include "save_data/savedata_store.hpp"
+#include "save_data/save_transfer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -153,6 +155,140 @@ void test_store() {
     std::filesystem::remove_all(root);
 }
 
+std::vector<std::uint8_t> file_bytes(const std::filesystem::path &path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+// Writes a save the way the game does, under <memory_stick>/PSP/SAVEDATA.
+void make_save(const std::filesystem::path &memory_stick, const std::string &game, const std::string &save,
+               const Block &key, std::uint8_t fill) {
+    SaveFiles files;
+    files.game_name = game;
+    files.save_name = save;
+    files.file_name = "MHP3RD.BIN";
+    files.key = key;
+    SaveContents contents;
+    contents.data = std::vector<std::uint8_t>(2048u, fill);
+    contents.title = "Title";
+    contents.icon0 = {1, 2, 3};
+    std::string error;
+    if (!write_save(memory_stick, files, contents, error)) std::printf("cannot write a test save: %s\n", error.c_str());
+}
+
+void test_transfer() {
+    namespace fs = std::filesystem;
+    const auto root = fs::temp_directory_path() / "mhp3rd_save_transfer_tests";
+    fs::remove_all(root);
+    const Block key = block("0102030405060708090a0b0c0d0e0f10");
+    const Block wrong_key = block("f0e0d0c0b0a090807060504030201000");
+    const fs::path source = root / "stick";
+    const fs::path source_saves = source / "PSP" / "SAVEDATA";
+    make_save(source, "ULJM05800", "", key, 0x11u);
+    make_save(source, "ULJM05800", "QST", key, 0x22u);
+    make_save(source, "ULUS10000", "", key, 0x33u);
+
+    check(is_game_save_name("ULJM05800QST") && !is_game_save_name("ULJM05800X"), "the game's folder names");
+    check(check_save_folder(source_saves / "ULJM05800", key).ok(), "a save of this game passes");
+    check(check_save_folder(source_saves / "ULJM05800QST", key).name == "ULJM05800QST", "the save's name is read");
+    const SaveCheck other = check_save_folder(source_saves / "ULUS10000", key);
+    check(!other.ok() && other.other_game, "a save of another game is refused");
+    check(!check_save_folder(source_saves / "ULJM05800", wrong_key).ok(), "a save made with another key is refused");
+    check(!check_save_folder(source_saves / "ULJM05800", std::nullopt).ok(), "an encrypted save needs the key");
+    check(!check_save_folder(root, key).ok(), "a folder without PARAM.SFO is refused");
+
+    // A damaged copy: one byte of the data file changed.
+    const fs::path damaged = root / "damaged" / "ULJM05800";
+    fs::create_directories(damaged);
+    for (const auto &entry : fs::directory_iterator(source_saves / "ULJM05800"))
+        fs::copy_file(entry.path(), damaged / entry.path().filename());
+    {
+        std::fstream data(damaged / "MHP3RD.BIN", std::ios::binary | std::ios::in | std::ios::out);
+        data.seekp(200);
+        data.put('\x7f');
+    }
+    check(!check_save_folder(damaged, key).ok(), "a damaged data file is refused");
+    // A damaged PARAM.SFO: the title changed, which its hashes cover.
+    fs::copy_file(source_saves / "ULJM05800" / "MHP3RD.BIN", damaged / "MHP3RD.BIN",
+                  fs::copy_options::overwrite_existing);
+    check(check_save_folder(damaged, key).ok(), "the undamaged copy passes");
+    {
+        auto sfo_bytes = file_bytes(damaged / "PARAM.SFO");
+        const auto title = std::search(sfo_bytes.begin(), sfo_bytes.end(), std::begin("Title"), std::end("Title") - 1);
+        if (title != sfo_bytes.end()) *title = 't';
+        std::ofstream(damaged / "PARAM.SFO", std::ios::binary)
+            .write(reinterpret_cast<const char *>(sfo_bytes.data()), static_cast<std::streamsize>(sfo_bytes.size()));
+    }
+    check(!check_save_folder(damaged, key).ok(), "a damaged PARAM.SFO is refused");
+    fs::remove(damaged / "MHP3RD.BIN");
+    check(!check_save_folder(damaged, key).ok(), "a missing data file is refused");
+
+    // What the player picks: one save, a SAVEDATA folder or a memory stick.
+    check(find_saves(source_saves / "ULJM05800", key).size() == 1u, "a save folder is found as itself");
+    const auto from_stick = find_saves(source, key);
+    check(from_stick.size() == 3u, "a memory stick's saves are found under PSP/SAVEDATA");
+    check(std::count_if(from_stick.begin(), from_stick.end(), [](const SaveCheck &c) { return c.ok(); }) == 2,
+          "only this game's saves can be imported");
+    check(find_saves(source / "PSP", key).size() == 3u, "a PSP folder's saves are found under SAVEDATA");
+    fs::create_directories(root / "empty");
+    check(find_saves(root / "empty", key).empty(), "a folder without saves has none");
+
+    // Backup naming: a time, and a suffix when it is taken.
+    const auto time = std::chrono::system_clock::from_time_t(1790000000);
+    const std::string stamp = timestamp_for_path(time);
+    check(stamp.size() == 19u && stamp[4] == '-' && stamp[10] == '_' && stamp.find(':') == std::string::npos,
+          "backup folders are named by date and time, without colons");
+    const fs::path dest = root / "installed";
+    const fs::path dest_saves = dest / "PSP" / "SAVEDATA";
+    const fs::path first_backup = backup_directory(dest_saves, time);
+    check(first_backup == dest_saves / ".backup" / stamp, "backups go to SAVEDATA/.backup/<time>");
+    fs::create_directories(first_backup);
+    check(backup_directory(dest_saves, time) == dest_saves / ".backup" / (stamp + "-2"),
+          "a second backup in the same second gets its own folder");
+    fs::remove_all(dest_saves / ".backup");
+
+    // Import into an empty installation, then replace it with another save.
+    const ImportResult first = import_save(check_save_folder(source_saves / "ULJM05800", key), dest,
+                                           backup_directory(dest_saves, time));
+    check(first.ok && first.backup.empty(), "a save is imported where none was");
+    SaveFiles files;
+    files.game_name = "ULJM05800";
+    files.file_name = "MHP3RD.BIN";
+    files.key = key;
+    check(load_save(dest, files).contents.data == std::vector<std::uint8_t>(2048u, 0x11u), "the imported save loads");
+    const auto old_bytes = file_bytes(dest_saves / "ULJM05800" / "MHP3RD.BIN");
+
+    const fs::path newer = root / "newer";
+    make_save(newer, "ULJM05800", "", key, 0x44u);
+    const fs::path backup_dir = backup_directory(dest_saves, time);
+    const ImportResult second =
+        import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULJM05800", key), dest, backup_dir);
+    check(second.ok && second.backup == backup_dir / "ULJM05800", "a replaced save is moved to the backup folder");
+    check(file_bytes(second.backup / "MHP3RD.BIN") == old_bytes && fs::exists(second.backup / "PARAM.SFO"),
+          "the backup holds the replaced save unchanged");
+    check(load_save(dest, files).contents.data == std::vector<std::uint8_t>(2048u, 0x44u), "the new save loads");
+    check(!fs::exists(dest_saves / ".import-ULJM05800"), "no partial copy is left behind");
+    check(!import_save(check_save_folder(dest_saves / "ULJM05800", key), dest, backup_dir).ok,
+          "the save in use cannot be imported over itself");
+    check(!import_save(other, dest, backup_dir).ok && !fs::exists(dest_saves / "ULUS10000"),
+          "a refused save is not copied");
+
+    // Export: a new folder laid out like a memory stick.
+    const fs::path target = root / "export";
+    fs::create_directories(target);
+    const ExportResult exported = export_saves(dest, target, time);
+    check(exported.ok && exported.exported.size() == 1u, "the installed saves are exported");
+    const fs::path out = exported.folder / "PSP" / "SAVEDATA" / "ULJM05800";
+    bool same = true;
+    for (const auto &entry : fs::directory_iterator(dest_saves / "ULJM05800"))
+        same = same && file_bytes(entry.path()) == file_bytes(out / entry.path().filename());
+    check(same, "the export is identical to the installed save");
+    check(export_saves(dest, target, time).folder != exported.folder, "a second export does not replace the first");
+    check(!export_saves(root / "nothing", target, time).ok, "there is nothing to export without saves");
+
+    fs::remove_all(root);
+}
+
 } // namespace
 
 std::vector<std::uint8_t> read_all(const std::filesystem::path &path) {
@@ -206,6 +342,7 @@ int main(int argc, char **argv) {
     test_param_sfo();
     test_encryption();
     test_store();
+    test_transfer();
     std::printf("%d failure(s)\n", failures);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

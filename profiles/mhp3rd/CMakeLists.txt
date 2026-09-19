@@ -119,6 +119,7 @@ set(MHP3RD_HOST_SOURCES
     host/save_data/param_sfo.cpp
     host/save_data/savedata_crypto.cpp
     host/save_data/savedata_store.cpp
+    host/save_data/save_transfer.cpp
     host/install/executable_preparation.cpp
     host/install/front_end.cpp
     host/install/installer.cpp
@@ -222,6 +223,7 @@ add_executable(mhp3rd_savedata_tests
     host/save_data/param_sfo.cpp
     host/save_data/savedata_crypto.cpp
     host/save_data/savedata_store.cpp
+    host/save_data/save_transfer.cpp
     third_party/tiny_aes/aes.c)
 target_include_directories(mhp3rd_savedata_tests PRIVATE
     "${MHP3RD_PROFILE_DIR}/host"

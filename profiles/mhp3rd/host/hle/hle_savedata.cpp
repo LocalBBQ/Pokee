@@ -15,6 +15,7 @@
 
 #include "save_data/savedata_crypto.hpp"
 #include "save_data/savedata_store.hpp"
+#include "save_data/save_transfer.hpp"
 
 #include "psprecomp/common.hpp"
 
@@ -160,7 +161,11 @@ savedata::SaveFiles files_for(const psprecomp::GuestMemory &memory, std::uint32_
     if (memory.load32(params + dialog_common::kSizeOffset) > param::kMinimumSizeWithKey) {
         savedata::Block key{};
         for (std::uint32_t i = 0; i < key.size(); ++i) key[i] = memory.load8(params + param::kKey + i);
-        if (!savedata::is_zero(key)) files.key = key;
+        if (!savedata::is_zero(key)) {
+            files.key = key;
+            // The menu's Import checks saves with it.
+            savedata::remember_game_key(files.game_name, key);
+        }
     }
     return files;
 }
@@ -370,6 +375,7 @@ std::uint32_t run_request(psprecomp::GuestMemory &memory, std::uint32_t params) 
 
 void register_savedata(HleRegistrar &hle, const std::filesystem::path &memory_stick) {
     state().memory_stick = memory_stick;
+    savedata::set_memory_stick(memory_stick);
 
     hle.add("sceUtility", "sceUtilitySavedataInitStart", [](Runtime &rt, AllegrexContext &ctx) {
         auto &memory = rt.memory();
