@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -121,12 +122,39 @@ std::vector<std::uint8_t> &GuestMemory::region_bytes(Region region) noexcept {
     return region == Region::Vram ? vram_ : bytes_;
 }
 
+namespace {
+
+// PSPRECOMP_TRACE_VRAM_READS: guest code reading VRAM, by 64 KiB block, at
+// most once a second per block with the number of loads since. Only loads
+// from translated code come through here, not the host's own reads, so this
+// shows the game copying from a framebuffer with the CPU.
+void trace_vram_read(std::uint32_t canonical_address) {
+    static const bool enabled = std::getenv("PSPRECOMP_TRACE_VRAM_READS") != nullptr;
+    if (!enabled) return;
+    constexpr std::uint32_t kBlocks = 128u;
+    static std::uint64_t counts[kBlocks]{};
+    static std::chrono::steady_clock::time_point last[kBlocks]{};
+    const std::uint32_t block = ((canonical_address & 0x001FFFFFu) >> 16u) % kBlocks;
+    ++counts[block];
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last[block] < std::chrono::seconds(1)) return;
+    last[block] = now;
+    std::cout << "[vram] guest reads 0x" << std::hex << (0x04000000u | (block << 16u)) << "-0x"
+              << (0x04000000u | ((block + 1u) << 16u)) << std::dec << ": " << counts[block] << " loads\n";
+    counts[block] = 0u;
+}
+
+} // namespace
+
 // The `_slow` bodies below are the original aot_* implementations, reached only
 // when the inline main-RAM fast path in the header declines the access: EDRAM,
 // an out-of-range address, a region-crossing width, or an armed write watch.
 std::uint8_t GuestMemory::aot_load8_slow(std::uint32_t address) const {
     const std::uint32_t c = canonical(address);
-    if (is_vram_window(c)) return vram_[vram_offset(c)];
+    if (is_vram_window(c)) {
+        trace_vram_read(c);
+        return vram_[vram_offset(c)];
+    }
     if (c >= kPhysicalBase && c - kPhysicalBase < bytes_.size())
         return bytes_[static_cast<std::size_t>(c - kPhysicalBase)];
     return load8(address);
@@ -135,6 +163,7 @@ std::uint8_t GuestMemory::aot_load8_slow(std::uint32_t address) const {
 std::uint16_t GuestMemory::aot_load16_slow(std::uint32_t address) const {
     const std::uint32_t c = canonical(address);
     if (is_vram_window(c)) {
+        trace_vram_read(c);
         const std::size_t offset = vram_offset(c);
         if (offset + 2u <= vram_.size())
             return static_cast<std::uint16_t>(vram_[offset]) |
@@ -153,6 +182,7 @@ std::uint32_t GuestMemory::aot_load32_slow(std::uint32_t address) const {
     const std::vector<std::uint8_t> *data = nullptr;
     std::size_t offset = 0u;
     if (is_vram_window(c)) {
+        trace_vram_read(c);
         data = &vram_;
         offset = vram_offset(c);
     } else if (c >= kPhysicalBase) {

@@ -59,6 +59,12 @@ public:
     // list is walked, so texture contents are hashed once per list, not per draw.
     void begin_display_list();
     void submit(const DrawCall &call, const GuestMemory &memory);
+    // Writes the framebuffer shown a frame or two ago back to guest VRAM, in
+    // the guest's pixel format at 480x272, so game code that copies a frame
+    // out of VRAM with the CPU or DMA finds the picture instead of stale
+    // bytes. Call once per frame before present(). MHP3RD_NO_FB_TEXTURES turns
+    // it off along with sampling render targets as textures.
+    void write_back_frame(GuestMemory &memory);
     // Ends the frame and shows the target the guest just flipped to. Draws go to
     // a separate offscreen target per guest framebuffer address, so only the
     // displayed one reaches the window.

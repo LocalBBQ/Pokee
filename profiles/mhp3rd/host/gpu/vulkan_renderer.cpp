@@ -32,6 +32,9 @@ constexpr std::uint32_t kPspWidth = 480u;
 constexpr std::uint32_t kPspHeight = 272u;
 constexpr VkDeviceSize kVertexBufferBytes = 16u * 1024u * 1024u;
 constexpr std::size_t kMaxCachedTextures = 1024u;
+// Descriptor sets for sampling render targets as textures: two per target
+// (with its alpha, and with alpha forced to one for 5650 textures).
+constexpr std::size_t kMaxFramebufferTextureSets = 64u;
 
 // Compiled SPIR-V, generated from host/gpu/shaders by the build.
 #include "ge_shaders.inc"
@@ -426,8 +429,54 @@ struct VulkanRenderer::Impl {
         VkImageView depth_view{};
         VkFramebuffer framebuffer{};
         bool initialized{};
+        // The guest's view of the buffer when it was last drawn to: row length
+        // in pixels and pixel format (0:5650 1:5551 2:4444 3:8888).
+        std::uint32_t stride{512u};
+        std::uint32_t format{3u};
+        std::uint64_t last_drawn_frame{};
+        // Bumped by every draw into the target, so a copy made for sampling
+        // knows when it is out of date.
+        std::uint64_t draw_serial{};
+        // One guest word from every 256 bytes of the buffer, read when it was
+        // last drawn to. The renderer never writes guest memory, so a word that
+        // has changed since means the game put something else there.
+        std::vector<std::uint32_t> guest_words;
+        // The copy that draws sample when the game textures from this buffer:
+        // a render pass cannot read its own attachment.
+        VkImage copy{};
+        VkDeviceMemory copy_memory{};
+        VkImageView copy_view{};
+        VkImageView copy_opaque_view{};
+        std::array<VkDescriptorSet, 2> copy_descriptors{};
+        std::uint64_t copy_serial{};
+        bool copy_valid{};
     };
     std::map<std::uint32_t, Target> targets;
+    // Write-back of the displayed framebuffer to guest VRAM (write_back_frame):
+    // present() scales the target to 480x272 and copies it into a mapped
+    // buffer; begin_frame(), after the frame fence, takes the pixels; the next
+    // write_back_frame() stores them in the guest's format.
+    VkImage writeback_image{};
+    VkDeviceMemory writeback_memory{};
+    VkImageView writeback_view{};
+    VkBuffer writeback_buffer{};
+    VkDeviceMemory writeback_buffer_memory{};
+    void *writeback_mapped{};
+    struct WritebackFrame {
+        std::uint32_t address{};
+        std::uint32_t stride{};
+        std::uint32_t format{};
+    };
+    WritebackFrame writeback_recorded{};  // copied by the frame in flight
+    bool writeback_in_flight{};
+    WritebackFrame writeback_ready{};     // pixels waiting in writeback_pixels
+    bool writeback_has_pixels{};
+    std::vector<std::uint32_t> writeback_pixels;
+    bool create_writeback(std::string &error);
+    void destroy_writeback();
+    void record_writeback(std::uint32_t address);
+    // Numbers draws into targets across all of them, for Target::draw_serial.
+    std::uint64_t target_draw_counter{};
     std::uint32_t current_target{};
     std::uint32_t last_drawn_target{};
     std::uint32_t presented_target{};
@@ -458,6 +507,10 @@ struct VulkanRenderer::Impl {
     VkDeviceSize uniform_alignment{256u};
     VkSampler sampler{};        // linear
     VkSampler sharp_sampler{};  // nearest, for the sharp texture setting
+    // The same, clamped to the edge, for render targets sampled as textures:
+    // the game's texture is usually larger than the 480x272 the target holds.
+    VkSampler clamp_sampler{};
+    VkSampler clamp_sharp_sampler{};
     std::map<PipelineKey, VkPipeline> pipelines;
 
     VkBuffer vertex_buffer{};
@@ -620,6 +673,9 @@ struct VulkanRenderer::Impl {
     }
 
     [[nodiscard]] VkSampler texture_sampler() const { return sharp_textures ? sharp_sampler : sampler; }
+    [[nodiscard]] VkSampler framebuffer_sampler() const {
+        return sharp_textures ? clamp_sharp_sampler : clamp_sampler;
+    }
     [[nodiscard]] VkPresentModeKHR wanted_present_mode() const;
     bool create_swapchain(std::string &error);
     void destroy_swapchain_views();
@@ -638,6 +694,18 @@ struct VulkanRenderer::Impl {
     void end_pass();
     VkPipeline pipeline_for(const PipelineKey &key);
     Texture &texture_for(const GuestMemory &memory, const TextureState &state);
+    void trace_framebuffer_texture(const DrawCall &call);
+    // A render target the texture reads, with the texture's first texel as a
+    // pixel position inside it; see framebuffer_texture().
+    struct FramebufferTexture {
+        Target *target{};
+        std::uint32_t x{};
+        std::uint32_t y{};
+    };
+    [[nodiscard]] FramebufferTexture find_framebuffer_texture(const GuestMemory &memory,
+                                                              const TextureState &texture);
+    VkDescriptorSet framebuffer_descriptor(Target &target, bool opaque);
+    void snapshot_guest_words(const GuestMemory &memory, std::uint32_t address, Target &target);
     Texture create_texture(std::uint32_t width, std::uint32_t height, const std::uint32_t *pixels);
     void destroy_texture(Texture &texture);
 };
@@ -855,12 +923,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     const std::array<VkDescriptorPoolSize, 2> pool_sizes{
         VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                             static_cast<std::uint32_t>(kMaxCachedTextures + 1u)},
+                             static_cast<std::uint32_t>(kMaxCachedTextures + 1u + kMaxFramebufferTextureSets)},
         VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1u},
     };
     VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_info.maxSets = static_cast<std::uint32_t>(kMaxCachedTextures + 2u);
+    pool_info.maxSets = static_cast<std::uint32_t>(kMaxCachedTextures + 2u + kMaxFramebufferTextureSets);
     pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
     pool_info.pPoolSizes = pool_sizes.data();
     if (!check(vkCreateDescriptorPool(impl.device, &pool_info, nullptr, &impl.descriptor_pool),
@@ -891,6 +959,16 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     sampler_info.magFilter = VK_FILTER_NEAREST;
     sampler_info.minFilter = VK_FILTER_NEAREST;
     if (!check(vkCreateSampler(impl.device, &sampler_info, nullptr, &impl.sharp_sampler), "vkCreateSampler", error))
+        return false;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (!check(vkCreateSampler(impl.device, &sampler_info, nullptr, &impl.clamp_sharp_sampler), "vkCreateSampler",
+               error))
+        return false;
+    sampler_info.magFilter = VK_FILTER_LINEAR;
+    sampler_info.minFilter = VK_FILTER_LINEAR;
+    if (!check(vkCreateSampler(impl.device, &sampler_info, nullptr, &impl.clamp_sampler), "vkCreateSampler", error))
         return false;
 
     // Command buffer, synchronization and the vertex staging buffer.
@@ -1328,6 +1406,12 @@ void VulkanRenderer::Impl::write_capture() {
 }
 
 void VulkanRenderer::Impl::destroy_target(Target &target) {
+    for (VkDescriptorSet &descriptor : target.copy_descriptors)
+        if (descriptor != VK_NULL_HANDLE) vkFreeDescriptorSets(device, descriptor_pool, 1u, &descriptor);
+    vkDestroyImageView(device, target.copy_opaque_view, nullptr);
+    vkDestroyImageView(device, target.copy_view, nullptr);
+    vkDestroyImage(device, target.copy, nullptr);
+    vkFreeMemory(device, target.copy_memory, nullptr);
     vkDestroyFramebuffer(device, target.framebuffer, nullptr);
     vkDestroyImageView(device, target.depth_view, nullptr);
     vkDestroyImage(device, target.depth, nullptr);
@@ -1576,6 +1660,284 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
     Texture texture = create_texture(state.width, state.height, pixels.data());
     if (texture.descriptor == VK_NULL_HANDLE) return white_texture;
     return textures.emplace(key, texture).first->second;
+}
+
+namespace {
+
+std::uint32_t texture_bits_per_pixel(TextureFormat format) {
+    switch (format) {
+    case TextureFormat::Rgba8888:
+    case TextureFormat::Clut32: return 32u;
+    case TextureFormat::Clut8: return 8u;
+    case TextureFormat::Clut4:
+    case TextureFormat::Dxt1: return 4u;
+    case TextureFormat::Dxt3:
+    case TextureFormat::Dxt5: return 8u;
+    default: return 16u;
+    }
+}
+
+std::uint32_t framebuffer_bytes_per_pixel(std::uint32_t format) { return format == 3u ? 4u : 2u; }
+
+} // namespace
+
+// MHP3RD_TRACE_FB_TEXTURES: every distinct texture whose memory overlaps a
+// guest framebuffer the renderer has drawn to, once, with where it is drawn.
+void VulkanRenderer::Impl::trace_framebuffer_texture(const DrawCall &call) {
+    const TextureState &texture = call.texture;
+    const std::uint64_t texture_bytes = static_cast<std::uint64_t>(std::max<std::uint32_t>(
+                                            texture.buffer_width, texture.width)) *
+                                        texture.height * texture_bits_per_pixel(texture.format) / 8u;
+    // Textures filled by a DMA copy out of VRAM, and large textures in
+    // general: a screen-sized background the game copied with the CPU shows up
+    // as one of these, next to [vram] lines for the reads.
+    static std::map<std::array<std::uint32_t, 4>, std::uint32_t> seen_textures;
+    const std::array<std::uint32_t, 4> texture_id{texture.address, static_cast<std::uint32_t>(texture.format),
+                                                  static_cast<std::uint32_t>(texture.width) << 16u | texture.height,
+                                                  texture.buffer_width};
+    std::uint32_t copy_source = 0u;
+    std::uint32_t copy_destination = 0u;
+    const bool copied = find_vram_copy(texture.address, copy_source, copy_destination);
+    if ((copied || (texture.width >= 256u && texture.height >= 128u)) && seen_textures.size() < 400u &&
+        seen_textures[texture_id]++ == 0u) {
+        std::cout << "[fbtex] frame " << frames << " large or copied texture 0x" << std::hex << texture.address
+                  << std::dec << " fmt=" << static_cast<int>(texture.format) << " " << texture.width << "x"
+                  << texture.height << " bufw=" << texture.buffer_width << " swizzled=" << (texture.swizzled ? 1 : 0)
+                  << " drawn to 0x" << std::hex << call.target.color_address << std::dec
+                  << (call.through ? " through" : " transform");
+        if (copied)
+            std::cout << " copied from VRAM 0x" << std::hex << copy_source << " to 0x" << copy_destination << std::dec;
+        std::cout << "\n";
+    }
+
+    static std::map<std::array<std::uint32_t, 7>, std::uint32_t> seen;
+    for (const auto &[address, target] : targets) {
+        const std::uint64_t target_bytes =
+            static_cast<std::uint64_t>(target.stride) * kPspHeight * framebuffer_bytes_per_pixel(target.format);
+        const std::uint64_t start = texture.address;
+        if (start + texture_bytes <= address || start >= address + target_bytes) continue;
+        const std::array<std::uint32_t, 7> key{texture.address, static_cast<std::uint32_t>(texture.format),
+                                               texture.width,   texture.height,
+                                               texture.buffer_width, address, call.target.color_address};
+        std::uint32_t &count = seen[key];
+        if (count++ != 0u || seen.size() > 400u) continue;
+        const Vertex &first = call.vertices.front();
+        const Vertex &last = call.vertices.back();
+        std::cout << "[fbtex] frame " << frames << " texture 0x" << std::hex << texture.address << std::dec
+                  << " fmt=" << static_cast<int>(texture.format) << " " << texture.width << "x" << texture.height
+                  << " bufw=" << texture.buffer_width << " swizzled=" << (texture.swizzled ? 1 : 0)
+                  << " filter=" << texture.min_filter << "/" << texture.mag_filter << " wrap=" << texture.wrap_s
+                  << "/" << texture.wrap_t << " in framebuffer 0x" << std::hex << address << std::dec
+                  << " (stride=" << target.stride << " fmt=" << target.format
+                  << " last drawn frame " << target.last_drawn_frame << ", offset "
+                  << (texture.address - address) << ") drawn to 0x" << std::hex << call.target.color_address
+                  << std::dec << " fmt=" << call.target.color_format << (call.through ? " through" : " transform")
+                  << " prim=" << static_cast<int>(call.primitive) << " verts=" << call.vertices.size()
+                  << " pos=(" << first.position[0] << "," << first.position[1] << ")-(" << last.position[0] << ","
+                  << last.position[1] << ") uv=(" << first.texcoord[0] << "," << first.texcoord[1] << ")-("
+                  << last.texcoord[0] << "," << last.texcoord[1] << ") uvscale=(" << texture.scale_u << ","
+                  << texture.scale_v << "," << texture.offset_u << "," << texture.offset_v << ") blend="
+                  << (call.blend.enabled ? 1 : 0) << " tfx=" << texture.function << "\n";
+    }
+}
+
+bool VulkanRenderer::Impl::create_writeback(std::string &error) {
+    if (!create_image(kPspWidth, kPspHeight, VK_FORMAT_R8G8B8A8_UNORM,
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, writeback_image,
+                      writeback_memory, writeback_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
+        return false;
+    const VkDeviceSize bytes = static_cast<VkDeviceSize>(kPspWidth) * kPspHeight * 4u;
+    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = bytes;
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (!check(vkCreateBuffer(device, &buffer_info, nullptr, &writeback_buffer), "vkCreateBuffer", error))
+        return false;
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(device, writeback_buffer, &requirements);
+    VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocate.allocationSize = requirements.size;
+    allocate.memoryTypeIndex = find_memory_type(
+        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!check(vkAllocateMemory(device, &allocate, nullptr, &writeback_buffer_memory), "vkAllocateMemory", error))
+        return false;
+    vkBindBufferMemory(device, writeback_buffer, writeback_buffer_memory, 0u);
+    return check(vkMapMemory(device, writeback_buffer_memory, 0u, bytes, 0u, &writeback_mapped), "vkMapMemory",
+                 error);
+}
+
+void VulkanRenderer::Impl::destroy_writeback() {
+    if (writeback_mapped != nullptr) vkUnmapMemory(device, writeback_buffer_memory);
+    vkDestroyBuffer(device, writeback_buffer, nullptr);
+    vkFreeMemory(device, writeback_buffer_memory, nullptr);
+    vkDestroyImageView(device, writeback_view, nullptr);
+    vkDestroyImage(device, writeback_image, nullptr);
+    vkFreeMemory(device, writeback_memory, nullptr);
+    writeback_mapped = nullptr;
+    writeback_buffer = VK_NULL_HANDLE;
+    writeback_buffer_memory = VK_NULL_HANDLE;
+    writeback_view = VK_NULL_HANDLE;
+    writeback_image = VK_NULL_HANDLE;
+    writeback_memory = VK_NULL_HANDLE;
+    writeback_in_flight = false;
+    writeback_has_pixels = false;
+}
+
+// Records the copy of the displayed target that write_back_frame() stores in
+// guest memory. Only framebuffers in VRAM that the GE drew are written back;
+// a frame the CPU wrote itself is in memory already.
+void VulkanRenderer::Impl::record_writeback(std::uint32_t address) {
+    const auto found = targets.find(address);
+    if (found == targets.end() || (GuestMemory::canonical(address) & 0x1F000000u) != 0x04000000u) return;
+    Target &target = found->second;
+    if (!target.initialized || target.guest_words.empty() || target.stride < kPspWidth) return;
+    if (writeback_image == VK_NULL_HANDLE) {
+        std::string error;
+        if (!create_writeback(error)) {
+            std::cout << "[render] cannot write frames back to guest memory: " << error << "\n";
+            destroy_writeback();
+            return;
+        }
+    }
+    transition(command_buffer, target.color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transition(command_buffer, writeback_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageBlit blit{};
+    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    blit.srcOffsets[1] = {static_cast<std::int32_t>(target_extent.width),
+                          static_cast<std::int32_t>(target_extent.height), 1};
+    blit.dstSubresource = blit.srcSubresource;
+    blit.dstOffsets[1] = {static_cast<std::int32_t>(kPspWidth), static_cast<std::int32_t>(kPspHeight), 1};
+    vkCmdBlitImage(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, writeback_image,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+    transition(command_buffer, writeback_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    copy.imageExtent = {kPspWidth, kPspHeight, 1u};
+    vkCmdCopyImageToBuffer(command_buffer, writeback_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, writeback_buffer,
+                           1u, &copy);
+    transition(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    writeback_recorded = {address, target.stride, target.format};
+    writeback_in_flight = true;
+}
+
+// Reads one guest word from every 256 bytes of the buffer a target stands for.
+void VulkanRenderer::Impl::snapshot_guest_words(const GuestMemory &memory, std::uint32_t address, Target &target) {
+    const std::uint32_t bytes = target.stride * kPspHeight * framebuffer_bytes_per_pixel(target.format);
+    target.guest_words.clear();
+    if (!memory.contains(address, bytes)) return;
+    target.guest_words.reserve(bytes / 256u + 1u);
+    for (std::uint32_t offset = 0; offset + 4u <= bytes; offset += 256u)
+        target.guest_words.push_back(memory.load32(address + offset));
+}
+
+// The render target a texture lies in, if the texture reads it the way it was
+// drawn: the same row length, a direct colour format of the same pixel size,
+// and guest memory under the texture unchanged since the target was last drawn
+// to. Anything else (a palette or swizzled view of a framebuffer, or a texture
+// the game has since put where a framebuffer was) is decoded from guest memory.
+VulkanRenderer::Impl::FramebufferTexture VulkanRenderer::Impl::find_framebuffer_texture(
+    const GuestMemory &memory, const TextureState &texture) {
+    if (texture.swizzled || static_cast<std::uint32_t>(texture.format) > 3u || texture.width == 0u ||
+        texture.height == 0u)
+        return {};
+    const std::uint32_t texture_address = GuestMemory::canonical(texture.address);
+    Target *best = nullptr;
+    std::uint32_t best_base = 0u;
+    for (auto &[address, target] : targets) {
+        if (!target.initialized || target.guest_words.empty()) continue;
+        const std::uint32_t bytes_per_pixel = framebuffer_bytes_per_pixel(target.format);
+        if (texture_bits_per_pixel(texture.format) != bytes_per_pixel * 8u) continue;
+        const std::uint32_t base = GuestMemory::canonical(address);
+        const std::uint32_t bytes = target.stride * kPspHeight * bytes_per_pixel;
+        if (texture_address < base || texture_address - base >= bytes) continue;
+        if (texture.buffer_width != target.stride || (texture_address - base) % bytes_per_pixel != 0u) continue;
+        if (best == nullptr || target.draw_serial > best->draw_serial) {
+            best = &target;
+            best_base = base;
+        }
+    }
+    if (best == nullptr) return {};
+
+    const std::uint32_t bytes_per_pixel = framebuffer_bytes_per_pixel(best->format);
+    const std::uint64_t texture_end = static_cast<std::uint64_t>(texture_address) +
+                                      static_cast<std::uint64_t>(texture.buffer_width) * texture.height *
+                                          bytes_per_pixel;
+    for (std::size_t i = 0; i < best->guest_words.size(); ++i) {
+        const std::uint32_t word_address = best_base + static_cast<std::uint32_t>(i) * 256u;
+        if (word_address < texture_address || word_address >= texture_end) continue;
+        if (!memory.contains(word_address, 4u) || memory.load32(word_address) != best->guest_words[i]) return {};
+    }
+    const std::uint32_t pixel = (texture_address - best_base) / bytes_per_pixel;
+    FramebufferTexture found{best, pixel % best->stride, pixel / best->stride};
+    if (found.x >= kPspWidth || found.y >= kPspHeight) return {};
+    return found;
+}
+
+// A sampled copy of the target, brought up to date with its latest draw. The
+// copy is recorded between render passes, so the pass in progress ends here.
+VkDescriptorSet VulkanRenderer::Impl::framebuffer_descriptor(Target &target, bool opaque) {
+    if (target.copy == VK_NULL_HANDLE) {
+        std::string error;
+        if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_R8G8B8A8_UNORM,
+                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, target.copy,
+                          target.copy_memory, target.copy_view, VK_IMAGE_ASPECT_COLOR_BIT, error)) {
+            std::cout << "[render] cannot sample a render target: " << error << "\n";
+            return VK_NULL_HANDLE;
+        }
+        // A 5650 texture has no alpha: the GE reads it as opaque, whatever the
+        // target's alpha channel holds.
+        VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        view_info.image = target.copy;
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        view_info.components.a = VK_COMPONENT_SWIZZLE_ONE;
+        view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u};
+        if (vkCreateImageView(device, &view_info, nullptr, &target.copy_opaque_view) != VK_SUCCESS)
+            return VK_NULL_HANDLE;
+        for (std::size_t i = 0; i < target.copy_descriptors.size(); ++i) {
+            VkDescriptorSetAllocateInfo descriptor_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            descriptor_info.descriptorPool = descriptor_pool;
+            descriptor_info.descriptorSetCount = 1u;
+            descriptor_info.pSetLayouts = &descriptor_layout;
+            if (vkAllocateDescriptorSets(device, &descriptor_info, &target.copy_descriptors[i]) != VK_SUCCESS) {
+                target.copy_descriptors[i] = VK_NULL_HANDLE;
+                return VK_NULL_HANDLE;
+            }
+            VkDescriptorImageInfo image_info{framebuffer_sampler(), i == 0u ? target.copy_view : target.copy_opaque_view,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet = target.copy_descriptors[i];
+            write.descriptorCount = 1u;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = &image_info;
+            vkUpdateDescriptorSets(device, 1u, &write, 0u, nullptr);
+        }
+        target.copy_valid = false;
+    }
+    if (!target.copy_valid || target.copy_serial != target.draw_serial) {
+        end_pass();
+        transition(command_buffer, target.color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        transition(command_buffer, target.copy,
+                   target.copy_valid ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageCopy region{};
+        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+        region.dstSubresource = region.srcSubresource;
+        region.extent = {target_extent.width, target_extent.height, 1u};
+        vkCmdCopyImage(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target.copy,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        transition(command_buffer, target.copy, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        transition(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        target.copy_serial = target.draw_serial;
+        target.copy_valid = true;
+    }
+    return target.copy_descriptors[opaque ? 1u : 0u];
 }
 
 VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
@@ -1849,6 +2211,11 @@ void VulkanRenderer::set_internal_scale(std::uint32_t scale) {
             std::cout << "[render] cannot resize a render target: " << error << "\n";
             continue;
         }
+        target->stride = old_target.stride;
+        target->format = old_target.format;
+        target->last_drawn_frame = old_target.last_drawn_frame;
+        target->draw_serial = old_target.draw_serial;
+        target->guest_words = old_target.guest_words;
         if (old_target.initialized) copies.emplace_back(target, &old_target);
     }
     impl.run_commands([&](VkCommandBuffer commands) {
@@ -1930,6 +2297,19 @@ void VulkanRenderer::set_sharp_textures(bool sharp) {
     };
     rewrite(impl.white_texture);
     for (auto &[key, texture] : impl.textures) rewrite(texture);
+    for (auto &[address, target] : impl.targets) {
+        for (std::size_t i = 0; i < target.copy_descriptors.size(); ++i) {
+            if (target.copy_descriptors[i] == VK_NULL_HANDLE) continue;
+            VkDescriptorImageInfo image_info{impl.framebuffer_sampler(), i == 0u ? target.copy_view : target.copy_opaque_view,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet = target.copy_descriptors[i];
+            write.descriptorCount = 1u;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = &image_info;
+            vkUpdateDescriptorSets(impl.device, 1u, &write, 0u, nullptr);
+        }
+    }
 }
 
 void VulkanRenderer::set_perf_overlay(bool visible) {
@@ -2040,6 +2420,13 @@ void VulkanRenderer::begin_frame() {
     vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
     perf::add_wait_time(perf::Clock::now() - wait_start);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
+    if (impl.writeback_in_flight) {
+        impl.writeback_pixels.resize(static_cast<std::size_t>(kPspWidth) * kPspHeight);
+        std::memcpy(impl.writeback_pixels.data(), impl.writeback_mapped, impl.writeback_pixels.size() * 4u);
+        impl.writeback_ready = impl.writeback_recorded;
+        impl.writeback_has_pixels = true;
+        impl.writeback_in_flight = false;
+    }
     vkResetCommandBuffer(impl.command_buffer, 0u);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -2104,6 +2491,9 @@ void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint
     impl.transition(impl.command_buffer, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     impl.last_drawn_target = display_address;
+    // The frame came from guest memory, which texturing reads correctly anyway.
+    ++target->draw_serial;
+    target->guest_words.clear();
 }
 
 void VulkanRenderer::begin_display_list() {
@@ -2442,14 +2832,53 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
 
     if (call.clear_mode) push.texture_params = {0.0f, 0.0f, 0.0f, 0.0f};
 
-    const Impl::Texture &texture = (call.texture.enabled && !call.clear_mode)
-                                       ? impl.texture_for(memory, call.texture)
-                                       : impl.white_texture;
+    static const bool trace_fb = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
+    if (trace_fb && call.texture.enabled && !call.clear_mode) impl.trace_framebuffer_texture(call);
+
+    // A texture in a framebuffer the renderer drew is read from that render
+    // target: the pixels never reach guest memory, which holds whatever was
+    // there before. MHP3RD_NO_FB_TEXTURES decodes guest memory as before.
+    static const bool no_fb_textures = std::getenv("MHP3RD_NO_FB_TEXTURES") != nullptr;
+    VkDescriptorSet texture_descriptor = impl.white_texture.descriptor;
+    if (call.texture.enabled && !call.clear_mode) {
+        const Impl::FramebufferTexture source =
+            no_fb_textures ? Impl::FramebufferTexture{} : impl.find_framebuffer_texture(memory, call.texture);
+        const VkDescriptorSet copy =
+            source.target != nullptr
+                ? impl.framebuffer_descriptor(*source.target, call.texture.format == TextureFormat::Rgba5650)
+                : VK_NULL_HANDLE;
+        if (copy != VK_NULL_HANDLE) {
+            // Texture coordinates address the game's texture, whose first texel
+            // is pixel (x, y) of a target that holds 480x272 guest pixels at
+            // any internal scale.
+            texture_descriptor = copy;
+            const float width = static_cast<float>(call.texture.width);
+            const float height = static_cast<float>(call.texture.height);
+            const std::array<float, 4> uv = push.uv_transform;
+            push.uv_transform = {uv[0] * width / static_cast<float>(kPspWidth),
+                                 uv[1] * height / static_cast<float>(kPspHeight),
+                                 (uv[2] * width + static_cast<float>(source.x)) / static_cast<float>(kPspWidth),
+                                 (uv[3] * height + static_cast<float>(source.y)) / static_cast<float>(kPspHeight)};
+        } else {
+            texture_descriptor = impl.texture_for(memory, call.texture).descriptor;
+        }
+    }
 
     if (!impl.pass_active || impl.current_target != call.target.color_address) {
         impl.end_pass();
         impl.begin_pass(call.target.color_address);
         if (!impl.pass_active) return;
+    }
+    {
+        Impl::Target &drawn = impl.targets.at(call.target.color_address);
+        const bool layout_changed =
+            drawn.stride != call.target.color_stride || drawn.format != call.target.color_format;
+        drawn.stride = call.target.color_stride;
+        drawn.format = call.target.color_format;
+        if (layout_changed || drawn.guest_words.empty() || drawn.last_drawn_frame != impl.frames)
+            impl.snapshot_guest_words(memory, call.target.color_address, drawn);
+        drawn.last_drawn_frame = impl.frames;
+        drawn.draw_serial = ++impl.target_draw_counter;
     }
     // The GE viewport maps normalised device coordinates onto the screen as
     //   screen = ndc * scale + offset - region_offset
@@ -2503,7 +2932,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
 
     vkCmdBindPipeline(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     vkCmdBindDescriptorSets(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.pipeline_layout, 0u, 1u,
-                            &texture.descriptor, 0u, nullptr);
+                            &texture_descriptor, 0u, nullptr);
     const auto dynamic_offset = static_cast<std::uint32_t>(lighting_offset);
     vkCmdBindDescriptorSets(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.pipeline_layout, 1u, 1u,
                             &impl.lighting_descriptor, 1u, &dynamic_offset);
@@ -2514,6 +2943,46 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     vkCmdDraw(impl.command_buffer, static_cast<std::uint32_t>(impl.scratch.size()), 1u, 0u, 0u);
     impl.vertex_offset += bytes;
     ++impl.draws;
+}
+
+void VulkanRenderer::write_back_frame(GuestMemory &memory) {
+    Impl &impl = *impl_;
+    if (!impl.ready || !impl.writeback_has_pixels) return;
+    impl.writeback_has_pixels = false;
+    const Impl::WritebackFrame frame = impl.writeback_ready;
+    const std::uint32_t bytes_per_pixel = framebuffer_bytes_per_pixel(frame.format);
+    const std::size_t bytes = static_cast<std::size_t>(frame.stride) * kPspHeight * bytes_per_pixel;
+    std::uint8_t *out = memory.raw_pointer(frame.address, bytes);
+    if (out == nullptr) return;
+    for (std::uint32_t y = 0; y < kPspHeight; ++y) {
+        const std::uint32_t *row = impl.writeback_pixels.data() + static_cast<std::size_t>(y) * kPspWidth;
+        std::uint8_t *line = out + static_cast<std::size_t>(y) * frame.stride * bytes_per_pixel;
+        if (frame.format == 3u) {
+            std::memcpy(line, row, static_cast<std::size_t>(kPspWidth) * 4u);
+            continue;
+        }
+        for (std::uint32_t x = 0; x < kPspWidth; ++x) {
+            // Red in the low bits, as texture_decode's expand_* read them.
+            const std::uint32_t pixel = row[x];
+            const std::uint32_t r = pixel & 0xFFu;
+            const std::uint32_t g = (pixel >> 8u) & 0xFFu;
+            const std::uint32_t b = (pixel >> 16u) & 0xFFu;
+            const std::uint32_t a = pixel >> 24u;
+            std::uint32_t value = 0u;
+            if (frame.format == 0u)
+                value = (r >> 3u) | (g >> 2u) << 5u | (b >> 3u) << 11u;
+            else if (frame.format == 1u)
+                value = (r >> 3u) | (g >> 3u) << 5u | (b >> 3u) << 10u | (a >> 7u) << 15u;
+            else
+                value = (r >> 4u) | (g >> 4u) << 4u | (b >> 4u) << 8u | (a >> 4u) << 12u;
+            line[x * 2u] = static_cast<std::uint8_t>(value & 0xFFu);
+            line[x * 2u + 1u] = static_cast<std::uint8_t>(value >> 8u);
+        }
+    }
+    // The bytes now differ from the snapshot taken when the target was drawn,
+    // and are exactly what it shows: take the snapshot again.
+    const auto target = impl.targets.find(frame.address);
+    if (target != impl.targets.end()) impl.snapshot_guest_words(memory, frame.address, target->second);
 }
 
 void VulkanRenderer::present(std::uint32_t display_address) {
@@ -2543,6 +3012,9 @@ void VulkanRenderer::present(std::uint32_t display_address) {
     impl.frame_ndc_min = {1e30f, 1e30f, 1e30f};
     impl.frame_ndc_max = {-1e30f, -1e30f, -1e30f};
     impl.frame_transformed_targets.clear();
+
+    static const bool no_writeback = std::getenv("MHP3RD_NO_FB_TEXTURES") != nullptr;
+    if (!no_writeback) impl.record_writeback(display_address);
 
     // Show the target the guest flipped to; fall back to whatever was drawn last.
     auto displayed = impl.targets.find(display_address);
@@ -2660,6 +3132,7 @@ void VulkanRenderer::shutdown() {
     vkDestroyImage(impl.device, impl.overlay_image, nullptr);
     vkFreeMemory(impl.device, impl.overlay_memory, nullptr);
     impl.destroy_upload();
+    impl.destroy_writeback();
     for (auto &[key, pipeline] : impl.pipelines) vkDestroyPipeline(impl.device, pipeline, nullptr);
     impl.pipelines.clear();
     if (impl.vertex_mapped != nullptr) vkUnmapMemory(impl.device, impl.vertex_memory);
@@ -2667,6 +3140,8 @@ void VulkanRenderer::shutdown() {
     vkFreeMemory(impl.device, impl.vertex_memory, nullptr);
     vkDestroySampler(impl.device, impl.sampler, nullptr);
     vkDestroySampler(impl.device, impl.sharp_sampler, nullptr);
+    vkDestroySampler(impl.device, impl.clamp_sampler, nullptr);
+    vkDestroySampler(impl.device, impl.clamp_sharp_sampler, nullptr);
     vkDestroyDescriptorPool(impl.device, impl.descriptor_pool, nullptr);
     vkDestroyDescriptorSetLayout(impl.device, impl.descriptor_layout, nullptr);
     vkDestroyDescriptorSetLayout(impl.device, impl.lighting_layout, nullptr);

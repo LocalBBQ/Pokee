@@ -5,6 +5,7 @@
 #include <cstring>
 #include <iostream>
 #include <map>
+#include <vector>
 
 namespace mhp3rd::gpu {
 namespace {
@@ -580,9 +581,59 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
             color = data & 0x00FFFFFFu;
         } else {
             ++unhandled_commands_;
+            trace_unhandled(command, data);
         }
         break;
     }
+}
+
+namespace {
+
+struct VramCopy {
+    std::uint32_t destination{};
+    std::uint32_t source{};
+    std::uint32_t size{};
+};
+std::vector<VramCopy> &vram_copies() {
+    static std::vector<VramCopy> copies;
+    return copies;
+}
+
+} // namespace
+
+void note_vram_copy(std::uint32_t destination, std::uint32_t source, std::uint32_t size) {
+    std::vector<VramCopy> &copies = vram_copies();
+    copies.erase(std::remove_if(copies.begin(), copies.end(),
+                                [&](const VramCopy &copy) { return copy.destination == destination; }),
+                 copies.end());
+    if (copies.size() >= 64u) copies.erase(copies.begin());
+    copies.push_back({destination & 0x1FFFFFFFu, source & 0x1FFFFFFFu, size});
+}
+
+bool find_vram_copy(std::uint32_t address, std::uint32_t &source, std::uint32_t &destination) {
+    address &= 0x1FFFFFFFu;
+    const std::vector<VramCopy> &copies = vram_copies();
+    for (auto it = copies.rbegin(); it != copies.rend(); ++it) {
+        if (address >= it->destination && address - it->destination < it->size) {
+            source = it->source;
+            destination = it->destination;
+            return true;
+        }
+    }
+    return false;
+}
+
+// MHP3RD_TRACE_FB_TEXTURES also lists the commands the GE state ignores, with
+// the first few values of each, so copies the renderer never sees (block
+// transfers, for example) show up next to the textures that read their result.
+void GeState::trace_unhandled(std::uint32_t command, std::uint32_t data) {
+    static const bool trace = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
+    if (!trace) return;
+    static std::map<std::uint32_t, std::uint32_t> seen;
+    std::uint32_t &count = seen[command];
+    if (count >= 4u) return;
+    ++count;
+    std::cout << "[fbtex] unhandled GE command 0x" << std::hex << command << " data=0x" << data << std::dec << "\n";
 }
 
 void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
@@ -741,6 +792,7 @@ std::uint32_t GeState::execute(const GuestMemory &memory, std::uint32_t pc, std:
         case kSpline:
             // Curved surfaces are not tessellated yet.
             ++unhandled_commands_;
+            trace_unhandled(command, data);
             continue;
         default:
             handle_command(memory, command, data);

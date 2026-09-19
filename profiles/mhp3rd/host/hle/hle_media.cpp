@@ -153,6 +153,7 @@ void present_frame(Runtime &rt) {
                               display.buffer_width);
     }
     ui::draw_over_game();
+    renderer.write_back_frame(rt.memory());
     renderer.present(address);
     perf::add_render_time(perf::Clock::now() - present_start);
     // A frame ends when its image has been handed to the swapchain.

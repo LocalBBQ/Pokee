@@ -203,6 +203,7 @@ private:
     }
 
     void handle_command(const GuestMemory &memory, std::uint32_t command, std::uint32_t data);
+    void trace_unhandled(std::uint32_t command, std::uint32_t data);
     void draw_primitive(const GuestMemory &memory, std::uint32_t data);
     void draw_bezier_or_spline(std::uint32_t command);
 
@@ -246,6 +247,14 @@ private:
     std::uint64_t vertex_count_{};
     std::uint64_t unhandled_commands_{};
 };
+
+// Copies the game makes out of VRAM with the DMA controller, remembered for
+// MHP3RD_TRACE_FB_TEXTURES so a texture read from a copy can be traced back to
+// the framebuffer it came from.
+void note_vram_copy(std::uint32_t destination, std::uint32_t source, std::uint32_t size);
+// The most recent such copy whose destination holds `address`: its source and
+// destination, or false.
+bool find_vram_copy(std::uint32_t address, std::uint32_t &source, std::uint32_t &destination);
 
 // Decodes `count` vertices of the given vertex type starting at `address`.
 // Returns the number of bytes each vertex occupies.
