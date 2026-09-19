@@ -64,6 +64,7 @@ else()
     message(FATAL_ERROR "MHP3RD_FFMPEG must be bundled, system or OFF, not '${MHP3RD_FFMPEG}'")
 endif()
 if(NOT MHP3RD_FFMPEG STREQUAL _mhp3rd_ffmpeg_mode)
+    set_property(CACHE MHP3RD_FFMPEG PROPERTY TYPE STRING)
     set_property(CACHE MHP3RD_FFMPEG PROPERTY VALUE "${_mhp3rd_ffmpeg_mode}")
 endif()
 
