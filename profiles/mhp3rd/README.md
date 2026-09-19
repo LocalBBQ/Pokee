@@ -195,7 +195,7 @@ It builds with 2 parallel jobs; `-j N` changes that. `--no-build` stops after re
 out/mhp3rd/bin/MHP3rdNative [game_dir]       # see "Game data" for where it looks without game_dir
 ```
 
-The window renders at twice the PSP resolution by default (960×544). Esc, or L3+R3 on a gamepad, opens the [in-game menu](#in-game-menu); quit from there, or close the window (Cmd+Q on macOS, Alt+F4 on most Linux desktops). When the game asks for a name, the on-screen keyboard answers immediately with the name set in the menu (default `Hunter`); the menu can switch to typing it in the window instead (Enter confirms, Esc cancels).
+The window renders at twice the PSP resolution by default (960×544). Esc, or L3+R3 on a gamepad, opens the [in-game menu](#in-game-menu); quit from there, or close the window (Cmd+Q on macOS, Alt+F4 on most Linux desktops). When the game asks for a name, Yakumo's [on-screen keyboard](#on-screen-keyboard) opens; the menu can switch to giving a fixed name at once instead.
 
 ### Keyboard
 
@@ -231,6 +231,32 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 
 The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. The menu's *Confirm button* setting (or `MHP3RD_PAD_FACE=xbox`) moves confirm to the bottom button for pads labelled the other way round.
 
+## On-screen keyboard
+
+When the game asks for text (the hunter's name at character creation), Yakumo opens its own keyboard over the game. It works with a gamepad alone, and a physical keyboard types into it at the same time; the mouse can click its keys.
+
+| Gamepad | Keyboard | Action |
+| --- | --- | --- |
+| D-pad, left stick | | Move over the keys |
+| Confirm (○, or the bottom button with *Confirm button* set to it) | typing | Type the key |
+| Back | Backspace | Delete the character before the cursor |
+| □ (X) | | Shift: once, again for caps, again off |
+| △ (Y) | Space | Space |
+| Select / View | | Letters or symbols |
+| L1 / R1 | ← / →, Home, End | Move the cursor |
+| Start | Enter | OK |
+| the *Cancel* key | Esc | Cancel |
+
+The keys *Shift*, *#+=*, *Space*, *Delete*, *Cancel* and *OK* sit in the bottom row. A counter shows the length against the most the game takes (12 characters for a hunter name); it turns red when a key cannot be typed. Characters the game cannot take are dimmed. A hunter name may hold Latin letters, digits, space and `! # $ & ' ( ) + , - . / : ; = ? @ _ ~`. The game with the English patch draws every printable ASCII character in a name, but the asterisk comes out as a bullet, and the double quote, percent sign, asterisk, angle and square brackets, braces, backslash, caret, backquote and vertical bar are left out because text formatting may claim them.
+
+The game keeps running behind the keyboard, as it does behind the PSP's: it keeps polling the keyboard and playing sound, and its animations go on. It reads a neutral pad until the keyboard closes, and buttons still held then reach it only after they are released. The game blanks its screen while the PSP's keyboard would cover it, so the window keeps the frame from just before the keyboard opened, dimmed. The in-game menu does not open over the keyboard.
+
+Where SDL reports a system on-screen keyboard (such as Steam's in Big Picture or Game Mode), a *Steam* key appears in the bottom row and asks for it; what it types goes into the field like a physical keyboard. The built-in keyboard always works without it.
+
+OK hands the text to the game as the PSP's keyboard would: UTF-16 in the field's output buffer, the field result *changed*, and the dialog status moving from visible to quit. Cancel leaves the buffer alone and reports *cancelled*; the game then keeps the name it had.
+
+The menu's text fields (*Hunter name*, *Server*, *Nickname*) open the same keyboard when a gamepad activates them; with a keyboard or the mouse they are edited in place.
+
 ## In-game menu
 
 Esc, or L3+R3 on a gamepad, opens Yakumo's menu over the game; the same again, back at its top level or Start closes it. Esc never quits the game: Steam's desktop controller layout on a Steam Deck sends Esc with the B button, so an Esc that arrives together with a gamepad button is ignored.
@@ -262,8 +288,8 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Controls | Right stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off |
 | Controls | Invert camera horizontally / vertically | `input.invert_camera_x`, `input.invert_camera_y` | | For the right-stick camera |
 | Controls | Right stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
-| Controls | When the game asks for a name | `input.type_name` | `MHP3RD_OSK_INTERACTIVE` | Use the name below, or type it in the window |
-| Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter` |
+| Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
+| Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
 | Network | Ad hoc play | `network.adhoc` | `MHP3RD_ADHOC` | Off (default) or on; off, the game reports the wireless switch as off |
 | Network | Server | `network.server` | `MHP3RD_ADHOC_SERVER` | Host name or address of a PSP ad hoc server, optionally `host:port`; empty by default |
 | Network | Nickname | `network.nickname` | `MHP3RD_ADHOC_NICKNAME` | The name other players see; empty uses the hunter name |
@@ -468,8 +494,8 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press L/R (menu: Trigger point) |
 | `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Right stick) |
 | `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Right stick D-pad point) |
-| `MHP3RD_OSK_TEXT` | `Hunter` | Name the on-screen keyboard answers with (menu: Hunter name) |
-| `MHP3RD_OSK_INTERACTIVE` | off | Type the name in the window instead (menu: When the game asks for a name) |
+| `MHP3RD_OSK_TEXT` | `Hunter` | Fixed name given when the game asks for one, at once and without the on-screen keyboard unless `MHP3RD_OSK_MODE=keyboard` (menu: Hunter name) |
+| `MHP3RD_OSK_MODE` | `keyboard` | `keyboard` opens the on-screen keyboard; `fixed` gives the fixed name at once (menu: When the game asks for a name) |
 | `MHP3RD_AUTO_CONFIRM` | off | Press ○ every N frames, to walk through menus unattended |
 
 ### Network
@@ -503,8 +529,9 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TRACE_MPEG=1` | Every `sceMpeg` and `sceJpegCsc` call, and each call the ring buffer makes to the game's read callback |
 | `MHP3RD_SAS_NO_ENV=1` | Hold every SAS voice at full envelope, to separate an envelope bug from a decoding one |
 | `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes |
+| `MHP3RD_TRACE_OSK=1` | Every keyboard utility call with the status it returns, and the words of the parameter block, its first field and the strings they point to |
 | `MHP3RD_TRACE_ADHOC=1` | Every ad hoc, network dialog and wireless call with its arguments and result, and every packet header sent to or received from the ad hoc server (menu: Network, *Log every call and packet*) |
-| `MHP3RD_INPUT_SCRIPT` | Scripted keys, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu and the setup without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick` |
+| `MHP3RD_INPUT_SCRIPT` | Scripted keys, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu, the setup and the on-screen keyboard without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Its virtual gamepad also becomes the game's pad, in place of a real one that is connected. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick` |
 | `MHP3RD_INPUT_LIVE` | A file read while the game runs; each line appended to it is an input-script step timed from when it is read, to drive two instances side by side |
 | `MHP3RD_DUMP_OVERLAYS` | Directory to dump an overlay that has no library into |
 | `PSPRECOMP_NO_INTERPRETER=1` | Stop at uncompiled code instead of interpreting it |
@@ -544,7 +571,7 @@ The overlay shows the same numbers and a graph of the last 192 frame times, from
 host/main.cpp                    Entry point: finding the game data, executable check, startup
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/settings/                   Player settings: settings.ini, environment overrides, defaults
-host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser
+host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
 host/kernel/kernel.{hpp,cpp}     Scheduler, waits, virtual clock, interrupts, memory
 host/kernel/iso_image.{hpp,cpp}  Read-only ISO 9660 view of the disc image
