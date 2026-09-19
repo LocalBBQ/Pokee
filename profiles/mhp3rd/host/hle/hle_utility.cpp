@@ -80,6 +80,35 @@ bool interactive_osk() { return settings::current().type_name; }
 // (MHP3RD_OSK_TEXT or the in-game menu).
 std::string default_name() { return settings::current().name; }
 
+// MHP3RD_TRACE_OSK: every call of the keyboard utility, with the words of
+// its parameter block and of the first field, so their layout is read off the
+// game rather than recalled.
+bool trace_osk() {
+    static const bool trace = std::getenv("MHP3RD_TRACE_OSK") != nullptr;
+    return trace;
+}
+
+void dump_words(const psprecomp::GuestMemory &memory, const char *what, std::uint32_t address, std::uint32_t bytes) {
+    if (address == 0u) return;
+    for (std::uint32_t offset = 0; offset < bytes; offset += 16u) {
+        std::cout << "[osk-trace]   " << what << " +" << std::hex << offset << ":";
+        for (std::uint32_t i = offset; i < std::min(bytes, offset + 16u); i += 4u)
+            std::cout << " " << psprecomp::hex32(memory.load32(address + i));
+        std::cout << std::dec << "\n";
+    }
+}
+
+void dump_utf16(const psprecomp::GuestMemory &memory, const char *what, std::uint32_t address) {
+    if (address == 0u) return;
+    std::cout << "[osk-trace]   " << what << " @" << psprecomp::hex32(address) << ":";
+    for (std::uint32_t i = 0; i < 40u; ++i) {
+        const std::uint16_t unit = memory.load16(address + i * 2u);
+        std::cout << " " << std::hex << unit << std::dec;
+        if (unit == 0u) break;
+    }
+    std::cout << "\n";
+}
+
 std::uint32_t field_address(const psprecomp::GuestMemory &memory, std::uint32_t params) {
     if (params == 0u || memory.load32(params + kOskFieldCountOffset) == 0u) return 0u;
     return memory.load32(params + kOskFieldsOffset);
@@ -100,9 +129,29 @@ void finish_osk(psprecomp::GuestMemory &memory, const std::string &text, bool ca
     std::cout << "[osk] " << (cancelled ? "cancelled" : "entered \"" + text + "\"") << "\n";
 }
 
+void trace_block(const psprecomp::GuestMemory &memory, std::uint32_t params) {
+    if (params == 0u) return;
+    const std::uint32_t size = std::min<std::uint32_t>(memory.load32(params), 0x100u);
+    dump_words(memory, "params", params, size);
+    const std::uint32_t count = memory.load32(params + kOskFieldCountOffset);
+    const std::uint32_t field = memory.load32(params + kOskFieldsOffset);
+    if (count == 0u || field == 0u) return;
+    dump_words(memory, "field", field, 0x40u);
+    for (std::uint32_t offset = 0; offset < 0x40u; offset += 4u) {
+        const std::uint32_t word = memory.load32(field + offset);
+        if ((word & 0x0F000000u) != 0x08000000u) continue;
+        const std::string label = "field+" + std::to_string(offset) + " ->";
+        dump_utf16(memory, label.c_str(), word);
+    }
+}
+
 void register_osk(HleRegistrar &hle) {
     hle.add("sceUtility", "sceUtilityOskInitStart", [](Runtime &rt, AllegrexContext &ctx) {
         osk().params = arg(ctx, 0);
+        if (trace_osk()) {
+            std::cout << "[osk-trace] InitStart " << psprecomp::hex32(osk().params) << "\n";
+            trace_block(rt.memory(), osk().params);
+        }
         // The guest only polls a dialog it believes is on screen, so report it
         // visible from the start rather than waiting for its first update.
         osk().status = kStatusVisible;
@@ -128,6 +177,7 @@ void register_osk(HleRegistrar &hle) {
     });
 
     hle.add("sceUtility", "sceUtilityOskUpdate", [](Runtime &rt, AllegrexContext &ctx) {
+        if (trace_osk()) std::cout << "[osk-trace] Update(" << arg(ctx, 0) << ") status " << osk().status << "\n";
         if (osk().status == kStatusInit) osk().status = kStatusVisible;
 #if defined(MHP3RD_HAS_RENDERER)
         if (gpu::VulkanRenderer *renderer = active_renderer();
@@ -145,10 +195,15 @@ void register_osk(HleRegistrar &hle) {
     });
 
     hle.add("sceUtility", "sceUtilityOskGetStatus", [](Runtime &, AllegrexContext &ctx) {
+        if (trace_osk()) std::cout << "[osk-trace] GetStatus -> " << osk().status << "\n";
         kernel().finish(ctx, osk().status);
     });
 
     hle.add("sceUtility", "sceUtilityOskShutdownStart", [](Runtime &rt, AllegrexContext &ctx) {
+        if (trace_osk()) {
+            std::cout << "[osk-trace] ShutdownStart, status " << osk().status << "\n";
+            trace_block(rt.memory(), osk().params);
+        }
         if (osk().params != 0u) rt.memory().store32(osk().params + kOskStateOffset, kStatusNone);
         osk().status = kStatusNone;
         osk().params = 0u;
