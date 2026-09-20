@@ -134,7 +134,7 @@ set_source_files_properties(third_party/tiny_aes/aes.c PROPERTIES LANGUAGE CXX)
 
 # The recompiled game code gets a target of its own. It needs only the
 # psprecomp headers, so definitions and include paths the host adds to
-# MHP3rdNative (a renderer switch, a new library's headers) do not change its
+# Yakumo (a renderer switch, a new library's headers) do not change its
 # compile commands and rebuild all of it. Its objects still link straight into
 # the executable, which exports their symbols to the overlay libraries.
 add_library(mhp3rd_generated OBJECT ${MHP3RD_GENERATED})
@@ -143,7 +143,7 @@ target_include_directories(mhp3rd_generated PRIVATE
     "${MHP3RD_PROFILE_DIR}/generated")
 set_target_properties(mhp3rd_generated PROPERTIES JOB_POOL_COMPILE psprecomp_generated)
 
-add_executable(MHP3rdNative
+add_executable(Yakumo
     host/main.cpp
     ${MHP3RD_HOST_SOURCES}
     ${MHP3RD_RENDERER_SOURCES}
@@ -151,35 +151,35 @@ add_executable(MHP3rdNative
 )
 if(WIN32)
     set(MHP3RD_WINDOWS_ICON "${MHP3RD_PROFILE_DIR}/packaging/windows/emblem.ico")
-    configure_file(packaging/windows/MHP3rdNative.rc.in MHP3rdNative.rc @ONLY)
-    target_sources(MHP3rdNative PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/MHP3rdNative.rc")
+    configure_file(packaging/windows/Yakumo.rc.in Yakumo.rc @ONLY)
+    target_sources(Yakumo PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Yakumo.rc")
 endif()
 if(MHP3RD_RENDERER)
-    add_dependencies(MHP3rdNative mhp3rd_shaders mhp3rd_version)
+    add_dependencies(Yakumo mhp3rd_shaders mhp3rd_version)
     # The sink opens its own SDL audio subsystem, so it only needs SDL to exist.
-    target_compile_definitions(MHP3rdNative PRIVATE MHP3RD_HAS_RENDERER=1 MHP3RD_HAS_SDL_AUDIO=1 MHP3RD_HAS_SDL=1)
-    target_include_directories(MHP3rdNative PRIVATE
+    target_compile_definitions(Yakumo PRIVATE MHP3RD_HAS_RENDERER=1 MHP3RD_HAS_SDL_AUDIO=1 MHP3RD_HAS_SDL=1)
+    target_include_directories(Yakumo PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
         "${CMAKE_CURRENT_BINARY_DIR}/generated_version"
         "${MHP3RD_PROFILE_DIR}/third_party/imgui")
-    target_link_libraries(MHP3rdNative PRIVATE SDL3::SDL3 Vulkan::Vulkan)
+    target_link_libraries(Yakumo PRIVATE SDL3::SDL3 Vulkan::Vulkan)
 endif()
 # The host only: the generated code never sees FFmpeg.
-mhp3rd_use_ffmpeg(MHP3rdNative)
-target_include_directories(MHP3rdNative PRIVATE
+mhp3rd_use_ffmpeg(Yakumo)
+target_include_directories(Yakumo PRIVATE
     "${MHP3RD_PROFILE_DIR}/host"
     "${MHP3RD_PROFILE_DIR}/third_party"
     "${MHP3RD_PROFILE_DIR}/generated")
-target_link_libraries(MHP3rdNative PRIVATE psprecomp_core ${CMAKE_DL_LIBS})
+target_link_libraries(Yakumo PRIVATE psprecomp_core ${CMAKE_DL_LIBS})
 if(WIN32)
     # The ad hoc client's and server's sockets, and the list of interfaces.
-    target_link_libraries(MHP3rdNative PRIVATE ws2_32 iphlpapi)
+    target_link_libraries(Yakumo PRIVATE ws2_32 iphlpapi)
 endif()
 find_package(Threads REQUIRED)
-target_link_libraries(MHP3rdNative PRIVATE Threads::Threads)
+target_link_libraries(Yakumo PRIVATE Threads::Threads)
 # The overlay libraries resolve psprecomp and runtime symbols against the
 # executable that loads them, so it has to export them.
-set_target_properties(MHP3rdNative PROPERTIES
+set_target_properties(Yakumo PROPERTIES
     ENABLE_EXPORTS TRUE
     WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
 # The NID table is compiled in, so the program reads nothing from the checkout
@@ -192,8 +192,8 @@ add_custom_command(
             -P "${MHP3RD_PROFILE_DIR}/tools/embed_nids.cmake"
     DEPENDS "${MHP3RD_NIDS_CSV}" "${MHP3RD_PROFILE_DIR}/tools/embed_nids.cmake"
     COMMENT "Embedding the NID table")
-target_sources(MHP3rdNative PRIVATE "${MHP3RD_NIDS_INC}")
-target_include_directories(MHP3rdNative PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated_nids")
+target_sources(Yakumo PRIVATE "${MHP3RD_NIDS_INC}")
+target_include_directories(Yakumo PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated_nids")
 
 # A release build runs from wherever it is unpacked: it has no fallback to
 # this checkout's game directory, and on Linux it finds the libraries it ships
@@ -207,7 +207,7 @@ if(NOT MHP3RD_RELEASE)
     set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
         MHP3RD_DEFAULT_GAME_DIR="${MHP3RD_PROFILE_DIR}/game")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set_target_properties(MHP3rdNative PROPERTIES
+    set_target_properties(Yakumo PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "$ORIGIN/lib")
     # The C++ runtime is linked in statically, so a build made against an old
@@ -216,9 +216,9 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # second, exported libstdc++ would clash with the system's one that the
     # graphics driver loads.
     set(MHP3RD_RELEASE_LINK_OPTIONS -static-libstdc++ "LINKER:--exclude-libs,libstdc++.a:libsupc++.a")
-    target_link_options(MHP3rdNative PRIVATE ${MHP3RD_RELEASE_LINK_OPTIONS})
+    target_link_options(Yakumo PRIVATE ${MHP3RD_RELEASE_LINK_OPTIONS})
 endif()
-set_target_properties(MHP3rdNative PROPERTIES
+set_target_properties(Yakumo PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     JOB_POOL_COMPILE psprecomp_generated)
 
@@ -259,9 +259,9 @@ endif()
 # Chained AOT calls nest native frames; give the guest-executing main thread
 # the same 64 MiB stack the Windows profiles use.
 if(MSVC)
-    target_link_options(MHP3rdNative PRIVATE /STACK:67108864)
+    target_link_options(Yakumo PRIVATE /STACK:67108864)
 elseif(APPLE)
-    target_link_options(MHP3rdNative PRIVATE "LINKER:-stack_size,0x4000000")
+    target_link_options(Yakumo PRIVATE "LINKER:-stack_size,0x4000000")
 endif()
 
 # Recompiled overlay corpora, produced by tools/add_overlay.py. Each directory
@@ -305,9 +305,9 @@ function(mhp3rd_add_overlay meta_path)
         # Both linkers want the host binary while linking the module: MSVC for
         # its import library, ld64 as the bundle loader. ELF leaves the host
         # symbols undefined and resolves them when the module is loaded.
-        target_link_libraries(${target} PRIVATE MHP3rdNative)
+        target_link_libraries(${target} PRIVATE Yakumo)
     else()
-        add_dependencies(${target} MHP3rdNative)
+        add_dependencies(${target} Yakumo)
     endif()
     if(MSVC)
         target_compile_definitions(${target} PRIVATE PSPRECOMP_IMPORT_HOST_SYMBOLS=1)

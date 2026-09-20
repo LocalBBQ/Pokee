@@ -1,6 +1,6 @@
 # MHP3rd HD profile
 
-This profile builds `MHP3rdNative` for **Monster Hunter Portable 3rd HD Ver.** (`NPJB-40001`). The PS3 release ships an ordinary PSP UMD image; this profile recompiles that PSP executable and its code overlays into a native program. No executable, game data or code generated from them is part of the repository — you supply your own copy of the game.
+This profile builds `Yakumo` for **Monster Hunter Portable 3rd HD Ver.** (`NPJB-40001`). The PS3 release ships an ordinary PSP UMD image; this profile recompiles that PSP executable and its code overlays into a native program. No executable, game data or code generated from them is part of the repository — you supply your own copy of the game.
 
 ## Status
 
@@ -53,7 +53,7 @@ If SDL3, Vulkan or `glslangValidator` is missing, configuration still succeeds b
 
 The streamed music (ATRAC3) and the movies (H.264 with ATRAC3plus sound) are decoded by FFmpeg's shared `libavcodec` and `libavutil`. FFmpeg is part of the normal build; `MHP3RD_FFMPEG` chooses where it comes from (`cmake/FFmpeg.cmake` holds the pins):
 
-- `bundled`, the default. The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds it with only the ATRAC3, ATRAC3plus and H.264 decoders, as LGPL-2.1-or-later shared libraries (configure stops if the result is not LGPL only). This takes a few minutes, once per build directory; a new version or configuration rebuilds it. The libraries and FFmpeg's licence go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, where FFmpeg's `configure` does not run with MSVC, it downloads a pinned, checksum-verified prebuilt LGPL shared FFmpeg 7.1.5 and puts its DLLs next to `MHP3rdNative.exe` (see [BUILDING.md](../../docs/BUILDING.md#ffmpeg)). Configuration reports `mhp3rd: bundled FFmpeg 7.1.5 …; music and movies enabled`. To build offline, put the archive in `out/mhp3rd/_deps/downloads/` (`MHP3RD_FFMPEG_DOWNLOAD_DIR`) first.
+- `bundled`, the default. The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds it with only the ATRAC3, ATRAC3plus and H.264 decoders, as LGPL-2.1-or-later shared libraries (configure stops if the result is not LGPL only). This takes a few minutes, once per build directory; a new version or configuration rebuilds it. The libraries and FFmpeg's licence go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, where FFmpeg's `configure` does not run with MSVC, it downloads a pinned, checksum-verified prebuilt LGPL shared FFmpeg 7.1.5 and puts its DLLs next to `Yakumo.exe` (see [BUILDING.md](../../docs/BUILDING.md#ffmpeg)). Configuration reports `mhp3rd: bundled FFmpeg 7.1.5 …; music and movies enabled`. To build offline, put the archive in `out/mhp3rd/_deps/downloads/` (`MHP3RD_FFMPEG_DOWNLOAD_DIR`) first.
 - `system` uses the FFmpeg that `pkg-config` finds, for example from `brew install ffmpeg` on macOS or `apt install libavcodec-dev libavutil-dev` on Debian and Ubuntu, and stops if there is none.
 - `OFF` builds without FFmpeg. This is possible but not recommended: the game then has no music and skips its movies, and configure prints a warning saying so.
 
@@ -70,13 +70,13 @@ profiles/mhp3rd/scripts/prepare_game.sh "/path/to/your.iso" /path/to/EBOOT.ELF
 cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd
 profiles/mhp3rd/scripts/generate.sh
 cmake -S . -B out/mhp3rd                          # pick up the generated units
-cmake --build out/mhp3rd --target MHP3rdNative -j 2
+cmake --build out/mhp3rd --target Yakumo -j 2
 
 # 3. Recompile the code overlays (about 40 minutes, resumable)
 profiles/mhp3rd/scripts/build_overlays.sh
 
 # 4. Play
-out/mhp3rd/bin/MHP3rdNative
+out/mhp3rd/bin/Yakumo
 ```
 
 Each step is described below. [`docs/BUILDING.md`](../../docs/BUILDING.md) covers the platforms, how long each stage takes, and working on the code without full rebuilds.
@@ -118,9 +118,9 @@ Saves made before `ms0` moved here stay where they were, in `profiles/mhp3rd/gam
 The same setup runs without any screens from a terminal, for scripts and headless machines:
 
 ```bash
-out/mhp3rd/bin/MHP3rdNative --install "/path/to/your.iso"             # copy the image
-out/mhp3rd/bin/MHP3rdNative --install "/path/to/your.iso" --in-place  # use it where it is
-out/mhp3rd/bin/MHP3rdNative --install                                 # run the setup screens again, then play
+out/mhp3rd/bin/Yakumo --install "/path/to/your.iso"             # copy the image
+out/mhp3rd/bin/Yakumo --install "/path/to/your.iso" --in-place  # use it where it is
+out/mhp3rd/bin/Yakumo --install                                 # run the setup screens again, then play
 ```
 
 `--install` with an image prepares everything and exits. A build without generated code can already run it, and the `EBOOT.ELF` it writes into the per-user directory is the executable `generate.sh` needs.
@@ -148,7 +148,7 @@ When the per-user directory also holds an installation, it takes precedence; sta
 cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd
 profiles/mhp3rd/scripts/generate.sh          # writes analysis/ and generated/
 cmake -S . -B out/mhp3rd                     # pick up the generated units
-cmake --build out/mhp3rd --target MHP3rdNative -j 2
+cmake --build out/mhp3rd --target Yakumo -j 2
 ```
 
 `generate.sh` analyzes the executable and writes the recompiled C++ into `generated/`. That corpus is derived from your copy of the game, so it stays local and is never committed.
@@ -198,7 +198,7 @@ It builds with 2 parallel jobs; `-j N` changes that. `--no-build` stops after re
 ## Running
 
 ```bash
-out/mhp3rd/bin/MHP3rdNative [game_dir]       # see "Game data" for where it looks without game_dir
+out/mhp3rd/bin/Yakumo [game_dir]       # see "Game data" for where it looks without game_dir
 ```
 
 The window renders at twice the PSP resolution by default (960×544). Esc, or L3+R3 on a gamepad, opens the [in-game menu](#in-game-menu); quit from there, or close the window (Cmd+Q on macOS, Alt+F4 on most Linux desktops). When the game asks for a name, Yakumo's [on-screen keyboard](#on-screen-keyboard) opens; the menu can switch to giving a fixed name at once instead.
@@ -387,7 +387,7 @@ Hosting and joining turn **Ad hoc play** on and fill in **Server** (the host's o
 
 **PPSSPP players** should be able to join a session hosted in Yakumo, since the server speaks the same protocols (not tested yet): in PPSSPP, set the ad hoc server to the host's address and use the relay (*AemuPostoffice*) data mode.
 
-**A server without the game.** `MHP3rdNative --adhoc-server [port]` runs the same server alone in a terminal, announced on the local network, and prints the addresses to join; Ctrl+C stops it. It needs neither game data nor a window.
+**A server without the game.** `Yakumo --adhoc-server [port]` runs the same server alone in a terminal, announced on the local network, and prints the addresses to join; Ctrl+C stops it. It needs neither game data nor a window.
 
 A server has two parts, both over TCP: the matchmaking service on port **27312**, which knows who is in which gathering hall, and a relay on port **27313**, which carries the game's own traffic between the players. Yakumo needs both, so pick a server that runs the relay (servers list it as *AemuPostoffice* data mode).
 
@@ -411,7 +411,7 @@ Public servers are run by volunteers. Yakumo keeps one connection to the matchma
 
 ### Running your own server
 
-The simplest is **Host a session** in the game, or `MHP3rdNative --adhoc-server` (see [Play together locally](#play-together-locally)). You can also run [aemu_postoffice](https://github.com/Kethen/aemu_postoffice), the server most public servers use. It is a separate program under its own licence; nothing of it is part of Yakumo.
+The simplest is **Host a session** in the game, or `Yakumo --adhoc-server` (see [Play together locally](#play-together-locally)). You can also run [aemu_postoffice](https://github.com/Kethen/aemu_postoffice), the server most public servers use. It is a separate program under its own licence; nothing of it is part of Yakumo.
 
 Natively, on macOS or Linux (a C++20 compiler is all it needs):
 
@@ -445,9 +445,9 @@ cp -R profiles/mhp3rd/game/ms0/PSP/SAVEDATA/ULJM05800 ~/yakumo-b/ms0/PSP/SAVEDAT
 
 # each instance: its own data directory, window title, server and nickname
 MHP3RD_DATA_DIR=~/yakumo-a-data MHP3RD_WINDOW_TITLE="Yakumo A" MHP3RD_ADHOC=1 \
-  MHP3RD_ADHOC_SERVER=127.0.0.1 MHP3RD_ADHOC_NICKNAME=HunterA out/mhp3rd/bin/MHP3rdNative profiles/mhp3rd/game
+  MHP3RD_ADHOC_SERVER=127.0.0.1 MHP3RD_ADHOC_NICKNAME=HunterA out/mhp3rd/bin/Yakumo profiles/mhp3rd/game
 MHP3RD_DATA_DIR=~/yakumo-b-data MHP3RD_WINDOW_TITLE="Yakumo B" MHP3RD_ADHOC=1 \
-  MHP3RD_ADHOC_SERVER=127.0.0.1 MHP3RD_ADHOC_NICKNAME=HunterB out/mhp3rd/bin/MHP3rdNative ~/yakumo-b
+  MHP3RD_ADHOC_SERVER=127.0.0.1 MHP3RD_ADHOC_NICKNAME=HunterB out/mhp3rd/bin/Yakumo ~/yakumo-b
 ```
 
 Two characters from one save are fine in one hall, since the game tells players apart by their address, and each instance makes up its own.
@@ -513,7 +513,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | --- | --- | --- |
 | `MHP3RD_INTERNAL_SCALE` | `2` | Render resolution as a multiple of 480×272 (menu: Resolution) |
 | `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either. Emulated time is not held to real time |
-| `MHP3RD_WINDOW_TITLE` | `MHP3rdNative` | Title of the game window, to tell instances apart |
+| `MHP3RD_WINDOW_TITLE` | `Yakumo` | Title of the game window, to tell instances apart |
 | `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn (menu: Game speed) |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
 | `MHP3RD_NO_LIGHTING` | off | Draw lit geometry with the flat white stand-in used before lighting existed, and without fog, to compare a scene with and without them |

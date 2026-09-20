@@ -1,6 +1,6 @@
 #pragma once
 
-// ABI between MHP3rdNative and the recompiled overlay libraries it loads at run
+// ABI between Yakumo and the recompiled overlay libraries it loads at run
 // time. One library holds one corpus: keeping them out of the executable means
 // a new overlay costs a compile of its own sources and nothing else.
 //

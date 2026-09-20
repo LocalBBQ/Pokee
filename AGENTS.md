@@ -25,7 +25,7 @@ Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`).
 
 ## Running and testing
 
-- **Bound every run.** `timeout 60 out/mhp3rd/bin/MHP3rdNative`. Never leave a game running, and never drive it with an open-ended input loop, such as pressing confirm forever: it does not converge, and someone may be watching the screen.
+- **Bound every run.** `timeout 60 out/mhp3rd/bin/Yakumo`. Never leave a game running, and never drive it with an open-ended input loop, such as pressing confirm forever: it does not converge, and someone may be watching the screen.
 - **Quick boot checks.** `MHP3RD_NO_RENDER=1 MHP3RD_NO_AUDIO=1 timeout 40 …`, then look for the function count and `[overlay] installed` in the output.
 - **Scripted input and captures.**
   - `MHP3RD_INPUT_SCRIPT` sends keys, virtual gamepad input and dropped files, and captures the window. The syntax is in `profiles/mhp3rd/host/ui/input_script.hpp`.

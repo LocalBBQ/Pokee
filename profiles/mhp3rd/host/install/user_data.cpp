@@ -87,7 +87,7 @@ void write_settings_file(const std::filesystem::path &data_dir, const SettingsEn
     const std::filesystem::path partial = data_dir / (std::string(kSettingsFile) + ".part");
     {
         std::ofstream out(partial, std::ios::trunc);
-        out << "# Written by MHP3rdNative: the installer and the in-game menu (Esc, or L3+R3 on a gamepad).\n"
+        out << "# Written by Yakumo: the installer and the in-game menu (Esc, or L3+R3 on a gamepad).\n"
             << "# disc_image: the disc image to play from; a relative path is inside this directory.\n";
         for (const auto &[key, value] : entries) out << key << "=" << value << "\n";
         if (!out) throw psprecomp::Error("Cannot write " + path_to_utf8(partial));

@@ -18,7 +18,7 @@ A released build is tested the same way. Note its version and which download it 
 
 | # | Step | Expected |
 | --- | --- | --- |
-| 1 | Start `out/mhp3rd/bin/MHP3rdNative` | A window opens; the console lists 355 overlay corpora, the renderer and the audio device |
+| 1 | Start `out/mhp3rd/bin/Yakumo` | A window opens; the console lists 355 overlay corpora, the renderer and the audio device |
 | 2 | Wait through the logos | Movies are skipped (see #6) and the title screen appears; streamed music is silent (see #5) |
 | 3 | Start a new game | Character creation appears |
 | 4 | In character creation, change each option | The character model is whole and textured, animates, and changes with each option |

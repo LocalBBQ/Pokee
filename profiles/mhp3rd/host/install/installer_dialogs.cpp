@@ -96,7 +96,7 @@ public:
         if (!pick.path && !pick.error.empty()) {
             ask(SDL_MESSAGEBOX_ERROR, kTitle,
                 "The file dialog could not be opened (" + pick.error +
-                    ").\n\nRun the setup from a terminal instead:\n  MHP3rdNative --install /path/to/image.iso",
+                    ").\n\nRun the setup from a terminal instead:\n  Yakumo --install /path/to/image.iso",
                 {{0, "Quit", SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}});
         }
         return pick.path;

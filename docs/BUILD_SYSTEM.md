@@ -11,7 +11,7 @@ proxy for the generated units (section 5). Tools: Ninja 1.13.2 and CMake
 | Observed failure | Root cause | Confidence |
 |---|---|---|
 | 1. `premature end of file; recovering`, then a full rebuild | Two Ninja processes appended to the same `.ninja_deps`. Ninja detects this and truncates the log at the first bad record, so every dependency record after that point is lost. Ninja 1.13.2 also has a recovery bug (upstream #2703, fixed on master and not yet released) that keeps the bad record, so the damage comes back on **every** build — which is how a checkout ends up rebuilding everything on every run. | High: reproduced exactly. |
-| 2. Several Ninjas in one directory, load average above 100 | (a) `add_overlay.py` calls `cmake --build` without `-j`, so Ninja uses its default of 10 jobs. (b) On macOS every overlay target depends on `MHP3rdNative`, so building one overlay against a stale host compiles all 89 generated units at `-j10`. (c) Killing `cmake --build` or a Python wrapper leaves its Ninja running as an orphan, and the next build then runs alongside it. | High: (a) and (b) come from the build files and a live sample, (c) was reproduced. |
+| 2. Several Ninjas in one directory, load average above 100 | (a) `add_overlay.py` calls `cmake --build` without `-j`, so Ninja uses its default of 10 jobs. (b) On macOS every overlay target depends on `Yakumo`, so building one overlay against a stale host compiles all 89 generated units at `-j10`. (c) Killing `cmake --build` or a Python wrapper leaves its Ninja running as an orphan, and the next build then runs alongside it. | High: (a) and (b) come from the build files and a live sample, (c) was reproduced. |
 | 3. `no work to do` after a real edit | It is **not** the edit-during-build race: Ninja ≥ 1.12 catches that, and the synthetic tests confirm it. It is **not** timestamp resolution either: APFS and Ninja both use nanoseconds. Two causes produce it. Another Ninja — for example one building overlays, which depend on the host — may already have compiled the edit, in which case `no work to do` is correct. Or the file arrived with an older mtime than its object, through a copy that preserves timestamps (`cp -p`, `rsync -a`, `tar`). | Medium: both reproduced; which one caused a given case cannot always be told from the logs. |
 | 4. "Rebuilds from zero after an error" | Interrupting Ninja does **not** do this: after SIGKILL, SIGINT, SIGTERM or a killed compiler job, only the unfinished edges are rebuilt. The full rebuilds come from (i) the deps-log truncation in item 1, which happens when the build after an interrupted one runs alongside the orphaned Ninja from item 2(c); (ii) the remedy of deleting `.ninja_deps` and `.ninja_log`; and (iii) `generate.sh`, which runs `rm -rf generated` and so gives all 89 units new mtimes even when their content has not changed. | High for (ii) and (iii). (i) is reproduced but not proven for each past case. |
 
@@ -66,7 +66,7 @@ The build now implements ranks 1 to 5 and the `generate.sh` fix from item 4.
 | Warning for Ninja 1.13.2 (rank 4) | `cmake/BuildLock.cmake` | once per build directory | — |
 | ccache (rank 2) | top-level `CMakeLists.txt` | used when installed | `-DPSPRECOMP_CCACHE=OFF` |
 | Path defines only on `host/main.cpp` (item 4.4) | `profiles/mhp3rd/CMakeLists.txt` | — | — |
-| Job pool for generated code (rank 3) | `psprecomp_generated` pool, `JOB_POOL_COMPILE` on `MHP3rdNative` and every overlay | one job per 4 GiB of memory, at least 1 | `-DPSPRECOMP_GENERATED_JOBS=N` |
+| Job pool for generated code (rank 3) | `psprecomp_generated` pool, `JOB_POOL_COMPILE` on `Yakumo` and every overlay | one job per 4 GiB of memory, at least 1 | `-DPSPRECOMP_GENERATED_JOBS=N` |
 | Explicit `-j` in `add_overlay.py` (rank 3) | `add_overlay.py -j N` | 2 | `-j N` |
 | No per-overlay reconfigure, one Ninja for all overlays (rank 5) | `add_overlay.py --no-build`, `build_overlays.sh [build_dir] [jobs]` | 2 jobs | second argument |
 | Regeneration keeps unchanged units (item 4.3) | `generate.sh` | — | — |
@@ -100,7 +100,7 @@ How they behave:
   it and a checkout at another path gets direct-mode hits. Older versions get
   plain `ccache`; set `base_dir` in the ccache configuration for them.
 - **Job pool.** CMake 4.3 sets `JOB_POOL_COMPILE` per target, so the host
-  sources of `MHP3rdNative` share the pool with the generated units. The
+  sources of `Yakumo` share the pool with the generated units. The
   Makefile and Visual Studio generators ignore job pools.
 
 ### Ninja 1.13.2
@@ -124,7 +124,7 @@ the host.
 
 | Check | Result |
 |---|---|
-| Cold build of `MHP3rdNative` (empty cache) | 708 s, never more than 2 compiler processes |
+| Cold build of `Yakumo` (empty cache) | 708 s, never more than 2 compiler processes |
 | Second `cmake --build` started during it | waited 697 s, then `no work to do` |
 | `.ninja_deps` and `.ninja_log` deleted, rebuild from a warm cache | 1.7 s, 117 of 117 direct hits |
 | `ninja -t clean`, rebuild | 1.6 s |
@@ -250,14 +250,14 @@ harmless and can be deleted.
   `clang -cc1` jobs, a load average of 98 and 3.0 GB of swap in use on 8 GB. So
   one `add_overlay.py` is enough to reach load averages near 100. Two or three
   Ninjas make it worse.
-- On macOS (and Windows), each overlay module links against `MHP3rdNative`,
+- On macOS (and Windows), each overlay module links against `Yakumo`,
   which it uses as the bundle loader or import library. In a configured tree, `ninja -t inputs overlay_<x>` lists **all 89 generated
   host units and 18 host sources**. If the host is stale, whether from an edit
   or a lost deps log, the first `add_overlay.py` rebuilds it at `-j10`. At
   more than 1 GB per unit that is over 10 GB of demand on an 8 GB machine.
   `bootstrap_overlays.sh` uses `-j 3`; the other entry points use the default.
 - Each host relink also relinks every overlay module on the next full build
-  (implicit dependency on `bin/MHP3rdNative`). That part is cheap: the median
+  (implicit dependency on `bin/Yakumo`). That part is cheap: the median
   module link is 0.075 s.
 
 ## 3. Item 3: `no work to do` after an edit
@@ -302,7 +302,7 @@ full rebuilds that were seen come from:
 3. **`generate.sh`** runs `rm -rf generated` before `psp_recomp`. All 89 units
    get new mtimes even when the output is byte-identical.
 4. **Target-wide absolute-path defines.** `MHP3RD_DEFAULT_GAME_DIR` and
-   `MHP3RD_NIDS_CSV` are set on the whole `MHP3rdNative` target, so they are
+   `MHP3RD_NIDS_CSV` are set on the whole `Yakumo` target, so they are
    on every generated unit's command line. Any change to them, such as moving
    the checkout, changes 89 command lines. This also costs cache hits across
    worktrees (section 5).
@@ -394,7 +394,7 @@ per-overlay loop can stay as the resume mechanism for the recompile step.
 
 **Bounded parallelism.** A job pool for the generated units, for example
 `set_property(GLOBAL APPEND PROPERTY JOB_POOLS aot=2)` and
-`JOB_POOL_COMPILE aot` on `MHP3rdNative` and the overlay targets, caps the
+`JOB_POOL_COMPILE aot` on `Yakumo` and the overlay targets, caps the
 expensive compiles in every invocation, whatever `-j` the caller passed. CMake
 4.3 sets this per target; CMake 4.4 adds a per-file-set `JOB_POOL_COMPILE`. Job
 pools are a Ninja feature: the Makefile generator ignores them. The

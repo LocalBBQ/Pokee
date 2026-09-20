@@ -71,10 +71,10 @@ Building from source is a fully supported way to play. It needs:
 
 In short:
 
-1. Prepare the game's executable from your disc image: build `MHP3rdNative` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`.
-2. Configure, generate the recompiled code with `profiles/mhp3rd/scripts/generate.sh`, and build `MHP3rdNative`.
+1. Prepare the game's executable from your disc image: build `Yakumo` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`.
+2. Configure, generate the recompiled code with `profiles/mhp3rd/scripts/generate.sh`, and build `Yakumo`.
 3. Recompile the code overlays with `profiles/mhp3rd/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
-4. Run `out/mhp3rd/bin/MHP3rdNative`.
+4. Run `out/mhp3rd/bin/Yakumo`.
 
 The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Building on every platform, Windows included, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md).
 

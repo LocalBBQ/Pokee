@@ -3,7 +3,7 @@
 # "sniper" SDK container that scripts/release_linux.sh starts:
 #
 #   1. SDL3 from the source pinned in sources.sh
-#   2. the recompiled executable (generate.sh, then MHP3rdNative), with the
+#   2. the recompiled executable (generate.sh, then Yakumo), with the
 #      LGPL-only FFmpeg the build bundles (cmake/FFmpeg.cmake)
 #   3. all 355 overlay libraries (build_overlays.sh)
 #   4. a staging tree with the executable, overlays/, lib/, fonts/ and
@@ -90,8 +90,8 @@ done
 step "Generating the recompiled code"
 "$profile_dir/scripts/generate.sh" "$build"
 
-step "Building MHP3rdNative"
-cmake --build "$build" -j "$jobs" --target MHP3rdNative mhp3rd_savedata_tests
+step "Building Yakumo"
+cmake --build "$build" -j "$jobs" --target Yakumo mhp3rd_savedata_tests
 "$build/bin/mhp3rd_savedata_tests"
 
 step "Building the overlay libraries"
@@ -104,15 +104,15 @@ cmake --build "$build" -j "$jobs"
 step "Staging"
 rm -rf "$stage"
 mkdir -p "$stage/lib" "$stage/overlays" "$stage/fonts" "$stage/licenses"
-install -m 755 "$build/bin/MHP3rdNative" "$stage/MHP3rdNative"
+install -m 755 "$build/bin/Yakumo" "$stage/Yakumo"
 cp "$build/bin/overlays/"*.so "$stage/overlays/"
-strip --strip-unneeded "$stage/MHP3rdNative" "$stage/overlays/"*.so
+strip --strip-unneeded "$stage/Yakumo" "$stage/overlays/"*.so
 
 # The libraries built above that the executable needs, directly or through
 # each other, under the names the loader looks for.
 # SDL3 comes from the dependency prefix, FFmpeg from the build's bin/lib.
 needed() { objdump -p "$1" | awk '$1 == "NEEDED" { print $2 }'; }
-pending=("$stage/MHP3rdNative")
+pending=("$stage/Yakumo")
 while [[ ${#pending[@]} -gt 0 ]]; do
     current="${pending[0]}"
     pending=("${pending[@]:1}")
@@ -142,19 +142,19 @@ cp "$sources/NotoSansCJK-LICENSE.txt" "$stage/licenses/NotoSansCJK-OFL.txt"
 
 step "Checking the staged program"
 # Everything must resolve from lib/ or from libraries every desktop has.
-missing="$(LD_LIBRARY_PATH='' ldd "$stage/MHP3rdNative" | grep 'not found' || true)"
+missing="$(LD_LIBRARY_PATH='' ldd "$stage/Yakumo" | grep 'not found' || true)"
 if [[ -n "$missing" ]]; then
     echo "error: unresolved libraries:" >&2
     echo "$missing" >&2
     exit 1
 fi
-ldd "$stage/MHP3rdNative" | grep "$stage/lib" || { echo "error: bundled libraries not used" >&2; exit 1; }
+ldd "$stage/Yakumo" | grep "$stage/lib" || { echo "error: bundled libraries not used" >&2; exit 1; }
 # No libstdc++ from the build machine is needed or exported.
-if objdump -p "$stage/MHP3rdNative" "$stage/overlays/"*.so | grep -q 'NEEDED.*libstdc++'; then
+if objdump -p "$stage/Yakumo" "$stage/overlays/"*.so | grep -q 'NEEDED.*libstdc++'; then
     echo "error: a staged binary needs libstdc++.so" >&2
     exit 1
 fi
-glibc_floor="$(objdump -T "$stage/MHP3rdNative" "$stage/lib/"*.so* "$stage/overlays/"*.so |
+glibc_floor="$(objdump -T "$stage/Yakumo" "$stage/lib/"*.so* "$stage/overlays/"*.so |
     grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
 echo "Newest glibc symbol version needed: $glibc_floor"
 echo "$glibc_floor" > "$work/stage/glibc-floor.txt"

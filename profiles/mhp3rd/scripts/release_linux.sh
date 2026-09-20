@@ -165,7 +165,7 @@ if [[ $skip_build -eq 0 ]]; then
         "$SDK_IMAGE" bash "$packaging/build_in_sdk.sh"
 fi
 
-[[ -x "$stage/MHP3rdNative" ]] || fail "nothing staged in $stage; run without --skip-build"
+[[ -x "$stage/Yakumo" ]] || fail "nothing staged in $stage; run without --skip-build"
 overlay_count="$(find "$stage/overlays" -name '*.so' | wc -l)"
 [[ "$overlay_count" -eq 355 ]] || fail "expected 355 overlay libraries, found $overlay_count"
 check_no_game_data "$stage" "the staged build"

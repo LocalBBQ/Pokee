@@ -25,8 +25,8 @@ if [[ ! -e "$iso" ]]; then
     echo "error: $iso not found; run scripts/prepare_game.sh first" >&2
     exit 1
 fi
-if [[ ! -x "$build_dir/bin/MHP3rdNative" ]]; then
-    echo "error: $build_dir/bin/MHP3rdNative not found; build the profile first" >&2
+if [[ ! -x "$build_dir/bin/Yakumo" ]]; then
+    echo "error: $build_dir/bin/Yakumo not found; build the profile first" >&2
     exit 1
 fi
 

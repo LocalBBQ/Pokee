@@ -4,7 +4,7 @@
 #   prepare_game.sh <image.iso> <decrypted EBOOT.ELF>
 #
 # Produce EBOOT.ELF from PSP_GAME/SYSDIR/EBOOT.BIN with an external tool, or
-# take the one `MHP3rdNative --install <image.iso>` writes into the per-user
+# take the one `Yakumo --install <image.iso>` writes into the per-user
 # data directory, before running this script.
 set -euo pipefail
 

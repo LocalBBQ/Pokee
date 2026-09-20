@@ -10,10 +10,10 @@ The game's executable and its 355 code overlays are MIPS code for the PSP. The b
 
 | Stage | What happens | Command |
 | --- | --- | --- |
-| 1. Bootstrap | Build a small `MHP3rdNative` that contains no game code yet | `cmake --build out/mhp3rd --target MHP3rdNative` |
-| 2. Prepare the executable | The bootstrap checks your disc image and prepares the decrypted `EBOOT.ELF` from it | `MHP3rdNative --install image.iso` |
+| 1. Bootstrap | Build a small `Yakumo` that contains no game code yet | `cmake --build out/mhp3rd --target Yakumo` |
+| 2. Prepare the executable | The bootstrap checks your disc image and prepares the decrypted `EBOOT.ELF` from it | `Yakumo --install image.iso` |
 | 3. Generate | Analyse `EBOOT.ELF` and write the recompiled executable as 89 C++ units in `profiles/mhp3rd/generated/` | `profiles/mhp3rd/scripts/generate.sh` |
-| 4. Compile the executable | Compile the 89 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhp3rd --target MHP3rdNative` |
+| 4. Compile the executable | Compile the 89 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhp3rd --target Yakumo` |
 | 5. Overlays | Extract the 355 code overlays from the disc image's `DATA.BIN`, recompile each one, and build a shared library per overlay | `profiles/mhp3rd/scripts/build_overlays.sh` |
 
 The installer accepts only `NPJB-40001`: the disc id in `PARAM.SFO` must match, and so must the SHA-256 of the encrypted `EBOOT.BIN`. Fan translation patches that change only `USRDIR/DATA.BIN` keep that executable and are accepted. The English patch v6.1.0 has been checked: its `EBOOT.BIN` and all 355 code overlays are identical to the original's.
@@ -59,7 +59,7 @@ Older releases, for example Ubuntu 24.04, have no SDL3 package. Build SDL3 from 
 The recompiled code nests deeply, so the main thread needs a 64 MiB stack. Start the game with a larger stack limit:
 
 ```bash
-ulimit -s 65536 && out/mhp3rd/bin/MHP3rdNative
+ulimit -s 65536 && out/mhp3rd/bin/Yakumo
 ```
 
 ### Steam Deck
@@ -75,7 +75,7 @@ distrobox enter yakumo -- sudo apt install -y build-essential cmake ninja-build 
 distrobox enter yakumo      # then follow the steps below inside the container
 ```
 
-For Game Mode, add a small launch script to Steam as a non-Steam game. The script changes to the checkout, sets `ulimit -s 65536`, and runs `out/mhp3rd/bin/MHP3rdNative`. Keep the Deck on its charger during long builds, and stop it from sleeping while one runs: a suspend in the middle of a large build can hang the Deck.
+For Game Mode, add a small launch script to Steam as a non-Steam game. The script changes to the checkout, sets `ulimit -s 65536`, and runs `out/mhp3rd/bin/Yakumo`. Keep the Deck on its charger during long builds, and stop it from sleeping while one runs: a suspend in the middle of a large build can hang the Deck.
 
 ## Windows
 
@@ -101,8 +101,8 @@ Open the **x64 Native Tools Command Prompt** of your Visual Studio or Build Tool
 
 Then follow the [build steps](#build-steps) in that Bash, with these differences:
 - **SDL3 location.** Add `-DCMAKE_PREFIX_PATH="C:/path/to/SDL3"` to the first `cmake` command.
-- **Paths.** The executable is `out/mhp3rd/bin/MHP3rdNative.exe`, and the per-user data directory is `$APPDATA/Yakumo/MHP3rd`.
-- **DLLs.** Before playing, copy `SDL3.dll` next to `MHP3rdNative.exe`, or put its directory on `PATH`. The FFmpeg DLLs are already there.
+- **Paths.** The executable is `out/mhp3rd/bin/Yakumo.exe`, and the per-user data directory is `$APPDATA/Yakumo/MHP3rd`.
+- **DLLs.** Before playing, copy `SDL3.dll` next to `Yakumo.exe`, or put its directory on `PATH`. The FFmpeg DLLs are already there.
 
 Windows specifics:
 - **Data directory.** Step 2 writes `EBOOT.ELF` and `settings.ini` to the per-user data directory. It takes precedence over `profiles/mhp3rd/game`, and both hold the same data after step 3.
@@ -121,11 +121,11 @@ cd Yakumo
 
 # 1. Configure and build the bootstrap (no game code yet: a few minutes)
 cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd
-cmake --build out/mhp3rd --target MHP3rdNative
+cmake --build out/mhp3rd --target Yakumo
 
 # 2. Prepare EBOOT.ELF from your disc image. --in-place uses the image where it is;
 #    without it the installer keeps its own copy (about 1.3 GB).
-out/mhp3rd/bin/MHP3rdNative --install /path/to/your.iso --in-place
+out/mhp3rd/bin/Yakumo --install /path/to/your.iso --in-place
 
 # 3. Point the checkout at the image and the prepared executable.
 #    The per-user data directory is ~/Library/Application Support/Yakumo/MHP3rd on macOS,
@@ -135,13 +135,13 @@ profiles/mhp3rd/scripts/prepare_game.sh /path/to/your.iso "<per-user data direct
 # 4. Generate the recompiled executable and compile it (the first long step)
 profiles/mhp3rd/scripts/generate.sh
 cmake -S . -B out/mhp3rd
-cmake --build out/mhp3rd --target MHP3rdNative
+cmake --build out/mhp3rd --target Yakumo
 
 # 5. Recompile the code overlays (the longest step; resumable)
 profiles/mhp3rd/scripts/build_overlays.sh
 
 # 6. Play
-out/mhp3rd/bin/MHP3rdNative
+out/mhp3rd/bin/Yakumo
 ```
 
 Check the configure output for `mhp3rd: Vulkan renderer enabled`. Without SDL3, Vulkan or `glslangValidator`, configuration still succeeds but builds a program with no window.
@@ -160,7 +160,7 @@ The streamed music (ATRAC3, ATRAC3plus) and the movies (H.264) are decoded by FF
 
 The bundled build needs `make` and a C compiler, which the tools above already include. Offline, put `ffmpeg-7.1.5.tar.xz` (or the Windows `.zip`) in `out/mhp3rd/_deps/downloads/` before configuring. `profiles/mhp3rd/cmake/FFmpeg.cmake` holds the pinned versions and checksums.
 
-**On Windows** FFmpeg's `configure` needs a POSIX shell and `make`, which the MSVC toolchain lacks, so `bundled` downloads a pinned prebuilt instead: the LGPL shared build of FFmpeg 7.1.5 from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), checked against its SHA-256. It needs no extra setup. Configure copies `avcodec-61.dll`, `avutil-59.dll` and `swresample-5.dll`, with FFmpeg's licence, next to `MHP3rdNative.exe`, and reports `mhp3rd: bundled FFmpeg 7.1.5 (prebuilt, LGPL); music and movies enabled`.
+**On Windows** FFmpeg's `configure` needs a POSIX shell and `make`, which the MSVC toolchain lacks, so `bundled` downloads a pinned prebuilt instead: the LGPL shared build of FFmpeg 7.1.5 from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), checked against its SHA-256. It needs no extra setup. Configure copies `avcodec-61.dll`, `avutil-59.dll` and `swresample-5.dll`, with FFmpeg's licence, next to `Yakumo.exe`, and reports `mhp3rd: bundled FFmpeg 7.1.5 (prebuilt, LGPL); music and movies enabled`.
 
 ## Working on the code
 
@@ -193,7 +193,7 @@ Work on separate features in separate clones without paying the long stages agai
 For multiplayer tests or before/after comparisons, give each instance its own settings and saves, and a window title so you can tell the windows apart:
 
 ```bash
-MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo A" out/mhp3rd/bin/MHP3rdNative
+MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo A" out/mhp3rd/bin/Yakumo
 ```
 
 ### Rules the build enforces

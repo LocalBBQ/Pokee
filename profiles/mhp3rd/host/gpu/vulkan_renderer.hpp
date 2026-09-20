@@ -30,7 +30,7 @@ struct PadState {
 };
 
 struct RendererConfig {
-    std::string title{"MHP3rdNative"};
+    std::string title{"Yakumo"};
 };
 
 // Vulkan backend for the GE. Draw calls are rendered into an offscreen target

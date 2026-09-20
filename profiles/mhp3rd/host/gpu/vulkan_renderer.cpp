@@ -853,7 +853,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    application.pApplicationName = "MHP3rdNative";
+    application.pApplicationName = "Yakumo";
     application.apiVersion = VK_API_VERSION_1_1;
     VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pApplicationInfo = &application;

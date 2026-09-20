@@ -60,7 +60,7 @@ modules:
       no-debuginfo: true
       strip: false
     build-commands:
-      # The staged program: MHP3rdNative, overlays/, lib/ (SDL3, FFmpeg),
+      # The staged program: Yakumo, overlays/, lib/ (SDL3, FFmpeg),
       # fonts/ and licenses/.
       - mkdir -p /app/lib/yakumo /app/bin
       - cp -a yakumo/. /app/lib/yakumo/
