@@ -149,6 +149,11 @@ add_executable(MHP3rdNative
     ${MHP3RD_RENDERER_SOURCES}
     $<TARGET_OBJECTS:mhp3rd_generated>
 )
+if(WIN32)
+    set(MHP3RD_WINDOWS_ICON "${MHP3RD_PROFILE_DIR}/packaging/windows/emblem.ico")
+    configure_file(packaging/windows/MHP3rdNative.rc.in MHP3rdNative.rc @ONLY)
+    target_sources(MHP3rdNative PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/MHP3rdNative.rc")
+endif()
 if(MHP3RD_RENDERER)
     add_dependencies(MHP3rdNative mhp3rd_shaders mhp3rd_version)
     # The sink opens its own SDL audio subsystem, so it only needs SDL to exist.
