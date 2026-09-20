@@ -39,7 +39,7 @@ Puedes cargar una partida copiada de una PSP o empezar una nueva, salir de caza 
 | Funciona | Falta o tiene problemas |
 | --- | --- |
 | Arranque, menús, creación de personaje, la aldea y las zonas de caza | En una Steam Deck, la iluminación ralentiza un poco las zonas más cargadas de la aldea (#7) |
-| Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y hacer copias de seguridad desde el menú | Superficies curvas; los diálogos de guardado todavía no dibujan nada (#33) |
+| Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y hacer copias de seguridad desde el menú | Superficies curvas (#10); los diálogos de guardado todavía no dibujan nada (#33) |
 | Modelos 3D, animación, texturas, transparencias, iluminación y niebla | |
 | Efectos de sonido, música en streaming y cinemáticas | |
 | Teclado, y mandos con cámara real en el stick derecho; un teclado en pantalla para los nombres | |

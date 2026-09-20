@@ -37,7 +37,7 @@ You can load a save copied from a PSP or start a new game, hunt, and save your p
 | Works | Missing or rough |
 | --- | --- |
 | Booting, menus, character creation, the village and hunting areas | On a Steam Deck, lighting slows the busiest village spots slightly below full speed (#7) |
-| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and back up from the menu | Curved surfaces; the save-data dialogs draw nothing yet (#33) |
+| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and back up from the menu | Curved surfaces (#10); the save-data dialogs draw nothing yet (#33) |
 | 3D models, animation, textures, transparency, lighting and fog | |
 | Sound effects, streamed music and cutscene movies | |
 | Keyboard, and gamepads with a real right-stick camera; an on-screen keyboard for names | |
