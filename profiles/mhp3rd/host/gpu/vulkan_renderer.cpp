@@ -19,10 +19,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mhp3rd::gpu {
@@ -569,6 +571,14 @@ struct VulkanRenderer::Impl {
     std::array<float, 3> frame_ndc_min{1e30f, 1e30f, 1e30f};
     std::array<float, 3> frame_ndc_max{-1e30f, -1e30f, -1e30f};
     std::map<std::uint32_t, std::uint32_t> frame_transformed_targets;
+    // MHP3RD_TRACE_CAMERA: the view matrices this frame's transformed draws
+    // used and how many vertices each of them covered. A frame holds a handful
+    // (the scene, a reflection, a shadow pass), and the busiest one is the
+    // camera the player sees, so the frame's line can report that one. Only
+    // filled while the trace is on.
+    std::vector<std::pair<std::array<float, 16>, std::uint32_t>> frame_views;
+    // The yaw of the previous traced frame, so each line can carry the turn.
+    float traced_yaw{};
     bool pass_active{};
     VkRenderPass render_pass{};
     VkExtent2D target_extent{};
@@ -2792,6 +2802,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // same positions after a CPU-side transform, so a geometry that never shows
     // up can be traced to the stage that loses it.
     static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
+    static const bool trace_camera = std::getenv("MHP3RD_TRACE_CAMERA") != nullptr;
     static std::uint32_t traced_3d = 0u;
     static std::uint32_t traced_clears = 0u;
     if (trace3d && call.clear_mode && traced_clears < 4u) {
@@ -2854,6 +2865,15 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     } else {
         ++impl.frame_transformed_draws;
         ++impl.frame_transformed_targets[call.target.color_address];
+        if (trace_camera) {
+            const auto same = std::find_if(impl.frame_views.begin(), impl.frame_views.end(),
+                                           [&](const auto &entry) { return entry.first == call.view; });
+            const auto vertices = static_cast<std::uint32_t>(impl.scratch.size());
+            if (same == impl.frame_views.end())
+                impl.frame_views.emplace_back(call.view, vertices);
+            else
+                same->second += vertices;
+        }
         if (trace3d) {
             // Where does this frame's transformed geometry actually land? A
             // bounding box in normalised device coordinates separates "clipped
@@ -3223,6 +3243,7 @@ void VulkanRenderer::present(std::uint32_t display_address) {
     impl.end_pass();
 
     static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
+    static const bool trace_camera = std::getenv("MHP3RD_TRACE_CAMERA") != nullptr;
     if (trace3d && impl.frame_transformed_draws != 0u) {
         std::cout << "[3d] frame " << impl.frames << " through=" << impl.frame_through_draws
                   << " transformed=" << impl.frame_transformed_draws << " showing=0x" << std::hex << display_address
@@ -3235,6 +3256,41 @@ void VulkanRenderer::present(std::uint32_t display_address) {
                   << impl.frame_ndc_max[0] << "] y[" << impl.frame_ndc_min[1] << "," << impl.frame_ndc_max[1]
                   << "] z[" << impl.frame_ndc_min[2] << "," << impl.frame_ndc_max[2] << "]\n";
     }
+    if (trace_camera && !impl.frame_views.empty()) {
+        // The busiest view matrix of the frame is the scene the player looks
+        // at; the others belong to reflections and shadow passes.
+        const auto scene = std::max_element(impl.frame_views.begin(), impl.frame_views.end(),
+                                            [](const auto &a, const auto &b) { return a.second < b.second; });
+        const std::array<float, 16> &view = scene->first;
+        // A view matrix holds the camera's own axes as the rows of its
+        // rotation part, and the array is column major, so row 2 — the
+        // direction the camera looks along — is elements 2, 6 and 10.
+        const float forward_x = view[2];
+        const float forward_y = view[6];
+        const float forward_z = view[10];
+        constexpr float kDegrees = 57.29577951308232f;
+        const float yaw = std::atan2(forward_x, forward_z) * kDegrees;
+        const float pitch = std::asin(std::clamp(forward_y, -1.0f, 1.0f)) * kDegrees;
+        // The camera's world position is the rotation applied backwards to the
+        // translation, which tells a turn in place from the hunter walking.
+        const float tx = view[12];
+        const float ty = view[13];
+        const float tz = view[14];
+        const float px = -(view[0] * tx + view[1] * ty + view[2] * tz);
+        const float py = -(view[4] * tx + view[5] * ty + view[6] * tz);
+        const float pz = -(view[8] * tx + view[9] * ty + view[10] * tz);
+        float turn = yaw - impl.traced_yaw;
+        while (turn > 180.0f) turn -= 360.0f;
+        while (turn < -180.0f) turn += 360.0f;
+        impl.traced_yaw = yaw;
+        const std::ios::fmtflags flags = std::cout.flags();
+        std::cout << std::fixed << std::setprecision(4) << "[camera] frame " << impl.frames << " stick="
+                  << static_cast<int>(impl.pad.right_x) - 0x80 << "," << static_cast<int>(impl.pad.right_y) - 0x80
+                  << " yaw=" << yaw << " pitch=" << pitch << " turn=" << turn << " pos=" << std::setprecision(1) << px
+                  << "," << py << "," << pz << " views=" << impl.frame_views.size() << "\n";
+        std::cout.flags(flags);
+    }
+    impl.frame_views.clear();
     impl.frame_through_draws = 0u;
     impl.frame_transformed_draws = 0u;
     impl.frame_transformed_vertices = 0u;
