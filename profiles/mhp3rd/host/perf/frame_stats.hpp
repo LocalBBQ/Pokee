@@ -30,8 +30,36 @@ struct Options {
 // Render includes the GPU waits that happen inside it; the summary subtracts
 // those, and only those, from it.
 void add_render_time(Clock::duration duration);
+
+// Where the render thread stops, for MHP3RD_TRACE_STALLS. The waits count
+// towards "wait"; the copies are CPU work inside "render" that reads memory
+// the GPU wrote, which can be slow when that memory is not cached.
+enum class Stall : std::uint8_t {
+    Fence,     // the frame fence, before recording the next frame
+    Acquire,   // vkAcquireNextImageKHR
+    Submit,    // the frame's vkQueueSubmit (MoltenVK waits for a drawable here)
+    Present,   // vkQueuePresentKHR
+    Upload,    // a texture upload waiting for the queue to go idle
+    Evict,     // the queue idle wait before a cached texture is destroyed
+    Readback,  // a framebuffer read back for a GE block transfer
+    Idle,      // other device or queue idle waits: settings changes, captures
+    Pacing,    // the kernel holding the game to real time
+    Copy,      // copying the written-back frame out of mapped memory
+    Store,     // converting that frame into guest memory (store_frame)
+    Count,
+};
+[[nodiscard]] const char *stall_name(Stall kind);
+
 // Time blocked on the GPU inside a render call.
-void add_wait_time(Clock::duration duration);
+void add_wait_time(Clock::duration duration, Stall kind);
+// CPU work that reads GPU-written memory; only traced, it is already part of
+// the render call it happens in.
+void note_stall(Stall kind, Clock::duration duration);
+// GPU execution time of the frame recorded before this one, measured with
+// timestamp queries, in milliseconds.
+void add_gpu_time(double milliseconds);
+// The device cannot time the GPU (no timestamp support, or turned off).
+void set_gpu_time_unavailable();
 // Time spent holding the game to real time, outside any render call.
 void add_pacing_time(Clock::duration duration);
 void add_overlay_time(Clock::duration duration);
@@ -62,6 +90,10 @@ struct Summary {
     double render_ms{};
     double wait_ms{};
     double overlay_ms{};
+    // GPU time per frame from timestamp queries, when the device has them.
+    bool gpu_valid{};
+    double gpu_avg_ms{};
+    double gpu_max_ms{};
     std::string present_mode;
     std::uint32_t width{};
     std::uint32_t height{};

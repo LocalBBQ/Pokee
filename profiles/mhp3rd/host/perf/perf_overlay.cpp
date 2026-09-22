@@ -116,7 +116,11 @@ void draw_overlay(std::uint32_t *pixels) {
     if (s.valid) {
         std::snprintf(line, sizeof(line), "FPS %.1f GAME %.1f SPD %.0f%%", s.fps, s.game_fps, s.speed * 100.0);
         draw_text(pixels, kMargin, y, line);
-        std::snprintf(line, sizeof(line), "FRAME %.1f MAX %.1f MS", s.frame_avg_ms, s.frame_max_ms);
+        if (s.gpu_valid)
+            std::snprintf(line, sizeof(line), "FRAME %.1f MAX %.1f GPU %.1f", s.frame_avg_ms, s.frame_max_ms,
+                          s.gpu_avg_ms);
+        else
+            std::snprintf(line, sizeof(line), "FRAME %.1f MAX %.1f MS", s.frame_avg_ms, s.frame_max_ms);
         draw_text(pixels, kMargin, y += kLineAdvance, line);
         std::snprintf(line, sizeof(line), "GUEST %.1f RENDER %.1f WAIT %.1f", s.guest_ms, s.render_ms, s.wait_ms);
         draw_text(pixels, kMargin, y += kLineAdvance, line);

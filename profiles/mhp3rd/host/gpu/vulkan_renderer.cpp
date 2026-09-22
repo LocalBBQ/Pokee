@@ -58,6 +58,10 @@ constexpr std::size_t kMaxCachedTextures = 1024u;
 // Descriptor sets for sampling render targets as textures: two per target
 // (with its alpha, and with alpha forced to one for 5650 textures).
 constexpr std::size_t kMaxFramebufferTextureSets = 64u;
+// GPU timestamps: a pair around each command buffer a frame submits. A frame
+// normally submits one; each GE block transfer that reads a framebuffer back
+// splits it once more.
+constexpr std::uint32_t kGpuTimerSegments = 16u;
 
 // Compiled SPIR-V, generated from host/gpu/shaders by the build.
 #include "ge_shaders.inc"
@@ -470,6 +474,49 @@ struct VulkanRenderer::Impl {
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
     VkFence frame_fence{};
+    // GPU time per frame (perf line): timestamps written at the start of each
+    // command buffer of the frame and after its last draw, before the copy to
+    // the window. Read after the frame fence; null when the queue cannot time
+    // (timestampValidBits 0) or MHP3RD_NO_GPU_TIMESTAMPS is set.
+    VkQueryPool gpu_timer{};
+    double gpu_timer_ns_per_tick{};
+    std::uint64_t gpu_timer_mask{};
+    std::uint32_t gpu_timer_used{};     // queries written into this frame so far
+    std::uint32_t gpu_timer_pending{};  // queries of the submitted frame, read at the next begin_frame
+    bool gpu_timer_open{};
+    void begin_gpu_segment(VkCommandBuffer commands) {
+        if (gpu_timer == VK_NULL_HANDLE || gpu_timer_open || gpu_timer_used + 2u > 2u * kGpuTimerSegments) return;
+        vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, gpu_timer, gpu_timer_used);
+        gpu_timer_open = true;
+    }
+    void end_gpu_segment(VkCommandBuffer commands) {
+        if (!gpu_timer_open) return;
+        vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, gpu_timer, gpu_timer_used + 1u);
+        gpu_timer_used += 2u;
+        gpu_timer_open = false;
+    }
+    // After the fence of the frame that wrote them: adds that frame's GPU time.
+    void collect_gpu_time() {
+        if (gpu_timer == VK_NULL_HANDLE || gpu_timer_pending == 0u) return;
+        std::array<std::uint64_t, 4u * kGpuTimerSegments> results{};
+        const std::uint32_t count = gpu_timer_pending;
+        gpu_timer_pending = 0u;
+        const VkResult read = vkGetQueryPoolResults(
+            device, gpu_timer, 0u, count, static_cast<std::size_t>(count) * 2u * sizeof(std::uint64_t),
+            results.data(), 2u * sizeof(std::uint64_t),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        if (read != VK_SUCCESS && read != VK_NOT_READY) return;
+        std::uint64_t ticks = 0u;
+        bool any = false;
+        for (std::uint32_t pair = 0; pair + 1u < count; pair += 2u) {
+            const std::uint64_t *begin = &results[pair * 2u];
+            const std::uint64_t *end = &results[(pair + 1u) * 2u];
+            if (begin[1] == 0u || end[1] == 0u) continue;  // not available
+            ticks += (end[0] - begin[0]) & gpu_timer_mask;
+            any = true;
+        }
+        if (any) perf::add_gpu_time(static_cast<double>(ticks) * gpu_timer_ns_per_tick / 1.0e6);
+    }
     VkSemaphore image_available{};
     VkSemaphore render_finished{};
     VkPresentModeKHR present_mode{VK_PRESENT_MODE_FIFO_KHR};
@@ -1218,6 +1265,36 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     vkCreateSemaphore(impl.device, &semaphore_info, nullptr, &impl.image_available);
     vkCreateSemaphore(impl.device, &semaphore_info, nullptr, &impl.render_finished);
 
+    // GPU timestamps, where the queue has them. Without them the perf line
+    // reads "gpu n/a" and nothing else changes.
+    {
+        VkPhysicalDeviceProperties timer_properties{};
+        vkGetPhysicalDeviceProperties(impl.physical_device, &timer_properties);
+        const std::uint32_t valid_bits = families[impl.queue_family].timestampValidBits;
+        const float period = timer_properties.limits.timestampPeriod;
+        const char *why = nullptr;
+        if (std::getenv("MHP3RD_NO_GPU_TIMESTAMPS") != nullptr) why = "turned off (MHP3RD_NO_GPU_TIMESTAMPS)";
+        else if (valid_bits == 0u) why = "the graphics queue has no timestamps";
+        else if (!(period > 0.0f)) why = "the device reports no timestamp period";
+        if (why == nullptr) {
+            VkQueryPoolCreateInfo query_info{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            query_info.queryCount = 2u * kGpuTimerSegments;
+            if (vkCreateQueryPool(impl.device, &query_info, nullptr, &impl.gpu_timer) != VK_SUCCESS) {
+                impl.gpu_timer = VK_NULL_HANDLE;
+                why = "vkCreateQueryPool failed";
+            }
+        }
+        if (why == nullptr) {
+            impl.gpu_timer_ns_per_tick = static_cast<double>(period);
+            impl.gpu_timer_mask = valid_bits >= 64u ? ~0ull : (1ull << valid_bits) - 1ull;
+            std::cout << "[perf] GPU timestamps: " << valid_bits << " bits, " << period << " ns per tick\n";
+        } else {
+            perf::set_gpu_time_unavailable();
+            std::cout << "[perf] no GPU time: " << why << "\n";
+        }
+    }
+
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = kVertexBufferBytes;
     buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
@@ -1531,12 +1608,17 @@ void VulkanRenderer::Impl::submit_and_present(VkImage source, bool game_frame) {
     // A game flip before anything was drawn has nothing to show.
     const bool has_content = source != VK_NULL_HANDLE || !game_frame || draw_ui;
 
+    // The GPU time covers the frame's own rendering, not the copy to the
+    // window, which may wait for the presentation engine to release an image.
+    end_gpu_segment(command_buffer);
+    gpu_timer_pending = gpu_timer_used;
+
     std::uint32_t image_index = 0u;
     VkResult acquired = VK_ERROR_OUT_OF_DATE_KHR;
     if (has_content && swapchain != VK_NULL_HANDLE) {
         const perf::Clock::time_point acquire_start = perf::Clock::now();
         acquired = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &image_index);
-        perf::add_wait_time(perf::Clock::now() - acquire_start);
+        perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
         if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
     }
     const bool can_present = acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR;
@@ -1617,7 +1699,7 @@ void VulkanRenderer::Impl::submit_and_present(VkImage source, bool game_frame) {
     // MoltenVK waits for the next drawable here rather than in the acquire.
     const perf::Clock::time_point submit_start = perf::Clock::now();
     vkQueueSubmit(queue, 1u, &submit, frame_fence);
-    perf::add_wait_time(perf::Clock::now() - submit_start);
+    perf::add_wait_time(perf::Clock::now() - submit_start, perf::Stall::Submit);
 
     if (can_present) {
         VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -1628,7 +1710,7 @@ void VulkanRenderer::Impl::submit_and_present(VkImage source, bool game_frame) {
         present.pImageIndices = &image_index;
         const perf::Clock::time_point present_start = perf::Clock::now();
         const VkResult presented = vkQueuePresentKHR(queue, &present);
-        perf::add_wait_time(perf::Clock::now() - present_start);
+        perf::add_wait_time(perf::Clock::now() - present_start, perf::Stall::Present);
         if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) swapchain_dirty = true;
     }
     recording = false;
@@ -1850,7 +1932,7 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
     const perf::Clock::time_point wait_start = perf::Clock::now();
     vkQueueSubmit(queue, 1u, &submit, VK_NULL_HANDLE);
     vkQueueWaitIdle(queue);
-    perf::add_wait_time(perf::Clock::now() - wait_start);
+    perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Upload);
     vkFreeCommandBuffers(device, command_pool, 1u, &commands);
     vkDestroyBuffer(device, staging, nullptr);
     vkFreeMemory(device, staging_memory, nullptr);
@@ -1960,7 +2042,7 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         }
         const perf::Clock::time_point wait_start = perf::Clock::now();
         vkQueueWaitIdle(queue);
-        perf::add_wait_time(perf::Clock::now() - wait_start);
+        perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Evict);
         destroy_texture(oldest->second);
         textures.erase(oldest);
     }
@@ -2930,8 +3012,9 @@ void VulkanRenderer::begin_frame() {
     if (!impl.ready || impl.recording) return;
     const perf::Clock::time_point wait_start = perf::Clock::now();
     vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
-    perf::add_wait_time(perf::Clock::now() - wait_start);
+    perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Fence);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
+    impl.collect_gpu_time();
     impl.apply_texture_pack();
     impl.replacements.begin_frame(impl.frames);
     if (texture_pack_trace() && impl.pack && impl.frames % 60u == 0u) {
@@ -2941,16 +3024,24 @@ void VulkanRenderer::begin_frame() {
         impl.replaced_draws = 0u;
     }
     if (impl.writeback_in_flight) {
+        const perf::Clock::time_point copy_start = perf::Clock::now();
         impl.writeback_pixels.resize(static_cast<std::size_t>(kPspWidth) * kPspHeight);
         std::memcpy(impl.writeback_pixels.data(), impl.writeback_mapped, impl.writeback_pixels.size() * 4u);
         impl.writeback_ready = impl.writeback_recorded;
         impl.writeback_has_pixels = true;
         impl.writeback_in_flight = false;
+        perf::note_stall(perf::Stall::Copy, perf::Clock::now() - copy_start);
     }
     vkResetCommandBuffer(impl.command_buffer, 0u);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(impl.command_buffer, &begin);
+    if (impl.gpu_timer != VK_NULL_HANDLE) {
+        vkCmdResetQueryPool(impl.command_buffer, impl.gpu_timer, 0u, 2u * kGpuTimerSegments);
+        impl.gpu_timer_used = 0u;
+        impl.gpu_timer_open = false;
+        impl.begin_gpu_segment(impl.command_buffer);
+    }
     impl.vertex_offset = 0u;
     impl.environment_version = 0u;
     impl.object_valid = false;
@@ -2968,7 +3059,9 @@ void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint
     std::string error;
     if (impl.upload_extent.width != width || impl.upload_extent.height != height) {
         // Nothing recorded so far this frame uses the old image yet.
+        const perf::Clock::time_point idle_start = perf::Clock::now();
         vkDeviceWaitIdle(impl.device);
+        perf::note_stall(perf::Stall::Idle, perf::Clock::now() - idle_start);
         if (!impl.create_upload(width, height, error)) {
             std::cerr << "Renderer: cannot upload frames (" << error << ")\n";
             impl.destroy_upload();
@@ -3608,7 +3701,9 @@ void VulkanRenderer::write_back_frame(GuestMemory &memory) {
     Impl &impl = *impl_;
     if (!impl.ready || !impl.writeback_has_pixels) return;
     impl.writeback_has_pixels = false;
+    const perf::Clock::time_point store_start = perf::Clock::now();
     impl.store_frame(memory, impl.writeback_ready, impl.writeback_pixels.data());
+    perf::note_stall(perf::Stall::Store, perf::Clock::now() - store_start);
 }
 
 void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &memory) {
@@ -3634,6 +3729,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     impl.record_writeback(found);
     if (!impl.writeback_in_flight) return;
     // Run everything recorded so far and carry on recording afterwards.
+    impl.end_gpu_segment(impl.command_buffer);
     vkEndCommandBuffer(impl.command_buffer);
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1u;
@@ -3641,20 +3737,27 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     const perf::Clock::time_point wait_start = perf::Clock::now();
     vkQueueSubmit(impl.queue, 1u, &submit, impl.frame_fence);
     vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
-    perf::add_wait_time(perf::Clock::now() - wait_start);
+    perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Readback);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
     vkResetCommandBuffer(impl.command_buffer, 0u);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(impl.command_buffer, &begin);
+    // The queries written so far stay valid: they were reset at the start of
+    // the frame, and the next pair follows them.
+    impl.begin_gpu_segment(impl.command_buffer);
     impl.vertex_offset = 0u;
     impl.environment_version = 0u;
     impl.object_valid = false;
     impl.forget_bindings();
     impl.writeback_in_flight = false;
+    const perf::Clock::time_point copy_start = perf::Clock::now();
     std::vector<std::uint32_t> pixels(static_cast<std::size_t>(kPspWidth) * kPspHeight);
     std::memcpy(pixels.data(), impl.writeback_mapped, pixels.size() * 4u);
+    const perf::Clock::time_point store_start = perf::Clock::now();
+    perf::note_stall(perf::Stall::Copy, store_start - copy_start);
     impl.store_frame(memory, impl.writeback_recorded, pixels.data());
+    perf::note_stall(perf::Stall::Store, perf::Clock::now() - store_start);
     // A write-back still waiting from an earlier frame is older than this one.
     if (impl.writeback_ready.address == found) impl.writeback_has_pixels = false;
     static const bool trace = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
@@ -3928,6 +4031,7 @@ void VulkanRenderer::shutdown() {
     vkDestroySemaphore(impl.device, impl.image_available, nullptr);
     vkDestroySemaphore(impl.device, impl.render_finished, nullptr);
     vkDestroyFence(impl.device, impl.frame_fence, nullptr);
+    if (impl.gpu_timer != VK_NULL_HANDLE) vkDestroyQueryPool(impl.device, impl.gpu_timer, nullptr);
     vkDestroyCommandPool(impl.device, impl.command_pool, nullptr);
     vkDestroySwapchainKHR(impl.device, impl.swapchain, nullptr);
     vkDestroyDevice(impl.device, nullptr);

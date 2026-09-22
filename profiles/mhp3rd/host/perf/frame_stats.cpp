@@ -15,6 +15,46 @@ double to_ms(Clock::duration duration) {
     return std::chrono::duration<double, std::milli>(duration).count();
 }
 
+constexpr std::size_t kStallKinds = static_cast<std::size_t>(Stall::Count);
+
+struct StallTally {
+    std::uint32_t count{};
+    Clock::duration total{};
+    Clock::duration longest{};
+
+    void add(Clock::duration duration) {
+        ++count;
+        total += duration;
+        longest = std::max(longest, duration);
+    }
+    void add(const StallTally &other) {
+        count += other.count;
+        total += other.total;
+        longest = std::max(longest, other.longest);
+    }
+};
+using StallTallies = std::array<StallTally, kStallKinds>;
+
+// MHP3RD_TRACE_STALLS: a [stalls] line once a second, and a [slow-frame] line
+// for every frame longer than MHP3RD_TRACE_STALLS_MS (default 40 ms).
+struct StallTrace {
+    bool enabled{};
+    double slow_frame_ms{40.0};
+};
+
+const StallTrace &stall_trace() {
+    static const StallTrace value = [] {
+        StallTrace trace{};
+        trace.enabled = std::getenv("MHP3RD_TRACE_STALLS") != nullptr;
+        if (const char *text = std::getenv("MHP3RD_TRACE_STALLS_MS"); text != nullptr) {
+            const double ms = std::strtod(text, nullptr);
+            if (ms > 0.0) trace.slow_frame_ms = ms;
+        }
+        return trace;
+    }();
+    return value;
+}
+
 struct State {
     // Frame in progress.
     Clock::time_point frame_start{Clock::now()};
@@ -23,6 +63,9 @@ struct State {
     Clock::duration pacing{};
     Clock::duration overlay{};
     std::uint32_t lists{};
+    StallTallies stalls{};
+    double gpu_ms{};
+    std::uint32_t gpu_samples{};
 
     // Second in progress.
     Clock::time_point window_start{Clock::now()};
@@ -36,6 +79,12 @@ struct State {
     Clock::duration pacing_sum{};
     Clock::duration overlay_sum{};
     std::uint32_t list_sum{};
+    StallTallies stall_sum{};
+    double gpu_sum_ms{};
+    double gpu_max_ms{};
+    std::uint32_t gpu_frames{};
+    bool gpu_unavailable{};
+    std::uint64_t frame_number{};
 
     Summary summary;
     std::string present_mode{"none"};
@@ -60,6 +109,13 @@ void print(const Summary &s) {
                                s.render_ms, s.wait_ms, s.lists, s.present_mode.c_str(), s.width, s.height);
     if (s.refresh_hz > 0.0f && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " %.0fHz", s.refresh_hz);
+    if (length > 0 && static_cast<std::size_t>(length) < sizeof(line)) {
+        if (s.gpu_valid)
+            length += std::snprintf(line + length, sizeof(line) - length, " | gpu %.1f max %.1f ms", s.gpu_avg_ms,
+                                    s.gpu_max_ms);
+        else
+            length += std::snprintf(line + length, sizeof(line) - length, " | gpu n/a");
+    }
     if (s.overlay_ms > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         std::snprintf(line + length, sizeof(line) - length, " | overlay %.2f ms", s.overlay_ms);
     // Flushed per line: the log is read while the game runs, often through a
@@ -67,7 +123,45 @@ void print(const Summary &s) {
     std::cout << line << std::endl;
 }
 
+// " name avg max M xN" for every kind that happened: the average per frame
+// over `frames` frames, the longest single stall and how many there were. For
+// a single frame, " name total xN".
+std::string format_stalls(const StallTallies &tallies, double frames, bool per_frame_average) {
+    std::string text;
+    char part[96];
+    for (std::size_t i = 0; i < kStallKinds; ++i) {
+        const StallTally &tally = tallies[i];
+        if (tally.count == 0u) continue;
+        const double total = to_ms(tally.total);
+        if (per_frame_average)
+            std::snprintf(part, sizeof(part), " %s %.2f max %.2f x%u", stall_name(static_cast<Stall>(i)),
+                          total / frames, to_ms(tally.longest), tally.count);
+        else
+            std::snprintf(part, sizeof(part), " %s %.2f x%u", stall_name(static_cast<Stall>(i)), total, tally.count);
+        text += part;
+    }
+    return text.empty() ? std::string(" none") : text;
+}
+
 } // namespace
+
+const char *stall_name(Stall kind) {
+    switch (kind) {
+    case Stall::Fence: return "fence";
+    case Stall::Acquire: return "acquire";
+    case Stall::Submit: return "submit";
+    case Stall::Present: return "present";
+    case Stall::Upload: return "upload";
+    case Stall::Evict: return "evict";
+    case Stall::Readback: return "readback";
+    case Stall::Idle: return "idle";
+    case Stall::Pacing: return "pacing";
+    case Stall::Copy: return "copy";
+    case Stall::Store: return "store";
+    case Stall::Count: break;
+    }
+    return "?";
+}
 
 Options options() {
     Options result{};
@@ -86,6 +180,9 @@ void restart_measurement() {
     s.frame_start = now;
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
+    s.stalls = StallTallies{};
+    s.gpu_ms = 0.0;
+    s.gpu_samples = 0u;
     s.window_start = now;
     s.window_has_clock = false;
     s.frames = 0u;
@@ -93,11 +190,31 @@ void restart_measurement() {
     s.frame_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
+    s.stall_sum = StallTallies{};
+    s.gpu_sum_ms = s.gpu_max_ms = 0.0;
+    s.gpu_frames = 0u;
 }
 
 void add_render_time(Clock::duration duration) { state().render += duration; }
-void add_wait_time(Clock::duration duration) { state().wait += duration; }
-void add_pacing_time(Clock::duration duration) { state().pacing += duration; }
+void add_wait_time(Clock::duration duration, Stall kind) {
+    State &s = state();
+    s.wait += duration;
+    s.stalls[static_cast<std::size_t>(kind)].add(duration);
+}
+void note_stall(Stall kind, Clock::duration duration) {
+    state().stalls[static_cast<std::size_t>(kind)].add(duration);
+}
+void add_gpu_time(double milliseconds) {
+    State &s = state();
+    s.gpu_ms += milliseconds;
+    ++s.gpu_samples;
+}
+void set_gpu_time_unavailable() { state().gpu_unavailable = true; }
+void add_pacing_time(Clock::duration duration) {
+    State &s = state();
+    s.pacing += duration;
+    s.stalls[static_cast<std::size_t>(Stall::Pacing)].add(duration);
+}
 void add_overlay_time(Clock::duration duration) { state().overlay += duration; }
 void count_display_list() { ++state().lists; }
 
@@ -129,8 +246,40 @@ void end_frame(std::uint64_t virtual_us) {
     s.pacing_sum += s.pacing;
     s.overlay_sum += s.overlay;
     s.list_sum += s.lists;
+    for (std::size_t i = 0; i < kStallKinds; ++i) s.stall_sum[i].add(s.stalls[i]);
+    if (s.gpu_samples != 0u) {
+        s.gpu_sum_ms += s.gpu_ms;
+        s.gpu_max_ms = std::max(s.gpu_max_ms, s.gpu_ms);
+        ++s.gpu_frames;
+    }
+    ++s.frame_number;
+    const StallTrace &trace = stall_trace();
+    if (trace.enabled && frame_ms > trace.slow_frame_ms) {
+        // The GPU time is the previous frame's: that is the work a fence wait
+        // at the start of this frame was waiting for.
+        const double render_ms = std::max(0.0, to_ms(s.render) - to_ms(s.wait));
+        const double wait_ms = to_ms(s.wait) + to_ms(s.pacing);
+        char head[192];
+        std::snprintf(head, sizeof(head),
+                      "[slow-frame] %llu %.1f ms | guest %.1f render %.1f wait %.1f ms | gpu(prev) ",
+                      static_cast<unsigned long long>(s.frame_number), frame_ms,
+                      std::max(0.0, frame_ms - render_ms - wait_ms), render_ms, wait_ms);
+        std::string line = head;
+        if (s.gpu_samples != 0u) {
+            char gpu[32];
+            std::snprintf(gpu, sizeof(gpu), "%.1f ms", s.gpu_ms);
+            line += gpu;
+        } else {
+            line += "n/a";
+        }
+        line += " |" + format_stalls(s.stalls, 1.0, false);
+        std::cout << line << std::endl;
+    }
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
+    s.stalls = StallTallies{};
+    s.gpu_ms = 0.0;
+    s.gpu_samples = 0u;
 
     const double window_ms = to_ms(now - s.window_start);
     if (window_ms < 1000.0) return;
@@ -153,11 +302,17 @@ void end_frame(std::uint64_t virtual_us) {
     out.render_ms = std::max(0.0, to_ms(s.render_sum) / frames - gpu_wait_ms);
     out.guest_ms = std::max(0.0, out.frame_avg_ms - out.render_ms - out.wait_ms);
     out.overlay_ms = to_ms(s.overlay_sum) / frames;
+    out.gpu_valid = !s.gpu_unavailable && s.gpu_frames != 0u;
+    out.gpu_avg_ms = s.gpu_frames != 0u ? s.gpu_sum_ms / static_cast<double>(s.gpu_frames) : 0.0;
+    out.gpu_max_ms = s.gpu_max_ms;
     out.present_mode = s.present_mode;
     out.width = s.width;
     out.height = s.height;
     out.refresh_hz = s.refresh_hz;
     if (options().log) print(out);
+    if (trace.enabled)
+        std::cout << "[stalls] ms per frame over " << s.frames << " frames:" << format_stalls(s.stall_sum, frames, true)
+                  << std::endl;
 
     s.window_start = now;
     s.window_virtual_us = virtual_us;
@@ -166,6 +321,9 @@ void end_frame(std::uint64_t virtual_us) {
     s.frame_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
+    s.stall_sum = StallTallies{};
+    s.gpu_sum_ms = s.gpu_max_ms = 0.0;
+    s.gpu_frames = 0u;
 }
 
 const Summary &last_second() { return state().summary; }

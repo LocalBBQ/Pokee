@@ -592,6 +592,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
 | `MHP3RD_PERF` | off | `1` shows the performance overlay and logs frame statistics once per second; `log` only logs them (menu: Performance). See [Performance statistics](#performance-statistics) |
+| `MHP3RD_NO_GPU_TIMESTAMPS` | off | Do not time the GPU with timestamp queries; the perf line reads `gpu n/a` |
 
 ### Picture shape and size
 
@@ -669,6 +670,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_TRACE_SYNC=1` | Trace semaphores, event flags and mutexes; `MHP3RD_TRACE_SYNC_LIMIT` caps the lines (default 4000) |
 | `MHP3RD_STARVATION_INTERVAL` | Dispatches between virtual-clock advances in code that never calls an import |
 | `MHP3RD_TRACE_GE=1` | Log the first draws of the run with their state |
+| `MHP3RD_TRACE_STALLS=1` | Where the render thread waits, once a second and for every slow frame; `MHP3RD_TRACE_STALLS_MS` sets what is slow (default 40). See [Where the render thread waits](#where-the-render-thread-waits) |
 | `MHP3RD_TRACE_3D=1` | Per-frame counts of transformed draws, their targets and screen-space bounds |
 | `MHP3RD_FIND_CAMERA=1` | Hunt guest memory for the words the camera is kept in, by what they do: one hunt against the yaw the view matrix reports and one against its pitch, trying every word as a float, a 32-bit and a 16-bit number, and as an angle, a rate, or a rate read a frame early. `MHP3RD_FIND_CAMERA_OUT` names a file the surviving list is written to |
 | `MHP3RD_FIND_STEP=N` | Keep the 16-bit fields that move by exactly N between turning frames. The camera's own yaw moves by 1150, which is 1150/65536 of a turn |
@@ -706,7 +708,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 With `MHP3RD_PERF=1` the game draws a small overlay into the top-left corner of the presented image, so it appears in window and Steam screenshots and in `MHP3RD_SCREENSHOT_DIR` captures, and prints one line per second to stdout, flushed as it is written:
 
 ```text
-[perf] fps 30.0 game 30.0 speed 100% | frame avg 33.4 max 34.7 ms | guest 4.1 render 9.8 wait 19.5 ms | lists 60/s | FIFO 1440x816 90Hz | overlay 0.05 ms
+[perf] fps 30.0 game 30.0 speed 100% | frame avg 33.4 max 34.7 ms | guest 4.1 render 9.8 wait 19.5 ms | lists 60/s | FIFO 1440x816 90Hz | gpu 7.6 max 10.6 ms | overlay 0.05 ms
 ```
 
 `MHP3RD_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The menu's *Performance* setting chooses the same modes, plus the overlay without the log. The statistics are collected all the time, so turning them on changes nothing else.
@@ -721,12 +723,38 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | `frame avg`, `max` | Real time between presents over the last second |
 | `guest` | The rest of the frame: recompiled code, HLE, the kernel, input and audio |
 | `render` | CPU time turning display lists into Vulkan commands and recording the present, without the GPU waits inside it. The kernel's hold to real time happens outside it and does not reduce it |
-| `wait` | Time blocked on the GPU: the frame fence, swapchain acquire, queue submit and present, and the queue idle waits of texture uploads. With FIFO presentation, pacing to the display shows up here, and so does the time the kernel waits to hold the game to real time |
+| `wait` | Time blocked on the GPU: the frame fence, swapchain acquire, queue submit and present, the queue idle waits of texture uploads and evictions, and framebuffer read-backs for GE block transfers. With FIFO presentation, pacing to the display shows up here, and so does the time the kernel waits to hold the game to real time |
 | `lists` | Display lists enqueued per second of real time |
-| last part | Present mode, swapchain size and the display's refresh rate as SDL reports it |
+| `FIFO 1440x816 90Hz` | Present mode, swapchain size and the display's refresh rate as SDL reports it |
+| `gpu`, `max` | GPU time per frame, averaged over the second, and the longest: from the first command of the frame to its last draw, measured with Vulkan timestamp queries and read back after the frame's fence, so it lags the frame by one. The copy to the window is not included. `gpu n/a` when the graphics queue has no timestamps (`timestampValidBits` 0) or `MHP3RD_NO_GPU_TIMESTAMPS` is set; the log says which at start-up |
 | `overlay` | CPU time spent drawing the overlay, when it is shown |
 
-The overlay shows the same numbers and a graph of the last 192 frame times, from 0 to 50 ms, with guides at 16.7 and 33.3 ms: green up to 34 ms, yellow up to 50 ms, red beyond.
+The overlay shows the same numbers (GPU time on the second line, when there is one) and a graph of the last 192 frame times, from 0 to 50 ms, with guides at 16.7 and 33.3 ms: green up to 34 ms, yellow up to 50 ms, red beyond.
+
+#### Where the render thread waits
+
+`MHP3RD_TRACE_STALLS=1` adds a `[stalls]` line after each `[perf]` line, and a `[slow-frame]` line for every frame longer than `MHP3RD_TRACE_STALLS_MS` milliseconds (default 40), so a spike can be matched to its cause:
+
+```text
+[stalls] ms per frame over 30 frames: fence 0.14 max 1.88 x30 acquire 0.08 max 0.10 x30 submit 3.15 max 3.37 x30 present 0.02 max 0.03 x30 pacing 21.68 max 7.48 x196 copy 0.02 max 0.02 x30 store 0.43 max 0.46 x30
+[slow-frame] 714 152.0 ms | guest 2.5 render 81.6 wait 67.9 ms | gpu(prev) 2.0 ms | fence 2.02 x1 acquire 0.09 x1 submit 6.88 x1 present 0.03 x1 upload 43.93 x80 pacing 14.91 x4 copy 0.02 x1 store 0.51 x1
+```
+
+Each kind that happened is listed with its time per frame averaged over the second, its longest single stall and how many there were; a `[slow-frame]` line gives that frame's totals and the GPU time of the frame before it, which is what a fence wait at the start of the frame waits for.
+
+| Kind | Where |
+| --- | --- |
+| `fence` | The previous frame's fence, before the next frame is recorded: the GPU is still busy with it |
+| `acquire` | `vkAcquireNextImageKHR` |
+| `submit` | The frame's `vkQueueSubmit`; MoltenVK waits for the next drawable here |
+| `present` | `vkQueuePresentKHR` |
+| `upload` | A texture upload, which waits for the queue to go idle, and so for the frame before it |
+| `evict` | The queue idle wait before a cached texture is destroyed to make room |
+| `readback` | A framebuffer read back for a GE block transfer (submits the frame so far and waits for it) |
+| `idle` | Other device idle waits, such as a movie frame changing size |
+| `pacing` | The kernel holding the game to real time (not a GPU wait, but part of `wait`) |
+| `copy` | CPU time copying the written-back frame out of mapped memory, which may be uncached (part of `render`) |
+| `store` | CPU time converting that frame into guest memory, `store_frame` (part of `render`) |
 
 ## Host layout
 
