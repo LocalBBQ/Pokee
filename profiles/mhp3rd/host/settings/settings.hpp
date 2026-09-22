@@ -59,7 +59,6 @@ struct Settings {
     // Rather than guess, the choice is a setting: the player flips between the
     // candidates until the camera answers. Off drives nothing.
     bool vertical_camera{};
-    int vertical_candidate{};
     bool invert_camera_x{};
     bool invert_camera_y{};
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once

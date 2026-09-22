@@ -373,15 +373,19 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
     owed -= static_cast<float>(whole);
     if (whole == 0) return;
 
-    const std::int16_t now = static_cast<std::int16_t>(memory.load16(p.confirmed));
-    int next = now + whole;
-    // Keep the camera out of the floor and off the ceiling: the game's own
-    // range never took the view far past sixty degrees either way in anything
-    // measured, so that is where this stops.
+    // Keep the camera out of the floor and off the ceiling.
     const int limit = static_cast<int>(60.0f * kUnitsPerTurn / 360.0f);
-    if (next > limit) next = limit;
-    if (next < -limit) next = -limit;
-    memory.store16(p.confirmed, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
+    // Every field that kept step with the view gets the same turn. The game
+    // eases one of these towards another, exactly as it does for the yaw, so
+    // writing only one of them is undone again before the frame is drawn --
+    // which is what made this look like it did nothing at all.
+    for (std::uint32_t address : p.best) {
+        const std::int16_t now = static_cast<std::int16_t>(memory.load16(address));
+        int next = now + whole;
+        if (next > limit) next = limit;
+        if (next < -limit) next = -limit;
+        memory.store16(address, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
+    }
     static bool said = false;
     if (!said) {
         said = true;
@@ -398,6 +402,16 @@ bool analog_camera_vertical_driving() {
 void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change,
                          float yaw_degrees, float pitch_now, float stick_y) {
     Camera &c = camera();
+    // Said once, so a window running an older binary than intended says so
+    // rather than leaving everyone to wonder why a setting is missing.
+    static bool announced_settings = false;
+    if (!announced_settings) {
+        announced_settings = true;
+        const settings::Settings &player = settings::current();
+        std::cout << "[analog-camera] built " << __DATE__ << " " << __TIME__ << "; analog camera "
+                  << (player.analog_camera ? "on" : "off") << ", vertical "
+                  << (player.vertical_camera ? "on" : "off") << ", speed " << player.camera_speed << " deg/s\n";
+    }
     if (!settings::current().analog_camera) {
         if (c.state != Camera::State::Looking) c = Camera{};
         return;

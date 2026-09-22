@@ -520,17 +520,6 @@ void Menu::controls() {
             s.vertical_camera = !s.vertical_camera;
             settings::save();
         }
-        o = options_for("input.vertical_candidate",
-                        "Which of the candidates the port found is driven. If up and down do nothing, try the next.");
-        if (!s.vertical_camera && !o.disabled) {
-            o.disabled = true;
-            o.note = "Vertical camera is off";
-        }
-        int candidate = s.vertical_candidate;
-        if (slider_row("Vertical candidate", candidate, 0, 7, 1, "%d", o)) {
-            s.vertical_candidate = candidate;
-            settings::save();
-        }
     }
     {
         RowOptions o = options_for("input.invert_camera_x", "Turn the camera the other way left and right.");
