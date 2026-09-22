@@ -335,6 +335,10 @@ void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, f
     // turned out to be false, four times over. The switch now governs every
     // write the vertical makes, including this one.
     if (!settings::current().vertical_camera) return;
+    // Wait for the horizontal to know where it lives. Until it does there is
+    // nothing to keep clear of, and the self-test would be free to write five
+    // degrees into the yaw's own angle before anyone could stop it.
+    if (camera().state != Camera::State::Locked) return;
     Pitch &p = pitch_search();
     if (p.confirmed != 0u || p.best.empty()) return;
     // And it gives up rather than cycling for ever, writing into one field
