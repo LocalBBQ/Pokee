@@ -15,9 +15,9 @@ void install_analog_camera(psprecomp::Runtime &runtime, CameraRotationFunction o
 // inversion have already been applied by the input layer.
 void analog_camera_frame(float x, float y);
 
-// Suppress the game's digital right-stick commands only while its ordinary
-// follow-camera calculation is active. Menus and special cameras retain input.
+// Suppress the game's digital right-stick commands, on both axes, only while
+// its ordinary follow-camera calculation is active. Menus and special cameras
+// retain input.
 [[nodiscard]] bool analog_camera_driving();
-[[nodiscard]] bool analog_camera_vertical_driving();
 
 } // namespace mhp3rd::input

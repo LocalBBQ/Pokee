@@ -95,7 +95,7 @@ void adjust_camera(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx)
     const bool recentre = (buttons & 0x100u) != 0u || memory.load8(address + 0x8Eu) != 0u;
     const bool vertical_command = (buttons & 0x50u) != 0u;
     const bool active = enabled();
-    if (!active || !player.vertical_camera || recentre || vertical_command)
+    if (!active || recentre || vertical_command)
         camera.pitch_owned = false;
 
     if (active && !recentre && camera.x != 0.0f) {
@@ -112,7 +112,7 @@ void adjust_camera(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx)
         camera.yaw_remainder = 0.0f;
     }
 
-    if (active && player.vertical_camera && !recentre && !vertical_command) {
+    if (active && !recentre && !vertical_command) {
         float previous_pitch = camera.pitch;
         if (camera.y != 0.0f) {
             if (!camera.pitch_owned) {
@@ -190,10 +190,6 @@ void analog_camera_frame(float x, float y) {
 
 bool analog_camera_driving() {
     return enabled() && camera.available;
-}
-
-bool analog_camera_vertical_driving() {
-    return analog_camera_driving() && settings::current().vertical_camera;
 }
 
 } // namespace mhp3rd::input

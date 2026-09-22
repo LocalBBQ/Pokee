@@ -294,8 +294,7 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Controls | Stick dead zone | `input.dead_zone` | `MHP3RD_PAD_DEADZONE` | 0–50% |
 | Controls | Trigger point | `input.trigger` | `MHP3RD_PAD_TRIGGER` | 5–100% |
 | Controls | Right stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off |
-| Controls | Analog camera | `input.analog_camera` | `MHP3RD_ANALOG_CAMERA` | Proportional horizontal control in the ordinary quest camera; off by default |
-| Controls | Vertical camera | `input.vertical_camera` | `MHP3RD_VERTICAL_CAMERA` | Continuous tilt; requires Analog camera; off by default |
+| Controls | Analog camera | `input.analog_camera` | `MHP3RD_ANALOG_CAMERA` | Proportional turn and continuous tilt in the ordinary quest camera; off by default |
 | Controls | Camera speed | `input.camera_speed` | `MHP3RD_CAMERA_SPEED` | 20–720 degrees per second at full deflection; default 190 |
 | Controls | Invert camera horizontally / vertically | `input.invert_camera_x`, `input.invert_camera_y` | | For the right-stick camera |
 | Controls | Right stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
@@ -541,9 +540,8 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button (menu: Confirm button) |
 | `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel (menu: Stick dead zone) |
 | `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press L/R (menu: Trigger point) |
-| `MHP3RD_ANALOG_CAMERA` | off | Proportional yaw in the ordinary quest camera. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
+| `MHP3RD_ANALOG_CAMERA` | off | Proportional yaw and continuous tilt in the ordinary quest camera, the tilt limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the angle. The physical D-pad and recentre return control to the game. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
 | `MHP3RD_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
-| `MHP3RD_VERTICAL_CAMERA` | off | Continuous quest-camera tilt, limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the tilt. The physical D-pad and recentre return control to the game. Requires Analog camera (menu: Vertical camera) |
 | `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Right stick) |
 | `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Right stick D-pad point) |
 | `MHP3RD_OSK_TEXT` | `Hunter` | Fixed name given when the game asks for one, at once and without the on-screen keyboard unless `MHP3RD_OSK_MODE=keyboard` (menu: Hunter name) |
@@ -563,9 +561,9 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 
 ### Analog camera
 
-In a quest, open **Controls** and enable **Analog camera** and **Vertical camera**. Small right-stick deflections turn slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. Fixed village cameras and special aiming modes remain stock; this feature does not unlock them.
+In a quest, open **Controls** and enable **Analog camera**; it drives both axes. Small right-stick deflections turn and tilt slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. Fixed village cameras and special aiming modes remain stock; this feature does not unlock them.
 
-Switching either option takes effect at run time, with no regeneration or rebuild. Turning Analog camera off stops all analog-camera writes and passes the right stick through unchanged. Turning only Vertical camera off restores the game's vertical presets while keeping analog yaw.
+The option takes effect at run time, with no regeneration or rebuild. Turning it off stops all analog-camera writes, restores the game's vertical presets and passes the right stick through unchanged.
 
 The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. No shared preset table or generated code is patched. The wrapper adds a dispatch through the existing runtime; it does not scan guest RAM.
 

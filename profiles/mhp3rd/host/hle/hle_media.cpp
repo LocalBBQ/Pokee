@@ -295,12 +295,13 @@ void register_display_ctrl(HleRegistrar &hle) {
             right_x = pad.right_x;
             right_y = pad.right_y;
             // Keep the game's digital commands neutral while the analog
-            // camera consumes these axes. The physical D-pad stays available.
-            if (input::analog_camera_driving()) right_x = 0x80u;
-            // The same for up and down once the port drives those: otherwise
-            // the game's one-shot command fires from the same push and glides
-            // the camera against what the port is doing.
-            if (input::analog_camera_vertical_driving()) right_y = 0x80u;
+            // camera consumes these axes: otherwise the game's one-shot
+            // vertical command fires from the same push and glides the camera
+            // against what the port is doing. The physical D-pad stays available.
+            if (input::analog_camera_driving()) {
+                right_x = 0x80u;
+                right_y = 0x80u;
+            }
         }
 #endif
         auto &memory = rt.memory();

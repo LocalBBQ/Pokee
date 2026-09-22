@@ -486,8 +486,9 @@ void Menu::controls() {
     const bool camera = s.right_stick == settings::RightStick::Camera;
     {
         RowOptions o = options_for("input.analog_camera",
-                                   "Turn the camera as far as the stick is pushed, instead of at the game's one "
-                                   "fixed speed. Off is the game's own camera, untouched.");
+                                   "Turn and tilt the quest camera as far as the stick is pushed, instead of the "
+                                   "game's fixed-speed turn and vertical presets. Release holds the angle; the D-pad "
+                                   "and recentre return to the game's camera. Off is the game's own camera, untouched.");
         if (!camera && !o.disabled) {
             o.disabled = true;
             o.note = "Right stick is not the camera";
@@ -504,19 +505,6 @@ void Menu::controls() {
         int speed = static_cast<int>(s.camera_speed);
         if (slider_row("Camera speed", speed, 20, 720, 10, "%d deg/s", o)) {
             s.camera_speed = static_cast<float>(speed);
-            settings::save();
-        }
-    }
-    {
-        RowOptions o = options_for("input.vertical_camera",
-                                   "Tilt the quest camera continuously. Stick deflection controls the speed; "
-                                   "release holds the tilt. The D-pad and recentre return to the game's camera.");
-        if (!s.analog_camera && !o.disabled) {
-            o.disabled = true;
-            o.note = "Analog camera is off";
-        }
-        if (toggle_row("Vertical camera", s.vertical_camera, o)) {
-            s.vertical_camera = !s.vertical_camera;
             settings::save();
         }
     }

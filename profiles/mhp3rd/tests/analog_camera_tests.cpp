@@ -82,7 +82,7 @@ struct Fixture {
     }
     void enable() {
         auto &s = mhp3rd::settings::current();
-        s.analog_camera = s.vertical_camera = true;
+        s.analog_camera = true;
         s.camera_speed = 90.0f;
     }
     float pitch() {
@@ -97,7 +97,7 @@ void test_passthrough() {
     auto before = f.snapshot();
     f.frame(1.0f, 1.0f);
     check(f.snapshot() == before, "Off leaves guest camera, stack and preset unchanged");
-    check(!analog_camera_driving() && !analog_camera_vertical_driving(), "Off preserves right-stick input");
+    check(!analog_camera_driving(), "Off preserves right-stick input");
     f.enable();
     f.ctx.gpr[31] = 0x08812340u;
     f.frame(1.0f, 1.0f);
@@ -122,7 +122,7 @@ void test_rates_and_release() {
     for (int i = 0; i < 30; ++i) f.frame(0.0f, 0.0f);
     check(f.runtime.memory().load16(camera_address + 0x80u) == yaw, "released yaw stops accumulating");
     check(std::fabs(f.pitch() - held) < 0.001f, "released pitch holds its angle");
-    check(analog_camera_driving() && analog_camera_vertical_driving(), "both digital stick commands are suppressed");
+    check(analog_camera_driving(), "both digital stick commands are suppressed");
     for (int i = 0; i < 100; ++i) f.frame(0.0f, 1.0f);
     check(std::fabs(f.pitch() - 70.0f) < 0.001f, "upper pitch limit is bounded");
     for (int i = 0; i < 100; ++i) f.frame(0.0f, -1.0f);
@@ -147,10 +147,10 @@ void test_ownership() {
     check(baseline(), "physical D-pad vertical command takes priority");
     f.runtime.memory().store16(camera_address + 0x84u, 0u);
     f.frame(0.0f, 1.0f);
-    mhp3rd::settings::current().vertical_camera = false;
+    mhp3rd::settings::current().analog_camera = false;
     f.frame(0.0f, 0.0f);
-    check(baseline() && !analog_camera_vertical_driving(), "vertical Off restores the stock preset and input");
-    mhp3rd::settings::current().vertical_camera = true;
+    check(baseline() && !analog_camera_driving(), "Off restores the stock preset and input");
+    mhp3rd::settings::current().analog_camera = true;
     f.frame(0.0f, 1.0f);
     for (int i = 0; i < 3; ++i) analog_camera_frame(0.0f, 0.0f);
     check(!analog_camera_driving(), "leaving the camera releases input ownership");
