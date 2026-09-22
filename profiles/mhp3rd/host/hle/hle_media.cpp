@@ -13,6 +13,7 @@
 
 #include "camera_probe.hpp"
 #include "camera/camera_input.hpp"
+#include "camera/game_aspect.hpp"
 #include "camera/game_camera.hpp"
 #include "settings/settings.hpp"
 #include "gpu/ge_state.hpp"
@@ -208,6 +209,9 @@ void present_frame(Runtime &rt) {
         camera::set_rate(camera::Source::Stick, (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f,
                          (static_cast<int>(renderer.pad().right_y) - 0x80) / 127.0f);
         camera::game_camera_frame(rt);
+        // The view's shape follows the picture's: the game builds its next
+        // projection with the aspect ratio of the target it will draw into.
+        camera::game_aspect_frame(rt, renderer.game_aspect());
         camera::advance(seconds, camera::game_camera_degrees_per_second());
     }
     perf::add_render_time(perf::Clock::now() - present_start);

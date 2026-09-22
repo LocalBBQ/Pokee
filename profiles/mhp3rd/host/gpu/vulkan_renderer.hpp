@@ -49,8 +49,11 @@ struct RendererConfig {
 };
 
 // Vulkan backend for the GE. Draw calls are rendered into an offscreen target
-// the size of the PSP framebuffer times the internal scale, which is blitted to
-// the window once per guest frame.
+// per guest framebuffer, which is blitted to the window once per guest frame.
+// A target holds the game's 480x272 screen at a multiple of that size, or,
+// under Fill, at the window's shape: then each PSP pixel is wider (or taller)
+// than square, the game draws a view of that shape (camera/game_aspect.hpp),
+// and the 2D interface is drawn at its own proportions.
 class VulkanRenderer {
 public:
     VulkanRenderer();
@@ -105,16 +108,23 @@ public:
     void capture_window(const std::string &path);
 
     // Display settings, applied at once. The initial values come from
-    // settings::current() in initialize().
+    // settings::current() in initialize(). A scale of 0 follows the window's
+    // size in pixels, including every later change of it.
     void set_internal_scale(std::uint32_t scale);
     void set_window_scale(std::uint32_t scale);
     void set_fullscreen(bool fullscreen);
     void set_present_mode(settings::PresentMode mode);
     [[nodiscard]] bool supports_present_mode(settings::PresentMode mode) const;
-    void set_keep_aspect(bool keep_aspect);
+    void set_aspect(settings::Aspect aspect);
     void set_sharp_screen(bool sharp);
     void set_sharp_textures(bool sharp);
     void set_perf_overlay(bool visible);
+
+    // The shape the game's 3D view should have, width over height: the
+    // target's under Fill, the PSP's 480/272 otherwise.
+    [[nodiscard]] float game_aspect() const noexcept;
+    // The size the game is drawn at, in pixels.
+    [[nodiscard]] std::array<std::uint32_t, 2> target_size() const noexcept;
 
     [[nodiscard]] SDL_Window *window() const noexcept;
     [[nodiscard]] std::string device_name() const;

@@ -33,6 +33,18 @@ namespace {
 
 constexpr std::uint32_t kPspWidth = 480u;
 constexpr std::uint32_t kPspHeight = 272u;
+// Auto resolution draws the game at the window's size in pixels, up to this
+// many lines: 6 x 272, the largest multiple the menu offers.
+constexpr std::uint32_t kMaxAutoLines = 6u * kPspHeight;
+// Widest target, in pixels; every Vulkan device takes images this wide.
+constexpr std::uint32_t kMaxTargetWidth = 8192u;
+// Frames a new window size has to hold before the targets follow it, so
+// dragging a window's edge does not rebuild them on every frame.
+constexpr std::uint32_t kSettleFrames = 12u;
+// A through-mode draw at least this wide (in PSP pixels) covers the screen:
+// a fade, a backdrop or a copy of the picture, which spreads with the 3D view
+// instead of keeping the interface's proportions.
+constexpr float kScreenWideDraw = 470.0f;
 constexpr VkDeviceSize kVertexBufferBytes = 16u * 1024u * 1024u;
 constexpr std::size_t kMaxCachedTextures = 1024u;
 // Descriptor sets for sampling render targets as textures: two per target
@@ -458,7 +470,15 @@ struct VulkanRenderer::Impl {
 
     // Display settings.
     settings::PresentMode requested_present{settings::PresentMode::Fifo};
-    bool keep_aspect{true};
+    settings::Aspect aspect{settings::Aspect::Original};
+    std::uint32_t requested_scale{2u};  // multiples of 480x272; 0: the window's size
+    // A target size the window asks for, applied once it has held for
+    // kSettleFrames frames; a changed setting applies at the next chance.
+    VkExtent2D pending_extent{};
+    std::uint32_t pending_frames{};
+    bool resize_now{};
+    // The framebuffers the game showed last: its interface is drawn into them.
+    std::array<std::uint32_t, 2> display_addresses{};
     bool sharp_screen{};
     bool sharp_textures{};
     std::string device_name;
@@ -809,6 +829,21 @@ struct VulkanRenderer::Impl {
     void recreate_swapchain();
     bool create_ui_framebuffers(std::string &error);
     void record_game_blit(VkImage source, VkImage destination);
+    // Target size for the current settings and window.
+    [[nodiscard]] VkExtent2D wanted_target_extent() const;
+    // Rebuilds every target at `extent`, its picture scaled into it. Not while
+    // a frame is being recorded.
+    void resize_targets(VkExtent2D extent);
+    // After a present: follows the window's size or a changed setting.
+    void follow_window();
+    // Fill makes every one of the game's 480x272 pixels wider (or taller)
+    // than square. The interface is drawn at `fit_x` x `fit_y` of its size
+    // about the screen's centre, which gives it square pixels again. False
+    // when nothing needs fitting.
+    [[nodiscard]] bool interface_fit(float &fit_x, float &fit_y) const;
+    [[nodiscard]] bool shows(std::uint32_t address) const {
+        return address != 0u && (address == display_addresses[0] || address == display_addresses[1]);
+    }
     void submit_and_present(VkImage source, bool game_frame);
     void write_capture();
     void destroy_target(Target &target);
@@ -850,10 +885,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     Impl &impl = *impl_;
     impl.config = config;
     const settings::Settings &player = settings::current();
-    const std::uint32_t scale = std::clamp<std::uint32_t>(player.internal_scale, 1u, settings::kMaxInternalScale);
+    impl.requested_scale = std::min(player.internal_scale, settings::kMaxInternalScale);
+    // Until the window's size is known, which Auto and Fill need.
+    const std::uint32_t scale = impl.requested_scale != 0u ? impl.requested_scale : 2u;
     impl.target_extent = {kPspWidth * scale, kPspHeight * scale};
     impl.requested_present = player.present_mode;
-    impl.keep_aspect = player.keep_aspect;
+    impl.aspect = player.aspect;
     impl.sharp_screen = player.sharp_screen;
     impl.sharp_textures = player.sharp_textures;
     const std::uint32_t window_scale = std::clamp<std::uint32_t>(player.window_scale, 1u, settings::kMaxWindowScale);
@@ -984,6 +1021,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     vkGetPhysicalDeviceSurfacePresentModesKHR(impl.physical_device, impl.surface, &mode_count,
                                               impl.present_modes.data());
     if (!impl.create_swapchain(error)) return false;
+    // No target exists yet: they are made at this size when first drawn.
+    impl.target_extent = impl.wanted_target_extent();
 
     std::array<VkAttachmentDescription, 2> attachments{};
     attachments[0].format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -1378,13 +1417,13 @@ bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
 
 // Scales the game frame onto the swapchain image, which is in TRANSFER_DST
 // layout: stretched over the whole window, or at the PSP's aspect ratio with
-// black bars.
+// black bars. Fill's target already has the window's shape.
 void VulkanRenderer::Impl::record_game_blit(VkImage source, VkImage destination) {
     const auto width = static_cast<std::int32_t>(swapchain_extent.width);
     const auto height = static_cast<std::int32_t>(swapchain_extent.height);
     VkOffset3D low{0, 0, 0};
     VkOffset3D high{width, height, 1};
-    if (keep_aspect) {
+    if (aspect == settings::Aspect::Original) {
         const double scale = std::min(static_cast<double>(width) / kPspWidth, static_cast<double>(height) / kPspHeight);
         const auto shown_width = std::clamp(static_cast<std::int32_t>(std::lround(kPspWidth * scale)), 1, width);
         const auto shown_height = std::clamp(static_cast<std::int32_t>(std::lround(kPspHeight * scale)), 1, height);
@@ -2342,27 +2381,89 @@ SDL_Window *VulkanRenderer::window() const noexcept { return impl_ ? impl_->wind
 std::string VulkanRenderer::device_name() const { return impl_ ? impl_->device_name : std::string{}; }
 SDL_Gamepad *VulkanRenderer::gamepad() const noexcept { return impl_ ? impl_->gamepad : nullptr; }
 
-void VulkanRenderer::set_internal_scale(std::uint32_t scale) {
-    Impl &impl = *impl_;
-    scale = std::clamp<std::uint32_t>(scale, 1u, settings::kMaxInternalScale);
-    const VkExtent2D extent{kPspWidth * scale, kPspHeight * scale};
-    if (!impl.ready || impl.recording ||
-        (extent.width == impl.target_extent.width && extent.height == impl.target_extent.height))
+VkExtent2D VulkanRenderer::Impl::wanted_target_extent() const {
+    const bool known = swapchain_extent.width != 0u && swapchain_extent.height != 0u;
+    const double window_width = known ? swapchain_extent.width : static_cast<double>(target_extent.width);
+    const double window_height = known ? swapchain_extent.height : static_cast<double>(target_extent.height);
+    if (aspect != settings::Aspect::Fill) {
+        std::uint32_t scale = requested_scale;
+        if (scale == 0u) {
+            // The smallest multiple that covers the picture on the window.
+            const double x = window_width / kPspWidth;
+            const double y = window_height / kPspHeight;
+            const double cover = aspect == settings::Aspect::Original ? std::min(x, y) : std::max(x, y);
+            scale = static_cast<std::uint32_t>(std::clamp(std::ceil(cover - 0.01), 1.0,
+                                                          static_cast<double>(kMaxAutoLines / kPspHeight)));
+        }
+        return {kPspWidth * scale, kPspHeight * scale};
+    }
+    // Fill: the window's shape, 272 lines per step or the window's own lines.
+    const double shape = std::clamp(window_width / std::max(window_height, 1.0), 0.25, 8.0);
+    double lines = requested_scale != 0u ? static_cast<double>(kPspHeight * requested_scale)
+                                         : std::clamp(window_height, static_cast<double>(kPspHeight),
+                                                      static_cast<double>(kMaxAutoLines));
+    lines = std::min(lines, kMaxTargetWidth / shape);
+    const auto height = static_cast<std::uint32_t>(std::max(1.0, std::round(lines)));
+    const auto width = static_cast<std::uint32_t>(
+        std::clamp(std::round(lines * shape), 1.0, static_cast<double>(kMaxTargetWidth)));
+    return {width, height};
+}
+
+bool VulkanRenderer::Impl::interface_fit(float &fit_x, float &fit_y) const {
+    if (aspect != settings::Aspect::Fill) return false;
+    const float x = static_cast<float>(target_extent.width) / static_cast<float>(kPspWidth);
+    const float y = static_cast<float>(target_extent.height) / static_cast<float>(kPspHeight);
+    const float square = std::min(x, y);
+    fit_x = square / x;
+    fit_y = square / y;
+    return fit_x < 0.999f || fit_y < 0.999f;
+}
+
+void VulkanRenderer::Impl::follow_window() {
+    if (!ready || recording) return;
+    const VkExtent2D wanted = wanted_target_extent();
+    if (wanted.width == target_extent.width && wanted.height == target_extent.height) {
+        pending_frames = 0u;
+        resize_now = false;
+        return;
+    }
+    // The keyboard's held frame has the old size; a new window size waits
+    // for it, a changed setting does not.
+    if (holding && !resize_now) return;
+    if (!resize_now) {
+        if (wanted.width != pending_extent.width || wanted.height != pending_extent.height) {
+            pending_extent = wanted;
+            pending_frames = 0u;
+        }
+        if (++pending_frames < kSettleFrames) return;
+    }
+    pending_frames = 0u;
+    resize_now = false;
+    resize_targets(wanted);
+}
+
+void VulkanRenderer::Impl::resize_targets(VkExtent2D extent) {
+    if (!ready || recording ||
+        (extent.width == target_extent.width && extent.height == target_extent.height))
         return;
     // Every target is rebuilt at the new size with its current picture scaled
     // into it, so the paused frame behind the menu, and render-to-texture
     // targets the game reads back, stay intact.
-    vkDeviceWaitIdle(impl.device);
+    vkDeviceWaitIdle(device);
     // A held frame has the old size; let the game's own frames show again.
-    hold_frame(false);
-    std::map<std::uint32_t, Impl::Target> old_targets = std::move(impl.targets);
-    impl.targets.clear();
-    const VkExtent2D old_extent = impl.target_extent;
-    impl.target_extent = extent;
-    std::vector<std::pair<Impl::Target *, const Impl::Target *>> copies;
+    if (holding) {
+        holding = false;
+        destroy_target(held);
+        held = {};
+    }
+    std::map<std::uint32_t, Target> old_targets = std::move(targets);
+    targets.clear();
+    const VkExtent2D old_extent = target_extent;
+    target_extent = extent;
+    std::vector<std::pair<Target *, const Target *>> copies;
     for (const auto &[address, old_target] : old_targets) {
         std::string error;
-        Impl::Target *target = impl.target_for(address, error);
+        Target *target = target_for(address, error);
         if (target == nullptr) {
             std::cout << "[render] cannot resize a render target: " << error << "\n";
             continue;
@@ -2374,11 +2475,11 @@ void VulkanRenderer::set_internal_scale(std::uint32_t scale) {
         target->guest_words = old_target.guest_words;
         if (old_target.initialized) copies.emplace_back(target, &old_target);
     }
-    impl.run_commands([&](VkCommandBuffer commands) {
+    run_commands([&](VkCommandBuffer commands) {
         for (const auto &[target, old_target] : copies) {
-            impl.transition(commands, old_target->color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-            impl.transition(commands, target->color, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            transition(commands, old_target->color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            transition(commands, target->color, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             VkImageBlit blit{};
             blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
             blit.srcOffsets[1] = {static_cast<std::int32_t>(old_extent.width),
@@ -2387,15 +2488,22 @@ void VulkanRenderer::set_internal_scale(std::uint32_t scale) {
             blit.dstOffsets[1] = {static_cast<std::int32_t>(extent.width), static_cast<std::int32_t>(extent.height), 1};
             vkCmdBlitImage(commands, old_target->color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target->color,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
-            impl.transition(commands, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-            impl.transition(commands, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+            transition(commands, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            transition(commands, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
+                       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
             target->initialized = true;
         }
     });
-    for (auto &[address, old_target] : old_targets) impl.destroy_target(old_target);
+    for (auto &[address, old_target] : old_targets) destroy_target(old_target);
     std::cout << "[render] internal resolution " << extent.width << "x" << extent.height << "\n";
+}
+
+void VulkanRenderer::set_internal_scale(std::uint32_t scale) {
+    if (!impl_) return;
+    impl_->requested_scale = std::min(scale, settings::kMaxInternalScale);
+    impl_->resize_now = true;
+    impl_->follow_window();
 }
 
 void VulkanRenderer::set_window_scale(std::uint32_t scale) {
@@ -2427,8 +2535,22 @@ bool VulkanRenderer::supports_present_mode(settings::PresentMode mode) const {
     return wanted == VK_PRESENT_MODE_FIFO_KHR || std::find(modes.begin(), modes.end(), wanted) != modes.end();
 }
 
-void VulkanRenderer::set_keep_aspect(bool keep_aspect) {
-    if (impl_) impl_->keep_aspect = keep_aspect;
+void VulkanRenderer::set_aspect(settings::Aspect aspect) {
+    if (!impl_) return;
+    impl_->aspect = aspect;
+    impl_->resize_now = true;
+    impl_->follow_window();
+}
+
+float VulkanRenderer::game_aspect() const noexcept {
+    if (!impl_ || impl_->aspect != settings::Aspect::Fill || impl_->target_extent.height == 0u)
+        return static_cast<float>(kPspWidth) / static_cast<float>(kPspHeight);
+    return static_cast<float>(impl_->target_extent.width) / static_cast<float>(impl_->target_extent.height);
+}
+
+std::array<std::uint32_t, 2> VulkanRenderer::target_size() const noexcept {
+    if (!impl_) return {kPspWidth, kPspHeight};
+    return {impl_->target_extent.width, impl_->target_extent.height};
 }
 
 void VulkanRenderer::set_sharp_screen(bool sharp) {
@@ -2567,6 +2689,7 @@ void VulkanRenderer::present_ui(bool show_game) {
             source = shown->second.color;
     }
     impl.submit_and_present(source, false);
+    impl.follow_window();
 }
 
 void VulkanRenderer::begin_frame() {
@@ -2644,6 +2767,22 @@ void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint
     blit.dstSubresource = blit.srcSubresource;
     blit.dstOffsets[1] = {static_cast<std::int32_t>(impl.target_extent.width),
                           static_cast<std::int32_t>(impl.target_extent.height), 1};
+    // A movie has the PSP's shape: under Fill it keeps it, with black beside
+    // (or above and below) it.
+    float fit_x = 1.0f, fit_y = 1.0f;
+    if (impl.interface_fit(fit_x, fit_y)) {
+        const auto inset_x = static_cast<std::int32_t>(std::lround(0.5f * (1.0f - fit_x) * impl.target_extent.width));
+        const auto inset_y = static_cast<std::int32_t>(std::lround(0.5f * (1.0f - fit_y) * impl.target_extent.height));
+        blit.dstOffsets[0] = {inset_x, inset_y, 0};
+        blit.dstOffsets[1] = {static_cast<std::int32_t>(impl.target_extent.width) - inset_x,
+                              static_cast<std::int32_t>(impl.target_extent.height) - inset_y, 1};
+        const VkClearColorValue black{{0.0f, 0.0f, 0.0f, 1.0f}};
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u};
+        vkCmdClearColorImage(impl.command_buffer, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1u,
+                             &range);
+        impl.transition(impl.command_buffer, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    }
     vkCmdBlitImage(impl.command_buffer, impl.upload_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target->color,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
     impl.transition(impl.command_buffer, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -2983,6 +3122,42 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             impl.object_valid = true;
         }
     }
+    // A texture in a framebuffer the renderer drew is read from that render
+    // target: the pixels never reach guest memory, which holds whatever was
+    // there before. MHP3RD_NO_FB_TEXTURES decodes guest memory as before.
+    static const bool no_fb_textures = std::getenv("MHP3RD_NO_FB_TEXTURES") != nullptr;
+    const Impl::FramebufferTexture framebuffer_source =
+        call.texture.enabled && !call.clear_mode && !no_fb_textures
+            ? impl.find_framebuffer_texture(memory, call.texture)
+            : Impl::FramebufferTexture{};
+
+    // Under Fill the game's 480x272 screen is spread over a target of the
+    // window's shape, which suits the 3D view the game now draws at that
+    // shape, but would stretch the 2D interface. Its draws into the shown
+    // framebuffer are pulled in about the screen's centre to square pixels
+    // again. Draws that cover the screen's width (fades, backdrops) and
+    // draws that sample a rendered picture (blur, the quest-reward
+    // background) belong with the 3D view and stay spread.
+    float fit_x = 1.0f, fit_y = 1.0f;
+    bool fitted = false;
+    if (call.through && !call.clear_mode && framebuffer_source.target == nullptr &&
+        impl.shows(call.target.color_address) && impl.interface_fit(fit_x, fit_y)) {
+        float left = impl.scratch.front().x, right = left;
+        for (const GpuVertex &vertex : impl.scratch) {
+            left = std::min(left, vertex.x);
+            right = std::max(right, vertex.x);
+        }
+        if (right - left < kScreenWideDraw) {
+            fitted = true;
+            const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+            const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+            for (GpuVertex &vertex : impl.scratch) {
+                vertex.x = centre_x + (vertex.x - centre_x) * fit_x;
+                vertex.y = centre_y + (vertex.y - centre_y) * fit_y;
+            }
+        }
+    }
+
     const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
     if (impl.vertex_offset + bytes > kVertexBufferBytes) return;
     std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
@@ -3051,14 +3226,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     static const bool trace_fb = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
     if (trace_fb && call.texture.enabled && !call.clear_mode) impl.trace_framebuffer_texture(call);
 
-    // A texture in a framebuffer the renderer drew is read from that render
-    // target: the pixels never reach guest memory, which holds whatever was
-    // there before. MHP3RD_NO_FB_TEXTURES decodes guest memory as before.
-    static const bool no_fb_textures = std::getenv("MHP3RD_NO_FB_TEXTURES") != nullptr;
     VkDescriptorSet texture_descriptor = impl.white_texture.descriptor;
     if (call.texture.enabled && !call.clear_mode) {
-        const Impl::FramebufferTexture source =
-            no_fb_textures ? Impl::FramebufferTexture{} : impl.find_framebuffer_texture(memory, call.texture);
+        const Impl::FramebufferTexture &source = framebuffer_source;
         const VkDescriptorSet copy =
             source.target != nullptr
                 ? impl.framebuffer_descriptor(*source.target, call.texture.format == TextureFormat::Rgba5650)
@@ -3103,18 +3273,22 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // the Vulkan viewport reproduces the PSP's screen space exactly, including a
     // reversed depth range, and keeps triangle winding as the GE sees it. Through
     // draws bypass the transform, so they keep the plain full-target viewport.
-    const float render_scale = static_cast<float>(impl.target_extent.width) / static_cast<float>(kPspWidth);
+    // A target holds the game's 480x272 screen whatever its size, so a PSP
+    // pixel is scale_x by scale_y of its pixels: equal at a multiple of
+    // 480x272, different under Fill.
+    const float scale_x = static_cast<float>(impl.target_extent.width) / static_cast<float>(kPspWidth);
+    const float scale_y = static_cast<float>(impl.target_extent.height) / static_cast<float>(kPspHeight);
     VkViewport vk_viewport{0.0f, 0.0f, static_cast<float>(impl.target_extent.width),
                            static_cast<float>(impl.target_extent.height), 0.0f, 1.0f};
     if (!call.through && call.viewport.x_scale != 0.0f && call.viewport.y_scale != 0.0f) {
         const ViewportState &vp = call.viewport;
-        vk_viewport.x = (vp.x_offset - vp.offset_x - vp.x_scale) * render_scale;
-        vk_viewport.y = (vp.y_offset - vp.offset_y - vp.y_scale) * render_scale;
-        vk_viewport.width = 2.0f * vp.x_scale * render_scale;
+        vk_viewport.x = (vp.x_offset - vp.offset_x - vp.x_scale) * scale_x;
+        vk_viewport.y = (vp.y_offset - vp.offset_y - vp.y_scale) * scale_y;
+        vk_viewport.width = 2.0f * vp.x_scale * scale_x;
         // The GE's y scale is negative (device y points up, the screen down), so
         // this is a flipping viewport. That keeps framebuffer space identical to
         // the PSP's screen space, which is what the cull winding is defined in.
-        vk_viewport.height = 2.0f * vp.y_scale * render_scale;
+        vk_viewport.height = 2.0f * vp.y_scale * scale_y;
         if (vp.z_scale != 0.0f) {
             // The shader hands over device z in [0, 1]; this undoes that halving
             // and applies the GE's z scale/offset, reproducing a reversed range
@@ -3139,11 +3313,29 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     const std::uint32_t sy1 = clamp_axis(call.viewport.scissor_y1, kPspHeight - 1u);
     const std::uint32_t sx2 = clamp_axis(std::max(call.viewport.scissor_x2, sx1), kPspWidth - 1u);
     const std::uint32_t sy2 = clamp_axis(std::max(call.viewport.scissor_y2, sy1), kPspHeight - 1u);
+    // The scissor's edges, in PSP pixels; a fitted draw's scissor is fitted
+    // with it, so a list the interface clips still clips at its own edges.
+    float edges[4]{static_cast<float>(sx1), static_cast<float>(sy1), static_cast<float>(sx2 + 1u),
+                   static_cast<float>(sy2 + 1u)};
+    if (fitted) {
+        const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+        const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+        edges[0] = centre_x + (edges[0] - centre_x) * fit_x;
+        edges[2] = centre_x + (edges[2] - centre_x) * fit_x;
+        edges[1] = centre_y + (edges[1] - centre_y) * fit_y;
+        edges[3] = centre_y + (edges[3] - centre_y) * fit_y;
+    }
+    const auto to_pixels = [](float edge, float scale, std::uint32_t size) {
+        return static_cast<std::int32_t>(
+            std::clamp(std::lround(edge * scale), 0l, static_cast<long>(size)));
+    };
+    const std::int32_t left = to_pixels(edges[0], scale_x, impl.target_extent.width);
+    const std::int32_t top = to_pixels(edges[1], scale_y, impl.target_extent.height);
+    const std::int32_t right = std::max(left, to_pixels(edges[2], scale_x, impl.target_extent.width));
+    const std::int32_t bottom = std::max(top, to_pixels(edges[3], scale_y, impl.target_extent.height));
     VkRect2D vk_scissor{};
-    vk_scissor.offset = {static_cast<std::int32_t>(sx1 * static_cast<std::uint32_t>(render_scale)),
-                         static_cast<std::int32_t>(sy1 * static_cast<std::uint32_t>(render_scale))};
-    vk_scissor.extent = {(sx2 - sx1 + 1u) * static_cast<std::uint32_t>(render_scale),
-                         (sy2 - sy1 + 1u) * static_cast<std::uint32_t>(render_scale)};
+    vk_scissor.offset = {left, top};
+    vk_scissor.extent = {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
     vkCmdSetScissor(impl.command_buffer, 0u, 1u, &vk_scissor);
 
     if (pipeline != impl.bound_pipeline) {
@@ -3352,8 +3544,13 @@ void VulkanRenderer::present(std::uint32_t display_address) {
     VkImage source = displayed != impl.targets.end() ? displayed->second.color : VK_NULL_HANDLE;
     impl.presented_target = displayed != impl.targets.end() ? displayed->first : 0u;
     if (impl.holding) source = impl.held.color;
+    if (display_address != impl.display_addresses[0]) {
+        impl.display_addresses[1] = impl.display_addresses[0];
+        impl.display_addresses[0] = display_address;
+    }
     impl.submit_and_present(source, true);
     ++impl.frames;
+    impl.follow_window();
 }
 
 bool VulkanRenderer::capture_frame(const std::string &path) {

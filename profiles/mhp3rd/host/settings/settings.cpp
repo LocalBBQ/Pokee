@@ -50,6 +50,15 @@ bool parse_uint(const std::string &text, std::uint32_t minimum, std::uint32_t ma
     return true;
 }
 
+// A resolution: a multiple of 480x272, or "auto" (0) for the window's own.
+bool parse_scale(const std::string &text, std::uint32_t &out) {
+    if (text == "auto") {
+        out = 0u;
+        return true;
+    }
+    return parse_uint(text, 0u, kMaxInternalScale, out);
+}
+
 std::string format_float(float value) {
     char text[32];
     std::snprintf(text, sizeof(text), "%.2f", static_cast<double>(value));
@@ -94,6 +103,7 @@ struct Names {
 
 const Names<PresentMode> kPresentModes{
     {{PresentMode::Fifo, "vsync"}, {PresentMode::Mailbox, "mailbox"}, {PresentMode::Immediate, "immediate"}}};
+const Names<Aspect> kAspects{{{Aspect::Original, "original"}, {Aspect::Stretch, "stretch"}, {Aspect::Fill, "fill"}}};
 const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"},
                                         {PerfDisplay::Overlay, "overlay"},
                                         {PerfDisplay::OverlayAndLog, "overlay+log"},
@@ -118,11 +128,11 @@ constexpr const char *kRetiredTypeNameKey = "input.type_name";
 const std::vector<Field> &fields() {
     static const std::vector<Field> table = {
         {"video.internal_scale", "MHP3RD_INTERNAL_SCALE",
-         [](Settings &s, const std::string &t) { return parse_uint(t, 1u, kMaxInternalScale, s.internal_scale); },
-         [](const Settings &s) { return std::to_string(s.internal_scale); },
+         [](Settings &s, const std::string &t) { return parse_scale(t, s.internal_scale); },
+         [](const Settings &s) { return s.internal_scale == 0u ? std::string("auto") : std::to_string(s.internal_scale); },
          [](Settings &s, const char *t) {
              std::uint32_t value = s.internal_scale;
-             if (parse_uint(t, 1u, kMaxInternalScale, value)) s.internal_scale = value;
+             if (parse_scale(t, value)) s.internal_scale = value;
          }},
         {"video.window_scale", nullptr,
          [](Settings &s, const std::string &t) { return parse_uint(t, 1u, kMaxWindowScale, s.window_scale); },
@@ -131,7 +141,19 @@ const std::vector<Field> &fields() {
         {"video.present_mode", nullptr,
          [](Settings &s, const std::string &t) { return kPresentModes.parse(t, s.present_mode); },
          [](const Settings &s) { return kPresentModes.format(s.present_mode); }, nullptr},
-        BOOL_FIELD("video.keep_aspect", keep_aspect),
+        // Written by earlier versions, which had Original and Stretch only.
+        // Still written, so going back to one of them keeps the choice as
+        // near as it can; video.aspect follows it and decides.
+        {"video.keep_aspect", nullptr,
+         [](Settings &s, const std::string &t) {
+             bool keep = true;
+             if (!parse_bool(t, keep)) return false;
+             s.aspect = keep ? Aspect::Original : Aspect::Stretch;
+             return true;
+         },
+         [](const Settings &s) { return std::string(s.aspect == Aspect::Stretch ? "0" : "1"); }, nullptr},
+        {"video.aspect", nullptr, [](Settings &s, const std::string &t) { return kAspects.parse(t, s.aspect); },
+         [](const Settings &s) { return kAspects.format(s.aspect); }, nullptr},
         BOOL_FIELD("video.sharp_screen", sharp_screen),
         BOOL_FIELD("video.sharp_textures", sharp_textures),
         {"video.unthrottled", "MHP3RD_UNTHROTTLED",

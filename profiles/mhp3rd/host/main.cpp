@@ -11,6 +11,7 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "kernel/kernel.hpp"
+#include "camera/game_aspect.hpp"
 #include "camera/game_camera.hpp"
 
 #include "psprecomp/common.hpp"
@@ -354,6 +355,7 @@ int main(int argc, char **argv) {
         (void)elf.load_and_relocate(runtime.memory(), mhp3rd::kLoadBase);
         psprecomp::register_generated_functions(runtime);
         mhp3rd::install_profile(runtime, elf, paths);
+        if (sha256 == mhp3rd::install::kExecutableSha256) (void)mhp3rd::camera::prepare_game_aspect(runtime);
 #if defined(MHP3RD_CAMERA_HELPER_UNIT)
         // CMake names the generated unit that holds the camera's rotation
         // helper, so a new partition of the code cannot hand the camera the

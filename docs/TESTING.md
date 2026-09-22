@@ -46,6 +46,20 @@ Build `mhp3rd_camera_tests` and run it through CTest. These checks require no ga
 
 For the manual check, start without `MHP3RD_TRACE_CAMERA` or `MHP3RD_FIND_CAMERA`. Keep **Controls → Analog camera** on (the default), then enter an ordinary quest. Test small and full stick deflections on both axes, release, reversal, movement near walls, a zone transition, L recentre, physical D-pad commands, and Off/On toggles. With a bow and a bowgun, aim (R, and the bowgun scope) and move the right stick: the aim must move in proportion to the stick on both axes, stop at its vertical limits, and the camera follow it; the analog camera must take over again after the aim. Confirm that the village cameras retain their own behaviour. Watch for residual vertical coast and camera movement after input has stopped. Repeat on Steam Deck before marking that platform verified.
 
+### Picture shape and size (#117)
+
+Build `mhp3rd_aspect_tests` and run it through CTest. These checks need no game data and cover what is written to guest memory for a wider or narrower view, that the game's own shape writes nothing, that switching back restores every value bit for bit, and that different game code is left alone.
+
+For the manual check, open **Video** in the menu and compare the three **Aspect ratio** values on the same screen, in a quest and in the village:
+
+- **Original** with a fixed resolution looks exactly as before, bars included.
+- **Fill** fills the window with no bars. Circles (the minimap, round icons) stay round; the 3D view is not stretched: a monster turning in place keeps its proportions. The HUD sits in a centred PSP-shaped area.
+- In **Fill**, look for objects popping in or out at the left and right edges while the camera turns, especially at 21:9 or wider.
+- Fades, the pause menu's darkening, the blur of the item and map menus, and the quest-reward screen cover the whole window.
+- Switching the value back and forth takes effect at once; the console logs `[aspect] the game's view is … wide to 1 high`, and back at Original the game's `1.76471`.
+- With **Resolution** on Auto, resize the window, toggle fullscreen and, where possible, move it to another display: after a moment the console logs `[render] internal resolution W×H` with the window's size.
+- On a Steam Deck (1280×800, 16:10), Fill with Auto draws 1280×800 and should hold 30 fps in a quest.
+
 ## Reporting
 
 Open a **Test report** issue with the platform, hardware, commit and the steps you reached. If a result changes a cell in [the compatibility table](COMPATIBILITY.md), update the table in a pull request as well.

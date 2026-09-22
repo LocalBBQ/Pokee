@@ -17,6 +17,11 @@
 namespace mhp3rd::settings {
 
 enum class PresentMode { Fifo, Mailbox, Immediate };
+// How the game's picture meets the window. Original keeps the PSP's shape with
+// black bars, Stretch fills the window by stretching it, and Fill gives the
+// game the window's shape: its view widens or narrows to match (the vertical
+// field of view stays), and the 2D interface keeps the PSP's proportions.
+enum class Aspect { Original, Stretch, Fill };
 enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class RightStick { Camera, DPad, Off };
 // What LT/RT (L2/R2) press past the trigger point. Standard makes them L and
@@ -29,11 +34,11 @@ enum class NameEntry { Keyboard, Fixed };
 
 struct Settings {
     // Video
-    std::uint32_t internal_scale{2u};  // render resolution, multiples of 480x272
+    std::uint32_t internal_scale{2u};  // render resolution, multiples of 480x272 (272 lines each); 0: the window's
     std::uint32_t window_scale{2u};    // windowed size, multiples of 480x272
     bool fullscreen{};
     PresentMode present_mode{PresentMode::Fifo};
-    bool keep_aspect{true};            // letterbox rather than stretch to the window
+    Aspect aspect{Aspect::Original};
     bool sharp_screen{};               // nearest instead of linear scaling to the window
     bool sharp_textures{};             // nearest instead of linear texture sampling
     bool unthrottled{};                // let emulated time run ahead of real time

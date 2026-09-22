@@ -116,6 +116,7 @@ set(MHP3RD_HOST_SOURCES
     host/audio/sas_core.cpp
     host/camera_probe.cpp
     host/camera/camera_input.cpp
+    host/camera/game_aspect.cpp
     host/camera/game_camera.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
@@ -281,6 +282,17 @@ target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_camera_tests COMMAND mhp3rd_camera_tests)
+endif()
+
+# The game's view shape: what is written to guest memory, and what is left.
+add_executable(mhp3rd_aspect_tests
+    tests/game_aspect_tests.cpp
+    host/camera/game_aspect.cpp)
+target_include_directories(mhp3rd_aspect_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_aspect_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_aspect_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_aspect_tests COMMAND mhp3rd_aspect_tests)
 endif()
 
 # The built-in ad hoc server against the client and a raw protocol peer, and

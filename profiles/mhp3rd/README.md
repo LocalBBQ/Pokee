@@ -280,10 +280,10 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 
 | Section | Setting | Key in `settings.ini` | Variable | Values |
 | --- | --- | --- | --- | --- |
-| Video | Resolution | `video.internal_scale` | `MHP3RD_INTERNAL_SCALE` | ×1–×6 of 480×272 (the variable allows up to ×8); default ×2 |
+| Video | Resolution | `video.internal_scale` | `MHP3RD_INTERNAL_SCALE` | Auto (`auto` or `0`: the window's own size, followed as it changes, at most 1632 lines) or ×1–×6 of 480×272 (the variable allows up to ×8); default ×2. See [Picture shape and size](#picture-shape-and-size) |
 | Video | Display | `video.fullscreen` | | Window or fullscreen |
 | Video | Window size | `video.window_scale` | | ×1–×4 of 480×272; default ×2 |
-| Video | Aspect ratio | `video.keep_aspect` | | Original (black bars) or stretched to the window |
+| Video | Aspect ratio | `video.aspect` | | `original` (the PSP's shape, black bars; the default), `stretch` (stretched to the window) or `fill` (the game's view takes the window's shape). Older versions wrote `video.keep_aspect`, which is still read and written |
 | Video | Scaling filter | `video.sharp_screen` | | Smooth or sharp scaling of the finished picture to the window |
 | Video | Texture filter | `video.sharp_textures` | | Smooth (bilinear) or sharp (nearest) texture sampling |
 | Video | Vsync | `video.present_mode` | | On (FIFO), or off through mailbox or immediate presentation where the driver offers them |
@@ -518,7 +518,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `MHP3RD_INTERNAL_SCALE` | `2` | Render resolution as a multiple of 480×272 (menu: Resolution) |
+| `MHP3RD_INTERNAL_SCALE` | `2` | Render resolution as a multiple of 480×272, or `auto` for the window's size (menu: Resolution) |
 | `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either. Emulated time is not held to real time |
 | `MHP3RD_WINDOW_TITLE` | `Yakumo` | Title of the game window, to tell instances apart |
 | `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn (menu: Game speed) |
@@ -530,6 +530,22 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
 | `MHP3RD_PERF` | off | `1` shows the performance overlay and logs frame statistics once per second; `log` only logs them (menu: Performance). See [Performance statistics](#performance-statistics) |
+
+### Picture shape and size
+
+**Aspect ratio** (Video) decides how the game's picture meets the window:
+
+- **Original** keeps the PSP's 480×272 shape and adds black bars. This is the picture as it always was.
+- **Stretch** stretches that picture over the whole window.
+- **Fill** gives the game's 3D view the window's shape, with no bars and no stretching: the vertical field of view stays the game's and the horizontal one widens (16:9, 21:9, 32:9) or, in a narrower window such as the Steam Deck's 16:10, narrows a little. The 2D interface keeps the PSP's proportions, centred: at 21:9 it sits in the middle of the screen with the 3D view on both sides. Draws that cover the screen's width (fades, backdrops) and draws that sample the rendered picture (blur, the quest-reward background) spread with the 3D view. Movies keep the PSP's shape with black beside them.
+
+**Resolution** Auto draws the game at the window's size in pixels (HiDPI included, at most 1632 lines) and follows the window: resizing it, fullscreen on or off, a move to another display. A new size is taken once the window has held it for a moment, so dragging an edge does not rebuild the picture on every frame. Under Original and Stretch, Auto picks the smallest multiple of 480×272 that covers the picture. ×1–×6 draw 272 lines per step; under Fill the width follows the window's shape.
+
+Every change applies at the next frame; Original with a fixed resolution is exactly the picture of earlier versions.
+
+How Fill works: the game keeps the projection's parameters in its camera object (the pointer at `0x08A2F958`): near and far plane, aspect ratio and vertical field of view at `+0x0` to `+0xC`. The camera's set-up (`0x0882D5A4`) copies the aspect ratio from a constant, 480/272 at `0x08969F74`; the projection (`0x0882CF0C`, which calls the perspective builder `0x0882CDCC`) and the culling planes (`0x0882BF1C`) are built from those fields, and the camera's update builds them again only when the field of view differs from the one kept at `+0x10`. At each flip `host/camera/game_aspect.cpp` writes the target's shape into the constant (for cameras set up later) and into the live camera, and makes the next update rebuild by changing `+0x10`. The culling planes cover the view up to an aspect ratio of about 3; beyond that the port also shrinks their depth factor, the constant `-1.5` at `0x08969ED4`, which only `0x0882BF74` reads. Back at Original or Stretch the port writes the game's own values back, bit for bit, and then nothing more. Eleven instructions and the two constants are checked at start-up (listed in `game_aspect.cpp`); if any differs, the view keeps the PSP's shape. The renderer keeps the game's 480×272 coordinates everywhere (viewport, scissor, framebuffer textures, the frame written back to guest memory) and only spreads them over a target of the window's shape; the interface's through-mode draws into the shown framebuffer are pulled in about the centre, their scissor with them.
+
+The community's widescreen cheat for this release (NPJB-40001) patches the same constant; the port does it live, for any shape, and keeps the interface undistorted.
 
 ### Audio
 
@@ -654,7 +670,7 @@ host/main.cpp                    Entry point: finding the game data, executable 
 host/app_paths.{hpp,cpp}         The executable's own location, and what a release ships next to it
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/settings/                   Player settings: settings.ini, environment overrides, defaults
-host/camera/                     Camera input from every device, and the driver for the game's own camera
+host/camera/                     Camera input from every device, the driver for the game's own camera, and its view's shape
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
 host/kernel/kernel.{hpp,cpp}     Scheduler, waits, virtual clock, interrupts, memory

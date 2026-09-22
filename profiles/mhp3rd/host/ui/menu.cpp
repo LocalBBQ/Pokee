@@ -189,12 +189,19 @@ void Menu::video() {
     section("Picture");
     {
         RowOptions o = options_for("video.internal_scale",
-                                   "The game is drawn at a multiple of the PSP's 480×272. Higher is sharper and "
-                                   "needs more from the GPU.");
-        const std::string value = "×" + std::to_string(s.internal_scale) + "   " + size_text(s.internal_scale);
+                                   "Auto draws the game at the window's own size and follows it (at most 1632 "
+                                   "lines). ×1 to ×6 draw 272 lines per step, 480×272 times the step unless the "
+                                   "aspect ratio is Fill. Higher is sharper and needs more from the GPU.");
+        const std::array<std::uint32_t, 2> size = renderer().target_size();
+        const std::string drawn = std::to_string(size[0]) + "×" + std::to_string(size[1]);
+        const std::string value =
+            (s.internal_scale == 0u ? std::string("Auto") : "×" + std::to_string(s.internal_scale)) + "   " + drawn;
         if (const int delta = choice_row("Resolution", value, o)) {
+            // Auto, then ×1 up to the menu's largest (or a larger one a
+            // variable once chose).
             const int limit = std::max<int>(kMenuMaxInternalScale, static_cast<int>(s.internal_scale));
-            s.internal_scale = static_cast<std::uint32_t>(cycle(static_cast<int>(s.internal_scale) - 1, delta, limit) + 1);
+            s.internal_scale =
+                static_cast<std::uint32_t>(cycle(static_cast<int>(s.internal_scale), delta, limit + 1));
             renderer().set_internal_scale(s.internal_scale);
             settings::save();
         }
@@ -223,12 +230,19 @@ void Menu::video() {
             settings::save();
         }
     }
-    if (choice_row("Aspect ratio", s.keep_aspect ? "Original" : "Stretch",
-                   options_for("video.keep_aspect", "Original keeps the PSP's shape with black bars at the sides or "
-                                                    "top; Stretch fills the window."))) {
-        s.keep_aspect = !s.keep_aspect;
-        renderer().set_keep_aspect(s.keep_aspect);
-        settings::save();
+    {
+        static const char *const kAspects[] = {"Original", "Stretch", "Fill"};
+        const int current = static_cast<int>(s.aspect);
+        if (const int delta = choice_row(
+                "Aspect ratio", kAspects[current],
+                options_for("video.aspect", "Original keeps the PSP's shape with black bars at the sides or top. "
+                                            "Stretch fills the window by stretching the picture. Fill widens (or "
+                                            "narrows) the game's view to the window's shape, keeping its height, "
+                                            "and keeps the interface in the PSP's proportions."))) {
+            s.aspect = static_cast<settings::Aspect>(cycle(current, delta, 3));
+            renderer().set_aspect(s.aspect);
+            settings::save();
+        }
     }
     if (choice_row("Scaling filter", s.sharp_screen ? "Sharp" : "Smooth",
                    options_for("video.sharp_screen", "How the finished picture is scaled to the window: smooth "
@@ -295,7 +309,7 @@ void Menu::video() {
         restore("video.internal_scale", s.internal_scale, d.internal_scale);
         restore("video.fullscreen", s.fullscreen, d.fullscreen);
         restore("video.window_scale", s.window_scale, d.window_scale);
-        restore("video.keep_aspect", s.keep_aspect, d.keep_aspect);
+        restore("video.aspect", s.aspect, d.aspect);
         restore("video.sharp_screen", s.sharp_screen, d.sharp_screen);
         restore("video.sharp_textures", s.sharp_textures, d.sharp_textures);
         restore("video.present_mode", s.present_mode, d.present_mode);
@@ -304,7 +318,7 @@ void Menu::video() {
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
         renderer().set_window_scale(s.window_scale);
-        renderer().set_keep_aspect(s.keep_aspect);
+        renderer().set_aspect(s.aspect);
         renderer().set_sharp_screen(s.sharp_screen);
         renderer().set_sharp_textures(s.sharp_textures);
         renderer().set_present_mode(s.present_mode);
