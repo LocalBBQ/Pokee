@@ -32,15 +32,31 @@ constexpr float kCut = 40.0f;
 // give 1, radians 0.0175, a 16-bit angle 182.
 constexpr double kSmallestRatio = 1e-3;
 constexpr double kLargestRatio = 1e6;
+// A whole-numbered word that moves by only a unit or two per frame cannot be
+// told from a counter, because rounding swamps the difference. Asking that a
+// full-speed turn move it by twenty units throws those out at the door instead
+// of carrying them untested, which is how a thousand counters survived a
+// four-hundred-frame hunt.
+constexpr double kSmallestWholeRatio = 3.0;
+// Only judge a candidate on a frame that turns enough to be worth judging by.
+constexpr float kWorthJudging = 1.5f;
 // The console gets a summary; the whole list goes to a file, because a set
 // that stops shrinking at a thousand is still small enough to read through and
 // far too big to print every frame.
 constexpr std::size_t kPrintable = 24u;
 constexpr std::size_t kMostCandidates = 3u * 1000u * 1000u;
 
+// A camera can be kept either way round: as an angle, which moves by the turn
+// each frame, or as the turn itself, which *is* the rate the filter carries.
+// The second is the one worth having, since scaling it is the whole point.
+// A rate may also be read a frame before it shows up in the matrix, so it is
+// tried both aligned with this frame's turn and with the next one's.
+enum class Shape : std::uint8_t { Angle, Rate, RateLead };
+
 struct Candidate {
     std::uint32_t offset{};
     Kind kind{};
+    Shape shape{};
     double ratio{};     // units of this word per degree of camera turn
     double previous{};
 };
@@ -76,10 +92,7 @@ double read_as(const std::uint8_t *base, std::uint32_t offset, Kind kind) {
     return static_cast<double>(value);
 }
 
-// Below this a change carries no information and the frame is skipped rather
-// than counted for or against the candidate; a whole word of slack covers the
-// rounding of an integer angle.
-double floor_of(Kind kind) { return kind == Kind::Float32 ? 1e-4 : 2.0; }
+// A whole word of slack covers the rounding of an integer angle.
 double slack_of(Kind kind, double expected) {
     return 0.03 * std::fabs(expected) + (kind == Kind::Float32 ? 1e-5 : 1.5);
 }
@@ -92,6 +105,16 @@ const char *name_of(Kind kind) {
     return kind == Kind::Float32 ? "float" : kind == Kind::Int32 ? "int32" : "int16";
 }
 
+const char *shape_of(Shape shape) {
+    return shape == Shape::Angle ? "angle" : shape == Shape::Rate ? "rate" : "rate-lead";
+}
+
+bool plausible(Kind kind, double ratio) {
+    const double size_of = std::fabs(ratio);
+    if (!std::isfinite(ratio) || size_of < kSmallestRatio || size_of > kLargestRatio) return false;
+    return kind == Kind::Float32 || size_of >= kSmallestWholeRatio;
+}
+
 void write_list(const Probe &p, std::uint32_t base) {
     const char *path = std::getenv("MHP3RD_FIND_CAMERA_OUT");
     if (path == nullptr || *path == '\0') return;
@@ -101,8 +124,8 @@ void write_list(const Probe &p, std::uint32_t base) {
         << " turning frames\n";
     out << std::setprecision(10);
     for (const Candidate &c : p.candidates)
-        out << name_of(c.kind) << " 0x" << std::hex << (base + c.offset) << std::dec << " value=" << c.previous
-            << " per_degree=" << c.ratio << "\n";
+        out << name_of(c.kind) << " " << shape_of(c.shape) << " 0x" << std::hex << (base + c.offset) << std::dec
+            << " value=" << c.previous << " per_degree=" << c.ratio << "\n";
 }
 
 void admit(Probe &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
@@ -111,11 +134,16 @@ void admit(Probe &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
             if (p.candidates.size() >= kMostCandidates) return;
             const double before = read_as(p.snapshot.data(), offset, kind);
             const double now = read_as(ram, offset, kind);
-            if (now == before) continue;  // a word that did not move says nothing
-            const double ratio = (now - before) / static_cast<double>(turn);
-            const double size_of = std::fabs(ratio);
-            if (!std::isfinite(ratio) || size_of < kSmallestRatio || size_of > kLargestRatio) continue;
-            p.candidates.push_back({offset, kind, ratio, now});
+            // An angle moves by the turn; a rate simply is the turn.
+            const double angle_ratio = (now - before) / static_cast<double>(turn);
+            if (now != before && plausible(kind, angle_ratio))
+                p.candidates.push_back({offset, kind, Shape::Angle, angle_ratio, now});
+            const double rate_ratio = now / static_cast<double>(turn);
+            if (now != 0.0 && plausible(kind, rate_ratio))
+                p.candidates.push_back({offset, kind, Shape::Rate, rate_ratio, now});
+            const double lead_ratio = before / static_cast<double>(turn);
+            if (before != 0.0 && plausible(kind, lead_ratio))
+                p.candidates.push_back({offset, kind, Shape::RateLead, lead_ratio, now});
         }
     };
     try_kind(Kind::Float32, 4u, 4u);
@@ -172,16 +200,19 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
 
     std::vector<Candidate> kept;
     kept.reserve(p.candidates.size());
+    const bool judge = std::fabs(turn) >= kWorthJudging;
     for (Candidate c : p.candidates) {
         const double now = read_as(ram, c.offset, c.kind);
-        const double expected = c.ratio * static_cast<double>(turn);
-        if (std::fabs(expected) < floor_of(c.kind)) {
-            // Too small a turn to judge this word by; carry it unchanged.
-            c.previous = now;
+        if (!judge) {
+            c.previous = now;  // too gentle a turn to tell anything from
             kept.push_back(c);
             continue;
         }
-        if (std::fabs((now - c.previous) - expected) > slack_of(c.kind, expected)) continue;
+        const double expected = c.ratio * static_cast<double>(turn);
+        const double seen = c.shape == Shape::Angle    ? now - c.previous
+                            : c.shape == Shape::Rate   ? now
+                                                       : c.previous;
+        if (std::fabs(seen - expected) > slack_of(c.kind, expected)) continue;
         c.previous = now;
         kept.push_back(c);
     }
@@ -196,8 +227,9 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
         std::cout << std::setprecision(8);
         if (!p.candidates.empty() && p.candidates.size() <= kPrintable)
             for (const Candidate &c : p.candidates)
-                std::cout << "[find-camera]   " << name_of(c.kind) << " at 0x" << std::hex << (base + c.offset)
-                          << std::dec << " value=" << c.previous << " per-degree=" << c.ratio << "\n";
+                std::cout << "[find-camera]   " << name_of(c.kind) << " " << shape_of(c.shape) << " at 0x"
+                          << std::hex << (base + c.offset) << std::dec << " value=" << c.previous
+                          << " per-degree=" << c.ratio << "\n";
         std::cout.precision(precision);
         write_list(p, base);
     }
