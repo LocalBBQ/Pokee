@@ -48,6 +48,12 @@ struct Settings {
     float trigger{0.25f};
     RightStick right_stick{RightStick::Camera};
     float right_stick_zone{0.5f};
+    // Drives the game's own camera angle from how far the stick is pushed,
+    // instead of letting the game turn at its one fixed speed. Off writes
+    // nothing at all, so the camera is exactly as the game made it.
+    bool analog_camera{};
+    // Degrees per second at full deflection, before the stick's own curve.
+    float camera_speed{190.0f};
     bool invert_camera_x{};
     bool invert_camera_y{};
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once
