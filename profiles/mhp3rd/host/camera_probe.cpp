@@ -114,6 +114,17 @@ struct Probe {
     bool started{};
     Hunt yaw{"yaw"};
     Hunt pitch{"pitch"};
+    // Words holding one of the camera's own basis numbers. Three hunts have now
+    // shown the camera is not kept as an angle, and a rotation's entries are
+    // sines and cosines of the yaw, which hold no fixed ratio to it -- so a
+    // test built on ratios can never admit them. This one asks the only
+    // question that fits: does this word simply *equal* one of the nine numbers
+    // the camera's rotation is made of?
+    std::vector<std::uint32_t> basis;
+    std::vector<std::uint8_t> basis_entry;
+    bool basis_started{};
+    std::uint64_t basis_frames{};
+    bool basis_watching{};
     float previous_pitch{};
     bool have_pitch{};
 };
@@ -346,6 +357,61 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
     const float pitch_change = p.have_pitch ? reading.pitch - p.previous_pitch : 0.0f;
     p.previous_pitch = reading.pitch;
     p.have_pitch = true;
+
+    // --- words that hold one of the camera's basis numbers -------------------
+    // Only the nine rotation entries; the translation is a position, which the
+    // earlier hunts already chased.
+    static const int kRotation[9] = {0, 1, 2, 4, 5, 6, 8, 9, 10};
+    const auto basis_of = [&](int which) { return reading.view[static_cast<std::size_t>(kRotation[which])]; };
+    const auto holds = [&](std::uint32_t offset, int which) {
+        std::uint32_t stored = 0u;
+        std::memcpy(&stored, ram + offset, sizeof(stored));
+        float value = 0.0f;
+        std::memcpy(&value, &stored, sizeof(value));
+        const float wanted = basis_of(which);
+        return std::isfinite(value) && std::fabs(value - wanted) <= 1e-6f + std::fabs(wanted) * 1e-5f;
+    };
+    // A camera pointing along an axis makes every zero in memory look like a
+    // basis entry, so only judge while it is turned well away from one.
+    const bool basis_usable = std::fabs(reading.turn) >= kTurning && std::fabs(reading.turn) <= kCut;
+    if (basis_usable && !p.basis_started) {
+        for (std::uint32_t offset = 0; offset + 4u <= size; offset += 4u)
+            for (int which = 0; which < 9; ++which)
+                if (holds(offset, which)) {
+                    p.basis.push_back(offset);
+                    p.basis_entry.push_back(static_cast<std::uint8_t>(which));
+                    break;
+                }
+        p.basis_started = true;
+        p.basis_frames = 1u;
+        std::cout << "[find-camera] basis: " << p.basis.size() << " words hold one of the camera's own numbers\n";
+    } else if (basis_usable && !p.basis.empty()) {
+        std::vector<std::uint32_t> kept;
+        std::vector<std::uint8_t> kept_entry;
+        for (std::size_t i = 0; i < p.basis.size(); ++i)
+            if (holds(p.basis[i], p.basis_entry[i])) {
+                kept.push_back(p.basis[i]);
+                kept_entry.push_back(p.basis_entry[i]);
+            }
+        const bool thinned = kept.size() != p.basis.size();
+        p.basis.swap(kept);
+        p.basis_entry.swap(kept_entry);
+        ++p.basis_frames;
+        if (thinned) {
+            std::cout << "[find-camera] basis after " << p.basis_frames << " frames: " << p.basis.size()
+                      << " left\n";
+            if (p.basis.size() <= kPrintable)
+                for (std::size_t i = 0; i < p.basis.size(); ++i)
+                    std::cout << "[find-camera]   basis entry " << int(p.basis_entry[i]) << " at 0x" << std::hex
+                              << (base + p.basis[i]) << std::dec << "\n";
+        }
+        if (!p.basis_watching && !p.basis.empty() && p.basis.size() <= kWorthWatching) {
+            std::cout << "[find-camera] basis: watching guest writes to 0x" << std::hex << (base + p.basis[0])
+                      << std::dec << "\n";
+            psprecomp::set_write_watch(base + p.basis[0], 4u);
+            p.basis_watching = true;
+        }
+    }
 
     step(p.yaw, ram, size, reading.turn, base);
     step(p.pitch, ram, size, pitch_change, base);
