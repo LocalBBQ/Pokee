@@ -330,7 +330,42 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
 
 } // namespace
 
+// MHP3RD_POKE_FLOAT=0xADDRESS:VALUE[,0xADDRESS:VALUE...] writes floats into
+// guest memory once per frame. It is how a guess about a constant is turned
+// into a measurement: write a value, watch the trace, see whether the camera
+// obeys.
+void poke_floats(psprecomp::Runtime &runtime) {
+    static const char *text = std::getenv("MHP3RD_POKE_FLOAT");
+    if (text == nullptr || *text == '\0') return;
+    struct Poke {
+        std::uint32_t address;
+        float value;
+    };
+    static const std::vector<Poke> pokes = [] {
+        std::vector<Poke> out;
+        const char *at = text;
+        while (*at != '\0') {
+            char *end = nullptr;
+            const unsigned long address = std::strtoul(at, &end, 0);
+            if (end == at || *end != ':') break;
+            at = end + 1;
+            const float value = std::strtof(at, &end);
+            if (end == at) break;
+            out.push_back({static_cast<std::uint32_t>(address), value});
+            std::cout << "[poke] 0x" << std::hex << address << std::dec << " <- " << value << " every frame\n";
+            at = (*end == ',') ? end + 1 : end;
+        }
+        return out;
+    }();
+    for (const Poke &poke : pokes) {
+        std::uint32_t bits = 0u;
+        std::memcpy(&bits, &poke.value, sizeof(bits));
+        runtime.memory().store32(poke.address, bits);
+    }
+}
+
 void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source) {
+    poke_floats(runtime);
     static const bool enabled = std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
     if (!enabled) return;
 #if defined(MHP3RD_HAS_RENDERER)
