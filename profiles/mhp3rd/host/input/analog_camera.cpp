@@ -65,13 +65,74 @@ void forget(Camera &c, const char *why) {
     c = Camera{};
 }
 
+// The vertical is not an axis at all: it is a height value plus a byte holding
+// a level from 0 to 4, which is why up and down behave as one-shot commands
+// with a glide. A byte with five states that changes exactly when the vertical
+// fires is a sharp signature and hard to confuse with anything else, so this
+// looks for it whenever the measured pitch jumps.
+struct Vertical {
+    std::vector<std::uint8_t> before;
+    std::vector<std::uint32_t> levels;
+    bool searching{};
+    int firings{};
+    bool reported{};
+};
+
+Vertical &vertical() {
+    static Vertical value;
+    return value;
+}
+
+// A pitch change this big in one frame is the command firing, not the camera
+// drifting with the ground.
+constexpr float kVerticalFired = 1.5f;
+
+void look_for_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch_change) {
+    Vertical &v = vertical();
+    if (v.reported) return;
+    if (std::fabs(pitch_change) < kVerticalFired) {
+        // Keep a picture of memory from a quiet frame to compare the next
+        // firing against.
+        if (!v.searching && v.before.empty()) v.before.assign(ram, ram + size);
+        return;
+    }
+    if (v.before.empty()) return;
+
+    if (!v.searching) {
+        for (std::uint32_t offset = 0; offset < size; ++offset) {
+            const std::uint8_t now = ram[offset];
+            const std::uint8_t was = v.before[offset];
+            if (now != was && now <= 4u && was <= 4u) v.levels.push_back(base + offset);
+        }
+        v.searching = true;
+        v.firings = 1;
+        std::cout << "[analog-camera] vertical: " << v.levels.size()
+                  << " bytes hold a level of 0 to 4 and changed when it fired\n";
+    } else {
+        std::vector<std::uint32_t> kept;
+        for (std::uint32_t address : v.levels) {
+            const std::uint8_t now = ram[address - base];
+            if (now <= 4u) kept.push_back(address);
+        }
+        v.levels.swap(kept);
+        ++v.firings;
+        std::cout << "[analog-camera] vertical: " << v.levels.size() << " left after " << v.firings << " firings";
+        if (v.levels.size() <= 16u) {
+            for (std::uint32_t address : v.levels) std::cout << " 0x" << std::hex << address << std::dec;
+            if (!v.levels.empty() && v.firings >= 3) v.reported = true;
+        }
+        std::cout << "\n";
+    }
+    v.before.assign(ram, ram + size);
+}
+
 } // namespace
 
 bool analog_camera_driving() {
     return settings::current().analog_camera && camera().state == Camera::State::Locked;
 }
 
-void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection) {
+void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change) {
     Camera &c = camera();
     if (!settings::current().analog_camera) {
         if (c.state != Camera::State::Looking) c = Camera{};
@@ -83,6 +144,8 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     const std::uint32_t size = memory.size();
     const std::uint8_t *ram = memory.raw_pointer(base, size);
     if (ram == nullptr) return;
+
+    look_for_vertical(ram, base, size, pitch_change);
 
     if (c.state == Camera::State::Looking) {
         // Nothing to compare against until the game turns the camera itself,

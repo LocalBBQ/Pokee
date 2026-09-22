@@ -202,7 +202,10 @@ void present_frame(Runtime &rt) {
         const settings::Settings &player = settings::current();
         float deflection = (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f;
         if (player.invert_camera_x) deflection = -deflection;
-        input::analog_camera_frame(rt, reading.turn, deflection);
+        static float last_pitch = 0.0f;
+        const float pitch_change = reading.pitch - last_pitch;
+        last_pitch = reading.pitch;
+        input::analog_camera_frame(rt, reading.turn, deflection, pitch_change);
     }
     perf::add_render_time(perf::Clock::now() - present_start);
     // A frame ends when its image has been handed to the swapchain.
