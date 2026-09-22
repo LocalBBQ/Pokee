@@ -38,6 +38,9 @@ struct Camera {
     std::int16_t last{};
     int strikes{};
     bool announced{};
+    std::int16_t wrote{};      // what the port put there last frame
+    bool has_wrote{};
+    int reported{};            // frames of before-and-after still to print
     // What the port still owes the camera, kept between frames so that a turn
     // slower than one unit a frame is not rounded away to nothing.
     float owed{};
@@ -228,6 +231,15 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
 
     // Locked: the port owns the camera.
     const std::int16_t now = static_cast<std::int16_t>(memory.load16(c.address));
+    // Did what the port wrote last frame survive? If the game puts its own
+    // value back every frame, writing this field can never do anything, and
+    // that is a different problem from not writing at all.
+    if (c.has_wrote && c.reported < 20) {
+        const int drift = static_cast<std::int16_t>(now - c.wrote);
+        std::cout << "[analog-camera] wrote " << c.wrote << ", found " << now << " a frame later, difference "
+                  << drift << (drift == 0 ? " (the write survived)" : " (something else wrote it)") << "\n";
+        ++c.reported;
+    }
     if (now != c.last) {
         if (c.strikes == 0)
             std::cout << "[analog-camera] 0x" << std::hex << c.address << std::dec << " moved on its own by "
@@ -245,6 +257,8 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     }
 
     const float speed = settings::current().camera_speed;              // degrees a second
+    if (c.reported < 20 && c.reported > 0)
+        std::cout << "[analog-camera] speed setting reads " << speed << " deg/s, stick at " << deflection << "\n";
     // The game's angle counts the other way round from the stick: its own step
     // is added or subtracted from a direction byte, and following the stick's
     // sign turns the camera the wrong way. Inverting here rather than at the
@@ -256,6 +270,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     c.owed -= static_cast<float>(whole);
     if (whole == 0) {
         c.last = now;
+        c.has_wrote = false;
         return;
     }
     const std::int16_t written = static_cast<std::int16_t>(now + whole);
@@ -270,6 +285,8 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     static const bool instant = std::getenv("MHP3RD_CAMERA_INSTANT") != nullptr;
     if (instant) memory.store16(c.address + 2u, static_cast<std::uint16_t>(written));
     c.last = written;
+    c.wrote = written;
+    c.has_wrote = true;
     if (!c.announced) {
         std::cout << "[analog-camera] turning the camera from the stick\n";
         c.announced = true;
