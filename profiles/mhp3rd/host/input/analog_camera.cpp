@@ -582,6 +582,14 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     if (!announced_settings) {
         announced_settings = true;
         const settings::Settings &player = settings::current();
+        // Where guest memory actually lives in this process, so a debugger can
+        // put a hardware watchpoint on a guest address and name the code that
+        // writes it -- which answers "what maintains this field" in minutes
+        // instead of by building another search.
+        if (const std::uint8_t *ram = runtime.memory().raw_pointer(psprecomp::GuestMemory::kPhysicalBase, 16u))
+            std::cout << "[analog-camera] guest 0x" << std::hex << psprecomp::GuestMemory::kPhysicalBase
+                      << " is at host " << static_cast<const void *>(ram) << std::dec
+                      << " (host = that + guest - 0x8000000)\n";
         std::cout << "[analog-camera] built " << __DATE__ << " " << __TIME__ << "; analog camera "
                   << (player.analog_camera ? "on" : "off") << ", vertical "
                   << (player.vertical_camera ? "on" : "off") << ", speed " << player.camera_speed << " deg/s\n";
