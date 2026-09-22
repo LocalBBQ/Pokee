@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 
@@ -28,6 +29,8 @@ constexpr int kStrikes = 12;
 
 struct Camera {
     enum class State { Looking, Watching, Locked } state{State::Looking};
+    std::vector<std::uint8_t> misses;   // frames each candidate has disagreed
+    int searches{};                     // how many times the hunt has restarted
     std::vector<std::uint8_t> before;       // guest memory, held only while searching
     std::vector<std::uint32_t> candidates;  // and only until one is left
     std::vector<std::int16_t> previous;
@@ -59,10 +62,14 @@ bool moved_by_steps(std::int16_t moved) {
 }
 
 void forget(Camera &c, const char *why) {
+    const int searches = c.searches;
     if (c.state == Camera::State::Locked)
-        std::cout << "[analog-camera] lost the camera at 0x" << std::hex << c.address << std::dec << " (" << why
-                  << "); looking again\n";
+        std::cout << "[analog-camera] lost the camera at 0x" << std::hex << c.address << std::dec << ": " << why
+                  << "; looking again\n";
+    else
+        std::cout << "[analog-camera] giving up this search: " << why << "\n";
     c = Camera{};
+    c.searches = searches;  // so the log numbers them across restarts
 }
 
 // The vertical is not an axis at all: it is a height value plus a byte holding
@@ -159,15 +166,24 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         for (std::uint32_t offset = 0; offset + 2u <= size; offset += 2u) {
             const std::int16_t moved =
                 static_cast<std::int16_t>(read16(ram + offset) - read16(c.before.data() + offset));
-            if (moved == kGameStep || moved == -kGameStep) {
+            // Several steps at once, not exactly one: the two frames compared
+            // need not be consecutive, and the field advances every frame the
+            // camera turns. Demanding exactly one step is why a fresh start
+            // could hunt for ever without ever converging.
+            if (moved_by_steps(moved)) {
                 c.candidates.push_back(base + offset);
                 c.previous.push_back(read16(ram + offset));
+                c.misses.push_back(0u);
             }
         }
         c.before.clear();
         c.before.shrink_to_fit();  // 64 MiB, given back at once
         c.state = Camera::State::Watching;
-        std::cout << "[analog-camera] " << c.candidates.size() << " fields move by the game's own step\n";
+        std::cout << "[analog-camera] search " << ++c.searches << ": " << c.candidates.size()
+                  << " fields move by the game's own step of " << kGameStep << "\n";
+        if (c.candidates.empty())
+            std::cout << "[analog-camera] nothing moved by it; the camera may not have turned between the two "
+                         "frames compared. Turn the camera with the stick and it will try again\n";
         return;
     }
 
@@ -177,18 +193,25 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         // skipped frame makes it look as though it jumped several.
         std::vector<std::uint32_t> kept;
         std::vector<std::int16_t> kept_previous;
+        std::vector<std::uint8_t> kept_misses;
         for (std::size_t i = 0; i < c.candidates.size(); ++i) {
             const std::int16_t now = read16(ram + (c.candidates[i] - base));
             const std::int16_t moved = static_cast<std::int16_t>(now - c.previous[i]);
+            std::uint8_t misses = c.misses[i];
             if (moved == 0 || moved_by_steps(moved)) {
-                kept.push_back(c.candidates[i]);
-                kept_previous.push_back(now);
+                misses = 0u;
+            } else if (++misses >= 3u) {
+                continue;  // three frames out of step is not the camera
             }
+            kept.push_back(c.candidates[i]);
+            kept_previous.push_back(now);
+            kept_misses.push_back(misses);
         }
         c.candidates.swap(kept);
         c.previous.swap(kept_previous);
+        c.misses.swap(kept_misses);
         if (c.candidates.empty()) {
-            forget(c, "nothing kept behaving like it");
+            forget(c, "none of them kept behaving like the camera");
             return;
         }
         if (c.candidates.size() == 1u) {
@@ -206,6 +229,9 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     // Locked: the port owns the camera.
     const std::int16_t now = static_cast<std::int16_t>(memory.load16(c.address));
     if (now != c.last) {
+        if (c.strikes == 0)
+            std::cout << "[analog-camera] 0x" << std::hex << c.address << std::dec << " moved on its own by "
+                      << static_cast<int>(static_cast<std::int16_t>(now - c.last)) << "\n";
         // Something other than this code moved it. The game still owns the
         // camera in cutscenes and conversations, and an overlay swap can put
         // something else at this address entirely; a few frames of that and the
@@ -236,12 +262,13 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     memory.store16(c.address, static_cast<std::uint16_t>(written));
     // The field found is the camera's *target* angle; two bytes later is the
     // one the view is actually built from, which the game eases towards the
-    // target by a quarter of the difference each frame. That easing is where
-    // the eighteen degrees of coast measured in #103 come from, so setting both
-    // leaves the filter nothing to do and the camera stops where the stick is
-    // let go. The game still writes the smoothed field itself whenever it wants
-    // the camera, so nothing is taken away from it permanently.
-    memory.store16(c.address + 2u, static_cast<std::uint16_t>(written));
+    // target by a quarter of the difference each frame. Writing that one too
+    // leaves the filter nothing to do, which removes the eighteen degrees of
+    // coast measured in #103 -- but it also writes a field the game is driving
+    // itself, and the camera stopped responding after that went in. So it is
+    // off unless asked for, and the default is the behaviour that worked.
+    static const bool instant = std::getenv("MHP3RD_CAMERA_INSTANT") != nullptr;
+    if (instant) memory.store16(c.address + 2u, static_cast<std::uint16_t>(written));
     c.last = written;
     if (!c.announced) {
         std::cout << "[analog-camera] turning the camera from the stick\n";
