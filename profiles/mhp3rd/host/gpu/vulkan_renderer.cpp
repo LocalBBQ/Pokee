@@ -579,6 +579,7 @@ struct VulkanRenderer::Impl {
     std::vector<std::pair<std::array<float, 16>, std::uint32_t>> frame_views;
     // The yaw of the previous traced frame, so each line can carry the turn.
     float traced_yaw{};
+    CameraReading reading{};
     bool pass_active{};
     VkRenderPass render_pass{};
     VkExtent2D target_extent{};
@@ -827,6 +828,7 @@ VulkanRenderer::~VulkanRenderer() { shutdown(); }
 bool VulkanRenderer::available() const noexcept { return impl_ && impl_->ready; }
 bool VulkanRenderer::quit_requested() const noexcept { return impl_ && impl_->quit; }
 std::uint64_t VulkanRenderer::frames_presented() const noexcept { return impl_ ? impl_->frames : 0u; }
+CameraReading VulkanRenderer::camera() const noexcept { return impl_ ? impl_->reading : CameraReading{}; }
 std::uint64_t VulkanRenderer::draws_submitted() const noexcept { return impl_ ? impl_->draws : 0u; }
 
 bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error) {
@@ -2803,6 +2805,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // up can be traced to the stage that loses it.
     static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
     static const bool trace_camera = std::getenv("MHP3RD_TRACE_CAMERA") != nullptr;
+    // The camera hunt reads the same measurement without printing it.
+    static const bool watch_camera = trace_camera || std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
     static std::uint32_t traced_3d = 0u;
     static std::uint32_t traced_clears = 0u;
     if (trace3d && call.clear_mode && traced_clears < 4u) {
@@ -2865,7 +2869,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     } else {
         ++impl.frame_transformed_draws;
         ++impl.frame_transformed_targets[call.target.color_address];
-        if (trace_camera) {
+        if (watch_camera) {
             const auto same = std::find_if(impl.frame_views.begin(), impl.frame_views.end(),
                                            [&](const auto &entry) { return entry.first == call.view; });
             const auto vertices = static_cast<std::uint32_t>(impl.scratch.size());
@@ -3244,6 +3248,8 @@ void VulkanRenderer::present(std::uint32_t display_address) {
 
     static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
     static const bool trace_camera = std::getenv("MHP3RD_TRACE_CAMERA") != nullptr;
+    // The camera hunt reads the same measurement without printing it.
+    static const bool watch_camera = trace_camera || std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
     if (trace3d && impl.frame_transformed_draws != 0u) {
         std::cout << "[3d] frame " << impl.frames << " through=" << impl.frame_through_draws
                   << " transformed=" << impl.frame_transformed_draws << " showing=0x" << std::hex << display_address
@@ -3256,7 +3262,7 @@ void VulkanRenderer::present(std::uint32_t display_address) {
                   << impl.frame_ndc_max[0] << "] y[" << impl.frame_ndc_min[1] << "," << impl.frame_ndc_max[1]
                   << "] z[" << impl.frame_ndc_min[2] << "," << impl.frame_ndc_max[2] << "]\n";
     }
-    if (trace_camera && !impl.frame_views.empty()) {
+    if (watch_camera && !impl.frame_views.empty()) {
         // The busiest view matrix of the frame is the scene the player looks
         // at; the others belong to reflections and shadow passes.
         const auto scene = std::max_element(impl.frame_views.begin(), impl.frame_views.end(),
@@ -3283,6 +3289,8 @@ void VulkanRenderer::present(std::uint32_t display_address) {
         while (turn > 180.0f) turn -= 360.0f;
         while (turn < -180.0f) turn += 360.0f;
         impl.traced_yaw = yaw;
+        impl.reading = CameraReading{true, yaw, pitch, turn, {px, py, pz}, view};
+        if (trace_camera) {
         const std::ios::fmtflags flags = std::cout.flags();
         const std::streamsize precision = std::cout.precision();
         std::cout << std::fixed << std::setprecision(4) << "[camera] frame " << impl.frames << " stick="
@@ -3295,6 +3303,7 @@ void VulkanRenderer::present(std::uint32_t display_address) {
         // for the position -- and every number printed afterwards by anything
         // else comes out rounded to one digit for the rest of the run.
         std::cout.precision(precision);
+        }
     }
     impl.frame_views.clear();
     impl.frame_through_draws = 0u;

@@ -219,6 +219,8 @@ public:
 
     [[nodiscard]] const RenderTarget &target() const noexcept { return target_; }
     [[nodiscard]] std::uint64_t draw_count() const noexcept { return draw_count_; }
+    // The display-list address the last view matrix was uploaded from.
+    [[nodiscard]] std::uint32_t view_matrix_source() const noexcept { return view_matrix_source_; }
     [[nodiscard]] std::uint64_t vertex_count() const noexcept { return vertex_count_; }
     [[nodiscard]] std::uint64_t unhandled_command_count() const noexcept { return unhandled_commands_; }
 
@@ -264,6 +266,7 @@ private:
     // single counter lets interleaved uploads scribble over each other.
     std::uint32_t world_write_index_{};
     std::uint32_t view_write_index_{};
+    std::uint32_t view_matrix_source_{};
     std::uint32_t projection_write_index_{};
     std::uint32_t texture_write_index_{};
     std::uint32_t bone_write_index_{};

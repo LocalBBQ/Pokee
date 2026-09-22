@@ -848,6 +848,10 @@ std::uint32_t GeState::execute(const GuestMemory &memory, std::uint32_t pc, std:
         const std::uint32_t word = memory.load32(pc);
         const std::uint32_t command = word >> 24u;
         const std::uint32_t data = word & 0x00FFFFFFu;
+        // Where the camera came from: the display list the game built holds the
+        // view matrix as commands, and that address is the one thing about the
+        // camera the host can always point at.
+        if (command == kViewMatrixNumber) view_matrix_source_ = pc;
         pc += 4u;
 
         switch (command) {

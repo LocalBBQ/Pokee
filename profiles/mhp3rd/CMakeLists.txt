@@ -91,6 +91,7 @@ set(MHP3RD_HOST_SOURCES
     host/movie/psmf_demuxer.cpp
     host/audio/audio_sink.cpp
     host/audio/sas_core.cpp
+    host/camera_probe.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/perf/frame_stats.cpp

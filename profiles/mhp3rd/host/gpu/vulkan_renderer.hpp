@@ -2,6 +2,7 @@
 
 #include "ge_state.hpp"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -27,6 +28,20 @@ struct PadState {
     // skips its camera path entirely only when both bytes are exactly centred.
     std::uint8_t right_x{0x80u};
     std::uint8_t right_y{0x80u};
+};
+
+// The camera the game itself set, read back from the view matrix it uploads.
+// Only filled while MHP3RD_TRACE_CAMERA or MHP3RD_FIND_CAMERA is on.
+struct CameraReading {
+    bool valid{};
+    float yaw{};    // degrees, from the direction the camera looks along
+    float pitch{};  // degrees
+    float turn{};   // degrees of yaw since the previous traced frame
+    std::array<float, 3> position{};
+    // The matrix itself, in the layout the game holds it in: the GE's twelve
+    // uploaded floats expanded to a 4x4, which is byte for byte the matrix the
+    // game passed to the GE.
+    std::array<float, 16> view{};
 };
 
 struct RendererConfig {
@@ -135,6 +150,7 @@ public:
 
     [[nodiscard]] std::uint64_t frames_presented() const noexcept;
     [[nodiscard]] std::uint64_t draws_submitted() const noexcept;
+    [[nodiscard]] CameraReading camera() const noexcept;
 
 private:
     struct Impl;
