@@ -402,20 +402,14 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
         memory.store16(address, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
     };
     turn_field(p.confirmed);
-    if (player.vertical_write == 1) {
-        std::uint32_t companion = 0u;
-        std::uint32_t nearest = 0x4000u;
-        for (std::uint32_t address : p.best) {
-            if (address == p.confirmed) continue;
-            const std::uint32_t apart =
-                address > p.confirmed ? address - p.confirmed : p.confirmed - address;
-            if (apart < nearest) {
-                nearest = apart;
-                companion = address;
-            }
-        }
-        if (companion != 0u) turn_field(companion);
-    }
+    // The companion is the next 16-bit field, not the nearest one that happens
+    // to correlate. That is what the game's own code does for the yaw -- the
+    // target at +0x80 and the angle the view is built from at +0x82, two bytes
+    // apart -- and reading the camera function shows the same shape again for
+    // another angle: one field holds the angle and a neighbour holds three
+    // quarters of its change per frame. Picking by proximity across a whole
+    // structure is what wrote into state the game needed.
+    if (player.vertical_write == 1) turn_field(p.confirmed + 2u);
     static int said = -1;
     if (said != player.vertical_write) {
         said = player.vertical_write;
