@@ -40,6 +40,8 @@ struct Camera {
     bool announced{};
     std::int16_t wrote{};      // what the port put there last frame
     bool has_wrote{};
+    int overwritten{};         // frames the game put its own value back
+    bool drive_view{};         // and so the view's own angle is driven as well
     int reported{};            // frames of before-and-after still to print
     // What the port still owes the camera, kept between frames so that a turn
     // slower than one unit a frame is not rounded away to nothing.
@@ -208,18 +210,28 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
             const std::int16_t now = read16(ram + (c.candidates[i] - base));
             const std::int16_t moved = static_cast<std::int16_t>(now - c.previous[i]);
             std::uint8_t misses = c.misses[i];
-            if (moved == 0 || moved_by_steps(moved)) {
+            // While the camera is turning the yaw *must* move: a field that
+            // sits still through a turn is not it. Accepting "did not move" on
+            // every frame is why seventy-eight candidates never narrowed and
+            // the camera was never driven at all -- every still word in memory
+            // satisfied it for ever.
+            const bool turning = std::fabs(turn) >= kSearching;
+            const bool behaved = turning ? moved_by_steps(moved) : (moved == 0 || moved_by_steps(moved));
+            if (behaved) {
                 misses = 0u;
             } else if (++misses >= 3u) {
-                continue;  // three frames out of step is not the camera
+                continue;
             }
             kept.push_back(c.candidates[i]);
             kept_previous.push_back(now);
             kept_misses.push_back(misses);
         }
+        const std::size_t was = c.candidates.size();
         c.candidates.swap(kept);
         c.previous.swap(kept_previous);
         c.misses.swap(kept_misses);
+        if (c.candidates.size() != was)
+            std::cout << "[analog-camera] narrowing: " << c.candidates.size() << " left\n";
         if (c.candidates.empty()) {
             forget(c, "none of them kept behaving like the camera");
             return;
@@ -246,6 +258,22 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         std::cout << "[analog-camera] wrote " << c.wrote << ", found " << now << " a frame later, difference "
                   << drift << (drift == 0 ? " (the write survived)" : " (something else wrote it)") << "\n";
         ++c.reported;
+    }
+    // If the game keeps putting its own value back, writing the target can
+    // never move the camera. The angle the view is built from is two bytes on,
+    // and the game only eases that towards the target -- so drive it as well,
+    // and only while the player is actually turning, so the game keeps it the
+    // rest of the time.
+    if (c.has_wrote && !c.drive_view) {
+        if (static_cast<std::int16_t>(now - c.wrote) != 0) {
+            if (++c.overwritten >= 5) {
+                c.drive_view = true;
+                std::cout << "[analog-camera] the game rewrites the target every frame, so the port will drive "
+                             "the angle the view is built from too, while the stick is deflected\n";
+            }
+        } else {
+            c.overwritten = 0;
+        }
     }
     if (now != c.last) {
         if (c.strikes == 0)
@@ -290,7 +318,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     // itself, and the camera stopped responding after that went in. So it is
     // off unless asked for, and the default is the behaviour that worked.
     static const bool instant = std::getenv("MHP3RD_CAMERA_INSTANT") != nullptr;
-    if (instant) memory.store16(c.address + 2u, static_cast<std::uint16_t>(written));
+    if (instant || c.drive_view) memory.store16(c.address + 2u, static_cast<std::uint16_t>(written));
     c.last = written;
     c.wrote = written;
     c.has_wrote = true;
