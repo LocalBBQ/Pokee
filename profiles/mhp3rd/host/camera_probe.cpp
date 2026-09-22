@@ -55,7 +55,7 @@ constexpr int kCooldownFrames = 180;
 // The console gets a summary; the whole list goes to a file, because a set
 // that stops shrinking at a thousand is still small enough to read through and
 // far too big to print every frame.
-constexpr std::size_t kPrintable = 24u;
+constexpr std::size_t kPrintable = 64u;
 // Per kind, not overall: a single cap ran out during the float pass and the
 // int16 pass never ran at all. Kept small on purpose -- a candidate costs
 // thirty-two bytes and a read every frame, and three million of them per kind
@@ -122,6 +122,7 @@ struct Probe {
     // the camera's rotation is made of?
     std::vector<std::uint32_t> basis;
     std::vector<std::uint8_t> basis_entry;
+    std::vector<std::uint8_t> basis_strikes;
     bool basis_started{};
     std::uint64_t basis_frames{};
     bool basis_watching{};
@@ -385,22 +386,35 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
                 if (holds(offset, which)) {
                     p.basis.push_back(offset);
                     p.basis_entry.push_back(static_cast<std::uint8_t>(which));
+                    p.basis_strikes.push_back(0u);
                     break;
                 }
         p.basis_started = true;
         p.basis_frames = 1u;
         std::cout << "[find-camera] basis: " << p.basis.size() << " words hold one of the camera's own numbers\n";
     } else if (basis_usable && !p.basis.empty()) {
+        // The game keeps no standing copy of its matrix: it writes one into a
+        // display list it double-buffers, so a given address carries the camera
+        // on alternate frames. Insisting on a match every frame threw away all
+        // twenty-five survivors of one run at once.
         std::vector<std::uint32_t> kept;
         std::vector<std::uint8_t> kept_entry;
-        for (std::size_t i = 0; i < p.basis.size(); ++i)
+        std::vector<std::uint8_t> kept_strikes;
+        for (std::size_t i = 0; i < p.basis.size(); ++i) {
+            std::uint8_t strikes = p.basis_strikes[i];
             if (holds(p.basis[i], p.basis_entry[i])) {
-                kept.push_back(p.basis[i]);
-                kept_entry.push_back(p.basis_entry[i]);
+                if (strikes != 0u) --strikes;
+            } else if (++strikes >= 4u) {
+                continue;
             }
+            kept.push_back(p.basis[i]);
+            kept_entry.push_back(p.basis_entry[i]);
+            kept_strikes.push_back(strikes);
+        }
         const bool thinned = kept.size() != p.basis.size();
         p.basis.swap(kept);
         p.basis_entry.swap(kept_entry);
+        p.basis_strikes.swap(kept_strikes);
         ++p.basis_frames;
         if (thinned) {
             std::cout << "[find-camera] basis after " << p.basis_frames << " frames: " << p.basis.size()
