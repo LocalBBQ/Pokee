@@ -373,27 +373,33 @@ void find_and_poke_copies(psprecomp::Runtime &runtime) {
     static const char *wanted_text = std::getenv("MHP3RD_FIND_FLOAT");
     if (wanted_text == nullptr || *wanted_text == '\0') return;
     static std::vector<std::uint32_t> copies;
-    static bool scanned = false;
+    static std::uint64_t scans = 0u;
+    static std::uint64_t frames = 0u;
     static const float wanted = std::strtof(wanted_text, nullptr);
     static const char *poke_text = std::getenv("MHP3RD_POKE_FOUND");
 
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
     const std::uint32_t size = memory.size();
-    if (!scanned) {
+    // A constant may only be copied once the code that uses it is loaded, and
+    // for this game that is an overlay swap away, so look again now and then
+    // rather than once at the first frame.
+    const bool rescan = (frames++ % 900u) == 0u;
+    if (rescan) {
         const std::uint8_t *ram = memory.raw_pointer(base, size);
         if (ram == nullptr) return;
         std::uint32_t wanted_bits = 0u;
         std::memcpy(&wanted_bits, &wanted, sizeof(wanted_bits));
+        copies.clear();
         for (std::uint32_t offset = 0; offset + 4u <= size; offset += 4u) {
             std::uint32_t bits = 0u;
             std::memcpy(&bits, ram + offset, sizeof(bits));
             if (bits == wanted_bits) copies.push_back(base + offset);
         }
-        scanned = true;
-        std::cout << "[find-float] " << wanted << " appears at " << copies.size() << " places:\n";
-        for (std::uint32_t address : copies)
-            std::cout << "[find-float]   0x" << std::hex << address << std::dec << "\n";
+        std::cout << "[find-float] scan " << scans++ << ": " << wanted << " appears at " << copies.size()
+                  << " places";
+        for (std::uint32_t address : copies) std::cout << " 0x" << std::hex << address << std::dec;
+        std::cout << "\n";
     }
     if (poke_text == nullptr || *poke_text == '\0' || copies.empty()) return;
     static const float replacement = std::strtof(poke_text, nullptr);
