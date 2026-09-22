@@ -13,10 +13,6 @@ constexpr std::size_t kSources = static_cast<std::size_t>(Source::Count);
 // up on: one step at most, whatever the stick held meanwhile.
 constexpr float kLongestStep = 0.1f;
 
-struct Rate {
-    float yaw{};
-    float pitch{};
-};
 std::array<Rate, kSources> rates{};
 Turn pending{};
 
@@ -54,6 +50,11 @@ Turn take() {
 }
 
 void discard() { pending = Turn{}; }
+
+Rate rate(Source source) {
+    const auto index = static_cast<std::size_t>(source);
+    return index < kSources ? rates[index] : Rate{};
+}
 
 void reset() {
     rates.fill(Rate{});

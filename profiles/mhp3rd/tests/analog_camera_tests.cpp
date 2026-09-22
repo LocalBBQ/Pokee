@@ -63,6 +63,7 @@ struct Fixture {
         memory.store32(camera_address + 0x70u, preset_address);
         memory.store16(camera_address + 0x80u, 32000u);
         memory.store16(camera_address + 0x82u, 32000u);
+        memory.store8(camera_address + 0x91u, 0xFFu);  // not aiming
         write_float(memory, preset_address + 0x10u, 190.0f);
         write_float(memory, camera_address + 4u, 150.0f);
         ctx.gpr[17] = camera_address;
@@ -271,6 +272,27 @@ void test_motion_source() {
           "motion made while the camera is not driven is dropped");
 }
 
+void test_aiming_hands_back_the_stick() {
+    Fixture f;
+    f.enable();
+    f.frame(0.0f, 1.0f);
+    check(game_camera_driving(), "the ordinary camera is driven");
+    auto &m = f.runtime.memory();
+    // The weapon reports an aim: the stick moves the aim, and the game's
+    // camera follows it.
+    m.store8(camera_address + 0x91u, 0u);
+    f.reset_offset();
+    const auto before = f.snapshot();
+    f.frame(1.0f, 1.0f);
+    check(f.snapshot() == before, "aiming leaves the camera to the game");
+    check(!game_camera_driving(), "aiming passes the stick through to the game");
+    m.store8(camera_address + 0x91u, 0xFFu);
+    f.frame(0.0f, 0.0f);
+    f.frame(1.0f, 0.0f);
+    check(game_camera_driving() && m.load16(camera_address + 0x80u) != before[0x80] + (before[0x81] << 8),
+          "the ordinary camera is driven again after aiming");
+}
+
 int main() {
     test_passthrough();
     test_rates_and_release();
@@ -281,6 +303,7 @@ int main() {
     test_hook_waits_for_the_option();
     test_frame_rate_independence();
     test_motion_source();
+    test_aiming_hands_back_the_stick();
     check(original_calls > 0u, "original rotation helper is called");
     std::cout << (failures ? "FAIL" : "PASS") << ": analog camera (" << failures << " failures)\n";
     return failures ? 1 : 0;

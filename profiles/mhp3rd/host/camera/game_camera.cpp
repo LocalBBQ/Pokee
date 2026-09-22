@@ -35,6 +35,11 @@ constexpr std::uint32_t kYawTarget = 0x80u;
 constexpr std::uint32_t kYawCurrent = 0x82u;
 constexpr std::uint32_t kButtons = 0x84u;
 constexpr std::uint32_t kSnap = 0x8Eu;
+// The aim the weapon reports while the player aims a bow or a bowgun, -1
+// otherwise. The camera update asks the weapon's code each update (0x088E5434)
+// and, while this is not negative, turns the camera after the aim itself
+// (0x088E7AFC). The aim is moved with the same stick.
+constexpr std::uint32_t kAim = 0x91u;
 // Preset, relative to its pointer, and the update's stack frame.
 constexpr std::uint32_t kPresetTargetHeight = 0x10u;
 constexpr std::uint32_t kStackEyeY = 0x34u;
@@ -48,7 +53,7 @@ constexpr std::uint8_t kFollowMode = 0u;
 // Game code the driver depends on, read from NPJB-40001. If any word differs,
 // the executable is not the one these facts were read from, and the driver
 // stays out rather than write to places that may mean something else.
-constexpr std::array<CodeWord, 15> kSignature{{
+constexpr std::array<CodeWord, 18> kSignature{{
     {0x088E6264u, 0x0E21E2DCu, "jal 0x08878B70: the camera update calls the rotation helper"},
     {0x088E6254u, 0x27A50050u, "addiu a1,sp,0x50: the helper's angles are on the update's stack"},
     {0x08878B70u, 0x27BDFFE0u, "addiu sp,sp,-0x20: the rotation helper's first instruction"},
@@ -64,6 +69,9 @@ constexpr std::array<CodeWord, 15> kSignature{{
     {0x088E77D4u, 0x96260084u, "lhu a2,0x84(s1): the camera's buttons"},
     {0x088E6B58u, 0xC6220004u, "lwc1 f2,0x4(s1): the eye height the 1/8 filter eases"},
     {0x0896D47Cu, 0x3E000000u, "0.125: that filter's coefficient"},
+    {0x088E5434u, 0x0E83D878u, "jal 0x0A0F61E0: the camera asks the weapon whether it is aiming"},
+    {0x088E5448u, 0x82220091u, "lb v0,0x91(s1): the aim the weapon reported"},
+    {0x088E7AFCu, 0x82260091u, "lb a2,0x91(s1): the camera follows the aim while it is not negative"},
 }};
 
 struct State {
@@ -196,7 +204,67 @@ void drive_follow(psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ct
     trace(memory, address, stack, turn, active, recentre, vertical_command, y, z, target_height);
 }
 
+// MHP3RD_TRACE_CAMERA_MODES=path.csv: every call of the rotation helper, from
+// any caller, with the camera mode and the stick, and the whole camera
+// structure whenever the mode is not the ordinary one. For finding what the
+// aiming camera keeps where, before it has a driver.
+std::ofstream *modes_trace() {
+    static const char *path = std::getenv("MHP3RD_TRACE_CAMERA_MODES");
+    if (path == nullptr) return nullptr;
+    static std::ofstream out(path);
+    return &out;
+}
+
+void dump_camera(std::ostream &out, const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    const unsigned mode = memory.load8(address + kMode);
+    out << ",mode=" << mode << ",yaw=" << memory.load16(address + kYawTarget) << ':'
+        << memory.load16(address + kYawCurrent) << ",buttons=" << std::hex << memory.load16(address + kButtons)
+        << std::dec;
+    out << ",words=" << std::hex;
+    for (std::uint32_t offset = 0u; offset < 0x190u; offset += 4u)
+        out << (offset ? ":" : "") << memory.load32(address + offset);
+    out << std::dec;
+}
+
+// Once a flip as well, from the last camera the ordinary update named: an
+// aiming camera may never call the helper at all.
+void trace_flip(const psprecomp::GuestMemory &memory) {
+    std::ofstream *out = modes_trace();
+    if (out == nullptr || state.address == 0u || memory.raw_pointer(state.address, 0x190u) == nullptr) return;
+    const Rate stick = rate(Source::Stick);
+    *out << state.frame << ",flip,s1=" << std::hex << state.address << std::dec << ",stick=" << stick.yaw << ':'
+         << stick.pitch << ",aim=" << static_cast<int>(static_cast<std::int8_t>(memory.load8(state.address + kAim)));
+    // The flag 0x088E53E8 tests before asking the weapon at all.
+    const std::uint32_t game = memory.load32(0x08AB3640u);
+    if (memory.raw_pointer(game + 0x60474u, 4u) != nullptr)
+        *out << ",aimflag=" << std::hex << memory.load32(game + 0x60474u) << std::dec;
+    dump_camera(*out, memory, state.address);
+    *out << std::endl;
+}
+
+void trace_modes(const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx) {
+    std::ofstream *trace_out = modes_trace();
+    if (trace_out == nullptr) return;
+    std::ofstream &out = *trace_out;
+    static unsigned lines = 0u;
+    // Only the camera's own calls; the helper also turns every other object.
+    if (ctx.gpr[31] != kCameraReturn && ctx.gpr[31] != 0x088E5E24u) return;
+    const auto address = ctx.gpr[17];
+    const bool camera = memory.raw_pointer(address, 0x190u) != nullptr;
+    const Rate stick = rate(Source::Stick);
+    out << state.frame << ",ra=" << std::hex << ctx.gpr[31] << ",s1=" << address << std::dec;
+    if (memory.raw_pointer(ctx.gpr[5], 12u) != nullptr)
+        out << ",angles=" << static_cast<std::int32_t>(memory.load32(ctx.gpr[5])) << ':'
+            << static_cast<std::int32_t>(memory.load32(ctx.gpr[5] + 4u)) << ':'
+            << static_cast<std::int32_t>(memory.load32(ctx.gpr[5] + 8u));
+    out << ",stick=" << stick.yaw << ':' << stick.pitch;
+    if (camera) dump_camera(out, memory, address);
+    out << '\n';
+    if (++lines % 30u == 0u) out.flush();
+}
+
 void adjust_camera(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    trace_modes(runtime.memory(), ctx);
     if (ctx.gpr[31] != kCameraReturn) return;
     auto &memory = runtime.memory();
     const auto address = ctx.gpr[17];
@@ -206,6 +274,13 @@ void adjust_camera(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx)
         return;
     switch (memory.load8(address + kMode)) {
     case kFollowMode:
+        // Aiming a bow or a bowgun: the stick moves the aim and the game's
+        // camera follows it, so hand both back to the game until it ends.
+        if (static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0) {
+            state.address = address;
+            release();
+            return;
+        }
         drive_follow(memory, ctx, address, stack);
         return;
     // A driver for the aiming camera goes here, once traced.
@@ -249,6 +324,7 @@ bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original)
 
 void game_camera_frame(psprecomp::Runtime &runtime) {
     ++state.frame;
+    trace_flip(runtime.memory());
     if (state.prepared && !state.hooked && option_on()) {
         // Only ever at the game's flip, from an import: no generated frame is
         // live on the host stack, so the dispatch tables can change here.

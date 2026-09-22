@@ -44,4 +44,11 @@ void discard();
 // Forgets every source's held rate as well, for tests and a fresh start.
 void reset();
 
+// The rate a source holds now, for traces.
+struct Rate {
+    float yaw{};
+    float pitch{};
+};
+[[nodiscard]] Rate rate(Source source);
+
 } // namespace mhp3rd::camera
