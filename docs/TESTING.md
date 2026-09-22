@@ -29,7 +29,7 @@ A released build is tested the same way. Note its version and which download it 
 | 9 | Take a quest and depart | The quest map loads with the HUD, the minimap and the character's weapon |
 | 10 | Hunt a small monster | Monsters appear and animate; attacks, hits and sound effects work |
 | 11 | Stand still with no input for ten seconds | The character and the camera stay still |
-| 12 | Move the camera with the right stick, if you have a gamepad | The camera turns and stops when the stick is released |
+| 12 | Move the camera with the right stick, if you have a gamepad, and with the mouse | The camera turns and stops when the stick is released or the mouse stops |
 | 13 | Return to the village | The village loads again |
 | 14 | Close the window and start the game again | The console logs `[savedata] loaded … (decrypted)`; after the title screen, character select lists the character from step 5 |
 | 15 | Pick that character | The game continues from the save |
@@ -59,6 +59,21 @@ For the manual check, open **Video** in the menu and compare the three **Aspect 
 - Switching the value back and forth takes effect at once; the console logs `[aspect] the game's view is … wide to 1 high`, and back at Original the game's `1.76471`.
 - With **Resolution** on Auto, resize the window, toggle fullscreen and, where possible, move it to another display: after a moment the console logs `[render] internal resolution W×H` with the window's size.
 - On a Steam Deck (1280×800, 16:10), Fill with Auto draws 1280×800 and should hold 30 fps in a quest.
+
+### Keyboard and mouse (#94)
+
+`mhp3rd_input_tests` (CTest) checks the bindings without SDL or game data: key and button names, how `settings.ini` spells them, the shipped layouts, the menu's rebinding rules and what held keys press. `mhp3rd_camera_tests` covers the mouse in the camera layer: its turn in the ordinary camera, sizing the game's aim steps from the mouse (including a step the game makes an update late, and one made after the mouse stopped), and switching the game's own turn where the port does not drive the camera.
+
+For the manual check, unplug the gamepad (or leave it untouched) and play from the title screen with the keyboard and mouse only, on the default layout (see the profile README's *Keyboard and mouse*):
+
+- While the game window has focus the pointer is hidden and captured. Esc opens the menu and the pointer comes back; closing the menu takes it again. Switching to another window (Cmd+Tab, Alt+Tab) gives it back; returning takes it again. The on-screen keyboard for the hunter's name and the setup screens never take it.
+- Create or load a hunter, walk the village with W A S D, talk (F or the right button), take a quest from the menus (F or the right button confirms, Space goes back) and depart.
+- In the quest, the mouse turns and tilts the camera smoothly and stops where it stops; *Mouse sensitivity* and both *Invert mouse* settings change it at once. With *Analog camera* off, moving the mouse sideways turns the game's own camera while it moves. Q puts the camera behind the hunter.
+- Attack with the left button, roll with Space, use an item with E, guard or run with Left Shift. With a bow: hold Left Shift and move the mouse, the aim follows in proportion, then shoot with the left button; with a bowgun, fire with the right button. Rolling or walking while aiming must not move the aim more than the game allows.
+- Hold a key or a mouse button, open the menu with Esc, release it, close the menu: nothing stays pressed. Pick the gamepad up mid-quest and put it down again: both work, and no camera motion is left over.
+- In Controls, rebind a control (activate its row, press a key or a mouse button), check it in play and in `settings.ini`, try *Use the classic keyboard layout* and *Restore control defaults*.
+
+With `MHP3RD_TRACE_PAD=1` the console shows `[pad] pointer captured` and `[pad] pointer free` as the pointer changes hands, and the mouse's motion in counts and degrees.
 
 ## Reporting
 
