@@ -494,8 +494,85 @@ void find_and_poke_int32(psprecomp::Runtime &runtime) {
     }
 }
 
+// MHP3RD_FIND_STEP=N finds the camera's own yaw: the one 16-bit field whose
+// value changes by exactly +N or -N from one frame to the next while the camera
+// turns. Reading the game's code gives N as 1150, which is 1150/65536 of a turn
+// -- 6.317139 degrees a frame, the rate measured from outside -- so this asks a
+// question with a single right answer rather than a proportion that many words
+// can satisfy by accident.
+void find_step_field(psprecomp::Runtime &runtime, float turn) {
+    static const char *step_text = std::getenv("MHP3RD_FIND_STEP");
+    if (step_text == nullptr || *step_text == '\0') return;
+    static const int step = static_cast<int>(std::strtol(step_text, nullptr, 0));
+    static std::vector<std::uint8_t> before;   // held only until the first compare
+    static std::vector<std::uint32_t> kept;
+    static std::vector<std::int16_t> previous; // and only for the survivors after that
+    static bool armed = false;
+    static std::uint64_t rounds = 0u;
+
+    // Only look while the camera is really turning: the whole test is "did this
+    // field move by exactly one step", and a still camera moves nothing.
+    if (std::fabs(turn) < 1.5f) return;
+
+    psprecomp::GuestMemory &memory = runtime.memory();
+    const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
+    const std::uint32_t size = memory.size();
+    const std::uint8_t *ram = memory.raw_pointer(base, size);
+    if (ram == nullptr) return;
+    const auto narrow = [](const std::uint8_t *at) {
+        std::int16_t value = 0;
+        std::memcpy(&value, at, sizeof(value));
+        return value;
+    };
+
+    if (!armed) {
+        // One copy of guest memory, once, and it is handed back below.
+        before.assign(ram, ram + size);
+        armed = true;
+        return;
+    }
+    if (kept.empty() && rounds == 0u) {
+        for (std::uint32_t offset = 0; offset + 2u <= size; offset += 2u) {
+            // A 16-bit angle wraps, so the difference is taken as one too.
+            const std::int16_t moved =
+                static_cast<std::int16_t>(narrow(ram + offset) - narrow(before.data() + offset));
+            if (moved == step || moved == -step) {
+                kept.push_back(base + offset);
+                previous.push_back(narrow(ram + offset));
+            }
+        }
+        before.clear();
+        before.shrink_to_fit();  // 64 MiB is worth giving back at once
+        ++rounds;
+        std::cout << "[find-step] " << kept.size() << " fields moved by exactly " << step << "\n";
+        return;
+    }
+    // From here only the survivors are touched, which costs nothing.
+    std::vector<std::uint32_t> still;
+    std::vector<std::int16_t> still_previous;
+    for (std::size_t i = 0; i < kept.size(); ++i) {
+        const std::int16_t now = narrow(ram + (kept[i] - base));
+        const std::int16_t moved = static_cast<std::int16_t>(now - previous[i]);
+        if (moved == step || moved == -step || moved == 0) {
+            still.push_back(kept[i]);
+            still_previous.push_back(now);
+        }
+    }
+    if (still.size() != kept.size()) {
+        kept.swap(still);
+        previous.swap(still_previous);
+        std::cout << "[find-step] " << kept.size() << " left after " << ++rounds << " turning frames";
+        if (kept.size() <= 24u)
+            for (std::uint32_t address : kept) std::cout << " 0x" << std::hex << address << std::dec;
+        std::cout << "\n";
+    } else {
+        previous.swap(still_previous);
+    }
+}
+
 void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source) {
     poke_floats(runtime);
+
     find_and_poke_int32(runtime);
     find_and_poke_copies(runtime);
     static const bool enabled = std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
@@ -506,6 +583,7 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
     if (renderer == nullptr || !renderer->available()) return;
     const gpu::CameraReading reading = renderer->camera();
     if (!reading.valid) return;
+    find_step_field(runtime, reading.turn);
 
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
