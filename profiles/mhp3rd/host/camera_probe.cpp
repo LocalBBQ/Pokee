@@ -68,14 +68,25 @@ struct Candidate {
     std::uint8_t strikes{};
 };
 
-struct Probe {
-    bool started{};
+// One hunt per thing the camera can be asked about. The vertical direction is
+// the harder half of #106 -- measured as one-shot commands rather than an axis
+// -- so it gets the same treatment as the turn rather than an assumption.
+struct Hunt {
+    const char *name{};
     bool armed{};
     bool have_snapshot{};
     int attempts{};
     std::uint64_t frames{};
     std::vector<std::uint8_t> snapshot;
     std::vector<Candidate> candidates;
+};
+
+struct Probe {
+    bool started{};
+    Hunt yaw{"yaw"};
+    Hunt pitch{"pitch"};
+    float previous_pitch{};
+    bool have_pitch{};
 };
 
 Probe &probe() {
@@ -106,7 +117,7 @@ double slack_of(Kind kind, double expected) {
 
 // MHP3RD_FIND_CAMERA_OUT names a file the surviving list is rewritten into
 // whenever it changes, so a run can be read without restarting the game.
-void write_list(const Probe &p, std::uint32_t base);
+void write_list(const Hunt &h, std::uint32_t base, std::ofstream &out);
 
 const char *name_of(Kind kind) {
     return kind == Kind::Float32 ? "float" : kind == Kind::Int32 ? "int32" : "int16";
@@ -122,20 +133,25 @@ bool plausible(Kind kind, double ratio) {
     return kind == Kind::Float32 || size_of >= kSmallestWholeRatio;
 }
 
-void write_list(const Probe &p, std::uint32_t base) {
+void write_list(const Hunt &h, std::uint32_t base, std::ofstream &out) {
+    out << "# " << h.name << ": " << h.candidates.size() << " words still tracking, after " << h.frames
+        << " moving frames\n";
+    out << std::setprecision(10);
+    for (const Candidate &c : h.candidates)
+        out << h.name << " " << name_of(c.kind) << " " << shape_of(c.shape) << " 0x" << std::hex
+            << (base + c.offset) << std::dec << " value=" << c.previous << " per_degree=" << c.ratio << "\n";
+}
+
+void write_lists(const Probe &p, std::uint32_t base) {
     const char *path = std::getenv("MHP3RD_FIND_CAMERA_OUT");
     if (path == nullptr || *path == '\0') return;
     std::ofstream out(path, std::ios::trunc);
     if (!out) return;
-    out << "# " << p.candidates.size() << " words still tracking the camera after " << p.frames
-        << " turning frames\n";
-    out << std::setprecision(10);
-    for (const Candidate &c : p.candidates)
-        out << name_of(c.kind) << " " << shape_of(c.shape) << " 0x" << std::hex << (base + c.offset) << std::dec
-            << " value=" << c.previous << " per_degree=" << c.ratio << "\n";
+    write_list(p.yaw, base, out);
+    write_list(p.pitch, base, out);
 }
 
-void admit(Probe &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
+void admit(Hunt &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
     const auto try_kind = [&](Kind kind, std::uint32_t stride, std::uint32_t width) {
         const std::size_t ceiling = p.candidates.size() + kMostPerKind;
         for (std::uint32_t offset = 0; offset + width <= size; offset += stride) {
@@ -157,6 +173,77 @@ void admit(Probe &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
     try_kind(Kind::Float32, 4u, 4u);
     try_kind(Kind::Int32, 4u, 4u);
     try_kind(Kind::Int16, 2u, 2u);
+}
+
+void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, std::uint32_t base) {
+    const bool moving = std::fabs(signal) >= kTurning && std::fabs(signal) <= kCut;
+    if (!moving) {
+        if (!h.armed) h.have_snapshot = false;
+        return;
+    }
+    if (!h.armed && !h.have_snapshot) {
+        h.snapshot.assign(ram, ram + size);
+        h.have_snapshot = true;
+        return;
+    }
+    if (!h.armed) {
+        h.candidates.clear();
+        admit(h, ram, size, signal);
+        h.armed = true;
+        h.frames = 1u;
+        // The snapshot has done its work; 64 MiB is worth giving back.
+        h.snapshot.clear();
+        h.snapshot.shrink_to_fit();
+        h.have_snapshot = false;
+        std::cout << "[find-camera] " << h.name << " attempt " << h.attempts << " (" << signal << " deg): "
+                  << h.candidates.size() << " candidates\n";
+        return;
+    }
+
+    std::vector<Candidate> kept;
+    kept.reserve(h.candidates.size());
+    const bool judge = std::fabs(signal) >= kWorthJudging;
+    for (Candidate c : h.candidates) {
+        const double now = read_as(ram, c.offset, c.kind);
+        if (!judge) {
+            c.previous = now;  // too gentle a move to tell anything from
+            kept.push_back(c);
+            continue;
+        }
+        const double expected = c.ratio * static_cast<double>(signal);
+        const double seen = c.shape == Shape::Angle    ? now - c.previous
+                            : c.shape == Shape::Rate   ? now
+                                                       : c.previous;
+        if (std::fabs(seen - expected) > slack_of(c.kind, expected)) {
+            if (++c.strikes >= kStrikes) continue;
+        } else if (c.strikes != 0u) {
+            --c.strikes;  // it came back into step, so forgive the earlier frame
+        }
+        c.previous = now;
+        kept.push_back(c);
+    }
+    const bool thinned = kept.size() != h.candidates.size();
+    h.candidates.swap(kept);
+    ++h.frames;
+
+    if (thinned) {
+        std::cout << "[find-camera] " << h.name << " after " << h.frames << " moving frames (" << signal
+                  << " deg): " << h.candidates.size() << " left\n";
+        const std::streamsize precision = std::cout.precision();
+        std::cout << std::setprecision(8);
+        if (!h.candidates.empty() && h.candidates.size() <= kPrintable)
+            for (const Candidate &c : h.candidates)
+                std::cout << "[find-camera]   " << h.name << " " << name_of(c.kind) << " " << shape_of(c.shape)
+                          << " at 0x" << std::hex << (base + c.offset) << std::dec << " value=" << c.previous
+                          << " per-degree=" << c.ratio << "\n";
+        std::cout.precision(precision);
+    }
+    if (h.candidates.empty() && h.attempts < 200) {
+        h.armed = false;
+        h.have_snapshot = false;
+        ++h.attempts;
+        std::cout << "[find-camera] " << h.name << ": that one said nothing; waiting for another\n";
+    }
 }
 
 } // namespace
@@ -184,73 +271,16 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
         p.started = true;
     }
 
-    const float turn = reading.turn;
-    const bool turning = std::fabs(turn) >= kTurning && std::fabs(turn) <= kCut;
-    if (!turning) {
-        if (!p.armed) p.have_snapshot = false;
-        return;
-    }
+    // Both halves of the camera get the same treatment, in one visit to a
+    // quest, because getting into one is the expensive part.
+    const float pitch_change = p.have_pitch ? reading.pitch - p.previous_pitch : 0.0f;
+    p.previous_pitch = reading.pitch;
+    p.have_pitch = true;
 
-    if (!p.armed && !p.have_snapshot) {
-        p.snapshot.assign(ram, ram + size);
-        p.have_snapshot = true;
-        return;
-    }
-    if (!p.armed) {
-        p.candidates.clear();
-        admit(p, ram, size, turn);
-        p.armed = true;
-        p.frames = 1u;
-        std::cout << "[find-camera] attempt " << p.attempts << " (turn " << turn << "): "
-                  << p.candidates.size() << " candidates\n";
-        return;
-    }
+    step(p.yaw, ram, size, reading.turn, base);
+    step(p.pitch, ram, size, pitch_change, base);
+    if (p.yaw.frames % 200u == 0u || p.pitch.frames % 200u == 0u) write_lists(p, base);
 
-    std::vector<Candidate> kept;
-    kept.reserve(p.candidates.size());
-    const bool judge = std::fabs(turn) >= kWorthJudging;
-    for (Candidate c : p.candidates) {
-        const double now = read_as(ram, c.offset, c.kind);
-        if (!judge) {
-            c.previous = now;  // too gentle a turn to tell anything from
-            kept.push_back(c);
-            continue;
-        }
-        const double expected = c.ratio * static_cast<double>(turn);
-        const double seen = c.shape == Shape::Angle    ? now - c.previous
-                            : c.shape == Shape::Rate   ? now
-                                                       : c.previous;
-        if (std::fabs(seen - expected) > slack_of(c.kind, expected)) {
-            if (++c.strikes >= kStrikes) continue;
-        } else if (c.strikes != 0u) {
-            --c.strikes;  // it came back into step, so forgive the earlier frame
-        }
-        c.previous = now;
-        kept.push_back(c);
-    }
-    const bool thinned = kept.size() != p.candidates.size();
-    p.candidates.swap(kept);
-    ++p.frames;
-
-    if (thinned || p.frames % 200u == 0u) {
-        std::cout << "[find-camera] after " << p.frames << " turning frames (turn " << turn << "): "
-                  << p.candidates.size() << " left\n";
-        const std::streamsize precision = std::cout.precision();
-        std::cout << std::setprecision(8);
-        if (!p.candidates.empty() && p.candidates.size() <= kPrintable)
-            for (const Candidate &c : p.candidates)
-                std::cout << "[find-camera]   " << name_of(c.kind) << " " << shape_of(c.shape) << " at 0x"
-                          << std::hex << (base + c.offset) << std::dec << " value=" << c.previous
-                          << " per-degree=" << c.ratio << "\n";
-        std::cout.precision(precision);
-        write_list(p, base);
-    }
-    if (p.candidates.empty() && p.attempts < 200) {
-        p.armed = false;
-        p.have_snapshot = false;
-        ++p.attempts;
-        std::cout << "[find-camera] that turn said nothing; waiting for another\n";
-    }
 #else
     (void)runtime;
     (void)view_matrix_source;
