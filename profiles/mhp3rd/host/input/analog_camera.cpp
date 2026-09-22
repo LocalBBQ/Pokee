@@ -375,20 +375,38 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
 
     // Keep the camera out of the floor and off the ceiling.
     const int limit = static_cast<int>(60.0f * kUnitsPerTurn / 360.0f);
-    // Only the one field the self-test proved drives the view. Writing every
-    // field that merely kept step with it took out the working horizontal as
-    // well: tracking the camera and driving it are not the same thing, and a
-    // set of correlated fields includes state the game needs left alone.
-    const std::int16_t now = static_cast<std::int16_t>(memory.load16(p.confirmed));
-    int next = now + whole;
-    if (next > limit) next = limit;
-    if (next < -limit) next = -limit;
-    memory.store16(p.confirmed, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
-    static bool said = false;
-    if (!said) {
-        said = true;
-        std::cout << "[analog-camera] driving the camera up and down from the stick at 0x" << std::hex
-                  << p.confirmed << std::dec << "\n";
+    // The field the self-test proved drives the view, and -- if the player
+    // asks for it -- its nearest companion in the same structure, in case the
+    // game eases one towards the other the way it does for the yaw. Never the
+    // whole set of fields that merely track the view: that is what stopped the
+    // camera altogether.
+    const auto turn_field = [&](std::uint32_t address) {
+        const std::int16_t now = static_cast<std::int16_t>(memory.load16(address));
+        int next = now + whole;
+        if (next > limit) next = limit;
+        if (next < -limit) next = -limit;
+        memory.store16(address, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
+    };
+    turn_field(p.confirmed);
+    if (player.vertical_write == 1) {
+        std::uint32_t companion = 0u;
+        std::uint32_t nearest = 0x4000u;
+        for (std::uint32_t address : p.best) {
+            if (address == p.confirmed) continue;
+            const std::uint32_t apart =
+                address > p.confirmed ? address - p.confirmed : p.confirmed - address;
+            if (apart < nearest) {
+                nearest = apart;
+                companion = address;
+            }
+        }
+        if (companion != 0u) turn_field(companion);
+    }
+    static int said = -1;
+    if (said != player.vertical_write) {
+        said = player.vertical_write;
+        std::cout << "[analog-camera] driving up and down at 0x" << std::hex << p.confirmed << std::dec
+                  << ", write mode " << player.vertical_write << "\n";
     }
 }
 
@@ -408,7 +426,8 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         const settings::Settings &player = settings::current();
         std::cout << "[analog-camera] built " << __DATE__ << " " << __TIME__ << "; analog camera "
                   << (player.analog_camera ? "on" : "off") << ", vertical "
-                  << (player.vertical_camera ? "on" : "off") << ", speed " << player.camera_speed << " deg/s\n";
+                  << (player.vertical_camera ? "on" : "off") << " (write mode " << player.vertical_write
+                  << "), speed " << player.camera_speed << " deg/s\n";
     }
     if (!settings::current().analog_camera) {
         if (c.state != Camera::State::Looking) c = Camera{};
