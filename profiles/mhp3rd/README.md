@@ -563,9 +563,14 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 
 In a quest, open **Controls** and enable **Analog camera**; it drives both axes. Small right-stick deflections turn and tilt slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. Fixed village cameras and special aiming modes remain stock; this feature does not unlock them.
 
-The option takes effect at run time, with no regeneration or rebuild. Turning it off stops all analog-camera writes, restores the game's vertical presets and passes the right stick through unchanged.
+The option takes effect at run time, with no regeneration or rebuild. Turning it off stops all analog-camera writes, restores the game's vertical presets and passes the right stick through unchanged. Camera speed is in degrees per second of real time, measured between the game's flips, so it does not change when the game slows down.
 
-The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. No shared preset table or generated code is patched. The wrapper adds a dispatch through the existing runtime; it does not scan guest RAM.
+The code is in two layers under `host/camera/`:
+
+- `camera_input` is what the player asks for, independent of device and game. Rate sources (the stick, later camera keys) hold a fraction of Camera speed; motion sources (later the mouse and a touch drag) add degrees. Every source adds together. New input devices only feed this layer.
+- `game_camera` drives the game's camera from that input. The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. Each camera mode needs its own driver: only the ordinary follow camera (mode 0) has one, and every other mode, aiming included, keeps the stock camera and stick.
+
+Safeguards: CMake finds the generated unit that holds the rotation helper and fails the configure if none does, so a new partition of the corpus cannot call the wrong code. At start-up the driver compares fifteen instructions and constants of the game (listed in `game_camera.cpp`) with what it expects and stays out, saying which differs, if any does. The wrapper is installed only when the option is first turned on in a session: until then the helper's generated unit keeps its direct calls and the feature costs nothing. No shared preset table or generated code is patched, and guest RAM is never scanned.
 
 ### Diagnostics
 
@@ -640,6 +645,7 @@ host/main.cpp                    Entry point: finding the game data, executable 
 host/app_paths.{hpp,cpp}         The executable's own location, and what a release ships next to it
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/settings/                   Player settings: settings.ini, environment overrides, defaults
+host/camera/                     Camera input from every device, and the driver for the game's own camera
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
 host/kernel/kernel.{hpp,cpp}     Scheduler, waits, virtual clock, interrupts, memory

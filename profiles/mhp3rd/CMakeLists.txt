@@ -16,6 +16,29 @@ if(MHP3RD_GENERATED)
         set(MHP3RD_GENERATED_OPTIONS "-O${PSPRECOMP_GENERATED_OPT_LEVEL};-g0")
     endif()
     set_source_files_properties(${MHP3RD_GENERATED} PROPERTIES COMPILE_OPTIONS "${MHP3RD_GENERATED_OPTIONS}")
+
+    # The analog camera wraps the game's camera rotation helper, and main.cpp
+    # has to hand it the generated unit that helper was compiled into. Which
+    # unit that is depends on how the generator partitions the code, so read it
+    # from the corpus instead of naming it: a new partition then finds its own
+    # unit, and a corpus without the helper stops the build here rather than
+    # letting the camera call the wrong code in game.
+    set(MHP3RD_CAMERA_HELPER_UNIT "")
+    foreach(unit IN LISTS MHP3RD_GENERATED)
+        file(STRINGS "${unit}" hit REGEX "register_function\\(0x08878B70u, &recomp_unit_[0-9]+," LIMIT_COUNT 1)
+        if(hit)
+            string(REGEX MATCH "recomp_unit_[0-9]+" MHP3RD_CAMERA_HELPER_UNIT "${hit}")
+            break()
+        endif()
+    endforeach()
+    if(NOT MHP3RD_CAMERA_HELPER_UNIT)
+        message(FATAL_ERROR "mhp3rd: no generated unit registers the camera rotation helper 0x08878B70; "
+                            "regenerate the corpus from the supported executable, or update "
+                            "host/camera/game_camera.cpp if the helper has moved")
+    endif()
+    message(STATUS "mhp3rd: camera rotation helper in ${MHP3RD_CAMERA_HELPER_UNIT}")
+    # A regenerated corpus with the same file names must be read again.
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${MHP3RD_GENERATED})
 else()
     message(STATUS "mhp3rd: no generated AOT units; run profiles/mhp3rd/scripts/generate.sh")
     set(MHP3RD_GENERATED host/generated_stub.cpp)
@@ -92,7 +115,8 @@ set(MHP3RD_HOST_SOURCES
     host/audio/audio_sink.cpp
     host/audio/sas_core.cpp
     host/camera_probe.cpp
-    host/input/analog_camera.cpp
+    host/camera/camera_input.cpp
+    host/camera/game_camera.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/perf/frame_stats.cpp
@@ -184,6 +208,12 @@ target_link_libraries(Yakumo PRIVATE Threads::Threads)
 set_target_properties(Yakumo PROPERTIES
     ENABLE_EXPORTS TRUE
     WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+# Only main.cpp needs the camera helper's unit; keeping it off the target keeps
+# it off every other unit's command line.
+if(MHP3RD_CAMERA_HELPER_UNIT)
+    set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+        MHP3RD_CAMERA_HELPER_UNIT=${MHP3RD_CAMERA_HELPER_UNIT})
+endif()
 # The NID table is compiled in, so the program reads nothing from the checkout
 # it was built in.
 set(MHP3RD_NIDS_CSV "${PROJECT_SOURCE_DIR}/configs/nids.csv")
@@ -244,7 +274,8 @@ endif()
 # Camera dispatch, ownership and integration checks without game data.
 add_executable(mhp3rd_camera_tests
     tests/analog_camera_tests.cpp
-    host/input/analog_camera.cpp)
+    host/camera/camera_input.cpp
+    host/camera/game_camera.cpp)
 target_include_directories(mhp3rd_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

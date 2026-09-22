@@ -1,12 +1,14 @@
 // No game code or game data is needed. The original rotation helper is a
 // stand-in which records calls; the real runtime dispatches the camera hook.
-#include "input/analog_camera.hpp"
+#include "camera/camera_input.hpp"
+#include "camera/game_camera.hpp"
 #include "settings/settings.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 
@@ -18,7 +20,8 @@ Settings &current() {
 }
 
 namespace {
-using namespace mhp3rd::input;
+using namespace mhp3rd::camera;
+constexpr float frame_seconds = 1.0f / 30.0f;
 constexpr std::uint32_t helper = 0x08878B70u;
 constexpr std::uint32_t return_pc = 0x088E626Cu;
 constexpr std::uint32_t camera_address = 0x08900000u;
@@ -53,8 +56,10 @@ struct Fixture {
         mhp3rd::settings::current() = {};
         runtime.register_generated_unit(29u, 0x08878000u, 0x4000u, &original, nullptr);
         runtime.register_function(helper, &original, "recomp_unit_test");
-        install_analog_camera(runtime, &original);
         auto &memory = runtime.memory();
+        // A stand-in for the game code the driver checks before it installs.
+        for (const CodeWord &word : game_code_signature()) memory.store32(word.address, word.word);
+        check(prepare_game_camera(runtime, &original), "the matching game code is accepted");
         memory.store32(camera_address + 0x70u, preset_address);
         memory.store16(camera_address + 0x80u, 32000u);
         memory.store16(camera_address + 0x82u, 32000u);
@@ -70,11 +75,21 @@ struct Fixture {
         write_float(runtime.memory(), stack_address + 0x34u, 150.0f);
         write_float(runtime.memory(), stack_address + 0x38u, 490.0f);
     }
-    void frame(float x, float y) {
-        analog_camera_frame(x, y);
+    // One game flip followed by the camera update it leads to, as in
+    // present_frame(): the stick's rate, the flip, then the time it covers.
+    void flip(float x, float y, float seconds = frame_seconds) {
+        set_rate(Source::Stick, x, y);
+        game_camera_frame(runtime);
+        advance(seconds, mhp3rd::settings::current().camera_speed);
+    }
+    void update() {
         reset_offset();
-        check(runtime.invoke_isolated_aot(helper, ctx), "camera hook is registered");
+        check(runtime.invoke_isolated_aot(helper, ctx), "the rotation helper dispatches");
         check(ctx.pc == ctx.gpr[31], "original helper retains its return PC");
+    }
+    void frame(float x, float y, float seconds = frame_seconds) {
+        flip(x, y, seconds);
+        update();
     }
     std::vector<std::uint8_t> snapshot() {
         const auto *p = runtime.memory().raw_pointer(camera_address, 0x2100u);
@@ -97,7 +112,7 @@ void test_passthrough() {
     auto before = f.snapshot();
     f.frame(1.0f, 1.0f);
     check(f.snapshot() == before, "Off leaves guest camera, stack and preset unchanged");
-    check(!analog_camera_driving(), "Off preserves right-stick input");
+    check(!game_camera_driving(), "Off preserves right-stick input");
     f.enable();
     f.ctx.gpr[31] = 0x08812340u;
     f.frame(1.0f, 1.0f);
@@ -106,7 +121,7 @@ void test_passthrough() {
     f.runtime.memory().store8(camera_address + 0x76u, 3u);
     before = f.snapshot();
     f.frame(1.0f, 1.0f);
-    check(f.snapshot() == before && !analog_camera_driving(), "special camera modes retain control");
+    check(f.snapshot() == before && !game_camera_driving(), "special camera modes retain control");
 }
 
 void test_rates_and_release() {
@@ -122,7 +137,7 @@ void test_rates_and_release() {
     for (int i = 0; i < 30; ++i) f.frame(0.0f, 0.0f);
     check(f.runtime.memory().load16(camera_address + 0x80u) == yaw, "released yaw stops accumulating");
     check(std::fabs(f.pitch() - held) < 0.001f, "released pitch holds its angle");
-    check(analog_camera_driving(), "both digital stick commands are suppressed");
+    check(game_camera_driving(), "both digital stick commands are suppressed");
     for (int i = 0; i < 100; ++i) f.frame(0.0f, 1.0f);
     check(std::fabs(f.pitch() - 70.0f) < 0.001f, "upper pitch limit is bounded");
     for (int i = 0; i < 100; ++i) f.frame(0.0f, -1.0f);
@@ -149,24 +164,24 @@ void test_ownership() {
     f.frame(0.0f, 1.0f);
     mhp3rd::settings::current().analog_camera = false;
     f.frame(0.0f, 0.0f);
-    check(baseline() && !analog_camera_driving(), "Off restores the stock preset and input");
+    check(baseline() && !game_camera_driving(), "Off restores the stock preset and input");
     mhp3rd::settings::current().analog_camera = true;
     f.frame(0.0f, 1.0f);
-    for (int i = 0; i < 3; ++i) analog_camera_frame(0.0f, 0.0f);
-    check(!analog_camera_driving(), "leaving the camera releases input ownership");
+    for (int i = 0; i < 3; ++i) f.flip(0.0f, 0.0f);
+    check(!game_camera_driving(), "leaving the camera releases input ownership");
     f.frame(0.0f, 0.0f);
     check(baseline(), "returning after a scene change discards stale pitch");
     mhp3rd::settings::current().right_stick = mhp3rd::settings::RightStick::DPad;
     const auto before = f.snapshot();
     f.frame(1.0f, 1.0f);
-    check(before == f.snapshot() && !analog_camera_driving(), "D-pad mapping disables analog integration");
+    check(before == f.snapshot() && !game_camera_driving(), "D-pad mapping disables analog integration");
 }
 
 void test_dispatch_and_write_extent() {
     Fixture f;
     f.enable();
     const auto before = f.snapshot();
-    analog_camera_frame(0.5f, 0.5f);
+    f.flip(0.5f, 0.5f);
     check(!f.runtime.invoke_chained_direct<&original, 29u, 1u, helper>(f.ctx),
           "generated direct calls unwind to the registered camera hook");
     check(f.ctx.pc == helper, "dispatch fallback preserves the helper address");
@@ -196,12 +211,76 @@ void test_vertical_filter() {
 }
 }
 
+void test_signature_mismatch() {
+    Fixture f;
+    const CodeWord &first = game_code_signature().front();
+    f.runtime.memory().store32(first.address, first.word ^ 1u);
+    check(!prepare_game_camera(f.runtime, &original), "different game code is refused");
+    f.enable();
+    const auto before = f.snapshot();
+    f.frame(1.0f, 1.0f);
+    check(f.snapshot() == before && !game_camera_driving(), "refused code is never written to");
+}
+
+void test_hook_waits_for_the_option() {
+    Fixture f;
+    f.flip(0.0f, 0.0f);
+    check(f.runtime.invoke_chained_direct<&original, 29u, 1u, helper>(f.ctx),
+          "with the option off the helper's unit keeps its direct calls");
+    f.enable();
+    f.flip(0.0f, 0.0f);
+    check(!f.runtime.invoke_chained_direct<&original, 29u, 1u, helper>(f.ctx),
+          "turning the option on installs the hook");
+}
+
+void test_frame_rate_independence() {
+    const auto turn_for_one_second = [](int updates) {
+        Fixture f;
+        f.enable();
+        f.frame(0.0f, 0.0f);
+        const auto start = f.runtime.memory().load16(camera_address + 0x80u);
+        for (int i = 0; i < updates; ++i) f.frame(0.5f, 0.0f, 1.0f / static_cast<float>(updates));
+        f.frame(0.0f, 0.0f);
+        return static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u));
+    };
+    const int at_30 = turn_for_one_second(30);
+    const int at_20 = turn_for_one_second(20);
+    // Half deflection at 90 degrees a second: 45 degrees in either case.
+    check(std::abs(at_30 - 8192) <= 1, "a second of stick turns 45 degrees at 30 updates a second");
+    check(std::abs(at_20 - at_30) <= 1, "a slower game turns the camera the same amount in the same time");
+}
+
+void test_motion_source() {
+    Fixture f;
+    f.enable();
+    f.frame(0.0f, 0.0f);
+    const auto start = f.runtime.memory().load16(camera_address + 0x80u);
+    add_motion(Source::Mouse, 10.0f, 0.0f);
+    f.frame(0.0f, 0.0f);
+    const int turned = static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u));
+    check(std::abs(turned - 1820) <= 1, "motion turns by its degrees once");
+    f.frame(0.0f, 0.0f);
+    check(static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u)) == turned,
+          "motion is not repeated on the next update");
+    add_motion(Source::Mouse, 10.0f, 0.0f);
+    mhp3rd::settings::current().analog_camera = false;
+    f.frame(0.0f, 0.0f);
+    mhp3rd::settings::current().analog_camera = true;
+    f.frame(0.0f, 0.0f);
+    check(static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u)) == turned,
+          "motion made while the camera is not driven is dropped");
+}
+
 int main() {
     test_passthrough();
     test_rates_and_release();
     test_ownership();
     test_dispatch_and_write_extent();
     test_vertical_filter();
+    test_signature_mismatch();
+    test_hook_waits_for_the_option();
+    test_frame_rate_independence();
+    test_motion_source();
     check(original_calls > 0u, "original rotation helper is called");
     std::cout << (failures ? "FAIL" : "PASS") << ": analog camera (" << failures << " failures)\n";
     return failures ? 1 : 0;

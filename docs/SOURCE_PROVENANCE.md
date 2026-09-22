@@ -28,7 +28,7 @@ A profile owns its generated AOT corpus, address-specific lowering, HLE behavior
 
 ## Analog camera
 
-`profiles/mhp3rd/host/input/analog_camera.cpp` was written from this project's own NPJB-40001 executable analysis and run-time traces. The camera caller, structure offsets, 16-bit yaw format and height-filter coefficient are observed facts. Continuous pitch uses an independently written spherical-orbit calculation. No third-party camera-mod code is included or adapted.
+`profiles/mhp3rd/host/camera/` was written from this project's own NPJB-40001 executable analysis and run-time traces. The camera caller, structure offsets, 16-bit yaw format and height-filter coefficient are observed facts. Continuous pitch uses an independently written spherical-orbit calculation. No third-party camera-mod code is included or adapted.
 
 ## Third-party components
 

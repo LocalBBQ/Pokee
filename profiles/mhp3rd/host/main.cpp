@@ -11,14 +11,14 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "kernel/kernel.hpp"
-#include "input/analog_camera.hpp"
+#include "camera/game_camera.hpp"
 
 #include "psprecomp/common.hpp"
 #include "psprecomp/elf32.hpp"
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/sha256.hpp"
 
-#if __has_include("generated_units.hpp")
+#if defined(MHP3RD_CAMERA_HELPER_UNIT)
 #include "generated_units.hpp"
 #endif
 
@@ -349,9 +349,12 @@ int main(int argc, char **argv) {
         (void)elf.load_and_relocate(runtime.memory(), mhp3rd::kLoadBase);
         psprecomp::register_generated_functions(runtime);
         mhp3rd::install_profile(runtime, elf, paths);
-#if __has_include("generated_units.hpp")
+#if defined(MHP3RD_CAMERA_HELPER_UNIT)
+        // CMake names the generated unit that holds the camera's rotation
+        // helper, so a new partition of the code cannot hand the camera the
+        // wrong one.
         if (sha256 == mhp3rd::install::kExecutableSha256)
-            mhp3rd::input::install_analog_camera(runtime, &psprecomp::recomp_unit_0029);
+            (void)mhp3rd::camera::prepare_game_camera(runtime, &psprecomp::MHP3RD_CAMERA_HELPER_UNIT);
 #endif
 
         std::cout << "Yakumo PSP bootstrap\n"

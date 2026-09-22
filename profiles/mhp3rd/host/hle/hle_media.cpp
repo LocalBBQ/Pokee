@@ -12,7 +12,9 @@
 #include "psprecomp/common.hpp"
 
 #include "camera_probe.hpp"
-#include "input/analog_camera.hpp"
+#include "camera/camera_input.hpp"
+#include "camera/game_camera.hpp"
+#include "settings/settings.hpp"
 #include "gpu/ge_state.hpp"
 #include "perf/frame_stats.hpp"
 #if defined(MHP3RD_HAS_RENDERER)
@@ -194,12 +196,18 @@ void present_frame(Runtime &rt) {
     // The frame's camera has been measured by now, so the hunt for the guest
     // variables behind it can compare RAM against it.
     probe::camera_frame(rt, media().ge.view_matrix_source());
-    // Camera input is already shaped and inverted by the input layer. The
-    // camera hook runs at the guest update, independently of renderer tracing.
+    // The game's flip is the camera's frame: the camera update runs once
+    // between two flips, however many presents interpolation adds. The stick is
+    // already shaped and inverted by the input layer; its rate becomes degrees
+    // over the real time since the previous flip.
     {
-        const float deflection = (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f;
-        const float stick_y = (static_cast<int>(renderer.pad().right_y) - 0x80) / 127.0f;
-        input::analog_camera_frame(deflection, stick_y);
+        static perf::Clock::time_point previous_flip = present_start;
+        const float seconds = std::chrono::duration<float>(present_start - previous_flip).count();
+        previous_flip = present_start;
+        camera::set_rate(camera::Source::Stick, (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f,
+                         (static_cast<int>(renderer.pad().right_y) - 0x80) / 127.0f);
+        camera::game_camera_frame(rt);
+        camera::advance(seconds, settings::current().camera_speed);
     }
     perf::add_render_time(perf::Clock::now() - present_start);
     // A frame ends when its image has been handed to the swapchain.
@@ -298,7 +306,7 @@ void register_display_ctrl(HleRegistrar &hle) {
             // camera consumes these axes: otherwise the game's one-shot
             // vertical command fires from the same push and glides the camera
             // against what the port is doing. The physical D-pad stays available.
-            if (input::analog_camera_driving()) {
+            if (camera::game_camera_driving()) {
                 right_x = 0x80u;
                 right_y = 0x80u;
             }
