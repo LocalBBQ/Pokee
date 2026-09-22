@@ -45,4 +45,8 @@ void game_camera_frame(psprecomp::Runtime &runtime);
 // act on the second stick: its own turn and vertical presets would fight ours.
 [[nodiscard]] bool game_camera_driving();
 
+// Full-deflection speed for the current camera: Aim speed while a bow or a
+// bowgun aims, Camera speed otherwise.
+[[nodiscard]] float game_camera_degrees_per_second();
+
 } // namespace mhp3rd::camera

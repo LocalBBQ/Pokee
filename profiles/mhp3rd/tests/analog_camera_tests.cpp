@@ -81,7 +81,7 @@ struct Fixture {
     void flip(float x, float y, float seconds = frame_seconds) {
         set_rate(Source::Stick, x, y);
         game_camera_frame(runtime);
-        advance(seconds, mhp3rd::settings::current().camera_speed);
+        advance(seconds, game_camera_degrees_per_second());
     }
     void update() {
         reset_offset();
@@ -272,24 +272,50 @@ void test_motion_source() {
           "motion made while the camera is not driven is dropped");
 }
 
-void test_aiming_hands_back_the_stick() {
+void test_aiming_moves_the_aim() {
+    constexpr std::uint32_t hunter = 0x08904000u;
     Fixture f;
     f.enable();
-    f.frame(0.0f, 1.0f);
-    check(game_camera_driving(), "the ordinary camera is driven");
     auto &m = f.runtime.memory();
-    // The weapon reports an aim: the stick moves the aim, and the game's
-    // camera follows it.
+    f.ctx.gpr[21] = hunter;
+    m.store16(hunter + 0x74u, 20000u);
+    m.store16(hunter + 0x188u, 20000u);
+    f.frame(0.0f, 0.0f);
+    check(game_camera_driving(), "the ordinary camera is driven");
+    // The weapon reports an aim: the stick moves the aim in the hunter, and
+    // the game's camera follows it by itself.
     m.store8(camera_address + 0x91u, 0u);
+    f.frame(0.0f, 0.0f);
     f.reset_offset();
-    const auto before = f.snapshot();
-    f.frame(1.0f, 1.0f);
-    check(f.snapshot() == before, "aiming leaves the camera to the game");
-    check(!game_camera_driving(), "aiming passes the stick through to the game");
+    const auto camera_before = f.snapshot();
+    mhp3rd::settings::current().aim_speed = 60.0f;
+    f.frame(0.0f, 0.0f);  // the flip picks up Aim speed for what follows
+    for (int i = 0; i < 30; ++i) f.frame(0.5f, 0.0f);
+    f.reset_offset();
+    check(f.snapshot() == camera_before, "aiming leaves the camera to the game");
+    check(game_camera_driving(), "aiming keeps the stick from the game's stepped aim");
+    // Half deflection at 60 degrees a second for a second: 30 degrees.
+    const int turned = 20000 - static_cast<int>(m.load16(hunter + 0x188u));
+    check(std::abs(turned - 5461) <= 2, "the aim turns in proportion to the stick at Aim speed");
+    check(m.load16(hunter + 0x74u) == m.load16(hunter + 0x188u), "the facing and its copy agree");
+    for (int i = 0; i < 10; ++i) f.frame(0.0f, -0.25f);
+    const int up = static_cast<std::int8_t>(m.load8(hunter + 0xC22u));
+    // A quarter up at 60 degrees a second for a third of a second: 5 degrees.
+    check(std::abs(up - 12) <= 1, "a small push up raises the aim slowly");
+    for (int i = 0; i < 60; ++i) f.frame(0.0f, -1.0f);
+    check(static_cast<std::int8_t>(m.load8(hunter + 0xC22u)) == 100, "the aim stops at its upper limit");
+    for (int i = 0; i < 120; ++i) f.frame(0.0f, 1.0f);
+    check(static_cast<std::int8_t>(m.load8(hunter + 0xC22u)) == -100, "the aim stops at its lower limit");
+    mhp3rd::settings::current().analog_camera = false;
+    f.frame(1.0f, 0.0f);
+    const auto yaw_off = m.load16(hunter + 0x74u);
+    f.frame(1.0f, 0.0f);
+    check(!game_camera_driving() && m.load16(hunter + 0x74u) == yaw_off, "with the option off the aim is the game's");
+    mhp3rd::settings::current().analog_camera = true;
     m.store8(camera_address + 0x91u, 0xFFu);
     f.frame(0.0f, 0.0f);
     f.frame(1.0f, 0.0f);
-    check(game_camera_driving() && m.load16(camera_address + 0x80u) != before[0x80] + (before[0x81] << 8),
+    check(game_camera_driving() && m.load16(camera_address + 0x80u) != camera_before[0x80] + (camera_before[0x81] << 8),
           "the ordinary camera is driven again after aiming");
 }
 
@@ -303,7 +329,7 @@ int main() {
     test_hook_waits_for_the_option();
     test_frame_rate_independence();
     test_motion_source();
-    test_aiming_hands_back_the_stick();
+    test_aiming_moves_the_aim();
     check(original_calls > 0u, "original rotation helper is called");
     std::cout << (failures ? "FAIL" : "PASS") << ": analog camera (" << failures << " failures)\n";
     return failures ? 1 : 0;

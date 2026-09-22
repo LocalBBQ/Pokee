@@ -54,6 +54,8 @@ struct Settings {
     bool analog_camera{};
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
+    // Degrees per second at full deflection while a bow or a bowgun aims.
+    float aim_speed{90.0f};
     bool invert_camera_x{};
     bool invert_camera_y{};
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once

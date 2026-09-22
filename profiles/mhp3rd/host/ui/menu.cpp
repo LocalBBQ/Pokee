@@ -507,6 +507,18 @@ void Menu::controls() {
             s.camera_speed = static_cast<float>(speed);
             settings::save();
         }
+        o = options_for("input.aim_speed", "How fast a bow or a bowgun aims at full deflection, in degrees a "
+                                           "second. The game's own aim moves at about 100 and only past half "
+                                           "the stick's travel.");
+        if (!s.analog_camera && !o.disabled) {
+            o.disabled = true;
+            o.note = "Analog camera is off";
+        }
+        int aim = static_cast<int>(s.aim_speed);
+        if (slider_row("Aim speed", aim, 10, 360, 5, "%d deg/s", o)) {
+            s.aim_speed = static_cast<float>(aim);
+            settings::save();
+        }
     }
     {
         RowOptions o = options_for("input.invert_camera_x", "Turn the camera the other way left and right.");
