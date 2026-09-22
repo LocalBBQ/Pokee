@@ -262,6 +262,66 @@ Pitch &pitch_search() {
     return value;
 }
 
+// The vertical is a float, not a 16-bit angle. The horizontal is kept as a
+// whole number -- 1150 of the 65536 units in a turn -- and every pitch hunt so
+// far has searched 16-bit words on that assumption, which is why none of them
+// could ever have found it. The values to expect are degrees times ten, so a
+// camera twelve degrees down reads about -120, not -2185.
+//
+// Read-only: it names what it finds and writes nothing. Nothing gets written
+// anywhere near the vertical again until the instruction that writes it can be
+// named.
+void look_for_pitch_float(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch) {
+    static const bool wanted = std::getenv("MHP3RD_FIND_PITCH_FLOAT") != nullptr;
+    if (!wanted) return;
+    struct Hunt {
+        std::vector<std::uint32_t> fields;
+        std::vector<float> offsets;
+        bool started{};
+        std::size_t named{};
+        float last{};
+    };
+    static Hunt h;
+    if (std::fabs(pitch - h.last) < 1.0f) return;
+    h.last = pitch;
+    const float wanted_value = pitch * 10.0f;
+
+    if (!h.started) {
+        for (std::uint32_t offset = 0; offset + 4u <= size; offset += 4u) {
+            float value = 0.0f;
+            std::memcpy(&value, ram + offset, sizeof(value));
+            if (!std::isfinite(value) || std::fabs(value) > 4000.0f) continue;
+            const float apart = wanted_value - value;
+            if (std::fabs(apart) > 120.0f) continue;   // within twelve degrees
+            h.fields.push_back(base + offset);
+            h.offsets.push_back(apart);
+        }
+        h.started = true;
+        std::cout << "[analog-camera] pitch as a float: " << h.fields.size() << " candidates\n";
+        return;
+    }
+    std::vector<std::uint32_t> kept;
+    std::vector<float> kept_offsets;
+    for (std::size_t i = 0; i < h.fields.size(); ++i) {
+        float value = 0.0f;
+        std::memcpy(&value, ram + (h.fields[i] - base), sizeof(value));
+        if (!std::isfinite(value)) continue;
+        if (std::fabs((wanted_value - value) - h.offsets[i]) > 12.0f) continue;  // a degree of drift
+        kept.push_back(h.fields[i]);
+        kept_offsets.push_back(h.offsets[i]);
+    }
+    h.fields.swap(kept);
+    h.offsets.swap(kept_offsets);
+    if (h.fields.size() != h.named) {
+        h.named = h.fields.size();
+        std::cout << "[analog-camera] pitch as a float: " << h.fields.size() << " left";
+        if (h.fields.size() <= 12u)
+            for (std::size_t i = 0; i < h.fields.size(); ++i)
+                std::cout << " 0x" << std::hex << h.fields[i] << std::dec << "(" << h.offsets[i] << ")";
+        std::cout << "\n";
+    }
+}
+
 void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch) {
     if (!settings::current().vertical_camera) return;
     Pitch &p = pitch_search();
@@ -516,6 +576,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     if (ram == nullptr) return;
 
     look_for_vertical(ram, base, size, pitch_change, stick_y);
+    look_for_pitch_float(ram, base, size, pitch_now);
     look_for_pitch(ram, base, size, pitch_now);
     confirm_pitch(memory, pitch_now, stick_y, turn);
     drive_vertical(memory, stick_y, pitch_now);
