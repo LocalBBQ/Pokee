@@ -189,6 +189,21 @@ const std::vector<Field> &fields() {
          [](Settings &s, const std::string &t) { return parse_float(t, 20.0f, 720.0f, s.camera_speed); },
          [](const Settings &s) { return format_float(s.camera_speed); },
          [](Settings &s, const char *t) { s.camera_speed = variable_float(t, 190.0f, 20.0f, 720.0f); }},
+        {"input.vertical_camera", "MHP3RD_VERTICAL_CAMERA",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.vertical_camera); },
+         [](const Settings &s) { return std::string(s.vertical_camera ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.vertical_camera = variable_flag(t); }},
+        {"input.vertical_candidate", "MHP3RD_VERTICAL_CANDIDATE",
+         [](Settings &s, const std::string &t) {
+             float value = 0.0f;
+             if (!parse_float(t, 0.0f, 7.0f, value)) return false;
+             s.vertical_candidate = static_cast<int>(value);
+             return true;
+         },
+         [](const Settings &s) { return std::to_string(s.vertical_candidate); },
+         [](Settings &s, const char *t) {
+             s.vertical_candidate = static_cast<int>(variable_float(t, 0.0f, 0.0f, 7.0f));
+         }},
         BOOL_FIELD("input.invert_camera_x", invert_camera_x),
         BOOL_FIELD("input.invert_camera_y", invert_camera_y),
         {"input.name_entry", "MHP3RD_OSK_MODE",

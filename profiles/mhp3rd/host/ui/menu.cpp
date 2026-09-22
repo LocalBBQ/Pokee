@@ -508,6 +508,31 @@ void Menu::controls() {
         }
     }
     {
+        RowOptions o = options_for("input.vertical_camera",
+                                   "Drive the camera up and down from the stick, instead of the game's five fixed "
+                                   "heights. An experiment: which value in the game holds that height is not yet "
+                                   "certain, so try each candidate below until the camera answers.");
+        if (!s.analog_camera && !o.disabled) {
+            o.disabled = true;
+            o.note = "Analog camera is off";
+        }
+        if (toggle_row("Vertical camera (experiment)", s.vertical_camera, o)) {
+            s.vertical_camera = !s.vertical_camera;
+            settings::save();
+        }
+        o = options_for("input.vertical_candidate",
+                        "Which of the candidates the port found is driven. If up and down do nothing, try the next.");
+        if (!s.vertical_camera && !o.disabled) {
+            o.disabled = true;
+            o.note = "Vertical camera is off";
+        }
+        int candidate = s.vertical_candidate;
+        if (slider_row("Vertical candidate", candidate, 0, 7, 1, "%d", o)) {
+            s.vertical_candidate = candidate;
+            settings::save();
+        }
+    }
+    {
         RowOptions o = options_for("input.invert_camera_x", "Turn the camera the other way left and right.");
         if (!camera && !o.disabled) {
             o.disabled = true;

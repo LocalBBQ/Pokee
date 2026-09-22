@@ -217,6 +217,38 @@ void watch_vertical(float pitch, float stick_y) {
     std::cout << "[analog-camera] vertical stick " << stick_y << " -> pitch " << pitch << " deg\n";
 }
 
+// Drives the camera's vertical, if the player has asked for it and the search
+// has named something to drive. Only bytes that stepped when the vertical fired
+// and held still in between are ever written, and only ever to one of the five
+// values the game itself uses, so the worst a wrong guess can do is move some
+// other object's camera -- or nothing at all.
+void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
+    const settings::Settings &player = settings::current();
+    if (!player.vertical_camera) return;
+    Vertical &v = vertical();
+    if (v.levels.empty()) return;
+    const std::size_t which = static_cast<std::size_t>(player.vertical_candidate);
+    if (which >= v.levels.size()) return;
+    // Leave it alone unless the player is actually asking for a height, so the
+    // game keeps the camera the rest of the time.
+    if (std::fabs(stick_y) < 0.25f) return;
+    // Full up is the highest level, full down the lowest, and the five are the
+    // game's own -- nothing outside them is ever written.
+    const float wanted = (1.0f - stick_y) * 0.5f * 4.0f;
+    int level = static_cast<int>(wanted + 0.5f);
+    if (level < 0) level = 0;
+    if (level > 4) level = 4;
+    const std::uint32_t address = v.levels[which];
+    if (static_cast<int>(memory.load8(address)) == level) return;
+    memory.store8(address, static_cast<std::uint8_t>(level));
+    static int said = 0;
+    if (said < 12) {
+        ++said;
+        std::cout << "[analog-camera] vertical: candidate " << which << " at 0x" << std::hex << address << std::dec
+                  << " set to level " << level << "\n";
+    }
+}
+
 void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change,
                          float yaw_degrees, float pitch_now, float stick_y) {
     Camera &c = camera();
@@ -232,6 +264,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     if (ram == nullptr) return;
 
     look_for_vertical(ram, base, size, pitch_change, stick_y);
+    drive_vertical(memory, stick_y);
     watch_vertical(pitch_now, stick_y);
 
     if (c.state == Camera::State::Looking) {
