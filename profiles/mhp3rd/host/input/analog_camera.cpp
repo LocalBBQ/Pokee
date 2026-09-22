@@ -156,7 +156,12 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     }
 
     const float speed = settings::current().camera_speed;              // degrees a second
-    const float per_frame = deflection * speed / kFramesPerSecond;     // degrees this frame
+    // The game's angle counts the other way round from the stick: its own step
+    // is added or subtracted from a direction byte, and following the stick's
+    // sign turns the camera the wrong way. Inverting here rather than at the
+    // caller keeps the player's own "invert camera horizontally" working on top
+    // of this instead of cancelling it.
+    const float per_frame = -deflection * speed / kFramesPerSecond;    // degrees this frame
     c.owed += per_frame * kUnitsPerTurn / 360.0f;                      // in the game's own units
     const int whole = static_cast<int>(c.owed);
     c.owed -= static_cast<float>(whole);
@@ -166,6 +171,14 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     }
     const std::int16_t written = static_cast<std::int16_t>(now + whole);
     memory.store16(c.address, static_cast<std::uint16_t>(written));
+    // The field found is the camera's *target* angle; two bytes later is the
+    // one the view is actually built from, which the game eases towards the
+    // target by a quarter of the difference each frame. That easing is where
+    // the eighteen degrees of coast measured in #103 come from, so setting both
+    // leaves the filter nothing to do and the camera stops where the stick is
+    // let go. The game still writes the smoothed field itself whenever it wants
+    // the camera, so nothing is taken away from it permanently.
+    memory.store16(c.address + 2u, static_cast<std::uint16_t>(written));
     c.last = written;
     if (!c.announced) {
         std::cout << "[analog-camera] turning the camera from the stick\n";
