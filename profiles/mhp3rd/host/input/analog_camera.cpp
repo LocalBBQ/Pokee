@@ -25,11 +25,12 @@ constexpr float kFramesPerSecond = 30.0f;
 constexpr float kSearching = 1.5f;
 // Frames of disagreement before the field is assumed to have moved on -- a
 // quest ending or an overlay swap puts something else at that address.
-constexpr int kStrikes = 12;
+constexpr int kStrikes = 12;  // only used for how often the log mentions it
 
 struct Camera {
     enum class State { Looking, Watching, Locked } state{State::Looking};
     std::vector<std::uint8_t> misses;   // frames each candidate has disagreed
+    std::vector<std::int16_t> offsets;  // how far each sits from the view's yaw
     int searches{};                     // how many times the hunt has restarted
     std::vector<std::uint8_t> before;       // guest memory, held only while searching
     std::vector<std::uint32_t> candidates;  // and only until one is left
@@ -168,7 +169,19 @@ bool analog_camera_driving() {
     return settings::current().analog_camera && camera().state == Camera::State::Locked;
 }
 
-void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change) {
+// The view's own yaw, in the game's units, so a candidate can be checked
+// against the camera the player is actually looking through rather than merely
+// against the step. Several angles in this game move by that step -- companions
+// have cameras too -- and picking the wrong one drives something invisible while
+// the player's camera carries on exactly as the game left it.
+std::int16_t to_units(float degrees) {
+    float wrapped = std::fmod(degrees, 360.0f);
+    if (wrapped < 0.0f) wrapped += 360.0f;
+    return static_cast<std::int16_t>(static_cast<int>(wrapped * kUnitsPerTurn / 360.0f) & 0xFFFF);
+}
+
+void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change,
+                         float yaw_degrees) {
     Camera &c = camera();
     if (!settings::current().analog_camera) {
         if (c.state != Camera::State::Looking) c = Camera{};
@@ -203,6 +216,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
                 c.candidates.push_back(base + offset);
                 c.previous.push_back(read16(ram + offset));
                 c.misses.push_back(0u);
+                c.offsets.push_back(0);
             }
         }
         c.before.clear();
@@ -223,10 +237,22 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         std::vector<std::uint32_t> kept;
         std::vector<std::int16_t> kept_previous;
         std::vector<std::uint8_t> kept_misses;
+        std::vector<std::int16_t> kept_offsets;
         for (std::size_t i = 0; i < c.candidates.size(); ++i) {
             const std::int16_t now = read16(ram + (c.candidates[i] - base));
             const std::int16_t moved = static_cast<std::int16_t>(now - c.previous[i]);
+            // Whatever this field is, the angle it holds must keep a fixed
+            // offset from the yaw the view is built with. A field that steps
+            // like the camera but drifts away from where the player is looking
+            // belongs to some other camera.
+            const std::int16_t offset = static_cast<std::int16_t>(to_units(yaw_degrees) - now);
+            if (c.offsets.size() <= i) c.offsets.push_back(offset);
+            const int wander = static_cast<std::int16_t>(offset - c.offsets[i]);
+            const int slack = 1150 * 3;  // three of the game's own steps
             std::uint8_t misses = c.misses[i];
+            if (wander > slack || wander < -slack) {
+                if (++misses >= 3u) continue;
+            }
             // While the camera is turning the yaw *must* move: a field that
             // sits still through a turn is not it. Accepting "did not move" on
             // every frame is why seventy-eight candidates never narrowed and
@@ -242,11 +268,13 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
             kept.push_back(c.candidates[i]);
             kept_previous.push_back(now);
             kept_misses.push_back(misses);
+            kept_offsets.push_back(c.offsets[i]);
         }
         const std::size_t was = c.candidates.size();
         c.candidates.swap(kept);
         c.previous.swap(kept_previous);
         c.misses.swap(kept_misses);
+        c.offsets.swap(kept_offsets);
         if (c.candidates.size() != was)
             std::cout << "[analog-camera] narrowing: " << c.candidates.size() << " left\n";
         if (c.candidates.empty()) {
@@ -293,17 +321,19 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         }
     }
     if (now != c.last) {
-        if (c.strikes == 0)
+        if ((c.strikes % kStrikes) == 0)
             std::cout << "[analog-camera] 0x" << std::hex << c.address << std::dec << " moved on its own by "
-                      << static_cast<int>(static_cast<std::int16_t>(now - c.last)) << "\n";
-        // Something other than this code moved it. The game still owns the
-        // camera in cutscenes and conversations, and an overlay swap can put
-        // something else at this address entirely; a few frames of that and the
-        // port steps back and looks again rather than fighting it.
-        if (++c.strikes >= kStrikes) {
-            forget(c, "it moved on its own");
-            return;
-        }
+                      << static_cast<int>(static_cast<std::int16_t>(now - c.last))
+                      << "; adding the stick on top of it\n";
+        // Something other than this code moved it, which is entirely normal:
+        // the game still owns the camera in cutscenes and conversations, the
+        // vertical commands swing it, and the recentre snaps it. None of that
+        // is a reason to stop -- the port simply adds the player's turn to
+        // whatever is there now, so the game's own movement is kept and the
+        // stick is answered on top of it. Losing the lock over this is what
+        // made a working camera stop working as soon as the player did
+        // something ordinary.
+        ++c.strikes;
     } else {
         c.strikes = 0;
     }
