@@ -38,8 +38,14 @@ constexpr double kLargestRatio = 1e6;
 // of carrying them untested, which is how a thousand counters survived a
 // four-hundred-frame hunt.
 constexpr double kSmallestWholeRatio = 3.0;
-// Only judge a candidate on a frame that turns enough to be worth judging by.
+// Only judge a candidate on a frame that turns enough to be worth judging by,
+// and only start a hunt from one -- a gentle drift admits millions of words and
+// then throws them all away, and each attempt costs a 64 MiB snapshot and three
+// full scans. Left uncapped that alone took the game down to six frames a
+// second.
 constexpr float kWorthJudging = 1.5f;
+// Frames a hunt waits before trying again after one comes to nothing.
+constexpr int kCooldownFrames = 180;
 // The console gets a summary; the whole list goes to a file, because a set
 // that stops shrinking at a thousand is still small enough to read through and
 // far too big to print every frame.
@@ -76,6 +82,7 @@ struct Hunt {
     bool armed{};
     bool have_snapshot{};
     int attempts{};
+    int cooldown{};
     std::uint64_t frames{};
     std::vector<std::uint8_t> snapshot;
     std::vector<Candidate> candidates;
@@ -176,7 +183,14 @@ void admit(Hunt &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
 }
 
 void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, std::uint32_t base) {
-    const bool moving = std::fabs(signal) >= kTurning && std::fabs(signal) <= kCut;
+    if (h.cooldown > 0) {
+        --h.cooldown;
+        return;
+    }
+    // Judging wants any real movement; starting wants enough of it to be worth
+    // a scan.
+    const float least = h.armed ? kTurning : kWorthJudging;
+    const bool moving = std::fabs(signal) >= least && std::fabs(signal) <= kCut;
     if (!moving) {
         if (!h.armed) h.have_snapshot = false;
         return;
@@ -241,6 +255,7 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
     if (h.candidates.empty() && h.attempts < 200) {
         h.armed = false;
         h.have_snapshot = false;
+        h.cooldown = kCooldownFrames;
         ++h.attempts;
         std::cout << "[find-camera] " << h.name << ": that one said nothing; waiting for another\n";
     }
