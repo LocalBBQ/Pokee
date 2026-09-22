@@ -18,7 +18,7 @@ struct ImDrawData;
 
 namespace mhp3rd::gpu {
 
-// PSP pad state gathered from the keyboard and the gamepad.
+// PSP pad state gathered from the keyboard, the mouse's buttons and the gamepad.
 struct PadState {
     std::uint32_t buttons{};
     std::uint8_t analog_x{0x80u};
@@ -28,6 +28,17 @@ struct PadState {
     // skips its camera path entirely only when both bytes are exactly centred.
     std::uint8_t right_x{0x80u};
     std::uint8_t right_y{0x80u};
+};
+
+// The mouse the input script's events come from. With scripted input on,
+// only these reach the game, so a person moving the real pointer over the
+// window does not disturb a scripted run.
+inline constexpr std::uint32_t kScriptedMouse = 0xFFFFFF00u;
+
+// Relative mouse motion, in counts, while the pointer is captured for the game.
+struct MouseMotion {
+    float x{};
+    float y{};
 };
 
 // The camera the game itself set, read back from the view matrix it uploads.
@@ -69,6 +80,13 @@ public:
     // Pumps window events; returns false once the window has been closed.
     bool pump_events();
     [[nodiscard]] PadState pad() const noexcept;
+    // The mouse's motion gathered by the pumps since the last call. Only
+    // motion made while the pointer was captured for the game counts.
+    [[nodiscard]] MouseMotion take_mouse_motion() noexcept;
+    // The pointer is captured for the game: hidden, and its motion and
+    // buttons go to the game. That is while the mouse setting is on, the game
+    // has input, no interface screen is up and the window has focus.
+    [[nodiscard]] bool mouse_captured() const noexcept;
 
     [[nodiscard]] bool quit_requested() const noexcept;
 
@@ -138,6 +156,15 @@ public:
     // buttons still held until they are released, so the button that closed
     // a menu does not reach the game.
     void set_game_input(bool enabled);
+    // An interface screen is up (host/ui), even one without the game behind
+    // it such as the setup: the pointer stays free for it.
+    void set_pointer_free(bool free);
+    // The input script (MHP3RD_INPUT_SCRIPT): keys it holds reach the game as
+    // well as the interface, and with scripted input on, the pointer counts as
+    // captured without the window having focus and without taking the real
+    // pointer, so scripted mouse steps reach the game from the background.
+    void set_scripted_key(int position, bool down);
+    void set_scripted_input(bool scripted);
     void request_quit() noexcept;
     // While held, the window keeps showing the frame on screen when hold
     // began instead of the frames the game flips to. The game blanks its

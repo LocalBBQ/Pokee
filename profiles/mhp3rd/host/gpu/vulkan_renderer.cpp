@@ -4,6 +4,7 @@
 
 #include "perf/frame_stats.hpp"
 #include "perf/perf_overlay.hpp"
+#include "input/bindings.hpp"
 #include "settings/settings.hpp"
 
 #include <SDL3/SDL.h>
@@ -493,6 +494,31 @@ struct VulkanRenderer::Impl {
     bool game_input{true};
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
+    // Keyboard and mouse (input/bindings.hpp). Mouse buttons are followed
+    // through their events, so a scripted click counts like a real one.
+    bool pointer_free{};
+    bool scripted_input{};
+    bool mouse_captured{};
+    std::uint32_t mouse_buttons{};  // bit n: SDL mouse button n held
+    MouseMotion mouse_motion{};
+    std::array<bool, input::kKeyPositions> scripted_keys{};
+
+    // Captures the pointer for the game when everything allows it and frees
+    // it otherwise. Whatever the mouse did or held across a change is dropped,
+    // so nothing stays pressed and the camera does not jump.
+    void update_pointer(bool focused) {
+        const bool minimized = (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0u;
+        const bool wanted = settings::current().mouse && game_input && !pointer_free && !minimized &&
+                            (focused || scripted_input);
+        if (wanted == mouse_captured) return;
+        mouse_captured = wanted;
+        // A scripted run never takes the real pointer from the person at the machine.
+        if (!scripted_input) SDL_SetWindowRelativeMouseMode(window, wanted);
+        if (pad_tuning().trace) std::cout << "[pad] pointer " << (wanted ? "captured" : "free") << std::endl;
+        mouse_buttons = 0u;
+        mouse_motion = {};
+        if (wanted) suppress_held = true;
+    }
 
     // Window capture: the presented image is copied here and written after
     // its frame completes.
@@ -2238,46 +2264,58 @@ bool VulkanRenderer::pump_events() {
         // reserved for the in-game menu.
         if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) impl_->update_display_info();
         if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) impl_->swapchain_dirty = true;
+        // The mouse, while captured for the game. Releases always count.
+        if (event.type == SDL_EVENT_MOUSE_MOTION && impl_->mouse_captured &&
+            (!impl_->scripted_input || event.motion.which == kScriptedMouse)) {
+            impl_->mouse_motion.x += event.motion.xrel;
+            impl_->mouse_motion.y += event.motion.yrel;
+        }
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && impl_->mouse_captured && event.button.button < 32u &&
+            (!impl_->scripted_input || event.button.which == kScriptedMouse))
+            impl_->mouse_buttons |= 1u << event.button.button;
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button < 32u)
+            impl_->mouse_buttons &= ~(1u << event.button.button);
         if (impl_->event_hook && impl_->event_hook(event)) continue;
         if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F3 && !event.key.repeat && impl_->overlay_ready)
             impl_->overlay_visible = !impl_->overlay_visible;
     }
+    // Only sample while the window has focus: a key still down when focus is
+    // lost stays down in SDL's snapshot, which the guest sees as a held
+    // direction it can never release.
+    const bool focused = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u;
+    impl_->update_pointer(focused);
     // While a menu or the on-screen keyboard is open, nothing reaches the game.
     if (!impl_->game_input) {
         impl_->pad = PadState{};
         return !impl_->quit;
     }
 
-    // Keyboard to PSP pad. Bits follow SceCtrlButtons.
-    // Only sample while the window has focus: a key still down when focus is
-    // lost stays down in SDL's snapshot, which the guest sees as a held
-    // direction it can never release.
-    const bool focused = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u;
+    // Keyboard and mouse buttons to the PSP pad, through the player's
+    // bindings. Bits follow SceCtrlButtons; the stick is centred at 0x80.
+    const settings::Settings &player = settings::current();
     const bool *keys = SDL_GetKeyboardState(nullptr);
+    const input::PadInput typed = input::read(player.bindings, [&](input::Binding binding) {
+        if (const int button = input::mouse_button_of(binding))
+            return impl_->mouse_captured && (impl_->mouse_buttons & (1u << button)) != 0u;
+        const int position = input::key_position(binding);
+        return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
+                                 impl_->scripted_keys[static_cast<std::size_t>(position)]);
+    });
     PadState pad{};
-    const auto held = [&](SDL_Scancode code, std::uint32_t bit) {
-        if (focused && keys[code]) pad.buttons |= bit;
-    };
-    held(SDL_SCANCODE_UP, 0x0010u);
-    held(SDL_SCANCODE_RIGHT, 0x0020u);
-    held(SDL_SCANCODE_DOWN, 0x0040u);
-    held(SDL_SCANCODE_LEFT, 0x0080u);
-    held(SDL_SCANCODE_Q, 0x0100u);      // L
-    held(SDL_SCANCODE_W, 0x0200u);      // R
-    held(SDL_SCANCODE_S, 0x1000u);      // triangle
-    held(SDL_SCANCODE_X, 0x2000u);      // circle (confirm in Japanese titles)
-    held(SDL_SCANCODE_Z, 0x4000u);      // cross
-    held(SDL_SCANCODE_A, 0x8000u);      // square
-    held(SDL_SCANCODE_RETURN, 0x0008u); // start
-    held(SDL_SCANCODE_RSHIFT, 0x0001u); // select
-    held(SDL_SCANCODE_BACKSPACE, 0x0001u);
-    // Analog stick on IJKL, centred at 0x80.
-    int analog_x = 0;
-    int analog_y = 0;
-    if (focused && keys[SDL_SCANCODE_J]) analog_x -= 127;
-    if (focused && keys[SDL_SCANCODE_L]) analog_x += 127;
-    if (focused && keys[SDL_SCANCODE_I]) analog_y -= 127;
-    if (focused && keys[SDL_SCANCODE_K]) analog_y += 127;
+    pad.buttons = typed.buttons;
+    int analog_x = typed.stick_x;
+    int analog_y = typed.stick_y;
+    // Camera keys push the second stick fully, as a right stick would: in
+    // the D-pad mode they press the D-pad instead, and with it off, nothing.
+    if (player.right_stick == settings::RightStick::Camera) {
+        pad.right_x = static_cast<std::uint8_t>(0x80 + typed.camera_x);
+        pad.right_y = static_cast<std::uint8_t>(0x80 + typed.camera_y);
+    } else if (player.right_stick == settings::RightStick::DPad) {
+        if (typed.camera_x < 0) pad.buttons |= 0x0080u;
+        if (typed.camera_x > 0) pad.buttons |= 0x0020u;
+        if (typed.camera_y < 0) pad.buttons |= 0x0010u;
+        if (typed.camera_y > 0) pad.buttons |= 0x0040u;
+    }
 
     // The gamepad adds to the same bits and offsets, so both sources are live.
     if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, pad, analog_x, analog_y);
@@ -2315,6 +2353,25 @@ bool VulkanRenderer::pump_events() {
 }
 
 PadState VulkanRenderer::pad() const noexcept { return impl_ ? impl_->pad : PadState{}; }
+
+MouseMotion VulkanRenderer::take_mouse_motion() noexcept {
+    return impl_ ? std::exchange(impl_->mouse_motion, MouseMotion{}) : MouseMotion{};
+}
+
+bool VulkanRenderer::mouse_captured() const noexcept { return impl_ && impl_->mouse_captured; }
+
+void VulkanRenderer::set_pointer_free(bool free) {
+    if (impl_) impl_->pointer_free = free;
+}
+
+void VulkanRenderer::set_scripted_key(int position, bool down) {
+    if (impl_ && position > 0 && position < static_cast<int>(input::kKeyPositions))
+        impl_->scripted_keys[static_cast<std::size_t>(position)] = down;
+}
+
+void VulkanRenderer::set_scripted_input(bool scripted) {
+    if (impl_) impl_->scripted_input = scripted;
+}
 
 void VulkanRenderer::set_event_hook(std::function<bool(const SDL_Event &)> hook) {
     if (impl_) impl_->event_hook = std::move(hook);

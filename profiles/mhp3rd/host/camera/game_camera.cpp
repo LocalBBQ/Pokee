@@ -79,6 +79,17 @@ constexpr std::uint32_t kPresetTargetHeight = 0x10u;
 constexpr std::uint32_t kStackEyeY = 0x34u;
 constexpr std::uint32_t kStackEyeZ = 0x38u;
 
+// The mouse while aiming. Its degrees wait for a step of the game to size
+// (the game may step an update after the stick showed the direction); up to
+// this much, and for this many updates without a step, after which they are
+// dropped, as a push of the stick is while the game makes no step.
+constexpr float kMouseAimCarry = 45.0f;
+constexpr unsigned kMouseAimWaits = 3u;
+// Less than this is not presented to the game as a push at all.
+constexpr float kMouseAimThreshold = 0.05f;
+// Degrees of mouse yaw in one frame that switch on the game's own turn.
+constexpr float kMouseStockTurn = 0.5f;
+
 // The one camera mode with a driver: the ordinary follow camera in a quest.
 // Others (aiming with a bow or a bowgun among them) keep the stock camera and
 // the stock stick until each is traced and given its own driver below.
@@ -130,6 +141,12 @@ struct State {
     std::array<int, 3> aim_pitch{};
     float aim_yaw_remainder{};
     float aim_pitch_remainder{};
+    // The mouse's aim not yet spent on a step, in degrees, and the frame
+    // after the one its direction was last shown to the game (0: never).
+    float mouse_yaw{};
+    float mouse_pitch{};
+    unsigned mouse_waits{};
+    std::uint64_t mouse_shown{};
 };
 State state;
 
@@ -155,6 +172,9 @@ void release() {
     state.aiming = false;
     state.aim_yaw_remainder = 0.0f;
     state.aim_pitch_remainder = 0.0f;
+    state.mouse_yaw = 0.0f;
+    state.mouse_pitch = 0.0f;
+    state.mouse_waits = 0u;
 }
 
 void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t stack, const Turn &turn,
@@ -346,6 +366,11 @@ void remember_aim(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
 // game's direction. No step from the game -- rolling, moving, firing, a state
 // that locks an axis -- means no movement from the port either. A step made
 // while the right stick is idle (the left stick in the scope) is kept as is.
+//
+// The mouse works the same way through the direction game_camera_mouse_aim()
+// shows the game: a step made while the stick is idle and the mouse's
+// direction was shown is sized by the mouse's degrees instead, and none left
+// means the step is taken back.
 void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::uint32_t address) {
     const auto hunter = ctx.gpr[21];
     state.address = address;
@@ -359,20 +384,36 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
     state.yaw_remainder = 0.0f;
     state.last_update = state.frame;
     ++state.updates;
+    const Turn mouse = take(Source::Mouse);
     const Turn turn = take();
     if (!state.aiming || state.aim_hunter != hunter) {
         // The first update of an aim only learns where the aim starts.
         state.aiming = true;
         state.aim_yaw_remainder = 0.0f;
         state.aim_pitch_remainder = 0.0f;
+        state.mouse_yaw = 0.0f;
+        state.mouse_pitch = 0.0f;
+        state.mouse_waits = 0u;
         remember_aim(memory, hunter);
         return;
     }
+    state.mouse_yaw = std::clamp(state.mouse_yaw + mouse.yaw_degrees, -kMouseAimCarry, kMouseAimCarry);
+    state.mouse_pitch = std::clamp(state.mouse_pitch + mouse.pitch_degrees, -kMouseAimCarry, kMouseAimCarry);
+    // The game's step answers the mouse only if the stick was idle and the
+    // mouse's direction was on the second stick this frame or the last.
+    const bool mouse_shown = state.mouse_shown != 0u && state.frame + 1u - state.mouse_shown <= 1u;
+    bool mouse_spent = false;
 
     const auto heading = memory.load16(hunter + kHunterHeading);
     const int game_yaw = static_cast<std::int16_t>(static_cast<std::uint16_t>(heading - state.aim_heading));
-    if (game_yaw != 0 && std::abs(game_yaw) <= kLargestYawStep && turn.yaw_held) {
-        state.aim_yaw_remainder += std::fabs(turn.yaw_degrees) * kAngleUnits;
+    if (game_yaw != 0 && std::abs(game_yaw) <= kLargestYawStep && (turn.yaw_held || mouse_shown)) {
+        float degrees = std::fabs(turn.yaw_degrees);
+        if (!turn.yaw_held) {
+            degrees = std::fabs(state.mouse_yaw);
+            state.mouse_yaw = 0.0f;
+            mouse_spent = true;
+        }
+        state.aim_yaw_remainder += degrees * kAngleUnits;
         const int step = static_cast<int>(state.aim_yaw_remainder);
         state.aim_yaw_remainder -= static_cast<float>(step);
         const auto yaw = static_cast<std::uint16_t>(state.aim_heading + (game_yaw > 0 ? step : -step));
@@ -387,9 +428,15 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
         const PitchField &field = kPitchFields[i];
         const int current = load_pitch(memory, hunter, field);
         const int game_pitch = current - state.aim_pitch[i];
-        if (game_pitch == 0 || std::abs(game_pitch) > field.largest_step || !turn.pitch_held) continue;
+        if (game_pitch == 0 || std::abs(game_pitch) > field.largest_step || !(turn.pitch_held || mouse_shown))
+            continue;
         pitch_stepped = true;
-        const float wanted = state.aim_pitch_remainder + std::fabs(turn.pitch_degrees);
+        float degrees = std::fabs(turn.pitch_degrees);
+        if (!turn.pitch_held) {
+            degrees = std::fabs(state.mouse_pitch);
+            mouse_spent = true;
+        }
+        const float wanted = state.aim_pitch_remainder + degrees;
         const int step = static_cast<int>(wanted * field.units_per_degree);
         state.aim_pitch_remainder = wanted - static_cast<float>(step) / field.units_per_degree;
         const int next = std::clamp(state.aim_pitch[i] + (game_pitch > 0 ? step : -step), -field.limit, field.limit);
@@ -397,6 +444,20 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
         store_pitch(memory, hunter, field, next);
     }
     if (!pitch_stepped) state.aim_pitch_remainder = 0.0f;
+    if (pitch_stepped && !turn.pitch_held) state.mouse_pitch = 0.0f;
+    // A stick in use owns the aim; otherwise mouse degrees the game has not
+    // stepped for in a few updates are dropped.
+    if (turn.yaw_held || turn.pitch_held) {
+        state.mouse_yaw = 0.0f;
+        state.mouse_pitch = 0.0f;
+    }
+    if (mouse_spent || (state.mouse_yaw == 0.0f && state.mouse_pitch == 0.0f)) {
+        state.mouse_waits = 0u;
+    } else if (++state.mouse_waits > kMouseAimWaits) {
+        state.mouse_yaw = 0.0f;
+        state.mouse_pitch = 0.0f;
+        state.mouse_waits = 0u;
+    }
     remember_aim(memory, hunter);
 }
 
@@ -484,6 +545,24 @@ bool game_camera_driving() { return driving_allowed() && state.available; }
 
 bool game_camera_aim_boost() {
     return driving_allowed() && state.aiming && state.frame - state.last_update <= 1u;
+}
+
+std::optional<StickDirection> game_camera_mouse_aim() {
+    if (!game_camera_aim_boost()) return std::nullopt;
+    const Turn pending = peek(Source::Mouse);
+    const float yaw = state.mouse_yaw + pending.yaw_degrees;
+    const float pitch = state.mouse_pitch + pending.pitch_degrees;
+    const float length = std::hypot(yaw, pitch);
+    if (!(length >= kMouseAimThreshold)) return std::nullopt;
+    state.mouse_shown = state.frame + 1u;
+    return StickDirection{yaw / length, pitch / length};
+}
+
+int game_camera_mouse_stock_turn() {
+    if (game_camera_driving() || game_camera_aim_boost()) return 0;
+    const float yaw = peek(Source::Mouse).yaw_degrees;
+    if (!(std::fabs(yaw) >= kMouseStockTurn)) return 0;
+    return yaw > 0.0f ? 1 : -1;
 }
 
 float game_camera_degrees_per_second() {

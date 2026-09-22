@@ -6,6 +6,7 @@
 #include "ui/widgets.hpp"
 
 #include "gpu/vulkan_renderer.hpp"
+#include "input/bindings.hpp"
 #include "install/user_data.hpp"
 #include "settings/settings.hpp"
 
@@ -147,6 +148,9 @@ bool Layer::attach(gpu::VulkanRenderer &renderer) {
     }
     renderer.set_event_hook([this](const SDL_Event &event) { return handle_event(event); });
     renderer_ = &renderer;
+    // While the game runs the pointer may be captured for it, hidden by SDL;
+    // the overlays drawn then must not show it again.
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     if (renderer.gamepad() != nullptr) device_ = InputDevice::Gamepad;
     script::attach();
     return true;
@@ -160,16 +164,53 @@ void Layer::set_interactive(bool interactive) {
     // held when a screen closes stays held for the next one.
     io.ClearEventsQueue();
     io.ClearInputKeys();
+    if (interactive) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    else io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    // A screen needs the pointer; the renderer frees it before the next frame.
+    if (renderer_ != nullptr) renderer_->set_pointer_free(interactive);
     menu_toggle_ = false;
     back_ = false;
+    capturing_binding_ = false;
+    captured_binding_.reset();
     escape_pending_.reset();
     gamepad_armed_ = false;
 }
 
 bool Layer::confirm_south() const { return settings::current().confirm_south; }
 
+void Layer::begin_binding_capture() {
+    capturing_binding_ = true;
+    captured_binding_.reset();
+    escape_pending_.reset();
+}
+
+std::optional<std::uint16_t> Layer::take_captured_binding() { return std::exchange(captured_binding_, std::nullopt); }
+
 bool Layer::handle_event(const SDL_Event &event) {
     const Clock::time_point now = Clock::now();
+    // Presses go to the binding being captured. Releases still reach ImGui,
+    // which saw the press that started the capture.
+    if (capturing_binding_ && interactive_) {
+        std::optional<std::uint16_t> pressed;
+        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat)
+            pressed = event.key.key == SDLK_ESCAPE ? input::kNone
+                                                   : input::key(static_cast<std::uint16_t>(event.key.scancode));
+        else if (event.type == SDL_EVENT_KEY_DOWN)
+            return true;
+        else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button >= 1u && event.button.button <= 5u)
+            pressed = input::mouse_button(event.button.button);
+        else if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
+            pressed = input::kNone;
+        if (pressed) {
+            capturing_binding_ = false;
+            captured_binding_ = *pressed;
+            if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                device_ = InputDevice::Gamepad;
+                last_pad_button_ = now;
+            }
+            return true;
+        }
+    }
     switch (event.type) {
     case SDL_EVENT_QUIT:
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:

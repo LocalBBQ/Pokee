@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace psprecomp {
@@ -49,6 +50,23 @@ void game_camera_frame(psprecomp::Runtime &runtime);
 // stretched to full length, so the game's aim code steps at any push and the
 // driver can size each step.
 [[nodiscard]] bool game_camera_aim_boost();
+
+// A mouse has no stick for the game's aim code to read. While a bow or a
+// bowgun aims and the mouse has moved, the direction, at full length, the
+// second stick should show the game this sample so its aim steps the mouse's
+// way; the driver then sizes those steps from the mouse's degrees.
+struct StickDirection {
+    float x{};
+    float y{};
+};
+[[nodiscard]] std::optional<StickDirection> game_camera_mouse_aim();
+
+// Where the port does not drive the camera (Analog camera off, the village,
+// a camera mode without a driver) the game's own turn is one speed, on or
+// off, and the mouse can only switch it: -1 or +1 while the mouse moves left
+// or right fast enough this frame, 0 otherwise. Vertical motion has nowhere
+// to go there: the game's second stick up and down are recentring commands.
+[[nodiscard]] int game_camera_mouse_stock_turn();
 
 // Full-deflection speed for the current camera: Aim speed while a bow or a
 // bowgun aims, Camera speed otherwise.

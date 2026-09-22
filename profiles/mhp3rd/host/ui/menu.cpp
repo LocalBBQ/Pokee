@@ -16,6 +16,7 @@
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
 #include "gpu/vulkan_renderer.hpp"
+#include "input/bindings.hpp"
 #include "install/game_identity.hpp"
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
@@ -125,6 +126,7 @@ private:
     bool back_{};  // the back button was pressed this frame
     Confirm confirm_{Confirm::None};
     bool confirm_opened_{};  // the confirmation was on screen last frame
+    std::optional<input::Action> binding_;  // waiting for a key for this control
 };
 
 bool Menu::frame() {
@@ -464,7 +466,7 @@ void Menu::controls() {
     {
         SDL_Gamepad *pad = renderer().gamepad();
         const char *name = pad != nullptr ? SDL_GetGamepadName(pad) : nullptr;
-        info_row("Connected", pad == nullptr ? "No gamepad; the keyboard drives the game"
+        info_row("Connected", pad == nullptr ? "No gamepad; the keyboard and mouse drive the game"
                                              : (name != nullptr ? name : "Gamepad"));
     }
     if (choice_row("Confirm button", s.confirm_south ? "Bottom (Western)" : "Right, ○ (Japanese)",
@@ -597,22 +599,84 @@ void Menu::controls() {
                                            "Letters, digits, spaces and simple punctuation.")))
         settings::save();
 
-    section("Keyboard");
-    static const std::array<std::pair<const char *, const char *>, 10> kKeys{{
-        {"Arrow keys", "D-pad"},
-        {"I  J  K  L", "Analog stick"},
-        {"X", "○  (confirm)"},
-        {"Z", "×  (back)"},
-        {"A", "□"},
-        {"S", "△"},
-        {"Q  /  W", "L  /  R"},
-        {"Enter", "START"},
-        {"Right Shift, Backspace", "SELECT"},
-        {"Esc", "This menu"},
-    }};
-    for (const auto &[key, button] : kKeys) info_row(key, button);
+    section("Keyboard and mouse");
+    {
+        RowOptions o = options_for("input.mouse",
+                                   "While the game runs, the window takes the pointer: moving the mouse turns the "
+                                   "camera and its buttons press what they are bound to. Esc opens this menu and "
+                                   "gives the pointer back.");
+        if (toggle_row("Mouse", s.mouse, o)) {
+            s.mouse = !s.mouse;
+            settings::save();
+        }
+        o = options_for("input.mouse_sensitivity",
+                        "Degrees the camera turns for each count of mouse motion. While a bow or a bowgun aims, "
+                        "the mouse is slowed as Aim speed is to Camera speed.");
+        if (!s.mouse && !o.disabled) {
+            o.disabled = true;
+            o.note = "Mouse is off";
+        }
+        int sensitivity = static_cast<int>(std::lround(s.mouse_sensitivity * 100.0f));
+        if (slider_row("Mouse sensitivity", sensitivity, 1, 99, 1, "0.%02d deg", o)) {
+            s.mouse_sensitivity = static_cast<float>(sensitivity) / 100.0f;
+            settings::save();
+        }
+        o = options_for("input.invert_mouse_x", "Turn the camera the other way when the mouse moves sideways.");
+        if (!s.mouse && !o.disabled) {
+            o.disabled = true;
+            o.note = "Mouse is off";
+        }
+        if (toggle_row("Invert mouse horizontally", s.invert_mouse_x, o)) {
+            s.invert_mouse_x = !s.invert_mouse_x;
+            settings::save();
+        }
+        o = options_for("input.invert_mouse_y", "Push the mouse forward to look down instead of up.");
+        if (!s.mouse && !o.disabled) {
+            o.disabled = true;
+            o.note = "Mouse is off";
+        }
+        if (toggle_row("Invert mouse vertically", s.invert_mouse_y, o)) {
+            s.invert_mouse_y = !s.invert_mouse_y;
+            settings::save();
+        }
+    }
+    // One row per control: activate it, then press a key or a mouse button.
+    Layer &layer = Layer::get();
+    if (binding_) {
+        if (const auto pressed = layer.take_captured_binding()) {
+            if (*pressed != input::kNone) {
+                input::assign(s.bindings, *binding_, *pressed);
+                settings::save();
+            }
+            binding_.reset();
+        } else if (!layer.capturing_binding()) {
+            binding_.reset();
+        }
+    }
+    for (std::size_t i = 0; i < input::kActions; ++i) {
+        const auto action = static_cast<input::Action>(i);
+        std::string value = input::format(s.bindings[i]);
+        if (binding_ == action) value = "Press a key or a mouse button";
+        else if (value.empty()) value = "None";
+        const RowOptions o{false, {},
+                           "Press a key or a mouse button to add it, or one it has already to remove it; Esc "
+                           "cancels. A key taken from another control leaves that one."};
+        if (value_row(input::info(action).label, value, o) && !binding_) {
+            binding_ = action;
+            layer.begin_binding_capture();
+        }
+    }
+    info_row("Esc", "This menu");
+    info_row("F3", "Performance overlay");
+    if (button_row("Use the classic keyboard layout",
+                   {false, {}, "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are "
+                               "the face buttons, Q and W are L and R."})) {
+        s.bindings = input::classic_bindings();
+        settings::save();
+    }
     ImGui::Dummy({0.0f, font_gap()});
-    if (button_row("Restore control defaults", {false, {}, "Every gamepad and name setting back to how Yakumo ships."})) {
+    if (button_row("Restore control defaults",
+                   {false, {}, "Every gamepad, keyboard, mouse and name setting back to how Yakumo ships."})) {
         const settings::Settings &d = settings::defaults();
         const auto restore = [&](const char *key, auto &value, const auto &fallback) {
             if (settings::overridden_by(key) == nullptr) value = fallback;
@@ -630,6 +694,11 @@ void Menu::controls() {
         restore("input.invert_camera_y", s.invert_camera_y, d.invert_camera_y);
         restore("input.name_entry", s.name_entry, d.name_entry);
         restore("input.name", s.name, d.name);
+        restore("input.mouse", s.mouse, d.mouse);
+        restore("input.mouse_sensitivity", s.mouse_sensitivity, d.mouse_sensitivity);
+        restore("input.invert_mouse_x", s.invert_mouse_x, d.invert_mouse_x);
+        restore("input.invert_mouse_y", s.invert_mouse_y, d.invert_mouse_y);
+        s.bindings = d.bindings;
         settings::save();
     }
 }

@@ -37,6 +37,11 @@ struct Turn {
 };
 // What has built up since the last take, which it clears.
 [[nodiscard]] Turn take();
+// What one motion source alone has added since the last take: peek leaves it,
+// take(source) clears it, so a take() after that returns everything else.
+// For a camera that has to treat the mouse apart, like a bow's aim.
+[[nodiscard]] Turn peek(Source source);
+[[nodiscard]] Turn take(Source source);
 // Drops what has built up, for when nothing can take it: a menu, a cutscene,
 // a camera mode the port does not drive. Otherwise the camera would jump by
 // all of it on the next update it does drive.

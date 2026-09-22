@@ -226,6 +226,20 @@ const std::vector<Field> &fields() {
          [](Settings &s, const char *t) { s.aim_speed = variable_float(t, 90.0f, 10.0f, 360.0f); }},
         BOOL_FIELD("input.invert_camera_x", invert_camera_x),
         BOOL_FIELD("input.invert_camera_y", invert_camera_y),
+        {"input.mouse", "MHP3RD_MOUSE",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.mouse); },
+         [](const Settings &s) { return std::string(s.mouse ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.mouse = variable_flag(t); }},
+        {"input.mouse_sensitivity", "MHP3RD_MOUSE_SENSITIVITY",
+         [](Settings &s, const std::string &t) {
+             return parse_float(t, kMinMouseSensitivity, kMaxMouseSensitivity, s.mouse_sensitivity);
+         },
+         [](const Settings &s) { return format_float(s.mouse_sensitivity); },
+         [](Settings &s, const char *t) {
+             s.mouse_sensitivity = variable_float(t, 0.10f, kMinMouseSensitivity, kMaxMouseSensitivity);
+         }},
+        BOOL_FIELD("input.invert_mouse_x", invert_mouse_x),
+        BOOL_FIELD("input.invert_mouse_y", invert_mouse_y),
         {"input.name_entry", "MHP3RD_OSK_MODE",
          [](Settings &s, const std::string &t) { return kNameEntries.parse(t, s.name_entry); },
          [](const Settings &s) { return kNameEntries.format(s.name_entry); },
@@ -306,6 +320,24 @@ const std::vector<Field> &fields() {
     return table;
 }
 
+// One key per bound action, "input.bind.triangle=Mouse Left", after the
+// fixed table.
+const std::vector<Field> &all_fields() {
+    static const std::vector<Field> table = [] {
+        // Field keys are C strings; these hold them for the program's life.
+        static std::vector<std::string> keys(input::kActions);
+        std::vector<Field> list = fields();
+        for (std::size_t i = 0; i < input::kActions; ++i) {
+            keys[i] = std::string("input.bind.") + input::info(static_cast<input::Action>(i)).key;
+            list.push_back(Field{keys[i].c_str(), nullptr,
+                                 [i](Settings &s, const std::string &t) { return input::parse(t, s.bindings[i]); },
+                                 [i](const Settings &s) { return input::format(s.bindings[i]); }, nullptr});
+        }
+        return list;
+    }();
+    return table;
+}
+
 #undef BOOL_FIELD
 
 struct State {
@@ -331,7 +363,7 @@ void load(State &s) {
     } catch (const std::exception &e) {
         std::cerr << "[settings] cannot read settings.ini: " << e.what() << "\n";
     }
-    for (const Field &field : fields()) {
+    for (const Field &field : all_fields()) {
         if (const auto found = s.file.find(field.key); found != s.file.end() && !field.parse(s.values, found->second))
             std::cerr << "[settings] ignoring " << field.key << "=" << found->second << "\n";
         if (field.variable == nullptr) continue;
@@ -369,7 +401,7 @@ void save() {
     try {
         // Re-read, so a key the installer wrote since start-up survives.
         entries = install::read_settings_file(s.data_dir);
-        for (const Field &field : fields()) {
+        for (const Field &field : all_fields()) {
             if (s.overrides.count(field.key) != 0u) {
                 const auto kept = s.file.find(field.key);
                 if (kept != s.file.end()) entries[field.key] = kept->second;

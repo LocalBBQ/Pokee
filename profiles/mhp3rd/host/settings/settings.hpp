@@ -1,5 +1,7 @@
 #pragma once
 
+#include "input/bindings.hpp"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -70,6 +72,13 @@ struct Settings {
     float aim_speed{90.0f};
     bool invert_camera_x{};
     bool invert_camera_y{};
+    // Keyboard and mouse. With the mouse on, the window captures the pointer
+    // while the game runs and the mouse turns the camera; Esc frees it.
+    bool mouse{true};
+    float mouse_sensitivity{0.10f};    // degrees of camera turn per count of mouse motion
+    bool invert_mouse_x{};
+    bool invert_mouse_y{};
+    input::Bindings bindings{input::default_bindings()};
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once
     std::string name{"Hunter"};        // the fixed name
 
@@ -94,6 +103,8 @@ struct Settings {
 inline constexpr std::uint32_t kMaxInternalScale = 8u;
 inline constexpr std::uint32_t kMaxWindowScale = 4u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
+inline constexpr float kMinMouseSensitivity = 0.01f;
+inline constexpr float kMaxMouseSensitivity = 0.99f;
 
 // Loads the settings on first use.
 [[nodiscard]] Settings &current();

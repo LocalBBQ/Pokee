@@ -372,6 +372,111 @@ void test_aiming_sizes_the_games_steps() {
     check(game_camera_driving() && !game_camera_aim_boost(), "the ordinary camera is driven again after aiming");
 }
 
+// The mouse while aiming: it has no stick, so the direction it shows the game
+// makes the game step, and the driver sizes the step from its degrees.
+void test_mouse_aim() {
+    constexpr std::uint32_t hunter = 0x08904000u;
+    Fixture f;
+    f.enable();
+    auto &m = f.runtime.memory();
+    f.ctx.gpr[21] = hunter;
+    m.store16(hunter + 0x188u, 20000u);
+    m.store16(hunter + 0x74u, 20000u);
+    GameAim game{hunter};
+    // One frame: the flip, the mouse's motion from the pump after it, the
+    // ctrl read (the direction the game sees), the game's aim code, which
+    // steps its own way if it sees a push (or late, by `late`), and the
+    // camera update.
+    bool pending_step = false;
+    const auto mouse_frame = [&](float yaw, float pitch, bool late = false, bool game_steps = true) {
+        f.flip(0.0f, 0.0f);
+        if (yaw != 0.0f || pitch != 0.0f) add_motion(Source::Mouse, yaw, pitch);
+        const auto shown = game_camera_mouse_aim();
+        game.yaw_step = 0;
+        game.pitch_step = 0;
+        const bool step_now = late ? pending_step : shown.has_value();
+        pending_step = shown.has_value();
+        if (step_now && game_steps) {
+            const auto &d = shown ? *shown : StickDirection{1.0f, 0.0f};
+            if (std::fabs(d.x) >= std::fabs(d.y)) game.yaw_step = d.x > 0.0f ? 624 : -624;
+            else game.pitch_step = d.y > 0.0f ? -8 : 8;
+        }
+        game.step(m);
+        f.update();
+    };
+    f.frame(0.0f, 0.0f);
+    m.store8(camera_address + 0x91u, 0u);
+    mouse_frame(0.0f, 0.0f);  // learns where the aim starts
+    check(game_camera_aim_boost() && !game_camera_mouse_aim(), "an idle mouse shows the game nothing");
+
+    for (int i = 0; i < 10; ++i) mouse_frame(3.0f, 0.0f);
+    int turned = static_cast<int>(m.load16(hunter + 0x188u)) - 20000;
+    check(std::abs(turned - 5461) <= 2, "each step the mouse makes the game take is sized by its degrees");
+
+    // The game steps an update after it saw the push: the degrees wait for it,
+    // and a step after the mouse has stopped is taken back.
+    const auto before_late = m.load16(hunter + 0x188u);
+    pending_step = false;
+    mouse_frame(5.0f, 0.0f, true);
+    mouse_frame(0.0f, 0.0f, true);
+    turned = static_cast<int>(m.load16(hunter + 0x188u)) - static_cast<int>(before_late);
+    check(std::abs(turned - 910) <= 1, "a late step still gets the mouse's degrees");
+    const auto after_late = m.load16(hunter + 0x188u);
+    mouse_frame(0.0f, 0.0f, true);
+    mouse_frame(0.0f, 0.0f, true);
+    check(m.load16(hunter + 0x188u) == after_late, "a step with nothing left to spend is taken back");
+
+    // Vertical: the game's aim is up for a mouse pushed forward.
+    game.pitch_offset = 0xC22u;
+    const int pitch_before = static_cast<std::int8_t>(m.load8(hunter + 0xC22u));
+    for (int i = 0; i < 4; ++i) mouse_frame(0.0f, -1.25f);
+    const int raised = static_cast<std::int8_t>(m.load8(hunter + 0xC22u)) - pitch_before;
+    check(std::abs(raised - 12) <= 1, "vertical mouse motion is sized like the stick");
+
+    // A roll: the game makes no step; the mouse's degrees are not saved up.
+    const auto rolling = m.load16(hunter + 0x188u);
+    for (int i = 0; i < 6; ++i) mouse_frame(4.0f, 0.0f, false, false);
+    check(m.load16(hunter + 0x188u) == rolling, "no step from the game, no movement from the mouse");
+    mouse_frame(0.0f, 0.0f);
+    const int after_roll = static_cast<int>(m.load16(hunter + 0x188u)) - static_cast<int>(rolling);
+    check(std::abs(after_roll) < 16 * 182, "degrees the game never stepped for are not all saved up");
+
+    // Another input's step with the mouse idle is kept.
+    for (int i = 0; i < 3; ++i) mouse_frame(0.0f, 0.0f);
+    const auto idle = m.load16(hunter + 0x188u);
+    f.flip(0.0f, 0.0f);
+    game.yaw_step = -624;
+    game.pitch_step = 0;
+    game.step(m);
+    f.update();
+    check(m.load16(hunter + 0x188u) == static_cast<std::uint16_t>(idle - 624), "a step by another input is kept");
+
+    m.store8(camera_address + 0x91u, 0xFFu);
+    f.frame(0.0f, 0.0f);
+    add_motion(Source::Mouse, 3.0f, 0.0f);
+    check(!game_camera_mouse_aim(), "out of the aim the mouse shows the game nothing");
+}
+
+// Where the port does not drive the camera the mouse switches the game's turn.
+void test_mouse_stock_turn() {
+    Fixture f;
+    f.flip(0.0f, 0.0f);
+    add_motion(Source::Mouse, 0.3f, 5.0f);
+    check(game_camera_mouse_stock_turn() == 0, "slow or vertical motion does not turn the game's camera");
+    add_motion(Source::Mouse, 0.4f, 0.0f);
+    check(game_camera_mouse_stock_turn() == 1, "sideways motion switches the turn on that way");
+    f.flip(0.0f, 0.0f);
+    check(game_camera_mouse_stock_turn() == 0, "and only for the frame it moved in");
+    add_motion(Source::Mouse, -2.0f, 0.0f);
+    check(game_camera_mouse_stock_turn() == -1, "left turns left");
+    f.enable();
+    f.frame(0.0f, 0.0f);
+    f.flip(0.0f, 0.0f);
+    add_motion(Source::Mouse, 2.0f, 0.0f);
+    check(game_camera_mouse_stock_turn() == 0, "while the port drives the camera the mouse goes to the driver");
+    f.update();
+}
+
 int main() {
     test_passthrough();
     test_rates_and_release();
@@ -383,6 +488,8 @@ int main() {
     test_frame_rate_independence();
     test_motion_source();
     test_aiming_sizes_the_games_steps();
+    test_mouse_aim();
+    test_mouse_stock_turn();
     check(original_calls > 0u, "original rotation helper is called");
     std::cout << (failures ? "FAIL" : "PASS") << ": analog camera (" << failures << " failures)\n";
     return failures ? 1 : 0;

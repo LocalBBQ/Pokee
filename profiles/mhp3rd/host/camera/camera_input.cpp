@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <utility>
 
 namespace mhp3rd::camera {
 namespace {
@@ -14,7 +15,16 @@ constexpr std::size_t kSources = static_cast<std::size_t>(Source::Count);
 constexpr float kLongestStep = 0.1f;
 
 std::array<Rate, kSources> rates{};
+// Degrees from the held rates, and from each motion source on its own.
 Turn pending{};
+std::array<Turn, kSources> motion{};
+
+void add(Turn &to, const Turn &from) {
+    to.yaw_degrees += from.yaw_degrees;
+    to.pitch_degrees += from.pitch_degrees;
+    to.yaw_held |= from.yaw_held;
+    to.pitch_held |= from.pitch_held;
+}
 
 } // namespace
 
@@ -24,12 +34,10 @@ void set_rate(Source source, float yaw, float pitch) {
     rates[index] = Rate{std::clamp(yaw, -1.0f, 1.0f), std::clamp(pitch, -1.0f, 1.0f)};
 }
 
-void add_motion(Source, float yaw_degrees, float pitch_degrees) {
-    if (!std::isfinite(yaw_degrees) || !std::isfinite(pitch_degrees)) return;
-    pending.yaw_degrees += yaw_degrees;
-    pending.pitch_degrees += pitch_degrees;
-    pending.yaw_held |= yaw_degrees != 0.0f;
-    pending.pitch_held |= pitch_degrees != 0.0f;
+void add_motion(Source source, float yaw_degrees, float pitch_degrees) {
+    const auto index = static_cast<std::size_t>(source);
+    if (index >= kSources || !std::isfinite(yaw_degrees) || !std::isfinite(pitch_degrees)) return;
+    add(motion[index], Turn{yaw_degrees, pitch_degrees, yaw_degrees != 0.0f, pitch_degrees != 0.0f});
 }
 
 void advance(float seconds, float degrees_per_second) {
@@ -44,12 +52,28 @@ void advance(float seconds, float degrees_per_second) {
 }
 
 Turn take() {
-    const Turn turn = pending;
+    Turn turn = pending;
+    for (const Turn &source : motion) add(turn, source);
     pending = Turn{};
+    motion.fill(Turn{});
     return turn;
 }
 
-void discard() { pending = Turn{}; }
+Turn peek(Source source) {
+    const auto index = static_cast<std::size_t>(source);
+    return index < kSources ? motion[index] : Turn{};
+}
+
+Turn take(Source source) {
+    const auto index = static_cast<std::size_t>(source);
+    if (index >= kSources) return Turn{};
+    return std::exchange(motion[index], Turn{});
+}
+
+void discard() {
+    pending = Turn{};
+    motion.fill(Turn{});
+}
 
 Rate rate(Source source) {
     const auto index = static_cast<std::size_t>(source);
@@ -58,7 +82,7 @@ Rate rate(Source source) {
 
 void reset() {
     rates.fill(Rate{});
-    pending = Turn{};
+    discard();
 }
 
 } // namespace mhp3rd::camera

@@ -120,6 +120,7 @@ set(MHP3RD_HOST_SOURCES
     host/camera/game_camera.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
+    host/input/bindings.cpp
     host/perf/frame_stats.cpp
     host/perf/perf_overlay.cpp
     host/overlays.cpp
@@ -276,7 +277,8 @@ endif()
 add_executable(mhp3rd_camera_tests
     tests/analog_camera_tests.cpp
     host/camera/camera_input.cpp
-    host/camera/game_camera.cpp)
+    host/camera/game_camera.cpp
+    host/input/bindings.cpp)
 target_include_directories(mhp3rd_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -293,6 +295,17 @@ target_link_libraries(mhp3rd_aspect_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_aspect_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_aspect_tests COMMAND mhp3rd_aspect_tests)
+endif()
+
+# Keyboard and mouse bindings: names, settings.ini spelling, the menu's
+# assignment rules and what held keys press. No SDL or game data.
+add_executable(mhp3rd_input_tests
+    tests/input_tests.cpp
+    host/input/bindings.cpp)
+target_include_directories(mhp3rd_input_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_input_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_input_tests COMMAND mhp3rd_input_tests)
 endif()
 
 # The built-in ad hoc server against the client and a raw protocol peer, and

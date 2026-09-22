@@ -55,6 +55,14 @@ public:
     std::optional<std::filesystem::path> take_dropped_file();
     [[nodiscard]] bool window_closed() const noexcept { return window_closed_; }
 
+    // Binding a control (the menu's keyboard and mouse rows): the next key or
+    // mouse button pressed is kept for the caller instead of reaching the
+    // interface. Esc or a gamepad button cancels.
+    void begin_binding_capture();
+    [[nodiscard]] bool capturing_binding() const noexcept { return capturing_binding_; }
+    // Once capture has ended: what was pressed, or input::kNone if cancelled.
+    std::optional<std::uint16_t> take_captured_binding();
+
     // False while a face button held since the screen opened is still down;
     // gamepad presses count only once it is released.
     [[nodiscard]] bool gamepad_armed() const noexcept { return gamepad_armed_; }
@@ -94,6 +102,8 @@ private:
     bool gamepad_armed_{};
     bool menu_toggle_{};
     bool back_{};
+    bool capturing_binding_{};
+    std::optional<std::uint16_t> captured_binding_;
     std::optional<std::filesystem::path> dropped_;
 };
 
