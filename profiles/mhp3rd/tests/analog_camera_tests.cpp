@@ -55,6 +55,8 @@ struct Fixture {
     psprecomp::AllegrexContext ctx{};
     Fixture() {
         mhp3rd::settings::current() = {};
+        // Each test turns the option on itself, to see what changes.
+        mhp3rd::settings::current().analog_camera = false;
         runtime.register_generated_unit(29u, 0x08878000u, 0x4000u, &original, nullptr);
         runtime.register_function(helper, &original, "recomp_unit_test");
         auto &memory = runtime.memory();

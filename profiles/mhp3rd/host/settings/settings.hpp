@@ -56,8 +56,9 @@ struct Settings {
     float right_stick_zone{0.5f};
     // Drives the ordinary quest camera's yaw and pitch from how far the stick
     // is pushed, instead of the game's fixed-speed turn and vertical presets.
-    // Off writes nothing at all, so the camera is exactly as the game made it.
-    bool analog_camera{};
+    // On by default. Off writes nothing at all, so the camera is exactly as
+    // the game made it.
+    bool analog_camera{true};
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
     // Degrees per second at full deflection while a bow or a bowgun aims.
