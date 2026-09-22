@@ -102,13 +102,18 @@ Vertical &vertical() {
 // drifting with the ground.
 constexpr float kVerticalFired = 1.5f;
 
-void look_for_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch_change) {
+void look_for_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch_change,
+                       float stick_y) {
     static const bool wanted = std::getenv("MHP3RD_FIND_VERTICAL") != nullptr;
     if (!wanted) return;
     Vertical &v = vertical();
     if (v.reported) return;
 
-    const bool fired = std::fabs(pitch_change) >= kVerticalFired;
+    // The pitch wobbles for all sorts of reasons -- the ground, a turn, the
+    // hunter moving. What marks the vertical command is a jump *while the stick
+    // is pushed past the threshold the game answers*. Without that second
+    // condition the search admitted noise and narrowed noise against noise.
+    const bool fired = std::fabs(pitch_change) >= kVerticalFired && std::fabs(stick_y) >= 0.6f;
     if (!v.searching) {
         if (!fired) {
             if (v.before.empty()) v.before.assign(ram, ram + size);
@@ -195,9 +200,14 @@ std::int16_t to_units(float degrees) {
 // settle that first.
 void watch_vertical(float pitch, float stick_y) {
     static int printed = 0;
+    static float last_pitch = 0.0f;
     static bool seen_push = false;
     if (std::fabs(stick_y) > 0.3f) seen_push = true;
-    if (!seen_push || printed >= 150) return;
+    if (!seen_push || printed >= 80) return;
+    // Only when something happens: a long hold otherwise fills the whole window
+    // with one settled value and hides the pushes that follow it.
+    if (std::fabs(pitch - last_pitch) < 0.05f) return;
+    last_pitch = pitch;
     ++printed;
     std::cout << "[analog-camera] vertical stick " << stick_y << " -> pitch " << pitch << " deg\n";
 }
@@ -216,7 +226,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     const std::uint8_t *ram = memory.raw_pointer(base, size);
     if (ram == nullptr) return;
 
-    look_for_vertical(ram, base, size, pitch_change);
+    look_for_vertical(ram, base, size, pitch_change, stick_y);
     watch_vertical(pitch_now, stick_y);
 
     if (c.state == Camera::State::Looking) {
