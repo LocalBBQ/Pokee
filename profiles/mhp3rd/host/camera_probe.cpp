@@ -510,9 +510,6 @@ void find_step_field(psprecomp::Runtime &runtime, float turn) {
     static bool armed = false;
     static std::uint64_t rounds = 0u;
 
-    // Only look while the camera is really turning: the whole test is "did this
-    // field move by exactly one step", and a still camera moves nothing.
-    if (std::fabs(turn) < 1.5f) return;
 
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
@@ -525,6 +522,11 @@ void find_step_field(psprecomp::Runtime &runtime, float turn) {
         return value;
     };
 
+    // The first full scan needs a real turn to compare across; the survivors
+    // are then checked every frame, because the field advances a step per frame
+    // and a skipped frame would make it look like it jumped two.
+    if (!armed && std::fabs(turn) < 1.5f) return;
+    if (kept.empty() && rounds == 0u && std::fabs(turn) < 1.5f) return;
     if (!armed) {
         // One copy of guest memory, once, and it is handed back below.
         before.assign(ram, ram + size);
@@ -544,7 +546,10 @@ void find_step_field(psprecomp::Runtime &runtime, float turn) {
         before.clear();
         before.shrink_to_fit();  // 64 MiB is worth giving back at once
         ++rounds;
-        std::cout << "[find-step] " << kept.size() << " fields moved by exactly " << step << "\n";
+        std::cout << "[find-step] " << kept.size() << " fields moved by exactly " << step;
+        if (kept.size() <= 24u)
+            for (std::uint32_t address : kept) std::cout << " 0x" << std::hex << address << std::dec;
+        std::cout << "\n";
         return;
     }
     // From here only the survivors are touched, which costs nothing.
@@ -575,15 +580,17 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
 
     find_and_poke_int32(runtime);
     find_and_poke_copies(runtime);
-    static const bool enabled = std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
-    if (!enabled) return;
 #if defined(MHP3RD_HAS_RENDERER)
     (void)view_matrix_source;
     const gpu::VulkanRenderer *renderer = active_renderer();
     if (renderer == nullptr || !renderer->available()) return;
     const gpu::CameraReading reading = renderer->camera();
     if (!reading.valid) return;
+    // Each of these switches on independently: burying one behind another's
+    // means a run quietly does nothing, which cost a whole trip to a quest.
     find_step_field(runtime, reading.turn);
+    static const bool enabled = std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
+    if (!enabled) return;
 
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
