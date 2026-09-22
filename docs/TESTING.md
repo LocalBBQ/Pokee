@@ -40,6 +40,12 @@ A released build is tested the same way. Note its version and which download it 
 - Missing, torn or flickering geometry, and black or white patches where effects should be.
 - The console's last lines if the game stops or crashes.
 
+### Analog camera regression (#106)
+
+Build `mhp3rd_camera_tests` and run it through CTest. These checks require no game data and cover dispatch interception, proportional rates, fractional yaw, pitch limits, release without filter catch-up, Off passthrough, special modes, scene changes and the extent of guest writes.
+
+For the manual check, start without `MHP3RD_TRACE_CAMERA` or `MHP3RD_FIND_CAMERA`. Enable **Controls → Analog camera** and **Vertical camera**, then enter an ordinary quest. Test small and full stick deflections on both axes, release, reversal, movement near walls, a zone transition, L recentre, physical D-pad commands, and Off/On toggles. Confirm that the village and special aiming cameras retain their own behaviour. Watch for residual vertical coast and camera movement after input has stopped. Repeat on Steam Deck before marking that platform verified.
+
 ## Reporting
 
 Open a **Test report** issue with the platform, hardware, commit and the steps you reached. If a result changes a cell in [the compatibility table](COMPATIBILITY.md), update the table in a pull request as well.

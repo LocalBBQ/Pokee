@@ -54,10 +54,8 @@ struct Settings {
     bool analog_camera{};
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
-    // The vertical is five discrete levels, and which byte in memory holds the
-    // level is not yet certain -- several pass every test the port can apply.
-    // Rather than guess, the choice is a setting: the player flips between the
-    // candidates until the camera answers. Off drives nothing.
+    // Continuous pitch in the ordinary quest camera. Off retains the game's
+    // discrete vertical commands; fixed and aiming cameras are left alone.
     bool vertical_camera{};
     bool invert_camera_x{};
     bool invert_camera_y{};

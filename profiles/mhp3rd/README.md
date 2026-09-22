@@ -294,6 +294,9 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Controls | Stick dead zone | `input.dead_zone` | `MHP3RD_PAD_DEADZONE` | 0–50% |
 | Controls | Trigger point | `input.trigger` | `MHP3RD_PAD_TRIGGER` | 5–100% |
 | Controls | Right stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off |
+| Controls | Analog camera | `input.analog_camera` | `MHP3RD_ANALOG_CAMERA` | Proportional horizontal control in the ordinary quest camera; off by default |
+| Controls | Vertical camera | `input.vertical_camera` | `MHP3RD_VERTICAL_CAMERA` | Continuous tilt; requires Analog camera; off by default |
+| Controls | Camera speed | `input.camera_speed` | `MHP3RD_CAMERA_SPEED` | 20–720 degrees per second at full deflection; default 190 |
 | Controls | Invert camera horizontally / vertically | `input.invert_camera_x`, `input.invert_camera_y` | | For the right-stick camera |
 | Controls | Right stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
@@ -538,9 +541,9 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button (menu: Confirm button) |
 | `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel (menu: Stick dead zone) |
 | `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press L/R (menu: Trigger point) |
-| `MHP3RD_ANALOG_CAMERA` | off | Turn the camera as far as the stick is pushed, instead of at the game's one fixed speed of 189.6°/s. The port drives the game's own camera angle and keeps the second stick centred as far as the game is concerned, so the two never fight; off writes nothing at all and the camera is the game's own (menu: Analog camera) |
+| `MHP3RD_ANALOG_CAMERA` | off | Proportional yaw in the ordinary quest camera. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
 | `MHP3RD_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
-| `MHP3RD_VERTICAL_CAMERA` | off | Look up and down as far as the stick is pushed, instead of the game's one-shot steps and glides. Needs the analog camera; below the dead zone the game keeps the camera, so its own vertical behaviour is left alone (menu: Vertical camera) |
+| `MHP3RD_VERTICAL_CAMERA` | off | Continuous quest-camera tilt, limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the tilt. The physical D-pad and recentre return control to the game. Requires Analog camera (menu: Vertical camera) |
 | `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Right stick) |
 | `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Right stick D-pad point) |
 | `MHP3RD_OSK_TEXT` | `Hunter` | Fixed name given when the game asks for one, at once and without the on-screen keyboard unless `MHP3RD_OSK_MODE=keyboard` (menu: Hunter name) |
@@ -558,6 +561,14 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_ADHOC_OVERLAY` | off | `1` shows the network overlay from the start |
 | `MHP3RD_ADHOC_HOST_PORT` | `27312` | TCP port of the built-in server's matchmaking service; the relay uses the next one (`network.host_port`) |
 
+### Analog camera
+
+In a quest, open **Controls** and enable **Analog camera** and **Vertical camera**. Small right-stick deflections turn slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. Fixed village cameras and special aiming modes remain stock; this feature does not unlock them.
+
+Switching either option takes effect at run time, with no regeneration or rebuild. Turning Analog camera off stops all analog-camera writes and passes the right stick through unchanged. Turning only Vertical camera off restores the game's vertical presets while keeping analog yaw.
+
+The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. No shared preset table or generated code is patched. The wrapper adds a dispatch through the existing runtime; it does not scan guest RAM.
+
 ### Diagnostics
 
 | Variable | Effect |
@@ -571,11 +582,10 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TRACE_3D=1` | Per-frame counts of transformed draws, their targets and screen-space bounds |
 | `MHP3RD_FIND_CAMERA=1` | Hunt guest memory for the words the camera is kept in, by what they do: one hunt against the yaw the view matrix reports and one against its pitch, trying every word as a float, a 32-bit and a 16-bit number, and as an angle, a rate, or a rate read a frame early. `MHP3RD_FIND_CAMERA_OUT` names a file the surviving list is written to |
 | `MHP3RD_FIND_STEP=N` | Keep the 16-bit fields that move by exactly N between turning frames. The camera's own yaw moves by 1150, which is 1150/65536 of a turn |
-| `MHP3RD_FIND_VERTICAL=1` | Hunt for the byte holding the camera's vertical level, by the fact that it steps when the vertical command fires and holds still in between. It does not yet find it reliably; see #106 |
 | `MHP3RD_FIND_FLOAT=V`, `MHP3RD_FIND_INT32=N` | List every place in guest memory holding that value. `MHP3RD_FIND_INT16_WIDE=1` searches 16-bit fields instead of 32-bit |
 | `MHP3RD_POKE_FOUND=V`, `MHP3RD_POKE_INT32=N` | Write a different value into what those found, once a frame. With more than one match, `MHP3RD_POKE_WHICH` must name an index or say `all`, since writing every place that held a number also writes whatever else held it |
 | `MHP3RD_POKE_FLOAT=0xADDRESS:V[,...]` | Write floats into guest memory once a frame, to turn a guess about a constant into a measurement |
-| `MHP3RD_CAMERA_INSTANT=1` | With the analog camera on, drive the angle the view is built from as well as the camera's target, which removes the game's own smoothing |
+| `MHP3RD_TRACE_CAMERA_STATE=path.csv` | Trace ordinary camera updates: frame, guest camera address, enabled state, stick axes, yaw target/current, stock eye offset and target height, owned pitch, recentre/D-pad flags, adjusted offset and previous observed pitch. Does not enable memory searches or renderer tracing |
 | `MHP3RD_TRACE_CAMERA=1` | One line per frame for the camera the game itself set: the second stick's offset from centre, the yaw and pitch read out of the frame's busiest view matrix, the turn since the previous frame, and the camera's world position. Reads the game's own camera, so it tells a stepped turn from a continuous one |
 | `MHP3RD_TRACE_FB_TEXTURES=1` | Each distinct texture that lies in a framebuffer the renderer drew (with both layouts), each large texture, `sceDmacMemcpy` copies into or out of VRAM, GE block transfers, new render targets, and the GE commands the renderer ignores. Add `PSPRECOMP_TRACE_VRAM_READS=1` to log game code reading VRAM with the CPU, per 64 KiB block and at most once a second |
 | `MHP3RD_TRACE_SPRITES=N` | Every through-mode draw of presented frame N: sprites one by one, other primitives by their bounds, with positions, texture coordinates and texture state |

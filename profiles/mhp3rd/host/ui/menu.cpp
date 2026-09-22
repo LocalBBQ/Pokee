@@ -509,9 +509,8 @@ void Menu::controls() {
     }
     {
         RowOptions o = options_for("input.vertical_camera",
-                                   "Look up and down as far as the stick is pushed, instead of the game's one-shot "
-                                   "steps. The port finds the camera's own angle while you play and then drives "
-                                   "it; below the dead zone the game keeps the camera.");
+                                   "Tilt the quest camera continuously. Stick deflection controls the speed; "
+                                   "release holds the tilt. The D-pad and recentre return to the game's camera.");
         if (!s.analog_camera && !o.disabled) {
             o.disabled = true;
             o.note = "Analog camera is off";

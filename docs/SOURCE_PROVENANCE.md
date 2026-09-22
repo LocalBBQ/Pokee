@@ -26,6 +26,10 @@ The built-in server (`server.cpp`, used by *Host a session* and `--adhoc-server`
 
 A profile owns its generated AOT corpus, address-specific lowering, HLE behavior and native fast paths. Those files remain isolated under `profiles/<id>` so they do not become hidden dependencies of the generic framework.
 
+## Analog camera
+
+`profiles/mhp3rd/host/input/analog_camera.cpp` was written from this project's own NPJB-40001 executable analysis and run-time traces. The camera caller, structure offsets, 16-bit yaw format and height-filter coefficient are observed facts. Continuous pitch uses an independently written spherical-orbit calculation. No third-party camera-mod code is included or adapted.
+
 ## Third-party components
 
 Third-party source, binary dependencies, shader code and notices stay beside the profile that needs them. Their original copyright and license notices must be preserved.

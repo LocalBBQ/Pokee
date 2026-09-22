@@ -241,6 +241,17 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_savedata_tests COMMAND mhp3rd_savedata_tests)
 endif()
 
+# Camera dispatch, ownership and integration checks without game data.
+add_executable(mhp3rd_camera_tests
+    tests/analog_camera_tests.cpp
+    host/input/analog_camera.cpp)
+target_include_directories(mhp3rd_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_camera_tests COMMAND mhp3rd_camera_tests)
+endif()
+
 # The built-in ad hoc server against the client and a raw protocol peer, and
 # local network discovery, all over the loopback address.
 add_executable(mhp3rd_adhoc_tests

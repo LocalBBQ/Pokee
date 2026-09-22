@@ -11,11 +11,16 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "kernel/kernel.hpp"
+#include "input/analog_camera.hpp"
 
 #include "psprecomp/common.hpp"
 #include "psprecomp/elf32.hpp"
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/sha256.hpp"
+
+#if __has_include("generated_units.hpp")
+#include "generated_units.hpp"
+#endif
 
 #include <atomic>
 #include <cerrno>
@@ -344,6 +349,10 @@ int main(int argc, char **argv) {
         (void)elf.load_and_relocate(runtime.memory(), mhp3rd::kLoadBase);
         psprecomp::register_generated_functions(runtime);
         mhp3rd::install_profile(runtime, elf, paths);
+#if __has_include("generated_units.hpp")
+        if (sha256 == mhp3rd::install::kExecutableSha256)
+            mhp3rd::input::install_analog_camera(runtime, &psprecomp::recomp_unit_0029);
+#endif
 
         std::cout << "Yakumo PSP bootstrap\n"
                   << "Executable: " << executable.string() << "\n"

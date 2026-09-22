@@ -194,19 +194,12 @@ void present_frame(Runtime &rt) {
     // The frame's camera has been measured by now, so the hunt for the guest
     // variables behind it can compare RAM against it.
     probe::camera_frame(rt, media().ge.view_matrix_source());
-    // The port's own camera, if the player has asked for one. It needs the turn
-    // the game just made, which the renderer read out of the view matrix, and
-    // the stick as the player is actually holding it.
+    // Camera input is already shaped and inverted by the input layer. The
+    // camera hook runs at the guest update, independently of renderer tracing.
     {
-        const gpu::CameraReading reading = renderer.camera();
-        const settings::Settings &player = settings::current();
-        float deflection = (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f;
-        if (player.invert_camera_x) deflection = -deflection;
-        static float last_pitch = 0.0f;
-        const float pitch_change = reading.pitch - last_pitch;
-        last_pitch = reading.pitch;
+        const float deflection = (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f;
         const float stick_y = (static_cast<int>(renderer.pad().right_y) - 0x80) / 127.0f;
-        input::analog_camera_frame(rt, reading.turn, deflection, pitch_change, reading.yaw, reading.pitch, stick_y);
+        input::analog_camera_frame(deflection, stick_y);
     }
     perf::add_render_time(perf::Clock::now() - present_start);
     // A frame ends when its image has been handed to the swapchain.
@@ -301,17 +294,13 @@ void register_display_ctrl(HleRegistrar &hle) {
             analog_y = pad.analog_y;
             right_x = pad.right_x;
             right_y = pad.right_y;
-            // While the port drives the camera, the game is told the stick is
-            // centred, so it never turns the camera itself and the two cannot
-            // fight. The vertical is left alone: it is a pair of one-shot
-            // commands, not an axis, and is a separate piece of work.
+            // Keep the game's digital commands neutral while the analog
+            // camera consumes these axes. The physical D-pad stays available.
             if (input::analog_camera_driving()) right_x = 0x80u;
             // The same for up and down once the port drives those: otherwise
             // the game's one-shot command fires from the same push and glides
             // the camera against what the port is doing.
-            if (input::analog_camera_vertical_driving() &&
-                (static_cast<int>(pad.right_y) - 0x80 > 19 || static_cast<int>(pad.right_y) - 0x80 < -19))
-                right_y = 0x80u;
+            if (input::analog_camera_vertical_driving()) right_y = 0x80u;
         }
 #endif
         auto &memory = rt.memory();
