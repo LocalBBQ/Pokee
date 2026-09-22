@@ -205,7 +205,7 @@ void present_frame(Runtime &rt) {
         static float last_pitch = 0.0f;
         const float pitch_change = reading.pitch - last_pitch;
         last_pitch = reading.pitch;
-        input::analog_camera_frame(rt, reading.turn, deflection, pitch_change, reading.yaw);
+        input::analog_camera_frame(rt, reading.turn, deflection, pitch_change, reading.yaw, reading.pitch);
     }
     perf::add_render_time(perf::Clock::now() - present_start);
     // A frame ends when its image has been handed to the swapchain.

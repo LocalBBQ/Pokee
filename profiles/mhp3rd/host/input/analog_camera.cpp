@@ -87,6 +87,7 @@ struct Vertical {
     std::vector<std::uint8_t> before;
     std::vector<std::uint32_t> levels;
     std::vector<std::uint8_t> held;   // the level each candidate last showed
+    int watched{};                    // frames of level-against-pitch still to print
     bool searching{};
     int firings{};
     bool reported{};
@@ -180,8 +181,27 @@ std::int16_t to_units(float degrees) {
     return static_cast<std::int16_t>(static_cast<int>(wrapped * kUnitsPerTurn / 360.0f) & 0xFFFF);
 }
 
+// Once the level bytes are named, the value the glide moves should be beside
+// one of them, and the game is said to keep it as roughly the angle times ten.
+// Rather than guess at the convention, print each candidate's level next to the
+// pitch the view actually has, and the 16-bit words around it, so the mapping
+// can be read off instead of assumed.
+void watch_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch) {
+    Vertical &v = vertical();
+    if (!v.reported || v.levels.empty()) return;
+    if (v.watched >= 40) return;
+    ++v.watched;
+    std::cout << "[analog-camera] vertical: pitch " << pitch << " deg;";
+    for (std::uint32_t address : v.levels) {
+        const std::uint32_t offset = address - base;
+        if (offset + 2u > size) continue;
+        std::cout << " 0x" << std::hex << address << std::dec << "=" << static_cast<int>(ram[offset]);
+    }
+    std::cout << "\n";
+}
+
 void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change,
-                         float yaw_degrees) {
+                         float yaw_degrees, float pitch_now) {
     Camera &c = camera();
     if (!settings::current().analog_camera) {
         if (c.state != Camera::State::Looking) c = Camera{};
@@ -195,6 +215,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     if (ram == nullptr) return;
 
     look_for_vertical(ram, base, size, pitch_change);
+    watch_vertical(ram, base, size, pitch_now);
 
     if (c.state == Camera::State::Looking) {
         // Nothing to compare against until the game turns the camera itself,

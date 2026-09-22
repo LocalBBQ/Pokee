@@ -32,7 +32,7 @@ namespace mhp3rd::input {
 // Once per presented frame, before the guest's next camera update.
 // `turn` is the degrees the camera turned last frame, from the view matrix;
 // `deflection` is the player's stick, -1 to 1, after dead zone and inversion.
-void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change, float yaw_degrees);
+void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change, float yaw_degrees, float pitch_now);
 
 // True while the port is driving the camera, so the second stick handed to the
 // game is centred and the game leaves the camera alone.
