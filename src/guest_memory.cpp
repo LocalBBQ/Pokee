@@ -24,8 +24,8 @@ struct WriteWatch {
     std::uint32_t size{4u};
 };
 
-const WriteWatch &write_watch() {
-    static const WriteWatch watch = [] {
+WriteWatch &write_watch() {
+    static WriteWatch watch = [] {
         WriteWatch result{};
         const char *text = std::getenv("PSPRECOMP_WATCH_WRITE");
         if (text == nullptr || *text == '\0') return result;
@@ -68,6 +68,24 @@ void log_write_watch(std::uint32_t address, std::size_t length, const char *oper
               << " old=0x" << std::hex << old_value
               << " new=0x" << new_value << std::dec << "\n";
 }
+}  // namespace
+
+// Re-points the write watch while the guest runs, so a tool that has just found
+// an address of interest can watch it in the same run instead of hoping it
+// still means the same thing in the next one. Only ever takes effect when
+// PSPRECOMP_WATCH_WRITE armed the slow store path at start-up: without that,
+// stores never reach the check at all.
+void set_write_watch(std::uint32_t address, std::uint32_t size) {
+    WriteWatch &watch = write_watch();
+    if (!watch.enabled) {
+        std::cerr << "[watch-write] not armed at start-up, so 0x" << std::hex << address << std::dec
+                  << " cannot be watched; set PSPRECOMP_WATCH_WRITE to any address to arm it\n";
+        return;
+    }
+    watch.address = address;
+    watch.size = size == 0u ? 4u : size;
+    std::cerr << "[watch-write] now watching 0x" << std::hex << watch.address << std::dec << " for "
+              << watch.size << " bytes\n";
 }
 
 GuestMemory::GuestMemory(std::uint32_t size_bytes)
