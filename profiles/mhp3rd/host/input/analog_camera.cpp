@@ -247,6 +247,7 @@ struct Pitch {
     std::int16_t nudged{};
     bool waiting{};
     std::uint32_t confirmed{};
+    int attempts{};
 };
 
 Pitch &pitch_search() {
@@ -315,8 +316,18 @@ void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t s
 void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, float turn) {
     static const bool wanted = std::getenv("MHP3RD_FIND_PITCH") != nullptr;
     if (!wanted) return;
+    // This *writes* five degrees into a candidate to see whether the view
+    // answers, and most candidates are not the camera. It was gated only on the
+    // search being switched on, so turning Vertical camera off did not stop it
+    // -- which is why a claim that the vertical could not touch the horizontal
+    // turned out to be false, four times over. The switch now governs every
+    // write the vertical makes, including this one.
+    if (!settings::current().vertical_camera) return;
     Pitch &p = pitch_search();
     if (p.confirmed != 0u || p.best.empty()) return;
+    // And it gives up rather than cycling for ever, writing into one field
+    // after another that was never the camera.
+    if (p.attempts > 24) return;
     // Only while the player and the game are both leaving the camera alone.
     if (std::fabs(stick_y) > 0.1f || std::fabs(turn) > 0.2f) return;
 
@@ -332,6 +343,9 @@ void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, f
             p.trying = (p.trying + 1u) % p.best.size();
             p.waiting = false;
             p.settle = 0;
+            if (++p.attempts > 24)
+                std::cout << "[analog-camera] none of the candidates moved the view; giving up rather than "
+                             "writing into more of them\n";
         }
         return;
     }
