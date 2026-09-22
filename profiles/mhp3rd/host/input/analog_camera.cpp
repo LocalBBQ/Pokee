@@ -344,31 +344,55 @@ void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, f
     p.settle = 0;
 }
 
+// The vertical axis, on the field the self-test proved: writing 0x8ABDFB0-style
+// fields moves the view, so the port can put the player's own angle there. The
+// game eases the view towards it, which is what keeps the camera feeling like
+// this game rather than a twin-stick shooter.
+float &vertical_owed() {
+    static float value = 0.0f;
+    return value;
+}
+
 void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
     const settings::Settings &player = settings::current();
-    if (!player.vertical_camera) return;
-    Vertical &v = vertical();
-    if (v.levels.empty()) return;
-    const std::size_t which = static_cast<std::size_t>(player.vertical_candidate);
-    if (which >= v.levels.size()) return;
-    // Leave it alone unless the player is actually asking for a height, so the
-    // game keeps the camera the rest of the time.
-    if (std::fabs(stick_y) < 0.25f) return;
-    // Full up is the highest level, full down the lowest, and the five are the
-    // game's own -- nothing outside them is ever written.
-    const float wanted = (1.0f - stick_y) * 0.5f * 4.0f;
-    int level = static_cast<int>(wanted + 0.5f);
-    if (level < 0) level = 0;
-    if (level > 4) level = 4;
-    const std::uint32_t address = v.levels[which];
-    if (static_cast<int>(memory.load8(address)) == level) return;
-    memory.store8(address, static_cast<std::uint8_t>(level));
-    static int said = 0;
-    if (said < 12) {
-        ++said;
-        std::cout << "[analog-camera] vertical: candidate " << which << " at 0x" << std::hex << address << std::dec
-                  << " set to level " << level << "\n";
+    if (!player.analog_camera || !player.vertical_camera) return;
+    Pitch &p = pitch_search();
+    if (p.confirmed == 0u) return;
+    // Below the dead zone the game keeps the camera, so its own behaviour --
+    // the recentre included -- is left alone.
+    if (std::fabs(stick_y) < 0.15f) {
+        vertical_owed() = 0.0f;
+        return;
     }
+    const float speed = player.camera_speed;
+    float per_frame = stick_y * speed / kFramesPerSecond;
+    if (player.invert_camera_y) per_frame = -per_frame;
+    float &owed = vertical_owed();
+    owed += per_frame * kUnitsPerTurn / 360.0f;
+    const int whole = static_cast<int>(owed);
+    owed -= static_cast<float>(whole);
+    if (whole == 0) return;
+
+    const std::int16_t now = static_cast<std::int16_t>(memory.load16(p.confirmed));
+    int next = now + whole;
+    // Keep the camera out of the floor and off the ceiling: the game's own
+    // range never took the view far past sixty degrees either way in anything
+    // measured, so that is where this stops.
+    const int limit = static_cast<int>(60.0f * kUnitsPerTurn / 360.0f);
+    if (next > limit) next = limit;
+    if (next < -limit) next = -limit;
+    memory.store16(p.confirmed, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
+    static bool said = false;
+    if (!said) {
+        said = true;
+        std::cout << "[analog-camera] driving the camera up and down from the stick at 0x" << std::hex
+                  << p.confirmed << std::dec << "\n";
+    }
+}
+
+bool analog_camera_vertical_driving() {
+    const settings::Settings &player = settings::current();
+    return player.analog_camera && player.vertical_camera && pitch_search().confirmed != 0u;
 }
 
 void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change,

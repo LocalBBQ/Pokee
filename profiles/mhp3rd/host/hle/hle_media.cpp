@@ -306,6 +306,12 @@ void register_display_ctrl(HleRegistrar &hle) {
             // fight. The vertical is left alone: it is a pair of one-shot
             // commands, not an axis, and is a separate piece of work.
             if (input::analog_camera_driving()) right_x = 0x80u;
+            // The same for up and down once the port drives those: otherwise
+            // the game's one-shot command fires from the same push and glides
+            // the camera against what the port is doing.
+            if (input::analog_camera_vertical_driving() &&
+                (static_cast<int>(pad.right_y) - 0x80 > 19 || static_cast<int>(pad.right_y) - 0x80 < -19))
+                right_y = 0x80u;
         }
 #endif
         auto &memory = rt.memory();

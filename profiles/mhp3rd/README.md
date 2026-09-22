@@ -540,6 +540,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press L/R (menu: Trigger point) |
 | `MHP3RD_ANALOG_CAMERA` | off | Turn the camera as far as the stick is pushed, instead of at the game's one fixed speed of 189.6°/s. The port drives the game's own camera angle and keeps the second stick centred as far as the game is concerned, so the two never fight; off writes nothing at all and the camera is the game's own (menu: Analog camera) |
 | `MHP3RD_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
+| `MHP3RD_VERTICAL_CAMERA` | off | Look up and down as far as the stick is pushed, instead of the game's one-shot steps and glides. Needs the analog camera; below the dead zone the game keeps the camera, so its own vertical behaviour is left alone (menu: Vertical camera) |
 | `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Right stick) |
 | `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Right stick D-pad point) |
 | `MHP3RD_OSK_TEXT` | `Hunter` | Fixed name given when the game asks for one, at once and without the on-screen keyboard unless `MHP3RD_OSK_MODE=keyboard` (menu: Hunter name) |

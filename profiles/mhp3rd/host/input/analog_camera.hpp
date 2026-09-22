@@ -38,4 +38,9 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
 // game is centred and the game leaves the camera alone.
 [[nodiscard]] bool analog_camera_driving();
 
+// True while the port is driving the camera up and down, so the game's own
+// one-shot vertical commands are not fired from the same stick and the two do
+// not fight. Below the dead zone this is false and the game keeps the camera.
+[[nodiscard]] bool analog_camera_vertical_driving();
+
 } // namespace mhp3rd::input

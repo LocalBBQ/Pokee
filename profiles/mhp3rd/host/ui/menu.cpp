@@ -509,14 +509,14 @@ void Menu::controls() {
     }
     {
         RowOptions o = options_for("input.vertical_camera",
-                                   "Drive the camera up and down from the stick, instead of the game's five fixed "
-                                   "heights. An experiment: which value in the game holds that height is not yet "
-                                   "certain, so try each candidate below until the camera answers.");
+                                   "Look up and down as far as the stick is pushed, instead of the game's one-shot "
+                                   "steps. The port finds the camera's own angle while you play and then drives "
+                                   "it; below the dead zone the game keeps the camera.");
         if (!s.analog_camera && !o.disabled) {
             o.disabled = true;
             o.note = "Analog camera is off";
         }
-        if (toggle_row("Vertical camera (experiment)", s.vertical_camera, o)) {
+        if (toggle_row("Vertical camera", s.vertical_camera, o)) {
             s.vertical_camera = !s.vertical_camera;
             settings::save();
         }
