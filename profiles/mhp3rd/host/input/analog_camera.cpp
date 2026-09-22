@@ -264,9 +264,10 @@ Pitch &pitch_search() {
 void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch) {
     if (!settings::current().vertical_camera) return;
     Pitch &p = pitch_search();
-    // Only worth judging while the pitch is actually changing; a still camera
-    // lets every constant in memory keep a constant offset from it.
-    const bool moving = std::fabs(pitch - p.last) >= 0.05f;
+    // Only worth judging while the pitch is really changing. A twentieth of a
+    // degree is noise: it eliminates almost nothing and leaves the whole set to
+    // be walked again next frame.
+    const bool moving = std::fabs(pitch - p.last) >= 1.0f;
     p.last = pitch;
     if (!moving) return;
     const std::int16_t units = to_units(pitch);
@@ -275,12 +276,21 @@ void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t s
         for (std::uint32_t offset = 0; offset + 2u <= size; offset += 2u) {
             std::int16_t value = 0;
             std::memcpy(&value, ram + offset, sizeof(value));
+            // Admitting every field in sixty-four megabytes means thirty-three
+            // million candidates, three hundred megabytes of bookkeeping and a
+            // pass over all of it every frame -- which is why the search sat at
+            // 33,525,664 and the vertical never got as far as confirming
+            // anything. The camera's own angle sits within a degree or two of
+            // the view's, as both of the fields found earlier did at +41 and
+            // +440, so anything further away than ten degrees is not it.
+            const std::int16_t apart = static_cast<std::int16_t>(units - value);
+            if (apart > 1800 || apart < -1800) continue;
             bool refused = false;
             for (std::uint32_t bad : p.rejected)
                 if (bad == base + offset) refused = true;
             if (refused) continue;
             p.fields.push_back(base + offset);
-            p.offsets.push_back(static_cast<std::int16_t>(units - value));
+            p.offsets.push_back(apart);
             p.misses.push_back(0u);
         }
         p.started = true;
