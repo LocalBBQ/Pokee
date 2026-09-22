@@ -3284,11 +3284,17 @@ void VulkanRenderer::present(std::uint32_t display_address) {
         while (turn < -180.0f) turn += 360.0f;
         impl.traced_yaw = yaw;
         const std::ios::fmtflags flags = std::cout.flags();
+        const std::streamsize precision = std::cout.precision();
         std::cout << std::fixed << std::setprecision(4) << "[camera] frame " << impl.frames << " stick="
                   << static_cast<int>(impl.pad.right_x) - 0x80 << "," << static_cast<int>(impl.pad.right_y) - 0x80
                   << " yaw=" << yaw << " pitch=" << pitch << " turn=" << turn << " pos=" << std::setprecision(1) << px
                   << "," << py << "," << pz << " views=" << impl.frame_views.size() << "\n";
         std::cout.flags(flags);
+        // Precision is not one of a stream's flags, so restoring the flags
+        // leaves it wherever the line left it -- here at one significant digit
+        // for the position -- and every number printed afterwards by anything
+        // else comes out rounded to one digit for the rest of the run.
+        std::cout.precision(precision);
     }
     impl.frame_views.clear();
     impl.frame_through_draws = 0u;
