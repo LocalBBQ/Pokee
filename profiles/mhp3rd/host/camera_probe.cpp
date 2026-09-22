@@ -363,13 +363,18 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
     // earlier hunts already chased.
     static const int kRotation[9] = {0, 1, 2, 4, 5, 6, 8, 9, 10};
     const auto basis_of = [&](int which) { return reading.view[static_cast<std::size_t>(kRotation[which])]; };
+    // A basis entry near zero is matched by every zero word in sixty-four
+    // megabytes, and there are millions of those; only the entries with real
+    // magnitude carry information.
+    constexpr float kMeaningful = 0.05f;
     const auto holds = [&](std::uint32_t offset, int which) {
+        const float wanted = basis_of(which);
+        if (std::fabs(wanted) < kMeaningful) return false;
         std::uint32_t stored = 0u;
         std::memcpy(&stored, ram + offset, sizeof(stored));
         float value = 0.0f;
         std::memcpy(&value, &stored, sizeof(value));
-        const float wanted = basis_of(which);
-        return std::isfinite(value) && std::fabs(value - wanted) <= 1e-6f + std::fabs(wanted) * 1e-5f;
+        return std::isfinite(value) && std::fabs(value - wanted) <= std::fabs(wanted) * 1e-5f;
     };
     // A camera pointing along an axis makes every zero in memory look like a
     // basis entry, so only judge while it is turned well away from one.
