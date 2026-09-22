@@ -88,6 +88,7 @@ struct Vertical {
     std::vector<std::uint32_t> levels;
     std::vector<std::uint8_t> held;   // the level each candidate last showed
     int watched{};                    // frames of level-against-pitch still to print
+    std::size_t named{};              // how many were last printed
     bool searching{};
     int firings{};
     bool reported{};
@@ -157,11 +158,15 @@ void look_for_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_
     if (v.levels.size() != was || fired)
         std::cout << "[analog-camera] vertical: " << v.levels.size() << " left after " << v.firings
                   << " firings\n";
-    if (!v.levels.empty() && v.levels.size() <= 8u && v.firings >= 3) {
+    // Name them whenever the set is small, but keep narrowing: another firing
+    // may take two to one, and stopping at the first small answer is how a
+    // search gets believed too early.
+    if (!v.levels.empty() && v.levels.size() <= 8u && v.firings >= 3 && v.levels.size() != v.named) {
         std::cout << "[analog-camera] vertical level byte candidates:";
         for (std::uint32_t address : v.levels) std::cout << " 0x" << std::hex << address << std::dec;
         std::cout << "\n";
-        v.reported = true;
+        v.named = v.levels.size();
+        if (v.levels.size() == 1u) v.reported = true;
     }
     if (v.levels.empty()) {
         std::cout << "[analog-camera] vertical: none of them stepped when told; looking again\n";
