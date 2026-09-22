@@ -51,8 +51,17 @@ constexpr int kCooldownFrames = 180;
 // far too big to print every frame.
 constexpr std::size_t kPrintable = 24u;
 // Per kind, not overall: a single cap ran out during the float pass and the
-// int16 pass never ran at all.
-constexpr std::size_t kMostPerKind = 3u * 1000u * 1000u;
+// int16 pass never ran at all. Kept small on purpose -- a candidate costs
+// thirty-two bytes and a read every frame, and three million of them per kind
+// is most of a gigabyte and a slideshow on an eight-gigabyte machine. An
+// admission worth having collapses to hundreds within a few frames anyway, so
+// a kind that overflows this had nothing to say and is dropped whole rather
+// than truncated.
+constexpr std::size_t kMostPerKind = 400u * 1000u;
+// A hunt that has not collapsed by now was started from a movement too weak to
+// discriminate; carrying it costs a read per candidate per frame for nothing.
+constexpr std::uint64_t kCollapseBy = 4u;
+constexpr std::size_t kCollapsedTo = 20u * 1000u;
 // One disagreeing frame is not proof. The filter's knee, where the camera goes
 // from driven to coasting, moved every survivor of one hunt out of step for a
 // single frame and threw all of them away.
@@ -61,9 +70,10 @@ constexpr int kStrikes = 3;
 // A camera can be kept either way round: as an angle, which moves by the turn
 // each frame, or as the turn itself, which *is* the rate the filter carries.
 // The second is the one worth having, since scaling it is the whole point.
-// A rate may also be read a frame before it shows up in the matrix, so it is
-// tried both aligned with this frame's turn and with the next one's.
-enum class Shape : std::uint8_t { Angle, Rate, RateLead };
+// A rate may also be read a frame before it shows up in the matrix. That is a
+// question for the filter, which accepts either alignment, rather than for
+// admission, where a third shape would let in every word in memory.
+enum class Shape : std::uint8_t { Angle, Rate };
 
 struct Candidate {
     std::uint32_t offset{};
@@ -81,6 +91,7 @@ struct Hunt {
     const char *name{};
     bool armed{};
     bool have_snapshot{};
+    float snapshot_signal{};
     int attempts{};
     int cooldown{};
     std::uint64_t frames{};
@@ -130,9 +141,7 @@ const char *name_of(Kind kind) {
     return kind == Kind::Float32 ? "float" : kind == Kind::Int32 ? "int32" : "int16";
 }
 
-const char *shape_of(Shape shape) {
-    return shape == Shape::Angle ? "angle" : shape == Shape::Rate ? "rate" : "rate-lead";
-}
+const char *shape_of(Shape shape) { return shape == Shape::Angle ? "angle" : "rate"; }
 
 bool plausible(Kind kind, double ratio) {
     const double size_of = std::fabs(ratio);
@@ -158,23 +167,37 @@ void write_lists(const Probe &p, std::uint32_t base) {
     write_list(p.pitch, base, out);
 }
 
-void admit(Hunt &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
+void admit(Hunt &p, const std::uint8_t *ram, std::uint32_t size, float before_signal, float turn) {
     const auto try_kind = [&](Kind kind, std::uint32_t stride, std::uint32_t width) {
-        const std::size_t ceiling = p.candidates.size() + kMostPerKind;
+        const std::size_t before_kind = p.candidates.size();
+        const std::size_t ceiling = before_kind + kMostPerKind;
+        bool overflowed = false;
         for (std::uint32_t offset = 0; offset + width <= size; offset += stride) {
-            if (p.candidates.size() >= ceiling) return;
+            if (p.candidates.size() >= ceiling) {
+                overflowed = true;
+                break;
+            }
             const double before = read_as(p.snapshot.data(), offset, kind);
             const double now = read_as(ram, offset, kind);
             // An angle moves by the turn; a rate simply is the turn.
             const double angle_ratio = (now - before) / static_cast<double>(turn);
             if (now != before && plausible(kind, angle_ratio))
                 p.candidates.push_back({offset, kind, Shape::Angle, angle_ratio, now});
+            // A rate is the movement, so it has to keep the same proportion to
+            // it on both frames. Asking that at the door is what keeps this
+            // from admitting every non-zero word in sixty-four megabytes.
             const double rate_ratio = now / static_cast<double>(turn);
-            if (now != 0.0 && plausible(kind, rate_ratio))
+            const double was_ratio = before / static_cast<double>(before_signal);
+            if (now != 0.0 && before != 0.0 && plausible(kind, rate_ratio) &&
+                std::fabs(rate_ratio - was_ratio) <= 0.05 * std::fabs(rate_ratio))
                 p.candidates.push_back({offset, kind, Shape::Rate, rate_ratio, now});
-            const double lead_ratio = before / static_cast<double>(turn);
-            if (before != 0.0 && plausible(kind, lead_ratio))
-                p.candidates.push_back({offset, kind, Shape::RateLead, lead_ratio, now});
+        }
+        if (overflowed) {
+            // Too many to be a signal; keeping a truncated prefix would only
+            // hide whichever kind came after it.
+            p.candidates.resize(before_kind);
+            std::cout << "[find-camera] " << p.name << ": too many " << name_of(kind)
+                      << " words matched to mean anything; that kind is dropped for this attempt\n";
         }
     };
     try_kind(Kind::Float32, 4u, 4u);
@@ -197,12 +220,13 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
     }
     if (!h.armed && !h.have_snapshot) {
         h.snapshot.assign(ram, ram + size);
+        h.snapshot_signal = signal;
         h.have_snapshot = true;
         return;
     }
     if (!h.armed) {
         h.candidates.clear();
-        admit(h, ram, size, signal);
+        admit(h, ram, size, h.snapshot_signal, signal);
         h.armed = true;
         h.frames = 1u;
         // The snapshot has done its work; 64 MiB is worth giving back.
@@ -225,10 +249,14 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
             continue;
         }
         const double expected = c.ratio * static_cast<double>(signal);
-        const double seen = c.shape == Shape::Angle    ? now - c.previous
-                            : c.shape == Shape::Rate   ? now
-                                                       : c.previous;
-        if (std::fabs(seen - expected) > slack_of(c.kind, expected)) {
+        // A rate may be read a frame before it reaches the matrix, so either
+        // alignment counts as agreement.
+        const bool agrees =
+            c.shape == Shape::Angle
+                ? std::fabs((now - c.previous) - expected) <= slack_of(c.kind, expected)
+                : (std::fabs(now - expected) <= slack_of(c.kind, expected) ||
+                   std::fabs(c.previous - expected) <= slack_of(c.kind, expected));
+        if (!agrees) {
             if (++c.strikes >= kStrikes) continue;
         } else if (c.strikes != 0u) {
             --c.strikes;  // it came back into step, so forgive the earlier frame
@@ -238,7 +266,14 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
     }
     const bool thinned = kept.size() != h.candidates.size();
     h.candidates.swap(kept);
+    h.candidates.shrink_to_fit();
     ++h.frames;
+    if (h.frames >= kCollapseBy && h.candidates.size() > kCollapsedTo) {
+        std::cout << "[find-camera] " << h.name << ": " << h.candidates.size() << " still standing after "
+                  << h.frames << " frames, so that movement could not tell them apart; starting over\n";
+        h.candidates.clear();
+        h.candidates.shrink_to_fit();
+    }
 
     if (thinned) {
         std::cout << "[find-camera] " << h.name << " after " << h.frames << " moving frames (" << signal
