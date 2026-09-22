@@ -254,6 +254,7 @@ struct Pitch {
     int ignored{};
     int reported_drive{};
     float last_seen{};
+    bool tried_derived{};
 };
 
 Pitch &pitch_search() {
@@ -357,7 +358,22 @@ void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, f
     // degrees into the yaw's own angle before anyone could stop it.
     if (camera().state != Camera::State::Locked) return;
     Pitch &p = pitch_search();
-    if (p.confirmed != 0u || p.best.empty()) return;
+    if (p.confirmed != 0u) return;
+    // Before trying fields that merely keep step with the view, try the one the
+    // game's own code points at. The yaw's target sits at cam+0x80 and the
+    // camera structure at object+0xA0, so the object is 0x120 below the address
+    // the horizontal locked -- and reading the camera function shows an angle
+    // at object+0x5A with three quarters of its change per frame beside it at
+    // object+0x52, the same shape the yaw has. Every field the correlation
+    // search has offered moved the view by exactly zero; this one is derived
+    // rather than guessed.
+    if (!p.tried_derived) {
+        p.tried_derived = true;
+        p.best.insert(p.best.begin(), camera().address - 0x120u + 0x5Au);
+        std::cout << "[analog-camera] trying the angle the game's code points at first: 0x" << std::hex
+                  << (camera().address - 0x120u + 0x5Au) << std::dec << "\n";
+    }
+    if (p.best.empty()) return;
     // And it gives up rather than cycling for ever, writing into one field
     // after another that was never the camera.
     if (p.attempts > 24) return;
