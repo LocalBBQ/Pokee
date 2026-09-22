@@ -85,6 +85,7 @@ void forget(Camera &c, const char *why) {
 struct Vertical {
     std::vector<std::uint8_t> before;
     std::vector<std::uint32_t> levels;
+    std::vector<std::uint8_t> held;   // the level each candidate last showed
     bool searching{};
     int firings{};
     bool reported{};
@@ -100,24 +101,22 @@ Vertical &vertical() {
 constexpr float kVerticalFired = 1.5f;
 
 void look_for_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch_change) {
-    // Off unless asked for. "A byte holding 0 to 4" also describes most of the
-    // zero bytes in 64 MiB, so as it stands this keeps two hundred thousand
-    // candidates and copies guest memory on every firing -- it needs a second
-    // condition before it is worth running, and it should not cost anything or
-    // fill the log meanwhile.
     static const bool wanted = std::getenv("MHP3RD_FIND_VERTICAL") != nullptr;
     if (!wanted) return;
     Vertical &v = vertical();
     if (v.reported) return;
-    if (std::fabs(pitch_change) < kVerticalFired) {
-        // Keep a picture of memory from a quiet frame to compare the next
-        // firing against.
-        if (!v.searching && v.before.empty()) v.before.assign(ram, ram + size);
-        return;
-    }
-    if (v.before.empty()) return;
 
+    const bool fired = std::fabs(pitch_change) >= kVerticalFired;
     if (!v.searching) {
+        if (!fired) {
+            if (v.before.empty()) v.before.assign(ram, ram + size);
+            return;
+        }
+        if (v.before.empty()) return;
+        // A byte holding one of five values is most of memory. What is not is a
+        // byte that holds one of five values, changes on the frame the vertical
+        // fires, and holds still in between -- so both halves are asked for,
+        // the first here and the second on every quiet frame after.
         for (std::uint32_t offset = 0; offset < size; ++offset) {
             const std::uint8_t now = ram[offset];
             const std::uint8_t was = v.before[offset];
@@ -125,24 +124,42 @@ void look_for_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_
         }
         v.searching = true;
         v.firings = 1;
+        v.held.assign(v.levels.size(), 0u);
+        for (std::size_t i = 0; i < v.levels.size(); ++i) v.held[i] = ram[v.levels[i] - base];
         std::cout << "[analog-camera] vertical: " << v.levels.size()
-                  << " bytes hold a level of 0 to 4 and changed when it fired\n";
-    } else {
-        std::vector<std::uint32_t> kept;
-        for (std::uint32_t address : v.levels) {
-            const std::uint8_t now = ram[address - base];
-            if (now <= 4u) kept.push_back(address);
-        }
-        v.levels.swap(kept);
-        ++v.firings;
-        std::cout << "[analog-camera] vertical: " << v.levels.size() << " left after " << v.firings << " firings";
-        if (v.levels.size() <= 16u) {
-            for (std::uint32_t address : v.levels) std::cout << " 0x" << std::hex << address << std::dec;
-            if (!v.levels.empty() && v.firings >= 3) v.reported = true;
-        }
-        std::cout << "\n";
+                  << " bytes hold 0 to 4 and changed when it fired\n";
+        v.before.clear();
+        v.before.shrink_to_fit();
+        return;
     }
-    v.before.assign(ram, ram + size);
+
+    std::vector<std::uint32_t> kept;
+    std::vector<std::uint8_t> kept_held;
+    for (std::size_t i = 0; i < v.levels.size(); ++i) {
+        const std::uint8_t now = ram[v.levels[i] - base];
+        if (now > 4u) continue;                       // never a level
+        if (!fired && now != v.held[i]) continue;     // a level does not drift
+        if (fired && now == v.held[i] && v.firings > 1) continue;  // and it does step when told
+        kept.push_back(v.levels[i]);
+        kept_held.push_back(now);
+    }
+    const std::size_t was = v.levels.size();
+    v.levels.swap(kept);
+    v.held.swap(kept_held);
+    if (fired) ++v.firings;
+    if (v.levels.size() != was || fired)
+        std::cout << "[analog-camera] vertical: " << v.levels.size() << " left after " << v.firings
+                  << " firings\n";
+    if (!v.levels.empty() && v.levels.size() <= 8u && v.firings >= 3) {
+        std::cout << "[analog-camera] vertical level byte candidates:";
+        for (std::uint32_t address : v.levels) std::cout << " 0x" << std::hex << address << std::dec;
+        std::cout << "\n";
+        v.reported = true;
+    }
+    if (v.levels.empty()) {
+        std::cout << "[analog-camera] vertical: none of them stepped when told; looking again\n";
+        v = Vertical{};
+    }
 }
 
 } // namespace
