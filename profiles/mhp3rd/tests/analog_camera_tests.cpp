@@ -5,6 +5,7 @@
 #include "settings/settings.hpp"
 #include "psprecomp/runtime.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -272,51 +273,101 @@ void test_motion_source() {
           "motion made while the camera is not driven is dropped");
 }
 
-void test_aiming_moves_the_aim() {
+// The weapon's aim code, as far as the driver sees it: while its commands are
+// on it steps the facing and one vertical aim by fixed amounts, and in some
+// states it does not step at all.
+struct GameAim {
+    std::uint32_t hunter;
+    int yaw_step{};    // +-624 while a horizontal command is on
+    int pitch_step{};  // +-8 while a vertical command is on
+    std::uint32_t pitch_offset{0xC22u};
+    void step(psprecomp::GuestMemory &m) const {
+        const auto heading = static_cast<std::uint16_t>(m.load16(hunter + 0x188u) + yaw_step);
+        m.store16(hunter + 0x188u, heading);
+        m.store16(hunter + 0x74u, heading);
+        if (pitch_offset == 0xC24u) {
+            const int v = std::clamp(static_cast<std::int16_t>(m.load16(hunter + 0xC24u)) + pitch_step * 64, -8192, 8192);
+            m.store16(hunter + 0xC24u, static_cast<std::uint16_t>(static_cast<std::int16_t>(v)));
+        } else {
+            const int v = std::clamp(static_cast<std::int8_t>(m.load8(hunter + pitch_offset)) + pitch_step, -100, 100);
+            m.store8(hunter + pitch_offset, static_cast<std::uint8_t>(static_cast<std::int8_t>(v)));
+        }
+    }
+};
+
+void test_aiming_sizes_the_games_steps() {
     constexpr std::uint32_t hunter = 0x08904000u;
     Fixture f;
     f.enable();
     auto &m = f.runtime.memory();
     f.ctx.gpr[21] = hunter;
-    m.store16(hunter + 0x74u, 20000u);
     m.store16(hunter + 0x188u, 20000u);
+    m.store16(hunter + 0x74u, 20000u);
+    GameAim game{hunter};
+    const auto aim_frame = [&](float x, float y) {
+        f.flip(x, y);
+        game.step(m);
+        f.update();
+    };
     f.frame(0.0f, 0.0f);
-    check(game_camera_driving(), "the ordinary camera is driven");
-    // The weapon reports an aim: the stick moves the aim in the hunter, and
-    // the game's camera follows it by itself.
-    m.store8(camera_address + 0x91u, 0u);
-    f.frame(0.0f, 0.0f);
+    m.store8(camera_address + 0x91u, 0u);  // the weapon reports an aim
     f.reset_offset();
     const auto camera_before = f.snapshot();
     mhp3rd::settings::current().aim_speed = 60.0f;
-    f.frame(0.0f, 0.0f);  // the flip picks up Aim speed for what follows
-    for (int i = 0; i < 30; ++i) f.frame(0.5f, 0.0f);
+    aim_frame(0.0f, 0.0f);  // learns where the aim starts; picks up Aim speed
+    check(game_camera_aim_boost() && !game_camera_driving(), "aiming sends the stretched stick to the game");
+
+    // The game steps left by 624 each frame; the push is half: 30 degrees in a second.
+    game.yaw_step = 624;
+    for (int i = 0; i < 30; ++i) aim_frame(-0.5f, 0.0f);
     f.reset_offset();
     check(f.snapshot() == camera_before, "aiming leaves the camera to the game");
-    check(game_camera_driving(), "aiming keeps the stick from the game's stepped aim");
-    // Half deflection at 60 degrees a second for a second: 30 degrees.
-    const int turned = 20000 - static_cast<int>(m.load16(hunter + 0x188u));
-    check(std::abs(turned - 5461) <= 2, "the aim turns in proportion to the stick at Aim speed");
+    const int turned = static_cast<int>(m.load16(hunter + 0x188u)) - 20000;
+    check(std::abs(turned - 5461) <= 2, "each game step is replaced by one in proportion to the stick");
     check(m.load16(hunter + 0x74u) == m.load16(hunter + 0x188u), "the facing and its copy agree");
-    for (int i = 0; i < 10; ++i) f.frame(0.0f, -0.25f);
+
+    // A roll, or any state where the game does not step: the aim stays.
+    game.yaw_step = 0;
+    const auto held = m.load16(hunter + 0x188u);
+    for (int i = 0; i < 10; ++i) aim_frame(-1.0f, 0.0f);
+    check(m.load16(hunter + 0x188u) == held, "no step from the game, no movement from the port");
+
+    // The game's step with the right stick idle (the left stick in the scope) is kept.
+    game.yaw_step = -624;
+    aim_frame(0.0f, 0.0f);
+    check(m.load16(hunter + 0x188u) == static_cast<std::uint16_t>(held - 624), "a step made by another input is kept");
+
+    // Vertical: a quarter push up, the game steps +8; a third of a second at 60 deg/s is 5 degrees.
+    game.yaw_step = 0;
+    game.pitch_step = 8;
+    for (int i = 0; i < 10; ++i) aim_frame(0.0f, -0.25f);
     const int up = static_cast<std::int8_t>(m.load8(hunter + 0xC22u));
-    // A quarter up at 60 degrees a second for a third of a second: 5 degrees.
     check(std::abs(up - 12) <= 1, "a small push up raises the aim slowly");
-    for (int i = 0; i < 60; ++i) f.frame(0.0f, -1.0f);
-    check(static_cast<std::int8_t>(m.load8(hunter + 0xC22u)) == 100, "the aim stops at its upper limit");
-    for (int i = 0; i < 120; ++i) f.frame(0.0f, 1.0f);
-    check(static_cast<std::int8_t>(m.load8(hunter + 0xC22u)) == -100, "the aim stops at its lower limit");
+    for (int i = 0; i < 60; ++i) aim_frame(0.0f, -1.0f);
+    check(static_cast<std::int8_t>(m.load8(hunter + 0xC22u)) == 100, "the aim stops at the game's limit");
+    // Moving while aiming: the game makes no vertical step, so neither does the port.
+    game.pitch_step = 0;
+    for (int i = 0; i < 10; ++i) aim_frame(0.0f, 1.0f);
+    check(static_cast<std::int8_t>(m.load8(hunter + 0xC22u)) == 100, "a locked axis stays locked");
+
+    // The halfword vertical aim scales the same way.
+    game.pitch_step = -8;
+    game.pitch_offset = 0xC24u;
+    for (int i = 0; i < 10; ++i) aim_frame(0.0f, 0.25f);
+    const int down = static_cast<std::int16_t>(m.load16(hunter + 0xC24u));
+    check(std::abs(down + 12 * 64) <= 64, "the halfword vertical aim is sized alike");
+
     mhp3rd::settings::current().analog_camera = false;
-    f.frame(1.0f, 0.0f);
-    const auto yaw_off = m.load16(hunter + 0x74u);
-    f.frame(1.0f, 0.0f);
-    check(!game_camera_driving() && m.load16(hunter + 0x74u) == yaw_off, "with the option off the aim is the game's");
+    game.yaw_step = 624;
+    const auto before_off = m.load16(hunter + 0x188u);
+    aim_frame(0.2f, 0.0f);
+    check(!game_camera_aim_boost() && m.load16(hunter + 0x188u) == static_cast<std::uint16_t>(before_off + 624),
+          "with the option off the game's aim is untouched");
     mhp3rd::settings::current().analog_camera = true;
     m.store8(camera_address + 0x91u, 0xFFu);
     f.frame(0.0f, 0.0f);
     f.frame(1.0f, 0.0f);
-    check(game_camera_driving() && m.load16(camera_address + 0x80u) != camera_before[0x80] + (camera_before[0x81] << 8),
-          "the ordinary camera is driven again after aiming");
+    check(game_camera_driving() && !game_camera_aim_boost(), "the ordinary camera is driven again after aiming");
 }
 
 int main() {
@@ -329,7 +380,7 @@ int main() {
     test_hook_waits_for_the_option();
     test_frame_rate_independence();
     test_motion_source();
-    test_aiming_moves_the_aim();
+    test_aiming_sizes_the_games_steps();
     check(original_calls > 0u, "original rotation helper is called");
     std::cout << (failures ? "FAIL" : "PASS") << ": analog camera (" << failures << " failures)\n";
     return failures ? 1 : 0;

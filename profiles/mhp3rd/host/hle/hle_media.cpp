@@ -23,6 +23,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <array>
 #include <cstdlib>
@@ -309,6 +310,17 @@ void register_display_ctrl(HleRegistrar &hle) {
             if (camera::game_camera_driving()) {
                 right_x = 0x80u;
                 right_y = 0x80u;
+            } else if (camera::game_camera_aim_boost()) {
+                // Past the dead zone, any push reaches the game at full
+                // length in the same direction, so its aim steps and the
+                // driver decides how far.
+                const int dx = static_cast<int>(right_x) - 0x80;
+                const int dy = static_cast<int>(right_y) - 0x80;
+                const float length = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+                if (length > 0.0f) {
+                    right_x = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(std::lround(dx * 127.0f / length)), 0, 255));
+                    right_y = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(std::lround(dy * 127.0f / length)), 0, 255));
+                }
             }
         }
 #endif

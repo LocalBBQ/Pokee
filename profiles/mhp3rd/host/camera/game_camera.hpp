@@ -45,6 +45,11 @@ void game_camera_frame(psprecomp::Runtime &runtime);
 // act on the second stick: its own turn and vertical presets would fight ours.
 [[nodiscard]] bool game_camera_driving();
 
+// A bow or a bowgun is aiming under the driver: the stick goes to the game,
+// stretched to full length, so the game's aim code steps at any push and the
+// driver can size each step.
+[[nodiscard]] bool game_camera_aim_boost();
+
 // Full-deflection speed for the current camera: Aim speed while a bow or a
 // bowgun aims, Camera speed otherwise.
 [[nodiscard]] float game_camera_degrees_per_second();

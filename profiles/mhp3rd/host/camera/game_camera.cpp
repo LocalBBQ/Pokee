@@ -41,19 +41,39 @@ constexpr std::uint32_t kSnap = 0x8Eu;
 // (0x088E7AFC). The aim is moved with the same stick.
 constexpr std::uint32_t kAim = 0x91u;
 // While a weapon aims, the aim itself lives in the hunter the camera follows
-// (s5 at the ordinary call): the facing, in the camera's yaw units, and the
-// vertical aim, a signed byte from -100 (down) to 100 (up). The game moves
-// them by 624 and 8 a frame once the stick passes about half of its travel,
-// and not at all below that, which is why its aim feels like a D-pad.
+// (s5 at the ordinary call). The weapon's aim code (in game_task, around
+// 0x0A0FE4D8) reads the stick as on/off commands and, in the states where
+// aiming may move, steps the facing by a fixed 512 or 624 and one of three
+// vertical aims by a fixed amount, which is why its aim feels like a D-pad.
+// The driver leaves every decision to that code -- whether the aim may move
+// now, and which way -- and only replaces how far each step goes.
+//
+// The facing, in the camera's yaw units, the game keeps at kHunterHeading
+// and copies into kHunterYaw each frame; writing only the copy is undone.
 constexpr std::uint32_t kHunterYaw = 0x74u;
-// The facing the game keeps and copies into kHunterYaw each frame, in the low
-// half of this word; writing only the copy is undone the next frame.
 constexpr std::uint32_t kHunterHeading = 0x188u;
-constexpr std::uint32_t kHunterAimPitch = 0xC22u;
-constexpr float kAimPitchLimit = 100.0f;
-// The game's two steps turn about the same angle, so one vertical unit is
-// taken as 3.43 / 8 of a degree.
+// The largest single step the aim code makes, with room for its diagonal
+// scaling; anything larger is the game setting the facing for another reason.
+constexpr int kLargestYawStep = 1024;
+
+// The three vertical aims the aim code steps, depending on how the weapon
+// aims. The byte ones step by 5 or 8 and stop at 100; the halfword one steps
+// by that times 64 and stops at 8192. One byte unit is taken as 3.43 / 8 of
+// a degree, the angle of the game's yaw step for its vertical step.
+struct PitchField {
+    std::uint32_t offset;
+    bool halfword;
+    int limit;
+    int largest_step;
+    float units_per_degree;
+};
 constexpr float kAimPitchUnitsPerDegree = 8.0f / (624.0f / kAngleUnits);
+constexpr std::array<PitchField, 3> kPitchFields{{
+    {0xC22u, false, 100, 16, kAimPitchUnitsPerDegree},           // 0x088A68A8
+    {0x1457u, false, 100, 16, kAimPitchUnitsPerDegree},          // 0x0A11FCF0
+    {0xC24u, true, 8192, 1024, kAimPitchUnitsPerDegree * 64.0f}, // 0x0A11FC9C
+}};
+constexpr std::uint32_t kHunterExtent = 0x1458u;
 // Preset, relative to its pointer, and the update's stack frame.
 constexpr std::uint32_t kPresetTargetHeight = 0x10u;
 constexpr std::uint32_t kStackEyeY = 0x34u;
@@ -105,6 +125,9 @@ struct State {
     float pitch{};
     unsigned updates{};
     bool aiming{};
+    std::uint32_t aim_hunter{};
+    std::uint16_t aim_heading{};
+    std::array<int, 3> aim_pitch{};
     float aim_yaw_remainder{};
     float aim_pitch_remainder{};
 };
@@ -298,49 +321,83 @@ void trace_modes(const psprecomp::GuestMemory &memory, const psprecomp::Allegrex
     out.flush();
 }
 
-// A bow or a bowgun aiming: the stick moves the aim, in proportion, and the
-// game's camera follows the aim by itself (0x088E7AFC), so the camera is left
-// alone.
+int load_pitch(const psprecomp::GuestMemory &memory, std::uint32_t hunter, const PitchField &field) {
+    return field.halfword ? static_cast<std::int16_t>(memory.load16(hunter + field.offset))
+                          : static_cast<std::int8_t>(memory.load8(hunter + field.offset));
+}
+
+void store_pitch(psprecomp::GuestMemory &memory, std::uint32_t hunter, const PitchField &field, int value) {
+    if (field.halfword)
+        memory.store16(hunter + field.offset, static_cast<std::uint16_t>(static_cast<std::int16_t>(value)));
+    else
+        memory.store8(hunter + field.offset, static_cast<std::uint8_t>(static_cast<std::int8_t>(value)));
+}
+
+void remember_aim(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
+    state.aim_hunter = hunter;
+    state.aim_heading = memory.load16(hunter + kHunterHeading);
+    for (std::size_t i = 0; i < kPitchFields.size(); ++i) state.aim_pitch[i] = load_pitch(memory, hunter, kPitchFields[i]);
+}
+
+// A bow or a bowgun aiming. The stick reaches the game stretched to full
+// length (game_camera_aim_boost), so its aim code steps whenever the player
+// pushes at all and the game allows it; here each step the game made since
+// the previous update is replaced by one in proportion to the stick, in the
+// game's direction. No step from the game -- rolling, moving, firing, a state
+// that locks an axis -- means no movement from the port either. A step made
+// while the right stick is idle (the left stick in the scope) is kept as is.
 void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::uint32_t address) {
     const auto hunter = ctx.gpr[21];
-    if (!driving_allowed() || memory.raw_pointer(hunter, kHunterAimPitch + 1u) == nullptr) {
-        state.address = address;
+    state.address = address;
+    if (!driving_allowed() || memory.raw_pointer(hunter, kHunterExtent) == nullptr) {
         release();
         return;
     }
-    if (!state.aiming) {
-        state.aim_yaw_remainder = 0.0f;
-        state.aim_pitch_remainder = 0.0f;
-    }
-    state.address = address;
-    state.last_update = state.frame;
-    state.available = true;
-    state.aiming = true;
-    // The ordinary camera's own pitch starts again from the game's after
-    // the aim.
+    // The camera and the stick are the game's while aiming.
+    state.available = false;
     state.pitch_owned = false;
     state.yaw_remainder = 0.0f;
+    state.last_update = state.frame;
     ++state.updates;
-
     const Turn turn = take();
-    if (turn.yaw_held) {
-        state.aim_yaw_remainder -= turn.yaw_degrees * kAngleUnits;
+    if (!state.aiming || state.aim_hunter != hunter) {
+        // The first update of an aim only learns where the aim starts.
+        state.aiming = true;
+        state.aim_yaw_remainder = 0.0f;
+        state.aim_pitch_remainder = 0.0f;
+        remember_aim(memory, hunter);
+        return;
+    }
+
+    const auto heading = memory.load16(hunter + kHunterHeading);
+    const int game_yaw = static_cast<std::int16_t>(static_cast<std::uint16_t>(heading - state.aim_heading));
+    if (game_yaw != 0 && std::abs(game_yaw) <= kLargestYawStep && turn.yaw_held) {
+        state.aim_yaw_remainder += std::fabs(turn.yaw_degrees) * kAngleUnits;
         const int step = static_cast<int>(state.aim_yaw_remainder);
         state.aim_yaw_remainder -= static_cast<float>(step);
-        const auto yaw = static_cast<std::uint16_t>(memory.load16(hunter + kHunterHeading) + step);
+        const auto yaw = static_cast<std::uint16_t>(state.aim_heading + (game_yaw > 0 ? step : -step));
         memory.store16(hunter + kHunterHeading, yaw);
         memory.store16(hunter + kHunterYaw, yaw);
+    } else if (game_yaw == 0) {
+        state.aim_yaw_remainder = 0.0f;
     }
-    if (turn.pitch_held) {
-        // Positive pitch looks down, and the game's vertical aim is up.
-        state.aim_pitch_remainder -= turn.pitch_degrees * kAimPitchUnitsPerDegree;
-        const int step = static_cast<int>(state.aim_pitch_remainder);
-        state.aim_pitch_remainder -= static_cast<float>(step);
-        const float current = static_cast<float>(static_cast<std::int8_t>(memory.load8(hunter + kHunterAimPitch)));
-        const float next = std::clamp(current + static_cast<float>(step), -kAimPitchLimit, kAimPitchLimit);
-        if (next == -kAimPitchLimit || next == kAimPitchLimit) state.aim_pitch_remainder = 0.0f;
-        memory.store8(hunter + kHunterAimPitch, static_cast<std::uint8_t>(static_cast<std::int8_t>(next)));
+
+    bool pitch_stepped = false;
+    for (std::size_t i = 0; i < kPitchFields.size(); ++i) {
+        const PitchField &field = kPitchFields[i];
+        const int current = load_pitch(memory, hunter, field);
+        const int game_pitch = current - state.aim_pitch[i];
+        if (game_pitch == 0 || std::abs(game_pitch) > field.largest_step || !turn.pitch_held) continue;
+        pitch_stepped = true;
+        const float wanted = state.aim_pitch_remainder + std::fabs(turn.pitch_degrees);
+        const int step = static_cast<int>(wanted * field.units_per_degree);
+        state.aim_pitch_remainder = wanted - static_cast<float>(step) / field.units_per_degree;
+        const int next = std::clamp(state.aim_pitch[i] + (game_pitch > 0 ? step : -step), -field.limit, field.limit);
+        if (next == field.limit || next == -field.limit) state.aim_pitch_remainder = 0.0f;
+        store_pitch(memory, hunter, field, next);
     }
+    if (!pitch_stepped) state.aim_pitch_remainder = 0.0f;
+    remember_aim(memory, hunter);
 }
 
 void adjust_camera(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
@@ -424,6 +481,10 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
 }
 
 bool game_camera_driving() { return driving_allowed() && state.available; }
+
+bool game_camera_aim_boost() {
+    return driving_allowed() && state.aiming && state.frame - state.last_update <= 1u;
+}
 
 float game_camera_degrees_per_second() {
     const auto &s = settings::current();
