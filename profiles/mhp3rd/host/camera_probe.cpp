@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <vector>
 
@@ -18,37 +19,36 @@ namespace mhp3rd::probe {
 using mhp3rd::active_renderer;
 namespace {
 
-// The GE expands the game's twelve uploaded floats into a 4x4 whose other four
-// entries it fills in itself, so only these twelve came from the game and only
-// they are worth matching.
-constexpr int kMatrixEntries[12] = {0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14};
-// The GE's float24 is the top 24 bits of an IEEE float, so a value read back
-// out of a display list has its low 8 mantissa bits cleared. Comparing those
-// top 24 bits is exact, and far tighter than any tolerance.
-constexpr std::uint32_t kFloat24Mask = 0xFFFFFF00u;
-// The matrix has to have changed since the last frame, or every still copy of
-// it in 64 MiB matches and nothing is learned.
-constexpr float kChanged = 1e-4f;
-constexpr std::size_t kPrintable = 40u;
+// A game does not have to keep its camera angle as a float: a 16-bit angle,
+// where a whole turn is 65536, is just as likely, and read as a float it looks
+// like noise. So every word is tried three ways.
+enum class Kind : std::uint8_t { Float32, Int32, Int16 };
+
+// Enough turning to carry information, and not a camera cut.
+constexpr float kTurning = 0.3f;
+constexpr float kCut = 40.0f;
+// Ratios outside this band are noise rather than an angle in any unit: degrees
+// give 1, radians 0.0175, a 16-bit angle 182.
+constexpr double kSmallestRatio = 1e-3;
+constexpr double kLargestRatio = 1e6;
+constexpr std::size_t kPrintable = 60u;
+constexpr std::size_t kMostCandidates = 3u * 1000u * 1000u;
+
+struct Candidate {
+    std::uint32_t offset{};
+    Kind kind{};
+    double ratio{};     // units of this word per degree of camera turn
+    double previous{};
+};
 
 struct Probe {
     bool started{};
-    // Words whose change each frame keeps a fixed ratio to the camera's turn.
-    // Whatever the game turns its camera with has to be one of them.
-    bool angle_armed{};
-    bool have_snapshot{};
-    std::vector<std::uint8_t> snapshot;
-    std::vector<std::uint32_t> angle;
-    std::vector<float> angle_ratio;
-    std::vector<float> angle_previous;
-    std::uint64_t angle_frames{};
-    int angle_attempts{};
     bool armed{};
+    bool have_snapshot{};
     int attempts{};
     std::uint64_t frames{};
-    std::vector<std::uint32_t> hits;
-    std::array<float, 16> previous{};
-    bool have_previous{};
+    std::vector<std::uint8_t> snapshot;
+    std::vector<Candidate> candidates;
 };
 
 Probe &probe() {
@@ -56,34 +56,50 @@ Probe &probe() {
     return value;
 }
 
-float read_float(const std::uint8_t *base, std::uint32_t offset) {
-    float value = 0.0f;
-    std::memcpy(&value, base + offset, sizeof(value));
-    return value;
-}
-
-// Does a 4x4 of floats at this offset hold the matrix the game gave the GE?
-std::uint32_t bits_of(float value) {
-    std::uint32_t bits = 0u;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return bits;
-}
-
-bool matches(const std::uint8_t *ram, std::uint32_t offset, const std::array<float, 16> &view) {
-    for (const int entry : kMatrixEntries) {
-        std::uint32_t stored = 0u;
-        std::memcpy(&stored, ram + offset + static_cast<std::uint32_t>(entry) * 4u, sizeof(stored));
-        if ((stored & kFloat24Mask) != (bits_of(view[static_cast<std::size_t>(entry)]) & kFloat24Mask))
-            return false;
+double read_as(const std::uint8_t *base, std::uint32_t offset, Kind kind) {
+    if (kind == Kind::Float32) {
+        float value = 0.0f;
+        std::memcpy(&value, base + offset, sizeof(value));
+        return std::isfinite(value) ? static_cast<double>(value) : 0.0;
     }
-    return true;
+    if (kind == Kind::Int32) {
+        std::int32_t value = 0;
+        std::memcpy(&value, base + offset, sizeof(value));
+        return static_cast<double>(value);
+    }
+    std::int16_t value = 0;
+    std::memcpy(&value, base + offset, sizeof(value));
+    return static_cast<double>(value);
 }
 
-bool changed(const std::array<float, 16> &a, const std::array<float, 16> &b) {
-    for (const int entry : kMatrixEntries)
-        if (std::fabs(a[static_cast<std::size_t>(entry)] - b[static_cast<std::size_t>(entry)]) > kChanged)
-            return true;
-    return false;
+// Below this a change carries no information and the frame is skipped rather
+// than counted for or against the candidate; a whole word of slack covers the
+// rounding of an integer angle.
+double floor_of(Kind kind) { return kind == Kind::Float32 ? 1e-4 : 2.0; }
+double slack_of(Kind kind, double expected) {
+    return 0.03 * std::fabs(expected) + (kind == Kind::Float32 ? 1e-5 : 1.5);
+}
+
+const char *name_of(Kind kind) {
+    return kind == Kind::Float32 ? "float" : kind == Kind::Int32 ? "int32" : "int16";
+}
+
+void admit(Probe &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
+    const auto try_kind = [&](Kind kind, std::uint32_t stride, std::uint32_t width) {
+        for (std::uint32_t offset = 0; offset + width <= size; offset += stride) {
+            if (p.candidates.size() >= kMostCandidates) return;
+            const double before = read_as(p.snapshot.data(), offset, kind);
+            const double now = read_as(ram, offset, kind);
+            if (now == before) continue;  // a word that did not move says nothing
+            const double ratio = (now - before) / static_cast<double>(turn);
+            const double size_of = std::fabs(ratio);
+            if (!std::isfinite(ratio) || size_of < kSmallestRatio || size_of > kLargestRatio) continue;
+            p.candidates.push_back({offset, kind, ratio, now});
+        }
+    };
+    try_kind(Kind::Float32, 4u, 4u);
+    try_kind(Kind::Int32, 4u, 4u);
+    try_kind(Kind::Int16, 2u, 2u);
 }
 
 } // namespace
@@ -92,6 +108,7 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
     static const bool enabled = std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
     if (!enabled) return;
 #if defined(MHP3RD_HAS_RENDERER)
+    (void)view_matrix_source;
     const gpu::VulkanRenderer *renderer = active_renderer();
     if (renderer == nullptr || !renderer->available()) return;
     const gpu::CameraReading reading = renderer->camera();
@@ -106,68 +123,69 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
     Probe &p = probe();
     if (!p.started) {
         std::cout << "[find-camera] watching " << (size / (1024u * 1024u)) << " MiB of guest RAM from 0x"
-                  << std::hex << base << std::dec << "\n";
+                  << std::hex << base << std::dec << ", as float, int32 and int16\n";
         p.started = true;
     }
 
-    // --- words that move with the camera's turn ------------------------------
     const float turn = reading.turn;
-    const bool turning = std::fabs(turn) >= 0.3f && std::fabs(turn) <= 40.0f;
+    const bool turning = std::fabs(turn) >= kTurning && std::fabs(turn) <= kCut;
     if (!turning) {
-        p.have_snapshot = false;
-    } else if (!p.angle_armed && !p.have_snapshot) {
-        p.snapshot.assign(ram, ram + size);
-        p.have_snapshot = true;
-    } else if (!p.angle_armed) {
-        for (std::uint32_t offset = 0; offset + 4u <= size; offset += 4u) {
-            const float before = read_float(p.snapshot.data(), offset);
-            const float now = read_float(ram, offset);
-            if (!std::isfinite(before) || !std::isfinite(now) || now == before) continue;
-            const float ratio = (now - before) / turn;
-            if (!std::isfinite(ratio) || std::fabs(ratio) < 1e-5f || std::fabs(ratio) > 1e5f) continue;
-            p.angle.push_back(offset);
-            p.angle_ratio.push_back(ratio);
-            p.angle_previous.push_back(now);
-        }
-        p.angle_armed = true;
-        p.angle_frames = 1u;
-        std::cout << "[find-camera] angle attempt " << p.angle_attempts << " (turn " << turn << "): "
-                  << p.angle.size() << " candidates\n";
-    } else {
-        std::vector<std::uint32_t> offsets;
-        std::vector<float> ratios;
-        std::vector<float> previous;
-        for (std::size_t i = 0; i < p.angle.size(); ++i) {
-            const float now = read_float(ram, p.angle[i]);
-            const float expected = p.angle_ratio[i] * turn;
-            if (std::isfinite(now) &&
-                std::fabs((now - p.angle_previous[i]) - expected) <= 0.05f * std::fabs(expected) + 1e-4f) {
-                offsets.push_back(p.angle[i]);
-                ratios.push_back(p.angle_ratio[i]);
-                previous.push_back(now);
-            }
-        }
-        const bool thinned = offsets.size() != p.angle.size();
-        p.angle.swap(offsets);
-        p.angle_ratio.swap(ratios);
-        p.angle_previous.swap(previous);
-        ++p.angle_frames;
-        if (thinned)
-            std::cout << "[find-camera] angle after " << p.angle_frames << " turning frames (turn " << turn
-                      << "): " << p.angle.size() << " left\n";
-        if (!p.angle.empty() && p.angle.size() <= kPrintable)
-            for (std::size_t i = 0; i < p.angle.size(); ++i)
-                std::cout << "[find-camera]   angle at 0x" << std::hex << (base + p.angle[i]) << std::dec
-                          << " value=" << p.angle_previous[i] << " per-degree=" << p.angle_ratio[i] << "\n";
-        if (p.angle.empty() && p.angle_attempts < 12) {
-            p.angle_armed = false;
-            p.have_snapshot = false;
-            ++p.angle_attempts;
-            std::cout << "[find-camera] that turn said nothing; waiting for another\n";
-        }
+        if (!p.armed) p.have_snapshot = false;
+        return;
     }
 
-    (void)view_matrix_source;
+    if (!p.armed && !p.have_snapshot) {
+        p.snapshot.assign(ram, ram + size);
+        p.have_snapshot = true;
+        return;
+    }
+    if (!p.armed) {
+        p.candidates.clear();
+        admit(p, ram, size, turn);
+        p.armed = true;
+        p.frames = 1u;
+        std::cout << "[find-camera] attempt " << p.attempts << " (turn " << turn << "): "
+                  << p.candidates.size() << " candidates\n";
+        return;
+    }
+
+    std::vector<Candidate> kept;
+    kept.reserve(p.candidates.size());
+    for (Candidate c : p.candidates) {
+        const double now = read_as(ram, c.offset, c.kind);
+        const double expected = c.ratio * static_cast<double>(turn);
+        if (std::fabs(expected) < floor_of(c.kind)) {
+            // Too small a turn to judge this word by; carry it unchanged.
+            c.previous = now;
+            kept.push_back(c);
+            continue;
+        }
+        if (std::fabs((now - c.previous) - expected) > slack_of(c.kind, expected)) continue;
+        c.previous = now;
+        kept.push_back(c);
+    }
+    const bool thinned = kept.size() != p.candidates.size();
+    p.candidates.swap(kept);
+    ++p.frames;
+
+    if (thinned) {
+        std::cout << "[find-camera] after " << p.frames << " turning frames (turn " << turn << "): "
+                  << p.candidates.size() << " left\n";
+        if (!p.candidates.empty() && p.candidates.size() <= kPrintable) {
+            const std::streamsize precision = std::cout.precision();
+            std::cout << std::setprecision(8);
+            for (const Candidate &c : p.candidates)
+                std::cout << "[find-camera]   " << name_of(c.kind) << " at 0x" << std::hex << (base + c.offset)
+                          << std::dec << " value=" << c.previous << " per-degree=" << c.ratio << "\n";
+            std::cout.precision(precision);
+        }
+    }
+    if (p.candidates.empty() && p.attempts < 12) {
+        p.armed = false;
+        p.have_snapshot = false;
+        ++p.attempts;
+        std::cout << "[find-camera] that turn said nothing; waiting for another\n";
+    }
 #else
     (void)runtime;
     (void)view_matrix_source;
