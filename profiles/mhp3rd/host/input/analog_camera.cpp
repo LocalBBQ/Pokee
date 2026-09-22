@@ -222,6 +222,80 @@ void watch_vertical(float pitch, float stick_y) {
 // and held still in between are ever written, and only ever to one of the five
 // values the game itself uses, so the worst a wrong guess can do is move some
 // other object's camera -- or nothing at all.
+// The pitch, found the way the yaw was found rather than by matching a model
+// borrowed from another release. The yaw was certain the moment a candidate had
+// to keep a fixed offset from the angle the view is actually built with; the
+// pitch is an angle of that same view, in the same 16-bit units, so the same
+// test applies -- and it needs no command to fire and no five levels to exist.
+struct Pitch {
+    std::vector<std::uint8_t> before;
+    std::vector<std::uint32_t> fields;
+    std::vector<std::int16_t> offsets;
+    std::vector<std::uint8_t> misses;
+    bool started{};
+    std::size_t named{};
+    float last{};
+};
+
+Pitch &pitch_search() {
+    static Pitch value;
+    return value;
+}
+
+void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch) {
+    static const bool wanted = std::getenv("MHP3RD_FIND_PITCH") != nullptr;
+    if (!wanted) return;
+    Pitch &p = pitch_search();
+    // Only worth judging while the pitch is actually changing; a still camera
+    // lets every constant in memory keep a constant offset from it.
+    const bool moving = std::fabs(pitch - p.last) >= 0.05f;
+    p.last = pitch;
+    if (!moving) return;
+    const std::int16_t units = to_units(pitch);
+
+    if (!p.started) {
+        for (std::uint32_t offset = 0; offset + 2u <= size; offset += 2u) {
+            std::int16_t value = 0;
+            std::memcpy(&value, ram + offset, sizeof(value));
+            p.fields.push_back(base + offset);
+            p.offsets.push_back(static_cast<std::int16_t>(units - value));
+            p.misses.push_back(0u);
+        }
+        p.started = true;
+        std::cout << "[analog-camera] pitch: watching every 16-bit field for one that keeps step with the view\n";
+        return;
+    }
+    std::vector<std::uint32_t> kept;
+    std::vector<std::int16_t> kept_offsets;
+    std::vector<std::uint8_t> kept_misses;
+    for (std::size_t i = 0; i < p.fields.size(); ++i) {
+        std::int16_t value = 0;
+        std::memcpy(&value, ram + (p.fields[i] - base), sizeof(value));
+        const std::int16_t offset = static_cast<std::int16_t>(units - value);
+        const int wander = static_cast<std::int16_t>(offset - p.offsets[i]);
+        std::uint8_t misses = p.misses[i];
+        if (wander > 400 || wander < -400) {   // about two degrees
+            if (++misses >= 3u) continue;
+        } else {
+            misses = 0u;
+        }
+        kept.push_back(p.fields[i]);
+        kept_offsets.push_back(p.offsets[i]);
+        kept_misses.push_back(misses);
+    }
+    p.fields.swap(kept);
+    p.offsets.swap(kept_offsets);
+    p.misses.swap(kept_misses);
+    if (p.fields.size() != p.named) {
+        p.named = p.fields.size();
+        std::cout << "[analog-camera] pitch: " << p.fields.size() << " fields still keeping step";
+        if (p.fields.size() <= 12u)
+            for (std::size_t i = 0; i < p.fields.size(); ++i)
+                std::cout << " 0x" << std::hex << p.fields[i] << std::dec << "(+" << p.offsets[i] << ")";
+        std::cout << "\n";
+    }
+}
+
 void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
     const settings::Settings &player = settings::current();
     if (!player.vertical_camera) return;
@@ -264,6 +338,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     if (ram == nullptr) return;
 
     look_for_vertical(ram, base, size, pitch_change, stick_y);
+    look_for_pitch(ram, base, size, pitch_now);
     drive_vertical(memory, stick_y);
     watch_vertical(pitch_now, stick_y);
 
