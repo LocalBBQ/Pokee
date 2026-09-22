@@ -59,10 +59,6 @@ struct Settings {
     // Rather than guess, the choice is a setting: the player flips between the
     // candidates until the camera answers. Off drives nothing.
     bool vertical_camera{};
-    // 0: only the angle proved to move the view. 1: that and its companion in
-    // the same structure, in case the game eases one towards the other as it
-    // does for the yaw. Which is right is quicker to feel than to prove.
-    int vertical_write{};
     bool invert_camera_x{};
     bool invert_camera_y{};
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once

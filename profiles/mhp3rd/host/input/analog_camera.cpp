@@ -252,6 +252,8 @@ struct Pitch {
     std::vector<std::uint32_t> rejected;  // fields that followed rather than moved
     std::int16_t driven{};
     int ignored{};
+    int reported_drive{};
+    float last_seen{};
 };
 
 Pitch &pitch_search() {
@@ -392,7 +394,7 @@ float &vertical_owed() {
     return value;
 }
 
-void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
+void drive_vertical(psprecomp::GuestMemory &memory, float stick_y, float pitch_seen) {
     const settings::Settings &player = settings::current();
     if (!player.analog_camera || !player.vertical_camera) return;
     Pitch &p = pitch_search();
@@ -452,21 +454,25 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
         }
     }
     turn_field(p.confirmed);
-    // The companion is the next 16-bit field, not the nearest one that happens
-    // to correlate. That is what the game's own code does for the yaw -- the
-    // target at +0x80 and the angle the view is built from at +0x82, two bytes
-    // apart -- and reading the camera function shows the same shape again for
-    // another angle: one field holds the angle and a neighbour holds three
-    // quarters of its change per frame. Picking by proximity across a whole
-    // structure is what wrote into state the game needed.
-    if (player.vertical_write == 1) turn_field(p.confirmed + 2u);
+    // Only the field proved to move the view. Writing the neighbour two bytes
+    // on as well -- the yaw's own pairing -- broke the camera outright, so
+    // whatever sits there is state the game needs and it is not on offer.
     p.driven = static_cast<std::int16_t>(memory.load16(p.confirmed));
-    static int said = -1;
-    if (said != player.vertical_write) {
-        said = player.vertical_write;
-        std::cout << "[analog-camera] driving up and down at 0x" << std::hex << p.confirmed << std::dec
-                  << ", write mode " << player.vertical_write << "\n";
+    static bool said = false;
+    if (!said) {
+        said = true;
+        std::cout << "[analog-camera] driving up and down at 0x" << std::hex << p.confirmed << std::dec << "\n";
     }
+    // Turn "maybe it twitched" into a number, with no extra writes: how far the
+    // port asked the camera to move this frame, against how far the view
+    // actually moved.
+    if (p.reported_drive < 20) {
+        ++p.reported_drive;
+        const float asked = static_cast<float>(whole) * 360.0f / kUnitsPerTurn;
+        std::cout << "[analog-camera] vertical: asked for " << asked << " deg, the view moved "
+                  << (pitch_seen - p.last_seen) << " deg\n";
+    }
+    p.last_seen = pitch_seen;
 }
 
 bool analog_camera_vertical_driving() {
@@ -485,8 +491,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         const settings::Settings &player = settings::current();
         std::cout << "[analog-camera] built " << __DATE__ << " " << __TIME__ << "; analog camera "
                   << (player.analog_camera ? "on" : "off") << ", vertical "
-                  << (player.vertical_camera ? "on" : "off") << " (write mode " << player.vertical_write
-                  << "), speed " << player.camera_speed << " deg/s\n";
+                  << (player.vertical_camera ? "on" : "off") << ", speed " << player.camera_speed << " deg/s\n";
     }
     if (!settings::current().analog_camera) {
         if (c.state != Camera::State::Looking) c = Camera{};
@@ -502,7 +507,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     look_for_vertical(ram, base, size, pitch_change, stick_y);
     look_for_pitch(ram, base, size, pitch_now);
     confirm_pitch(memory, pitch_now, stick_y, turn);
-    drive_vertical(memory, stick_y);
+    drive_vertical(memory, stick_y, pitch_now);
     watch_vertical(pitch_now, stick_y);
 
     if (c.state == Camera::State::Looking) {

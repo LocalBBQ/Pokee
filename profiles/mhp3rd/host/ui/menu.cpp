@@ -520,18 +520,6 @@ void Menu::controls() {
             s.vertical_camera = !s.vertical_camera;
             settings::save();
         }
-        o = options_for("input.vertical_write",
-                        "Which angle is driven: 0 the one proved to move the view, 1 that and its companion. If "
-                        "looking up and down does nothing on 0, try 1.");
-        if (!s.vertical_camera && !o.disabled) {
-            o.disabled = true;
-            o.note = "Vertical camera is off";
-        }
-        int mode = s.vertical_write;
-        if (slider_row("Vertical write", mode, 0, 1, 1, "%d", o)) {
-            s.vertical_write = mode;
-            settings::save();
-        }
     }
     {
         RowOptions o = options_for("input.invert_camera_x", "Turn the camera the other way left and right.");
