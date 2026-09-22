@@ -41,6 +41,7 @@ struct Camera {
     bool announced{};
     std::int16_t wrote{};      // what the port put there last frame
     bool has_wrote{};
+    std::vector<std::uint32_t> rejected;  // fields that turned out to follow, not drive
     int overwritten{};         // frames the game put its own value back
     bool drive_view{};         // and so the view's own angle is driven as well
     int reported{};            // frames of before-and-after still to print
@@ -492,6 +493,10 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
             // camera turns. Demanding exactly one step is why a fresh start
             // could hunt for ever without ever converging.
             if (moved_by_steps(moved)) {
+                bool refused = false;
+                for (std::uint32_t bad : c.rejected)
+                    if (bad == base + offset) refused = true;
+                if (refused) continue;
                 c.candidates.push_back(base + offset);
                 c.previous.push_back(read16(ram + offset));
                 c.misses.push_back(0u);
@@ -588,12 +593,27 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     // and the game only eases that towards the target -- so drive it as well,
     // and only while the player is actually turning, so the game keeps it the
     // rest of the time.
-    if (c.has_wrote && !c.drive_view) {
+    if (c.has_wrote) {
         if (static_cast<std::int16_t>(now - c.wrote) != 0) {
-            if (++c.overwritten >= 5) {
+            ++c.overwritten;
+            if (c.overwritten == 5 && !c.drive_view) {
                 c.drive_view = true;
                 std::cout << "[analog-camera] the game rewrites the target every frame, so the port will drive "
                              "the angle the view is built from too, while the stick is deflected\n";
+            } else if (c.overwritten >= 40) {
+                // Writing it changes nothing, whichever of the pair is written:
+                // this field follows the camera rather than driving it. Several
+                // fields keep a fixed offset from the view and only one of them
+                // is the camera, so reject this one and look again rather than
+                // driving something the game overwrites every frame -- which
+                // looks exactly like the analog camera not working at all.
+                std::vector<std::uint32_t> rejected = c.rejected;
+                rejected.push_back(c.address);
+                std::cout << "[analog-camera] 0x" << std::hex << c.address << std::dec
+                          << " follows the camera rather than driving it; rejecting it and looking again\n";
+                c = Camera{};
+                c.rejected = rejected;
+                return;
             }
         } else {
             c.overwritten = 0;
