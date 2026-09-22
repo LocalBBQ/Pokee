@@ -33,6 +33,16 @@ constexpr std::size_t kPrintable = 40u;
 
 struct Probe {
     bool started{};
+    // Words whose change each frame keeps a fixed ratio to the camera's turn.
+    // Whatever the game turns its camera with has to be one of them.
+    bool angle_armed{};
+    bool have_snapshot{};
+    std::vector<std::uint8_t> snapshot;
+    std::vector<std::uint32_t> angle;
+    std::vector<float> angle_ratio;
+    std::vector<float> angle_previous;
+    std::uint64_t angle_frames{};
+    int angle_attempts{};
     bool armed{};
     int attempts{};
     std::uint64_t frames{};
@@ -100,50 +110,64 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
         p.started = true;
     }
 
-    const std::array<float, 16> &view = reading.view;
-    const bool moving = p.have_previous && changed(p.previous, view);
-    p.previous = view;
-    p.have_previous = true;
-    if (!moving) return;  // a still camera proves nothing about where it is kept
-
-    if (!p.armed) {
-        p.hits.clear();
-        for (std::uint32_t offset = 0; offset + 64u <= size; offset += 4u)
-            if (matches(ram, offset, view)) p.hits.push_back(offset);
-        p.armed = true;
-        p.frames = 1u;
-        std::cout << "[find-camera] attempt " << p.attempts << ": " << p.hits.size()
-                  << " places hold the view matrix\n";
-        if (p.attempts % 200 == 0)
-            std::cout << "[find-camera]   the display list uploaded it from 0x" << std::hex
-                      << view_matrix_source << std::dec << "\n";
-        if (p.hits.empty()) {
-            p.armed = false;
-            ++p.attempts;
+    // --- words that move with the camera's turn ------------------------------
+    const float turn = reading.turn;
+    const bool turning = std::fabs(turn) >= 0.3f && std::fabs(turn) <= 40.0f;
+    if (!turning) {
+        p.have_snapshot = false;
+    } else if (!p.angle_armed && !p.have_snapshot) {
+        p.snapshot.assign(ram, ram + size);
+        p.have_snapshot = true;
+    } else if (!p.angle_armed) {
+        for (std::uint32_t offset = 0; offset + 4u <= size; offset += 4u) {
+            const float before = read_float(p.snapshot.data(), offset);
+            const float now = read_float(ram, offset);
+            if (!std::isfinite(before) || !std::isfinite(now) || now == before) continue;
+            const float ratio = (now - before) / turn;
+            if (!std::isfinite(ratio) || std::fabs(ratio) < 1e-5f || std::fabs(ratio) > 1e5f) continue;
+            p.angle.push_back(offset);
+            p.angle_ratio.push_back(ratio);
+            p.angle_previous.push_back(now);
         }
-        return;
+        p.angle_armed = true;
+        p.angle_frames = 1u;
+        std::cout << "[find-camera] angle attempt " << p.angle_attempts << " (turn " << turn << "): "
+                  << p.angle.size() << " candidates\n";
+    } else {
+        std::vector<std::uint32_t> offsets;
+        std::vector<float> ratios;
+        std::vector<float> previous;
+        for (std::size_t i = 0; i < p.angle.size(); ++i) {
+            const float now = read_float(ram, p.angle[i]);
+            const float expected = p.angle_ratio[i] * turn;
+            if (std::isfinite(now) &&
+                std::fabs((now - p.angle_previous[i]) - expected) <= 0.05f * std::fabs(expected) + 1e-4f) {
+                offsets.push_back(p.angle[i]);
+                ratios.push_back(p.angle_ratio[i]);
+                previous.push_back(now);
+            }
+        }
+        const bool thinned = offsets.size() != p.angle.size();
+        p.angle.swap(offsets);
+        p.angle_ratio.swap(ratios);
+        p.angle_previous.swap(previous);
+        ++p.angle_frames;
+        if (thinned)
+            std::cout << "[find-camera] angle after " << p.angle_frames << " turning frames (turn " << turn
+                      << "): " << p.angle.size() << " left\n";
+        if (!p.angle.empty() && p.angle.size() <= kPrintable)
+            for (std::size_t i = 0; i < p.angle.size(); ++i)
+                std::cout << "[find-camera]   angle at 0x" << std::hex << (base + p.angle[i]) << std::dec
+                          << " value=" << p.angle_previous[i] << " per-degree=" << p.angle_ratio[i] << "\n";
+        if (p.angle.empty() && p.angle_attempts < 12) {
+            p.angle_armed = false;
+            p.have_snapshot = false;
+            ++p.angle_attempts;
+            std::cout << "[find-camera] that turn said nothing; waiting for another\n";
+        }
     }
 
-    std::vector<std::uint32_t> kept;
-    kept.reserve(p.hits.size());
-    for (std::uint32_t offset : p.hits)
-        if (matches(ram, offset, view)) kept.push_back(offset);
-    const bool thinned = kept.size() != p.hits.size();
-    p.hits.swap(kept);
-    ++p.frames;
-
-    if (thinned || p.frames % 150u == 0u) {
-        std::cout << "[find-camera] after " << p.frames << " moving frames: " << p.hits.size() << " left"
-                  << " (camera at " << reading.position[0] << "," << reading.position[1] << ","
-                  << reading.position[2] << " yaw " << reading.yaw << ")\n";
-        if (p.hits.size() <= kPrintable)
-            for (std::uint32_t offset : p.hits)
-                std::cout << "[find-camera]   view matrix at 0x" << std::hex << (base + offset) << std::dec << "\n";
-    }
-    if (p.hits.empty()) {
-        p.armed = false;
-        ++p.attempts;
-    }
+    (void)view_matrix_source;
 #else
     (void)runtime;
     (void)view_matrix_source;
