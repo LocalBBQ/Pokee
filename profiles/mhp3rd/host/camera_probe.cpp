@@ -364,8 +364,47 @@ void poke_floats(psprecomp::Runtime &runtime) {
     }
 }
 
+// MHP3RD_FIND_FLOAT=VALUE lists every word in guest memory holding exactly that
+// float, and MHP3RD_POKE_FOUND=VALUE then writes a different value into all of
+// them every frame. A constant that the game copies out of its executable at
+// start-up cannot be changed where it was found, only where it was copied to,
+// and this finds the copies and tests them in one run.
+void find_and_poke_copies(psprecomp::Runtime &runtime) {
+    static const char *wanted_text = std::getenv("MHP3RD_FIND_FLOAT");
+    if (wanted_text == nullptr || *wanted_text == '\0') return;
+    static std::vector<std::uint32_t> copies;
+    static bool scanned = false;
+    static const float wanted = std::strtof(wanted_text, nullptr);
+    static const char *poke_text = std::getenv("MHP3RD_POKE_FOUND");
+
+    psprecomp::GuestMemory &memory = runtime.memory();
+    const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
+    const std::uint32_t size = memory.size();
+    if (!scanned) {
+        const std::uint8_t *ram = memory.raw_pointer(base, size);
+        if (ram == nullptr) return;
+        std::uint32_t wanted_bits = 0u;
+        std::memcpy(&wanted_bits, &wanted, sizeof(wanted_bits));
+        for (std::uint32_t offset = 0; offset + 4u <= size; offset += 4u) {
+            std::uint32_t bits = 0u;
+            std::memcpy(&bits, ram + offset, sizeof(bits));
+            if (bits == wanted_bits) copies.push_back(base + offset);
+        }
+        scanned = true;
+        std::cout << "[find-float] " << wanted << " appears at " << copies.size() << " places:\n";
+        for (std::uint32_t address : copies)
+            std::cout << "[find-float]   0x" << std::hex << address << std::dec << "\n";
+    }
+    if (poke_text == nullptr || *poke_text == '\0' || copies.empty()) return;
+    static const float replacement = std::strtof(poke_text, nullptr);
+    std::uint32_t bits = 0u;
+    std::memcpy(&bits, &replacement, sizeof(bits));
+    for (std::uint32_t address : copies) memory.store32(address, bits);
+}
+
 void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source) {
     poke_floats(runtime);
+    find_and_poke_copies(runtime);
     static const bool enabled = std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
     if (!enabled) return;
 #if defined(MHP3RD_HAS_RENDERER)
