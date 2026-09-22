@@ -309,9 +309,19 @@ void look_for_pitch_float(const std::uint8_t *ram, std::uint32_t base, std::uint
         float value = 0.0f;
         std::memcpy(&value, ram + (h.fields[i] - base), sizeof(value));
         if (!std::isfinite(value)) continue;
-        if (std::fabs((wanted_value - value) - h.offsets[i]) > 12.0f) continue;  // a degree of drift
+        // Three degrees of drift, not one. The view can move further than that
+        // between two judged frames, and the set went from six to none in a
+        // single step with the answer probably in it.
+        if (std::fabs((wanted_value - value) - h.offsets[i]) > 30.0f) continue;
         kept.push_back(h.fields[i]);
         kept_offsets.push_back(h.offsets[i]);
+    }
+    // Keep the last handful: an emptied set has thrown away whatever was in it,
+    // and this search has now twice collapsed from a readable few to nothing.
+    if (kept.empty() && h.fields.size() <= 16u) {
+        std::cout << "[analog-camera] pitch as a float: that movement dropped all " << h.fields.size()
+                  << "; keeping them and judging again\n";
+        return;
     }
     h.fields.swap(kept);
     h.offsets.swap(kept_offsets);
