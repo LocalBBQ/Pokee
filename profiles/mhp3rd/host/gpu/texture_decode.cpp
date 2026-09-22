@@ -129,7 +129,9 @@ void decode_dxt_block(const std::uint8_t *block, TextureFormat format, std::uint
 bool decode_texture(const GuestMemory &memory, const TextureState &texture, std::vector<std::uint32_t> &out) {
     const std::uint32_t width = texture.width;
     const std::uint32_t height = texture.height;
-    if (width == 0u || height == 0u || width > 512u || height > 512u) return false;
+    // The GE takes sizes up to 2^15, and games use up to 1024: Jhen Mohran's
+    // skin is a 1024x1024 CLUT8 texture. Anything larger is a stray register.
+    if (width == 0u || height == 0u || width > 1024u || height > 1024u) return false;
     out.assign(static_cast<std::size_t>(width) * height, 0xFF000000u);
 
     if (texture.format == TextureFormat::Dxt1 || texture.format == TextureFormat::Dxt3 ||
