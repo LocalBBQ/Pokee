@@ -44,7 +44,13 @@ constexpr float kWorthJudging = 1.5f;
 // that stops shrinking at a thousand is still small enough to read through and
 // far too big to print every frame.
 constexpr std::size_t kPrintable = 24u;
-constexpr std::size_t kMostCandidates = 3u * 1000u * 1000u;
+// Per kind, not overall: a single cap ran out during the float pass and the
+// int16 pass never ran at all.
+constexpr std::size_t kMostPerKind = 3u * 1000u * 1000u;
+// One disagreeing frame is not proof. The filter's knee, where the camera goes
+// from driven to coasting, moved every survivor of one hunt out of step for a
+// single frame and threw all of them away.
+constexpr int kStrikes = 3;
 
 // A camera can be kept either way round: as an angle, which moves by the turn
 // each frame, or as the turn itself, which *is* the rate the filter carries.
@@ -59,6 +65,7 @@ struct Candidate {
     Shape shape{};
     double ratio{};     // units of this word per degree of camera turn
     double previous{};
+    std::uint8_t strikes{};
 };
 
 struct Probe {
@@ -130,8 +137,9 @@ void write_list(const Probe &p, std::uint32_t base) {
 
 void admit(Probe &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
     const auto try_kind = [&](Kind kind, std::uint32_t stride, std::uint32_t width) {
+        const std::size_t ceiling = p.candidates.size() + kMostPerKind;
         for (std::uint32_t offset = 0; offset + width <= size; offset += stride) {
-            if (p.candidates.size() >= kMostCandidates) return;
+            if (p.candidates.size() >= ceiling) return;
             const double before = read_as(p.snapshot.data(), offset, kind);
             const double now = read_as(ram, offset, kind);
             // An angle moves by the turn; a rate simply is the turn.
@@ -212,7 +220,11 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
         const double seen = c.shape == Shape::Angle    ? now - c.previous
                             : c.shape == Shape::Rate   ? now
                                                        : c.previous;
-        if (std::fabs(seen - expected) > slack_of(c.kind, expected)) continue;
+        if (std::fabs(seen - expected) > slack_of(c.kind, expected)) {
+            if (++c.strikes >= kStrikes) continue;
+        } else if (c.strikes != 0u) {
+            --c.strikes;  // it came back into step, so forgive the earlier frame
+        }
         c.previous = now;
         kept.push_back(c);
     }
@@ -233,7 +245,7 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
         std::cout.precision(precision);
         write_list(p, base);
     }
-    if (p.candidates.empty() && p.attempts < 12) {
+    if (p.candidates.empty() && p.attempts < 200) {
         p.armed = false;
         p.have_snapshot = false;
         ++p.attempts;
