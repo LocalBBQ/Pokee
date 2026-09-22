@@ -98,6 +98,13 @@ Vertical &vertical() {
 constexpr float kVerticalFired = 1.5f;
 
 void look_for_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch_change) {
+    // Off unless asked for. "A byte holding 0 to 4" also describes most of the
+    // zero bytes in 64 MiB, so as it stands this keeps two hundred thousand
+    // candidates and copies guest memory on every firing -- it needs a second
+    // condition before it is worth running, and it should not cost anything or
+    // fill the log meanwhile.
+    static const bool wanted = std::getenv("MHP3RD_FIND_VERTICAL") != nullptr;
+    if (!wanted) return;
     Vertical &v = vertical();
     if (v.reported) return;
     if (std::fabs(pitch_change) < kVerticalFired) {
