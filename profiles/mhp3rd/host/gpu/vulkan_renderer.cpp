@@ -311,6 +311,7 @@ bool write_bmp(const std::string &path, const std::uint8_t *pixels, std::uint32_
 struct PadTuning {
     float dead_zone{0.15f};
     float trigger{0.25f};
+    settings::TriggerProfile triggers{settings::TriggerProfile::Standard};
     float right_stick{0.5f};
     settings::RightStick right_stick_mode{settings::RightStick::Camera};
     bool invert_x{};
@@ -326,6 +327,7 @@ PadTuning pad_tuning() {
     PadTuning value{};
     value.dead_zone = player.dead_zone;
     value.trigger = player.trigger;
+    value.triggers = player.trigger_profile;
     value.right_stick = player.right_stick_zone;
     // The right stick is a real nub on this release, so driving the D-pad
     // from it as well would turn the camera twice.
@@ -367,8 +369,20 @@ void read_gamepad(SDL_Gamepad *device, PadState &pad, int &analog_x, int &analog
     const auto axis = [&](SDL_GamepadAxis id) {
         return std::clamp(static_cast<float>(SDL_GetGamepadAxis(device, id)) / 32767.0f, -1.0f, 1.0f);
     };
-    if (axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > tuning.trigger) buttons |= 0x0100u;
-    if (axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > tuning.trigger) buttons |= 0x0200u;
+    // The trigger profiles copy other buttons for shooting: R on L2, where it
+    // is held to aim, and the weapon's attack on R2 -- triangle for a bow,
+    // circle for a bowgun. The buttons copied keep working.
+    std::uint32_t left_trigger = 0x0100u;   // L
+    std::uint32_t right_trigger = 0x0200u;  // R
+    if (tuning.triggers == settings::TriggerProfile::Bows) {
+        left_trigger = 0x0200u;
+        right_trigger = 0x1000u;  // triangle
+    } else if (tuning.triggers == settings::TriggerProfile::Bowguns) {
+        left_trigger = 0x0200u;
+        right_trigger = 0x2000u;  // circle
+    }
+    if (axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > tuning.trigger) buttons |= left_trigger;
+    if (axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > tuning.trigger) buttons |= right_trigger;
 
     const float right_x = axis(SDL_GAMEPAD_AXIS_RIGHTX);
     const float right_y = axis(SDL_GAMEPAD_AXIS_RIGHTY);

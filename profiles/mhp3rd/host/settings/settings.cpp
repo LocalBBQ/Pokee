@@ -100,6 +100,9 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"},
                                         {PerfDisplay::Log, "log"}}};
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
+const Names<TriggerProfile> kTriggerProfiles{{{TriggerProfile::Standard, "standard"},
+                                              {TriggerProfile::Bows, "bows"},
+                                              {TriggerProfile::Bowguns, "bowguns"}}};
 const Names<NameEntry> kNameEntries{{{NameEntry::Keyboard, "keyboard"}, {NameEntry::Fixed, "fixed"}}};
 
 // Written by earlier versions: 1 typed the name into the window, which the
@@ -173,6 +176,12 @@ const std::vector<Field> &fields() {
          [](Settings &s, const std::string &t) { return parse_float(t, 0.05f, 1.0f, s.trigger); },
          [](const Settings &s) { return format_float(s.trigger); },
          [](Settings &s, const char *t) { s.trigger = variable_float(t, 0.25f, 0.05f, 1.0f); }},
+        {"input.trigger_profile", "MHP3RD_PAD_TRIGGERS",
+         [](Settings &s, const std::string &t) { return kTriggerProfiles.parse(t, s.trigger_profile); },
+         [](const Settings &s) { return kTriggerProfiles.format(s.trigger_profile); },
+         [](Settings &s, const char *t) {
+             if (!kTriggerProfiles.parse(t, s.trigger_profile)) s.trigger_profile = TriggerProfile::Standard;
+         }},
         {"input.right_stick", "MHP3RD_PAD_RSTICK_DPAD",
          [](Settings &s, const std::string &t) { return kRightSticks.parse(t, s.right_stick); },
          [](const Settings &s) { return kRightSticks.format(s.right_stick); },

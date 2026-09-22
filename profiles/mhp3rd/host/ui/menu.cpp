@@ -468,9 +468,21 @@ void Menu::controls() {
     }
     int trigger = static_cast<int>(std::lround(s.trigger * 100.0f));
     if (slider_row("Trigger point", trigger, 5, 100, 5, "%d%%",
-                   options_for("input.trigger", "How far LT/RT (L2/R2) travel before they press L/R."))) {
+                   options_for("input.trigger", "How far LT/RT (L2/R2) travel before they press anything."))) {
         s.trigger = static_cast<float>(trigger) / 100.0f;
         settings::save();
+    }
+    {
+        static const char *const kProfiles[] = {"Standard (L / R)", "Bows (R / △)", "Bowguns (R / ○)"};
+        const int current = static_cast<int>(s.trigger_profile);
+        if (const int delta = choice_row(
+                "Trigger profile", kProfiles[current],
+                options_for("input.trigger_profile",
+                            "What LT/RT (L2/R2) press. Standard: L and R, like the shoulders. Bows: R to aim and △ "
+                            "to shoot. Bowguns: R to aim and ○ to fire. R1, △ and ○ keep working."))) {
+            s.trigger_profile = static_cast<settings::TriggerProfile>(cycle(current, delta, 3));
+            settings::save();
+        }
     }
     {
         static const char *const kModes[] = {"Camera", "D-pad", "Off"};
@@ -594,8 +606,12 @@ void Menu::controls() {
         restore("input.confirm", s.confirm_south, d.confirm_south);
         restore("input.dead_zone", s.dead_zone, d.dead_zone);
         restore("input.trigger", s.trigger, d.trigger);
+        restore("input.trigger_profile", s.trigger_profile, d.trigger_profile);
         restore("input.right_stick", s.right_stick, d.right_stick);
         restore("input.right_stick_zone", s.right_stick_zone, d.right_stick_zone);
+        restore("input.analog_camera", s.analog_camera, d.analog_camera);
+        restore("input.camera_speed", s.camera_speed, d.camera_speed);
+        restore("input.aim_speed", s.aim_speed, d.aim_speed);
         restore("input.invert_camera_x", s.invert_camera_x, d.invert_camera_x);
         restore("input.invert_camera_y", s.invert_camera_y, d.invert_camera_y);
         restore("input.name_entry", s.name_entry, d.name_entry);

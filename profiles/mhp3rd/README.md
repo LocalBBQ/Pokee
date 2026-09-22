@@ -228,12 +228,15 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | Gamepad | PSP |
 | --- | --- |
 | South / East / West / North face buttons | ✕ / ○ / □ / △ |
-| LB, RB, and LT / RT past their threshold | L, R |
+| LB, RB | L, R |
+| LT / RT (L2 / R2) past their threshold | L, R with the **Standard** trigger profile (the default); R, △ with **Bows**; R, ○ with **Bowguns** |
 | Start / Back | START / SELECT |
 | D-pad | D-pad |
 | Left stick | Analog stick |
 | Right stick | The HD release's second stick (camera) |
 | L3 + R3 (both sticks pressed) | In-game menu |
+
+The trigger profiles are for shooting: R, held to aim, moves onto L2, and the weapon's attack goes onto R2. They only add copies: RB, △ and ○ keep working, LB stays L, and the keyboard and Yakumo's own menu are unchanged. Choose one in the menu (*Trigger profile*) or with `MHP3RD_PAD_TRIGGERS`.
 
 The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. The menu's *Confirm button* setting (or `MHP3RD_PAD_FACE=xbox`) moves confirm to the bottom button for pads labelled the other way round.
 
@@ -293,6 +296,7 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Controls | Confirm button | `input.confirm` | `MHP3RD_PAD_FACE` | Right (○, Japanese) or bottom (Western) |
 | Controls | Stick dead zone | `input.dead_zone` | `MHP3RD_PAD_DEADZONE` | 0–50% |
 | Controls | Trigger point | `input.trigger` | `MHP3RD_PAD_TRIGGER` | 5–100% |
+| Controls | Trigger profile | `input.trigger_profile` | `MHP3RD_PAD_TRIGGERS` | `standard` (L / R, the default), `bows` (R / △), `bowguns` (R / ○) |
 | Controls | Right stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off |
 | Controls | Analog camera | `input.analog_camera` | `MHP3RD_ANALOG_CAMERA` | Proportional turn and continuous tilt in the ordinary quest camera, and proportional bow and bowgun aim; off by default |
 | Controls | Aim speed | `input.aim_speed` | `MHP3RD_AIM_SPEED` | Degrees a second at full deflection while a bow or a bowgun aims, 10 to 360; default 90 |
@@ -540,7 +544,8 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | --- | --- | --- |
 | `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button (menu: Confirm button) |
 | `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel (menu: Stick dead zone) |
-| `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press L/R (menu: Trigger point) |
+| `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press anything (menu: Trigger point) |
+| `MHP3RD_PAD_TRIGGERS` | `standard` | What LT/RT (L2/R2) press: `standard` L and R, `bows` R and △, `bowguns` R and ○ (menu: Trigger profile) |
 | `MHP3RD_ANALOG_CAMERA` | off | Proportional yaw and continuous tilt in the ordinary quest camera, the tilt limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the angle. The physical D-pad and recentre return control to the game. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
 | `MHP3RD_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
 | `MHP3RD_AIM_SPEED` | `90` | Degrees a second at full deflection while a bow or a bowgun aims, 10 to 360 (menu: Aim speed) |

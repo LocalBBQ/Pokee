@@ -19,6 +19,11 @@ namespace mhp3rd::settings {
 enum class PresentMode { Fifo, Mailbox, Immediate };
 enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class RightStick { Camera, DPad, Off };
+// What LT/RT (L2/R2) press past the trigger point. Standard makes them L and
+// R like the shoulders; the other two move R onto L2 and put a weapon's attack
+// on R2 for shooting: triangle for a bow, circle for a bowgun. The buttons
+// they copy keep working.
+enum class TriggerProfile { Standard, Bows, Bowguns };
 // What answers the game when it asks for text such as the hunter's name.
 enum class NameEntry { Keyboard, Fixed };
 
@@ -46,6 +51,7 @@ struct Settings {
     bool confirm_south{};              // confirm (circle) on the south face button
     float dead_zone{0.15f};
     float trigger{0.25f};
+    TriggerProfile trigger_profile{TriggerProfile::Standard};
     RightStick right_stick{RightStick::Camera};
     float right_stick_zone{0.5f};
     // Drives the ordinary quest camera's yaw and pitch from how far the stick
