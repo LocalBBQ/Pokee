@@ -42,6 +42,9 @@ struct Camera {
     std::int16_t wrote{};      // what the port put there last frame
     bool has_wrote{};
     std::vector<std::uint32_t> rejected;  // fields that turned out to follow, not drive
+    float asked{};    // degrees the port has asked for lately
+    float seen{};     // degrees the view actually turned in the same frames
+    int judging{};
     int overwritten{};         // frames the game put its own value back
     bool drive_view{};         // and so the view's own angle is driven as well
     int reported{};            // frames of before-and-after still to print
@@ -314,11 +317,20 @@ void look_for_pitch_float(const std::uint8_t *ram, std::uint32_t base, std::uint
     h.offsets.swap(kept_offsets);
     if (h.fields.size() != h.named) {
         h.named = h.fields.size();
-        std::cout << "[analog-camera] pitch as a float: " << h.fields.size() << " left";
-        if (h.fields.size() <= 12u)
-            for (std::size_t i = 0; i < h.fields.size(); ++i)
-                std::cout << " 0x" << std::hex << h.fields[i] << std::dec << "(" << h.offsets[i] << ")";
-        std::cout << "\n";
+        std::cout << "[analog-camera] pitch as a float: " << h.fields.size() << " left, view at " << pitch
+                  << " deg (so the value to look for is about " << wanted_value << ")\n";
+        // The one worth having reads about ten times the view's pitch outright,
+        // so print each survivor's value beside it. That is recognition without
+        // writing a byte, which is the only kind of candidate test tonight that
+        // has never cost a camera.
+        if (h.fields.size() <= 16u)
+            for (std::size_t i = 0; i < h.fields.size(); ++i) {
+                float value = 0.0f;
+                std::memcpy(&value, ram + (h.fields[i] - base), sizeof(value));
+                std::cout << "[analog-camera]   0x" << std::hex << h.fields[i] << std::dec << " = " << value
+                          << (std::fabs(h.offsets[i]) < 20.0f ? "   <- reads as the view's own pitch" : "")
+                          << "\n";
+            }
     }
 }
 
@@ -759,6 +771,27 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
         c.last = now;
         c.has_wrote = false;
         return;
+    }
+    // Surviving is not the same as working. A field can take the port's writes
+    // and keep them, and still not be the one the view is built from -- and
+    // then the camera sits there exactly as if the feature were off, which is
+    // what has been happening. So judge it on whether the view actually turned,
+    // not on whether the value stayed put.
+    c.asked += std::fabs(per_frame);
+    c.seen += std::fabs(turn);
+    if (++c.judging >= 60) {
+        if (c.asked > 20.0f && c.seen < c.asked * 0.2f) {
+            std::vector<std::uint32_t> rejected = c.rejected;
+            rejected.push_back(c.address);
+            std::cout << "[analog-camera] asked 0x" << std::hex << c.address << std::dec << " for " << c.asked
+                      << " deg and the view turned " << c.seen << "; it is not the camera, looking again\n";
+            c = Camera{};
+            c.rejected = rejected;
+            return;
+        }
+        c.judging = 0;
+        c.asked = 0.0f;
+        c.seen = 0.0f;
     }
     const std::int16_t written = static_cast<std::int16_t>(now + whole);
     memory.store16(c.address, static_cast<std::uint16_t>(written));
