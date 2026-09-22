@@ -375,17 +375,15 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
 
     // Keep the camera out of the floor and off the ceiling.
     const int limit = static_cast<int>(60.0f * kUnitsPerTurn / 360.0f);
-    // Every field that kept step with the view gets the same turn. The game
-    // eases one of these towards another, exactly as it does for the yaw, so
-    // writing only one of them is undone again before the frame is drawn --
-    // which is what made this look like it did nothing at all.
-    for (std::uint32_t address : p.best) {
-        const std::int16_t now = static_cast<std::int16_t>(memory.load16(address));
-        int next = now + whole;
-        if (next > limit) next = limit;
-        if (next < -limit) next = -limit;
-        memory.store16(address, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
-    }
+    // Only the one field the self-test proved drives the view. Writing every
+    // field that merely kept step with it took out the working horizontal as
+    // well: tracking the camera and driving it are not the same thing, and a
+    // set of correlated fields includes state the game needs left alone.
+    const std::int16_t now = static_cast<std::int16_t>(memory.load16(p.confirmed));
+    int next = now + whole;
+    if (next > limit) next = limit;
+    if (next < -limit) next = -limit;
+    memory.store16(p.confirmed, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
     static bool said = false;
     if (!said) {
         said = true;
