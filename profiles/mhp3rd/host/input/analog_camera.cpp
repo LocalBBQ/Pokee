@@ -235,6 +235,18 @@ struct Pitch {
     bool started{};
     std::size_t named{};
     float last{};
+    // The survivors, kept when the set empties: a command firing moves the
+    // pitch faster than the field follows and drops everything at once, and
+    // the answer was in the set just before that.
+    std::vector<std::uint32_t> best;
+    // Proving it without a player: nudge one candidate while the stick is
+    // untouched and see whether the view's pitch follows.
+    std::size_t trying{};
+    int settle{};
+    float before_pitch{};
+    std::int16_t nudged{};
+    bool waiting{};
+    std::uint32_t confirmed{};
 };
 
 Pitch &pitch_search() {
@@ -286,6 +298,7 @@ void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t s
     p.fields.swap(kept);
     p.offsets.swap(kept_offsets);
     p.misses.swap(kept_misses);
+    if (!p.fields.empty() && p.fields.size() <= 8u) p.best = p.fields;
     if (p.fields.size() != p.named) {
         p.named = p.fields.size();
         std::cout << "[analog-camera] pitch: " << p.fields.size() << " fields still keeping step";
@@ -294,6 +307,41 @@ void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t s
                 std::cout << " 0x" << std::hex << p.fields[i] << std::dec << "(+" << p.offsets[i] << ")";
         std::cout << "\n";
     }
+}
+
+// Writes a couple of degrees into one candidate while nothing else is asking
+// for the camera, and watches whether the view's pitch answers. The one that
+// answers is the pitch; the others are whatever else keeps step with it.
+void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, float turn) {
+    static const bool wanted = std::getenv("MHP3RD_FIND_PITCH") != nullptr;
+    if (!wanted) return;
+    Pitch &p = pitch_search();
+    if (p.confirmed != 0u || p.best.empty()) return;
+    // Only while the player and the game are both leaving the camera alone.
+    if (std::fabs(stick_y) > 0.1f || std::fabs(turn) > 0.2f) return;
+
+    if (p.waiting) {
+        const float moved = pitch - p.before_pitch;
+        if (std::fabs(moved) > 1.0f) {
+            p.confirmed = p.best[p.trying];
+            std::cout << "[analog-camera] pitch confirmed at 0x" << std::hex << p.confirmed << std::dec
+                      << ": writing it moved the view by " << moved << " degrees\n";
+        } else if (++p.settle > 4) {
+            std::cout << "[analog-camera] 0x" << std::hex << p.best[p.trying] << std::dec
+                      << " is not the pitch: writing it moved the view by " << moved << "\n";
+            p.trying = (p.trying + 1u) % p.best.size();
+            p.waiting = false;
+            p.settle = 0;
+        }
+        return;
+    }
+    const std::uint32_t address = p.best[p.trying];
+    const std::int16_t now = static_cast<std::int16_t>(memory.load16(address));
+    p.before_pitch = pitch;
+    p.nudged = static_cast<std::int16_t>(now + 900);  // about five degrees
+    memory.store16(address, static_cast<std::uint16_t>(p.nudged));
+    p.waiting = true;
+    p.settle = 0;
 }
 
 void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
@@ -339,6 +387,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
 
     look_for_vertical(ram, base, size, pitch_change, stick_y);
     look_for_pitch(ram, base, size, pitch_now);
+    confirm_pitch(memory, pitch_now, stick_y, turn);
     drive_vertical(memory, stick_y);
     watch_vertical(pitch_now, stick_y);
 
