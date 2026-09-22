@@ -313,6 +313,18 @@ void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t s
 // Writes a couple of degrees into one candidate while nothing else is asking
 // for the camera, and watches whether the view's pitch answers. The one that
 // answers is the pitch; the others are whatever else keeps step with it.
+// Never write where the horizontal lives. The pitch candidates are fields that
+// keep step with the view, and the yaw's own fields do exactly that whenever
+// the camera moves in both directions at once -- so the vertical's self-test
+// was writing five degrees into the horizontal's angle, which is what has been
+// taking it down. Addresses anywhere near the yaw's are refused outright.
+bool clashes_with_horizontal(std::uint32_t address) {
+    const Camera &c = camera();
+    if (c.state != Camera::State::Locked) return false;
+    const std::uint32_t apart = address > c.address ? address - c.address : c.address - address;
+    return apart < 0x2000u;
+}
+
 void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, float turn) {
     static const bool wanted = std::getenv("MHP3RD_FIND_PITCH") != nullptr;
     if (!wanted) return;
@@ -350,6 +362,10 @@ void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, f
         return;
     }
     const std::uint32_t address = p.best[p.trying];
+    if (clashes_with_horizontal(address)) {
+        p.trying = (p.trying + 1u) % p.best.size();
+        return;
+    }
     const std::int16_t now = static_cast<std::int16_t>(memory.load16(address));
     p.before_pitch = pitch;
     p.nudged = static_cast<std::int16_t>(now + 900);  // about five degrees
@@ -395,6 +411,7 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
     // whole set of fields that merely track the view: that is what stopped the
     // camera altogether.
     const auto turn_field = [&](std::uint32_t address) {
+        if (clashes_with_horizontal(address)) return;
         const std::int16_t now = static_cast<std::int16_t>(memory.load16(address));
         int next = now + whole;
         if (next > limit) next = limit;
