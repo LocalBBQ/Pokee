@@ -249,6 +249,9 @@ struct Pitch {
     bool waiting{};
     std::uint32_t confirmed{};
     int attempts{};
+    std::vector<std::uint32_t> rejected;  // fields that followed rather than moved
+    std::int16_t driven{};
+    int ignored{};
 };
 
 Pitch &pitch_search() {
@@ -257,8 +260,7 @@ Pitch &pitch_search() {
 }
 
 void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch) {
-    static const bool wanted = std::getenv("MHP3RD_FIND_PITCH") != nullptr;
-    if (!wanted) return;
+    if (!settings::current().vertical_camera) return;
     Pitch &p = pitch_search();
     // Only worth judging while the pitch is actually changing; a still camera
     // lets every constant in memory keep a constant offset from it.
@@ -271,6 +273,10 @@ void look_for_pitch(const std::uint8_t *ram, std::uint32_t base, std::uint32_t s
         for (std::uint32_t offset = 0; offset + 2u <= size; offset += 2u) {
             std::int16_t value = 0;
             std::memcpy(&value, ram + offset, sizeof(value));
+            bool refused = false;
+            for (std::uint32_t bad : p.rejected)
+                if (bad == base + offset) refused = true;
+            if (refused) continue;
             p.fields.push_back(base + offset);
             p.offsets.push_back(static_cast<std::int16_t>(units - value));
             p.misses.push_back(0u);
@@ -327,8 +333,6 @@ bool clashes_with_horizontal(std::uint32_t address) {
 }
 
 void confirm_pitch(psprecomp::GuestMemory &memory, float pitch, float stick_y, float turn) {
-    static const bool wanted = std::getenv("MHP3RD_FIND_PITCH") != nullptr;
-    if (!wanted) return;
     // This *writes* five degrees into a candidate to see whether the view
     // answers, and most candidates are not the camera. It was gated only on the
     // search being switched on, so turning Vertical camera off did not stop it
@@ -423,6 +427,30 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
         if (next < -limit) next = -limit;
         memory.store16(address, static_cast<std::uint16_t>(static_cast<std::int16_t>(next)));
     };
+    // A field that keeps step with the view need not be the one that moves it,
+    // and writing a follower looks exactly like the vertical not working. The
+    // yaw learned this the hard way tonight; the pitch gets it for free.
+    if (p.driven != 0u) {
+        const std::int16_t back = static_cast<std::int16_t>(memory.load16(p.confirmed));
+        if (back != p.driven) {
+            if (++p.ignored >= 40) {
+                std::cout << "[analog-camera] 0x" << std::hex << p.confirmed << std::dec
+                          << " follows the view rather than moving it; rejecting it and looking again\n";
+                p.rejected.push_back(p.confirmed);
+                p.confirmed = 0u;
+                p.best.clear();
+                p.started = false;
+                p.fields.clear();
+                p.offsets.clear();
+                p.misses.clear();
+                p.ignored = 0;
+                p.driven = 0;
+                return;
+            }
+        } else {
+            p.ignored = 0;
+        }
+    }
     turn_field(p.confirmed);
     // The companion is the next 16-bit field, not the nearest one that happens
     // to correlate. That is what the game's own code does for the yaw -- the
@@ -432,6 +460,7 @@ void drive_vertical(psprecomp::GuestMemory &memory, float stick_y) {
     // quarters of its change per frame. Picking by proximity across a whole
     // structure is what wrote into state the game needed.
     if (player.vertical_write == 1) turn_field(p.confirmed + 2u);
+    p.driven = static_cast<std::int16_t>(memory.load16(p.confirmed));
     static int said = -1;
     if (said != player.vertical_write) {
         said = player.vertical_write;
