@@ -328,6 +328,15 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_input_tests COMMAND mhp3rd_input_tests)
 endif()
 
+# Renderer helpers that need no GPU.
+add_executable(mhp3rd_render_tests tests/render_tests.cpp)
+target_include_directories(mhp3rd_render_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_render_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_render_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_render_tests COMMAND mhp3rd_render_tests)
+endif()
+
 # The built-in ad hoc server against the client and a raw protocol peer, and
 # local network discovery, all over the loopback address.
 add_executable(mhp3rd_adhoc_tests

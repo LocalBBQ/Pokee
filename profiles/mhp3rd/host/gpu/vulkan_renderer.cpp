@@ -2,6 +2,7 @@
 
 #include "replacement_textures.hpp"
 #include "texture_decode.hpp"
+#include "triangle_indices.hpp"
 #include "texture_pack.hpp"
 #include "texture_pack_import.hpp"
 
@@ -1297,7 +1298,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = kVertexBufferBytes;
-    buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    buffer_info.usage =
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!check(vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.vertex_buffer), "vkCreateBuffer", error))
         return false;
@@ -3155,7 +3157,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     static const bool no_fog = no_lighting || std::getenv("MHP3RD_NO_FOG") != nullptr;
     const bool lit = call.lighting_enabled && !no_lighting && !call.through && !call.clear_mode;
     const bool use_material_color = !no_material_color && !call.has_vertex_color && !call.lighting_enabled;
-    const auto push_vertex = [&](const Vertex &vertex) {
+    const auto to_gpu = [&](const Vertex &vertex) {
         GpuVertex out{};
         out.x = vertex.position[0];
         out.y = vertex.position[1];
@@ -3166,8 +3168,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         out.nx = vertex.normal[0];
         out.ny = vertex.normal[1];
         out.nz = vertex.normal[2];
-        impl.scratch.push_back(out);
+        return out;
     };
+    const auto push_vertex = [&](const Vertex &vertex) { impl.scratch.push_back(to_gpu(vertex)); };
     const auto vertex_at = [&](std::size_t index) -> const Vertex & {
         if (!call.indices.empty()) {
             const std::size_t mapped = call.indices[index];
@@ -3177,58 +3180,106 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     };
     const std::size_t count = call.indices.empty() ? call.vertices.size() : call.indices.size();
 
-    switch (call.primitive) {
-    case PrimitiveType::Triangles:
-        for (std::size_t i = 0; i + 2u < count; i += 3u) {
-            push_vertex(vertex_at(i));
-            push_vertex(vertex_at(i + 1u));
-            push_vertex(vertex_at(i + 2u));
+    static const bool trace = std::getenv("MHP3RD_TRACE_GE") != nullptr;
+    static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
+    // MHP3RD_TRACE_SPRITES=N: every through-mode sprite of frame N, with the
+    // texture state it samples, to find the tiles a 2D screen is built from.
+    static const std::uint64_t trace_sprites_frame = [] {
+        const char *text = std::getenv("MHP3RD_TRACE_SPRITES");
+        return text != nullptr ? std::strtoull(text, nullptr, 10) : ~0ull;
+    }();
+
+    // Transformed triangles, strips and fans go straight into the vertex
+    // buffer: each decoded vertex once, converted as it is written, and a
+    // 16-bit index list in the order the expansion below writes vertices in,
+    // so the GPU draws the same triangles from the same vertex data without
+    // the copies and the repeated strip vertices. MHP3RD_NO_DIRECT_VERTICES
+    // expands every draw as before; the traces that read expanded vertices
+    // keep the expansion too.
+    static const bool legacy_vertices = std::getenv("MHP3RD_NO_DIRECT_VERTICES") != nullptr;
+    static const bool check_direct = std::getenv("MHP3RD_CHECK_DIRECT_VERTICES") != nullptr;
+    const bool direct = !legacy_vertices && !call.through &&
+                        (call.primitive == PrimitiveType::Triangles ||
+                         call.primitive == PrimitiveType::TriangleStrip ||
+                         call.primitive == PrimitiveType::TriangleFan) &&
+                        !trace && !trace3d && impl.frames != trace_sprites_frame;
+
+    const auto expand = [&]() -> bool {
+        switch (call.primitive) {
+        case PrimitiveType::Triangles:
+            for (std::size_t i = 0; i + 2u < count; i += 3u) {
+                push_vertex(vertex_at(i));
+                push_vertex(vertex_at(i + 1u));
+                push_vertex(vertex_at(i + 2u));
+            }
+            break;
+        case PrimitiveType::TriangleStrip:
+            for (std::size_t i = 0; i + 2u < count; ++i) {
+                const bool odd = (i & 1u) != 0u;
+                push_vertex(vertex_at(i));
+                push_vertex(vertex_at(odd ? i + 2u : i + 1u));
+                push_vertex(vertex_at(odd ? i + 1u : i + 2u));
+            }
+            break;
+        case PrimitiveType::TriangleFan:
+            for (std::size_t i = 1u; i + 1u < count; ++i) {
+                push_vertex(vertex_at(0));
+                push_vertex(vertex_at(i));
+                push_vertex(vertex_at(i + 1u));
+            }
+            break;
+        case PrimitiveType::Sprites:
+            // Vertex pairs describe the opposite corners of a rectangle.
+            for (std::size_t i = 0; i + 1u < count; i += 2u) {
+                Vertex a = vertex_at(i);
+                const Vertex &b = vertex_at(i + 1u);
+                // The GE flat-shades sprites from the second vertex: its depth (and
+                // colour) cover the whole rectangle. sceGuClear relies on this, as
+                // its first vertex carries z = 0 and only the second the clear depth.
+                a.position[2] = b.position[2];
+                a.color = b.color;
+                a.normal = b.normal;
+                Vertex top_right = b;
+                top_right.position[1] = a.position[1];
+                top_right.texcoord[1] = a.texcoord[1];
+                Vertex bottom_left = a;
+                bottom_left.position[1] = b.position[1];
+                bottom_left.texcoord[1] = b.texcoord[1];
+                push_vertex(a);
+                push_vertex(top_right);
+                push_vertex(b);
+                push_vertex(a);
+                push_vertex(b);
+                push_vertex(bottom_left);
+            }
+            break;
+        default:
+            return false;  // points and lines are not drawn yet
         }
-        break;
-    case PrimitiveType::TriangleStrip:
-        for (std::size_t i = 0; i + 2u < count; ++i) {
-            const bool odd = (i & 1u) != 0u;
-            push_vertex(vertex_at(i));
-            push_vertex(vertex_at(odd ? i + 2u : i + 1u));
-            push_vertex(vertex_at(odd ? i + 1u : i + 2u));
+        return true;
+    };
+    if (direct) {
+        triangle_indices(call.primitive, count, call.indices, call.vertices.size(), impl.direct_indices);
+        if (impl.direct_indices.empty()) return;
+        if (check_direct) {
+            // Every index must name a vertex equal, byte for byte, to the one
+            // the expansion puts in its place.
+            if (!expand()) return;
+            ++impl.direct_checked;
+            bool same = impl.scratch.size() == impl.direct_indices.size();
+            for (std::size_t i = 0; same && i < impl.scratch.size(); ++i) {
+                const GpuVertex converted = to_gpu(call.vertices[impl.direct_indices[i]]);
+                same = std::memcmp(&converted, &impl.scratch[i], sizeof(GpuVertex)) == 0;
+            }
+            if (!same && ++impl.direct_mismatched <= 20u)
+                std::cout << "[direct-check] draw " << impl.draws << " prim=" << static_cast<int>(call.primitive)
+                          << " count=" << count << " vertices=" << call.vertices.size() << " expanded "
+                          << impl.scratch.size() << " indices " << impl.direct_indices.size() << " differ\n";
         }
-        break;
-    case PrimitiveType::TriangleFan:
-        for (std::size_t i = 1u; i + 1u < count; ++i) {
-            push_vertex(vertex_at(0));
-            push_vertex(vertex_at(i));
-            push_vertex(vertex_at(i + 1u));
-        }
-        break;
-    case PrimitiveType::Sprites:
-        // Vertex pairs describe the opposite corners of a rectangle.
-        for (std::size_t i = 0; i + 1u < count; i += 2u) {
-            Vertex a = vertex_at(i);
-            const Vertex &b = vertex_at(i + 1u);
-            // The GE flat-shades sprites from the second vertex: its depth (and
-            // colour) cover the whole rectangle. sceGuClear relies on this, as
-            // its first vertex carries z = 0 and only the second the clear depth.
-            a.position[2] = b.position[2];
-            a.color = b.color;
-            a.normal = b.normal;
-            Vertex top_right = b;
-            top_right.position[1] = a.position[1];
-            top_right.texcoord[1] = a.texcoord[1];
-            Vertex bottom_left = a;
-            bottom_left.position[1] = b.position[1];
-            bottom_left.texcoord[1] = b.texcoord[1];
-            push_vertex(a);
-            push_vertex(top_right);
-            push_vertex(b);
-            push_vertex(a);
-            push_vertex(b);
-            push_vertex(bottom_left);
-        }
-        break;
-    default:
-        return;  // points and lines are not drawn yet
+    } else {
+        if (!expand()) return;
+        if (impl.scratch.empty()) return;
     }
-    if (impl.scratch.empty()) return;
 
     // Through-mode vertices carry the texel range they may sample in the
     // otherwise unused normal and w; see clamp_through_quad().
@@ -3247,7 +3298,6 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         }
     }
 
-    static const bool trace = std::getenv("MHP3RD_TRACE_GE") != nullptr;
     if (trace && impl.draws < 400u) {
         const GpuVertex &first = impl.scratch.front();
         const GpuVertex &second = impl.scratch[std::min<std::size_t>(1u, impl.scratch.size() - 1u)];
@@ -3263,12 +3313,6 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     }
 
 
-    // MHP3RD_TRACE_SPRITES=N: every through-mode sprite of frame N, with the
-    // texture state it samples, to find the tiles a 2D screen is built from.
-    static const std::uint64_t trace_sprites_frame = [] {
-        const char *text = std::getenv("MHP3RD_TRACE_SPRITES");
-        return text != nullptr ? std::strtoull(text, nullptr, 10) : ~0ull;
-    }();
     if (impl.frames == trace_sprites_frame && call.primitive != PrimitiveType::Sprites) {
         float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, u0 = 1e9f, v0 = 1e9f, u1 = -1e9f, v1 = -1e9f;
         for (std::size_t i = 0; i < count; ++i) {
@@ -3304,7 +3348,6 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // Deep dump of the first transformed draws: matrices, raw positions and the
     // same positions after a CPU-side transform, so a geometry that never shows
     // up can be traced to the stage that loses it.
-    static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
     static const bool trace_camera = std::getenv("MHP3RD_TRACE_CAMERA") != nullptr;
     // The camera hunt reads the same measurement without printing it.
     static const bool watch_camera = trace_camera || std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
@@ -3373,7 +3416,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         if (watch_camera) {
             const auto same = std::find_if(impl.frame_views.begin(), impl.frame_views.end(),
                                            [&](const auto &entry) { return entry.first == call.view; });
-            const auto vertices = static_cast<std::uint32_t>(impl.scratch.size());
+            const auto vertices =
+                static_cast<std::uint32_t>(direct ? impl.direct_indices.size() : impl.scratch.size());
             if (same == impl.frame_views.end())
                 impl.frame_views.emplace_back(call.view, vertices);
             else
@@ -3492,10 +3536,34 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         }
     }
 
-    const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
-    if (impl.vertex_offset + bytes > kVertexBufferBytes) return;
-    std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
-                static_cast<std::size_t>(bytes));
+    VkDeviceSize vertex_start = impl.vertex_offset;
+    VkDeviceSize index_start = 0u;
+    VkDeviceSize draw_end = 0u;
+    std::uint32_t draw_count = 0u;
+    if (direct) {
+        // Floats want 4-byte alignment and index buffer offsets a multiple of
+        // the index size; a vertex run starts on 16 bytes.
+        vertex_start = (impl.vertex_offset + 15u) & ~VkDeviceSize{15u};
+        index_start = (vertex_start + call.vertices.size() * sizeof(GpuVertex) + 3u) & ~VkDeviceSize{3u};
+        draw_end = index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
+        if (draw_end > kVertexBufferBytes) return;
+        auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
+        for (const Vertex &vertex : call.vertices) {
+            const GpuVertex converted = to_gpu(vertex);
+            std::memcpy(out, &converted, sizeof(GpuVertex));
+            out += sizeof(GpuVertex);
+        }
+        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + index_start, impl.direct_indices.data(),
+                    impl.direct_indices.size() * sizeof(std::uint16_t));
+        draw_count = static_cast<std::uint32_t>(impl.direct_indices.size());
+    } else {
+        const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
+        if (impl.vertex_offset + bytes > kVertexBufferBytes) return;
+        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
+                    static_cast<std::size_t>(bytes));
+        draw_end = impl.vertex_offset + bytes;
+        draw_count = static_cast<std::uint32_t>(impl.scratch.size());
+    }
 
     PipelineKey key{};
     if (call.clear_mode) {
@@ -3690,10 +3758,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     }
     vkCmdPushConstants(impl.command_buffer, impl.pipeline_layout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(push), &push);
-    const VkDeviceSize offset = impl.vertex_offset;
-    vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &offset);
-    vkCmdDraw(impl.command_buffer, static_cast<std::uint32_t>(impl.scratch.size()), 1u, 0u, 0u);
-    impl.vertex_offset += bytes;
+    vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &vertex_start);
+    if (direct) {
+        vkCmdBindIndexBuffer(impl.command_buffer, impl.vertex_buffer, index_start, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(impl.command_buffer, draw_count, 1u, 0u, 0, 0u);
+    } else {
+        vkCmdDraw(impl.command_buffer, draw_count, 1u, 0u, 0u);
+    }
+    impl.vertex_offset = draw_end;
     ++impl.draws;
 }
 
@@ -3878,6 +3950,11 @@ void VulkanRenderer::present(std::uint32_t display_address) {
     impl.frame_ndc_min = {1e30f, 1e30f, 1e30f};
     impl.frame_ndc_max = {-1e30f, -1e30f, -1e30f};
     impl.frame_transformed_targets.clear();
+
+    static const bool check_direct = std::getenv("MHP3RD_CHECK_DIRECT_VERTICES") != nullptr;
+    if (check_direct && impl.frames % 300u == 0u)
+        std::cout << "[direct-check] " << impl.direct_checked << " draws compared, " << impl.direct_mismatched
+                  << " differed" << std::endl;
 
     static const bool no_writeback = std::getenv("MHP3RD_NO_FB_TEXTURES") != nullptr;
     if (!no_writeback) impl.record_writeback(display_address);
