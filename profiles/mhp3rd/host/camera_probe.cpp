@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -31,7 +32,10 @@ constexpr float kCut = 40.0f;
 // give 1, radians 0.0175, a 16-bit angle 182.
 constexpr double kSmallestRatio = 1e-3;
 constexpr double kLargestRatio = 1e6;
-constexpr std::size_t kPrintable = 60u;
+// The console gets a summary; the whole list goes to a file, because a set
+// that stops shrinking at a thousand is still small enough to read through and
+// far too big to print every frame.
+constexpr std::size_t kPrintable = 24u;
 constexpr std::size_t kMostCandidates = 3u * 1000u * 1000u;
 
 struct Candidate {
@@ -80,8 +84,25 @@ double slack_of(Kind kind, double expected) {
     return 0.03 * std::fabs(expected) + (kind == Kind::Float32 ? 1e-5 : 1.5);
 }
 
+// MHP3RD_FIND_CAMERA_OUT names a file the surviving list is rewritten into
+// whenever it changes, so a run can be read without restarting the game.
+void write_list(const Probe &p, std::uint32_t base);
+
 const char *name_of(Kind kind) {
     return kind == Kind::Float32 ? "float" : kind == Kind::Int32 ? "int32" : "int16";
+}
+
+void write_list(const Probe &p, std::uint32_t base) {
+    const char *path = std::getenv("MHP3RD_FIND_CAMERA_OUT");
+    if (path == nullptr || *path == '\0') return;
+    std::ofstream out(path, std::ios::trunc);
+    if (!out) return;
+    out << "# " << p.candidates.size() << " words still tracking the camera after " << p.frames
+        << " turning frames\n";
+    out << std::setprecision(10);
+    for (const Candidate &c : p.candidates)
+        out << name_of(c.kind) << " 0x" << std::hex << (base + c.offset) << std::dec << " value=" << c.previous
+            << " per_degree=" << c.ratio << "\n";
 }
 
 void admit(Probe &p, const std::uint8_t *ram, std::uint32_t size, float turn) {
@@ -168,17 +189,17 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
     p.candidates.swap(kept);
     ++p.frames;
 
-    if (thinned) {
+    if (thinned || p.frames % 200u == 0u) {
         std::cout << "[find-camera] after " << p.frames << " turning frames (turn " << turn << "): "
                   << p.candidates.size() << " left\n";
-        if (!p.candidates.empty() && p.candidates.size() <= kPrintable) {
-            const std::streamsize precision = std::cout.precision();
-            std::cout << std::setprecision(8);
+        const std::streamsize precision = std::cout.precision();
+        std::cout << std::setprecision(8);
+        if (!p.candidates.empty() && p.candidates.size() <= kPrintable)
             for (const Candidate &c : p.candidates)
                 std::cout << "[find-camera]   " << name_of(c.kind) << " at 0x" << std::hex << (base + c.offset)
                           << std::dec << " value=" << c.previous << " per-degree=" << c.ratio << "\n";
-            std::cout.precision(precision);
-        }
+        std::cout.precision(precision);
+        write_list(p, base);
     }
     if (p.candidates.empty() && p.attempts < 12) {
         p.armed = false;
