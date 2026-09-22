@@ -422,6 +422,11 @@ function(mhp3rd_add_overlay meta_path)
         target_link_libraries(${target} PRIVATE Yakumo)
     else()
         add_dependencies(${target} Yakumo)
+        if(ANDROID)
+            # The NDK links every shared library with --no-undefined; these
+            # leave the host's symbols to the loader like any other ELF.
+            target_link_options(${target} PRIVATE "LINKER:-z,undefs")
+        endif()
     endif()
     if(MSVC)
         target_compile_definitions(${target} PRIVATE PSPRECOMP_IMPORT_HOST_SYMBOLS=1)
