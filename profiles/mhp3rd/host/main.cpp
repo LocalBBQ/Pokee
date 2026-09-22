@@ -19,7 +19,12 @@
 #include "psprecomp/sha256.hpp"
 
 #if defined(MHP3RD_CAMERA_HELPER_UNIT)
-#include "generated_units.hpp"
+// Declared here rather than through generated_units.hpp, which corpora
+// generated before that header existed do not have. Every generated unit has
+// this signature.
+namespace psprecomp {
+void MHP3RD_CAMERA_HELPER_UNIT(Runtime &, AllegrexContext &);
+}
 #endif
 
 #include <atomic>
