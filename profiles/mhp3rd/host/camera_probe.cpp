@@ -3,6 +3,8 @@
 #include "gpu/vulkan_renderer.hpp"
 #include "hle/hle_common.hpp"
 
+#include <string>
+
 #include "psprecomp/guest_memory.hpp"
 #include "psprecomp/runtime.hpp"
 
@@ -24,6 +26,7 @@ void set_write_watch(std::uint32_t address, std::uint32_t size);
 
 namespace mhp3rd::probe {
 using mhp3rd::active_renderer;
+using mhp3rd::log_once;
 namespace {
 
 // A game does not have to keep its camera angle as a float: a 16-bit angle,
@@ -364,6 +367,37 @@ void poke_floats(psprecomp::Runtime &runtime) {
     }
 }
 
+// Writing to every address that merely held the right number is a blind write
+// into whatever else happens to hold it -- live game state included -- and it
+// cost a hung game and a pegged core to learn that. A poke now names which of
+// the matches it means, and asking for all of them has to be said out loud.
+// Returns the matches that may be written, empty if the caller has not chosen.
+std::vector<std::uint32_t> chosen_places(const std::vector<std::uint32_t> &places, const char *what) {
+    static const char *which = std::getenv("MHP3RD_POKE_WHICH");
+    if (places.size() <= 1u) return places;
+    if (which == nullptr || *which == '\0') {
+        log_once(std::string("poke-which-") + what,
+                 std::string("[poke] ") + what + " matches " + std::to_string(places.size()) +
+                     " places; set MHP3RD_POKE_WHICH to an index (0-based) to write one of them, or to"
+                     " 'all' to write every one, which will also write whatever else holds that value");
+        return {};
+    }
+    if (std::strcmp(which, "all") == 0) {
+        log_once(std::string("poke-all-") + what,
+                 std::string("[poke] writing all ") + std::to_string(places.size()) + " places that match " +
+                     what + "; anything else holding that value is being overwritten too");
+        return places;
+    }
+    const std::size_t index = static_cast<std::size_t>(std::strtoul(which, nullptr, 0));
+    if (index >= places.size()) {
+        log_once(std::string("poke-range-") + what,
+                 std::string("[poke] MHP3RD_POKE_WHICH=") + which + " is past the " +
+                     std::to_string(places.size()) + " places that match " + what);
+        return {};
+    }
+    return {places[index]};
+}
+
 // MHP3RD_FIND_FLOAT=VALUE lists every word in guest memory holding exactly that
 // float, and MHP3RD_POKE_FOUND=VALUE then writes a different value into all of
 // them every frame. A constant that the game copies out of its executable at
@@ -405,11 +439,64 @@ void find_and_poke_copies(psprecomp::Runtime &runtime) {
     static const float replacement = std::strtof(poke_text, nullptr);
     std::uint32_t bits = 0u;
     std::memcpy(&bits, &replacement, sizeof(bits));
-    for (std::uint32_t address : copies) memory.store32(address, bits);
+    for (std::uint32_t address : chosen_places(copies, "that float")) memory.store32(address, bits);
+}
+
+// MHP3RD_FIND_INT32=N lists every word holding exactly that whole number, and
+// MHP3RD_POKE_INT32=M writes M into all of them each frame. A game that works
+// in 16-bit angles keeps its camera steps as whole numbers, not floats, so the
+// float tools above cannot see them.
+void find_and_poke_int32(psprecomp::Runtime &runtime) {
+    static const char *wanted_text = std::getenv("MHP3RD_FIND_INT32");
+    static const bool half = std::getenv("MHP3RD_FIND_INT16_WIDE") != nullptr;
+    if (wanted_text == nullptr || *wanted_text == '\0') return;
+    static const std::int32_t wanted = static_cast<std::int32_t>(std::strtol(wanted_text, nullptr, 0));
+    static const char *poke_text = std::getenv("MHP3RD_POKE_INT32");
+    static std::vector<std::uint32_t> places;
+    static std::uint64_t frames = 0u;
+    static std::uint64_t scans = 0u;
+
+    psprecomp::GuestMemory &memory = runtime.memory();
+    const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
+    const std::uint32_t size = memory.size();
+    if ((frames++ % 900u) == 0u) {
+        const std::uint8_t *ram = memory.raw_pointer(base, size);
+        if (ram == nullptr) return;
+        places.clear();
+        // A game that works in 16-bit angles keeps its steps in 16-bit fields,
+        // and a 32-bit scan only finds those whose upper half happens to be
+        // zero -- which is a small and misleading subset.
+        const std::uint32_t stride = half ? 2u : 4u;
+        const std::uint32_t width = half ? 2u : 4u;
+        for (std::uint32_t offset = 0; offset + width <= size; offset += stride) {
+            std::int32_t value = 0;
+            if (half) {
+                std::int16_t narrow = 0;
+                std::memcpy(&narrow, ram + offset, sizeof(narrow));
+                value = narrow;
+            } else {
+                std::memcpy(&value, ram + offset, sizeof(value));
+            }
+            if (value == wanted) places.push_back(base + offset);
+        }
+        std::cout << "[find-int32] scan " << scans++ << ": " << wanted << " at " << places.size() << " places";
+        for (std::size_t i = 0; i < places.size() && i < 24u; ++i)
+            std::cout << " 0x" << std::hex << places[i] << std::dec;
+        std::cout << "\n";
+    }
+    if (poke_text == nullptr || *poke_text == '\0' || places.empty()) return;
+    static const std::int32_t replacement = static_cast<std::int32_t>(std::strtol(poke_text, nullptr, 0));
+    for (std::uint32_t address : chosen_places(places, "that whole number")) {
+        if (half)
+            memory.store16(address, static_cast<std::uint16_t>(replacement));
+        else
+            memory.store32(address, static_cast<std::uint32_t>(replacement));
+    }
 }
 
 void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source) {
     poke_floats(runtime);
+    find_and_poke_int32(runtime);
     find_and_poke_copies(runtime);
     static const bool enabled = std::getenv("MHP3RD_FIND_CAMERA") != nullptr;
     if (!enabled) return;
