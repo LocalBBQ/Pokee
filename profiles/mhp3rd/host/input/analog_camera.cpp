@@ -186,22 +186,24 @@ std::int16_t to_units(float degrees) {
 // Rather than guess at the convention, print each candidate's level next to the
 // pitch the view actually has, and the 16-bit words around it, so the mapping
 // can be read off instead of assumed.
-void watch_vertical(const std::uint8_t *ram, std::uint32_t base, std::uint32_t size, float pitch) {
-    Vertical &v = vertical();
-    if (!v.reported || v.levels.empty()) return;
-    if (v.watched >= 40) return;
-    ++v.watched;
-    std::cout << "[analog-camera] vertical: pitch " << pitch << " deg;";
-    for (std::uint32_t address : v.levels) {
-        const std::uint32_t offset = address - base;
-        if (offset + 2u > size) continue;
-        std::cout << " 0x" << std::hex << address << std::dec << "=" << static_cast<int>(ram[offset]);
-    }
-    std::cout << "\n";
+// Before anything can be found by "it changed when the vertical fired", the
+// firing itself has to be visible. The first search converged on bytes that
+// differed completely between runs and held values far outside 0 to 4, while
+// the pitch moved by hundredths of a degree throughout -- which says the
+// vertical was never seen to fire at all, and the search was comparing noise.
+// So log what the vertical stick is doing beside what the pitch does, and
+// settle that first.
+void watch_vertical(float pitch, float stick_y) {
+    static int printed = 0;
+    static bool seen_push = false;
+    if (std::fabs(stick_y) > 0.3f) seen_push = true;
+    if (!seen_push || printed >= 150) return;
+    ++printed;
+    std::cout << "[analog-camera] vertical stick " << stick_y << " -> pitch " << pitch << " deg\n";
 }
 
 void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflection, float pitch_change,
-                         float yaw_degrees, float pitch_now) {
+                         float yaw_degrees, float pitch_now, float stick_y) {
     Camera &c = camera();
     if (!settings::current().analog_camera) {
         if (c.state != Camera::State::Looking) c = Camera{};
@@ -215,7 +217,7 @@ void analog_camera_frame(psprecomp::Runtime &runtime, float turn, float deflecti
     if (ram == nullptr) return;
 
     look_for_vertical(ram, base, size, pitch_change);
-    watch_vertical(ram, base, size, pitch_now);
+    watch_vertical(pitch_now, stick_y);
 
     if (c.state == Camera::State::Looking) {
         // Nothing to compare against until the game turns the camera itself,
