@@ -9,6 +9,8 @@
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
+#elif defined(MHP3RD_ANDROID_APP)
+#include <dlfcn.h>
 #endif
 
 namespace mhp3rd {
@@ -28,6 +30,12 @@ std::filesystem::path executable_path() {
     std::string buffer(size, '\0');
     if (_NSGetExecutablePath(buffer.data(), &size) != 0) return {};
     return std::filesystem::canonical(buffer.c_str());
+#elif defined(MHP3RD_ANDROID_APP)
+    // An Android app runs inside app_process; its own code is libmain.so, in
+    // the directory the package manager extracted the APK's libraries to.
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<const void *>(&executable_path), &info) == 0 || info.dli_fname == nullptr) return {};
+    return std::filesystem::path(info.dli_fname);
 #else
     std::error_code ec;
     const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);

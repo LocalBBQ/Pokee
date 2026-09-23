@@ -177,12 +177,27 @@ target_include_directories(mhp3rd_generated PRIVATE
     "${MHP3RD_PROFILE_DIR}/generated")
 set_target_properties(mhp3rd_generated PROPERTIES JOB_POOL_COMPILE psprecomp_generated)
 
-add_executable(Yakumo
+# An Android app is a shared library, libmain.so, that SDL's Java activity
+# loads and calls; the command-line executable still builds for Android without
+# this and runs from adb shell.
+option(MHP3RD_ANDROID_APP "Build the Android app's libmain.so instead of an executable" OFF)
+if(MHP3RD_ANDROID_APP AND NOT (ANDROID AND MHP3RD_RENDERER))
+    message(FATAL_ERROR "MHP3RD_ANDROID_APP needs the Android NDK toolchain and the renderer (SDL3 and Vulkan)")
+endif()
+set(MHP3RD_PROGRAM_SOURCES
     host/main.cpp
     ${MHP3RD_HOST_SOURCES}
     ${MHP3RD_RENDERER_SOURCES}
-    $<TARGET_OBJECTS:mhp3rd_generated>
-)
+    $<TARGET_OBJECTS:mhp3rd_generated>)
+if(MHP3RD_ANDROID_APP)
+    add_library(Yakumo SHARED ${MHP3RD_PROGRAM_SOURCES} host/platform/android_app.cpp)
+    target_compile_definitions(Yakumo PRIVATE MHP3RD_ANDROID_APP=1)
+    set_target_properties(Yakumo PROPERTIES
+        OUTPUT_NAME main
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+else()
+    add_executable(Yakumo ${MHP3RD_PROGRAM_SOURCES})
+endif()
 if(WIN32)
     set(MHP3RD_WINDOWS_ICON "${MHP3RD_PROFILE_DIR}/packaging/windows/emblem.ico")
     configure_file(packaging/windows/Yakumo.rc.in Yakumo.rc @ONLY)
@@ -415,10 +430,12 @@ function(mhp3rd_add_overlay meta_path)
     # the runtime state the host already owns.
     target_include_directories(${target} PRIVATE
         "${source_dir}" "${MHP3RD_PROFILE_DIR}/host" "${PROJECT_SOURCE_DIR}/include")
-    if(WIN32 OR APPLE)
+    if(WIN32 OR APPLE OR MHP3RD_ANDROID_APP)
         # Both linkers want the host binary while linking the module: MSVC for
         # its import library, ld64 as the bundle loader. ELF leaves the host
-        # symbols undefined and resolves them when the module is loaded.
+        # symbols undefined and resolves them when the module is loaded. In an
+        # Android app the host is libmain.so, which the app loads privately,
+        # so the module names it as a dependency to find its symbols.
         target_link_libraries(${target} PRIVATE Yakumo)
     else()
         add_dependencies(${target} Yakumo)
@@ -449,6 +466,10 @@ function(mhp3rd_add_overlay meta_path)
         SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}"
         OUTPUT_NAME "${MHP3RD_OVERLAY_PREFIX}"
         LIBRARY_OUTPUT_DIRECTORY "${MHP3RD_OVERLAY_DIR}")
+    if(MHP3RD_ANDROID_APP)
+        # An APK only carries libraries named lib*.so.
+        set_target_properties(${target} PROPERTIES PREFIX "lib")
+    endif()
 endfunction()
 
 file(GLOB MHP3RD_OVERLAY_METADATA CONFIGURE_DEPENDS "${MHP3RD_PROFILE_DIR}/overlays/*/meta.txt")
