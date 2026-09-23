@@ -77,6 +77,7 @@ if(MHP3RD_RENDERER)
             host/ui/input_script.cpp
             host/ui/layer.cpp
             host/ui/menu.cpp
+            host/ui/mods_screen.cpp
             host/ui/save_screen.cpp
             host/ui/setup_screens.cpp
             host/ui/text_input.cpp
