@@ -26,6 +26,9 @@
 #include "save_data/save_transfer.hpp"
 #include "settings/settings.hpp"
 #include "yakumo_version.hpp"
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_documents.hpp"
+#endif
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -215,6 +218,8 @@ void Menu::video() {
             settings::save();
         }
     }
+#if !defined(__ANDROID__)
+    // A phone is always full screen: no window to size.
     {
         const int delta =
             choice_row("Display", s.fullscreen ? "Fullscreen" : "Window",
@@ -239,6 +244,7 @@ void Menu::video() {
             settings::save();
         }
     }
+#endif
     {
         static const char *const kAspects[] = {"Original", "Stretch", "Fill"};
         const int current = static_cast<int>(s.aspect);
@@ -1151,10 +1157,36 @@ void Menu::system() {
         s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
         settings::save();
     }
+#if defined(MHP3RD_ANDROID_APP)
+    // An Android app's data folder is out of the file manager's reach; its
+    // log goes where the player picks instead, to send with a report.
+    (void)data_dir;
+    if (button_row("Save the log…", {false, {}, "Copies Yakumo's log (yakumo.log and the logs folder) to a folder "
+                                                "you pick, such as Downloads, to send with a problem report."})) {
+        std::fflush(stdout);
+        std::fflush(stderr);
+        std::error_code ec;
+        const std::filesystem::path storage = install::user_data_directory();
+        const std::filesystem::path local = storage / "transfer" /
+                                            ("Yakumo log " + savedata::timestamp_for_path(std::chrono::system_clock::now()));
+        std::filesystem::remove_all(local.parent_path(), ec);
+        std::filesystem::create_directories(local, ec);
+        std::filesystem::copy_file(storage / "yakumo.log", local / "yakumo.log", ec);
+        if (std::filesystem::is_directory(storage / "logs", ec))
+            std::filesystem::copy(storage / "logs", local / "logs", std::filesystem::copy_options::recursive, ec);
+        const auto copied = android::pick_folder_and_copy(local);
+        std::filesystem::remove_all(local.parent_path(), ec);
+        if (copied)
+            saved_log_path() = copied->error.empty() ? copied->where + "/" + install::path_to_utf8(local.filename())
+                                                     : "Not saved: " + copied->error;
+    }
+    if (!saved_log_path().empty()) info_row("Log", saved_log_path());
+#else
     if (button_row("Open the data folder", {false, {}, "Show Yakumo's data folder in the file manager."})) {
         if (!SDL_OpenURL(file_url(data_dir).c_str()))
             std::cout << "[menu] cannot open " << data_dir << ": " << SDL_GetError() << "\n";
     }
+#endif
     if (button_row("Set up game data again…",
                    {false, {}, "Choose the disc image again, for example after moving it. The game closes first."}))
         confirm_ = Confirm::Setup;
