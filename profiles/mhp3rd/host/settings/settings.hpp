@@ -127,9 +127,24 @@ inline constexpr float kMinTouchCameraSpeed = 30.0f;
 inline constexpr float kMaxTouchCameraSpeed = 720.0f;
 inline constexpr float kMaxMouseSensitivity = 0.99f;
 
-// Loads the settings on first use.
+// The platforms whose defaults differ. A phone plays full screen with a
+// finger or a pad, so a few settings start otherwise there (defaults_for).
+enum class Platform { Desktop, Android };
+#if defined(__ANDROID__)
+inline constexpr Platform kPlatform = Platform::Android;
+#else
+inline constexpr Platform kPlatform = Platform::Desktop;
+#endif
+// The defaults on `platform`: Desktop is Settings{} as declared above;
+// Android differs in video.aspect (fill: a phone is wider than the PSP),
+// video.fullscreen (on: there is no window) and input.mouse (off: a phone
+// has no mouse to capture, and an emulator's pointer would turn the camera).
+[[nodiscard]] Settings defaults_for(Platform platform);
+
+// Loads the settings on first use, starting from defaults().
 [[nodiscard]] Settings &current();
-// The defaults, for "Restore defaults".
+// This platform's defaults, for keys settings.ini lacks and for "Restore
+// defaults".
 [[nodiscard]] const Settings &defaults();
 // Writes current() to settings.ini, leaving values set by environment
 // variables at what the file had. Failures are reported on the console.

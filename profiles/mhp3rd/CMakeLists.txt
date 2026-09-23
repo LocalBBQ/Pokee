@@ -330,6 +330,19 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_aspect_tests COMMAND mhp3rd_aspect_tests)
 endif()
 
+# Each platform's settings defaults.
+add_executable(mhp3rd_settings_tests
+    tests/settings_defaults_tests.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/input/bindings.cpp)
+target_include_directories(mhp3rd_settings_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_settings_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_settings_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_settings_tests COMMAND mhp3rd_settings_tests)
+endif()
+
 # The on-screen touch controls: layout, fingers and the stick's maths.
 add_executable(mhp3rd_touch_tests
     tests/touch_controls_tests.cpp

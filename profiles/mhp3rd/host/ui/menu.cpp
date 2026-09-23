@@ -597,7 +597,10 @@ void Menu::controls() {
             settings::save();
         }
     }
-    const bool camera = s.right_stick == settings::RightStick::Camera;
+    // On Android a finger drag drives the analog camera whatever the right
+    // stick does, so the row stays open there.
+    const bool camera = s.right_stick == settings::RightStick::Camera ||
+                        settings::kPlatform == settings::Platform::Android;
     {
         RowOptions o = options_for("input.analog_camera",
                                    "Turn and tilt the quest camera as far as the stick is pushed, instead of the "

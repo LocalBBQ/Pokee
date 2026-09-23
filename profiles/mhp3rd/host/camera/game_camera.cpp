@@ -166,7 +166,10 @@ State state;
 
 bool option_on() {
     const auto &s = settings::current();
-    return s.analog_camera && s.right_stick == settings::RightStick::Camera;
+    // Right stick describes a physical stick. On Android a finger drag turns
+    // the camera whatever it says, so there Analog camera alone decides.
+    return s.analog_camera && (s.right_stick == settings::RightStick::Camera ||
+                               settings::kPlatform == settings::Platform::Android);
 }
 
 bool driving_allowed() { return state.hooked && option_on(); }

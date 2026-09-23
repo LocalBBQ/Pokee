@@ -292,6 +292,8 @@ The menu follows the game's confirm convention: with the default layout the righ
 
 Every change applies at once and is saved to `settings.ini` in the per-user directory, next to the installer's `disc_image`. A setting whose environment variable is set is decided by that variable for the run: the menu shows it greyed with *Set by MHP3RD_…* and leaves the file's value alone. So the order is: environment variable, then `settings.ini`, then the default.
 
+The Android app starts from other defaults where a phone differs, with the same keys and values: `video.aspect` is `fill` (a phone is wider than the PSP), `video.fullscreen` is on (there is no window) and `input.mouse` is off (a phone has no mouse to capture). Everything else starts as in the table. On Android, *Analog camera* alone decides whether a finger drag turns the camera: *Right stick* is about a physical stick there.
+
 | Section | Setting | Key in `settings.ini` | Variable | Values |
 | --- | --- | --- | --- | --- |
 | Video | Resolution | `video.internal_scale` | `MHP3RD_INTERNAL_SCALE` | Auto (`auto` or `0`: the window's own size, followed as it changes, at most 1632 lines) or ×1–×6 of 480×272 (the variable allows up to ×8); default ×2. See [Picture shape and size](#picture-shape-and-size) |
@@ -324,6 +326,10 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Controls | Mouse | `input.mouse` | `MHP3RD_MOUSE` | On (default): the window captures the pointer while the game runs, and the mouse turns the camera and presses its bound buttons; off: the pointer is left alone |
 | Controls | Mouse sensitivity | `input.mouse_sensitivity` | `MHP3RD_MOUSE_SENSITIVITY` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99; default 0.10 |
 | Controls | Invert mouse horizontally / vertically | `input.invert_mouse_x`, `input.invert_mouse_y` | | For the mouse camera and aim |
+| Controls | On-screen controls | `input.touch_controls` | | On (default): a touch screen shows the on-screen pad once it is touched |
+| Controls | Controls opacity | `input.touch_opacity` | | 10–100%; default 50% |
+| Controls | Controls size | `input.touch_size` | | 60–160% of the default size; default 100% |
+| Controls | Touch camera speed | `input.touch_camera_speed` | | Degrees the camera turns for a drag across the screen's height, 30 to 720; default 180 |
 | Controls | A row per control (Move forward … Camera right) | `input.bind.<control>` | | Up to two keys or mouse buttons, see [Keyboard and mouse](#keyboard-and-mouse) |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
