@@ -721,6 +721,10 @@ struct VulkanRenderer::Impl {
     VkSampler clamp_sampler{};
     VkSampler clamp_sharp_sampler{};
     std::map<PipelineKey, VkPipeline> pipelines;
+    // The pipeline of the previous lookup: consecutive draws mostly share it.
+    // MHP3RD_NO_LOOKUP_CACHE looks every draw up in the map, as before.
+    PipelineKey last_pipeline_key{};
+    VkPipeline last_pipeline{};
 
     VkBuffer vertex_buffer{};
     VkDeviceMemory vertex_memory{};
@@ -787,9 +791,28 @@ struct VulkanRenderer::Impl {
         bool swizzled{};
         auto operator<=>(const TextureKeyInput &) const = default;
     };
-    std::map<TextureKeyInput, std::uint64_t> list_texture_keys;
+    // The texture each input resolved to, while `textures_erased` has not
+    // moved since: erasing is the only change that moves or frees a cached
+    // texture. The previous draw's entry is kept at hand, as consecutive draws
+    // mostly sample the same texture.
+    struct ListTexture {
+        std::uint64_t key{};
+        Texture *texture{};
+        std::uint64_t erased{};
+    };
+    std::map<TextureKeyInput, ListTexture> list_texture_keys;
+    std::uint64_t textures_erased{};
+    TextureKeyInput last_texture_input{};
+    ListTexture *last_texture{};
 
     std::vector<GpuVertex> scratch;
+    // Index list of a draw whose decoded vertices go straight into the vertex
+    // buffer (see submit()).
+    std::vector<std::uint16_t> direct_indices;
+    // MHP3RD_CHECK_DIRECT_VERTICES: draws compared with the expansion, and
+    // those that differed.
+    std::uint64_t direct_checked{};
+    std::uint64_t direct_mismatched{};
     PadState pad{};
     SDL_Gamepad *gamepad{};
     SDL_JoystickID gamepad_id{};
@@ -1993,15 +2016,22 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
                                 state.clut_address,
                                 state.clut_format,
                                 state.swizzled};
-    auto [memo, inserted] = list_texture_keys.try_emplace(input, 0u);
-    if (inserted) memo->second = texture_key(memory, state);
-    const std::uint64_t key = memo->second;
-    const auto found = textures.find(key);
-    if (found != textures.end()) {
-        Texture &texture = found->second;
+    static const bool no_lookup_cache = std::getenv("MHP3RD_NO_LOOKUP_CACHE") != nullptr;
+    ListTexture *memo = nullptr;
+    if (!no_lookup_cache && last_texture != nullptr && input == last_texture_input) {
+        memo = last_texture;
+    } else {
+        auto [entry, inserted] = list_texture_keys.try_emplace(input);
+        if (inserted) entry->second.key = texture_key(memory, state);
+        memo = &entry->second;
+        last_texture_input = input;
+        last_texture = memo;
+    }
+    // A cached texture drawn again. A 512-tall one drawn further down than
+    // before is hashed again over the rows now in use, and may find another
+    // image in the texture pack.
+    const auto use = [&](Texture &texture) -> Texture & {
         texture.last_used = ++texture_clock;
-        // A 512-tall texture drawn further down than before is hashed again
-        // over the rows now in use, and may find another image.
         if (pack && state.height == 512u && texture.max_seen_v < 512u) {
             const std::uint16_t seen = update_max_seen_v(texture.max_seen_v, drawn_max_v(call), call.through);
             if (seen != texture.max_seen_v) {
@@ -2010,6 +2040,14 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
             }
         }
         return texture;
+    };
+    if (!no_lookup_cache && memo->texture != nullptr && memo->erased == textures_erased) return use(*memo->texture);
+    const std::uint64_t key = memo->key;
+    const auto found = textures.find(key);
+    if (found != textures.end()) {
+        memo->texture = &found->second;
+        memo->erased = textures_erased;
+        return use(found->second);
     }
     std::vector<std::uint32_t> pixels;
     if (!decode_texture(memory, state, pixels) || pixels.empty()) {
@@ -2047,6 +2085,7 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Evict);
         destroy_texture(oldest->second);
         textures.erase(oldest);
+        ++textures_erased;
     }
     Texture texture = create_texture(state.width, state.height, pixels.data());
     if (texture.descriptor == VK_NULL_HANDLE) return white_texture;
@@ -2054,7 +2093,10 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
     // The pack's hash reads the whole texture, so it is taken here, once per
     // upload, and never on the per-draw path above.
     if (pack) texture.replacement = pack->find(memory, state, max_seen_v);
-    return textures.emplace(key, std::move(texture)).first->second;
+    Texture &cached = textures.emplace(key, std::move(texture)).first->second;
+    memo->texture = &cached;
+    memo->erased = textures_erased;
+    return cached;
 }
 
 VkDescriptorSet VulkanRenderer::Impl::texture_descriptor(const GuestMemory &memory, const DrawCall &call) {
@@ -2081,7 +2123,9 @@ void VulkanRenderer::Impl::apply_texture_pack() {
     replacements.clear();
     for (auto &[key, texture] : textures) destroy_texture(texture);
     textures.clear();
+    ++textures_erased;
     list_texture_keys.clear();
+    last_texture = nullptr;
     pack.reset();
     pack_status.clear();
     if (!wanted) {
@@ -2387,8 +2431,14 @@ VkDescriptorSet VulkanRenderer::Impl::framebuffer_descriptor(Target &target, boo
 }
 
 VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
+    static const bool no_lookup_cache = std::getenv("MHP3RD_NO_LOOKUP_CACHE") != nullptr;
+    if (!no_lookup_cache && last_pipeline != VK_NULL_HANDLE && key == last_pipeline_key) return last_pipeline;
     const auto found = pipelines.find(key);
-    if (found != pipelines.end()) return found->second;
+    if (found != pipelines.end()) {
+        last_pipeline_key = key;
+        last_pipeline = found->second;
+        return found->second;
+    }
 
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -2469,6 +2519,8 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
     if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1u, &info, nullptr, &pipeline) != VK_SUCCESS)
         return VK_NULL_HANDLE;
     pipelines.emplace(key, pipeline);
+    last_pipeline_key = key;
+    last_pipeline = pipeline;
     return pipeline;
 }
 
@@ -3130,7 +3182,9 @@ void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint
 }
 
 void VulkanRenderer::begin_display_list() {
-    if (impl_) impl_->list_texture_keys.clear();
+    if (!impl_) return;
+    impl_->list_texture_keys.clear();
+    impl_->last_texture = nullptr;
 }
 
 void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
@@ -4086,6 +4140,7 @@ void VulkanRenderer::shutdown() {
     impl.destroy_writeback();
     for (auto &[key, pipeline] : impl.pipelines) vkDestroyPipeline(impl.device, pipeline, nullptr);
     impl.pipelines.clear();
+    impl.last_pipeline = VK_NULL_HANDLE;
     if (impl.vertex_mapped != nullptr) vkUnmapMemory(impl.device, impl.vertex_memory);
     vkDestroyBuffer(impl.device, impl.vertex_buffer, nullptr);
     vkFreeMemory(impl.device, impl.vertex_memory, nullptr);
