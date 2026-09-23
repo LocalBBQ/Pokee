@@ -680,15 +680,18 @@ struct VulkanRenderer::Impl {
         int height{};
         VkRect2D content{};
         float size{};
+        bool dpad{};
     } touch_layout_key{};
     void update_touch_layout() {
         int width = 0;
         int height = 0;
         if (window == nullptr || !SDL_GetWindowSize(window, &width, &height) || width <= 0 || height <= 0) return;
         const float size = settings::current().touch_size;
-        const TouchLayoutKey key{width, height, content_rect, size};
+        const bool dpad = settings::current().touch_dpad;
+        const TouchLayoutKey key{width, height, content_rect, size, dpad};
         if (key.width == touch_layout_key.width && key.height == touch_layout_key.height &&
-            key.size == touch_layout_key.size && key.content.offset.x == touch_layout_key.content.offset.x &&
+            key.size == touch_layout_key.size && key.dpad == touch_layout_key.dpad &&
+            key.content.offset.x == touch_layout_key.content.offset.x &&
             key.content.offset.y == touch_layout_key.content.offset.y &&
             key.content.extent.width == touch_layout_key.content.extent.width &&
             key.content.extent.height == touch_layout_key.content.extent.height)
@@ -712,7 +715,8 @@ struct VulkanRenderer::Impl {
         insets.top += margin;
         insets.right += margin;
         insets.bottom += margin;
-        touch.set_layout(input::touch::make_layout(static_cast<float>(width), static_cast<float>(height), insets, size));
+        touch.set_layout(
+            input::touch::make_layout(static_cast<float>(width), static_cast<float>(height), insets, size, dpad));
     }
     void handle_touch(const SDL_Event &event) {
         const bool finger = event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||

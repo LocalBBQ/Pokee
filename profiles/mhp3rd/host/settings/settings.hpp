@@ -91,6 +91,7 @@ struct Settings {
     // On-screen controls for a touch screen, shown once the screen is touched
     // and hidden again when a gamepad or the keyboard is used.
     bool touch_controls{true};
+    bool touch_dpad{true};             // the D-pad among them, for the game's menus
     float touch_opacity{0.5f};         // 0.1-1
     float touch_size{1.0f};            // 0.6-1.6 of the default size
     float touch_camera_speed{180.0f};  // degrees the camera turns for a drag across the screen's height

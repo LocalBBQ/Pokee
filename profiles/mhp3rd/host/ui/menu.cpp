@@ -783,6 +783,7 @@ void Menu::controls() {
         restore("input.invert_mouse_x", s.invert_mouse_x, d.invert_mouse_x);
         restore("input.invert_mouse_y", s.invert_mouse_y, d.invert_mouse_y);
         restore("input.touch_controls", s.touch_controls, d.touch_controls);
+        restore("input.touch_dpad", s.touch_dpad, d.touch_dpad);
         restore("input.touch_opacity", s.touch_opacity, d.touch_opacity);
         restore("input.touch_size", s.touch_size, d.touch_size);
         restore("input.touch_camera_speed", s.touch_camera_speed, d.touch_camera_speed);
@@ -808,6 +809,13 @@ void Menu::controls() {
             }
             return options;
         };
+        if (toggle_row("D-pad", s.touch_dpad,
+                       off(options_for("input.touch_dpad", "A D-pad at the left edge, for the game's menus, the item "
+                                                           "box and the camera's D-pad controls. Off gives its place "
+                                                           "to the stick.")))) {
+            s.touch_dpad = !s.touch_dpad;
+            settings::save();
+        }
         int opacity = static_cast<int>(std::lround(s.touch_opacity * 100.0f));
         if (slider_row("Controls opacity", opacity, 10, 100, 5, "%d%%",
                        off(options_for("input.touch_opacity", "How strongly the on-screen controls are drawn.")))) {

@@ -266,6 +266,7 @@ const std::vector<Field> &fields() {
              s.mouse_sensitivity = variable_float(t, 0.10f, kMinMouseSensitivity, kMaxMouseSensitivity);
          }},
         BOOL_FIELD("input.touch_controls", touch_controls),
+        BOOL_FIELD("input.touch_dpad", touch_dpad),
         {"input.touch_opacity", nullptr,
          [](Settings &s, const std::string &t) {
              return parse_float(t, kMinTouchOpacity, kMaxTouchOpacity, s.touch_opacity);

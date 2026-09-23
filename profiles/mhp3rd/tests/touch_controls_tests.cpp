@@ -34,6 +34,14 @@ void test_layout_fits(float width, float height, Insets insets, float size, cons
             apart = apart && std::hypot(a.centre.x - b.centre.x, a.centre.y - b.centre.y) >= a.radius + b.radius;
         }
     check(apart, "no two controls overlap");
+    const Circle &d = layout.dpad;
+    check(d.centre.x - d.radius >= insets.left - 0.5f && d.centre.y - d.radius >= insets.top - 0.5f &&
+              d.centre.y + d.radius <= height - insets.bottom + 0.5f && d.centre.x + d.radius < layout.stick_split,
+          "the D-pad is on the left, on screen");
+    bool dpad_apart = true;
+    for (const Circle &c : layout.controls)
+        dpad_apart = dpad_apart && std::hypot(c.centre.x - d.centre.x, c.centre.y - d.centre.y) >= c.radius + d.radius;
+    check(dpad_apart, "the D-pad overlaps no button");
     check(at(layout, Control::Cross).centre.x > layout.stick_split, "the face buttons are on the right");
     check(at(layout, Control::L).centre.x < layout.stick_split, "L is on the left");
     check(at(layout, Control::L).centre.y < height * 0.3f && at(layout, Control::R).centre.y < height * 0.3f,
@@ -60,6 +68,39 @@ void test_stick_maths() {
     check(half.y < -0.45f && half.y > -0.55f, "half way is about half");
     const Point diagonal = stick_deflection({100.0f, 100.0f}, 100.0f);
     check(std::fabs(std::hypot(diagonal.x, diagonal.y) - 1.0f) < 1e-4f, "a diagonal is not more than full");
+}
+
+void test_dpad() {
+    const float r = 100.0f;
+    check(dpad_buttons({0.0f, -80.0f}, r) == 0x10u, "up");
+    check(dpad_buttons({80.0f, 0.0f}, r) == 0x20u, "right");
+    check(dpad_buttons({0.0f, 80.0f}, r) == 0x40u, "down");
+    check(dpad_buttons({-80.0f, 0.0f}, r) == 0x80u, "left");
+    check(dpad_buttons({60.0f, -60.0f}, r) == 0x30u, "up and right together");
+    check(dpad_buttons({-60.0f, 60.0f}, r) == 0xC0u, "down and left together");
+    check(dpad_buttons({80.0f, -20.0f}, r) == 0x20u, "a little off right is still right alone");
+    check(dpad_buttons({5.0f, 5.0f}, r) == 0u, "the middle presses nothing");
+
+    Controls controls;
+    const Layout layout = make_layout(1280.0f, 576.0f, {}, 1.0f);
+    controls.set_layout(layout);
+    const Point centre = layout.dpad.centre;
+    controls.finger_down(1, {centre.x, centre.y - layout.dpad.radius * 0.7f});
+    check(controls.buttons() == 0x10u, "a finger on the D-pad's top arm presses up");
+    controls.finger_move(1, {centre.x + layout.dpad.radius * 0.7f, centre.y});
+    check(controls.buttons() == 0x20u, "sliding to the right arm presses right without lifting");
+    // Owned until lifted: a D-pad finger dragged far away stays the D-pad's,
+    // never the stick's or the camera's.
+    controls.finger_move(1, {centre.x + 600.0f, centre.y});
+    check(controls.buttons() == 0x20u && !controls.stick_state().active, "a D-pad finger stays the D-pad's");
+    check(controls.take_camera_drag().x == 0.0f, "and never turns the camera");
+    controls.finger_up(1);
+    check(controls.buttons() == 0u, "lifting it lets go");
+
+    const Layout hidden = make_layout(1280.0f, 576.0f, {}, 1.0f, false);
+    controls.set_layout(hidden);
+    controls.finger_down(2, centre);
+    check(controls.buttons() == 0u && controls.stick_state().active, "without the D-pad its place is the stick's");
 }
 
 void test_fingers() {
@@ -105,6 +146,7 @@ void test_fingers() {
 int main() {
     test_layouts();
     test_stick_maths();
+    test_dpad();
     test_fingers();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";

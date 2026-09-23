@@ -327,6 +327,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Mouse sensitivity | `input.mouse_sensitivity` | `MHP3RD_MOUSE_SENSITIVITY` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99; default 0.10 |
 | Controls | Invert mouse horizontally / vertically | `input.invert_mouse_x`, `input.invert_mouse_y` | | For the mouse camera and aim |
 | Controls | On-screen controls | `input.touch_controls` | | On (default): a touch screen shows the on-screen pad once it is touched |
+| Controls | D-pad | `input.touch_dpad` | | On (default): the on-screen controls have a D-pad at the left edge, for the game's menus; off gives its place to the stick |
 | Controls | Controls opacity | `input.touch_opacity` | | 10–100%; default 50% |
 | Controls | Controls size | `input.touch_size` | | 60–160% of the default size; default 100% |
 | Controls | Touch camera speed | `input.touch_camera_speed` | | Degrees the camera turns for a drag across the screen's height, 30 to 720; default 180 |

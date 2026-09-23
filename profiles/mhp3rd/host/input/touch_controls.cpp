@@ -26,7 +26,7 @@ bool Circle::contains(Point p, float slack) const {
     return dx * dx + dy * dy <= r * r;
 }
 
-Layout make_layout(float width, float height, Insets insets, float size) {
+Layout make_layout(float width, float height, Insets insets, float size, bool dpad) {
     Layout layout;
     layout.width = width;
     layout.height = height;
@@ -53,9 +53,30 @@ Layout make_layout(float width, float height, Insets insets, float size) {
     c[static_cast<std::size_t>(Control::Select)] = {{middle - small * 3.0f, top + small * 1.6f}, small};
     c[static_cast<std::size_t>(Control::Menu)] = {{middle, top + small * 1.6f}, small};
     c[static_cast<std::size_t>(Control::Start)] = {{middle + small * 3.0f, top + small * 1.6f}, small};
+    // The D-pad: at the left edge, half way down, clear of L above it.
+    const float reach = face * 2.3f;
+    layout.dpad_shown = dpad;
+    layout.dpad = {{left + reach + face * 0.5f,
+                    std::max(top + (bottom - top) * 0.47f, c[static_cast<std::size_t>(Control::L)].centre.y +
+                                                               shoulder + reach + face * 0.4f)},
+                   reach};
     layout.stick_radius = unit * 0.13f;
     layout.stick_split = left + (right - left) * 0.45f;
     return layout;
+}
+
+std::uint16_t dpad_buttons(Point offset, float reach) {
+    const float length = std::hypot(offset.x, offset.y);
+    if (!(reach > 0.0f) || length < reach * 0.2f) return 0u;
+    // Eight sectors of 45 degrees, the first centred on right; y grows down.
+    constexpr float kPi = 3.14159265f;
+    float angle = std::atan2(-offset.y, offset.x);
+    if (angle < 0.0f) angle += 2.0f * kPi;
+    const int sector = static_cast<int>(std::floor(angle / (kPi / 4.0f) + 0.5f)) % 8;
+    constexpr std::uint16_t kUp = 0x10u, kRight = 0x20u, kDown = 0x40u, kLeft = 0x80u;
+    constexpr std::uint16_t kSectors[8] = {kRight,        kRight | kUp,  kUp,           kUp | kLeft,
+                                           kLeft,         kLeft | kDown, kDown,         kDown | kRight};
+    return kSectors[sector];
 }
 
 Point stick_deflection(Point offset, float reach, float dead_zone) {
@@ -103,6 +124,8 @@ void Controls::finger_down(std::uint64_t id, Point at) {
         slot->control = *control;
         slot->over = true;
         if (*control == Control::Menu) menu_tapped_ = true;
+    } else if (layout_.dpad_shown && layout_.dpad.contains(at, 1.15f)) {
+        slot->role = Role::DPad;
     } else if (at.x < layout_.stick_split && !stick_.active) {
         slot->role = Role::Stick;
         stick_ = {true, at, at};
@@ -148,6 +171,7 @@ void Controls::finger_move(std::uint64_t id, Point at) {
         camera_drag_.x += at.x - finger->last.x;
         camera_drag_.y += at.y - finger->last.y;
         break;
+    case Role::DPad:  // the direction follows the finger; see buttons()
     case Role::None: break;
     }
     finger->last = at;
@@ -169,9 +193,24 @@ void Controls::release_all() {
 
 std::uint16_t Controls::buttons() const {
     std::uint16_t buttons = 0u;
-    for (const Finger &finger : fingers_)
-        if (finger.used && finger.role == Role::Control && finger.over) buttons |= psp_button(finger.control);
+    for (const Finger &finger : fingers_) {
+        if (!finger.used) continue;
+        if (finger.role == Role::Control && finger.over) buttons |= psp_button(finger.control);
+        if (finger.role == Role::DPad) buttons |= dpad_held_by(finger);
+    }
     return buttons;
+}
+
+std::uint16_t Controls::dpad_held_by(const Finger &finger) const {
+    return dpad_buttons({finger.last.x - layout_.dpad.centre.x, finger.last.y - layout_.dpad.centre.y},
+                        layout_.dpad.radius);
+}
+
+std::uint16_t Controls::dpad_held() const {
+    std::uint16_t held = 0u;
+    for (const Finger &finger : fingers_)
+        if (finger.used && finger.role == Role::DPad) held |= dpad_held_by(finger);
+    return held;
 }
 
 bool Controls::held(Control control) const {

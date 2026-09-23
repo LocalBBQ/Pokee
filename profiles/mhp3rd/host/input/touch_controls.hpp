@@ -13,7 +13,8 @@
 //
 // The left of the screen is the movement stick, a floating one: it appears
 // where the thumb lands and follows the thumb when it is dragged beyond its
-// reach. The right holds the four face buttons in the PSP's diamond, L and R
+// reach. A fixed D-pad sits at the left edge, half way down, for the game's
+// menus: above where a thumb rests to walk, below L. The right holds the four face buttons in the PSP's diamond, L and R
 // sit at the top corners, Start, Select and the menu button small at the top
 // centre. A drag anywhere else on the right half turns the camera, as the
 // mouse does. Every finger is independent, so moving, turning and pressing
@@ -45,14 +46,23 @@ struct Insets {
 
 struct Layout {
     std::array<Circle, kControls> controls{};
+    // The D-pad, when shown: its centre and the reach of its arms.
+    bool dpad_shown{};
+    Circle dpad{};
     float stick_radius{};    // the stick's reach from where the thumb landed
     float stick_split{};     // x: fingers landing left of it are for the stick
     float width{};
     float height{};
 };
 // A layout for a width x height screen. `size` scales every control (1 is the
-// default, sized for thumbs on a phone held sideways).
-[[nodiscard]] Layout make_layout(float width, float height, Insets insets, float size);
+// default, sized for thumbs on a phone held sideways); `dpad` shows the D-pad.
+[[nodiscard]] Layout make_layout(float width, float height, Insets insets, float size, bool dpad = true);
+
+// The PSP D-pad bits (up 0x10, right 0x20, down 0x40, left 0x80) for a finger
+// at `offset` from the D-pad's centre: one direction within 22.5 degrees of
+// it, two adjacent ones between, as a PSP D-pad can press them; nothing in
+// the middle (a fifth of the reach).
+[[nodiscard]] std::uint16_t dpad_buttons(Point offset, float reach);
 
 // Stick deflection for a thumb at `offset` from the stick's centre, each axis
 // -1..1 (right and down positive), with a dead zone as a fraction of `reach`.
@@ -85,10 +95,12 @@ public:
     // The menu button was tapped since the last take.
     [[nodiscard]] bool take_menu();
     [[nodiscard]] bool held(Control control) const;
+    // The D-pad directions held now (PSP bits), for drawing.
+    [[nodiscard]] std::uint16_t dpad_held() const;
     [[nodiscard]] bool any_finger() const;
 
 private:
-    enum class Role : std::uint8_t { None, Stick, Control, Camera };
+    enum class Role : std::uint8_t { None, Stick, Control, Camera, DPad };
     struct Finger {
         std::uint64_t id{};
         bool used{};
@@ -100,6 +112,7 @@ private:
     static constexpr std::size_t kFingers = 10u;
     [[nodiscard]] std::optional<Control> control_at(Point at, bool face_only) const;
     Finger *find(std::uint64_t id);
+    [[nodiscard]] std::uint16_t dpad_held_by(const Finger &finger) const;
 
     Layout layout_{};
     std::array<Finger, kFingers> fingers_{};
