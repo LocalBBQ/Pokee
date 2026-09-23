@@ -27,6 +27,7 @@
 #include "backends/imgui_impl_vulkan.h"
 #include "imgui.h"
 
+#include <atomic>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -1415,6 +1416,23 @@ struct VulkanRenderer::Impl {
     bool create_swapchain(std::string &error);
     void destroy_swapchain_views();
     void recreate_swapchain();
+#if defined(__ANDROID__)
+    // Android takes the window's surface away while the app is in the
+    // background (the home screen, a system picker) and gives a new one when
+    // it returns: nothing is presented in between, and the Vulkan surface and
+    // swapchain are made again for the new one.
+    // Set from SDL's event watch, which Android calls on its own thread; one
+    // window, so one pair for the process.
+    static inline std::atomic<bool> surface_lost{};
+    static inline std::atomic<bool> surface_returned{};
+    void reset_surface();
+    static bool SDLCALL watch_lifecycle(void *, SDL_Event *event) {
+        if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND || event->type == SDL_EVENT_DID_ENTER_BACKGROUND)
+            surface_lost = true;
+        if (event->type == SDL_EVENT_DID_ENTER_FOREGROUND && surface_lost) surface_returned = true;
+        return true;
+    }
+#endif
     bool create_ui_framebuffers(std::string &error);
     void record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination);
     // Target size for the current settings and window.
@@ -1543,6 +1561,9 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (portability_enumeration) instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     if (!check(vkCreateInstance(&instance_info, nullptr, &impl.instance), "vkCreateInstance", error)) return false;
 
+#if defined(__ANDROID__)
+    SDL_AddEventWatch(&Impl::watch_lifecycle, &impl);
+#endif
     if (!SDL_Vulkan_CreateSurface(impl.window, impl.instance, nullptr, &impl.surface)) {
         error = std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError();
         return false;
@@ -2098,6 +2119,26 @@ void VulkanRenderer::Impl::destroy_swapchain_views() {
 #endif
 }
 
+#if defined(__ANDROID__)
+void VulkanRenderer::Impl::reset_surface() {
+    surface_returned = false;
+    vkDeviceWaitIdle(device);
+    destroy_swapchain_views();
+    if (swapchain != VK_NULL_HANDLE) vkDestroySwapchainKHR(device, swapchain, nullptr);
+    swapchain = VK_NULL_HANDLE;
+    if (surface != VK_NULL_HANDLE) vkDestroySurfaceKHR(instance, surface, nullptr);
+    surface = VK_NULL_HANDLE;
+    if (!SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface)) {
+        std::cout << "[render] cannot make the window's surface again: " << SDL_GetError() << "\n";
+        return;
+    }
+    surface_lost = false;
+    std::string error;
+    if (!create_swapchain(error)) std::cout << "[render] cannot recreate the swapchain: " << error << "\n";
+    else std::cout << "[render] surface made again after the app returned\n";
+}
+#endif
+
 void VulkanRenderer::Impl::recreate_swapchain() {
     // A minimised window has no area to present to; keep the old swapchain
     // and try again once it has one.
@@ -2405,6 +2446,12 @@ void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage so
 // interface, then submit and present.
 void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence fence, VkImage source,
                                               bool game_frame, bool main_frame) {
+#if defined(__ANDROID__)
+    if (surface_returned) reset_surface();
+    // No window to show it in: the frame is recorded and finished, not shown
+    // (an image acquired before the window went is still given back).
+    if (!surface_lost)
+#endif
     if (!acquired_image && (swapchain_dirty || swapchain == VK_NULL_HANDLE)) recreate_swapchain();
     ImDrawData *ui = ui_ready ? ui_draw_data : nullptr;
     ui_draw_data = nullptr;
@@ -2425,7 +2472,11 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
         image_index = *acquired_image;
         acquired = VK_SUCCESS;
         acquired_image.reset();
-    } else if (has_content && swapchain != VK_NULL_HANDLE) {
+    } else if (has_content && swapchain != VK_NULL_HANDLE
+#if defined(__ANDROID__)
+               && !surface_lost
+#endif
+    ) {
         const perf::Clock::time_point acquire_start = perf::Clock::now();
         acquired = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &image_index);
         perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
@@ -5202,6 +5253,10 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     // An image first, waiting at most 3 ms for one: when the display has
     // none free (it refreshes slower than the presents come), this present
     // is dropped rather than hold the game until the next refresh.
+#if defined(__ANDROID__)
+    if (surface_returned) reset_surface();
+    if (surface_lost) return false;
+#endif
     if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
     if (swapchain == VK_NULL_HANDLE) return false;
     std::uint32_t image_index = 0u;
@@ -6061,6 +6116,9 @@ void VulkanRenderer::shutdown() {
     vkDestroyCommandPool(impl.device, impl.command_pool, nullptr);
     vkDestroySwapchainKHR(impl.device, impl.swapchain, nullptr);
     vkDestroyDevice(impl.device, nullptr);
+#if defined(__ANDROID__)
+    SDL_RemoveEventWatch(&Impl::watch_lifecycle, &impl);
+#endif
     if (impl.surface != VK_NULL_HANDLE) vkDestroySurfaceKHR(impl.instance, impl.surface, nullptr);
     vkDestroyInstance(impl.instance, nullptr);
     if (impl.window != nullptr) SDL_DestroyWindow(impl.window);
