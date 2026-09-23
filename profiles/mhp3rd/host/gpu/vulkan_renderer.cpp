@@ -1349,7 +1349,17 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     std::uint32_t extension_count = 0u;
     const char *const *sdl_extensions = SDL_Vulkan_GetInstanceExtensions(&extension_count);
     std::vector<const char *> extensions(sdl_extensions, sdl_extensions + extension_count);
-    extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    // Only a loader that offers portability enumeration may be asked for it:
+    // an instance extension the loader does not list fails vkCreateInstance.
+    std::uint32_t available_count = 0u;
+    vkEnumerateInstanceExtensionProperties(nullptr, &available_count, nullptr);
+    std::vector<VkExtensionProperties> available(available_count);
+    vkEnumerateInstanceExtensionProperties(nullptr, &available_count, available.data());
+    bool portability_enumeration = false;
+    for (const VkExtensionProperties &extension : available)
+        if (std::strcmp(extension.extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0)
+            portability_enumeration = true;
+    if (portability_enumeration) extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application.pApplicationName = "Yakumo";
@@ -1360,7 +1370,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     instance_info.ppEnabledExtensionNames = extensions.data();
     // MoltenVK reports itself as a portability driver and refuses the instance
     // without this flag.
-    instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    if (portability_enumeration) instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     if (!check(vkCreateInstance(&instance_info, nullptr, &impl.instance), "vkCreateInstance", error)) return false;
 
     if (!SDL_Vulkan_CreateSurface(impl.window, impl.instance, nullptr, &impl.surface)) {
