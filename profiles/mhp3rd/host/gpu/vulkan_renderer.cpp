@@ -1137,6 +1137,20 @@ struct VulkanRenderer::Impl {
             std::cout << "[pad] SDL_OpenGamepad failed: " << SDL_GetError() << "\n";
             return;
         }
+#if defined(__ANDROID__)
+        // Android reports a keyboard with arrow keys (the emulator's qwerty2,
+        // many tablets' keyboards) as a D-pad device, and SDL lists it as a
+        // gamepad. It has no sticks; taking it as the pad would leave a real
+        // controller connected later unused. Its keys still reach the game
+        // through the keyboard.
+        if (SDL_GetNumJoystickAxes(SDL_GetGamepadJoystick(device)) <= 0) {
+            const char *skipped = SDL_GetGamepadName(device);
+            std::cout << "[pad] " << (skipped != nullptr ? skipped : "gamepad")
+                      << " has no sticks (a keyboard's D-pad), ignored\n";
+            SDL_CloseGamepad(device);
+            return;
+        }
+#endif
         gamepad = device;
         gamepad_id = id;
         const char *name = SDL_GetGamepadName(device);
