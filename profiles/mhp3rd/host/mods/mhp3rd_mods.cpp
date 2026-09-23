@@ -276,6 +276,9 @@ std::size_t read_data_bin(std::uint64_t offset, std::span<std::uint8_t> out) {
     s.partial.reset();
     if (const std::int64_t last = d.entry_at(static_cast<std::uint32_t>((end - 1u) / p3rd::kBlock)); last >= 0) {
         const auto file = static_cast<FileId>(last);
+        // Which file each read ends in: how to find the id of a model the game shows.
+        static const bool trace_reads = std::getenv("MHP3RD_TRACE_DATA_BIN") != nullptr;
+        if (trace_reads) std::cout << "[mods] data " << s.format.file_name(file) << " (" << d.size(file) << " bytes)\n";
         const std::uint64_t file_end = static_cast<std::uint64_t>(d.blocks[file]) * p3rd::kBlock + d.size(file);
         if (end < file_end) s.partial = file;
         else if (s.overlay->touches(file)) {

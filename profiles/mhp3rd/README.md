@@ -442,7 +442,7 @@ The choices are kept in `mods.ini` next to `settings.ini`: `[general] enabled`, 
 
 How it works: every file of the game comes from `DATA.BIN`, and the file I/O reads it for the game. The game reads its directory once, a table of where each file starts and a table of exact sizes, and then reads each file from its first block to exactly the size given, trusting the tables alone. With mods on, the file I/O serves an archive with the mods' files in it: a mod's file is encrypted for its place in the archive (the obfuscation is keyed by the block a file starts at), a file that no longer fits its blocks grows, every file after it moves up and is re-keyed on the way, and the directory says the same. With no mod on, not a byte changes. `host/mods/` holds the machinery, which knows no game (the mods folder, `mod.ini`, choices, conflicts, import, a file's bytes with mods), and the `mhp3rd_*` files this game's archive and format.
 
-`MHP3RD_TRACE_MODS=1` logs what the mods change, each read they serve (`[mods] read 0FEE +0 131072 of 628736 bytes: replaced by …`) and each write made after an overlay loads; problems with a mod are logged whether it is set or not.
+`MHP3RD_TRACE_MODS=1` logs what the mods change, each read they serve (`[mods] read 0FEE +0 131072 of 628736 bytes: replaced by …`) and each write made after an overlay loads; problems with a mod are logged whether it is set or not. `MHP3RD_TRACE_DATA_BIN=1` logs the id of every file the game reads while a mod is on: change the equipment on screen and the new ids are the files to target.
 
 ## Saving and loading
 
@@ -777,6 +777,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_STRICT_HLE=1` | Do not bind logging stubs; stop at the first unimplemented import |
 | `MHP3RD_TRACE_KERNEL=1`, `MHP3RD_TRACE_IO=1` | Trace thread and file activity |
 | `MHP3RD_TRACE_MODS=1` | What the [mods](#mods) change at start and after each change, every `DATA.BIN` read they serve, and each write made after an overlay loads |
+| `MHP3RD_TRACE_DATA_BIN=1` | While a mod is on, the id of every `DATA.BIN` file the game reads (`[mods] data 034B (32768 bytes)`): how to find the file behind a model on screen |
 | `MHP3RD_TRACE_SAVEDATA=1` | Log every field of each save-data request and each status poll |
 | `MHP3RD_TRACE_SYNC=1` | Trace semaphores, event flags and mutexes; `MHP3RD_TRACE_SYNC_LIMIT` caps the lines (default 4000) |
 | `MHP3RD_STARVATION_INTERVAL` | Dispatches between virtual-clock advances in code that never calls an import |

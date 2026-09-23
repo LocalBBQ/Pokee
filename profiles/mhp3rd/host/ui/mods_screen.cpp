@@ -430,7 +430,9 @@ void list(ModSession &session) {
         s.focus_row = false;
     }
     mods::ModLibrary &library = session.library();
-    section("Mods");
+    section("Mods (experimental)");
+    indented("Mod support is new and has been tried with few mods. Back up your saves first: a mod that changes "
+             "the game's data can end up in them.");
     status_rows(session);
     if (toggle_row("Use mods", library.master(),
                    {session.paths().disabled_by != nullptr,
