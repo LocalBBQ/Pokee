@@ -54,14 +54,23 @@ if(MHP3RD_RENDERER)
     find_program(MHP3RD_GLSLANG NAMES glslangValidator glslang)
     if(SDL3_FOUND AND Vulkan_FOUND AND MHP3RD_GLSLANG)
         set(MHP3RD_SHADER_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders/ge_shaders.inc")
+        set(MHP3RD_SHADERS
+            "kGeVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
+            "kGeFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.frag")
+        if(ANDROID)
+            # Pre-rotation of the finished frame for a display turned sideways.
+            list(APPEND MHP3RD_SHADERS
+                "kRotateVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/rotate.vert"
+                "kRotateFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/rotate.frag")
+        endif()
+        set(MHP3RD_SHADER_SOURCES ${MHP3RD_SHADERS})
+        list(TRANSFORM MHP3RD_SHADER_SOURCES REPLACE "^[A-Za-z]+=" "")
         add_custom_command(
             OUTPUT "${MHP3RD_SHADER_INC}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
             COMMAND python3 "${MHP3RD_PROFILE_DIR}/tools/embed_shaders.py" "${MHP3RD_GLSLANG}" "${MHP3RD_SHADER_INC}"
-                    "kGeVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
-                    "kGeFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.frag"
-            DEPENDS "${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
-                    "${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.frag"
+                    ${MHP3RD_SHADERS}
+            DEPENDS ${MHP3RD_SHADER_SOURCES}
                     "${MHP3RD_PROFILE_DIR}/tools/embed_shaders.py"
             COMMENT "Compiling GE shaders to SPIR-V")
         add_custom_target(mhp3rd_shaders DEPENDS "${MHP3RD_SHADER_INC}")

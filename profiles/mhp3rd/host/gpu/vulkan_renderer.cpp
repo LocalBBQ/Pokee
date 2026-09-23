@@ -568,6 +568,37 @@ struct VulkanRenderer::Impl {
     // image, after the game frame and the performance overlay.
     VkRenderPass ui_render_pass{};
     std::vector<VkFramebuffer> ui_framebuffers;
+#if defined(__ANDROID__)
+    // Pre-rotation for a display turned sideways. The swapchain's images are
+    // in the panel's orientation (swapchain_image_extent) and carry the
+    // surface's transform; everything is drawn upright at swapchain_extent
+    // into one of these per swapchain image, and a last pass turns it into
+    // the swapchain image. The compositor then has nothing left to rotate.
+    struct UprightImage {
+        VkImage image{};
+        VkDeviceMemory memory{};
+        VkImageView view{};
+        VkDescriptorSet set{};
+        VkFramebuffer rotate_framebuffer{};
+    };
+    std::vector<UprightImage> upright_images;
+    VkExtent2D swapchain_image_extent{};
+    std::int32_t swapchain_quarter_turns{};
+    VkRenderPass rotate_render_pass{};
+    VkDescriptorSetLayout rotate_set_layout{};
+    VkDescriptorPool rotate_pool{};
+    VkPipelineLayout rotate_layout{};
+    VkPipeline rotate_pipeline{};
+    VkSampler rotate_sampler{};
+    VkShaderModule rotate_vertex{};
+    VkShaderModule rotate_fragment{};
+    [[nodiscard]] bool prerotated() const { return !upright_images.empty(); }
+    bool create_rotation_pipeline(std::string &error);
+    bool create_upright_images(std::string &error);
+    void destroy_upright_images();
+    void destroy_rotation_pipeline();
+    void record_rotation(VkCommandBuffer commands, std::uint32_t image_index, VkImageLayout layout);
+#endif
     bool ui_ready{};
     ImDrawData *ui_draw_data{};
     std::function<bool(const SDL_Event &)> event_hook;
@@ -1854,20 +1885,26 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
                                    capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
     }
     if (extent.width == 0u || extent.height == 0u) extent = target_extent;
-    // A rotated display (an Android device turned to landscape) reports a
-    // transform to apply. The frame is drawn upright, so ask for no transform
-    // and let the compositor rotate it, with images shaped like the window:
-    // drivers differ in which orientation they report the extent in.
-    VkSurfaceTransformFlagBitsKHR transform = capabilities.currentTransform;
-    if (transform != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR &&
-        (capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0u) {
-        transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    const VkSurfaceTransformFlagBitsKHR transform = capabilities.currentTransform;
+    VkExtent2D image_extent = extent;
+#if defined(__ANDROID__)
+    // A display turned sideways reports a quarter or half turn. The frame is
+    // drawn upright at the window's size and turned by a last pass into
+    // images in the panel's orientation (see UprightImage).
+    swapchain_quarter_turns = transform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR    ? 1
+                              : transform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR ? 2
+                              : transform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR ? 3
+                                                                                     : 0;
+    {
         int width = 0;
         int height = 0;
         SDL_GetWindowSizeInPixels(window, &width, &height);
-        if (width > 0 && height > 0 && (width > height) != (extent.width > extent.height))
-            std::swap(extent.width, extent.height);
+        if (width > 0 && height > 0)
+            extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
     }
+    image_extent = swapchain_quarter_turns % 2 == 1 ? VkExtent2D{extent.height, extent.width} : extent;
+    swapchain_image_extent = image_extent;
+#endif
     swapchain_extent = extent;
     present_mode = wanted_present_mode();
 
@@ -1884,7 +1921,7 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     swapchain_info.minImageCount = image_count;
     swapchain_info.imageFormat = swapchain_format;
     swapchain_info.imageColorSpace = surface_format.colorSpace;
-    swapchain_info.imageExtent = swapchain_extent;
+    swapchain_info.imageExtent = image_extent;
     swapchain_info.imageArrayLayers = 1u;
     swapchain_info.imageUsage = swapchain_usage;
     swapchain_info.preTransform = transform;
@@ -1914,6 +1951,9 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
         if (!check(vkCreateImageView(device, &view_info, nullptr, &view), "vkCreateImageView", error)) return false;
         swapchain_views.push_back(view);
     }
+#if defined(__ANDROID__)
+    if (swapchain_quarter_turns != 0 && !create_upright_images(error)) return false;
+#endif
     if (ui_render_pass != VK_NULL_HANDLE && !create_ui_framebuffers(error)) return false;
     swapchain_dirty = false;
     update_display_info();
@@ -1925,6 +1965,9 @@ void VulkanRenderer::Impl::destroy_swapchain_views() {
     ui_framebuffers.clear();
     for (VkImageView view : swapchain_views) vkDestroyImageView(device, view, nullptr);
     swapchain_views.clear();
+#if defined(__ANDROID__)
+    destroy_upright_images();
+#endif
 }
 
 void VulkanRenderer::Impl::recreate_swapchain() {
@@ -1945,8 +1988,232 @@ void VulkanRenderer::Impl::recreate_swapchain() {
     if (ui_ready && swapchain_min_images != previous_min_images) ImGui_ImplVulkan_SetMinImageCount(swapchain_min_images);
 }
 
+#if defined(__ANDROID__)
+// The pass that turns the upright frame into a swapchain image, created the
+// first time a sideways display needs it.
+bool VulkanRenderer::Impl::create_rotation_pipeline(std::string &error) {
+    if (rotate_pipeline != VK_NULL_HANDLE) return true;
+    VkAttachmentDescription attachment{};
+    attachment.format = swapchain_format;
+    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentReference reference{0u, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1u;
+    subpass.pColorAttachments = &reference;
+    VkRenderPassCreateInfo pass_info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    pass_info.attachmentCount = 1u;
+    pass_info.pAttachments = &attachment;
+    pass_info.subpassCount = 1u;
+    pass_info.pSubpasses = &subpass;
+    if (!check(vkCreateRenderPass(device, &pass_info, nullptr, &rotate_render_pass), "vkCreateRenderPass", error))
+        return false;
+
+    VkSamplerCreateInfo sampler_info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sampler_info.magFilter = VK_FILTER_NEAREST;
+    sampler_info.minFilter = VK_FILTER_NEAREST;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (!check(vkCreateSampler(device, &sampler_info, nullptr, &rotate_sampler), "vkCreateSampler", error))
+        return false;
+
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0u;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1u;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo set_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    set_info.bindingCount = 1u;
+    set_info.pBindings = &binding;
+    if (!check(vkCreateDescriptorSetLayout(device, &set_info, nullptr, &rotate_set_layout),
+               "vkCreateDescriptorSetLayout", error))
+        return false;
+    constexpr std::uint32_t kMaxImages = 8u;
+    VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxImages};
+    VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pool_info.maxSets = kMaxImages;
+    pool_info.poolSizeCount = 1u;
+    pool_info.pPoolSizes = &pool_size;
+    if (!check(vkCreateDescriptorPool(device, &pool_info, nullptr, &rotate_pool), "vkCreateDescriptorPool", error))
+        return false;
+
+    VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(std::int32_t)};
+    VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layout_info.setLayoutCount = 1u;
+    layout_info.pSetLayouts = &rotate_set_layout;
+    layout_info.pushConstantRangeCount = 1u;
+    layout_info.pPushConstantRanges = &push;
+    if (!check(vkCreatePipelineLayout(device, &layout_info, nullptr, &rotate_layout), "vkCreatePipelineLayout", error))
+        return false;
+
+    const auto create_shader = [&](const std::uint32_t *code, std::size_t size, VkShaderModule &module) {
+        VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        info.codeSize = size;
+        info.pCode = code;
+        return check(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule", error);
+    };
+    if (!create_shader(kRotateVertexShader, sizeof(kRotateVertexShader), rotate_vertex)) return false;
+    if (!create_shader(kRotateFragmentShader, sizeof(kRotateFragmentShader), rotate_fragment)) return false;
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = rotate_vertex;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = rotate_fragment;
+    stages[1].pName = "main";
+    VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewport.viewportCount = 1u;
+    viewport.scissorCount = 1u;
+    VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode = VK_CULL_MODE_NONE;
+    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    raster.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState blend_attachment{};
+    blend_attachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blend.attachmentCount = 1u;
+    blend.pAttachments = &blend_attachment;
+    const std::array<VkDynamicState, 2> dynamic_states{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamic_states.size());
+    dynamic.pDynamicStates = dynamic_states.data();
+    VkGraphicsPipelineCreateInfo pipeline_info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipeline_info.stageCount = static_cast<std::uint32_t>(stages.size());
+    pipeline_info.pStages = stages.data();
+    pipeline_info.pVertexInputState = &vertex_input;
+    pipeline_info.pInputAssemblyState = &assembly;
+    pipeline_info.pViewportState = &viewport;
+    pipeline_info.pRasterizationState = &raster;
+    pipeline_info.pMultisampleState = &multisample;
+    pipeline_info.pColorBlendState = &blend;
+    pipeline_info.pDynamicState = &dynamic;
+    pipeline_info.layout = rotate_layout;
+    pipeline_info.renderPass = rotate_render_pass;
+    return check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1u, &pipeline_info, nullptr, &rotate_pipeline),
+                 "vkCreateGraphicsPipelines", error);
+}
+
+bool VulkanRenderer::Impl::create_upright_images(std::string &error) {
+    if (!create_rotation_pipeline(error)) return false;
+    upright_images.resize(swapchain_images.size());
+    for (std::size_t i = 0; i < upright_images.size(); ++i) {
+        UprightImage &upright = upright_images[i];
+        if (!create_image(swapchain_extent.width, swapchain_extent.height, swapchain_format,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          upright.image, upright.memory, upright.view, VK_IMAGE_ASPECT_COLOR_BIT, error))
+            return false;
+        VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        allocate.descriptorPool = rotate_pool;
+        allocate.descriptorSetCount = 1u;
+        allocate.pSetLayouts = &rotate_set_layout;
+        if (!check(vkAllocateDescriptorSets(device, &allocate, &upright.set), "vkAllocateDescriptorSets", error))
+            return false;
+        VkDescriptorImageInfo image_info{rotate_sampler, upright.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = upright.set;
+        write.descriptorCount = 1u;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &image_info;
+        vkUpdateDescriptorSets(device, 1u, &write, 0u, nullptr);
+        VkFramebufferCreateInfo framebuffer_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        framebuffer_info.renderPass = rotate_render_pass;
+        framebuffer_info.attachmentCount = 1u;
+        framebuffer_info.pAttachments = &swapchain_views[i];
+        framebuffer_info.width = swapchain_image_extent.width;
+        framebuffer_info.height = swapchain_image_extent.height;
+        framebuffer_info.layers = 1u;
+        if (!check(vkCreateFramebuffer(device, &framebuffer_info, nullptr, &upright.rotate_framebuffer),
+                   "vkCreateFramebuffer", error))
+            return false;
+    }
+    std::cout << "[render] pre-rotating a quarter turn x" << swapchain_quarter_turns << " into "
+              << swapchain_image_extent.width << "x" << swapchain_image_extent.height << "\n";
+    return true;
+}
+
+void VulkanRenderer::Impl::destroy_upright_images() {
+    for (UprightImage &upright : upright_images) {
+        if (upright.rotate_framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, upright.rotate_framebuffer, nullptr);
+        if (upright.set != VK_NULL_HANDLE) vkFreeDescriptorSets(device, rotate_pool, 1u, &upright.set);
+        if (upright.view != VK_NULL_HANDLE) vkDestroyImageView(device, upright.view, nullptr);
+        if (upright.image != VK_NULL_HANDLE) vkDestroyImage(device, upright.image, nullptr);
+        if (upright.memory != VK_NULL_HANDLE) vkFreeMemory(device, upright.memory, nullptr);
+    }
+    upright_images.clear();
+}
+
+void VulkanRenderer::Impl::destroy_rotation_pipeline() {
+    destroy_upright_images();
+    if (rotate_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, rotate_pipeline, nullptr);
+    if (rotate_layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, rotate_layout, nullptr);
+    if (rotate_pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, rotate_pool, nullptr);
+    if (rotate_set_layout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, rotate_set_layout, nullptr);
+    if (rotate_sampler != VK_NULL_HANDLE) vkDestroySampler(device, rotate_sampler, nullptr);
+    if (rotate_vertex != VK_NULL_HANDLE) vkDestroyShaderModule(device, rotate_vertex, nullptr);
+    if (rotate_fragment != VK_NULL_HANDLE) vkDestroyShaderModule(device, rotate_fragment, nullptr);
+    if (rotate_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, rotate_render_pass, nullptr);
+    rotate_pipeline = VK_NULL_HANDLE;
+    rotate_layout = VK_NULL_HANDLE;
+    rotate_pool = VK_NULL_HANDLE;
+    rotate_set_layout = VK_NULL_HANDLE;
+    rotate_sampler = VK_NULL_HANDLE;
+    rotate_vertex = VK_NULL_HANDLE;
+    rotate_fragment = VK_NULL_HANDLE;
+    rotate_render_pass = VK_NULL_HANDLE;
+}
+
+// Turns the finished upright frame into the swapchain image, which the pass
+// leaves ready to present.
+void VulkanRenderer::Impl::record_rotation(VkCommandBuffer commands, std::uint32_t image_index, VkImageLayout layout) {
+    const UprightImage &upright = upright_images[image_index];
+    transition(commands, upright.image, layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    pass.renderPass = rotate_render_pass;
+    pass.framebuffer = upright.rotate_framebuffer;
+    pass.renderArea = {{0, 0}, swapchain_image_extent};
+    vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    const VkViewport viewport{0.0f, 0.0f, static_cast<float>(swapchain_image_extent.width),
+                              static_cast<float>(swapchain_image_extent.height), 0.0f, 1.0f};
+    const VkRect2D scissor{{0, 0}, swapchain_image_extent};
+    vkCmdSetViewport(commands, 0u, 1u, &viewport);
+    vkCmdSetScissor(commands, 0u, 1u, &scissor);
+    vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, rotate_pipeline);
+    vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, rotate_layout, 0u, 1u, &upright.set, 0u,
+                            nullptr);
+    vkCmdPushConstants(commands, rotate_layout, VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(std::int32_t),
+                       &swapchain_quarter_turns);
+    vkCmdDraw(commands, 3u, 1u, 0u, 0u);
+    vkCmdEndRenderPass(commands);
+}
+#endif
+
 bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
-    for (VkImageView view : swapchain_views) {
+    std::vector<VkImageView> views = swapchain_views;
+#if defined(__ANDROID__)
+    if (prerotated()) {
+        views.clear();
+        for (const UprightImage &upright : upright_images) views.push_back(upright.view);
+    }
+#endif
+    for (VkImageView view : views) {
         VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         info.renderPass = ui_render_pass;
         info.attachmentCount = 1u;
@@ -2031,6 +2298,9 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
     bool capture = false;
     if (can_present) {
         VkImage target = swapchain_images[image_index];
+#if defined(__ANDROID__)
+        if (prerotated() && image_index < upright_images.size()) target = upright_images[image_index].image;
+#endif
         transition(commands, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         if (source != VK_NULL_HANDLE) {
             transition(commands, source, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -2087,7 +2357,11 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
                 capture = true;
             }
         }
-        transition(commands, target, layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+#if defined(__ANDROID__)
+        if (prerotated() && image_index < upright_images.size()) record_rotation(commands, image_index, layout);
+        else
+#endif
+            transition(commands, target, layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
     vkEndCommandBuffer(commands);
 
@@ -5559,6 +5833,9 @@ void VulkanRenderer::shutdown() {
     if (impl.ui_ready && ImGui::GetCurrentContext() != nullptr) ImGui_ImplVulkan_Shutdown();
     impl.ui_ready = false;
     impl.destroy_swapchain_views();
+#if defined(__ANDROID__)
+    impl.destroy_rotation_pipeline();
+#endif
     if (impl.ui_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, impl.ui_render_pass, nullptr);
     for (auto &[key, texture] : impl.textures) impl.destroy_texture(texture);
     impl.textures.clear();
