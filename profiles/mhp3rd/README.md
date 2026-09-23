@@ -851,6 +851,7 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | `gpu`, `max` | GPU time per frame, averaged over the second, and the longest: from the first command of the frame to its last draw, measured with Vulkan timestamp queries and read back after the frame's fence, so it lags the frame by one. The copy to the window is not included. `gpu n/a` when the graphics queue has no timestamps (`timestampValidBits` 0) or `MHP3RD_NO_GPU_TIMESTAMPS` is set; the log says which at start-up |
 | `overlay` | CPU time spent drawing the overlay, when it is shown |
 | `interpolation` | The frame rate presented, when it is above 30; `interpolation 60 of 90` when it stepped down from the one chosen |
+| `space` | The most of the vertex and index buffers one frame took in the second, in MiB, against 32 and 4 MiB a frame. What does not fit is not drawn (the interface goes first, as it is drawn last), and the log then says `[render] a frame ran out of vertex space` |
 
 The overlay shows the same numbers (GPU time on the second line, when there is one) and a graph of the last 192 frame times, from 0 to 50 ms, with guides at 16.7 and 33.3 ms: green up to 34 ms, yellow up to 50 ms, red beyond.
 
