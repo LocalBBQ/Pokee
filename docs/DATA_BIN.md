@@ -173,3 +173,21 @@ relocated on the way into the slot. The only divergence from a memory capture is
 in the data section, where the running game has written to its own variables.
 
 Extracting all 355 overlays takes about 4 seconds and produces 15 MB.
+
+## How the game reads it
+
+Traced with `MHP3RD_TRACE_IO=1` (and the caller's return address, added for the trace) from start-up to the title screen:
+
+- The game opens `disc0:/PSP_GAME/USRDIR/DATA.BIN` once and keeps it open. It reads the block table (24,176 bytes at offset 0) into `0x08B42A80` and the size table (10,312 bytes at offset 24,176) into `0x08B40200`, once, and asks `sceIoGetstat` for the archive's size.
+- Every other read is a whole entry or a piece of one, never two entries at once. The `fakeRofsLoader` thread seeks to the entry's first block and reads it in pieces of at most 128 KiB into a bounce buffer at `0x08B48900` (the read returns to `0x08865514`), decrypts and copies each piece to the file's destination (`0x08863664`), and marks the request done by storing 1 through the request's done pointer (`0x088657FC`). Movies are streamed straight into their buffers in 64 KiB pieces (from `0x08863F6C`).
+- A read ends exactly at the size the tables give (127,216 bytes, 24,432 bytes), and consecutive entries are read without a seek between them only when the next one starts where the last ended. The game trusts the two tables and nothing else about a file's size: an entry made larger in both tables is read in full and used.
+- The raw sector file `disc0:/sce_lbn0x115fa_size0x50d0` the game opens at start is entry 17, a module stub inside `DATA.BIN` (`0x115FA` is block 15,162 of the archive plus the archive's first sector, 56,000).
+- After copying a code overlay into its slot, the game flushes the instruction cache. That is the point at which an overlay has finished loading.
+
+## File ids and mods
+
+The game's mod community numbers the files of `DATA.BIN` by their entry index, written as four upper-case hex digits: `0601` is entry 1537. The community's file lists count the directory as file 0 and the entries from 1, so their file names (`1490.pak`) are one more than the id (`05D1`) in decimal. On NPJB-40001, entry `05D1` is indeed the first model archive after the weapon overlays, as those lists have it.
+
+Do not trust those lists' HD ids for armour without checking. Traced on NPJB-40001 with a male hunter wearing nothing, the game reads head `0503` and waist `0409`, which the male armour list gives, but body `034B`, arms `03C8` and legs `04C2`, where the list gives `030F`, `038C` and `0486`. `MHP3RD_TRACE_DATA_BIN=1` (with any mod on) logs every file the game reads, which is how to find the right id: change the equipment on screen and note the new ids.
+
+Yakumo serves mods' files through the file I/O (`profiles/mhp3rd/host/mods/`). A replaced or patched entry is encrypted for the block it starts at. An entry that no longer fits its blocks grows; every entry after it then starts that many blocks later, and its bytes are re-keyed from its block on the disc to its new block as they are read (decrypt with the one keystream, encrypt with the other; verbatim entries are served as they are). The block table and the size table the game reads say the same. The size table has a fixed number of rows (the game reads exactly 10,312 bytes), so an entry keeps or lacks its row as on the disc; a new size that is not a whole number of blocks for an entry without a row is padded with zeros to its blocks. The trailer after the tables is served unchanged.

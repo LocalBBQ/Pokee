@@ -88,6 +88,21 @@ For the manual check, use a throwaway data folder (`MHP3RD_DATA_DIR`, with a cop
 - *Use it where it is*: nothing is copied, `settings.ini` has `video.texture_pack_folder`, the textures stay. Rename the pack folder and turn *Texture pack* off and on: the row says *Pack folder missing: …*. *Stop using the pack folder* goes back to the installed pack.
 - With the keyboard and mouse: the same with clicks, and drag the pack folder from the file manager onto the window while the browser is open.
 
+### Mods (#79, #80, #82)
+
+`mhp3rd_mods_tests` (CTest) needs no game data: `mod.ini` reading (quoted values, lists, a quote left open, `Version` and the PSP default, `FilesHD`/`TargetHD`, packs, pseudo packs, equipment slots, code mods refused, missing files and bad targets), mhp3reload's files named by id, priority and conflicts, packs and dependencies, the saved choices, import and its backup, the `DATA.BIN` obfuscation from any byte, and a small archive served with a grown replacement, a smaller one, a patch and a moved verbatim entry, read whole and in pieces. `mhp3rd_mods_tests --check-disc <image.iso>` reads the real directory (only that) and checks that it encodes back to the disc's bytes.
+
+For the manual check, never use downloaded mods for a regression you cannot undo: use a throwaway data folder (`MHP3RD_DATA_DIR`, with copies of `settings.ini`, the saves, `EBOOT.ELF` and the disc image) and `MHP3RD_MODS_DIR` pointing at a scratch folder, and make test mods from the game's own files with `profiles/mhp3rd/tools/databin.py … extract`: for example file `0FEE` (the game menu's textures) with part of each texture's pixels overwritten, in a folder with a `mod.ini` of `Type="File"`, `Version="HD"`, `Files`, `Target="0FEE"`. Run with `MHP3RD_TRACE_MODS=1`.
+
+- With no mods folder, the log has no `[mods]` lines beyond the count, and the game is unchanged.
+- Turn the mod on in **Mods** and restart: the log lists `0FEE <- …` and `[mods] read 0FEE …` lines, and the game menu (after the title) shows the change. Turn it off: *Applied* and, after a restart, the original textures. `MHP3RD_NO_MODS=1` gives the original too, with the mod still on in the menu.
+- A copy of the same file 300 KiB larger (zeros appended): *Restart to apply* and *Restart now*; after the restart the log says `DATA.BIN grows from 1208858624 to …` and the title screen, its music and the intro movie, all read from entries after the grown one, are as before.
+- A patch mod (`Type="Patch"`) for `0FEF` with blocks of `(offset, length, bytes)` into its textures and `FFFFFFFF00000000` at the end: stripes on the title screen. Together with the grown `0FEE`, which moves `0FEF`, the same.
+- Two mods on the same file: *Conflicts* names the winner; *Priority* left and right changes it (after the next load or a restart).
+- A `mod.ini` without `Version`, a `Type="Code"` mod and one with a missing file show as *Cannot be used* with the reason.
+- *Import mod…* with the gamepad only, then with the mouse and by dropping a folder on the window: a single mod folder, a folder holding two, and a mod already installed (it moves to `mods/.backup/<name>-<time>`). The imported mods are off. A preview.png shows on the mod's screen.
+- An equipment mod: type the target file id on the on-screen keyboard; the row shows it and `mods.ini` has `slot1=`.
+
 ### Renderer performance paths (#92)
 
 Build `mhp3rd_render_tests` and run it through CTest: it checks, without a GPU or game data, that the index lists transformed draws are now drawn with name exactly the vertices the old expansion wrote, in the same order.

@@ -42,6 +42,7 @@ Puedes cargar una partida copiada de una PSP o empezar una nueva, cazar con otro
 | Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y hacer copias de seguridad desde el menú | Superficies curvas (#10); los diálogos de guardado todavía no dibujan nada (#33) |
 | Gráficos Vulkan: modelos, animación, texturas, transparencias, iluminación y niebla; resolución interna ajustable, cualquier forma de ventana e interpolación de fotogramas | |
 | Paquetes de texturas HD compatibles con PPSSPP, instalados desde el menú o copiados al directorio de datos | |
+| Mods en el formato de la comunidad (mhp3reload): reemplazos y parches de archivos, gestionados desde el menú (ver el [README del perfil](profiles/mhp3rd/README.md#mods)) | Mods de código (#81) |
 | Efectos de sonido, música en streaming y cinemáticas | |
 | Controles de teclado y ratón totalmente reasignables; mandos con cámara y apuntado analógicos en el stick derecho, además de perfiles de gatillos para arcos y ballestas | |
 | El menú de Yakumo dentro del juego, la configuración inicial, el explorador de archivos y el teclado en pantalla, todos utilizables con mando, teclado o ratón | |

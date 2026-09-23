@@ -7,6 +7,7 @@
 #include "ui/font_menu.hpp"
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
+#include "ui/mods_screen.hpp"
 #include "ui/save_screen.hpp"
 #include "ui/texture_pack_screen.hpp"
 #include "ui/text_input.hpp"
@@ -113,6 +114,7 @@ private:
     void audio();
     void controls();
     void network();
+    void mods();
     void system();
     bool confirm_dialog();
 
@@ -148,12 +150,12 @@ bool Menu::frame() {
     // Back closes the font list, or the save import and export, before it
     // closes the menu.
     const bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
-                                    (tab_ == 4 && save_screen_open());
+                                    (tab_ == 4 && mods_screen_open()) || (tab_ == 5 && save_screen_open());
     back_ = back || pad_back;
 
     begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
-    static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "System"};
-    const bool switched = tab_bar(kTabs, 5, tab_) || first_frame_;
+    static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System"};
+    const bool switched = tab_bar(kTabs, 6, tab_) || first_frame_;
     first_frame_ = false;
     begin_content();
     if (switched) {
@@ -165,10 +167,11 @@ bool Menu::frame() {
     case 1: audio(); break;
     case 2: controls(); break;
     case 3: network(); break;
+    case 4: mods(); break;
     default: system(); break;
     }
     begin_footer();
-    if (tab_ == 4)
+    if (tab_ >= 4)
         hints({{Control::Confirm, "Select"}, {Control::Back, "Back"}, {Control::Tabs, "Section"},
                {Control::Menu, "Resume"}});
     else
@@ -1070,6 +1073,15 @@ void Menu::network() {
         restore("network.nickname", s.adhoc_nickname, defaults.adhoc_nickname);
         settings::save();
         adhoc_apply_settings();
+    }
+}
+
+void Menu::mods() {
+    mods_page(back_);
+    if (take_mods_restart_request()) {
+        install::request_restart_on_exit();
+        quit_ = true;
+        close_ = true;
     }
 }
 
