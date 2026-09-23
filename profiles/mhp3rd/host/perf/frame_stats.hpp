@@ -101,6 +101,14 @@ struct Summary {
 };
 [[nodiscard]] const Summary &last_second();
 
+// MHP3RD_PERF_ALTERNATE=name[,name...]: the named new renderer paths are
+// turned off every other second, so one run measures them against the paths
+// they replaced under the same load. Each [perf] line ends in "alt on" or
+// "alt off" for the second it covers. Names: direct, lookup, reuse, merge.
+enum class NewPath : std::uint8_t { Direct, Lookup, Reuse, Merge };
+// True while `path` is to take its old route this second.
+[[nodiscard]] bool alternate_off(NewPath path);
+
 // Frame times in milliseconds, a ring written at `history_cursor()`.
 inline constexpr std::size_t kHistoryFrames = 192u;
 [[nodiscard]] const std::array<float, kHistoryFrames> &frame_history();

@@ -734,6 +734,10 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 
 The overlay shows the same numbers (GPU time on the second line, when there is one) and a graph of the last 192 frame times, from 0 to 50 ms, with guides at 16.7 and 33.3 ms: green up to 34 ms, yellow up to 50 ms, red beyond.
 
+#### Comparing the old and new renderer paths
+
+The renderer changes made for speed each have an off switch (see [Video](#video)). `MHP3RD_PERF_ALTERNATE=name[,name...]` instead turns the named ones off every other second, so a single run compares them under the same scene and load; each `[perf]` line then ends in `alt on` or `alt off`. Stand still in one spot for a minute and compare the `render` (CPU) and `gpu` numbers of the `on` and `off` lines. Names: `direct` (`MHP3RD_NO_DIRECT_VERTICES`), `lookup` (`MHP3RD_NO_LOOKUP_CACHE`), `reuse` (`MHP3RD_NO_BUFFER_REUSE`) and `merge` (`MHP3RD_NO_DRAW_MERGE`).
+
 #### Where the render thread waits
 
 `MHP3RD_TRACE_STALLS=1` adds a `[stalls]` line after each `[perf]` line, and a `[slow-frame]` line for every frame longer than `MHP3RD_TRACE_STALLS_MS` milliseconds (default 40), so a spike can be matched to its cause:

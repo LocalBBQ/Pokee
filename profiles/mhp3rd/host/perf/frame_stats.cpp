@@ -42,6 +42,25 @@ struct StallTrace {
     double slow_frame_ms{40.0};
 };
 
+struct Alternate {
+    std::uint32_t paths{};  // bit per NewPath named in MHP3RD_PERF_ALTERNATE
+    bool off{};             // the second in progress takes the old paths
+};
+
+Alternate &alternate() {
+    static Alternate value = [] {
+        Alternate result{};
+        const char *text = std::getenv("MHP3RD_PERF_ALTERNATE");
+        if (text == nullptr) return result;
+        const std::string names = std::string(",") + text + ",";
+        const char *known[] = {"direct", "lookup", "reuse", "merge"};
+        for (std::uint32_t i = 0; i < 4u; ++i)
+            if (names.find(std::string(",") + known[i] + ",") != std::string::npos) result.paths |= 1u << i;
+        return result;
+    }();
+    return value;
+}
+
 const StallTrace &stall_trace() {
     static const StallTrace value = [] {
         StallTrace trace{};
@@ -117,7 +136,9 @@ void print(const Summary &s) {
             length += std::snprintf(line + length, sizeof(line) - length, " | gpu n/a");
     }
     if (s.overlay_ms > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
-        std::snprintf(line + length, sizeof(line) - length, " | overlay %.2f ms", s.overlay_ms);
+        length += std::snprintf(line + length, sizeof(line) - length, " | overlay %.2f ms", s.overlay_ms);
+    if (alternate().paths != 0u && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
+        std::snprintf(line + length, sizeof(line) - length, " | alt %s", alternate().off ? "off" : "on");
     // Flushed per line: the log is read while the game runs, often through a
     // pipe where stdout would otherwise sit in a block buffer.
     std::cout << line << std::endl;
@@ -144,6 +165,11 @@ std::string format_stalls(const StallTallies &tallies, double frames, bool per_f
 }
 
 } // namespace
+
+bool alternate_off(NewPath path) {
+    const Alternate &value = alternate();
+    return value.off && (value.paths & (1u << static_cast<std::uint32_t>(path))) != 0u;
+}
 
 const char *stall_name(Stall kind) {
     switch (kind) {
@@ -315,6 +341,7 @@ void end_frame(std::uint64_t virtual_us) {
                   << std::endl;
 
     s.window_start = now;
+    if (alternate().paths != 0u) alternate().off = !alternate().off;
     s.window_virtual_us = virtual_us;
     s.frames = 0u;
     s.frame_sum_ms = 0.0;
