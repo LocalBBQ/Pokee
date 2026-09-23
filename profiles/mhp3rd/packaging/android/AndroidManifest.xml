@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Yakumo for Android (issue #17). SDL's activity, extended by YakumoActivity,
+<!-- Yakumo for Android. SDL's activity, extended by YakumoActivity,
      loads libSDL3.so and libmain.so, the host, which dlopens the overlay
      libraries from the same directory: extractNativeLibs keeps that directory
      a real one on the device, which the overlay loader lists. The version name

@@ -71,3 +71,6 @@ overlay_*.bin
 __pycache__/
 *.pyc
 .DS_Store
+
+# Signing keys (the Android release key): never committed
+/keys/

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Packs a research APK of Yakumo for arm64-v8a without Gradle, from a build
+# Packs an APK of Yakumo for arm64-v8a without Gradle, from a build
 # configured with the NDK toolchain and -DMHP3RD_ANDROID_APP=ON. It carries
 # no game data: the player's disc image is installed on the device.
+# scripts/release_android.sh uses it for releases; on its own it makes test
+# builds.
 #
 #   build_apk.sh <build dir> <SDL3 source dir> <libSDL3.so> <output.apk> [overlay limit]
 #
@@ -62,10 +64,11 @@ fi
 assets=(-A "$work/assets")
 "$build_tools/aapt2" compile --dir "$here/res" -o "$work/res.zip"
 # The version: `git describe` of the checkout, and the number of commits as
-# the code Android compares, so a later build is always an update.
+# the code Android compares, so a later build is always an update
+# (VERSION_NAME and VERSION_CODE override them).
 repo="$(cd "$here/../../../.." && pwd)"
-version_name="$(git -C "$repo" describe --tags --always --dirty 2>/dev/null || echo 0.0)"
-version_code="$(git -C "$repo" rev-list --count HEAD 2>/dev/null || echo 1)"
+version_name="${VERSION_NAME:-$(git -C "$repo" describe --tags --always --dirty 2>/dev/null || echo 0.0)}"
+version_code="${VERSION_CODE:-$(git -C "$repo" rev-list --count HEAD 2>/dev/null || echo 1)}"
 "$build_tools/aapt2" link -I "$android_jar" --manifest "$here/AndroidManifest.xml" \
     --min-sdk-version "$min_sdk" --target-sdk-version 35 --version-name "$version_name" \
     --version-code "$version_code" ${DEBUGGABLE:+--debug-mode} "${assets[@]}" -o "$work/unsigned.apk" \
