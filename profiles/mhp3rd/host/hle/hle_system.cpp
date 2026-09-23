@@ -38,6 +38,7 @@ void register_utils(HleRegistrar &hle) {
     const auto flush_icache = [](Runtime &rt, AllegrexContext &ctx) {
         // An overlay has finished loading: patches that write outside it go in first.
         mods::code_loaded(rt);
+        forget_unmatched_overlays();
         revalidate_overlays(rt);
         kernel().finish(ctx, 0u);
     };
