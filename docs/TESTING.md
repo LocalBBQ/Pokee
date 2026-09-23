@@ -88,6 +88,14 @@ For the manual check, use a throwaway data folder (`MHP3RD_DATA_DIR`, with a cop
 - *Use it where it is*: nothing is copied, `settings.ini` has `video.texture_pack_folder`, the textures stay. Rename the pack folder and turn *Texture pack* off and on: the row says *Pack folder missing: …*. *Stop using the pack folder* goes back to the installed pack.
 - With the keyboard and mouse: the same with clicks, and drag the pack folder from the file manager onto the window while the browser is open.
 
+### Renderer performance paths (#92)
+
+Build `mhp3rd_render_tests` and run it through CTest: it checks, without a GPU or game data, that the index lists transformed draws are now drawn with name exactly the vertices the old expansion wrote, in the same order.
+
+The speed changes each have an off switch that restores the old path: `MHP3RD_NO_DIRECT_VERTICES`, `MHP3RD_NO_LOOKUP_CACHE`, `MHP3RD_NO_BUFFER_REUSE` and `MHP3RD_NO_DRAW_MERGE`. When a frame looks wrong, run once with all four set: if the fault goes away, set them one at a time to find the change behind it, and report which. `MHP3RD_CHECK_DIRECT_VERTICES=1` compares every transformed draw with the old expansion while playing and prints `[direct-check] N draws compared, M differed`; M must stay 0.
+
+To measure, run with `MHP3RD_PERF=log MHP3RD_TRACE_STALLS=1` and stand still in the village by the shop and the smithy passage for a minute. `MHP3RD_PERF_ALTERNATE=direct,lookup,reuse,merge` turns the new paths off every other second; compare the `render` and `gpu` numbers of the `alt on` and `alt off` lines. A spike shows up as a `[slow-frame]` line naming where the frame waited.
+
 ## Reporting
 
 Open a **Test report** issue with the platform, hardware, commit and the steps you reached. If a result changes a cell in [the compatibility table](COMPATIBILITY.md), update the table in a pull request as well.
