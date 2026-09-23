@@ -321,14 +321,14 @@ void review_screen(bool back) {
         std::error_code ec;
         const bool installed_exists = fs::exists(installed_folder(), ec);
         const bool is_installed = r.is_current && r.current.source == TexturePackLocation::Source::Installed;
-        std::string copy_note = "Copies " + human_size(c.bytes) + " into " + utf8(installed_folder()) + ".";
-        if (r.free_space) copy_note += " " + human_size(*r.free_space) + " is free there.";
-        if (installed_exists)
-            copy_note += " The pack there now is not deleted: it moves to textures/.backup.";
-        copy_note += " The game keeps running while it copies.";
+        // Kept to two lines: the footer has no room for a path.
+        std::string copy_note = "Copies " + human_size(c.bytes) + " to textures/" + install::kDiscId +
+                                " in the data folder";
+        copy_note += r.free_space ? " (" + human_size(*r.free_space) + " free)." : std::string(".");
+        if (installed_exists) copy_note += " The pack there now moves to textures/.backup; nothing is deleted.";
         if (!room)
             copy_note = "Not enough free space: the copy needs " + human_size(needed) + " and " +
-                        human_size(*r.free_space) + " is free in the data folder. Use it where it is instead.";
+                        human_size(*r.free_space) + " is free. Use it where it is instead.";
         if (is_installed) copy_note = "This is the installed pack already.";
         const char *label = installed_exists ? "Copy and replace" : "Copy into Yakumo's data folder";
         // The focus starts on the first thing the player can do; the rows
@@ -340,10 +340,9 @@ void review_screen(bool back) {
         const bool in_use = r.is_current && r.current.source != TexturePackLocation::Source::Variable;
         const std::string place_note =
             in_use ? "This pack is the one in use already."
-                   : "Reads the pack from " + utf8(c.folder) + " and copies nothing, which saves " +
-                         human_size(c.bytes) + ". The folder must then stay where it is; if it moves, the Texture "
-                         "pack row says so." +
-                         (installed_exists ? " The installed pack stays in the data folder, unused." : "");
+                   : "Reads the pack from its folder and copies nothing, saving " + human_size(c.bytes) +
+                         ". The folder must stay where it is." +
+                         (installed_exists ? " The installed pack is kept, unused." : "");
         focus_first();
         if (button_row("Use it where it is", {in_use, {}, place_note})) use_in_place();
     }
@@ -400,10 +399,9 @@ void result_screen(bool back) {
     }
     const Outcome &o = s.outcome;
     section("Import texture pack");
-    focus_first();
     if (o.ok) {
         info_row("Installed", count(o.keys, "texture", "textures") + (o.in_place ? ", used where it is" : ""));
-        info_row("From", utf8(o.folder));
+        info_row(o.in_place ? "Used from" : "Installed in", utf8(o.folder));
         if (!o.backup.empty()) info_row("Replaced pack", "Kept in " + utf8(o.backup));
         const std::string status = renderer().texture_pack_status();
         info_row("Texture pack", status);
@@ -416,8 +414,9 @@ void result_screen(bool back) {
         indented("Nothing changed: the pack in use before is still in place.");
     }
     ImGui::Dummy({0.0f, px(12.0f)});
-    if (button_row("Open the textures folder", {false, {}, "Show " + utf8(textures_root()) + "."}))
+    if (button_row("Open the textures folder", {false, {}, "Show the folder the pack is in."}))
         open_folder(o.ok && o.in_place ? o.folder : textures_root());
+    focus_first();
     if (button_row("Done", {false, {}, "Back to the menu."})) close();
 }
 
@@ -491,14 +490,15 @@ void texture_pack_rows() {
                     "Install an HD texture pack from a folder: the one that holds textures.ini, or one that holds it "
                     "in textures/NPJB40001 or PSP/TEXTURES. It is checked first; the pack it replaces is kept."}))
         open_browser();
-    if (button_row("Open the textures folder", {false, {}, "Show " + utf8(textures_root()) + "."}))
+    if (button_row("Open the textures folder",
+                   {false, {}, "Show the textures folder in the data folder, where imported packs go."}))
         open_folder(textures_root());
+    if (!settings.texture_pack_folder.empty()) info_row("Pack used from", settings.texture_pack_folder);
     if (!settings.texture_pack_folder.empty() &&
         button_row("Stop using the pack folder",
                    {false, {},
-                    "The pack is read from " + settings.texture_pack_folder +
-                        ". This goes back to the pack installed in the data folder, if there is one; the folder "
-                        "itself is left alone."})) {
+                    "Go back to the pack installed in the data folder, if any. The pack's own folder is left "
+                    "alone."})) {
         settings.texture_pack_folder.clear();
         settings::save();
         renderer().reload_texture_pack();

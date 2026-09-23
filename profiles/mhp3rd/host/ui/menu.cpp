@@ -269,13 +269,17 @@ void Menu::video() {
     {
         RowOptions o = options_for("video.texture_pack",
                                    "Draws an HD texture pack in PPSSPP's format from textures/NPJB40001 in the data "
-                                   "folder, or the folder it was imported to be used from, instead of the game's "
-                                   "textures.");
+                                   "folder instead of the game's textures.");
         // The footer shows the note under the description: what is loaded,
         // or where the pack was looked for.
         if (o.note.empty()) {
             const std::string status = renderer().texture_pack_status();
             o.note = status == "Not installed" ? "No pack in " + renderer().texture_pack_folder() : status;
+            // A pack used in place that has moved: its path is on the "Pack
+            // used from" row below; the footer has room for its name only.
+            if (status.rfind("Folder missing: ", 0) == 0)
+                o.note = "Pack folder missing: " +
+                         install::path_to_utf8(install::path_from_utf8(status.substr(16)).filename());
         }
         if (choice_row("Texture pack", s.texture_pack ? "On" : "Off", o)) {
             s.texture_pack = !s.texture_pack;

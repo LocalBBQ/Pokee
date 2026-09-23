@@ -85,7 +85,7 @@ For the manual check, use a throwaway data folder (`MHP3RD_DATA_DIR`, with a cop
 - Choose the pack's parent folder, a folder holding `PSP/TEXTURES/NPJB40001`, and a copy renamed `ULJM05800` with and without `NPJB40001 = true` under `[games]`: the first three are found, the last is refused with its reason. A copy whose `textures.ini` says `hash = quick` is refused.
 - *Copy into Yakumo's data folder*: the progress bar moves, the game keeps drawing (or stays paused) without stutter, Esc/Start do not close the menu. Cancel half way: the console logs `[texpack] copy cancelled`, the result says nothing changed, `textures/` holds no `.incomplete-…` folder and the old pack still draws.
 - Copy again to the end: the Texture pack row shows the new count within a frame or two and the textures change on screen. Import a second time: the first pack is in `textures/.backup/<date>_<time>/NPJB40001`, whole.
-- *Use it where it is*: nothing is copied, `settings.ini` has `video.texture_pack_folder`, the textures stay. Rename the pack folder and turn *Texture pack* off and on: the row says *Folder missing: …*. *Stop using the pack folder* goes back to the installed pack.
+- *Use it where it is*: nothing is copied, `settings.ini` has `video.texture_pack_folder`, the textures stay. Rename the pack folder and turn *Texture pack* off and on: the row says *Pack folder missing: …*. *Stop using the pack folder* goes back to the installed pack.
 - With the keyboard and mouse: the same with clicks, and drag the pack folder from the file manager onto the window while the browser is open.
 
 ## Reporting
