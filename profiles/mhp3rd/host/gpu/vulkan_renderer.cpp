@@ -663,6 +663,21 @@ struct VulkanRenderer::Impl {
     VkBuffer writeback_buffer{};
     VkDeviceMemory writeback_buffer_memory{};
     void *writeback_mapped{};
+    // The write-back buffer is read by the CPU every frame. Uncached memory
+    // (radv's default host-visible type) makes that copy take ~3 ms on a
+    // Steam Deck, so a HOST_CACHED type is preferred, and a non-coherent one
+    // is invalidated before each read. MHP3RD_NO_CACHED_READBACK keeps the
+    // first host-visible coherent type, as before.
+    bool writeback_cached{};
+    bool writeback_coherent{true};
+    void invalidate_writeback() {
+        if (writeback_coherent || writeback_buffer_memory == VK_NULL_HANDLE) return;
+        VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+        range.memory = writeback_buffer_memory;
+        range.offset = 0u;
+        range.size = VK_WHOLE_SIZE;
+        vkInvalidateMappedMemoryRanges(device, 1u, &range);
+    }
     struct WritebackFrame {
         std::uint32_t address{};
         std::uint32_t stride{};
@@ -2396,6 +2411,33 @@ bool VulkanRenderer::Impl::create_writeback(std::string &error) {
     allocate.allocationSize = requirements.size;
     allocate.memoryTypeIndex = find_memory_type(
         requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    writeback_cached = false;
+    writeback_coherent = true;
+    static const bool no_cached = std::getenv("MHP3RD_NO_CACHED_READBACK") != nullptr;
+    if (!no_cached) {
+        // Cached and coherent first, then cached alone.
+        VkPhysicalDeviceMemoryProperties memory_properties{};
+        vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+        const VkMemoryPropertyFlags cached = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+        std::int32_t chosen = -1;
+        for (const VkMemoryPropertyFlags wanted : {cached | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, cached}) {
+            for (std::uint32_t i = 0; i < memory_properties.memoryTypeCount && chosen < 0; ++i) {
+                if ((requirements.memoryTypeBits & (1u << i)) != 0u &&
+                    (memory_properties.memoryTypes[i].propertyFlags & wanted) == wanted)
+                    chosen = static_cast<std::int32_t>(i);
+            }
+            if (chosen >= 0) break;
+        }
+        if (chosen >= 0) {
+            allocate.memoryTypeIndex = static_cast<std::uint32_t>(chosen);
+            writeback_cached = true;
+            writeback_coherent =
+                (memory_properties.memoryTypes[chosen].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
+        }
+    }
+    std::cout << "[render] frame write-back in memory type " << allocate.memoryTypeIndex
+              << (writeback_cached ? " (host cached" : " (host uncached")
+              << (writeback_coherent ? ", coherent)" : ", not coherent)") << "\n";
     if (!check(vkAllocateMemory(device, &allocate, nullptr, &writeback_buffer_memory), "vkAllocateMemory", error))
         return false;
     vkBindBufferMemory(device, writeback_buffer, writeback_buffer_memory, 0u);
@@ -2454,6 +2496,19 @@ void VulkanRenderer::Impl::record_writeback(std::uint32_t address) {
     copy.imageExtent = {kPspWidth, kPspHeight, 1u};
     vkCmdCopyImageToBuffer(command_buffer, writeback_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, writeback_buffer,
                            1u, &copy);
+    if (writeback_cached) {
+        // Make the copy visible to the host reads after the fence.
+        VkBufferMemoryBarrier to_host{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        to_host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        to_host.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_host.buffer = writeback_buffer;
+        to_host.offset = 0u;
+        to_host.size = VK_WHOLE_SIZE;
+        vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0u, 0u,
+                             nullptr, 1u, &to_host, 0u, nullptr);
+    }
     transition(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     writeback_recorded = {address, target.stride, target.format};
@@ -3228,6 +3283,7 @@ void VulkanRenderer::begin_frame() {
     if (impl.writeback_in_flight) {
         const perf::Clock::time_point copy_start = perf::Clock::now();
         impl.writeback_pixels.resize(static_cast<std::size_t>(kPspWidth) * kPspHeight);
+        impl.invalidate_writeback();
         std::memcpy(impl.writeback_pixels.data(), impl.writeback_mapped, impl.writeback_pixels.size() * 4u);
         impl.writeback_ready = impl.writeback_recorded;
         impl.writeback_has_pixels = true;
@@ -4086,6 +4142,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     std::vector<std::uint32_t> fresh_pixels;
     std::vector<std::uint32_t> &pixels = Impl::reuse_buffers() ? impl.readback_pixels : fresh_pixels;
     pixels.resize(static_cast<std::size_t>(kPspWidth) * kPspHeight);
+    impl.invalidate_writeback();
     std::memcpy(pixels.data(), impl.writeback_mapped, pixels.size() * 4u);
     const perf::Clock::time_point store_start = perf::Clock::now();
     perf::note_stall(perf::Stall::Copy, store_start - copy_start);
