@@ -59,7 +59,7 @@ Una versión publicada solo necesita tu imagen de disco. Descárgala desde la [p
 
 - **Linux y Steam Deck:** un paquete Flatpak y un archivo portátil. [`docs/LINUX.md`](docs/LINUX.md) (en inglés) explica la instalación, el primer inicio, el modo de juego, dónde están las partidas guardadas, cómo actualizar y cómo desinstalar.
 - **Windows:** un archivo portátil para x86-64 con las bibliotecas necesarias.
-- **macOS:** todavía no hay una versión publicada; compila desde el código fuente como se describe a continuación.
+- **macOS (Apple Silicon, macOS 13 o posterior):** una imagen de disco con la aplicación. Apple no la ha notarizado, así que macOS pide permitirla una vez. [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explica la instalación, el primer inicio, dónde se guardan las partidas, cómo actualizar y cómo desinstalar.
 
 ## Requisitos
 

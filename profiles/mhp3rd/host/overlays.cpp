@@ -138,9 +138,9 @@ std::map<std::uint32_t, std::uint64_t> &unmatched_slots() {
 
 std::filesystem::path overlay_directory() {
     if (const char *dir = std::getenv("MHP3RD_OVERLAY_DIR"); dir != nullptr && *dir != '\0') return dir;
-    const std::filesystem::path directory = executable_directory();
+    const std::filesystem::path directory = bundled_overlay_directory();
     if (directory.empty()) return "overlays";
-    return directory / "overlays";
+    return directory;
 }
 
 bool is_overlay_library(const std::filesystem::path &path) {

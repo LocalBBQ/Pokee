@@ -10,8 +10,18 @@ namespace mhp3rd {
 [[nodiscard]] std::filesystem::path executable_path();
 
 // The directory the executable is in. A release keeps everything it ships
-// relative to it: overlays/, fonts/ and, on Linux, lib/.
+// relative to it: overlays/, fonts/ and, on Linux, lib/. The macOS app bundle
+// is the exception, see the two functions below.
 [[nodiscard]] std::filesystem::path executable_directory();
+
+// Where the overlay libraries a release ships are: overlays/ next to the
+// executable, or Contents/Frameworks/overlays in a macOS app bundle, which
+// keeps code out of Contents/MacOS other than the executable.
+[[nodiscard]] std::filesystem::path bundled_overlay_directory();
+
+// Where the fonts a release ships are: fonts/ next to the executable, or
+// Contents/Resources/fonts in a macOS app bundle.
+[[nodiscard]] std::filesystem::path bundled_font_directory();
 
 // Font files a release ships in fonts/ next to the executable, as fallbacks
 // after the system's own fonts.

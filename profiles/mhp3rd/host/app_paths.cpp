@@ -40,12 +40,41 @@ std::filesystem::path executable_directory() {
     return executable.empty() ? std::filesystem::path{} : executable.parent_path();
 }
 
+namespace {
+
+// Yakumo.app/Contents when the executable runs from Yakumo.app/Contents/MacOS,
+// empty otherwise (and on other systems).
+std::filesystem::path app_bundle_contents(const std::filesystem::path &executable_dir) {
+#if defined(__APPLE__)
+    if (executable_dir.filename() == "MacOS" && executable_dir.parent_path().filename() == "Contents")
+        return executable_dir.parent_path();
+#endif
+    (void)executable_dir;
+    return {};
+}
+
+// <subdirectory> of the app bundle's Contents, else <name> next to the
+// executable; empty if the executable cannot be found.
+std::filesystem::path shipped_directory(const char *bundle_subdirectory, const char *name) {
+    const std::filesystem::path directory = executable_directory();
+    if (directory.empty()) return {};
+    if (const std::filesystem::path contents = app_bundle_contents(directory); !contents.empty())
+        return contents / bundle_subdirectory / name;
+    return directory / name;
+}
+
+} // namespace
+
+std::filesystem::path bundled_overlay_directory() { return shipped_directory("Frameworks", "overlays"); }
+
+std::filesystem::path bundled_font_directory() { return shipped_directory("Resources", "fonts"); }
+
 std::vector<std::filesystem::path> bundled_fonts() {
     std::vector<std::filesystem::path> fonts;
-    const std::filesystem::path directory = executable_directory();
+    const std::filesystem::path directory = bundled_font_directory();
     if (directory.empty()) return fonts;
     std::error_code ec;
-    for (const auto &entry : std::filesystem::directory_iterator(directory / "fonts", ec)) {
+    for (const auto &entry : std::filesystem::directory_iterator(directory, ec)) {
         const std::filesystem::path extension = entry.path().extension();
         if (extension == ".otf" || extension == ".ttf" || extension == ".ttc") fonts.push_back(entry.path());
     }
