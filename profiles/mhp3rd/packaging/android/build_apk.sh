@@ -48,13 +48,18 @@ min_sdk=30
     $(find "$work/classes" -name '*.class')
 
 echo "linking resources"
-assets=()
+# The licences of what the APK carries: the third-party notices, SDL's and
+# FFmpeg's (with where its source is), and the font's when it is packed.
+mkdir -p "$work/assets/licenses"
+cp "$here/../THIRD_PARTY_NOTICES.md" "$work/assets/licenses/"
+cp "$sdl_dir/LICENSE.txt" "$work/assets/licenses/SDL3-LICENSE.txt"
+cp "$build_dir"/bin/lib/FFmpeg-COPYING.LGPLv2.1.txt "$build_dir"/bin/lib/FFmpeg-SOURCE.txt "$work/assets/licenses/"
 if [[ -n "${FONT_DIR:-}" ]]; then
-    mkdir -p "$work/assets/fonts" "$work/assets/licenses"
+    mkdir -p "$work/assets/fonts"
     cp "$FONT_DIR/NotoSansCJKjp-Regular.otf" "$work/assets/fonts/"
     cp "$FONT_DIR/NotoSansCJK-LICENSE.txt" "$work/assets/licenses/NotoSansCJK-OFL.txt"
-    assets=(-A "$work/assets")
 fi
+assets=(-A "$work/assets")
 "$build_tools/aapt2" compile --dir "$here/res" -o "$work/res.zip"
 # The version: `git describe` of the checkout, and the number of commits as
 # the code Android compares, so a later build is always an update.
