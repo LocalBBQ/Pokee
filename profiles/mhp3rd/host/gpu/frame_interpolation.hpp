@@ -53,8 +53,19 @@ void mark_eligible(std::vector<DrawSummary> &draws, std::uint32_t displayed) noe
 // How two consecutive frames' draws correspond.
 struct Matching {
     // For each draw of the older frame, the index of the same draw in the
-    // newer frame, or -1. Only eligible draws are matched.
+    // newer frame, kNoPartner, or kFollowCamera for a pair whose own motion
+    // is not believable (see CutThresholds::max_own_motion). Only eligible
+    // draws are matched.
     std::vector<std::int32_t> newer_of;
+    static constexpr std::int32_t kNoPartner = -1;
+    static constexpr std::int32_t kFollowCamera = -2;
+    // Pairs given up because a draw moved too far on its own in one game
+    // frame, and of those, how many had other draws of the same key (the
+    // same mesh drawn more than once) it may have been mistaken for.
+    std::uint32_t rejected{};
+    std::uint32_t rejected_shared{};
+    float max_own_motion{};  // the largest own motion among the pairs kept
+    float max_rejected_motion{};  // the largest among those given up
     std::uint32_t eligible_older{};
     std::uint32_t eligible_newer{};
     std::uint32_t matched{};
@@ -92,6 +103,12 @@ struct CutThresholds {
     float continuous_distance_margin{60.0f};
     float max_continuous_angle_degrees{75.0f};
     float max_continuous_distance{800.0f};
+    // A draw whose position in eye space moves more than this in one game
+    // frame beyond what the camera's motion explains is not blended with its
+    // partner, which is most likely another object: instances of one mesh
+    // pair up in drawing order, and that order can change. 0 turns the
+    // guard off (MHP3RD_INTERPOLATION_NO_MOTION_GUARD).
+    float max_own_motion{120.0f};
 };
 
 class Matcher {
@@ -128,6 +145,7 @@ private:
 
     std::vector<Slot> slots_;
     std::vector<std::int32_t> next_;  // for each newer draw, the next with its key
+    std::vector<std::uint8_t> shared_;  // for each older draw: its key had several newer draws
     Matching result_;
     // The previous pair's camera motion, when that pair was blended.
     bool previous_blended_{};
@@ -147,6 +165,18 @@ private:
 
 // The angle between the rotations of two transforms.
 [[nodiscard]] float rotation_angle_degrees(const Matrix &a, const Matrix &b) noexcept;
+
+// A texture offset between two frames. A scroll moves it a little each
+// frame; a flipbook (fire, smoke) moves it to the next cell of an atlas, a
+// quarter of the texture or more at once, and blending that would sweep
+// across the cells in between. Steps below `max_scroll` are scrolling and
+// blended; bigger ones hold the older offset.
+inline constexpr float kMaxScrollStep = 0.1f;
+[[nodiscard]] float blend_offset(float from, float to, float t, float max_scroll = kMaxScrollStep) noexcept;
+[[nodiscard]] inline bool scrolls(float from, float to, float max_scroll = kMaxScrollStep) noexcept {
+    const float step = to > from ? to - from : from - to;
+    return step < max_scroll;
+}
 
 // The inverse of an affine transform; false when it has none.
 [[nodiscard]] bool affine_inverse(const Matrix &m, Matrix &out) noexcept;

@@ -959,6 +959,11 @@ struct VulkanRenderer::Impl {
         std::uint32_t plain_cut{};      // the pair is not blended (cut, not recorded)
         std::uint32_t plain_textures{}; // a texture the older frame drew with was dropped
         std::uint64_t groups{};  // draw calls recorded again
+        std::uint64_t flipbook_steps{};  // texture offsets not blended: a flipbook's step
+        std::uint64_t followed{};        // draw calls without a partner moved with the camera only
+        std::uint32_t rejected{};        // pairs given up: moved too far on their own
+        std::uint32_t rejected_shared{}; // of those, with other draws of the same mesh
+        float max_own_motion{};
         std::chrono::steady_clock::duration blend_time{};  // CPU time of blended presents
         std::chrono::steady_clock::duration plain_time{};  // CPU time of the other presents
         std::chrono::steady_clock::duration max_late{};    // latest present after its time
@@ -1320,6 +1325,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     impl.sharp_screen = player.sharp_screen;
     impl.sharp_textures = player.sharp_textures;
     impl.trace_interpolation = std::getenv("MHP3RD_TRACE_INTERPOLATION") != nullptr;
+    if (std::getenv("MHP3RD_INTERPOLATION_NO_MOTION_GUARD") != nullptr) impl.cut_thresholds.max_own_motion = 0.0f;
     impl.frame_rate = player.frame_rate;
     impl.governor.set_automatic(player.frame_rate_auto);
     const std::uint32_t window_scale = std::clamp<std::uint32_t>(player.window_scale, 1u, settings::kMaxWindowScale);
@@ -4623,6 +4629,9 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     stats.eligible += matching.eligible_newer;
     stats.matched += matching.matched;
     if (matching.continued) ++stats.continued;
+    stats.rejected += matching.rejected;
+    stats.rejected_shared += matching.rejected_shared;
+    stats.max_own_motion = std::max(stats.max_own_motion, matching.max_own_motion);
     if (matching.camera_found) {
         stats.max_camera_angle = std::max(stats.max_camera_angle, matching.camera_angle_degrees);
         stats.max_camera_distance = std::max(stats.max_camera_distance, matching.camera_distance);
@@ -4638,11 +4647,15 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
                     older_frame.valid ? static_cast<double>(moment_us - older_frame.moment_us) / 1000.0 : 0.0,
                     static_cast<double>(to_us(std::chrono::steady_clock::now()) - moment_us) / 1000.0);
     }
-    if (trace_frames || (trace_interpolation && matching.cut != nullptr && matching.eligible_newer != 0u)) {
-        std::printf("[interp] frame %llu: eligible %u/%u matched %u camera %.2f deg %.2f units%s%s%s\n",
+    if (trace_frames || (trace_interpolation && matching.cut != nullptr && matching.eligible_newer != 0u) ||
+        (trace_interpolation && matching.rejected >= 50u)) {
+        std::printf("[interp] frame %llu: eligible %u/%u matched %u camera %.2f deg %.2f units, rejected %u (%u "
+                    "shared, up to %.0f units, kept up to %.0f)%s%s%s\n",
                     static_cast<unsigned long long>(frames), matching.eligible_older, matching.eligible_newer,
                     matching.matched, static_cast<double>(matching.camera_angle_degrees),
-                    static_cast<double>(matching.camera_distance), matching.continued ? " (continued)" : "",
+                    static_cast<double>(matching.camera_distance), matching.rejected, matching.rejected_shared,
+                    static_cast<double>(matching.max_rejected_motion), static_cast<double>(matching.max_own_motion),
+                    matching.continued ? " (continued)" : "",
                     matching.cut != nullptr ? " cut: " : "", matching.cut != nullptr ? matching.cut : "");
         std::fflush(stdout);
     }
@@ -4847,6 +4860,13 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     interpolation::Matrix written_world{};
     std::uint32_t written_offset = 0u;
     std::uint64_t replayed = 0u;
+    std::uint64_t flipbook_steps = 0u;
+    std::uint64_t followed = 0u;
+    // MHP3RD_INTERPOLATION_NO_FLIPBOOK_GUARD blends texture offsets up to
+    // half the texture, as before; MHP3RD_INTERPOLATION_NO_MOTION_GUARD
+    // leaves draws without a partner where the older frame drew them.
+    static const bool flipbook_guard = std::getenv("MHP3RD_INTERPOLATION_NO_FLIPBOOK_GUARD") == nullptr;
+    static const bool motion_guard = std::getenv("MHP3RD_INTERPOLATION_NO_MOTION_GUARD") == nullptr;
 
     for (const ReplayGroup &drawn : older.groups) {
         if (drawn.target != older.displayed) continue;
@@ -4859,6 +4879,22 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
             partner = matching.newer_of[i];
             member = i;
             break;
+        }
+        if (partner < 0 && t > 0.0f && motion_guard && camera_motion.valid &&
+            older.summaries[drawn.first_draw].eligible) {
+            // A 3D draw without a partner (drawn only in the older frame, or
+            // paired with a draw too far away to be itself) goes with the
+            // camera and nothing else: left where the older frame drew it,
+            // it would stand still on screen while the scene turns, and jump
+            // back at the next frame.
+            const interpolation::DrawSummary &from = older.summaries[drawn.first_draw];
+            const interpolation::Matrix eye = interpolation::multiply(
+                interpolation::rigid_at(camera_motion, t), interpolation::multiply(from.view, from.world));
+            state.push.transform = interpolation::multiply(from.projection, eye);
+            state.push.view_z = {eye[2], eye[6], eye[10], eye[14]};
+            transform_valid = false;
+            view_pair = projection_pair = world_pair = Pair{};
+            ++followed;
         }
         if (partner >= 0 && t > 0.0f) {
             const interpolation::DrawSummary &from = older.summaries[member];
@@ -4896,14 +4932,19 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
             }
             state.push.transform = transform;
             state.push.view_z = {view_world[2], view_world[6], view_world[10], view_world[14]};
-            // A texture that scrolls moves its offset a little each frame; a
-            // jump of half the texture or more is a wrap, left alone.
+            // A texture that scrolls moves its offset a little each frame;
+            // a flipbook jumps to its next cell, and a wrap by the whole
+            // texture: both are held.
             for (std::size_t axis = 2u; axis < 4u; ++axis) {
                 const float a = drawn.state.push.uv_transform[axis];
                 const float b = next.state.push.uv_transform[axis];
-                if (std::fabs(b - a) < 0.5f &&
-                    drawn.state.push.uv_transform[axis - 2u] == next.state.push.uv_transform[axis - 2u])
-                    state.push.uv_transform[axis] = a + (b - a) * t;
+                if (a == b || drawn.state.push.uv_transform[axis - 2u] != next.state.push.uv_transform[axis - 2u])
+                    continue;
+                // A flipbook's step to its next atlas cell is held, not
+                // blended (interpolation::blend_offset).
+                const float max_scroll = flipbook_guard ? interpolation::kMaxScrollStep : 0.5f;
+                if (!interpolation::scrolls(a, b, max_scroll)) ++flipbook_steps;
+                state.push.uv_transform[axis] = interpolation::blend_offset(a, b, t, max_scroll);
             }
             // A lit draw's object block carries the world matrix its lights
             // are evaluated in; everything else in it stays.
@@ -4978,6 +5019,8 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     }
     vkCmdEndRenderPass(commands);
     interpolation_stats.groups += replayed;
+    interpolation_stats.flipbook_steps += flipbook_steps;
+    interpolation_stats.followed += followed;
 }
 
 // Once a second while a faster frame rate is chosen: the [interp] line
@@ -5022,6 +5065,12 @@ void VulkanRenderer::Impl::report_interpolation() {
                     "dropped, %u other; not made: %u display busy, %u over budget\n",
                     stats.plain_newest, stats.plain_oldest, stats.plain_cut, stats.plain_textures,
                     plain > reasons_known ? plain - reasons_known : 0u, stats.blocked, stats.over_budget);
+        std::printf("[interp] guards: %u pairs moved too far on their own (%u with the same mesh drawn more than "
+                    "once), own motion kept up to %.1f units; %.0f draw calls a blend followed the camera only; "
+                    "%.0f texture offsets a blend held (flipbook steps)\n",
+                    stats.rejected, stats.rejected_shared, static_cast<double>(stats.max_own_motion),
+                    stats.blended != 0u ? static_cast<double>(stats.followed) / stats.blended : 0.0,
+                    stats.blended != 0u ? static_cast<double>(stats.flipbook_steps) / stats.blended : 0.0);
         std::fflush(stdout);
     }
     const perf::Summary &summary = perf::last_second();

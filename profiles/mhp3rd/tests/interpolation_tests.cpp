@@ -159,6 +159,52 @@ void rigid() {
     check(walks, "a moving character is halfway along its own path, seen from halfway along the orbit");
 }
 
+void guards() {
+    // The brazier fire in the gathering hall steps its offset by a quarter
+    // of the texture each game frame; water scrolls by 0.004.
+    check(near(blend_offset(0.25f, 0.5f, 0.5f), 0.25f), "a flipbook's step to its next cell is held");
+    check(near(blend_offset(0.75f, 0.0f, 0.33f), 0.75f), "and so is its wrap back to the first");
+    check(near(blend_offset(0.1024f, 0.1063f, 0.5f), 0.10435f, 1e-5f), "a scrolling texture blends");
+    check(near(blend_offset(-1.7692f, -1.82477f, 0.5f), -1.796985f, 1e-4f), "so does a fast scroll of 0.056");
+    check(near(blend_offset(0.25f, 0.5f, 0.5f, 0.5f), 0.375f), "with the old limit the flipbook step blended");
+
+    // Two instances of one mesh swap their drawing order: pairing them in
+    // order would blend each towards the other.
+    const CutThresholds thresholds{};
+    Matcher matcher;
+    std::vector<DrawSummary> older = scene(40u);
+    std::vector<DrawSummary> newer = scene(40u);
+    DrawSummary left = draw(90u, -300.0f), right = draw(90u, 300.0f);
+    older.push_back(left);
+    older.push_back(right);
+    newer.push_back(right);
+    newer.push_back(left);
+    mark_eligible(older, kShown);
+    mark_eligible(newer, kShown);
+    const Matching &swapped = matcher.match(older, newer, thresholds);
+    check(swapped.rejected == 2u && swapped.rejected_shared == 2u &&
+              swapped.newer_of[40] == Matching::kFollowCamera && swapped.newer_of[41] == Matching::kFollowCamera,
+          "swapped instances 600 units apart are not blended into each other");
+    check(swapped.cut == nullptr, "the rest of the frame still blends");
+
+    // A character walking 20 units a frame while the camera turns keeps its pair.
+    std::vector<DrawSummary> before = scene(40u, 0.0f), after = scene(40u, 5.0f);
+    DrawSummary walker = draw(91u, 0.0f, 0.0f), walked = draw(91u, 20.0f, 5.0f);
+    before.push_back(walker);
+    after.push_back(walked);
+    mark_eligible(before, kShown);
+    mark_eligible(after, kShown);
+    Matcher turning;
+    const Matching &walking = turning.match(before, after, thresholds);
+    check(walking.rejected == 0u && walking.newer_of[40] == 40, "a character's own walk during a turn is kept");
+    check(near(walking.max_own_motion, 20.0f, 0.5f), "and measured apart from the camera's turn");
+
+    CutThresholds off = thresholds;
+    off.max_own_motion = 0.0f;
+    Matcher unguarded;
+    check(unguarded.match(older, newer, off).rejected == 0u, "with the guard off every pair is kept, as before");
+}
+
 void matching() {
     const CutThresholds thresholds{};
     Matcher matcher;
@@ -498,6 +544,7 @@ void governor() {
 int main() {
     blending();
     rigid();
+    guards();
     matching();
     continuous_motion();
     rates();

@@ -109,6 +109,7 @@ For the manual check, open **Video → Frame rate**:
 - **Lower when behind**: with it off, the chosen rate stays even if `speed` drops; with it on (the default) a rate the machine cannot hold steps down within two seconds and the log says why. *Restore video defaults* sets it back to On.
 - The pad: walking, attacking and turning respond as quickly at 30 as before, or quicker. With `MHP3RD_PAD_AT_FLIP=1` the old reading at the flip comes back, to compare.
 - During a camera turn the `[interp] plain:` line must show only `at the newest frame` (30 a second), and no `camera moved` cuts; the hunter must not shake against the scenery.
+- The braziers in front of the guild hall and in the gathering hall burn as fast as at 30. NPCs, villagers and single objects never appear displaced for one present while you walk or turn; the `[interp] guards:` line counts the pairs it gave up. For comparison, `MHP3RD_INTERPOLATION_NO_FLIPBOOK_GUARD=1` and `MHP3RD_INTERPOLATION_NO_MOTION_GUARD=1` bring the old behaviour back.
 - `MHP3RD_CHECK_REPLAY=1` must print `0 of N pixels differ` for every check.
 
 To measure, run with `MHP3RD_PERF=log MHP3RD_TRACE_INTERPOLATION=1` and stand still in the village by the shop and the smithy passage. `MHP3RD_FRAME_RATE_CYCLE=30,45,60,90` switches the rate every ten seconds; skip the first two `[perf]` lines after each `[interp] cycle:` line. For each rate read:

@@ -96,12 +96,14 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
         }
         slot.last = index;
     }
+    shared_.assign(older.size(), 0u);
     for (std::size_t i = 0; i < older.size(); ++i) {
         if (!older[i].eligible) continue;
         ++out.eligible_older;
         Slot &slot = slot_for(key_of(older[i]));
         if (slot.first < 0 || slot.cursor < 0) continue;
         out.newer_of[i] = slot.cursor;
+        shared_[i] = slot.first != slot.last ? 1u : 0u;
         slot.cursor = next_[static_cast<std::size_t>(slot.cursor)];
         ++out.matched;
     }
@@ -140,6 +142,35 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
         out.camera = middle->motion;
         out.camera_distance = std::sqrt(out.camera[12] * out.camera[12] + out.camera[13] * out.camera[13] +
                                         out.camera[14] * out.camera[14]);
+    }
+
+    // Each pair's own motion: where the camera's motion would have taken the
+    // older draw against where the newer one is, in eye space.
+    if (out.camera_found && thresholds.max_own_motion > 0.0f) {
+        const Matrix &c = out.camera;
+        for (std::size_t i = 0; i < older.size(); ++i) {
+            const std::int32_t partner = out.newer_of[i];
+            if (partner < 0) continue;
+            const Matrix before = multiply(older[i].view, older[i].world);
+            const Matrix after = multiply(newer[static_cast<std::size_t>(partner)].view,
+                                          newer[static_cast<std::size_t>(partner)].world);
+            float distance = 0.0f;
+            for (std::size_t row = 0; row < 3u; ++row) {
+                const float predicted = c[row] * before[12] + c[4u + row] * before[13] + c[8u + row] * before[14] +
+                                        c[12u + row];
+                const float d = after[12u + row] - predicted;
+                distance += d * d;
+            }
+            distance = std::sqrt(distance);
+            if (distance > thresholds.max_own_motion) {
+                out.newer_of[i] = Matching::kFollowCamera;
+                ++out.rejected;
+                out.max_rejected_motion = std::max(out.max_rejected_motion, distance);
+                if (shared_[i] != 0u) ++out.rejected_shared;
+            } else {
+                out.max_own_motion = std::max(out.max_own_motion, distance);
+            }
+        }
     }
 
     float max_angle = thresholds.max_camera_angle_degrees;
@@ -215,6 +246,10 @@ float rotation_angle_degrees(const Matrix &a, const Matrix &b) noexcept {
     }
     const float cosine = std::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f);
     return std::acos(cosine) * 180.0f / kPi;
+}
+
+float blend_offset(float from, float to, float t, float max_scroll) noexcept {
+    return scrolls(from, to, max_scroll) ? from + (to - from) * t : from;
 }
 
 bool affine_inverse(const Matrix &m, Matrix &out) noexcept {
