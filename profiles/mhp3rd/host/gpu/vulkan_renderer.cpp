@@ -1840,6 +1840,20 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
                                    capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
     }
     if (extent.width == 0u || extent.height == 0u) extent = target_extent;
+    // A rotated display (an Android device turned to landscape) reports a
+    // transform to apply. The frame is drawn upright, so ask for no transform
+    // and let the compositor rotate it, with images shaped like the window:
+    // drivers differ in which orientation they report the extent in.
+    VkSurfaceTransformFlagBitsKHR transform = capabilities.currentTransform;
+    if (transform != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR &&
+        (capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0u) {
+        transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSizeInPixels(window, &width, &height);
+        if (width > 0 && height > 0 && (width > height) != (extent.width > extent.height))
+            std::swap(extent.width, extent.height);
+    }
     swapchain_extent = extent;
     present_mode = wanted_present_mode();
 
@@ -1859,7 +1873,7 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     swapchain_info.imageExtent = swapchain_extent;
     swapchain_info.imageArrayLayers = 1u;
     swapchain_info.imageUsage = swapchain_usage;
-    swapchain_info.preTransform = capabilities.currentTransform;
+    swapchain_info.preTransform = transform;
     swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     swapchain_info.presentMode = present_mode;
     swapchain_info.clipped = VK_TRUE;
