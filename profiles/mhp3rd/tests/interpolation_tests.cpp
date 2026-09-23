@@ -340,6 +340,25 @@ void governor() {
     for (int i = 0; i < RateGovernor::kBlockSeconds; ++i) (void)governor.update(second_with(1.0, 20.0, 6.0, 0.4, 90.0));
     check(governor.rate() == 120.0, "once its wait is over, 120 is tried again");
 
+    // A load: the game at 80% for a few seconds while presents of frames
+    // with nothing to blend cost 1.2 ms a frame. Not their fault.
+    RateGovernor loading;
+    loading.set_requested(120.0);
+    bool dropped = false;
+    for (int i = 0; i < 5; ++i) dropped = dropped || loading.update(second_with(0.8, 5.0, 0.4, 0.4, 120.0));
+    check(!dropped && loading.rate() == 120.0, "a load that slows the game does not drop the rate");
+
+    // Back up from 30 in one go once there is room.
+    RateGovernor recover;
+    recover.set_requested(120.0);
+    (void)recover.update(second_with(0.5, 0.0, 8.0, 0.4, 120.0));
+    (void)recover.update(second_with(0.5, 0.0, 8.0, 0.4, 120.0));
+    check(recover.rate() == 30.0, "far behind with 8 ms presents: 30");
+    for (int i = 0; i < 15; ++i) (void)recover.update(second_with(1.0, 20.0, 5.0, 0.4, recover.rate()));
+    check(recover.rate() == 90.0, "with room it climbs from 30 straight to 90 while 120 still waits");
+    for (int i = 0; i < 30; ++i) (void)recover.update(second_with(1.0, 20.0, 5.0, 0.4, recover.rate()));
+    check(recover.rate() == 120.0, "and to 120 once its wait is over");
+
     RateGovernor busy;
     busy.set_requested(90.0);
     // Full speed, but only because the kernel never waits: 2 blended presents

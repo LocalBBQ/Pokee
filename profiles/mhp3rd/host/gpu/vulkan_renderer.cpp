@@ -952,6 +952,7 @@ struct VulkanRenderer::Impl {
         std::chrono::steady_clock::duration blend_time{};  // CPU time of blended presents
         std::chrono::steady_clock::duration plain_time{};  // CPU time of the other presents
         std::chrono::steady_clock::duration max_late{};    // latest present after its time
+        std::chrono::steady_clock::duration replay_time{}; // of blend_time: recording the draw calls again
         double gpu_ms{};  // GPU time of the blended presents' replays
         std::uint32_t gpu_samples{};
     };
@@ -4669,7 +4670,9 @@ void VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
                 vkCmdResetQueryPool(commands, present_timer, slot * 2u, 2u);
                 vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, present_timer, slot * 2u);
             }
+            const Clock::time_point replay_start = Clock::now();
             replay(commands, slot, present.t);
+            stats.replay_time += Clock::now() - replay_start;
             if (present_timer != VK_NULL_HANDLE) {
                 vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, present_timer, slot * 2u + 1u);
                 present_timed[slot] = true;
@@ -4909,9 +4912,9 @@ void VulkanRenderer::Impl::report_interpolation() {
         std::string cuts;
         for (const auto &[reason, count] : stats.cuts) cuts += ", " + reason + " " + std::to_string(count);
         std::printf("[interp] %.0f of %.0f fps, %u frames: matched %.1f%% of %.0f draws per frame; camera up to "
-                    "%.2f deg %.2f units, %u continued; cuts %s; presents %u, %u blended (%.2f ms each, %.0f "
-                    "draw calls, gpu %.2f ms), %u plain (%.2f ms each), %u skipped, late up to %.1f ms; delay %.1f "
-                    "ms (code %.1f ms)\n",
+                    "%.2f deg %.2f units, %u continued; cuts %s; presents %u, %u blended (%.2f ms each, %.2f "
+                    "recording %.0f draw calls, gpu %.2f ms), %u plain (%.2f ms each), %u skipped, late up to %.1f "
+                    "ms; delay %.1f ms (code %.1f ms)\n",
                     governor.rate(), governor.requested(), stats.frames,
                     stats.eligible != 0u ? 100.0 * static_cast<double>(stats.matched) / static_cast<double>(stats.eligible)
                                          : 0.0,
@@ -4919,6 +4922,7 @@ void VulkanRenderer::Impl::report_interpolation() {
                     static_cast<double>(stats.max_camera_distance), stats.continued,
                     cuts.empty() ? "none" : cuts.substr(2).c_str(), stats.presents, stats.blended,
                     stats.blended != 0u ? ms(stats.blend_time) / stats.blended : 0.0,
+                    stats.blended != 0u ? ms(stats.replay_time) / stats.blended : 0.0,
                     stats.blended != 0u ? static_cast<double>(stats.groups) / stats.blended : 0.0,
                     stats.gpu_samples != 0u ? stats.gpu_ms / stats.gpu_samples : 0.0, plain,
                     plain != 0u ? ms(stats.plain_time) / plain : 0.0, stats.skipped, ms(stats.max_late),

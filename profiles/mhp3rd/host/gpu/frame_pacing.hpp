@@ -110,11 +110,11 @@ struct Second {
 
 // Picks the rate from the setting down to 30, so that interpolation never
 // slows the game: when the game falls behind real time, or has no spare time
-// left, while presents take time, it steps down at once to a rate the
-// measured costs say fits; when presents keep coming late it steps down one
-// rate; when it
-// has had spare time for a while, it tries one rate faster. A rate that had to
-// be left is not tried again for a while.
+// left, and presents take at least half of the time missing, it steps down at
+// once to a rate the measured costs say fits; when presents keep coming late
+// it steps down one rate. When the game has had spare time for a while, it
+// goes up to the fastest rate the costs say fits. A rate that had to be left
+// is not tried again for a while.
 class RateGovernor {
 public:
     // The rate the setting asks for; the governor starts there.

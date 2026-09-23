@@ -168,14 +168,17 @@ bool RateGovernor::update(const Second &second) {
     // presents fit into what the game is short of. Without spare time the
     // game's frames come later and later after their moments, and the
     // presents waiting for them are skipped.
+    // A load or a stall slows the game too, with presents that cost little:
+    // they are blamed only when they take at least half of what is missing.
     const bool slow = second.speed < kSlowSpeed;
     const bool no_spare = second.idle_ms < kMinIdleMs;
-    if (index_ > 0u && (slow || no_spare) && second.interpolation_ms >= kMinCostMs) {
+    const double missing_ms = std::max(0.0, 1.0 - second.speed) * static_cast<double>(kGameFrameUs) / 1000.0 +
+                              std::max(0.0, kMinIdleMs - second.idle_ms);
+    if (index_ > 0u && (slow || no_spare) &&
+        second.interpolation_ms >= std::max(kMinCostMs, 0.5 * missing_ms)) {
         if (++slow_seconds_ >= 2) {
-            const double short_ms = std::max(0.0, 1.0 - second.speed) * static_cast<double>(kGameFrameUs) / 1000.0 +
-                                    std::max(0.0, kMinIdleMs - second.idle_ms) + kMarginMs;
             std::size_t index = index_ - 1u;
-            while (index > 0u && cost_ms(ladder_[index], second) > current_cost - short_ms) --index;
+            while (index > 0u && cost_ms(ladder_[index], second) > current_cost - missing_ms - kMarginMs) --index;
             step_to(index, slow ? "the game fell behind real time" : "the game had no time to spare");
             return true;
         }
@@ -195,12 +198,20 @@ bool RateGovernor::update(const Second &second) {
         skipping_seconds_ = 0;
     }
 
-    // Spare time for the next rate's extra presents, for a few seconds.
-    const std::size_t next = index_ + 1u;
-    if (next < ladder_.size() && wait_up_ == 0 && blocked_[next] == 0 && second.speed >= kSteadySpeed &&
-        second.idle_ms >= cost_ms(ladder_[next], second) - current_cost + kMarginMs) {
+    // Spare time for a faster rate's extra presents, for a few seconds: the
+    // fastest one the costs measured so far say fits, and that is not
+    // waiting after it failed.
+    std::size_t faster = index_;
+    if (wait_up_ == 0 && second.speed >= kSteadySpeed) {
+        for (std::size_t index = index_ + 1u; index < ladder_.size(); ++index) {
+            if (blocked_[index] != 0) break;
+            if (second.idle_ms < cost_ms(ladder_[index], second) - current_cost + kMarginMs) break;
+            faster = index;
+        }
+    }
+    if (faster != index_) {
         if (++spare_seconds_ >= kSecondsBeforeUp) {
-            step_to(next, "there was time to spare");
+            step_to(faster, "there was time to spare");
             return true;
         }
     } else {
