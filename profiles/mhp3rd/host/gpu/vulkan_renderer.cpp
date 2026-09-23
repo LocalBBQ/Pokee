@@ -495,6 +495,30 @@ struct VulkanRenderer::Impl {
     VkSwapchainKHR swapchain{};
     VkFormat swapchain_format{VK_FORMAT_B8G8R8A8_UNORM};
     VkExtent2D swapchain_extent{};
+    // The depth buffer's format: 32-bit float where the device can render to
+    // it, which desktop GPUs all can; phones may offer only 24- or 16-bit.
+    VkFormat depth_format{VK_FORMAT_D32_SFLOAT};
+    [[nodiscard]] VkImageAspectFlags depth_aspect() const {
+        return depth_format == VK_FORMAT_D24_UNORM_S8_UINT || depth_format == VK_FORMAT_D32_SFLOAT_S8_UINT
+                   ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT
+                   : VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
+    void choose_depth_format() {
+        const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT,
+                                       VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D16_UNORM,
+                                       VK_FORMAT_D32_SFLOAT_S8_UINT};
+        for (const VkFormat format : candidates) {
+            VkFormatProperties properties{};
+            vkGetPhysicalDeviceFormatProperties(physical_device, format, &properties);
+            if ((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0u) {
+                depth_format = format;
+                if (format != VK_FORMAT_D32_SFLOAT)
+                    std::cout << "[render] no 32-bit float depth buffer; using format " << static_cast<int>(format)
+                              << "\n";
+                return;
+            }
+        }
+    }
     // The part of the window the game and the overlay may use, in pixels:
     // the whole window, except on Android, where a display cutout or a
     // system bar can take an edge (SDL's safe area).
@@ -1683,7 +1707,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[1] = attachments[0];
-    attachments[1].format = VK_FORMAT_D32_SFLOAT;
+    impl.choose_depth_format();
+    attachments[1].format = impl.depth_format;
     attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     VkAttachmentReference color_reference{0u, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
@@ -2685,9 +2710,9 @@ bool VulkanRenderer::Impl::create_target(Target &target, std::string &error) {
                       target.color,
                       target.color_memory, target.color_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return false;
-    if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_D32_SFLOAT,
+    if (!create_image(target_extent.width, target_extent.height, depth_format,
                       VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, target.depth, target.depth_memory,
-                      target.depth_view, VK_IMAGE_ASPECT_DEPTH_BIT, error))
+                      target.depth_view, depth_aspect(), error))
         return false;
     const std::array<VkImageView, 2> views{target.color_view, target.depth_view};
     VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
@@ -2706,7 +2731,7 @@ void VulkanRenderer::Impl::initialize_layouts(VkCommandBuffer commands, Target &
     if (target.initialized) return;
     transition(commands, target.color, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     transition(commands, target.depth, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-               VK_IMAGE_ASPECT_DEPTH_BIT);
+               depth_aspect());
     target.initialized = true;
 }
 
@@ -2763,7 +2788,7 @@ void VulkanRenderer::Impl::begin_pass(std::uint32_t address) {
         transition(command_buffer, target->color, VK_IMAGE_LAYOUT_UNDEFINED,
                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         transition(command_buffer, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                   VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+                   VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depth_aspect());
         target->initialized = true;
     }
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
@@ -3828,7 +3853,7 @@ void VulkanRenderer::Impl::resize_targets(VkExtent2D extent) {
             transition(commands, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             transition(commands, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+                       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depth_aspect());
             target->initialized = true;
         }
     });
@@ -4164,7 +4189,7 @@ void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     if (!target->initialized) {
         impl.transition(impl.command_buffer, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, impl.depth_aspect());
         target->initialized = true;
     }
     VkImageBlit blit{};
