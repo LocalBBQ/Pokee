@@ -586,6 +586,9 @@ struct VulkanRenderer::Impl {
     // Captures the pointer for the game when everything allows it and frees
     // it otherwise. Whatever the mouse did or held across a change is dropped,
     // so nothing stays pressed and the camera does not jump.
+    // The PSP pad from the keyboard, the mouse's buttons and the gamepad as
+    // they are now.
+    void sample_pad(bool focused);
     void update_pointer(bool focused) {
         const bool minimized = (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0u;
         const bool wanted = settings::current().mouse && game_input && !pointer_free && !minimized &&
@@ -948,6 +951,13 @@ struct VulkanRenderer::Impl {
         std::uint32_t presents{};
         std::uint32_t blended{};
         std::uint32_t skipped{};
+        std::uint32_t blocked{};     // not made: the display had no image free
+        std::uint32_t over_budget{}; // not made: presents while the code ran took half a frame
+        // Why presents showed a frame as it is rather than a blend.
+        std::uint32_t plain_newest{};   // at or past the newest frame's moment (1 per frame at 60/90/120)
+        std::uint32_t plain_oldest{};   // at the older frame's moment
+        std::uint32_t plain_cut{};      // the pair is not blended (cut, not recorded)
+        std::uint32_t plain_textures{}; // a texture the older frame drew with was dropped
         std::uint64_t groups{};  // draw calls recorded again
         std::chrono::steady_clock::duration blend_time{};  // CPU time of blended presents
         std::chrono::steady_clock::duration plain_time{};  // CPU time of the other presents
@@ -966,6 +976,7 @@ struct VulkanRenderer::Impl {
     interpolation::Matcher matcher;
     interpolation::CutThresholds cut_thresholds;
     interpolation::Matching matching;  // older_frame against newer_frame
+    interpolation::RigidMotion camera_motion;  // matching.camera taken apart
     pacing::PresentClock present_clock;
     pacing::RateGovernor governor;
     InterpolationStats interpolation_stats;
@@ -989,6 +1000,12 @@ struct VulkanRenderer::Impl {
     VkQueryPool present_timer{};
     std::uint32_t present_slot{};
     ImDrawData *frame_ui{};  // the interface drawn over this game frame
+    // CPU time of the presents made while the game's code ran, since the
+    // flip; they stop at half a game frame.
+    std::chrono::steady_clock::duration busy_presents{};
+    // A swapchain image acquired before recording a present between flips,
+    // for submit_and_present to present.
+    std::optional<std::uint32_t> acquired_image;
     float display_hz{};
     // The newest texture_clock value a destroyed texture had been drawn with:
     // a recorded frame that began before it may name its descriptor.
@@ -999,8 +1016,11 @@ struct VulkanRenderer::Impl {
     void record_draw_for_replay(const DrawCall &call, bool lit, std::uint32_t skinned, const DrawState &state,
                                 VkDeviceSize vertex_start, VkBuffer indices, VkDeviceSize index_start,
                                 std::uint32_t count, std::uint32_t vertex_count, bool joined);
-    bool poll_presents(std::chrono::steady_clock::time_point now, bool account);
-    void present_between(const pacing::PresentClock::Present &present, bool account);
+    // `idle`: the kernel is waiting for real time, so the present costs the
+    // game nothing; otherwise it is made while the game's code runs, within
+    // a budget per game frame. Returns whether a present was made.
+    bool poll_presents(std::chrono::steady_clock::time_point now, bool account, bool idle);
+    bool present_between(const pacing::PresentClock::Present &present, bool account);
     void replay(VkCommandBuffer commands, std::uint32_t slot, float t);
     void report_interpolation();
     void reset_interpolation();
@@ -1301,6 +1321,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     impl.sharp_textures = player.sharp_textures;
     impl.trace_interpolation = std::getenv("MHP3RD_TRACE_INTERPOLATION") != nullptr;
     impl.frame_rate = player.frame_rate;
+    impl.governor.set_automatic(player.frame_rate_auto);
     const std::uint32_t window_scale = std::clamp<std::uint32_t>(player.window_scale, 1u, settings::kMaxWindowScale);
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -1936,7 +1957,7 @@ void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage so
 // interface, then submit and present.
 void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence fence, VkImage source,
                                               bool game_frame, bool main_frame) {
-    if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
+    if (!acquired_image && (swapchain_dirty || swapchain == VK_NULL_HANDLE)) recreate_swapchain();
     ImDrawData *ui = ui_ready ? ui_draw_data : nullptr;
     ui_draw_data = nullptr;
     const bool draw_ui = ui != nullptr && ui->CmdListsCount > 0;
@@ -1952,7 +1973,11 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
 
     std::uint32_t image_index = 0u;
     VkResult acquired = VK_ERROR_OUT_OF_DATE_KHR;
-    if (has_content && swapchain != VK_NULL_HANDLE) {
+    if (acquired_image) {
+        image_index = *acquired_image;
+        acquired = VK_SUCCESS;
+        acquired_image.reset();
+    } else if (has_content && swapchain != VK_NULL_HANDLE) {
         const perf::Clock::time_point acquire_start = perf::Clock::now();
         acquired = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &image_index);
         perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
@@ -2963,10 +2988,25 @@ bool VulkanRenderer::pump_events() {
     // direction it can never release.
     const bool focused = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u;
     impl_->update_pointer(focused);
+    impl_->sample_pad(focused);
+    return !impl_->quit;
+}
+
+void VulkanRenderer::sample_pad() {
+    if (!impl_ || impl_->window == nullptr) return;
+    // New input from the devices, without handling window events: those,
+    // and the interface's, wait for the next pump_events(). The keyboard's
+    // and the gamepads' state follow what was pumped.
+    SDL_PumpEvents();
+    impl_->sample_pad((SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u);
+}
+
+void VulkanRenderer::Impl::sample_pad(bool focused) {
+    Impl *const impl_ = this;
     // While a menu or the on-screen keyboard is open, nothing reaches the game.
     if (!impl_->game_input) {
         impl_->pad = PadState{};
-        return !impl_->quit;
+        return;
     }
 
     // Keyboard and mouse buttons to the PSP pad, through the player's
@@ -3028,7 +3068,6 @@ bool VulkanRenderer::pump_events() {
                   << static_cast<int>(pad.right_x) << "," << static_cast<int>(pad.right_y) << std::endl;
     }
     impl_->pad = pad;
-    return !impl_->quit;
 }
 
 PadState VulkanRenderer::pad() const noexcept { return impl_ ? impl_->pad : PadState{}; }
@@ -3608,7 +3647,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // Presents between flips fall due while the game draws, too: a busy
     // frame spends most of its time in here.
     if (impl.cycle_active && (++impl.draws_since_poll & 15u) == 0u)
-        impl.poll_presents(std::chrono::steady_clock::now(), false);
+        impl.poll_presents(std::chrono::steady_clock::now(), false, false);
     if (call.vertices.empty()) return;
 
     // Everything becomes a triangle list; sprites expand to two triangles.
@@ -4578,6 +4617,7 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
         matching = interpolation::Matching{};
         matching.cut = older_frame.valid ? "not recorded" : "no frame before";
     }
+    camera_motion = matching.camera_found ? interpolation::rigid_motion(matching.camera) : interpolation::RigidMotion{};
     InterpolationStats &stats = interpolation_stats;
     ++stats.frames;
     stats.eligible += matching.eligible_newer;
@@ -4611,15 +4651,26 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
 // Presents the one present that is due at `now`, if any. `account`: its
 // time is added to the frame statistics, which the callers inside the
 // renderer's own timed work do not want.
-bool VulkanRenderer::Impl::poll_presents(std::chrono::steady_clock::time_point now, bool account) {
+bool VulkanRenderer::Impl::poll_presents(std::chrono::steady_clock::time_point now, bool account, bool idle) {
     if (!cycle_active) return false;
+    const auto due = present_clock.next_due();
+    if (!due || *due > to_us(now)) return false;
+    if (!idle && busy_presents * 2 > std::chrono::microseconds(present_clock.frame_us())) {
+        // Presents made while the game's code ran have taken half a frame:
+        // the rest wait for the kernel's idle time or the next flip.
+        ++interpolation_stats.over_budget;
+        (void)present_clock.take(to_us(now));
+        return false;
+    }
     const auto present = present_clock.take(to_us(now));
     if (!present) return false;
-    present_between(*present, account);
-    return true;
+    const auto start = std::chrono::steady_clock::now();
+    const bool made = present_between(*present, account);
+    if (!idle) busy_presents += std::chrono::steady_clock::now() - start;
+    return made;
 }
 
-void VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &present, bool account) {
+bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &present, bool account) {
     using Clock = std::chrono::steady_clock;
     const Clock::time_point start = Clock::now();
     InterpolationStats &stats = interpolation_stats;
@@ -4648,6 +4699,22 @@ void VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
         }
         present_timed[slot] = false;
     }
+    // An image first, without waiting for one: when the display has none
+    // free (it refreshes slower than the presents come), this present is
+    // dropped rather than hold the game until the next refresh.
+    if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
+    if (swapchain == VK_NULL_HANDLE) return false;
+    std::uint32_t image_index = 0u;
+    const perf::Clock::time_point acquire_start = perf::Clock::now();
+    const VkResult acquired = vkAcquireNextImageKHR(device, swapchain, 0u, image_available, VK_NULL_HANDLE, &image_index);
+    perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
+    if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
+    if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
+        ++stats.blocked;
+        if (account) perf::add_render_time(Clock::now() - start);
+        return false;
+    }
+    acquired_image = image_index;
     vkResetFences(device, 1u, &fence);
     vkResetCommandBuffer(commands, 0u);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -4658,11 +4725,15 @@ void VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     const Target &older_image = pictures[newer_picture ^ 1u];
     VkImage image = newer_image.color;
     bool blended = false;
+    if (present.t >= 0.999f || !older_picture_valid) ++stats.plain_newest;
     if (present.t < 0.999f && older_picture_valid) {
         image = older_image.color;
-        const bool can_blend = present.t > 0.001f && matching.cut == nullptr && older_frame.valid &&
-                               older_frame.recorded && newer_frame.recorded &&
-                               destroyed_texture_clock <= older_frame.texture_clock;
+        const bool paired = matching.cut == nullptr && older_frame.valid && older_frame.recorded && newer_frame.recorded;
+        const bool textures_kept = destroyed_texture_clock <= older_frame.texture_clock;
+        const bool can_blend = present.t > 0.001f && paired && textures_kept;
+        if (present.t <= 0.001f) ++stats.plain_oldest;
+        else if (!paired) ++stats.plain_cut;
+        else if (!textures_kept) ++stats.plain_textures;
         std::string error;
         Target &target = blend_targets[slot];
         if (can_blend && (target.color != VK_NULL_HANDLE || create_target(target, error))) {
@@ -4720,6 +4791,7 @@ void VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     }
     if (account) perf::add_render_time(spent);
     perf::count_present();
+    return true;
 }
 
 // Draws the older frame into the slot's blend target with every matched
@@ -4769,7 +4841,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
         }
     };
     Pair view_pair{}, projection_pair{}, world_pair{};
-    interpolation::Matrix view{}, projection{}, world{}, view_world{}, transform{};
+    interpolation::Matrix projection{}, world{}, view_world{}, transform{};
     bool transform_valid = false;
     std::uint32_t written_object = kNone;
     interpolation::Matrix written_world{};
@@ -4792,11 +4864,16 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
             const interpolation::DrawSummary &from = older.summaries[member];
             const interpolation::DrawSummary &to = newer.summaries[static_cast<std::size_t>(partner)];
             const ReplayGroup &next = newer.groups[newer.group_of[static_cast<std::size_t>(partner)]];
+            // Eye space (view times world) is blended as a whole, following
+            // the camera's motion along its arcs (blend_eye): blending view
+            // and world apart let scenery swing on chords across a turn and
+            // the followed character wobble against it. The world matrix is
+            // still blended on its own for the lighting block.
             bool changed = !transform_valid;
+            bool eye_changed = !transform_valid;
             if (!view_pair.same(from.view, to.view)) {
-                view = interpolation::blend_affine(from.view, to.view, t);
                 view_pair = {&from.view, &to.view};
-                changed = true;
+                eye_changed = true;
             }
             if (!projection_pair.same(from.projection, to.projection)) {
                 projection = interpolation::blend_linear(from.projection, to.projection, t);
@@ -4806,10 +4883,14 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
             if (!world_pair.same(from.world, to.world)) {
                 world = interpolation::blend_affine(from.world, to.world, t);
                 world_pair = {&from.world, &to.world};
+                eye_changed = true;
+            }
+            if (eye_changed) {
+                view_world = interpolation::blend_eye(interpolation::multiply(from.view, from.world),
+                                                      interpolation::multiply(to.view, to.world), camera_motion, t);
                 changed = true;
             }
             if (changed) {
-                view_world = interpolation::multiply(view, world);
                 transform = interpolation::multiply(projection, view_world);
                 transform_valid = true;
             }
@@ -4914,6 +4995,8 @@ void VulkanRenderer::Impl::report_interpolation() {
     if (stats.blended != 0u) blend_cost_ms = ms(stats.blend_time) / stats.blended;
     if (plain != 0u) plain_cost_ms = ms(stats.plain_time) / plain;
     const double frames_now = std::max(1u, stats.frames);
+    const std::uint32_t reasons_known =
+        stats.plain_newest + stats.plain_oldest + stats.plain_cut + stats.plain_textures;
     if (trace_interpolation) {
         std::string cuts;
         for (const auto &[reason, count] : stats.cuts) cuts += ", " + reason + " " + std::to_string(count);
@@ -4935,6 +5018,10 @@ void VulkanRenderer::Impl::report_interpolation() {
                     plain != 0u ? ms(stats.plain_time) / plain : 0.0, stats.skipped, ms(stats.max_late),
                     static_cast<double>(present_clock.delay_us()) / 1000.0,
                     static_cast<double>(present_clock.work_us()) / 1000.0);
+        std::printf("[interp] plain: %u at the newest frame, %u at the older, %u not blended (cut), %u textures "
+                    "dropped, %u other; not made: %u display busy, %u over budget\n",
+                    stats.plain_newest, stats.plain_oldest, stats.plain_cut, stats.plain_textures,
+                    plain > reasons_known ? plain - reasons_known : 0u, stats.blocked, stats.over_budget);
         std::fflush(stdout);
     }
     const perf::Summary &summary = perf::last_second();
@@ -4947,7 +5034,8 @@ void VulkanRenderer::Impl::report_interpolation() {
         second.plain_ms = plain_cost_ms;
         second.interpolation_ms = (ms(stats.blend_time) + ms(stats.plain_time)) / frames_now;
         second.presents = stats.presents;
-        second.skipped = stats.skipped;
+        second.skipped = stats.skipped + stats.over_budget;
+        second.blocked = stats.blocked;
         const double before = governor.rate();
         if (governor.update(second)) {
             std::printf("[interp] frame rate %.0f -> %.0f: %s (speed %.0f%%, spare %.1f ms a frame, %.2f ms a "
@@ -5218,7 +5306,8 @@ bool VulkanRenderer::present(std::uint32_t display_address,
         impl.report_interpolation();
         impl.follow_window();
         // A present due now is made at once; it counts itself.
-        impl.poll_presents(std::chrono::steady_clock::now(), false);
+        impl.busy_presents = {};
+        impl.poll_presents(std::chrono::steady_clock::now(), false, false);
         return false;
     }
     // The game's frame as it is, at its flip.
@@ -5232,7 +5321,7 @@ bool VulkanRenderer::present(std::uint32_t display_address,
 
 void VulkanRenderer::present_due() {
     if (!impl_ || !impl_->ready || !impl_->cycle_active) return;
-    impl_->poll_presents(std::chrono::steady_clock::now(), true);
+    impl_->poll_presents(std::chrono::steady_clock::now(), true, false);
 }
 
 void VulkanRenderer::present_until(std::chrono::steady_clock::time_point wake) {
@@ -5249,7 +5338,9 @@ void VulkanRenderer::present_until(std::chrono::steady_clock::time_point wake) {
             std::this_thread::sleep_until(at);
             perf::add_pacing_time(Clock::now() - now);
         }
-        if (!impl.poll_presents(Clock::now(), true)) return;
+        // A present not made (the display had no image free) ends the wait's
+        // presents: the next ones would find none either.
+        if (!impl.poll_presents(Clock::now(), true, true)) return;
     }
 }
 
@@ -5270,6 +5361,13 @@ void VulkanRenderer::set_frame_rate(settings::FrameRate rate) {
     impl.reset_interpolation();
     perf::set_frame_rate_info(rate == settings::FrameRate::Fps30 ? 0.0 : impl.governor.rate(),
                               rate == settings::FrameRate::Fps30 ? 0.0 : impl.governor.requested());
+}
+
+void VulkanRenderer::set_frame_rate_auto(bool automatic) {
+    if (!impl_) return;
+    impl_->governor.set_automatic(automatic);
+    if (impl_->frame_rate != settings::FrameRate::Fps30)
+        perf::set_frame_rate_info(impl_->governor.rate(), impl_->governor.requested());
 }
 
 float VulkanRenderer::display_refresh() const noexcept { return impl_ ? impl_->display_hz : 0.0f; }

@@ -332,16 +332,27 @@ void Menu::video() {
                                       ? static_cast<double>(renderer().display_refresh())
                                       : std::stod(kRates[current]);
             if (now + 0.5 < chosen) {
-                value += "   now " + std::to_string(static_cast<int>(std::lround(now)));
-                o.note = s.present_mode == settings::PresentMode::Fifo && renderer().display_refresh() > 0.0f &&
-                                 now + 0.5 >= static_cast<double>(renderer().display_refresh())
-                             ? "With Vsync on, no faster than the display refreshes."
-                             : "Stepped down to keep the game at full speed; tries again later.";
+                value += " (running at " + std::to_string(static_cast<int>(std::lround(now))) + ")";
+                o.description = s.present_mode == settings::PresentMode::Fifo && renderer().display_refresh() > 0.0f &&
+                                        now + 0.5 >= static_cast<double>(renderer().display_refresh())
+                                    ? "With Vsync on, no faster than the display refreshes."
+                                    : "Lowered to keep the game at full speed; it tries the chosen rate again later.";
             }
         }
         if (const int delta = choice_row("Frame rate", value, o)) {
             s.frame_rate = static_cast<settings::FrameRate>(cycle(current, delta, 6));
             renderer().set_frame_rate(s.frame_rate);
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("video.frame_rate_auto",
+                                   "On lowers the frame rate by itself when presenting that often would slow the "
+                                   "game. Off keeps the chosen rate, and the game may then run below full speed.");
+        if (s.unthrottled || s.frame_rate == settings::FrameRate::Fps30) o.disabled = true;
+        if (choice_row("Lower when behind", s.frame_rate_auto ? "On" : "Off", o)) {
+            s.frame_rate_auto = !s.frame_rate_auto;
+            renderer().set_frame_rate_auto(s.frame_rate_auto);
             settings::save();
         }
     }
@@ -379,6 +390,7 @@ void Menu::video() {
         restore("video.texture_pack", s.texture_pack, d.texture_pack);
         restore("video.present_mode", s.present_mode, d.present_mode);
         restore("video.frame_rate", s.frame_rate, d.frame_rate);
+        restore("video.frame_rate_auto", s.frame_rate_auto, d.frame_rate_auto);
         restore("video.unthrottled", s.unthrottled, d.unthrottled);
         restore("video.performance", s.perf, d.perf);
         renderer().set_internal_scale(s.internal_scale);
@@ -390,6 +402,7 @@ void Menu::video() {
         renderer().set_texture_pack(s.texture_pack);
         renderer().set_present_mode(s.present_mode);
         renderer().set_frame_rate(s.frame_rate);
+        renderer().set_frame_rate_auto(s.frame_rate_auto);
         renderer().set_perf_overlay(perf::options().overlay);
         settings::save();
     }

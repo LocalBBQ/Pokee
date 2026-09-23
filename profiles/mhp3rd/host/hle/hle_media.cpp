@@ -190,6 +190,26 @@ void feed_mouse(gpu::VulkanRenderer &renderer) {
 }
 #endif
 
+// The emulated time of the vblank the frame being flipped started from. The
+// game starts a frame every other vblank, when its vblank handler has counted
+// two since the last one; the flip comes when the frame's code has run, and
+// on a slower machine that is often after the vblank between, so the latest
+// vblank is not the frame's own. Frames are kept on a grid of two vblanks
+// from the one before: the latest start on that grid not after the latest
+// vblank. A flip that comes before a whole step, or two steps late, starts
+// the grid again at its latest vblank.
+std::uint64_t frame_start_us(std::uint64_t latest_vblank_us) {
+    static std::uint64_t previous = 0u;
+    static bool known = false;
+    constexpr std::uint64_t kStep = 2u * kVBlankPeriodUs;
+    std::uint64_t start = latest_vblank_us;
+    if (known && latest_vblank_us >= previous + kStep && latest_vblank_us < previous + 3u * kStep)
+        start = previous + kStep * ((latest_vblank_us - previous) / kStep);
+    previous = start;
+    known = true;
+    return start;
+}
+
 void present_frame(Runtime &rt) {
     // Overlays are swapped between frames; re-check before drawing the next one.
     revalidate_overlays(rt);
@@ -217,11 +237,8 @@ void present_frame(Runtime &rt) {
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // The real time the frame stands for, which frame interpolation spaces
-    // its presents by: that of the vblank the game's frame started from. The
-    // game starts a frame on every other vblank; the emulated time of the
-    // flip itself lands a millisecond or so after it, by however far the
-    // kernel's clock moved while the frame's code ran.
-    const bool presented = renderer.present(address, kernel().real_time_of(kernel().last_vblank_us()));
+    // its presents by: that of the vblank the game's frame started from.
+    const bool presented = renderer.present(address, kernel().real_time_of(frame_start_us(kernel().last_vblank_us())));
     // The frame's camera has been measured by now, so the hunt for the guest
     // variables behind it can compare RAM against it.
     probe::camera_frame(rt, media().ge.view_matrix_source());
@@ -332,6 +349,10 @@ void register_display_ctrl(HleRegistrar &hle) {
         std::uint8_t right_y = 0x80u;
 #if defined(MHP3RD_HAS_RENDERER)
         if (media().renderer && media().renderer->available()) {
+            // The pad as it is now, not as it was at the last flip (#8).
+            // MHP3RD_PAD_AT_FLIP keeps the state of the flip, as before.
+            static const bool at_flip = std::getenv("MHP3RD_PAD_AT_FLIP") != nullptr;
+            if (!at_flip) media().renderer->sample_pad();
             const gpu::PadState pad = media().renderer->pad();
             buttons = pad.buttons;
             analog_x = pad.analog_x;

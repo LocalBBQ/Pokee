@@ -112,8 +112,11 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     // a scene stands still, so the median over the matched draws is the
     // camera's turn and move, and characters moving on their own do not
     // count. A sample of up to 256 pairs spread over the frame is enough.
-    std::vector<float> turns;
-    std::vector<float> moves;
+    struct Sample {
+        float turn;
+        Matrix motion;
+    };
+    std::vector<Sample> samples;
     const std::size_t stride = std::max<std::size_t>(1u, out.matched / 256u);
     std::size_t seen = 0u;
     for (std::size_t i = 0; i < older.size(); ++i) {
@@ -121,21 +124,22 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
         if (partner < 0 || seen++ % stride != 0u) continue;
         const DrawSummary &from = older[i];
         const DrawSummary &to = newer[static_cast<std::size_t>(partner)];
-        const Matrix before = multiply(from.view, from.world);
-        const Matrix after = multiply(to.view, to.world);
-        turns.push_back(rotation_angle_degrees(before, after));
-        const float dx = after[12] - before[12], dy = after[13] - before[13], dz = after[14] - before[14];
-        moves.push_back(std::sqrt(dx * dx + dy * dy + dz * dz));
+        Matrix before_inverse{};
+        if (!affine_inverse(multiply(from.view, from.world), before_inverse)) continue;
+        const Matrix motion = multiply(multiply(to.view, to.world), before_inverse);
+        Matrix identity{};
+        identity[0] = identity[5] = identity[10] = identity[15] = 1.0f;
+        samples.push_back({rotation_angle_degrees(identity, motion), motion});
     }
-    if (!turns.empty()) {
-        const auto median = [](std::vector<float> &values) {
-            const auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2u);
-            std::nth_element(values.begin(), middle, values.end());
-            return *middle;
-        };
+    if (!samples.empty()) {
+        const auto middle = samples.begin() + static_cast<std::ptrdiff_t>(samples.size() / 2u);
+        std::nth_element(samples.begin(), middle, samples.end(),
+                         [](const Sample &a, const Sample &b) { return a.turn < b.turn; });
         out.camera_found = true;
-        out.camera_angle_degrees = median(turns);
-        out.camera_distance = median(moves);
+        out.camera_angle_degrees = middle->turn;
+        out.camera = middle->motion;
+        out.camera_distance = std::sqrt(out.camera[12] * out.camera[12] + out.camera[13] * out.camera[13] +
+                                        out.camera[14] * out.camera[14]);
     }
 
     float max_angle = thresholds.max_camera_angle_degrees;
@@ -211,6 +215,153 @@ float rotation_angle_degrees(const Matrix &a, const Matrix &b) noexcept {
     }
     const float cosine = std::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f);
     return std::acos(cosine) * 180.0f / kPi;
+}
+
+bool affine_inverse(const Matrix &m, Matrix &out) noexcept {
+    // The 3x3 part by its adjugate; column-major, element (row, column) at
+    // column * 4 + row.
+    const auto at = [&](int row, int column) { return m[static_cast<std::size_t>(column * 4 + row)]; };
+    const float c00 = at(1, 1) * at(2, 2) - at(1, 2) * at(2, 1);
+    const float c01 = at(1, 2) * at(2, 0) - at(1, 0) * at(2, 2);
+    const float c02 = at(1, 0) * at(2, 1) - at(1, 1) * at(2, 0);
+    const float determinant = at(0, 0) * c00 + at(0, 1) * c01 + at(0, 2) * c02;
+    if (!(std::fabs(determinant) > 1e-12f)) return false;
+    const float f = 1.0f / determinant;
+    Matrix r{};
+    const auto set = [&](int row, int column, float value) { r[static_cast<std::size_t>(column * 4 + row)] = value; };
+    set(0, 0, c00 * f);
+    set(1, 0, c01 * f);
+    set(2, 0, c02 * f);
+    set(0, 1, (at(0, 2) * at(2, 1) - at(0, 1) * at(2, 2)) * f);
+    set(1, 1, (at(0, 0) * at(2, 2) - at(0, 2) * at(2, 0)) * f);
+    set(2, 1, (at(0, 1) * at(2, 0) - at(0, 0) * at(2, 1)) * f);
+    set(0, 2, (at(0, 1) * at(1, 2) - at(0, 2) * at(1, 1)) * f);
+    set(1, 2, (at(0, 2) * at(1, 0) - at(0, 0) * at(1, 2)) * f);
+    set(2, 2, (at(0, 0) * at(1, 1) - at(0, 1) * at(1, 0)) * f);
+    for (int row = 0; row < 3; ++row) {
+        float sum = 0.0f;
+        for (int k = 0; k < 3; ++k) sum += r[static_cast<std::size_t>(k * 4 + row)] * m[static_cast<std::size_t>(12 + k)];
+        set(row, 3, -sum);
+    }
+    r[15] = 1.0f;
+    out = r;
+    return true;
+}
+
+namespace {
+
+using Vec3 = std::array<float, 3>;
+
+Vec3 cross(const Vec3 &a, const Vec3 &b) noexcept {
+    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+}
+float dot(const Vec3 &a, const Vec3 &b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+// The rotation by `angle` radians about the unit `axis`, as a 3x3 inside a
+// column-major 4x4.
+void put_rotation(Matrix &m, const Vec3 &u, float angle) noexcept {
+    const float c = std::cos(angle), s = std::sin(angle), k = 1.0f - c;
+    m[0] = c + u[0] * u[0] * k;
+    m[1] = u[1] * u[0] * k + u[2] * s;
+    m[2] = u[2] * u[0] * k - u[1] * s;
+    m[4] = u[0] * u[1] * k - u[2] * s;
+    m[5] = c + u[1] * u[1] * k;
+    m[6] = u[2] * u[1] * k + u[0] * s;
+    m[8] = u[0] * u[2] * k + u[1] * s;
+    m[9] = u[1] * u[2] * k - u[0] * s;
+    m[10] = c + u[2] * u[2] * k;
+}
+
+} // namespace
+
+RigidMotion rigid_motion(const Matrix &m) noexcept {
+    RigidMotion motion{};
+    if (!affine_inverse(m, motion.inverse)) return motion;
+    // The nearest rotation's quaternion, from the columns normalised.
+    std::array<Vec3, 3> column{};
+    for (std::size_t c = 0; c < 3u; ++c) {
+        const float length = length3(m.data() + c * 4u);
+        if (length < 1e-12f) return motion;
+        for (std::size_t r = 0; r < 3u; ++r) column[c][r] = m[c * 4u + r] / length;
+    }
+    const float trace = column[0][0] + column[1][1] + column[2][2];
+    float w = 0.0f, x = 0.0f, y = 0.0f, z = 0.0f;
+    if (trace > 0.0f) {
+        const float s = std::sqrt(trace + 1.0f) * 2.0f;
+        w = 0.25f * s;
+        x = (column[1][2] - column[2][1]) / s;
+        y = (column[2][0] - column[0][2]) / s;
+        z = (column[0][1] - column[1][0]) / s;
+    } else if (column[0][0] > column[1][1] && column[0][0] > column[2][2]) {
+        const float s = std::sqrt(1.0f + column[0][0] - column[1][1] - column[2][2]) * 2.0f;
+        w = (column[1][2] - column[2][1]) / s;
+        x = 0.25f * s;
+        y = (column[1][0] + column[0][1]) / s;
+        z = (column[2][0] + column[0][2]) / s;
+    } else if (column[1][1] > column[2][2]) {
+        const float s = std::sqrt(1.0f + column[1][1] - column[0][0] - column[2][2]) * 2.0f;
+        w = (column[2][0] - column[0][2]) / s;
+        x = (column[1][0] + column[0][1]) / s;
+        y = 0.25f * s;
+        z = (column[2][1] + column[1][2]) / s;
+    } else {
+        const float s = std::sqrt(1.0f + column[2][2] - column[0][0] - column[1][1]) * 2.0f;
+        w = (column[0][1] - column[1][0]) / s;
+        x = (column[2][0] + column[0][2]) / s;
+        y = (column[2][1] + column[1][2]) / s;
+        z = 0.25f * s;
+    }
+    if (w < 0.0f) {
+        w = -w;
+        x = -x;
+        y = -y;
+        z = -z;
+    }
+    const float sine = std::sqrt(x * x + y * y + z * z);
+    motion.translation = {m[12], m[13], m[14]};
+    motion.angle = 2.0f * std::atan2(sine, w);
+    motion.valid = true;
+    if (sine < 1e-6f) {
+        motion.angle = 0.0f;
+        motion.slide = motion.translation;
+        return motion;
+    }
+    motion.axis = {x / sine, y / sine, z / sine};
+    const Vec3 &u = motion.axis;
+    const Vec3 &p = motion.translation;
+    const float along = dot(p, u);
+    motion.slide = {u[0] * along, u[1] * along, u[2] * along};
+    const Vec3 across{p[0] - motion.slide[0], p[1] - motion.slide[1], p[2] - motion.slide[2]};
+    // The point the turn leaves in place: (I - R) c = across, with c on the
+    // plane through the origin across the axis.
+    const float cotangent = 1.0f / std::tan(0.5f * motion.angle);
+    const Vec3 side = cross(u, across);
+    motion.centre = {0.5f * (across[0] + cotangent * side[0]), 0.5f * (across[1] + cotangent * side[1]),
+                     0.5f * (across[2] + cotangent * side[2])};
+    return motion;
+}
+
+Matrix rigid_at(const RigidMotion &motion, float t) noexcept {
+    Matrix out{};
+    out[0] = out[5] = out[10] = out[15] = 1.0f;
+    if (!motion.valid) return out;
+    put_rotation(out, motion.axis, motion.angle * t);
+    // x -> R_t (x - c) + c + t * slide
+    const Vec3 &c = motion.centre;
+    for (std::size_t row = 0; row < 3u; ++row) {
+        const float turned = out[row] * c[0] + out[4u + row] * c[1] + out[8u + row] * c[2];
+        out[12u + row] = c[row] - turned + t * motion.slide[row];
+    }
+    return out;
+}
+
+Matrix blend_eye(const Matrix &older, const Matrix &newer, const RigidMotion &camera, float t) noexcept {
+    if (older == newer) return older;
+    if (!camera.valid) return blend_affine(older, newer, t);
+    // The newer transform as the older camera would have seen it, then the
+    // camera's own motion a fraction of the way.
+    const Matrix own = multiply(camera.inverse, newer);
+    return multiply(rigid_at(camera, t), blend_affine(older, own, t));
 }
 
 } // namespace mhp3rd::gpu::interpolation

@@ -83,6 +83,11 @@ public:
     // Pumps window events; returns false once the window has been closed.
     bool pump_events();
     [[nodiscard]] PadState pad() const noexcept;
+    // Reads the keyboard, mouse buttons and gamepad again for pad() without
+    // handling window events (issue #8): the game reads its pad each frame,
+    // and taking the state then instead of at the last flip saves up to a
+    // game frame of latency.
+    void sample_pad();
     // The mouse's motion gathered by the pumps since the last call. Only
     // motion made while the pointer was captured for the game counts.
     [[nodiscard]] MouseMotion take_mouse_motion() noexcept;
@@ -127,6 +132,8 @@ public:
     // Drops the presents scheduled, as the game pauses.
     void pause_interpolation();
     void set_frame_rate(settings::FrameRate rate);
+    // On, the frame rate steps down by itself rather than slow the game.
+    void set_frame_rate_auto(bool automatic);
     // The refresh rate of the window's display as SDL reports it, 0 when unknown.
     [[nodiscard]] float display_refresh() const noexcept;
     // The rate frames are presented at now: the setting's, or a slower one

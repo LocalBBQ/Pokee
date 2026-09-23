@@ -23,8 +23,10 @@
 // renderer when the game's code for it has run, some milliseconds after its
 // moment, and the first grid moment past a frame's moment needs that frame.
 // So the delay is the frame time less the shortest step from a frame's moment
-// to the next grid moment, plus the time the game's code takes (the longest
-// of the last two seconds, and a millisecond). At 60 a frame is on screen as
+// to the next grid moment, plus the time the game's code takes: the ninth
+// longest of the last 60 frames, and a millisecond. A frame later than that,
+// a stall or a load, holds the newest picture for a present or two rather
+// than keep every present late for two seconds. At 60 a frame is on screen as
 // it is 16.7 ms plus that time after its moment; without interpolation it is
 // shown when its code has run.
 namespace mhp3rd::gpu::pacing {
@@ -74,7 +76,8 @@ public:
     [[nodiscard]] std::int64_t work_us() const noexcept { return work_us_; }
 
     static constexpr std::int64_t kWorkMarginUs = 1000;
-    static constexpr int kWorkWindowFrames = 60;
+    static constexpr std::size_t kWorkWindowFrames = 60;
+    static constexpr std::size_t kWorkRank = 8;  // how many of the window may be later
 
 private:
     // The grid moment `index`, and when it is presented.
@@ -85,8 +88,8 @@ private:
     // The shortest step from a frame's moment to the next grid moment.
     std::int64_t first_step_us_{kGameFrameUs};
     std::int64_t work_us_{kWorkMarginUs};
-    std::int64_t window_work_us_{};
-    int window_frames_{};
+    std::vector<std::int64_t> work_window_;  // the last frames' code time, oldest first
+    std::size_t work_cursor_{};
     std::int64_t frame_us_{kGameFrameUs};
     bool has_newer_{};
     bool has_older_{};
@@ -106,19 +109,26 @@ struct Second {
     double interpolation_ms{};     // per game frame: CPU time of all presents between flips
     std::uint32_t presents{};      // presents between flips this second
     std::uint32_t skipped{};       // grid moments passed over this second
+    std::uint32_t blocked{};       // presents dropped: the display had no image free
 };
 
 // Picks the rate from the setting down to 30, so that interpolation never
 // slows the game: when the game falls behind real time, or has no spare time
-// left, and presents take at least half of the time missing, it steps down at
-// once to a rate the measured costs say fits; when presents keep coming late
-// it steps down one rate. When the game has had spare time for a while, it
+// left, and presents take at least half of the time missing and more than
+// the time the kernel spent waiting, it steps down at once to a rate the
+// measured costs say fits; when presents keep coming late, or the display has
+// no image free for them, it steps down one rate. When the game has had spare time for a while, it
 // goes up to the fastest rate the costs say fits. A rate that had to be left
 // is not tried again for a while.
 class RateGovernor {
 public:
     // The rate the setting asks for; the governor starts there.
     void set_requested(double rate);
+    // Off, the rate stays the one asked for whatever the game's speed
+    // (Video > Lower the frame rate when the game falls behind); on again,
+    // it starts from there.
+    void set_automatic(bool automatic);
+    [[nodiscard]] bool automatic() const noexcept { return automatic_; }
     [[nodiscard]] double rate() const noexcept;
     [[nodiscard]] double requested() const noexcept { return requested_; }
     // Once a second while the game runs; true when the rate changed, with the
@@ -144,6 +154,7 @@ private:
     void step_to(std::size_t index, const char *why);
 
     double requested_{30.0};
+    bool automatic_{true};
     std::vector<double> ladder_{30.0};
     std::size_t index_{};
     int slow_seconds_{};

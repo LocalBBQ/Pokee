@@ -58,11 +58,16 @@ struct Matching {
     std::uint32_t eligible_older{};
     std::uint32_t eligible_newer{};
     std::uint32_t matched{};
-    // The camera's turn and move between the frames: the median over the
-    // matched draws of how far each turned and moved in eye space.
+    // How the camera moved between the frames, as the motion of eye space:
+    // for scenery that stands still, newer eye transform = camera * older.
+    // Taken from the matched draw whose turn is the median of a sample, so
+    // characters moving on their own do not count. The angle is its turn;
+    // the distance is how far the eye itself moved, not how far distant
+    // scenery swings when the camera turns.
     bool camera_found{};
     float camera_angle_degrees{};
     float camera_distance{};
+    Matrix camera{};
     // The reason the two frames must not be blended, or null.
     const char *cut{};
     // Blended only because the motion continues the previous pair's: past
@@ -142,5 +147,34 @@ private:
 
 // The angle between the rotations of two transforms.
 [[nodiscard]] float rotation_angle_degrees(const Matrix &a, const Matrix &b) noexcept;
+
+// The inverse of an affine transform; false when it has none.
+[[nodiscard]] bool affine_inverse(const Matrix &m, Matrix &out) noexcept;
+
+// A rigid motion taken apart so that it can be followed part of the way: a
+// turn about an axis through a centre, and a slide along that axis. A
+// camera orbiting its target is a turn about the target, and following it a
+// fraction of the way keeps every point on its arc, where blending matrices
+// would cut across the arc and pull distant scenery in.
+struct RigidMotion {
+    bool valid{};
+    float angle{};                      // radians
+    std::array<float, 3> axis{0.0f, 1.0f, 0.0f};
+    std::array<float, 3> centre{};      // on the axis, nearest the origin
+    std::array<float, 3> slide{};       // along the axis
+    std::array<float, 3> translation{};
+    Matrix inverse{};                   // of the whole motion
+};
+[[nodiscard]] RigidMotion rigid_motion(const Matrix &m) noexcept;
+// The motion a fraction `t` of the way: 0 is the identity, 1 the motion.
+[[nodiscard]] Matrix rigid_at(const RigidMotion &motion, float t) noexcept;
+
+// Where a draw is between two frames, in eye space (view times world), when
+// the camera moved by `camera` (Matching::camera, taken apart): its own
+// motion is blended in the older frame's eye space and the camera's motion
+// is followed along its arcs. A draw that stays put in eye space, like the
+// character the camera follows, stays put.
+[[nodiscard]] Matrix blend_eye(const Matrix &older, const Matrix &newer, const RigidMotion &camera,
+                               float t) noexcept;
 
 } // namespace mhp3rd::gpu::interpolation

@@ -183,6 +183,10 @@ const std::vector<Field> &fields() {
          [](Settings &s, const char *t) {
              if (!kFrameRates.parse(t, s.frame_rate)) s.frame_rate = FrameRate::Fps30;
          }},
+        {"video.frame_rate_auto", "MHP3RD_FRAME_RATE_AUTO",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.frame_rate_auto); },
+         [](const Settings &s) { return std::string(s.frame_rate_auto ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.frame_rate_auto = variable_flag(t); }},
         {"video.performance", "MHP3RD_PERF",
          [](Settings &s, const std::string &t) { return kPerfDisplays.parse(t, s.perf); },
          [](const Settings &s) { return kPerfDisplays.format(s.perf); },

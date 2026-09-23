@@ -52,6 +52,7 @@ struct Settings {
     std::string texture_pack_folder;   // a pack used where it is instead of textures/<disc id>; empty: none
     bool unthrottled{};                // let emulated time run ahead of real time
     FrameRate frame_rate{FrameRate::Fps30};
+    bool frame_rate_auto{true};        // lower the frame rate rather than slow the game
     PerfDisplay perf{PerfDisplay::Off};
 
     // Text

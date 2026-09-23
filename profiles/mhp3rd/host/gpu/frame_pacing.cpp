@@ -1,6 +1,8 @@
 #include "frame_pacing.hpp"
 
 #include <algorithm>
+#include <array>
+#include <functional>
 #include <cmath>
 
 namespace mhp3rd::gpu::pacing {
@@ -65,18 +67,22 @@ std::int64_t PresentClock::delay_us() const noexcept { return frame_us_ - first_
 
 void PresentClock::flip(std::int64_t time_us, std::int64_t now_us) noexcept {
     if (has_newer_ && (time_us <= newer_us_ || time_us - newer_us_ > kGapFrames * frame_us_)) reset();
-    // The delay grows at once when the game's code takes longer, so that no
-    // present waits for a frame that is not there yet, and shrinks back to
-    // the longest time of the last window of frames.
+    // The code time a present allows for: the (kWorkRank + 1)th longest of
+    // the window, so that a few late frames do not keep every present late.
     const std::int64_t work = std::clamp<std::int64_t>(now_us - time_us, 0, frame_us_) + kWorkMarginUs;
-    window_work_us_ = std::max(window_work_us_, work);
-    if (work > work_us_) {
-        work_us_ = work;
-    } else if (++window_frames_ >= kWorkWindowFrames) {
-        work_us_ = window_work_us_;
-        window_work_us_ = 0;
-        window_frames_ = 0;
+    if (work_window_.size() < kWorkWindowFrames) {
+        work_window_.push_back(work);
+    } else {
+        work_window_[work_cursor_] = work;
+        work_cursor_ = (work_cursor_ + 1u) % kWorkWindowFrames;
     }
+    std::array<std::int64_t, kWorkWindowFrames> sorted{};
+    std::copy(work_window_.begin(), work_window_.end(), sorted.begin());
+    const std::size_t count = work_window_.size();
+    const std::size_t rank = std::min(count - 1u, count * kWorkRank / kWorkWindowFrames);
+    std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(rank), sorted.begin() + static_cast<std::ptrdiff_t>(count),
+                     std::greater<>{});
+    work_us_ = sorted[rank];
     if (has_newer_) {
         older_us_ = newer_us_;
         has_older_ = true;
@@ -135,6 +141,12 @@ void RateGovernor::set_requested(double rate) {
     reason_ = "";
 }
 
+void RateGovernor::set_automatic(bool automatic) {
+    if (automatic_ == automatic) return;
+    automatic_ = automatic;
+    set_requested(requested_);
+}
+
 double RateGovernor::rate() const noexcept { return ladder_[index_]; }
 
 double RateGovernor::cost_ms(double rate, const Second &second) noexcept {
@@ -160,7 +172,7 @@ void RateGovernor::step_to(std::size_t index, const char *why) {
 bool RateGovernor::update(const Second &second) {
     for (int &seconds : blocked_) seconds = std::max(0, seconds - 1);
     wait_up_ = std::max(0, wait_up_ - 1);
-    if (index_ == 0u && ladder_.size() == 1u) return false;
+    if (!automatic_ || (index_ == 0u && ladder_.size() == 1u)) return false;
     const double current_cost = cost_ms(rate(), second);
 
     // Behind real time, or keeping up only by using every moment, while
@@ -174,8 +186,8 @@ bool RateGovernor::update(const Second &second) {
     const bool no_spare = second.idle_ms < kMinIdleMs;
     const double missing_ms = std::max(0.0, 1.0 - second.speed) * static_cast<double>(kGameFrameUs) / 1000.0 +
                               std::max(0.0, kMinIdleMs - second.idle_ms);
-    if (index_ > 0u && (slow || no_spare) &&
-        second.interpolation_ms >= std::max(kMinCostMs, 0.5 * missing_ms)) {
+    if (index_ > 0u && (slow || no_spare) && second.interpolation_ms >= std::max(kMinCostMs, 0.5 * missing_ms) &&
+        second.idle_ms < second.interpolation_ms) {
         if (++slow_seconds_ >= 2) {
             std::size_t index = index_ - 1u;
             while (index > 0u && cost_ms(ladder_[index], second) > current_cost - missing_ms - kMarginMs) --index;
@@ -188,8 +200,9 @@ bool RateGovernor::update(const Second &second) {
 
     // Presents that come too late to be shown on time: the display or the
     // queue cannot take this many.
-    const std::uint32_t due = second.presents + second.skipped;
-    if (index_ > 0u && due != 0u && static_cast<double>(second.skipped) > kMaxSkippedShare * due) {
+    const std::uint32_t due = second.presents + second.skipped + second.blocked;
+    if (index_ > 0u && due != 0u &&
+        static_cast<double>(second.skipped + second.blocked) > kMaxSkippedShare * due) {
         if (++skipping_seconds_ >= 2) {
             step_to(index_ - 1u, "presents were late");
             return true;

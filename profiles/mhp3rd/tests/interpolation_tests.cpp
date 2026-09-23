@@ -59,8 +59,10 @@ Matrix perspective() {
 }
 
 // One 3D draw of mesh `mesh` placed at `x`, seen by a camera turned by
-// `camera_degrees` and moved by `camera_x`. Like the game, the camera's
-// rotation lives in the world matrix and the view only translates.
+// `camera_degrees` about the point 400 units in front of it (the way the
+// game's camera orbits the hunter) and moved sideways by `camera_x`. Only
+// eye space (view times world) counts, so where the game keeps the camera's
+// turn makes no difference.
 DrawSummary draw(std::uint32_t mesh, float x, float camera_degrees = 0.0f, float camera_x = 0.0f) {
     DrawSummary summary{};
     summary.vertex_address = 0x09000000u + mesh * 0x100u;
@@ -70,8 +72,11 @@ DrawSummary draw(std::uint32_t mesh, float x, float camera_degrees = 0.0f, float
     summary.primitive = PrimitiveType::Triangles;
     summary.target = kShown;
     summary.perspective = true;
-    summary.world = transform(camera_degrees, x, 0.0f, -500.0f);
-    summary.view = transform(0.0f, -camera_x, 0.0f, 0.0f);
+    summary.world = transform(0.0f, x, 0.0f, -500.0f);
+    // Orbit: into the pivot's frame, turn, back out; then the slide.
+    const Matrix to_pivot = transform(0.0f, 0.0f, 0.0f, 400.0f);
+    const Matrix from_pivot = transform(0.0f, -camera_x, 0.0f, -400.0f);
+    summary.view = multiply(from_pivot, multiply(transform(camera_degrees, 0.0f, 0.0f, 0.0f), to_pivot));
     summary.projection = perspective();
     return summary;
 }
@@ -104,6 +109,56 @@ void blending() {
     check(is_orthographic(ortho) && !is_orthographic(perspective()), "orthographic projections are told apart");
 }
 
+void rigid() {
+    // A camera orbiting a point 400 units ahead by 24 degrees and sliding up
+    // 5 units along the axis.
+    const Matrix to_pivot = transform(0.0f, 0.0f, 0.0f, 400.0f);
+    const Matrix from_pivot = transform(0.0f, 0.0f, 5.0f, -400.0f);
+    const Matrix orbit = multiply(from_pivot, multiply(transform(24.0f, 0.0f, 0.0f, 0.0f), to_pivot));
+    const RigidMotion motion = rigid_motion(orbit);
+    check(motion.valid && near(motion.angle * 180.0f / kPi, 24.0f, 0.01f), "the orbit's turn is found");
+    check(near(motion.centre[0], 0.0f, 0.05f) && near(motion.centre[2], -400.0f, 0.05f) && near(motion.slide[1], 5.0f),
+          "its centre is the orbited point and the slide runs along the axis");
+    const Matrix whole = rigid_at(motion, 1.0f);
+    bool same = true;
+    for (std::size_t i = 0; i < 16u; ++i) same = same && near(whole[i], orbit[i], 1e-2f);
+    check(same, "all the way is the motion itself");
+    // A distant point stays on its arc about the centre halfway.
+    const Matrix half = rigid_at(motion, 0.5f);
+    const float px = 0.0f, pz = -3000.0f;
+    const float hx = half[0] * px + half[8] * pz + half[12];
+    const float hz = half[2] * px + half[10] * pz + half[14];
+    const float radius = std::sqrt(hx * hx + (hz + 400.0f) * (hz + 400.0f));
+    check(near(radius, 2600.0f, 0.5f), "halfway, a point 2600 units from the centre stays 2600 from it");
+    Matrix inverse{};
+    check(affine_inverse(orbit, inverse), "an affine transform has an inverse");
+    const Matrix product = multiply(orbit, inverse);
+    bool identity = true;
+    for (std::size_t i = 0; i < 16u; ++i) identity = identity && near(product[i], (i % 5u == 0u) ? 1.0f : 0.0f, 1e-3f);
+    check(identity, "times its inverse it is the identity");
+
+    // Scenery that stands still follows the orbit; the followed character,
+    // fixed in eye space, stays where it is.
+    const Matrix rock = transform(0.0f, 900.0f, 0.0f, -2500.0f);
+    const Matrix rock_after = multiply(orbit, rock);
+    const Matrix rock_half = blend_eye(rock, rock_after, motion, 0.5f);
+    const Matrix expected = multiply(half, rock);
+    bool follows = true;
+    for (std::size_t i = 0; i < 16u; ++i) follows = follows && near(rock_half[i], expected[i], 0.05f);
+    check(follows, "still scenery moves along the orbit's arc");
+    const Matrix hunter = transform(10.0f, 0.0f, -20.0f, -400.0f);
+    const Matrix hunter_half = blend_eye(hunter, hunter, motion, 0.5f);
+    check(hunter_half == hunter, "the character the camera follows does not move on screen");
+    // A character walking 6 units while the camera orbits.
+    const Matrix walker = transform(0.0f, 30.0f, 0.0f, -380.0f);
+    const Matrix walker_after = multiply(orbit, transform(0.0f, 36.0f, 0.0f, -380.0f));
+    const Matrix walker_half = blend_eye(walker, walker_after, motion, 0.5f);
+    const Matrix walker_expected = multiply(half, transform(0.0f, 33.0f, 0.0f, -380.0f));
+    bool walks = true;
+    for (std::size_t i = 12u; i < 15u; ++i) walks = walks && near(walker_half[i], walker_expected[i], 0.2f);
+    check(walks, "a moving character is halfway along its own path, seen from halfway along the orbit");
+}
+
 void matching() {
     const CutThresholds thresholds{};
     Matcher matcher;
@@ -114,13 +169,19 @@ void matching() {
 
     const Matching &walking = matcher.match(scene(100u, 0.0f, 0.0f), scene(100u, 1.5f, 8.0f), thresholds);
     check(walking.matched == 100u && walking.cut == nullptr, "a camera turning 1.5 degrees and moving 8 units blends");
-    check(near(walking.camera_angle_degrees, 1.5f, 0.01f) && near(walking.camera_distance, 8.0f, 0.5f),
-          "the camera's turn and move are measured in eye space");
+    // Orbiting 1.5 degrees at 400 units moves the eye 10.5 units sideways;
+    // the slide takes 8 of them back.
+    check(near(walking.camera_angle_degrees, 1.5f, 0.01f) && near(walking.camera_distance, 2.47f, 0.05f),
+          "the camera's turn and the eye's own move are measured, in eye space");
+    const Matching &orbit = matcher.match(scene(100u, 0.0f), scene(100u, 7.0f), thresholds);
+    check(orbit.cut == nullptr && near(orbit.camera_distance, 48.8f, 0.5f),
+          "a 7 degree orbit at 400 units moves the eye 49 units, however far the scenery swings");
 
     const Matching &turned = matcher.match(scene(100u), scene(100u, 40.0f), thresholds);
     check(turned.cut != nullptr && std::strcmp(turned.cut, "camera turned") == 0, "a 40 degree turn is a cut");
 
-    const Matching &moved = matcher.match(scene(100u), scene(100u, 0.0f, 300.0f), thresholds);
+    Matcher fresh_matcher;
+    const Matching &moved = fresh_matcher.match(scene(100u), scene(100u, 0.0f, 300.0f), thresholds);
     check(moved.cut != nullptr && std::strcmp(moved.cut, "camera moved") == 0, "a 300 unit jump is a cut");
 
     std::vector<DrawSummary> other = scene(100u);
@@ -293,12 +354,27 @@ void present_clock() {
     const auto behind = clock.take(kGameFrameUs + delay + 5 * kGameFrameUs / 2 + 10);
     check(behind && behind->skipped == 4u, "presents not made in time are skipped, not queued");
     clock.flip(2 * kGameFrameUs, 2 * kGameFrameUs + 15000);
-    check(clock.work_us() == 16000, "a frame whose code takes longer lengthens the delay at once");
+    check(clock.work_us() == 16000, "while few frames are known, the longest code time sets the delay");
     clock.flip(3 * kGameFrameUs + 9000, 3 * kGameFrameUs + 14000);
     const auto moved = clock.next_due();
     check(moved && *moved == 3 * kGameFrameUs + 9000 + clock.delay_us(), "a flip off the grid moves the grid to it");
     clock.set_presents_per_frame(1.0);
     check(!clock.next_due() && !clock.take(10 * kGameFrameUs), "one present per frame stops the clock");
+
+    // 60 frames whose code takes 8 ms, three of them 30 ms (a texture
+    // upload): the delay allows for 8, not 30.
+    PresentClock steady;
+    steady.set_presents_per_frame(3.0);
+    for (std::int64_t frame = 0; frame < 60; ++frame) {
+        const std::int64_t code = frame % 20 == 7 ? 30000 : 8000;
+        steady.flip(frame * kGameFrameUs, frame * kGameFrameUs + code);
+    }
+    check(steady.work_us() == 9000, "a few slow frames among many do not lengthen the delay");
+    for (std::int64_t frame = 60; frame < 120; ++frame) {
+        const std::int64_t code = frame % 5 == 0 ? 20000 : 8000;
+        steady.flip(frame * kGameFrameUs, frame * kGameFrameUs + code);
+    }
+    check(steady.work_us() == 21000, "one frame in five that slow does");
 }
 
 Second second_with(double speed, double idle_ms, double blend_ms, double plain_ms, double rate) {
@@ -359,6 +435,36 @@ void governor() {
     for (int i = 0; i < 30; ++i) (void)recover.update(second_with(1.0, 20.0, 5.0, 0.4, recover.rate()));
     check(recover.rate() == 120.0, "and to 120 once its wait is over");
 
+    // Deck, entering the village: 90% speed while the kernel still waited
+    // 28 ms a frame; plain presents of a loading screen cost 2.5 ms. Not
+    // the presents.
+    RateGovernor village;
+    village.set_requested(90.0);
+    for (int i = 0; i < 4; ++i) (void)village.update(second_with(0.9, 28.0, 1.4, 0.76, 90.0));
+    check(village.rate() == 90.0, "a slow second with the kernel waiting is not blamed on the presents");
+
+    // The display takes fewer presents than asked (a 90 Hz screen switched
+    // to 60): images are not free for a third of them.
+    RateGovernor display;
+    display.set_requested(90.0);
+    Second busy_display = second_with(1.0, 15.0, 2.0, 0.5, 90.0);
+    busy_display.presents = 60u;
+    busy_display.blocked = 30u;
+    (void)display.update(busy_display);
+    check(display.update(busy_display) && display.rate() == 60.0, "presents the display cannot take step down");
+
+    // Off, the rate stays whatever happens.
+    RateGovernor fixed;
+    fixed.set_requested(120.0);
+    fixed.set_automatic(false);
+    bool moved_fixed = false;
+    for (int i = 0; i < 10; ++i) moved_fixed = moved_fixed || fixed.update(second_with(0.5, 0.0, 8.0, 0.4, 120.0));
+    check(!moved_fixed && fixed.rate() == 120.0, "with the automatic step-down off the rate never changes");
+    for (int i = 0; i < 2; ++i) (void)fixed.update(second_with(0.5, 0.0, 8.0, 0.4, 120.0));
+    fixed.set_automatic(true);
+    for (int i = 0; i < 2; ++i) (void)fixed.update(second_with(0.5, 0.0, 8.0, 0.4, 120.0));
+    check(fixed.rate() == 30.0, "turned on again, it steps down");
+
     RateGovernor busy;
     busy.set_requested(90.0);
     // Full speed, but only because the kernel never waits: 2 blended presents
@@ -391,6 +497,7 @@ void governor() {
 
 int main() {
     blending();
+    rigid();
     matching();
     continuous_motion();
     rates();
