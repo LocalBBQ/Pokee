@@ -4,7 +4,7 @@ A release gives players the program ready to run: the executable with the recomp
 
 Releases are built by maintainers, not by CI: the recompiled code is generated from the game's executable, so a build needs a copy of the game. The game data stays on the maintainer's machine. Every artifact is checked for it before it is published.
 
-So far there are Linux builds. macOS and Windows follow in [#29](https://github.com/TeamGDB/Yakumo/issues/29).
+So far there are Linux builds. macOS and Windows follow in [#29](https://github.com/TeamGDB/Yakumo/issues/29). Android is described [below](#android); it has been tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
 
 ## Linux
 
@@ -102,3 +102,46 @@ Create the release on GitHub with the tag of the commit that was built, and atta
 ### Updating a bundled component
 
 Change its version and SHA-256 where it is pinned, `packaging/linux/sources.sh` for SDL3 and the font or `cmake/FFmpeg.cmake` for FFmpeg, and the matching entry in `THIRD_PARTY_NOTICES.md`; the script refuses to pack when they disagree. A new FFmpeg configure option goes into both as well. To move to a newer SDK, update its digest in `sources.sh`; to move to a newer Flatpak runtime, update `FLATPAK_RUNTIME_VERSION` and `runtime-version` in the manifest together.
+
+## Android
+
+`profiles/mhp3rd/scripts/release_android.sh <build-dir>` packs `yakumo-<version>-android-arm64.apk` for 64-bit phones and handhelds with Android 11 or later and Vulkan 1.1, and a `SHA256SUMS` next to it, in `out/release-android/dist/`. There is no Play Store build (no AAB): players install the APK themselves, and on its first start the app asks for their `.iso` through Android's file picker and copies it into its own storage (about 1.3 GB, besides the app's 0.8 GB).
+
+### Build directory
+
+The script packs an Android build directory whose overlay libraries are already built, and rebuilds only `libmain.so`, the host. Such a directory takes the Android SDK with the NDK (r28c is the one tested), the generated corpus and the overlay corpora in the checkout, and a few hours at `-j2`:
+
+```sh
+cmake -S . -B out/android-app -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-34 -DCMAKE_BUILD_TYPE=Release \
+  -DPSPRECOMP_PROFILE=mhp3rd -DMHP3RD_ANDROID_APP=ON \
+  -DSDL3_DIR=<SDL3 built for Android>/lib/cmake/SDL3 -DCMAKE_FIND_ROOT_PATH=<SDL3 built for Android>
+cmake --build out/android-app -j 2
+```
+
+The first configure needs an SDL3 built for Android to find; the release script builds the pinned one (`packaging/linux/sources.sh`) into `out/release-android/deps` and points the directory at it. The overlay libraries are reused as they are as long as `include/psprecomp/` has not changed since they were built; the script refuses them otherwise, and when any is missing.
+
+### What the script does
+
+1. Fetches the pinned SDL3 and the fallback font, checks their SHA-256 and builds SDL3 for Android once.
+2. Reconfigures the build directory as a release (`MHP3RD_RELEASE`, no checkout paths) against that SDL3 and rebuilds `libmain.so` if that changed it.
+3. Checks that every overlay library is there and newer than the framework headers.
+4. Packs the APK with `packaging/android/build_apk.sh`: the native libraries, SDL's Java activity and the app's own, the font, and under `assets/licenses` the third-party notices, SDL's licence, FFmpeg's LGPL with where its source is, and the font's licence. The version name is `git describe`; the version code is the number of commits, so a later release installs as an update.
+5. Signs it with the release key, verifies the signature, refuses it if it holds any game file, and prints its size and SHA-256.
+
+### The release key
+
+Android installs an update only over an app signed with the same key. The key is a keystore outside the repository; the script reads it from `KEYSTORE`, `KEYSTORE_PASS` and `KEY_ALIAS`, or from a file that sets them, `KEY_ENV` (by default `keys/key.env` in the checkout, which `.gitignore` keeps out of Git).
+
+**Back up the keystore and its password, and keep them private.** Losing them means no later release can install over the earlier ones: players would have to uninstall first, and uninstalling an Android app deletes its data, their saves included (unless they exported them). Anyone who has the key can publish an update players' phones will accept.
+
+To move to a new key without stranding players, sign releases with both for a while using APK signature scheme v3 key rotation (`apksigner rotate` to make a lineage from the old key to the new one, then `apksigner sign --lineage`), and keep the old key backed up as well. A plain switch to a new key forces every player to uninstall.
+
+### Check
+
+`apksigner verify` and the game-data check run in the script. Install the APK on a device or the emulator (`adb install -r` keeps an earlier installation's data when the key matches), set up from an `.iso`, and play through [`TESTING.md`](TESTING.md) with the touch controls and with a gamepad.
+
+### Publish
+
+Attach the APK and `SHA256SUMS` to the GitHub release, and the FFmpeg source archive as for Linux: the APK carries the same LGPL FFmpeg.
