@@ -4,7 +4,6 @@
 
 #include <array>
 #include <cstdint>
-#include <unordered_map>
 #include <vector>
 
 // Frame interpolation: the game simulates at 30 frames per second, and the
@@ -111,13 +110,19 @@ private:
     struct KeyHash {
         std::size_t operator()(const Key &key) const noexcept;
     };
+    // One key of the newer frame: its first and last draw, chained through
+    // next_ in drawing order, and the next one to hand out; first < 0 marks
+    // an empty slot.
     struct Slot {
-        std::vector<std::int32_t> newer;  // the newer frame's draws with this key, in order
-        std::uint32_t used{};             // how many the older frame has consumed
+        Key key{};
+        std::int32_t first{-1};
+        std::int32_t last{-1};
+        std::int32_t cursor{-1};
     };
     static Key key_of(const DrawSummary &draw) noexcept;
 
-    std::unordered_map<Key, Slot, KeyHash> slots_;
+    std::vector<Slot> slots_;
+    std::vector<std::int32_t> next_;  // for each newer draw, the next with its key
     Matching result_;
     // The previous pair's camera motion, when that pair was blended.
     bool previous_blended_{};

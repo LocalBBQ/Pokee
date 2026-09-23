@@ -66,30 +66,45 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     out = Matching{};
     out.newer_of.assign(older.size(), -1);
 
-    for (auto &[key, slot] : slots_) {
-        slot.newer.clear();
-        slot.used = 0u;
-    }
+    // The newer frame's eligible draws by key, in an open-addressed table
+    // rebuilt each frame: each key's draws are chained in drawing order, and
+    // the chain's cursor hands them to the older frame's draws of that key
+    // one after another.
+    std::size_t eligible = 0u;
+    for (const DrawSummary &draw : newer) eligible += draw.eligible ? 1u : 0u;
+    std::size_t capacity = 64u;
+    while (capacity < eligible * 2u) capacity *= 2u;
+    slots_.assign(capacity, Slot{});
+    next_.assign(newer.size(), -1);
+    const std::size_t mask = capacity - 1u;
+    const auto slot_for = [&](const Key &key) -> Slot & {
+        std::size_t at = KeyHash{}(key) & mask;
+        while (slots_[at].first >= 0 && !(slots_[at].key == key)) at = (at + 1u) & mask;
+        return slots_[at];
+    };
     for (std::size_t i = 0; i < newer.size(); ++i) {
         if (!newer[i].eligible) continue;
         ++out.eligible_newer;
-        slots_[key_of(newer[i])].newer.push_back(static_cast<std::int32_t>(i));
+        const Key key = key_of(newer[i]);
+        Slot &slot = slot_for(key);
+        const auto index = static_cast<std::int32_t>(i);
+        if (slot.first < 0) {
+            slot.key = key;
+            slot.first = slot.cursor = index;
+        } else {
+            next_[static_cast<std::size_t>(slot.last)] = index;
+        }
+        slot.last = index;
     }
     for (std::size_t i = 0; i < older.size(); ++i) {
         if (!older[i].eligible) continue;
         ++out.eligible_older;
-        const auto found = slots_.find(key_of(older[i]));
-        if (found == slots_.end()) continue;
-        Slot &slot = found->second;
-        if (slot.used >= slot.newer.size()) {
-            ++slot.used;
-            continue;
-        }
-        out.newer_of[i] = slot.newer[slot.used++];
+        Slot &slot = slot_for(key_of(older[i]));
+        if (slot.first < 0 || slot.cursor < 0) continue;
+        out.newer_of[i] = slot.cursor;
+        slot.cursor = next_[static_cast<std::size_t>(slot.cursor)];
         ++out.matched;
     }
-    // Keys neither frame used lately would pile up over a long session.
-    if (slots_.size() > 8192u) slots_.clear();
 
     // How the camera moved: this game keeps the view matrix almost fixed and
     // puts the camera's rotation into every world matrix, so the camera shows
