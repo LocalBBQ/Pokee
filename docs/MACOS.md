@@ -4,20 +4,15 @@ This guide is for players using a prebuilt release. To build Yakumo yourself ins
 
 A release does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of **Monster Hunter Portable 3rd HD Ver.** (`NPJB-40001`): its disc image, as an uncompressed `.iso` file. The first start checks that copy, accepts only the original release, and sets the game up from it.
 
-Each [release](https://github.com/TeamGDB/Yakumo/releases) has two macOS downloads with the same app in them:
+Each [release](https://github.com/TeamGDB/Yakumo/releases) has the macOS app as a disk image, `yakumo-<version>-macos-arm64.dmg`.
 
-| File | For |
-| --- | --- |
-| `yakumo-<version>-macos-arm64.dmg` | A disk image to open and drag Yakumo from. Recommended. |
-| `yakumo-<version>-macos-arm64.zip` | The same as a zip archive |
-
-It needs a Mac with Apple Silicon (M1 or newer) and macOS 13 Ventura or newer. Intel Macs are not supported. Vulkan (MoltenVK), SDL3, FFmpeg and a Japanese font come with it; nothing else needs to be installed.
+It needs a Mac with Apple Silicon (M1 or newer) and macOS 13 Ventura or newer. Intel Macs are not supported. It is tested on macOS 27; macOS 13 to 26 should work but are untested, so please [report](https://github.com/TeamGDB/Yakumo/issues/new/choose) how it runs on them. Vulkan (MoltenVK), SDL3, FFmpeg and a Japanese font come with it; nothing else needs to be installed.
 
 `SHA256SUMS` on the same page lists the checksum of each file; `shasum -a 256 -c SHA256SUMS --ignore-missing` in the download folder checks them.
 
 ## Install
 
-1. Open the `.dmg` (or unpack the `.zip`).
+1. Open the `.dmg`.
 2. Drag **Yakumo** into **Applications**.
 
 ## First start

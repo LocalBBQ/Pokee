@@ -9,6 +9,8 @@ You must provide the files from your own legally obtained copy of the game
 checks that copy and accepts only the original release.
 
 Needs: a Mac with Apple Silicon (M1 or newer) and macOS @MINIMUM_SYSTEM_VERSION@ or newer.
+Tested on macOS 27. It is built to run on macOS @MINIMUM_SYSTEM_VERSION@ to 26 as well, but
+that is untested: please report how it runs there (link below).
 
 
 Install
@@ -66,4 +68,5 @@ folder above as well only if you no longer want your saves.
 
 
 More: https://github.com/TeamGDB/Yakumo/blob/main/docs/MACOS.md
+Report a problem: https://github.com/TeamGDB/Yakumo/issues/new/choose
 Third-party software and its licenses: Yakumo.app/Contents/Resources/licenses/

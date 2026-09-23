@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Package a macOS release (Apple Silicon) from a finished build directory:
-# Yakumo.app in a disk image and in a zip archive.
+# Yakumo.app in a disk image, and optionally in a zip archive.
 #
 #   release_macos.sh [--version VERSION] [--executable FILE] [--jobs N]
-#                    [--no-dmg] [--no-zip] BUILD_DIR
+#                    [--zip] [--no-dmg] BUILD_DIR
 #
 # BUILD_DIR is a build of this checkout configured with -DMHP3RD_RELEASE=ON
 # whose Yakumo and overlay libraries are built (bin/Yakumo, bin/overlays,
@@ -17,8 +17,8 @@
 # deployment target once their system imports are checked against that
 # macOS's SDK, and everything is signed ad hoc (no Developer ID, no
 # notarization, no hardened runtime, so the overlay libraries load). It then
-# packs the disk image and the zip, checks that neither contains any game
-# data, and prints their SHA-256 checksums. Everything lands in
+# packs the disk image (and the zip), checks that no artifact contains game
+# data or a path of this machine, and prints their SHA-256 checksums. Everything lands in
 # out/release-macos; the artifacts in out/release-macos/dist.
 #
 # Needs Xcode or the Command Line Tools with the SDK of the deployment target
@@ -30,8 +30,8 @@
 #                      instead of BUILD_DIR/bin/Yakumo (for a build directory
 #                      that was switched back to a developer build)
 #   --jobs N           parallel compile jobs for SDL3 and the loader (default 4)
+#   --zip              also pack Yakumo.app as a zip archive
 #   --no-dmg           do not build the disk image
-#   --no-zip           do not build the zip archive
 set -euo pipefail
 # Byte-wise text tools: the checks read binary files.
 export LC_ALL=C
@@ -54,7 +54,7 @@ version=""
 executable=""
 jobs=4
 make_dmg=1
-make_zip=1
+make_zip=0
 build_dir=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -62,7 +62,7 @@ while [[ $# -gt 0 ]]; do
         --executable) executable="${2:?--executable needs a value}"; shift 2 ;;
         --jobs) jobs="${2:?--jobs needs a value}"; shift 2 ;;
         --no-dmg) make_dmg=0; shift ;;
-        --no-zip) make_zip=0; shift ;;
+        --zip) make_zip=1; shift ;;
         -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) [[ -z "$build_dir" ]] || { echo "only one build directory" >&2; exit 2; }; build_dir="$1"; shift ;;
@@ -410,10 +410,11 @@ for file in "${machos[@]}"; do
     ! newer_than_target "$(minos_of "$file")" || fail "$file needs macOS $(minos_of "$file")"
     [[ "$(lipo -archs "$file")" == arm64 ]] || fail "$file has more than the arm64 architecture"
 done
-for file in "$exe" "$frameworks/"*.dylib; do
-    # FFmpeg keeps its configure line, with the build's prefix, as a string.
-    strings -a "$file" | grep -F "$work" | grep -qv -- '--prefix=' && fail "$(basename "$file") refers to $work"
-done
+# No path of this machine: the home directory, the user name, the checkout or
+# the build directory (FFmpeg's configure line once carried its prefix).
+leaks="$(grep -rlaF -e "$HOME" -e "/$(id -un)/" -e "$repo_dir" -e "$build_dir" -e "$work" "$app" || true)"
+[[ -z "$leaks" ]] || { echo "error: files in Yakumo.app name paths of this machine:" >&2; echo "$leaks" >&2; exit 1; }
+echo "no paths of this machine in Yakumo.app"
 check_no_game_data "$app" "Yakumo.app"
 echo "Yakumo.app: $(du -sh "$app" | cut -f1), ${#machos[@]} Mach-O files, $overlay_count overlays"
 

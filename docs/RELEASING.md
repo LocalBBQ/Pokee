@@ -110,9 +110,9 @@ Change its version and SHA-256 where it is pinned, `packaging/linux/sources.sh` 
 | Artifact | Contents |
 | --- | --- |
 | `yakumo-<version>-macos-arm64.dmg` | Disk image with `Yakumo.app`, a link to Applications and `Read Me.txt` (the first start, Gatekeeper, where the data lives). The main download. |
-| `yakumo-<version>-macos-arm64.zip` | The same app and note as a zip archive |
+| `yakumo-<version>-macos-arm64.zip` | Only with `--zip`: the same app and note as a zip archive |
 | `ffmpeg-<version>.tar.xz` | The unmodified source of the FFmpeg the app contains, as for Linux |
-| `SHA256SUMS` | Checksums of the three files above |
+| `SHA256SUMS` | Checksums of the files above |
 | `BUILDINFO.txt` | Commit, build environment, minimum macOS and the bundled versions, for the release notes |
 
 `Yakumo.app` holds:
@@ -140,8 +140,8 @@ The app is signed **ad hoc**: no Apple Developer ID, no notarization. Gatekeeper
 2. Fetches the pinned sources in `packaging/macos/sources.sh` (which takes SDL3 and the font from `packaging/linux/sources.sh`) and builds SDL3 and the Vulkan loader for arm64 and the deployment target, macOS 13. MoltenVK is the Khronos release build, thinned to arm64.
 3. Assembles `Yakumo.app`, points every library reference at `@rpath` with the single rpath `@executable_path/../Frameworks`, and strips local symbols (the symbols the executable exports to the overlays stay).
 4. Checks that every symbol the binaries import from the C and C++ runtime exists in the macOS 13 SDK, then marks the binaries that were built for a newer macOS (the build machine's) for macOS 13 with `vtool`. This is what lets a build made on the newest macOS run on older ones without recompiling the game code.
-5. Signs every library, then the app, ad hoc, and checks the signature (`codesign --verify --deep --strict`), that nothing refers to Homebrew or the build tree, and that no binary needs a newer macOS.
-6. Packs the disk image (APFS, LZMA-compressed) and the zip, opens both again, checks their signatures and refuses them if any file looks like game data, as the Linux script does.
+5. Signs every library, then the app, ad hoc, and checks the signature (`codesign --verify --deep --strict`), that no library reference or rpath leads outside the bundle, that no binary needs a newer macOS, and that no file in the app names the home directory, the user name, the checkout or the build directory.
+6. Packs the disk image (APFS, LZMA-compressed) and, with `--zip`, the zip, opens them again, checks their signatures and refuses them if any file looks like game data, as the Linux script does.
 7. Prints the checksums.
 
 ### Requirements
@@ -175,7 +175,7 @@ profiles/mhp3rd/scripts/release_macos.sh out/mhp3rd                             
 profiles/mhp3rd/scripts/release_macos.sh --executable out/release-macos/Yakumo out/mhp3rd   # a switched-back one
 ```
 
-Without `--version`, the artifacts are named after `git describe`; commit first, since the version shown in Yakumo's menu comes from `git describe` when `Yakumo` was built. `--no-dmg` and `--no-zip` leave one artifact out, `--jobs N` sets the parallel compiles for SDL3 and the loader. Everything is kept in `out/release-macos/`, the artifacts in `out/release-macos/dist/`. The first run takes a few minutes for SDL3 and the loader; later runs reuse them.
+Without `--version`, the artifacts are named after `git describe`; commit first, since the version shown in Yakumo's menu comes from `git describe` when `Yakumo` was built. `--zip` adds the zip archive, `--no-dmg` leaves the disk image out, `--jobs N` sets the parallel compiles for SDL3 and the loader. Everything is kept in `out/release-macos/`, the artifacts in `out/release-macos/dist/`. The first run takes a few minutes for SDL3 and the loader; later runs reuse them.
 
 ### Check
 
