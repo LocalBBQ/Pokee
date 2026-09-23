@@ -31,9 +31,9 @@ work="$build_dir/apk"
 rm -rf "$work"
 mkdir -p "$work/classes" "$work/dex" "$work/lib/arm64-v8a"
 
-echo "compiling SDL's Java activity"
+echo "compiling SDL's Java activity and the app's own"
 javac -nowarn --release 11 -classpath "$android_jar" -d "$work/classes" \
-    $(find "$sdl_dir/android-project/app/src/main/java" -name '*.java') 2> "$work/javac.log"
+    $(find "$sdl_dir/android-project/app/src/main/java" "$here/java" -name '*.java') 2> "$work/javac.log"
 "$build_tools/d8" --release --min-api 29 --lib "$android_jar" --output "$work/dex" \
     $(find "$work/classes" -name '*.class')
 

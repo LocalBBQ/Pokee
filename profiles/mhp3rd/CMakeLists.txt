@@ -199,7 +199,8 @@ set(MHP3RD_PROGRAM_SOURCES
     ${MHP3RD_RENDERER_SOURCES}
     $<TARGET_OBJECTS:mhp3rd_generated>)
 if(MHP3RD_ANDROID_APP)
-    add_library(Yakumo SHARED ${MHP3RD_PROGRAM_SOURCES} host/platform/android_app.cpp)
+    add_library(Yakumo SHARED ${MHP3RD_PROGRAM_SOURCES} host/platform/android_app.cpp
+        host/platform/android_jni.cpp)
     target_compile_definitions(Yakumo PRIVATE MHP3RD_ANDROID_APP=1)
     set_target_properties(Yakumo PROPERTIES
         OUTPUT_NAME main

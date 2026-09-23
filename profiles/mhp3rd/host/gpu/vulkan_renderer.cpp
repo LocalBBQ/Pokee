@@ -16,6 +16,10 @@
 #include "input/bindings.hpp"
 #include "settings/settings.hpp"
 
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_jni.hpp"
+#endif
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
@@ -490,6 +494,35 @@ struct VulkanRenderer::Impl {
     VkSwapchainKHR swapchain{};
     VkFormat swapchain_format{VK_FORMAT_B8G8R8A8_UNORM};
     VkExtent2D swapchain_extent{};
+    // The part of the window the game and the overlay may use, in pixels:
+    // the whole window, except on Android, where a display cutout or a
+    // system bar can take an edge (SDL's safe area).
+    VkRect2D content_rect{};
+    void update_content_rect() {
+        content_rect = {{0, 0}, swapchain_extent};
+#if defined(MHP3RD_ANDROID_APP)
+        // Only the display cutout: SDL's safe area also counts the gesture
+        // areas of the hidden system bars, which would shrink the picture for
+        // nothing.
+        int window_width = 0;
+        int window_height = 0;
+        if (window == nullptr || !SDL_GetWindowSizeInPixels(window, &window_width, &window_height) ||
+            window_width <= 0 || window_height <= 0)
+            return;
+        const android::Insets cutout = android::cutout_insets();
+        const double x_scale = static_cast<double>(swapchain_extent.width) / window_width;
+        const double y_scale = static_cast<double>(swapchain_extent.height) / window_height;
+        const auto left = static_cast<std::int32_t>(std::lround(cutout.left * x_scale));
+        const auto top = static_cast<std::int32_t>(std::lround(cutout.top * y_scale));
+        const auto right = static_cast<std::int32_t>(swapchain_extent.width) -
+                           static_cast<std::int32_t>(std::lround(cutout.right * x_scale));
+        const auto bottom = static_cast<std::int32_t>(swapchain_extent.height) -
+                            static_cast<std::int32_t>(std::lround(cutout.bottom * y_scale));
+        if (right - left < 16 || bottom - top < 16) return;
+        content_rect = {{left, top},
+                        {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)}};
+#endif
+    }
     std::vector<VkImage> swapchain_images;
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
@@ -1384,6 +1417,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     else impl.scan_gamepads();
     SDL_WindowFlags window_flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
     if (player.fullscreen) window_flags |= SDL_WINDOW_FULLSCREEN;
+#if defined(__ANDROID__)
+    // A phone runs the game full screen with the system bars hidden: shown,
+    // they cover the top and bottom of the picture (Android 15 draws apps
+    // under them). The safe area keeps the picture clear of a camera cutout.
+    window_flags |= SDL_WINDOW_FULLSCREEN;
+#endif
     impl.window = SDL_CreateWindow(config.title.c_str(), static_cast<int>(kPspWidth * window_scale),
                                    static_cast<int>(kPspHeight * window_scale), window_flags);
     if (impl.window == nullptr) {
@@ -1819,11 +1858,11 @@ bool VulkanRenderer::Impl::create_overlay(std::string &error) {
 // staging buffer is free to rewrite: the frame fence has been waited on before
 // any recording of this frame started.
 void VulkanRenderer::Impl::record_overlay(VkCommandBuffer commands, VkImage destination) {
-    const std::uint32_t scale = perf::overlay_scale(swapchain_extent.height);
+    const std::uint32_t scale = perf::overlay_scale(content_rect.extent.height);
     const std::uint32_t inset = 4u * scale;
     const std::uint32_t width = perf::kOverlayWidth * scale;
     const std::uint32_t height = perf::kOverlayHeight * scale;
-    if (inset + width > swapchain_extent.width || inset + height > swapchain_extent.height) return;
+    if (inset + width > content_rect.extent.width || inset + height > content_rect.extent.height) return;
 
     perf::draw_overlay(overlay_pixels.data());
     std::memcpy(overlay_mapped, overlay_pixels.data(), overlay_pixels.size() * sizeof(std::uint32_t));
@@ -1844,8 +1883,10 @@ void VulkanRenderer::Impl::record_overlay(VkCommandBuffer commands, VkImage dest
     blit.srcOffsets[1] = {static_cast<std::int32_t>(perf::kOverlayWidth),
                           static_cast<std::int32_t>(perf::kOverlayHeight), 1};
     blit.dstSubresource = blit.srcSubresource;
-    blit.dstOffsets[0] = {static_cast<std::int32_t>(inset), static_cast<std::int32_t>(inset), 0};
-    blit.dstOffsets[1] = {static_cast<std::int32_t>(inset + width), static_cast<std::int32_t>(inset + height), 1};
+    const std::int32_t left = content_rect.offset.x + static_cast<std::int32_t>(inset);
+    const std::int32_t top = content_rect.offset.y + static_cast<std::int32_t>(inset);
+    blit.dstOffsets[0] = {left, top, 0};
+    blit.dstOffsets[1] = {left + static_cast<std::int32_t>(width), top + static_cast<std::int32_t>(height), 1};
     vkCmdBlitImage(commands, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_NEAREST);
 }
@@ -1906,6 +1947,7 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     swapchain_image_extent = image_extent;
 #endif
     swapchain_extent = extent;
+    update_content_rect();
     present_mode = wanted_present_mode();
 
     std::uint32_t image_count =
@@ -2233,17 +2275,26 @@ bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
 // layout: stretched over the whole window, or at the PSP's aspect ratio with
 // black bars. Fill's target already has the window's shape.
 void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination) {
-    const auto width = static_cast<std::int32_t>(swapchain_extent.width);
-    const auto height = static_cast<std::int32_t>(swapchain_extent.height);
-    VkOffset3D low{0, 0, 0};
-    VkOffset3D high{width, height, 1};
-    if (aspect == settings::Aspect::Original) {
-        const double scale = std::min(static_cast<double>(width) / kPspWidth, static_cast<double>(height) / kPspHeight);
-        const auto shown_width = std::clamp(static_cast<std::int32_t>(std::lround(kPspWidth * scale)), 1, width);
-        const auto shown_height = std::clamp(static_cast<std::int32_t>(std::lround(kPspHeight * scale)), 1, height);
-        low = {(width - shown_width) / 2, (height - shown_height) / 2, 0};
+    const auto width = static_cast<std::int32_t>(content_rect.extent.width);
+    const auto height = static_cast<std::int32_t>(content_rect.extent.height);
+    const std::int32_t x0 = content_rect.offset.x;
+    const std::int32_t y0 = content_rect.offset.y;
+    VkOffset3D low{x0, y0, 0};
+    VkOffset3D high{x0 + width, y0 + height, 1};
+    const bool partial = width < static_cast<std::int32_t>(swapchain_extent.width) ||
+                         height < static_cast<std::int32_t>(swapchain_extent.height);
+    if (aspect == settings::Aspect::Original || partial) {
+        std::int32_t shown_width = width;
+        std::int32_t shown_height = height;
+        if (aspect == settings::Aspect::Original) {
+            const double scale =
+                std::min(static_cast<double>(width) / kPspWidth, static_cast<double>(height) / kPspHeight);
+            shown_width = std::clamp(static_cast<std::int32_t>(std::lround(kPspWidth * scale)), 1, width);
+            shown_height = std::clamp(static_cast<std::int32_t>(std::lround(kPspHeight * scale)), 1, height);
+        }
+        low = {x0 + (width - shown_width) / 2, y0 + (height - shown_height) / 2, 0};
         high = {low.x + shown_width, low.y + shown_height, 1};
-        if (shown_width < width || shown_height < height) {
+        if (partial || shown_width < width || shown_height < height) {
             const VkClearColorValue black{{0.0f, 0.0f, 0.0f, 1.0f}};
             const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u};
             vkCmdClearColorImage(commands, destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1u, &range);
@@ -3286,6 +3337,10 @@ bool VulkanRenderer::pump_events() {
         // reserved for the in-game menu.
         if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) impl_->update_display_info();
         if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) impl_->swapchain_dirty = true;
+        if (event.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED) {
+            impl_->update_content_rect();
+            impl_->resize_now = true;
+        }
         // The mouse, while captured for the game. Releases always count.
         if (event.type == SDL_EVENT_MOUSE_MOTION && impl_->mouse_captured &&
             (!impl_->scripted_input || event.motion.which == kScriptedMouse)) {
@@ -3475,9 +3530,9 @@ std::string VulkanRenderer::device_name() const { return impl_ ? impl_->device_n
 SDL_Gamepad *VulkanRenderer::gamepad() const noexcept { return impl_ ? impl_->gamepad : nullptr; }
 
 VkExtent2D VulkanRenderer::Impl::wanted_target_extent() const {
-    const bool known = swapchain_extent.width != 0u && swapchain_extent.height != 0u;
-    const double window_width = known ? swapchain_extent.width : static_cast<double>(target_extent.width);
-    const double window_height = known ? swapchain_extent.height : static_cast<double>(target_extent.height);
+    const bool known = content_rect.extent.width != 0u && content_rect.extent.height != 0u;
+    const double window_width = known ? content_rect.extent.width : static_cast<double>(target_extent.width);
+    const double window_height = known ? content_rect.extent.height : static_cast<double>(target_extent.height);
     if (aspect != settings::Aspect::Fill) {
         std::uint32_t scale = requested_scale;
         if (scale == 0u) {
@@ -3612,6 +3667,9 @@ void VulkanRenderer::set_window_scale(std::uint32_t scale) {
 
 void VulkanRenderer::set_fullscreen(bool fullscreen) {
     if (!impl_ || impl_->window == nullptr) return;
+#if defined(__ANDROID__)
+    fullscreen = true;
+#endif
     SDL_SetWindowFullscreen(impl_->window, fullscreen);
     impl_->swapchain_dirty = true;
 }
