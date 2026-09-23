@@ -86,6 +86,7 @@ if(MHP3RD_RENDERER)
             host/ui/input_script.cpp
             host/ui/layer.cpp
             host/ui/menu.cpp
+            host/ui/mods_screen.cpp
             host/ui/save_screen.cpp
             host/ui/setup_screens.cpp
             host/ui/text_input.cpp
@@ -172,6 +173,14 @@ set(MHP3RD_HOST_SOURCES
     host/install/installer_dialogs.cpp
     host/install/user_data.cpp
     host/settings/settings.cpp
+    host/mods/file_overlay.cpp
+    host/mods/mod_import.cpp
+    host/mods/mod_ini.cpp
+    host/mods/mod_library.cpp
+    host/mods/mod_session.cpp
+    host/mods/mhp3rd_data_bin.cpp
+    host/mods/mhp3rd_mod_format.cpp
+    host/mods/mhp3rd_mods.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -378,6 +387,23 @@ target_include_directories(mhp3rd_input_tests PRIVATE "${MHP3RD_PROFILE_DIR}/hos
 set_target_properties(mhp3rd_input_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_input_tests COMMAND mhp3rd_input_tests)
+endif()
+
+# Mods: the community's mod folders, choices, conflicts and import, the
+# DATA.BIN obfuscation and an archive served with mods' files. No game data.
+add_executable(mhp3rd_mods_tests
+    tests/mods_tests.cpp
+    host/mods/file_overlay.cpp
+    host/mods/mhp3rd_data_bin.cpp
+    host/mods/mhp3rd_mod_format.cpp
+    host/mods/mod_import.cpp
+    host/mods/mod_ini.cpp
+    host/mods/mod_library.cpp
+    host/mods/mod_session.cpp)
+target_include_directories(mhp3rd_mods_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_mods_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_mods_tests COMMAND mhp3rd_mods_tests)
 endif()
 
 # Renderer helpers that need no GPU.

@@ -4,7 +4,7 @@ A release gives players the program ready to run: the executable with the recomp
 
 Releases are built by maintainers, not by CI: the recompiled code is generated from the game's executable, so a build needs a copy of the game. The game data stays on the maintainer's machine. Every artifact is checked for it before it is published.
 
-So far there are Linux builds. macOS and Windows follow in [#29](https://github.com/TeamGDB/Yakumo/issues/29). Android is described [below](#android); it has been tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
+So far there are Linux and macOS builds. Windows follows in [#29](https://github.com/TeamGDB/Yakumo/issues/29). Android is described [below](#android); it has been tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
 
 ## Linux
 
@@ -102,6 +102,114 @@ Create the release on GitHub with the tag of the commit that was built, and atta
 ### Updating a bundled component
 
 Change its version and SHA-256 where it is pinned, `packaging/linux/sources.sh` for SDL3 and the font or `cmake/FFmpeg.cmake` for FFmpeg, and the matching entry in `THIRD_PARTY_NOTICES.md`; the script refuses to pack when they disagree. A new FFmpeg configure option goes into both as well. To move to a newer SDK, update its digest in `sources.sh`; to move to a newer Flatpak runtime, update `FLATPAK_RUNTIME_VERSION` and `runtime-version` in the manifest together.
+
+## macOS
+
+`profiles/mhp3rd/scripts/release_macos.sh` packages a finished build directory into the macOS artifacts, for Apple Silicon only:
+
+| Artifact | Contents |
+| --- | --- |
+| `yakumo-<version>-macos-arm64.dmg` | Disk image with `Yakumo.app`, a link to Applications and `Read Me.txt` (the first start, Gatekeeper, where the data lives). The main download. |
+| `yakumo-<version>-macos-arm64.zip` | Only with `--zip`: the same app and note as a zip archive |
+| `ffmpeg-<version>.tar.xz` | The unmodified source of the FFmpeg the app contains, as for Linux |
+| `SHA256SUMS` | Checksums of the files above |
+| `BUILDINFO.txt` | Commit, build environment, minimum macOS and the bundled versions, for the release notes |
+
+`Yakumo.app` holds:
+
+```text
+Contents/
+    Info.plist                 io.github.teamgdb.yakumo, version from git describe, LSMinimumSystemVersion
+    MacOS/Yakumo               the executable
+    Frameworks/                libSDL3.0.dylib, libvulkan.1.dylib, libMoltenVK.dylib,
+                               libavcodec.61.dylib, libavutil.59.dylib
+    Frameworks/overlays/       the 355 overlay libraries
+    Resources/Yakumo.icns      the icon, from docs/images/emblem.svg (packaging/macos/make_icon.sh)
+    Resources/fonts/           Noto Sans CJK JP, the fallback Japanese font
+    Resources/vulkan/icd.d/    MoltenVK's driver manifest, found by the bundled Vulkan loader
+    Resources/licenses/        LICENSE, THIRD_PARTY_NOTICES.md and every bundled license
+```
+
+Inside an app bundle the host looks for the overlays in `Contents/Frameworks/overlays` and for fonts in `Contents/Resources/fonts` (`host/app_paths.cpp`); everywhere else they stay next to the executable.
+
+The app is signed **ad hoc**: no Apple Developer ID, no notarization. Gatekeeper therefore rejects the downloaded app (`spctl --assess` says `rejected`) until the player allows it once in System Settings → Privacy & Security → *Open Anyway*, or removes the quarantine attribute; `packaging/macos/README.txt` and [`MACOS.md`](MACOS.md) walk players through it. It is signed without the hardened runtime, which would refuse to load the separately signed overlay libraries.
+
+### What the script does
+
+1. Checks the build directory: an arm64 `Yakumo` built with `-DMHP3RD_RELEASE=ON` (a developer build, which names its checkout's game directory, is refused), 355 overlay libraries in `bin/overlays`, and the bundled LGPL FFmpeg in `bin/lib` configured as `cmake/FFmpeg.cmake` pins it. Nothing in the build directory is rebuilt or changed.
+2. Fetches the pinned sources in `packaging/macos/sources.sh` (which takes SDL3 and the font from `packaging/linux/sources.sh`) and builds SDL3 and the Vulkan loader for arm64 and the deployment target, macOS 13. MoltenVK is the Khronos release build, thinned to arm64.
+3. Assembles `Yakumo.app`, points every library reference at `@rpath` with the single rpath `@executable_path/../Frameworks`, and strips local symbols (the symbols the executable exports to the overlays stay).
+4. Checks that every symbol the binaries import from the C and C++ runtime exists in the macOS 13 SDK, then marks the binaries that were built for a newer macOS (the build machine's) for macOS 13 with `vtool`. This is what lets a build made on the newest macOS run on older ones without recompiling the game code.
+5. Signs every library, then the app, ad hoc, and checks the signature (`codesign --verify --deep --strict`), that no library reference or rpath leads outside the bundle, that no binary needs a newer macOS, and that no file in the app names the home directory, the user name, the checkout or the build directory.
+6. Packs the disk image (APFS, LZMA-compressed) and, with `--zip`, the zip, opens them again, checks their signatures and refuses them if any file looks like game data, as the Linux script does.
+7. Prints the checksums.
+
+### Requirements
+
+- A Mac with Apple Silicon, Xcode or the Command Line Tools, CMake, Ninja and curl.
+- The macOS 13 SDK for the import check: the Command Line Tools keep older SDKs in `/Library/Developer/CommandLineTools/SDKs` (for example `MacOSX13.1.sdk`); `YAKUMO_CHECK_SDK=/path/to/MacOSX13.x.sdk` points at another one.
+- A finished release build. From a checkout with the game data, as in the [build instructions](../profiles/mhp3rd/README.md):
+
+  ```bash
+  cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd \
+      -DMHP3RD_RELEASE=ON -DMHP3RD_FFMPEG=bundled
+  profiles/mhp3rd/scripts/generate.sh out/mhp3rd
+  cmake --build out/mhp3rd -j 4 --target Yakumo
+  profiles/mhp3rd/scripts/build_overlays.sh out/mhp3rd 4
+  ```
+
+  `MHP3RD_RELEASE` changes only the executable, not the recompiled code or the overlays. A developer build directory can therefore be switched to it, `Yakumo` rebuilt and copied away, and the directory switched back, which relinks only the executable:
+
+  ```bash
+  cmake -S . -B out/mhp3rd -DMHP3RD_RELEASE=ON && cmake --build out/mhp3rd -j 2 --target Yakumo
+  cp out/mhp3rd/bin/Yakumo out/release-macos/Yakumo
+  cmake -S . -B out/mhp3rd -DMHP3RD_RELEASE=OFF && cmake --build out/mhp3rd -j 2 --target Yakumo
+  ```
+
+  Build only the `Yakumo` target there: the default target would relink every overlay library against the new executable.
+
+### Build
+
+```bash
+profiles/mhp3rd/scripts/release_macos.sh out/mhp3rd                                   # a release build directory
+profiles/mhp3rd/scripts/release_macos.sh --executable out/release-macos/Yakumo out/mhp3rd   # a switched-back one
+```
+
+Without `--version`, the artifacts are named after `git describe`; commit first, since the version shown in Yakumo's menu comes from `git describe` when `Yakumo` was built. `--zip` adds the zip archive, `--no-dmg` leaves the disk image out, `--jobs N` sets the parallel compiles for SDL3 and the loader. Everything is kept in `out/release-macos/`, the artifacts in `out/release-macos/dist/`. The first run takes a few minutes for SDL3 and the loader; later runs reuse them.
+
+### Check
+
+The same rule as on Linux: **never touch a player's own data.** `~/Library/Application Support/Yakumo/` holds the settings, the copied disc image and the saves of every Yakumo on the Mac, the developer build included. Check the release with its data in a throwaway directory, from a copy of the app outside the checkout, with no `MHP3RD_*` or `DYLD_*` variable pointing at the build tree, and with no other Yakumo running:
+
+```bash
+check=$(mktemp -d)
+hdiutil attach -readonly -nobrowse -mountpoint "$check/dmg" out/release-macos/dist/yakumo-*-macos-arm64.dmg
+ditto "$check/dmg/Yakumo.app" "$check/Yakumo.app"
+hdiutil detach "$check/dmg"
+
+# Everything the process loads comes from the bundle or the system.
+export MHP3RD_DATA_DIR="$check/data"
+"$check/Yakumo.app/Contents/MacOS/Yakumo" --install /path/to/your.iso --in-place
+DYLD_PRINT_LIBRARIES=1 VK_LOADER_DEBUG=driver "$check/Yakumo.app/Contents/MacOS/Yakumo" 2>&1 | tee "$check/run.log"
+grep -E '/opt/homebrew|/usr/local|out/mhp3rd' "$check/run.log"      # should print nothing
+unset MHP3RD_DATA_DIR
+
+# What Gatekeeper does with a download: expect "rejected" for an ad hoc signature.
+xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Safari;" "$check/Yakumo.app"
+spctl --assess --type execute -vv "$check/Yakumo.app"
+
+rm -rf "$check"
+```
+
+`--install` without `--in-place` copies the 1.3 GB image into the throwaway directory instead. The window run should start the game, print `Overlay corpora: 355 from …/Yakumo.app/Contents/Frameworks/overlays`, and play the intro movie with sound. Then play the release once with a gamepad, a save and a reload, following [`TESTING.md`](TESTING.md), and open it once through Finder from a quarantined copy to see the Gatekeeper steps players will see.
+
+### Publish
+
+As for Linux: attach every file from `out/release-macos/dist/` except `BUILDINFO.txt` to the release of the tag that was built, and keep the FFmpeg source archive next to them. When Linux and macOS artifacts share a release, merge the two `SHA256SUMS` files.
+
+### Updating a bundled component
+
+SDL3 and the font are pinned in `packaging/linux/sources.sh` for both systems; the Vulkan loader, MoltenVK and the deployment target in `packaging/macos/sources.sh`. Update the matching entry in `THIRD_PARTY_NOTICES.md` as well; the script refuses to pack when they disagree. Raising the deployment target needs that release's SDK for the import check.
 
 ## Android
 

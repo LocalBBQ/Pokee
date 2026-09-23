@@ -42,6 +42,7 @@ Puedes cargar una partida copiada de una PSP o empezar una nueva, cazar con otro
 | Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y hacer copias de seguridad desde el menú | Superficies curvas (#10); los diálogos de guardado todavía no dibujan nada (#33) |
 | Gráficos Vulkan: modelos, animación, texturas, transparencias, iluminación y niebla; resolución interna ajustable, cualquier forma de ventana e interpolación de fotogramas | |
 | Paquetes de texturas HD compatibles con PPSSPP, instalados desde el menú o copiados al directorio de datos | |
+| Mods en el formato de la comunidad (mhp3reload): reemplazos y parches de archivos, gestionados desde el menú (ver el [README del perfil](profiles/mhp3rd/README.md#mods)) | Mods de código (#81) |
 | Efectos de sonido, música en streaming y cinemáticas | |
 | Controles de teclado y ratón totalmente reasignables; mandos con cámara y apuntado analógicos en el stick derecho, además de perfiles de gatillos para arcos y ballestas | |
 | El menú de Yakumo dentro del juego, la configuración inicial, el explorador de archivos y el teclado en pantalla, todos utilizables con mando, teclado o ratón | |
@@ -58,7 +59,7 @@ Una versión publicada solo necesita tu imagen de disco. Descárgala desde la [p
 
 - **Linux y Steam Deck:** un paquete Flatpak y un archivo portátil. [`docs/LINUX.md`](docs/LINUX.md) (en inglés) explica la instalación, el primer inicio, el modo de juego, dónde están las partidas guardadas, cómo actualizar y cómo desinstalar.
 - **Windows:** un archivo portátil para x86-64 con las bibliotecas necesarias.
-- **macOS:** todavía no hay una versión publicada; compila desde el código fuente como se describe a continuación.
+- **macOS (Apple Silicon, macOS 13 o posterior):** una imagen de disco con la aplicación. Apple no la ha notarizado, así que macOS pide permitirla una vez. [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explica la instalación, el primer inicio, dónde se guardan las partidas, cómo actualizar y cómo desinstalar.
 - **Android:** un APK para teléfonos y consolas portátiles de 64 bits con Android 11 o posterior y Vulkan 1.1. En el primer inicio toma tu `.iso` mediante el selector de archivos de Android y lo copia dentro de la aplicación (unos 1,3 GB además de los 0,8 GB de la aplicación). Los controles táctiles se dibujan sobre el juego; los mandos también funcionan. Por ahora solo se ha probado en el emulador ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
 
 ## Requisitos

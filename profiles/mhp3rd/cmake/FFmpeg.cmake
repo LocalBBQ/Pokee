@@ -195,6 +195,11 @@ else()
     endif()
     set(_mhp3rd_ffmpeg_src "${_mhp3rd_ffmpeg_root}/ffmpeg-${MHP3RD_FFMPEG_VERSION}")
     set(_mhp3rd_ffmpeg_prefix "${_mhp3rd_ffmpeg_root}/install")
+    # FFmpeg keeps its configure line, prefix included, as a string in the
+    # libraries. It is configured for a neutral prefix and installed through
+    # DESTDIR, so no path of the build machine (a home directory, a user name)
+    # ends up in a shipped library.
+    set(_mhp3rd_ffmpeg_neutral_prefix /ffmpeg)
     # Platform settings that do not change what is built: where macOS finds the
     # libraries (the executable's rpath) and the compiler to use.
     set(_mhp3rd_ffmpeg_flags ${MHP3RD_FFMPEG_CONFIGURE_FLAGS})
@@ -228,7 +233,7 @@ else()
     endif()
     # Built once per build directory; again only when the pin or the flags change.
     string(REPLACE ";" " " _mhp3rd_ffmpeg_stamp
-        "${MHP3RD_FFMPEG_VERSION} ${MHP3RD_FFMPEG_SHA256} ${_mhp3rd_ffmpeg_flags}")
+        "${MHP3RD_FFMPEG_VERSION} ${MHP3RD_FFMPEG_SHA256} --prefix=${_mhp3rd_ffmpeg_neutral_prefix} ${_mhp3rd_ffmpeg_flags}")
     set(_mhp3rd_ffmpeg_stamp_file "${_mhp3rd_ffmpeg_prefix}/yakumo.stamp")
     set(_mhp3rd_ffmpeg_built "")
     if(EXISTS "${_mhp3rd_ffmpeg_stamp_file}")
@@ -244,7 +249,7 @@ else()
         file(MAKE_DIRECTORY "${_mhp3rd_ffmpeg_root}/build")
         set(_log "${_mhp3rd_ffmpeg_root}/build")
         _mhp3rd_ffmpeg_run(configure "${_log}/configure.log"
-            sh "${_mhp3rd_ffmpeg_src}/configure" "--prefix=${_mhp3rd_ffmpeg_prefix}" ${_mhp3rd_ffmpeg_flags})
+            sh "${_mhp3rd_ffmpeg_src}/configure" "--prefix=${_mhp3rd_ffmpeg_neutral_prefix}" ${_mhp3rd_ffmpeg_flags})
         # The licensing in docs/SOURCE_PROVENANCE.md assumes exactly this.
         file(READ "${_log}/configure.log" _mhp3rd_ffmpeg_configure)
         file(READ "${_log}/config.h" _mhp3rd_ffmpeg_config)
@@ -255,7 +260,11 @@ else()
                 "see ${_log}/configure.log")
         endif()
         _mhp3rd_ffmpeg_run(build "${_log}/build.log" "${MHP3RD_MAKE}" -j${PSPRECOMP_GENERATED_JOBS})
-        _mhp3rd_ffmpeg_run(install "${_log}/install.log" "${MHP3RD_MAKE}" install)
+        file(REMOVE_RECURSE "${_mhp3rd_ffmpeg_root}/destdir")
+        _mhp3rd_ffmpeg_run(install "${_log}/install.log"
+            "${MHP3RD_MAKE}" install "DESTDIR=${_mhp3rd_ffmpeg_root}/destdir")
+        file(RENAME "${_mhp3rd_ffmpeg_root}/destdir${_mhp3rd_ffmpeg_neutral_prefix}" "${_mhp3rd_ffmpeg_prefix}")
+        file(REMOVE_RECURSE "${_mhp3rd_ffmpeg_root}/destdir")
         file(WRITE "${_mhp3rd_ffmpeg_stamp_file}" "${_mhp3rd_ffmpeg_stamp}")
     endif()
 

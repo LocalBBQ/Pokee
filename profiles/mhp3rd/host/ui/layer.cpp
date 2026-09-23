@@ -262,6 +262,13 @@ bool Layer::handle_event(const SDL_Event &event) {
     case SDL_EVENT_GAMEPAD_AXIS_MOTION:
         if (std::abs(static_cast<int>(event.gaxis.value)) > 16000) device_ = InputDevice::Gamepad;
         break;
+    case SDL_EVENT_GAMEPAD_ADDED:
+    case SDL_EVENT_GAMEPAD_REMOVED:
+        // ImGui refreshes its list of pads only when it sees one of these. A
+        // pad that connects while the game runs (one woken over Bluetooth)
+        // would otherwise never reach the menu, though the game reads it.
+        ImGui_ImplSDL3_ProcessEvent(&event);
+        return false;
     case SDL_EVENT_DROP_FILE:
         if (event.drop.data != nullptr) dropped_ = install::path_from_utf8(event.drop.data);
         return true;

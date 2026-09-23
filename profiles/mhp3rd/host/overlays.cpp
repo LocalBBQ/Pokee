@@ -126,15 +126,25 @@ std::map<std::uint32_t, std::uint64_t> &installed_headers() {
     return headers;
 }
 
+// Slots holding an image no corpus matches, such as an overlay a mod has
+// patched, by the header hash of that image. The image runs interpreted, and
+// every call into it used to search the slot's corpora again, hashing each
+// candidate's code: a patched demo_task.ovl took the game menu from 100% to
+// 10% speed. Forgotten when the game loads code again.
+std::map<std::uint32_t, std::uint64_t> &unmatched_slots() {
+    static std::map<std::uint32_t, std::uint64_t> unmatched;
+    return unmatched;
+}
+
 std::filesystem::path overlay_directory() {
     if (const char *dir = std::getenv("MHP3RD_OVERLAY_DIR"); dir != nullptr && *dir != '\0') return dir;
-    const std::filesystem::path directory = executable_directory();
 #if defined(MHP3RD_ANDROID_APP)
     // An APK's libraries all sit in one flat directory, next to libmain.so.
-    return directory;
+    return executable_directory();
 #else
+    const std::filesystem::path directory = bundled_overlay_directory();
     if (directory.empty()) return "overlays";
-    return directory / "overlays";
+    return directory;
 #endif
 }
 
@@ -254,6 +264,9 @@ void dump_slot(const psprecomp::GuestMemory &memory, std::uint32_t slot_start, s
 bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
     const auto [slot_start, slot_end] = slot_of(pc);
     if (slot_start == 0u) return false;
+    if (const auto unmatched = unmatched_slots().find(slot_start);
+        unmatched != unmatched_slots().end() && unmatched->second == header_hash(runtime.memory(), slot_start))
+        return false;
 
     for (const OverlayCorpus &corpus : overlay_corpora()) {
         // The slot list records where images start, not how much room each one
@@ -277,6 +290,7 @@ bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
              "[overlay] no recompiled corpus for " + (header.has_value() ? header->name : std::string("the overlay")) +
                  " loaded at " + psprecomp::hex32(slot_start));
     dump_slot(runtime.memory(), slot_start, slot_end);
+    unmatched_slots()[slot_start] = header_hash(runtime.memory(), slot_start);
     return false;
 }
 
@@ -331,6 +345,8 @@ void revalidate_overlays(Runtime &runtime) {
         it = installed_overlays().erase(it);
     }
 }
+
+void forget_unmatched_overlays() { unmatched_slots().clear(); }
 
 void install_overlay_support(Runtime &runtime) {
     (void)runtime;
