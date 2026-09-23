@@ -2,6 +2,7 @@ package io.github.teamgdb.yakumo;
 
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.database.Cursor;
 import android.graphics.Insets;
 import android.net.Uri;
@@ -29,6 +30,18 @@ public class YakumoActivity extends SDLActivity {
     private static final Object sPickLock = new Object();
     private static boolean sPickDone;
     private static String sPickResult;
+
+    /**
+     * Keeps the game in landscape, either way up, as the manifest asks. SDL
+     * calls this when it makes the window and would otherwise ask for every
+     * orientation (FULL_USER) for a resizable window without an orientations
+     * hint: the game then turned to portrait whenever the phone was held
+     * upright, and stayed there on a phone with auto-rotate off.
+     */
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
 
     /** Left, top, right, bottom of the display cutout in window pixels, or all 0. */
     public static int[] cutoutInsets() {

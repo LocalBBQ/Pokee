@@ -619,6 +619,9 @@ struct VulkanRenderer::Impl {
     // Set by a resize, a present mode change or an out-of-date swapchain;
     // the swapchain is rebuilt before the next acquire.
     bool swapchain_dirty{};
+    // Set when the swapchain may no longer suit the surface (a suboptimal
+    // present, a turned display); see check_swapchain().
+    bool swapchain_check{};
 
     // Display settings.
     settings::PresentMode requested_present{settings::PresentMode::Fifo};
@@ -655,6 +658,9 @@ struct VulkanRenderer::Impl {
     std::vector<UprightImage> upright_images;
     VkExtent2D swapchain_image_extent{};
     std::int32_t swapchain_quarter_turns{};
+    // The surface transform the swapchain was made for.
+    VkSurfaceTransformFlagBitsKHR swapchain_transform{VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR};
+    std::uint32_t swapchain_builds{};
     VkRenderPass rotate_render_pass{};
     VkDescriptorSetLayout rotate_set_layout{};
     VkDescriptorPool rotate_pool{};
@@ -1485,6 +1491,31 @@ struct VulkanRenderer::Impl {
         void *now = current_native_window();
         if (now != nullptr && now != native_window) surface_returned = true;
     }
+#endif
+    // Marks the swapchain for rebuilding if it no longer suits the surface.
+    // On Android a present is suboptimal while the swapchain's transform
+    // differs from the display's, and some drivers keep saying so after the
+    // swapchain matches; rebuilding on every such present rebuilt it every
+    // frame. So the swapchain is rebuilt only when the display's transform or
+    // the window's size really changed: once per turn of the phone.
+    void check_swapchain() {
+        if (!std::exchange(swapchain_check, false) || swapchain == VK_NULL_HANDLE) return;
+#if defined(__ANDROID__)
+        VkSurfaceCapabilitiesKHR capabilities{};
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities) != VK_SUCCESS) return;
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSizeInPixels(window, &width, &height);
+        if (capabilities.currentTransform != swapchain_transform ||
+            (width > 0 && height > 0 &&
+             (static_cast<std::uint32_t>(width) != swapchain_extent.width ||
+              static_cast<std::uint32_t>(height) != swapchain_extent.height)))
+            swapchain_dirty = true;
+#else
+        swapchain_dirty = true;
+#endif
+    }
+#if defined(__ANDROID__)
     static bool SDLCALL watch_lifecycle(void *, SDL_Event *event) {
         if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND || event->type == SDL_EVENT_DID_ENTER_BACKGROUND)
             surface_lost = true;
@@ -2113,6 +2144,15 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     }
     image_extent = swapchain_quarter_turns % 2 == 1 ? VkExtent2D{extent.height, extent.width} : extent;
     swapchain_image_extent = image_extent;
+    swapchain_transform = transform;
+    // Once per start and per turn of the phone; a run of these in a player's
+    // log (or logcat) means the swapchain is rebuilt over and over.
+    ++swapchain_builds;
+    std::cout << "[render] swapchain " << swapchain_builds << " for " << extent.width << "x" << extent.height
+              << ", surface transform 0x" << std::hex << static_cast<unsigned>(transform) << std::dec
+              << " (a quarter turn x" << swapchain_quarter_turns << ")\n";
+    SDL_Log("Yakumo: swapchain %u for %ux%u, surface transform 0x%x", swapchain_builds, extent.width, extent.height,
+            static_cast<unsigned>(transform));
 #endif
     swapchain_extent = extent;
     update_content_rect();
@@ -2515,7 +2555,10 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
     // (an image acquired before the window went is still given back).
     if (!surface_lost)
 #endif
-    if (!acquired_image && (swapchain_dirty || swapchain == VK_NULL_HANDLE)) recreate_swapchain();
+    if (!acquired_image) {
+        check_swapchain();
+        if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
+    }
     ImDrawData *ui = ui_ready ? ui_draw_data : nullptr;
     ui_draw_data = nullptr;
     const bool draw_ui = ui != nullptr && ui->CmdListsCount > 0;
@@ -2544,6 +2587,7 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
         acquired = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &image_index);
         perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
         if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
+        if (acquired == VK_SUBOPTIMAL_KHR) swapchain_check = true;
 #if defined(__ANDROID__)
         if (acquired == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
 #endif
@@ -2645,7 +2689,8 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
         const perf::Clock::time_point present_start = perf::Clock::now();
         const VkResult presented = vkQueuePresentKHR(queue, &present);
         perf::add_wait_time(perf::Clock::now() - present_start, perf::Stall::Present);
-        if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) swapchain_dirty = true;
+        if (presented == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
+        if (presented == VK_SUBOPTIMAL_KHR) swapchain_check = true;
 #if defined(__ANDROID__)
         if (presented == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
 #endif
@@ -3543,6 +3588,9 @@ bool VulkanRenderer::pump_events() {
         // reserved for the in-game menu.
         if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) impl_->update_display_info();
         if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) impl_->swapchain_dirty = true;
+        // A phone turned from one landscape to the other keeps its size; only
+        // the display's transform changes.
+        if (event.type == SDL_EVENT_DISPLAY_ORIENTATION) impl_->swapchain_check = true;
         if (event.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED) {
             impl_->update_content_rect();
             impl_->resize_now = true;
@@ -5336,6 +5384,7 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     if (surface_returned) reset_surface();
     if (surface_lost) return false;
 #endif
+    check_swapchain();
     if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
     if (swapchain == VK_NULL_HANDLE) return false;
     std::uint32_t image_index = 0u;
@@ -5343,6 +5392,7 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     const VkResult acquired = vkAcquireNextImageKHR(device, swapchain, 3'000'000u, image_available, VK_NULL_HANDLE, &image_index);
     perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
+    if (acquired == VK_SUBOPTIMAL_KHR) swapchain_check = true;
 #if defined(__ANDROID__)
     if (acquired == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
 #endif
