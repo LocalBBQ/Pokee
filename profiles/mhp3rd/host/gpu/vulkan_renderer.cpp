@@ -4699,14 +4699,14 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
         }
         present_timed[slot] = false;
     }
-    // An image first, without waiting for one: when the display has none
-    // free (it refreshes slower than the presents come), this present is
-    // dropped rather than hold the game until the next refresh.
+    // An image first, waiting at most 3 ms for one: when the display has
+    // none free (it refreshes slower than the presents come), this present
+    // is dropped rather than hold the game until the next refresh.
     if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
     if (swapchain == VK_NULL_HANDLE) return false;
     std::uint32_t image_index = 0u;
     const perf::Clock::time_point acquire_start = perf::Clock::now();
-    const VkResult acquired = vkAcquireNextImageKHR(device, swapchain, 0u, image_available, VK_NULL_HANDLE, &image_index);
+    const VkResult acquired = vkAcquireNextImageKHR(device, swapchain, 3'000'000u, image_available, VK_NULL_HANDLE, &image_index);
     perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
     if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
