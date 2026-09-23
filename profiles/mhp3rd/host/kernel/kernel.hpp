@@ -203,10 +203,31 @@ public:
     // Clock ---------------------------------------------------------------
     [[nodiscard]] std::uint64_t now_us() const noexcept { return now_us_; }
     [[nodiscard]] std::uint64_t vblank_count() const noexcept { return vblank_count_; }
+    // Emulated time of the latest vblank, at or before now_us().
+    [[nodiscard]] std::uint64_t last_vblank_us() const noexcept { return next_vblank_us_ - kVBlankPeriodUs; }
     // Forgets how far emulated time was ahead of or behind real time. Called
     // after the game was paused, so it resumes at normal speed rather than
     // racing to make up the pause.
     void resync_real_time() noexcept { pacing_started_ = false; }
+    // The moment of real time the hold to real time maps `virtual_us` of
+    // emulated time to; empty while emulated time is not held to real time.
+    // Frame interpolation times its presents by it (gpu/frame_pacing.hpp).
+    [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> real_time_of(
+        std::uint64_t virtual_us) const noexcept {
+        if (!pacing_started_) return std::nullopt;
+        return pacing_real_base_ + std::chrono::microseconds(static_cast<std::int64_t>(virtual_us) -
+                                                             static_cast<std::int64_t>(pacing_virtual_base_));
+    }
+    // Frame interpolation presents between the game's flips from two places.
+    // The idle hook runs while the kernel waits for real time to catch up
+    // with emulated time, with the moment it will wake; it presents what falls
+    // due before then and accounts for its own time. The poll hook runs each
+    // time the scheduler looks for a thread, while the game's code runs, and
+    // presents one that is already due.
+    using IdleHook = std::function<void(std::chrono::steady_clock::time_point wake)>;
+    using PollHook = std::function<void()>;
+    void set_idle_hook(IdleHook hook) { idle_hook_ = std::move(hook); }
+    void set_poll_hook(PollHook hook) { poll_hook_ = std::move(hook); }
 
     // Threads -------------------------------------------------------------
     [[nodiscard]] SceUID allocate_uid() noexcept { return next_uid_++; }
@@ -340,6 +361,8 @@ private:
     bool pacing_started_{};
     std::chrono::steady_clock::time_point pacing_real_base_{};
     std::uint64_t pacing_virtual_base_{};
+    IdleHook idle_hook_;
+    PollHook poll_hook_;
     std::uint64_t next_vblank_us_{kVBlankPeriodUs};
     std::uint64_t vblank_count_{};
     bool dispatch_enabled_{true};

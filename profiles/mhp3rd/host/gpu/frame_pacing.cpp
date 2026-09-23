@@ -163,14 +163,20 @@ bool RateGovernor::update(const Second &second) {
     if (index_ == 0u && ladder_.size() == 1u) return false;
     const double current_cost = cost_ms(rate(), second);
 
-    // Behind real time while presents cost something: drop at once to the
-    // fastest rate whose presents fit into what the game is short of.
-    if (index_ > 0u && second.speed < kSlowSpeed && second.interpolation_ms >= kMinCostMs) {
+    // Behind real time, or keeping up only by using every moment, while
+    // presents cost something: drop at once to the fastest rate whose
+    // presents fit into what the game is short of. Without spare time the
+    // game's frames come later and later after their moments, and the
+    // presents waiting for them are skipped.
+    const bool slow = second.speed < kSlowSpeed;
+    const bool no_spare = second.idle_ms < kMinIdleMs;
+    if (index_ > 0u && (slow || no_spare) && second.interpolation_ms >= kMinCostMs) {
         if (++slow_seconds_ >= 2) {
-            const double short_ms = (1.0 - second.speed) * static_cast<double>(kGameFrameUs) / 1000.0 + kMarginMs;
+            const double short_ms = std::max(0.0, 1.0 - second.speed) * static_cast<double>(kGameFrameUs) / 1000.0 +
+                                    std::max(0.0, kMinIdleMs - second.idle_ms) + kMarginMs;
             std::size_t index = index_ - 1u;
             while (index > 0u && cost_ms(ladder_[index], second) > current_cost - short_ms) --index;
-            step_to(index, "the game fell behind real time");
+            step_to(index, slow ? "the game fell behind real time" : "the game had no time to spare");
             return true;
         }
     } else {

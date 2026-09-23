@@ -109,8 +109,10 @@ struct Second {
 };
 
 // Picks the rate from the setting down to 30, so that interpolation never
-// slows the game: when the game falls behind real time while presents take
-// time, it steps down at once to a rate the measured costs say fits; when it
+// slows the game: when the game falls behind real time, or has no spare time
+// left, while presents take time, it steps down at once to a rate the
+// measured costs say fits; when presents keep coming late it steps down one
+// rate; when it
 // has had spare time for a while, it tries one rate faster. A rate that had to
 // be left is not tried again for a while.
 class RateGovernor {
@@ -130,12 +132,13 @@ public:
     static constexpr double kSlowSpeed = 0.97;        // behind real time
     static constexpr double kSteadySpeed = 0.99;      // keeping up
     static constexpr double kMinCostMs = 0.5;         // presents cost something worth saving
+    static constexpr double kMinIdleMs = 1.0;         // spare time a frame needs to keep its moments
     static constexpr double kMarginMs = 3.0;          // spare time kept at a faster rate
     static constexpr int kSecondsBeforeUp = 3;
     static constexpr int kSecondsAfterDown = 10;
     static constexpr int kBlockSeconds = 30;
     static constexpr int kMaxBlockSeconds = 300;
-    static constexpr double kMaxSkippedShare = 0.25;
+    static constexpr double kMaxSkippedShare = 0.1;
 
 private:
     void step_to(std::size_t index, const char *why);

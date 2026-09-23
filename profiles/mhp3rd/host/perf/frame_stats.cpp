@@ -83,6 +83,9 @@ struct State {
     Clock::duration overlay{};
     std::uint32_t lists{};
     std::uint32_t draws{};
+    Clock::time_point last_present{Clock::now()};
+    double frame_rate{};
+    double requested_rate{};
     std::uint32_t recorded_draws{};
     StallTallies stalls{};
     double gpu_ms{};
@@ -92,9 +95,11 @@ struct State {
     Clock::time_point window_start{Clock::now()};
     std::uint64_t window_virtual_us{};
     bool window_has_clock{};
-    std::uint32_t frames{};
-    double frame_sum_ms{};
-    double frame_max_ms{};
+    std::uint32_t frames{};    // guest flips
+    double frame_sum_ms{};     // flip to flip
+    std::uint32_t presents{};
+    double present_sum_ms{};   // present to present
+    double present_max_ms{};
     Clock::duration render_sum{};
     Clock::duration wait_sum{};
     Clock::duration pacing_sum{};
@@ -124,7 +129,7 @@ State &state() {
 }
 
 void print(const Summary &s) {
-    char line[320];
+    char line[400];
     int length = std::snprintf(line, sizeof(line),
                                "[perf] fps %.1f game %.1f speed %.0f%% | frame avg %.1f max %.1f ms | guest %.1f "
                                "render %.1f wait %.1f ms | lists %.0f/s draws %.0f/%.0f | %s %ux%u",
@@ -139,6 +144,13 @@ void print(const Summary &s) {
                                     s.gpu_max_ms);
         else
             length += std::snprintf(line + length, sizeof(line) - length, " | gpu n/a");
+    }
+    if (s.frame_rate > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line)) {
+        if (s.requested_rate > s.frame_rate + 0.5)
+            length += std::snprintf(line + length, sizeof(line) - length, " | interpolation %.0f of %.0f", s.frame_rate,
+                                    s.requested_rate);
+        else
+            length += std::snprintf(line + length, sizeof(line) - length, " | interpolation %.0f", s.frame_rate);
     }
     if (s.overlay_ms > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " | overlay %.2f ms", s.overlay_ms);
@@ -209,6 +221,7 @@ void restart_measurement() {
     State &s = state();
     const Clock::time_point now = Clock::now();
     s.frame_start = now;
+    s.last_present = now;
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
     s.draws = s.recorded_draws = 0u;
@@ -219,7 +232,9 @@ void restart_measurement() {
     s.window_has_clock = false;
     s.frames = 0u;
     s.frame_sum_ms = 0.0;
-    s.frame_max_ms = 0.0;
+    s.presents = 0u;
+    s.present_sum_ms = 0.0;
+    s.present_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
     s.draw_sum = s.recorded_draw_sum = 0u;
@@ -261,13 +276,30 @@ void set_display_info(const std::string &present_mode, std::uint32_t width, std:
     s.refresh_hz = refresh_hz;
 }
 
-void end_frame(std::uint64_t virtual_us) {
+void count_present() {
     State &s = state();
+    const Clock::time_point now = Clock::now();
+    const double present_ms = to_ms(now - s.last_present);
+    s.last_present = now;
+    s.history[s.cursor] = static_cast<float>(present_ms);
+    s.cursor = (s.cursor + 1u) % kHistoryFrames;
+    ++s.presents;
+    s.present_sum_ms += present_ms;
+    s.present_max_ms = std::max(s.present_max_ms, present_ms);
+}
+
+void set_frame_rate_info(double rate, double requested) {
+    State &s = state();
+    s.frame_rate = rate;
+    s.requested_rate = requested;
+}
+
+void end_frame(std::uint64_t virtual_us, bool presented) {
+    State &s = state();
+    if (presented) count_present();
     const Clock::time_point now = Clock::now();
     const double frame_ms = to_ms(now - s.frame_start);
     s.frame_start = now;
-    s.history[s.cursor] = static_cast<float>(frame_ms);
-    s.cursor = (s.cursor + 1u) % kHistoryFrames;
 
     if (!s.window_has_clock) {
         s.window_virtual_us = virtual_us;
@@ -275,7 +307,6 @@ void end_frame(std::uint64_t virtual_us) {
     }
     ++s.frames;
     s.frame_sum_ms += frame_ms;
-    s.frame_max_ms = std::max(s.frame_max_ms, frame_ms);
     s.render_sum += s.render;
     s.wait_sum += s.wait;
     s.pacing_sum += s.pacing;
@@ -326,21 +357,24 @@ void end_frame(std::uint64_t virtual_us) {
     const double frames = static_cast<double>(s.frames);
     const double virtual_ms = static_cast<double>(virtual_us - s.window_virtual_us) / 1000.0;
     out.valid = true;
-    out.fps = frames * 1000.0 / window_ms;
+    ++out.second;
+    const double presents = static_cast<double>(s.presents);
+    out.fps = presents * 1000.0 / window_ms;
     out.game_fps = virtual_ms > 0.0 ? frames * 1000.0 / virtual_ms : 0.0;
     out.speed = virtual_ms / window_ms;
     out.lists = static_cast<double>(s.list_sum) * 1000.0 / window_ms;
     out.draws = static_cast<double>(s.draw_sum) / frames;
     out.recorded_draws = static_cast<double>(s.recorded_draw_sum) / frames;
-    out.frame_avg_ms = s.frame_sum_ms / frames;
-    out.frame_max_ms = s.frame_max_ms;
+    out.frame_avg_ms = s.presents != 0u ? s.present_sum_ms / presents : 0.0;
+    out.frame_max_ms = s.present_max_ms;
     const double gpu_wait_ms = to_ms(s.wait_sum) / frames;
-    out.wait_ms = gpu_wait_ms + to_ms(s.pacing_sum) / frames;
+    out.pacing_ms = to_ms(s.pacing_sum) / frames;
+    out.wait_ms = gpu_wait_ms + out.pacing_ms;
     // GPU waits happen inside the timed render calls; count them once. Pacing
     // happens outside them, so subtracting it too hid the render time
     // whenever the game was ahead of real time.
     out.render_ms = std::max(0.0, to_ms(s.render_sum) / frames - gpu_wait_ms);
-    out.guest_ms = std::max(0.0, out.frame_avg_ms - out.render_ms - out.wait_ms);
+    out.guest_ms = std::max(0.0, s.frame_sum_ms / frames - out.render_ms - out.wait_ms);
     out.overlay_ms = to_ms(s.overlay_sum) / frames;
     out.gpu_valid = !s.gpu_unavailable && s.gpu_frames != 0u;
     out.gpu_avg_ms = s.gpu_frames != 0u ? s.gpu_sum_ms / static_cast<double>(s.gpu_frames) : 0.0;
@@ -349,6 +383,8 @@ void end_frame(std::uint64_t virtual_us) {
     out.width = s.width;
     out.height = s.height;
     out.refresh_hz = s.refresh_hz;
+    out.frame_rate = s.frame_rate;
+    out.requested_rate = s.requested_rate;
     if (options().log) print(out);
     if (trace.enabled)
         std::cout << "[stalls] ms per frame over " << s.frames << " frames:" << format_stalls(s.stall_sum, frames, true)
@@ -359,7 +395,9 @@ void end_frame(std::uint64_t virtual_us) {
     s.window_virtual_us = virtual_us;
     s.frames = 0u;
     s.frame_sum_ms = 0.0;
-    s.frame_max_ms = 0.0;
+    s.presents = 0u;
+    s.present_sum_ms = 0.0;
+    s.present_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
     s.draw_sum = s.recorded_draw_sum = 0u;

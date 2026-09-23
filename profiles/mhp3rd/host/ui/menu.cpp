@@ -311,6 +311,40 @@ void Menu::video() {
             settings::save();
         }
     }
+    {
+        static const char *const kRates[] = {"30", "45", "60", "90", "120", "Match display"};
+        RowOptions o = options_for("video.frame_rate",
+                                   "Frames between the game's 30 a second, blending its movement. Steps down by "
+                                   "itself rather than slow the game.");
+        if (s.unthrottled && !o.disabled) {
+            o.disabled = true;
+            o.note = "Game speed is Unlimited";
+        }
+        const int current = static_cast<int>(s.frame_rate);
+        std::string value = kRates[current];
+        if (s.frame_rate == settings::FrameRate::Display && renderer().display_refresh() > 0.0f)
+            value += "  " + std::to_string(static_cast<int>(std::lround(renderer().display_refresh()))) + " Hz";
+        if (s.frame_rate != settings::FrameRate::Fps30 && !o.disabled) {
+            // Vsync caps the rate at the display's, and the renderer steps
+            // down rather than slow the game.
+            const double now = renderer().frame_rate_now();
+            const double chosen = s.frame_rate == settings::FrameRate::Display
+                                      ? static_cast<double>(renderer().display_refresh())
+                                      : std::stod(kRates[current]);
+            if (now + 0.5 < chosen) {
+                value += "   now " + std::to_string(static_cast<int>(std::lround(now)));
+                o.note = s.present_mode == settings::PresentMode::Fifo && renderer().display_refresh() > 0.0f &&
+                                 now + 0.5 >= static_cast<double>(renderer().display_refresh())
+                             ? "With Vsync on, no faster than the display refreshes."
+                             : "Stepped down to keep the game at full speed; tries again later.";
+            }
+        }
+        if (const int delta = choice_row("Frame rate", value, o)) {
+            s.frame_rate = static_cast<settings::FrameRate>(cycle(current, delta, 6));
+            renderer().set_frame_rate(s.frame_rate);
+            settings::save();
+        }
+    }
     if (choice_row("Game speed", s.unthrottled ? "Unlimited" : "Normal",
                    options_for("video.unthrottled", "Normal holds the game to real time. Unlimited lets it run as "
                                                     "fast as frames can be drawn, which also speeds up the game."))) {
@@ -344,6 +378,7 @@ void Menu::video() {
         restore("video.sharp_textures", s.sharp_textures, d.sharp_textures);
         restore("video.texture_pack", s.texture_pack, d.texture_pack);
         restore("video.present_mode", s.present_mode, d.present_mode);
+        restore("video.frame_rate", s.frame_rate, d.frame_rate);
         restore("video.unthrottled", s.unthrottled, d.unthrottled);
         restore("video.performance", s.perf, d.perf);
         renderer().set_internal_scale(s.internal_scale);
@@ -354,6 +389,7 @@ void Menu::video() {
         renderer().set_sharp_textures(s.sharp_textures);
         renderer().set_texture_pack(s.texture_pack);
         renderer().set_present_mode(s.present_mode);
+        renderer().set_frame_rate(s.frame_rate);
         renderer().set_perf_overlay(perf::options().overlay);
         settings::save();
     }

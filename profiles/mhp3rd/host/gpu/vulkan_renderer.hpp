@@ -3,10 +3,12 @@
 #include "ge_state.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -109,8 +111,27 @@ public:
     void read_back_framebuffer(std::uint32_t source, GuestMemory &memory);
     // Ends the frame and shows the target the guest just flipped to. Draws go to
     // a separate offscreen target per guest framebuffer address, so only the
-    // displayed one reaches the window.
-    void present(std::uint32_t display_address);
+    // displayed one reaches the window. `moment` is the real time the flip's
+    // emulated time stands for (Kernel::real_time_of). With frame
+    // interpolation the frame is shown by the presents that follow, between
+    // this flip and the next, which count themselves (perf::count_present);
+    // returns whether the flip itself presented the frame.
+    bool present(std::uint32_t display_address,
+                 std::optional<std::chrono::steady_clock::time_point> moment = std::nullopt);
+    // Frame interpolation (Video > Frame rate; gpu/frame_pacing.hpp). The
+    // kernel calls present_due() while the game's code runs, to make a
+    // present that has fallen due, and present_until() while it waits for
+    // real time, to make those due before `wake`, sleeping up to each.
+    void present_due();
+    void present_until(std::chrono::steady_clock::time_point wake);
+    // Drops the presents scheduled, as the game pauses.
+    void pause_interpolation();
+    void set_frame_rate(settings::FrameRate rate);
+    // The refresh rate of the window's display as SDL reports it, 0 when unknown.
+    [[nodiscard]] float display_refresh() const noexcept;
+    // The rate frames are presented at now: the setting's, or a slower one
+    // the renderer stepped down to so that the game keeps its speed.
+    [[nodiscard]] double frame_rate_now() const noexcept;
     // Shows a frame the game wrote to memory itself instead of drawing it
     // with the GE, as the movie player does: the next present of
     // `display_address` shows these `width` x `height` pixels (R, G, B, A in

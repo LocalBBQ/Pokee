@@ -340,6 +340,14 @@ void governor() {
     for (int i = 0; i < RateGovernor::kBlockSeconds; ++i) (void)governor.update(second_with(1.0, 20.0, 6.0, 0.4, 90.0));
     check(governor.rate() == 120.0, "once its wait is over, 120 is tried again");
 
+    RateGovernor busy;
+    busy.set_requested(90.0);
+    // Full speed, but only because the kernel never waits: 2 blended presents
+    // of 16 ms leave no time, and the game's frames drift later and later.
+    (void)busy.update(second_with(1.0, 0.2, 16.0, 2.0, 90.0));
+    check(busy.update(second_with(1.0, 0.2, 16.0, 2.0, 90.0)) && busy.rate() == 60.0,
+          "no spare time at full speed steps down too (90 to 60)");
+
     RateGovernor late;
     late.set_requested(90.0);
     Second skipping = second_with(1.0, 15.0, 2.0, 0.3, 90.0);

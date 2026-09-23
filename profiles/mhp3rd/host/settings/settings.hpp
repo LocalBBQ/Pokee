@@ -33,6 +33,11 @@ enum class RightStick { Camera, DPad, Off };
 enum class TriggerProfile { Standard, Bows, Bowguns };
 // What answers the game when it asks for text such as the hunter's name.
 enum class NameEntry { Keyboard, Fixed };
+// Presents per second. The game makes 30 frames a second; the faster rates
+// add frames in between with blended movement (frame interpolation), and
+// Display follows the display's refresh rate. 30 presents the game's frames
+// as they are, as before interpolation existed.
+enum class FrameRate { Fps30, Fps45, Fps60, Fps90, Fps120, Display };
 
 struct Settings {
     // Video
@@ -46,6 +51,7 @@ struct Settings {
     bool texture_pack{true};           // draw an installed HD texture pack's images instead of the game's
     std::string texture_pack_folder;   // a pack used where it is instead of textures/<disc id>; empty: none
     bool unthrottled{};                // let emulated time run ahead of real time
+    FrameRate frame_rate{FrameRate::Fps30};
     PerfDisplay perf{PerfDisplay::Off};
 
     // Text

@@ -395,6 +395,7 @@ void Kernel::wait_host(AllegrexContext &ctx, std::optional<std::uint64_t> timeou
 }
 
 void Kernel::schedule(AllegrexContext &ctx) {
+    if (poll_hook_) poll_hook_();
     for (;;) {
         if (runtime_->stopped()) return;
         process_timers();
@@ -470,8 +471,14 @@ bool Kernel::pace_to_real_time() {
     constexpr std::int64_t kMaxSleepUs = 100000;
     constexpr std::int64_t kMaxLagUs = 100000;
     if (ahead_us >= kMinSleepUs) {
-        std::this_thread::sleep_for(std::chrono::microseconds(std::min(ahead_us, kMaxSleepUs)));
-        perf::add_pacing_time(Clock::now() - now);
+        const Clock::time_point wake = now + std::chrono::microseconds(std::min(ahead_us, kMaxSleepUs));
+        Clock::time_point sleep_start = now;
+        if (idle_hook_) {
+            idle_hook_(wake);
+            sleep_start = Clock::now();
+        }
+        if (sleep_start < wake) std::this_thread::sleep_until(wake);
+        perf::add_pacing_time(Clock::now() - sleep_start);
     } else if (ahead_us < -kMaxLagUs) {
         pacing_real_base_ = now;
         pacing_virtual_base_ = now_us_;

@@ -216,7 +216,12 @@ void present_frame(Runtime &rt) {
     }
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
-    renderer.present(address);
+    // The real time the frame stands for, which frame interpolation spaces
+    // its presents by: that of the vblank the game's frame started from. The
+    // game starts a frame on every other vblank; the emulated time of the
+    // flip itself lands a millisecond or so after it, by however far the
+    // kernel's clock moved while the frame's code ran.
+    const bool presented = renderer.present(address, kernel().real_time_of(kernel().last_vblank_us()));
     // The frame's camera has been measured by now, so the hunt for the guest
     // variables behind it can compare RAM against it.
     probe::camera_frame(rt, media().ge.view_matrix_source());
@@ -237,8 +242,9 @@ void present_frame(Runtime &rt) {
         camera::advance(seconds, camera::game_camera_degrees_per_second());
     }
     perf::add_render_time(perf::Clock::now() - present_start);
-    // A frame ends when its image has been handed to the swapchain.
-    perf::end_frame(kernel().now_us());
+    // A frame ends when its image has been handed to the swapchain, or with
+    // frame interpolation when the presents after it are scheduled.
+    perf::end_frame(kernel().now_us(), presented);
 
     // Optional frame capture, independent of the window.
     static const char *screenshot_dir = std::getenv("MHP3RD_SCREENSHOT_DIR");
@@ -264,6 +270,7 @@ void present_frame(Runtime &rt) {
         if (ui::menu_pauses()) {
             // The menu pauses the game: guest code and emulated time stand
             // still while it runs in here, and the device stops playing.
+            renderer.pause_interpolation();
             audio::AudioSink::instance().set_paused(true);
             const bool keep_playing = ui::run_menu();
             audio::AudioSink::instance().set_paused(false);
@@ -669,6 +676,14 @@ gpu::VulkanRenderer *ensure_renderer() {
     }
     media().renderer = std::move(renderer);
     ui::attach(*media().renderer);
+    // Frame interpolation presents between flips: while the kernel waits for
+    // real time, and while the game's code runs.
+    kernel().set_idle_hook([](std::chrono::steady_clock::time_point wake) {
+        if (gpu::VulkanRenderer *active = active_renderer()) active->present_until(wake);
+    });
+    kernel().set_poll_hook([] {
+        if (gpu::VulkanRenderer *active = active_renderer()) active->present_due();
+    });
     return media().renderer.get();
 }
 #endif

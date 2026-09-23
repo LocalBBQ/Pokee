@@ -21,7 +21,10 @@ struct Options {
 // Host frame statistics, cheap enough to collect all the time.
 //
 // A frame is the interval between two guest flips (sceDisplaySetFrameBuf),
-// which is also where the renderer presents. Within it, time spent turning
+// which is also where the renderer presents; with frame interpolation it
+// presents between flips instead, and `fps`, the frame times and the graph
+// follow the presents while `game` and the time split follow the flips, the
+// presents' own time included. Within it, time spent turning
 // display lists into Vulkan commands and recording the present is "render",
 // time blocked on the GPU — the frame fence, swapchain acquire, queue submit
 // and present, and texture uploads waiting for the queue — or holding the
@@ -71,7 +74,15 @@ void count_recorded_draws(std::uint32_t count);
 
 // Closes the current frame. `virtual_us` is the kernel's clock, which the
 // game's own frame rate and the emulation speed are measured against.
-void end_frame(std::uint64_t virtual_us);
+// `presented`: the flip also put a picture on the screen, which it does
+// unless frame interpolation presents between flips.
+void end_frame(std::uint64_t virtual_us, bool presented = true);
+
+// A present between the game's flips (frame interpolation).
+void count_present();
+// The rate frame interpolation presents at now and the one the setting asks
+// for, shown on the perf line; 0 when it is off.
+void set_frame_rate_info(double rate, double requested);
 
 // Drops the frame and the second in progress, so time spent paused in the
 // in-game menu shows up in neither the frame times nor the next log line.
@@ -84,7 +95,8 @@ void set_display_info(const std::string &present_mode, std::uint32_t width, std:
 // Averages over the last whole second of real time.
 struct Summary {
     bool valid{};
-    double fps{};             // frames presented per real second
+    std::uint64_t second{};   // counts the summaries, so a reader can tell a new one
+    double fps{};             // presents per real second
     double game_fps{};        // guest flips per emulated second
     double speed{};           // emulated time per real time, 1.0 = real time
     double lists{};           // display lists enqueued per real second
@@ -95,7 +107,10 @@ struct Summary {
     double guest_ms{};
     double render_ms{};
     double wait_ms{};
+    double pacing_ms{};       // of wait: holding the game to real time, when it had nothing to do
     double overlay_ms{};
+    double frame_rate{};      // frame interpolation's rate now and the setting's, 0 when off
+    double requested_rate{};
     // GPU time per frame from timestamp queries, when the device has them.
     bool gpu_valid{};
     double gpu_avg_ms{};
