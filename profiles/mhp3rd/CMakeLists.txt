@@ -78,6 +78,7 @@ if(MHP3RD_RENDERER)
             host/ui/save_screen.cpp
             host/ui/setup_screens.cpp
             host/ui/text_input.cpp
+            host/ui/texture_pack_screen.cpp
             host/ui/widgets.cpp
             third_party/imgui/imgui.cpp
             third_party/imgui/imgui_draw.cpp
@@ -123,6 +124,7 @@ set(MHP3RD_HOST_SOURCES
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
     host/gpu/texture_pack.cpp
+    host/gpu/texture_pack_import.cpp
     host/perf/frame_stats.cpp
     host/perf/perf_overlay.cpp
     host/overlays.cpp
@@ -297,6 +299,22 @@ target_link_libraries(mhp3rd_aspect_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_aspect_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_aspect_tests COMMAND mhp3rd_aspect_tests)
+endif()
+
+# Texture pack import: finding a pack in the layouts packs come in, the
+# checks made before copying, and the copy, swap and backup. No game data.
+add_executable(mhp3rd_texture_pack_tests
+    tests/texture_pack_tests.cpp
+    host/gpu/texture_pack.cpp
+    host/gpu/texture_pack_import.cpp)
+target_include_directories(mhp3rd_texture_pack_tests PRIVATE
+    "${MHP3RD_PROFILE_DIR}/host"
+    "${MHP3RD_PROFILE_DIR}/host/gpu"
+    "${MHP3RD_PROFILE_DIR}/third_party")
+target_link_libraries(mhp3rd_texture_pack_tests PRIVATE psprecomp_core Threads::Threads)
+set_target_properties(mhp3rd_texture_pack_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_texture_pack_tests COMMAND mhp3rd_texture_pack_tests)
 endif()
 
 # Keyboard and mouse bindings: names, settings.ini spelling, the menu's

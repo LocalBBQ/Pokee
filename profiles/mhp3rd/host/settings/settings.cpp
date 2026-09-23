@@ -161,6 +161,12 @@ const std::vector<Field> &fields() {
          [](const Settings &s) { return std::string(s.texture_pack ? "1" : "0"); },
          // 0/off/no/false turn it off; anything else, a folder included, on.
          [](Settings &s, const char *t) { s.texture_pack = variable_flag(t); }},
+        {"video.texture_pack_folder", nullptr,
+         [](Settings &s, const std::string &t) {
+             s.texture_pack_folder = t;
+             return true;
+         },
+         [](const Settings &s) { return s.texture_pack_folder; }, nullptr},
         {"video.unthrottled", "MHP3RD_UNTHROTTLED",
          [](Settings &s, const std::string &t) { return parse_bool(t, s.unthrottled); },
          [](const Settings &s) { return std::string(s.unthrottled ? "1" : "0"); },

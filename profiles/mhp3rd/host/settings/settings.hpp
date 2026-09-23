@@ -44,6 +44,7 @@ struct Settings {
     bool sharp_screen{};               // nearest instead of linear scaling to the window
     bool sharp_textures{};             // nearest instead of linear texture sampling
     bool texture_pack{true};           // draw an installed HD texture pack's images instead of the game's
+    std::string texture_pack_folder;   // a pack used where it is instead of textures/<disc id>; empty: none
     bool unthrottled{};                // let emulated time run ahead of real time
     PerfDisplay perf{PerfDisplay::Off};
 

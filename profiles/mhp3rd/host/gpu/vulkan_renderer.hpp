@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -143,8 +144,18 @@ public:
     // For the menu: "Off", "Not installed", or how many textures the pack has
     // and how many of them are on the GPU.
     [[nodiscard]] std::string texture_pack_status() const;
-    // Where the player puts a pack: textures/<disc id> in the data directory.
-    [[nodiscard]] static std::string texture_pack_folder();
+    // Opens the pack again from the next frame, e.g. after an import.
+    void reload_texture_pack();
+    // While held, no pack is open, so an import can move its folder; true
+    // from texture_pack_held() once the pack has been closed.
+    void hold_texture_pack(bool hold);
+    [[nodiscard]] bool texture_pack_held() const;
+    // The folder the pack is read from (texture_pack_import.hpp): the
+    // installed one, textures/<disc id> in the data directory, or the one the
+    // player uses in place or MHP3RD_TEXTURE_PACK names.
+    [[nodiscard]] std::string texture_pack_folder() const;
+    // textures/ in the data directory.
+    [[nodiscard]] static std::filesystem::path textures_root();
     void set_perf_overlay(bool visible);
 
     // The shape the game's 3D view should have, width over height: the

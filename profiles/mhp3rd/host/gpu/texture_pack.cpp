@@ -253,6 +253,51 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
 
 std::unique_ptr<TexturePack> TexturePack::open(const std::filesystem::path &directory, const std::string &game_id,
                                                std::string &error) {
+    std::unique_ptr<TexturePack> pack = parse(directory, game_id, error);
+    if (!pack) return nullptr;
+    const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4u, 1u, 2u);
+    for (unsigned i = 0; i < threads; ++i) pack->loaders_.emplace_back([p = pack.get()] { p->loader_main(); });
+    return pack;
+}
+
+bool TexturePack::inspect(const std::filesystem::path &directory, const std::string &game_id, TexturePackInfo &info,
+                          std::string &error) {
+    info = {};
+    const std::unique_ptr<TexturePack> pack = parse(directory, game_id, error);
+    if (!pack) return false;
+    info.options = pack->options_;
+    info.keys = pack->entries_.size();
+    info.games = pack->games_;
+    std::vector<std::string> files;
+    files.reserve(pack->entries_.size());
+    for (const auto &[key, name] : pack->entries_)
+        if (!name.empty()) files.push_back(name);
+    std::sort(files.begin(), files.end());
+    files.erase(std::unique(files.begin(), files.end()), files.end());
+    info.files = std::move(files);
+    return true;
+}
+
+std::vector<std::string> texture_pack_games(const std::filesystem::path &ini) {
+    std::vector<std::string> games;
+    std::ifstream file(ini);
+    std::string line;
+    bool in_games = false;
+    while (std::getline(file, line)) {
+        line = trim(line);
+        if (line.empty() || line[0] == '#' || line[0] == ';') continue;
+        if (line.front() == '[') {
+            in_games = lower(line) == "[games]";
+            continue;
+        }
+        const std::size_t equals = line.find('=');
+        if (in_games && equals != std::string::npos) games.push_back(trim(line.substr(0, equals)));
+    }
+    return games;
+}
+
+std::unique_ptr<TexturePack> TexturePack::parse(const std::filesystem::path &directory, const std::string &game_id,
+                                                std::string &error) {
     std::unique_ptr<TexturePack> pack(new TexturePack());
     pack->directory_ = directory;
     std::error_code ec;
@@ -281,7 +326,8 @@ std::unique_ptr<TexturePack> TexturePack::open(const std::filesystem::path &dire
             if (!in_games) continue;
             const std::size_t equals = line.find('=');
             if (equals == std::string::npos) continue;
-            if (trim(line.substr(0, equals)) != game_id) continue;
+            pack->games_.push_back(trim(line.substr(0, equals)));
+            if (pack->games_.back() != game_id) continue;
             const std::string name = trim(line.substr(equals + 1u));
             if (name.empty() || name == "true" || name == "textures.ini") continue;
             if (name.find("..") != std::string::npos) {
@@ -296,8 +342,6 @@ std::unique_ptr<TexturePack> TexturePack::open(const std::filesystem::path &dire
         error = "no textures.ini and no hash-named images in " + directory.string();
         return nullptr;
     }
-    const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4u, 1u, 2u);
-    for (unsigned i = 0; i < threads; ++i) pack->loaders_.emplace_back([p = pack.get()] { p->loader_main(); });
     return pack;
 }
 

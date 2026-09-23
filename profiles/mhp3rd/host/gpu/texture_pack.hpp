@@ -113,12 +113,28 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
                               const TexturePackOptions &options, TexturePackKey &key, std::uint32_t &covered_width,
                               std::uint32_t &covered_height);
 
+// What a pack holds, for checking one before it is installed.
+struct TexturePackInfo {
+    TexturePackOptions options;
+    std::size_t keys{};               // texture keys, from textures.ini and hash-named images
+    std::vector<std::string> files;   // image files the keys name, relative to the pack, each once
+    std::vector<std::string> games;   // the game IDs textures.ini's [games] lists
+};
+
+// The game IDs a textures.ini's [games] section lists; empty when it has none
+// or cannot be read.
+[[nodiscard]] std::vector<std::string> texture_pack_games(const std::filesystem::path &ini);
+
 class TexturePack {
 public:
     // Reads textures.ini (and the hash-named images in the folder itself) from
     // `directory`. Returns null with `error` set when there is no usable pack.
     static std::unique_ptr<TexturePack> open(const std::filesystem::path &directory, const std::string &game_id,
                                              std::string &error);
+    // Reads a pack as open() does, without starting anything. False with
+    // `error` set when open() would refuse it.
+    static bool inspect(const std::filesystem::path &directory, const std::string &game_id, TexturePackInfo &info,
+                        std::string &error);
     ~TexturePack();
     TexturePack(const TexturePack &) = delete;
     TexturePack &operator=(const TexturePack &) = delete;
@@ -142,6 +158,9 @@ public:
 
 private:
     TexturePack() = default;
+    // open() without the loader threads.
+    static std::unique_ptr<TexturePack> parse(const std::filesystem::path &directory, const std::string &game_id,
+                                              std::string &error);
     struct KeyHash {
         std::size_t operator()(const TexturePackKey &key) const noexcept {
             return static_cast<std::size_t>(key.cache_key * 0x9E3779B97F4A7C15ull ^ key.data_hash);
@@ -159,6 +178,7 @@ private:
 
     std::filesystem::path directory_;
     TexturePackOptions options_;
+    std::vector<std::string> games_;  // [games]
     // Key -> file name relative to the pack; an empty name means "keep the
     // original texture".
     std::unordered_map<TexturePackKey, std::string, KeyHash> entries_;

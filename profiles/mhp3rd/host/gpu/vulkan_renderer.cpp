@@ -3,6 +3,7 @@
 #include "replacement_textures.hpp"
 #include "texture_decode.hpp"
 #include "texture_pack.hpp"
+#include "texture_pack_import.hpp"
 
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
@@ -718,6 +719,9 @@ struct VulkanRenderer::Impl {
     ReplacementTextures replacements;
     bool pack_wanted{};
     bool pack_applied{};
+    bool pack_held{};    // an import is swapping the pack's folder: none is open
+    bool pack_reload{};  // open the pack again, e.g. after an import
+    TexturePackLocation pack_location;
     std::string pack_status;
     std::uint64_t replaced_draws{};  // this second, for MHP3RD_TRACE_TEXTURE_PACK
     void apply_texture_pack();
@@ -1982,8 +1986,10 @@ VkDescriptorSet VulkanRenderer::Impl::texture_descriptor(const GuestMemory &memo
 }
 
 void VulkanRenderer::Impl::apply_texture_pack() {
-    if (pack_applied == pack_wanted) return;
-    pack_applied = pack_wanted;
+    const bool wanted = pack_wanted && !pack_held;
+    if (pack_applied == wanted && !pack_reload) return;
+    pack_applied = wanted;
+    pack_reload = false;
     // Every cached texture is dropped, so the next draws decode the originals
     // again and, with the pack on, look them up in it. Off draws exactly what
     // no pack draws.
@@ -1994,22 +2000,23 @@ void VulkanRenderer::Impl::apply_texture_pack() {
     list_texture_keys.clear();
     pack.reset();
     pack_status.clear();
-    if (!pack_wanted) {
-        pack_status = "Off";
+    if (!wanted) {
+        pack_status = pack_held ? "Updating" : "Off";
         return;
     }
-    // MHP3RD_TEXTURE_PACK may name the folder; otherwise the pack lives in
-    // textures/<disc id>/ in the per-user data directory.
-    std::filesystem::path folder = install::user_data_directory() / "textures" / install::kDiscId;
-    if (const char *variable = std::getenv("MHP3RD_TEXTURE_PACK"); variable != nullptr) {
-        const std::string value = variable;
-        if (!value.empty() && value != "1" && value != "on" && value != "yes" && value != "true") folder = value;
-    }
+    // MHP3RD_TEXTURE_PACK may name the folder, or the player may use a pack
+    // where it is; otherwise the pack lives in textures/<disc id>/ in the
+    // per-user data directory (texture_pack_import.hpp).
+    pack_location = texture_pack_location(VulkanRenderer::textures_root(), install::kDiscId,
+                                          settings::current().texture_pack_folder);
+    const std::filesystem::path &folder = pack_location.folder;
     std::string error;
     pack = TexturePack::open(folder, install::kDiscId, error);
     if (!pack) {
         std::error_code ec;
-        pack_status = std::filesystem::is_directory(folder, ec) ? "Not loaded: " + error : "Not installed";
+        if (std::filesystem::is_directory(folder, ec)) pack_status = "Not loaded: " + error;
+        else if (pack_location.source == TexturePackLocation::Source::Installed) pack_status = "Not installed";
+        else pack_status = "Folder missing: " + install::path_to_utf8(folder);
         std::cout << "[texpack] " << error << "\n";
         return;
     }
@@ -2756,14 +2763,30 @@ void VulkanRenderer::set_texture_pack(bool enabled) {
 std::string VulkanRenderer::texture_pack_status() const {
     if (!impl_) return {};
     const Impl &impl = *impl_;
-    if (impl.pack_wanted != impl.pack_applied) return impl.pack_wanted ? "Loading" : "Off";
+    if (impl.pack_held) return "Updating";
+    if (impl.pack_wanted != impl.pack_applied || impl.pack_reload) return impl.pack_wanted ? "Loading" : "Off";
     if (!impl.pack) return impl.pack_status;
     return impl.pack_status + ", " + std::to_string(impl.replacements.resident_count()) + " on the GPU (" +
            std::to_string(impl.replacements.resident_bytes() >> 20u) + " MB)";
 }
 
-std::string VulkanRenderer::texture_pack_folder() {
-    return (install::user_data_directory() / "textures" / install::kDiscId).string();
+void VulkanRenderer::reload_texture_pack() {
+    if (impl_) impl_->pack_reload = true;
+}
+
+void VulkanRenderer::hold_texture_pack(bool hold) {
+    if (impl_) impl_->pack_held = hold;
+}
+
+bool VulkanRenderer::texture_pack_held() const {
+    return impl_ && impl_->pack_held && !impl_->pack_applied && !impl_->pack;
+}
+
+std::filesystem::path VulkanRenderer::textures_root() { return install::user_data_directory() / "textures"; }
+
+std::string VulkanRenderer::texture_pack_folder() const {
+    const std::string in_place = settings::current().texture_pack_folder;
+    return install::path_to_utf8(texture_pack_location(textures_root(), install::kDiscId, in_place).folder);
 }
 
 void VulkanRenderer::set_sharp_textures(bool sharp) {

@@ -75,6 +75,19 @@ For the manual check, unplug the gamepad (or leave it untouched) and play from t
 
 With `MHP3RD_TRACE_PAD=1` the console shows `[pad] pointer captured` and `[pad] pointer free` as the pointer changes hands, and the mouse's motion in counts and degrees.
 
+### Texture pack import (#49)
+
+`mhp3rd_texture_pack_tests` (CTest) checks the import without game data or a window: finding a pack in each layout (the pack folder, `textures/NPJB40001`, `NPJB40001`, `PSP/TEXTURES/NPJB40001`, in any case), a pack named for `ULJM05800` taken only when its `[games]` lists `NPJB40001`, `quick` and hashless packs refused, zipped packs refused with "unpack it first", key, image, size and missing-image counts, the copy into a staging folder, the swap that moves the old pack to `textures/.backup/<date>_<time>/NPJB40001`, cancelling, and where the pack is read from with `MHP3RD_TEXTURE_PACK` and a pack used in place. `mhp3rd_texture_pack_tests --check <folder>` prints what the menu would find in a real folder and reads nothing else.
+
+For the manual check, use a throwaway data folder (`MHP3RD_DATA_DIR`, with a copy of `settings.ini`, `EBOOT.ELF` and the disc image) and a real pack, then in **Video**:
+
+- *Import texture pack…* with the gamepad only: browse to the pack, open its folder (it is chosen at once), and read the review: the key count, hash, images, size, missing images, free space and the pack in use now. Back returns to the folders; *Cancel* imports nothing.
+- Choose the pack's parent folder, a folder holding `PSP/TEXTURES/NPJB40001`, and a copy renamed `ULJM05800` with and without `NPJB40001 = true` under `[games]`: the first three are found, the last is refused with its reason. A copy whose `textures.ini` says `hash = quick` is refused.
+- *Copy into Yakumo's data folder*: the progress bar moves, the game keeps drawing (or stays paused) without stutter, Esc/Start do not close the menu. Cancel half way: the console logs `[texpack] copy cancelled`, the result says nothing changed, `textures/` holds no `.incomplete-…` folder and the old pack still draws.
+- Copy again to the end: the Texture pack row shows the new count within a frame or two and the textures change on screen. Import a second time: the first pack is in `textures/.backup/<date>_<time>/NPJB40001`, whole.
+- *Use it where it is*: nothing is copied, `settings.ini` has `video.texture_pack_folder`, the textures stay. Rename the pack folder and turn *Texture pack* off and on: the row says *Folder missing: …*. *Stop using the pack folder* goes back to the installed pack.
+- With the keyboard and mouse: the same with clicks, and drag the pack folder from the file manager onto the window while the browser is open.
+
 ## Reporting
 
 Open a **Test report** issue with the platform, hardware, commit and the steps you reached. If a result changes a cell in [the compatibility table](COMPATIBILITY.md), update the table in a pull request as well.

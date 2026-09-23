@@ -301,6 +301,7 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Video | Scaling filter | `video.sharp_screen` | | Smooth or sharp scaling of the finished picture to the window |
 | Video | Texture filter | `video.sharp_textures` | | Smooth (bilinear) or sharp (nearest) texture sampling |
 | Video | Texture pack | `video.texture_pack` | `MHP3RD_TEXTURE_PACK` | On (default) or off: draw an installed [HD texture pack](#hd-texture-packs) instead of the game's textures. The footer shows how many textures the pack has and how many are on the GPU, or where the pack was looked for |
+| Video | Import texture pack… | `video.texture_pack_folder` | `MHP3RD_TEXTURE_PACK` (a folder) | Empty (default): the pack in `textures/NPJB40001`. A folder: the pack [imported to be used where it is](#importing-a-texture-pack). *Stop using the pack folder* empties it |
 | Video | Vsync | `video.present_mode` | | On (FIFO), or off through mailbox or immediate presentation where the driver offers them |
 | Video | Game speed | `video.unthrottled` | `MHP3RD_UNTHROTTLED` | Normal (held to real time) or unlimited |
 | Video | Performance | `video.performance` | `MHP3RD_PERF` | Off, overlay, overlay and log, log only |
@@ -347,7 +348,7 @@ How the text is laid out, as traced with `MHP3RD_TRACE_FONT=1`: the game sizes a
 
 ## HD texture packs
 
-Yakumo loads HD texture packs made for PPSSPP, in its `textures.ini` format, without conversion. None is included or downloaded: install one yourself by copying the pack's folder, the one that holds `textures.ini`, to `textures/NPJB40001` in the [per-user directory](#installer):
+Yakumo loads HD texture packs made for PPSSPP, in its `textures.ini` format, without conversion. None is included or downloaded: install one from the menu (below), or copy the pack's folder, the one that holds `textures.ini`, to `textures/NPJB40001` in the [per-user directory](#installer) yourself:
 
 | System | Pack folder |
 | --- | --- |
@@ -356,7 +357,25 @@ Yakumo loads HD texture packs made for PPSSPP, in its `textures.ini` format, wit
 | Flatpak | `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/textures/NPJB40001/` (a copy, not a link to a folder outside the sandbox) |
 | Windows | `%APPDATA%\Yakumo\MHP3rd\textures\NPJB40001\` |
 
-*Open the data folder* in the menu's System section opens the per-user directory. A pack made for the PSP release (`ULJM05800`) works only if it says it supports `NPJB40001` too; rename its folder. *Texture pack* in the Video section turns the pack on and off while the game runs; off draws exactly the game's own textures again. The footer under that setting shows how many textures the pack lists, or *No pack in …* with the folder Yakumo looked in.
+*Open the textures folder* in the menu's Video section opens `textures`. A pack made for the PSP release (`ULJM05800`) works only if its `textures.ini` lists `NPJB40001` under `[games]`; the import installs such a pack as `NPJB40001` by itself. *Texture pack* in the Video section turns the pack on and off while the game runs; off draws exactly the game's own textures again. The footer under that setting shows how many textures the pack lists, *No pack in …* with the folder Yakumo looked in, or *Folder missing: …* when a pack used in place has moved.
+
+### Importing a texture pack
+
+The in-game menu does it (Esc, or L3+R3 on a gamepad; Video section, under *Texture pack*), with a gamepad alone or with the keyboard and mouse:
+
+1. Unpack the pack if it came as a `.zip`: zipped packs are not read.
+2. Choose *Import texture pack…*. The file browser lists folders and starts in Downloads. Opening a folder that holds `textures.ini` chooses it; *Import from this folder* chooses the folder shown. Dropping the folder on the window chooses it too. The pack is found in any of these layouts:
+   - the pack folder itself, the one holding `textures.ini`;
+   - a folder holding `textures/NPJB40001/` (a copy of another Yakumo data folder) or `NPJB40001/` (a `TEXTURES` folder);
+   - PPSSPP's memory stick, or its `PSP` folder: `PSP/TEXTURES/NPJB40001/`;
+   - a pack folder named for another release, such as `ULJM05800`, whose `textures.ini` lists `NPJB40001` under `[games]`, chosen itself or found in any of the places above. It is installed as `NPJB40001`.
+3. The pack is checked, then shown beside the pack in use now. Nothing is copied until you choose. The review shows the pack's folder, its number of texture keys and hash, the number of image files and the size of the whole folder, and how many images `textures.ini` names that are not in the folder (those textures keep the game's own look). A pack is refused, with the reason, when its `textures.ini` cannot be read, names no hash or uses the old `quick` hash, when it is `textures.zip`, or when it is named for another release and does not list `NPJB40001`.
+4. Choose how to install it:
+   - **Copy into Yakumo's data folder** (*Copy and replace* when a pack is installed): copies the pack to `textures/NPJB40001`, leaving hidden files such as `.DS_Store` out. It needs the pack's size plus 64 MB free in the data folder and is refused otherwise. The copy runs in the background with a progress bar; the game keeps running (or stays paused) and the menu stays open until it ends. *Cancel* stops it at once.
+   - **Use it where it is**: copies nothing and reads the pack from its folder from then on (`video.texture_pack_folder` in `settings.ini`), which saves the space of a large pack. The folder must stay where it is; if it moves, the Texture pack row says *Folder missing* and no pack is drawn. *Stop using the pack folder* goes back to the pack in the data folder.
+5. The pack is turned on and applies at once: textures already on screen change within a frame or two, and the Texture pack row shows the new count.
+
+**Nothing is deleted.** A copy goes to a hidden `textures/.incomplete-<date>_<time>` folder first; the pack in use stays in place until the copy is complete, so a cancelled or failed copy leaves it as it was (and removes only its own partial copy). Once the copy is complete, the pack it replaces is moved to `textures/.backup/<date>_<time>/NPJB40001/`, for example `.backup/2026-09-23_19-05-12/NPJB40001/`; import that folder to go back to it. A pack used in place is never moved or changed. `MHP3RD_TEXTURE_PACK` set to a folder still decides which pack is read for the run; the review says so.
 
 How it works:
 
@@ -566,7 +585,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_NO_LIGHTING` | off | Draw lit geometry with the flat white stand-in used before lighting existed, and without fog, to compare a scene with and without them |
 | `MHP3RD_NO_FOG` | off | Turn fog off and keep lighting |
 | `MHP3RD_NO_FB_TEXTURES` | off | Decode every texture from guest memory, as before, instead of sampling the render target when the game textures from a framebuffer it drew, and stop writing framebuffers back to guest memory for the shown frame and for GE block transfers |
-| `MHP3RD_TEXTURE_PACK` | unset | `0` turns the [HD texture pack](#hd-texture-packs) off, `1` on; a folder path loads the pack from that folder instead (menu: Texture pack) |
+| `MHP3RD_TEXTURE_PACK` | unset | `0` turns the [HD texture pack](#hd-texture-packs) off, `1` on; a folder path loads the pack from that folder instead, ahead of an imported one (menu: Texture pack) |
 | `MHP3RD_TEXTURE_PACK_MEMORY` | `1024` | Megabytes of GPU memory for texture pack images; the least recently drawn are dropped above it |
 | `MHP3RD_TEXTURE_DUMP` | unset | Write every texture the game uploads, once, as a PNG named by its texture pack key into this folder, to start a pack from |
 | `MHP3RD_NO_SPRITE_CLAMP` | off | Let 2D tiles sample outside their own texels, as before; above ×1 this shows faint lines along the tile edges of 2D screens |
@@ -740,6 +759,7 @@ host/save_data/                  AES-128, PARAM.SFO, the save-data encryption an
 host/gpu/ge_state.{hpp,cpp}      GE command state machine: display lists to draw calls
 host/gpu/vulkan_renderer.*       Vulkan backend, window and input
 host/gpu/texture_pack.*          HD texture packs: textures.ini, texture keys, background image decoding, texture dumps
+host/gpu/texture_pack_import.*   Texture pack import: finding a pack in a folder, its checks, the copy, swap and backup
 host/gpu/replacement_textures.*  Texture pack images on the GPU: uploads with mip levels, memory budget
 host/gpu/shaders/                GLSL, compiled to SPIR-V and embedded at build time
 host/perf/frame_stats.*          Frame timing, the per-second summary and the [perf] log line

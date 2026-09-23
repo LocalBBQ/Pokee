@@ -8,6 +8,7 @@
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
 #include "ui/save_screen.hpp"
+#include "ui/texture_pack_screen.hpp"
 #include "ui/text_input.hpp"
 #include "ui/widgets.hpp"
 
@@ -136,7 +137,9 @@ bool Menu::frame() {
         text_input_frame();
         return true;
     }
-    if (layer.take_menu_toggle()) return false;
+    // A texture pack copy keeps the menu open until it ends.
+    texture_pack_import_tick();
+    if (layer.take_menu_toggle() && !texture_pack_import_busy()) return false;
     const bool back = layer.take_back();
     // The pad's back button closes the menu too, once nothing is being edited.
     const ImGuiKey cancel = layer.confirm_south() ? ImGuiKey_GamepadFaceRight : ImGuiKey_GamepadFaceDown;
@@ -144,7 +147,8 @@ bool Menu::frame() {
     const bool start = ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false);
     // Back closes the font list, or the save import and export, before it
     // closes the menu.
-    const bool font_list_was_open = (tab_ == 0 && font_list_open()) || (tab_ == 4 && save_screen_open());
+    const bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
+                                    (tab_ == 4 && save_screen_open());
     back_ = back || pad_back;
 
     begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
@@ -180,6 +184,7 @@ bool Menu::frame() {
     } else if (!font_list_was_open && (((back || pad_back) && !was_editing_) || start)) {
         close_ = true;
     }
+    if (close_ && !quit_ && texture_pack_import_busy()) close_ = false;
     if (!confirm_dialog()) return false;
     was_editing_ = ImGui::IsAnyItemActive();
     return !close_;
@@ -187,6 +192,7 @@ bool Menu::frame() {
 
 void Menu::video() {
     if (font_list(back_)) return;
+    if (texture_pack_screen(back_)) return;
     settings::Settings &s = settings::current();
     section("Picture");
     {
@@ -263,12 +269,13 @@ void Menu::video() {
     {
         RowOptions o = options_for("video.texture_pack",
                                    "Draws an HD texture pack in PPSSPP's format from textures/NPJB40001 in the data "
-                                   "folder instead of the game's textures.");
+                                   "folder, or the folder it was imported to be used from, instead of the game's "
+                                   "textures.");
         // The footer shows the note under the description: what is loaded,
         // or where the pack was looked for.
         if (o.note.empty()) {
             const std::string status = renderer().texture_pack_status();
-            o.note = status == "Not installed" ? "No pack in " + gpu::VulkanRenderer::texture_pack_folder() : status;
+            o.note = status == "Not installed" ? "No pack in " + renderer().texture_pack_folder() : status;
         }
         if (choice_row("Texture pack", s.texture_pack ? "On" : "Off", o)) {
             s.texture_pack = !s.texture_pack;
@@ -276,6 +283,7 @@ void Menu::video() {
             settings::save();
         }
     }
+    texture_pack_rows();
     section("Timing");
     {
         struct Mode {
