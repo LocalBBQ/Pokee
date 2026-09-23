@@ -55,6 +55,9 @@ constexpr std::uint32_t kSettleFrames = 12u;
 // instead of keeping the interface's proportions.
 constexpr float kScreenWideDraw = 470.0f;
 constexpr VkDeviceSize kVertexBufferBytes = 16u * 1024u * 1024u;
+// Index lists of merged draws (see submit()), kept apart from the vertices so
+// that the draws of one group have consecutive indices.
+constexpr VkDeviceSize kIndexBufferBytes = 4u * 1024u * 1024u;
 constexpr std::size_t kMaxCachedTextures = 1024u;
 // Descriptor sets for sampling render targets as textures: two per target
 // (with its alpha, and with alpha forced to one for 5650 textures).
@@ -759,6 +762,82 @@ struct VulkanRenderer::Impl {
     void forget_bindings() {
         bound_pipeline = VK_NULL_HANDLE;
         lighting_bound = false;
+        state_known = false;
+    }
+
+    // Draw merging (MHP3RD_NO_DRAW_MERGE turns it off). A transformed draw
+    // whose recorded state equals the previous one's, and whose vertices
+    // follow the previous draw's in the vertex buffer, joins its group: its
+    // indices, rebased onto the group's first vertex, follow the group's in
+    // the index buffer, and the whole group is one vkCmdDrawIndexed. The
+    // triangles, their order and their vertex data are unchanged. The state a
+    // draw is recorded with is also compared with what the command buffer
+    // already has, and only what differs is set.
+    struct DrawState {
+        VkPipeline pipeline{};
+        VkDescriptorSet texture{};
+        std::array<std::uint32_t, 2> lighting{};
+        VkViewport viewport{};
+        VkRect2D scissor{};
+        std::array<float, 4> blend{};
+        PushConstants push{};
+    };
+    DrawState recorded{};
+    bool state_known{};
+    struct DrawGroup {
+        bool open{};
+        VkDeviceSize vertex_base{};  // bytes into the vertex buffer
+        VkDeviceSize vertex_end{};
+        VkDeviceSize index_base{};   // bytes into the index buffer
+        std::uint32_t index_count{};
+        std::uint32_t draws{};
+    };
+    DrawGroup group{};
+    VkBuffer index_buffer{};
+    VkDeviceMemory index_memory{};
+    void *index_mapped{};
+    VkDeviceSize index_offset{};
+    void flush_group() {
+        if (!group.open) return;
+        group.open = false;
+        vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer, &group.vertex_base);
+        vkCmdBindIndexBuffer(command_buffer, index_buffer, group.index_base, VK_INDEX_TYPE_UINT16);
+        vkCmdDrawIndexed(command_buffer, group.index_count, 1u, 0u, 0, 0u);
+        perf::count_recorded_draws(1u);
+    }
+    // Sets what differs between `state` and what is recorded already.
+    void record_state(const DrawState &state) {
+        if (!state_known || std::memcmp(&state.viewport, &recorded.viewport, sizeof(VkViewport)) != 0)
+            vkCmdSetViewport(command_buffer, 0u, 1u, &state.viewport);
+        if (!state_known || state.blend != recorded.blend)
+            vkCmdSetBlendConstants(command_buffer, state.blend.data());
+        if (!state_known || std::memcmp(&state.scissor, &recorded.scissor, sizeof(VkRect2D)) != 0)
+            vkCmdSetScissor(command_buffer, 0u, 1u, &state.scissor);
+        if (state.pipeline != bound_pipeline) {
+            vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.pipeline);
+            bound_pipeline = state.pipeline;
+        }
+        if (!state_known || state.texture != recorded.texture)
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0u, 1u,
+                                    &state.texture, 0u, nullptr);
+        if (!lighting_bound || state.lighting != bound_lighting_offsets) {
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1u, 1u,
+                                    &lighting_descriptor, static_cast<std::uint32_t>(state.lighting.size()),
+                                    state.lighting.data());
+            bound_lighting_offsets = state.lighting;
+            lighting_bound = true;
+        }
+        if (!state_known || std::memcmp(&state.push, &recorded.push, sizeof(PushConstants)) != 0)
+            vkCmdPushConstants(command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0u, sizeof(PushConstants), &state.push);
+        recorded = state;
+        state_known = true;
+    }
+    [[nodiscard]] static bool same_state(const DrawState &a, const DrawState &b) {
+        return a.pipeline == b.pipeline && a.texture == b.texture && a.lighting == b.lighting &&
+               std::memcmp(&a.viewport, &b.viewport, sizeof(VkViewport)) == 0 &&
+               std::memcmp(&a.scissor, &b.scissor, sizeof(VkRect2D)) == 0 && a.blend == b.blend &&
+               std::memcmp(&a.push, &b.push, sizeof(PushConstants)) == 0;
     }
 
     Texture white_texture{};
@@ -1361,6 +1440,19 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     vkBindBufferMemory(impl.device, impl.vertex_buffer, impl.vertex_memory, 0u);
     vkMapMemory(impl.device, impl.vertex_memory, 0u, kVertexBufferBytes, 0u, &impl.vertex_mapped);
 
+    buffer_info.size = kIndexBufferBytes;
+    buffer_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    if (!check(vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.index_buffer), "vkCreateBuffer", error))
+        return false;
+    vkGetBufferMemoryRequirements(impl.device, impl.index_buffer, &requirements);
+    allocate.allocationSize = requirements.size;
+    allocate.memoryTypeIndex = impl.find_memory_type(
+        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (!check(vkAllocateMemory(impl.device, &allocate, nullptr, &impl.index_memory), "vkAllocateMemory", error))
+        return false;
+    vkBindBufferMemory(impl.device, impl.index_buffer, impl.index_memory, 0u);
+    vkMapMemory(impl.device, impl.index_memory, 0u, kIndexBufferBytes, 0u, &impl.index_mapped);
+
     {
         VkPhysicalDeviceProperties device_properties{};
         vkGetPhysicalDeviceProperties(impl.physical_device, &device_properties);
@@ -1922,6 +2014,7 @@ void VulkanRenderer::Impl::begin_pass(std::uint32_t address) {
 }
 
 void VulkanRenderer::Impl::end_pass() {
+    flush_group();
     if (!pass_active) return;
     vkCmdEndRenderPass(command_buffer);
     pass_active = false;
@@ -3152,6 +3245,7 @@ void VulkanRenderer::begin_frame() {
         impl.begin_gpu_segment(impl.command_buffer);
     }
     impl.vertex_offset = 0u;
+    impl.index_offset = 0u;
     impl.environment_version = 0u;
     impl.object_valid = false;
     impl.forget_bindings();
@@ -3645,25 +3739,33 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         }
     }
 
+    static const bool no_merge_env = std::getenv("MHP3RD_NO_DRAW_MERGE") != nullptr;
+    const bool merge = !no_merge_env && !perf::alternate_off(perf::NewPath::Merge);
     VkDeviceSize vertex_start = impl.vertex_offset;
     VkDeviceSize index_start = 0u;
     VkDeviceSize draw_end = 0u;
     std::uint32_t draw_count = 0u;
     if (direct) {
         // Floats want 4-byte alignment and index buffer offsets a multiple of
-        // the index size; a vertex run starts on 16 bytes.
+        // the index size; a vertex run starts on 16 bytes. Merged draws keep
+        // their indices in the index buffer, written once the draw's group is
+        // known.
         vertex_start = (impl.vertex_offset + 15u) & ~VkDeviceSize{15u};
-        index_start = (vertex_start + call.vertices.size() * sizeof(GpuVertex) + 3u) & ~VkDeviceSize{3u};
-        draw_end = index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
+        const VkDeviceSize vertex_end = vertex_start + call.vertices.size() * sizeof(GpuVertex);
+        index_start = (vertex_end + 3u) & ~VkDeviceSize{3u};
+        draw_end = merge ? vertex_end : index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
         if (draw_end > kVertexBufferBytes) return;
+        if (merge && impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > kIndexBufferBytes)
+            return;
         auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
         for (const Vertex &vertex : call.vertices) {
             const GpuVertex converted = to_gpu(vertex);
             std::memcpy(out, &converted, sizeof(GpuVertex));
             out += sizeof(GpuVertex);
         }
-        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + index_start, impl.direct_indices.data(),
-                    impl.direct_indices.size() * sizeof(std::uint16_t));
+        if (!merge)
+            std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + index_start, impl.direct_indices.data(),
+                        impl.direct_indices.size() * sizeof(std::uint16_t));
         draw_count = static_cast<std::uint32_t>(impl.direct_indices.size());
     } else {
         const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
@@ -3808,7 +3910,6 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             vk_viewport.maxDepth = std::clamp((vp.z_offset + vp.z_scale) / 65535.0f, 0.0f, 1.0f);
         }
     }
-    vkCmdSetViewport(impl.command_buffer, 0u, 1u, &vk_viewport);
 
     // Whichever side asked for the constant decides its colour; the source wins
     // when both do, because the destination is then its complement.
@@ -3817,7 +3918,6 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     const std::array<float, 4> blend_constants{static_cast<float>(constant_color & 0xFFu) / 255.0f,
                                                static_cast<float>((constant_color >> 8u) & 0xFFu) / 255.0f,
                                                static_cast<float>((constant_color >> 16u) & 0xFFu) / 255.0f, 1.0f};
-    vkCmdSetBlendConstants(impl.command_buffer, blend_constants.data());
 
     const auto clamp_axis = [](std::uint32_t value, std::uint32_t limit) { return std::min(value, limit); };
     const std::uint32_t sx1 = clamp_axis(call.viewport.scissor_x1, kPspWidth - 1u);
@@ -3847,6 +3947,54 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     VkRect2D vk_scissor{};
     vk_scissor.offset = {left, top};
     vk_scissor.extent = {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
+    const std::array<std::uint32_t, 2> lighting_offsets{impl.environment_offset, impl.object_offset};
+    if (merge) {
+        const Impl::DrawState state{pipeline, texture_descriptor, lighting_offsets, vk_viewport, vk_scissor,
+                                    blend_constants, push};
+        if (!direct) {
+            impl.flush_group();
+            impl.record_state(state);
+            vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &vertex_start);
+            vkCmdDraw(impl.command_buffer, draw_count, 1u, 0u, 0u);
+            perf::count_recorded_draws(1u);
+        } else {
+            Impl::DrawGroup &group = impl.group;
+            const auto vertex_count = static_cast<std::uint32_t>(call.vertices.size());
+            std::uint32_t rebase = 0u;
+            bool join = group.open && vertex_start == group.vertex_end && impl.state_known &&
+                        Impl::same_state(state, impl.recorded);
+            if (join) {
+                rebase = static_cast<std::uint32_t>((vertex_start - group.vertex_base) / sizeof(GpuVertex));
+                join = rebase + vertex_count <= 65536u;
+            }
+            if (!join) {
+                impl.flush_group();
+                impl.record_state(state);
+                // Metal wants index buffer offsets on 4 bytes.
+                impl.index_offset = (impl.index_offset + 3u) & ~VkDeviceSize{3u};
+                group = Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u};
+                rebase = 0u;
+            }
+            auto *indices = reinterpret_cast<std::uint8_t *>(impl.index_mapped) + impl.index_offset;
+            if (rebase == 0u) {
+                std::memcpy(indices, impl.direct_indices.data(), impl.direct_indices.size() * sizeof(std::uint16_t));
+            } else {
+                for (std::uint16_t &index : impl.direct_indices) index = static_cast<std::uint16_t>(index + rebase);
+                std::memcpy(indices, impl.direct_indices.data(), impl.direct_indices.size() * sizeof(std::uint16_t));
+            }
+            impl.index_offset += impl.direct_indices.size() * sizeof(std::uint16_t);
+            group.vertex_end = draw_end;
+            group.index_count += draw_count;
+            ++group.draws;
+        }
+        impl.vertex_offset = draw_end;
+        ++impl.draws;
+        perf::count_draw();
+        return;
+    }
+
+    vkCmdSetViewport(impl.command_buffer, 0u, 1u, &vk_viewport);
+    vkCmdSetBlendConstants(impl.command_buffer, blend_constants.data());
     vkCmdSetScissor(impl.command_buffer, 0u, 1u, &vk_scissor);
 
     if (pipeline != impl.bound_pipeline) {
@@ -3857,7 +4005,6 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                             &texture_descriptor, 0u, nullptr);
     // Every pipeline shares one layout, so set 1 stays bound across pipeline
     // and texture changes; it is bound again only when a block moved.
-    const std::array<std::uint32_t, 2> lighting_offsets{impl.environment_offset, impl.object_offset};
     if (!impl.lighting_bound || lighting_offsets != impl.bound_lighting_offsets) {
         vkCmdBindDescriptorSets(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.pipeline_layout, 1u, 1u,
                                 &impl.lighting_descriptor, static_cast<std::uint32_t>(lighting_offsets.size()),
@@ -3876,6 +4023,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     }
     impl.vertex_offset = draw_end;
     ++impl.draws;
+    perf::count_draw();
+    perf::count_recorded_draws(1u);
 }
 
 void VulkanRenderer::write_back_frame(GuestMemory &memory) {
@@ -3928,6 +4077,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     // the frame, and the next pair follows them.
     impl.begin_gpu_segment(impl.command_buffer);
     impl.vertex_offset = 0u;
+    impl.index_offset = 0u;
     impl.environment_version = 0u;
     impl.object_valid = false;
     impl.forget_bindings();
@@ -4201,6 +4351,8 @@ void VulkanRenderer::shutdown() {
     if (impl.vertex_mapped != nullptr) vkUnmapMemory(impl.device, impl.vertex_memory);
     vkDestroyBuffer(impl.device, impl.vertex_buffer, nullptr);
     vkFreeMemory(impl.device, impl.vertex_memory, nullptr);
+    vkDestroyBuffer(impl.device, impl.index_buffer, nullptr);
+    vkFreeMemory(impl.device, impl.index_memory, nullptr);
     vkDestroySampler(impl.device, impl.sampler, nullptr);
     vkDestroySampler(impl.device, impl.sharp_sampler, nullptr);
     vkDestroySampler(impl.device, impl.clamp_sampler, nullptr);

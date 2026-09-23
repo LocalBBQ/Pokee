@@ -82,6 +82,8 @@ struct State {
     Clock::duration pacing{};
     Clock::duration overlay{};
     std::uint32_t lists{};
+    std::uint32_t draws{};
+    std::uint32_t recorded_draws{};
     StallTallies stalls{};
     double gpu_ms{};
     std::uint32_t gpu_samples{};
@@ -98,6 +100,8 @@ struct State {
     Clock::duration pacing_sum{};
     Clock::duration overlay_sum{};
     std::uint32_t list_sum{};
+    std::uint64_t draw_sum{};
+    std::uint64_t recorded_draw_sum{};
     StallTallies stall_sum{};
     double gpu_sum_ms{};
     double gpu_max_ms{};
@@ -123,9 +127,10 @@ void print(const Summary &s) {
     char line[320];
     int length = std::snprintf(line, sizeof(line),
                                "[perf] fps %.1f game %.1f speed %.0f%% | frame avg %.1f max %.1f ms | guest %.1f "
-                               "render %.1f wait %.1f ms | lists %.0f/s | %s %ux%u",
+                               "render %.1f wait %.1f ms | lists %.0f/s draws %.0f/%.0f | %s %ux%u",
                                s.fps, s.game_fps, s.speed * 100.0, s.frame_avg_ms, s.frame_max_ms, s.guest_ms,
-                               s.render_ms, s.wait_ms, s.lists, s.present_mode.c_str(), s.width, s.height);
+                               s.render_ms, s.wait_ms, s.lists, s.draws, s.recorded_draws, s.present_mode.c_str(),
+                               s.width, s.height);
     if (s.refresh_hz > 0.0f && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " %.0fHz", s.refresh_hz);
     if (length > 0 && static_cast<std::size_t>(length) < sizeof(line)) {
@@ -206,6 +211,7 @@ void restart_measurement() {
     s.frame_start = now;
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
+    s.draws = s.recorded_draws = 0u;
     s.stalls = StallTallies{};
     s.gpu_ms = 0.0;
     s.gpu_samples = 0u;
@@ -216,6 +222,7 @@ void restart_measurement() {
     s.frame_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
+    s.draw_sum = s.recorded_draw_sum = 0u;
     s.stall_sum = StallTallies{};
     s.gpu_sum_ms = s.gpu_max_ms = 0.0;
     s.gpu_frames = 0u;
@@ -243,6 +250,8 @@ void add_pacing_time(Clock::duration duration) {
 }
 void add_overlay_time(Clock::duration duration) { state().overlay += duration; }
 void count_display_list() { ++state().lists; }
+void count_draw() { ++state().draws; }
+void count_recorded_draws(std::uint32_t count) { state().recorded_draws += count; }
 
 void set_display_info(const std::string &present_mode, std::uint32_t width, std::uint32_t height, float refresh_hz) {
     State &s = state();
@@ -272,6 +281,8 @@ void end_frame(std::uint64_t virtual_us) {
     s.pacing_sum += s.pacing;
     s.overlay_sum += s.overlay;
     s.list_sum += s.lists;
+    s.draw_sum += s.draws;
+    s.recorded_draw_sum += s.recorded_draws;
     for (std::size_t i = 0; i < kStallKinds; ++i) s.stall_sum[i].add(s.stalls[i]);
     if (s.gpu_samples != 0u) {
         s.gpu_sum_ms += s.gpu_ms;
@@ -303,6 +314,7 @@ void end_frame(std::uint64_t virtual_us) {
     }
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
+    s.draws = s.recorded_draws = 0u;
     s.stalls = StallTallies{};
     s.gpu_ms = 0.0;
     s.gpu_samples = 0u;
@@ -318,6 +330,8 @@ void end_frame(std::uint64_t virtual_us) {
     out.game_fps = virtual_ms > 0.0 ? frames * 1000.0 / virtual_ms : 0.0;
     out.speed = virtual_ms / window_ms;
     out.lists = static_cast<double>(s.list_sum) * 1000.0 / window_ms;
+    out.draws = static_cast<double>(s.draw_sum) / frames;
+    out.recorded_draws = static_cast<double>(s.recorded_draw_sum) / frames;
     out.frame_avg_ms = s.frame_sum_ms / frames;
     out.frame_max_ms = s.frame_max_ms;
     const double gpu_wait_ms = to_ms(s.wait_sum) / frames;
@@ -348,6 +362,7 @@ void end_frame(std::uint64_t virtual_us) {
     s.frame_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
+    s.draw_sum = s.recorded_draw_sum = 0u;
     s.stall_sum = StallTallies{};
     s.gpu_sum_ms = s.gpu_max_ms = 0.0;
     s.gpu_frames = 0u;

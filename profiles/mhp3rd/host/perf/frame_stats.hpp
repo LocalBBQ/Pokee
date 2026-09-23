@@ -64,6 +64,10 @@ void set_gpu_time_unavailable();
 void add_pacing_time(Clock::duration duration);
 void add_overlay_time(Clock::duration duration);
 void count_display_list();
+// A draw the GE made, and a draw call the renderer recorded: fewer when
+// consecutive draws are merged.
+void count_draw();
+void count_recorded_draws(std::uint32_t count);
 
 // Closes the current frame. `virtual_us` is the kernel's clock, which the
 // game's own frame rate and the emulation speed are measured against.
@@ -84,6 +88,8 @@ struct Summary {
     double game_fps{};        // guest flips per emulated second
     double speed{};           // emulated time per real time, 1.0 = real time
     double lists{};           // display lists enqueued per real second
+    double draws{};           // GE draws per frame
+    double recorded_draws{};  // Vulkan draw calls per frame
     double frame_avg_ms{};
     double frame_max_ms{};
     double guest_ms{};

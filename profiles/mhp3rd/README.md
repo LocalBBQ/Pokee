@@ -595,6 +595,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_NO_DIRECT_VERTICES` | off | Expand every draw into a plain triangle list on the CPU, as before, instead of writing a transformed draw's decoded vertices once with an index list |
 | `MHP3RD_NO_LOOKUP_CACHE` | off | Look every draw's pipeline and texture up in the renderer's caches, as before, instead of reusing the previous draw's and what the display list already resolved |
 | `MHP3RD_NO_BUFFER_REUSE` | off | Allocate the texture decoder's working buffers, the staging buffer and command buffer of each texture upload, and the pixels of a framebuffer read back for a block transfer every time, as before, instead of keeping them for the next use |
+| `MHP3RD_NO_DRAW_MERGE` | off | Record every draw with all of its state, as before, instead of setting only the state that changed and merging consecutive transformed draws with identical state into one draw call |
 | `MHP3RD_NO_GPU_TIMESTAMPS` | off | Do not time the GPU with timestamp queries; the perf line reads `gpu n/a` |
 
 ### Picture shape and size
@@ -712,7 +713,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 With `MHP3RD_PERF=1` the game draws a small overlay into the top-left corner of the presented image, so it appears in window and Steam screenshots and in `MHP3RD_SCREENSHOT_DIR` captures, and prints one line per second to stdout, flushed as it is written:
 
 ```text
-[perf] fps 30.0 game 30.0 speed 100% | frame avg 33.4 max 34.7 ms | guest 4.1 render 9.8 wait 19.5 ms | lists 60/s | FIFO 1440x816 90Hz | gpu 7.6 max 10.6 ms | overlay 0.05 ms
+[perf] fps 30.0 game 30.0 speed 100% | frame avg 33.4 max 34.7 ms | guest 4.1 render 9.8 wait 19.5 ms | lists 60/s draws 7712/2310 | FIFO 1440x816 90Hz | gpu 7.6 max 10.6 ms | overlay 0.05 ms
 ```
 
 `MHP3RD_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The menu's *Performance* setting chooses the same modes, plus the overlay without the log. The statistics are collected all the time, so turning them on changes nothing else.
@@ -729,6 +730,7 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | `render` | CPU time turning display lists into Vulkan commands and recording the present, without the GPU waits inside it. The kernel's hold to real time happens outside it and does not reduce it |
 | `wait` | Time blocked on the GPU: the frame fence, swapchain acquire, queue submit and present, the queue idle waits of texture uploads and evictions, and framebuffer read-backs for GE block transfers. With FIFO presentation, pacing to the display shows up here, and so does the time the kernel waits to hold the game to real time |
 | `lists` | Display lists enqueued per second of real time |
+| `draws` | Draws the GE made per frame / draw calls the renderer recorded for them; the second is smaller when consecutive draws with the same state are merged |
 | `FIFO 1440x816 90Hz` | Present mode, swapchain size and the display's refresh rate as SDL reports it |
 | `gpu`, `max` | GPU time per frame, averaged over the second, and the longest: from the first command of the frame to its last draw, measured with Vulkan timestamp queries and read back after the frame's fence, so it lags the frame by one. The copy to the window is not included. `gpu n/a` when the graphics queue has no timestamps (`timestampValidBits` 0) or `MHP3RD_NO_GPU_TIMESTAMPS` is set; the log says which at start-up |
 | `overlay` | CPU time spent drawing the overlay, when it is shown |
