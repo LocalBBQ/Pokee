@@ -1161,8 +1161,8 @@ void Menu::system() {
     // An Android app's data folder is out of the file manager's reach; its
     // log goes where the player picks instead, to send with a report.
     (void)data_dir;
-    if (button_row("Save the log…", {false, {}, "Copies Yakumo's log (yakumo.log and the logs folder) to a folder "
-                                                "you pick, such as Downloads, to send with a problem report."})) {
+    if (button_row("Save the log…", {false, {}, "Copies Yakumo's logs (this run's, the previous run's and the logs "
+                                                "folder) to a folder you pick, to send with a problem report."})) {
         std::fflush(stdout);
         std::fflush(stderr);
         std::error_code ec;
@@ -1172,6 +1172,7 @@ void Menu::system() {
         std::filesystem::remove_all(local.parent_path(), ec);
         std::filesystem::create_directories(local, ec);
         std::filesystem::copy_file(storage / "yakumo.log", local / "yakumo.log", ec);
+        std::filesystem::copy_file(storage / "yakumo-previous.log", local / "yakumo-previous.log", ec);
         if (std::filesystem::is_directory(storage / "logs", ec))
             std::filesystem::copy(storage / "logs", local / "logs", std::filesystem::copy_options::recursive, ec);
         const auto copied = android::pick_folder_and_copy(local);
