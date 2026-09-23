@@ -1,5 +1,7 @@
 #include "texture_decode.hpp"
 
+#include "perf/frame_stats.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -46,10 +48,20 @@ std::uint32_t bits_per_texel(TextureFormat format) {
     }
 }
 
+// MHP3RD_NO_BUFFER_REUSE: allocate the decoder's working buffers for every
+// texture, as before, instead of keeping them from one texture to the next.
+bool reuse_buffers() {
+    static const bool no_reuse = std::getenv("MHP3RD_NO_BUFFER_REUSE") != nullptr;
+    return !no_reuse && !perf::alternate_off(perf::NewPath::Reuse);
+}
+
 // Swizzled textures are stored as 16-byte wide, 8-row blocks.
 void unswizzle(std::vector<std::uint8_t> &data, std::uint32_t row_bytes, std::uint32_t rows) {
     if (row_bytes % 16u != 0u || rows % 8u != 0u) return;
-    std::vector<std::uint8_t> source = data;
+    thread_local std::vector<std::uint8_t> kept;
+    std::vector<std::uint8_t> fresh;
+    std::vector<std::uint8_t> &source = reuse_buffers() ? kept : fresh;
+    source.assign(data.begin(), data.end());
     const std::uint32_t block_columns = row_bytes / 16u;
     std::size_t offset = 0u;
     for (std::uint32_t block_row = 0; block_row < rows / 8u; ++block_row) {
@@ -169,7 +181,10 @@ bool decode_texture(const GuestMemory &memory, const TextureState &texture, std:
     const std::size_t total = static_cast<std::size_t>(row_bytes) * height;
     if (total == 0u || !memory.contains(texture.address, total)) return false;
 
-    std::vector<std::uint8_t> data(total);
+    thread_local std::vector<std::uint8_t> kept;
+    std::vector<std::uint8_t> fresh;
+    std::vector<std::uint8_t> &data = reuse_buffers() ? kept : fresh;
+    data.assign(total, 0u);
     for (std::size_t i = 0; i < total; ++i) data[i] = memory.load8(texture.address + static_cast<std::uint32_t>(i));
     if (texture.swizzled) unswizzle(data, row_bytes, height);
 

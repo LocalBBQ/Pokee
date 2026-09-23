@@ -806,6 +806,30 @@ struct VulkanRenderer::Impl {
     ListTexture *last_texture{};
 
     std::vector<GpuVertex> scratch;
+    // Kept from one use to the next instead of allocated each time, unless
+    // MHP3RD_NO_BUFFER_REUSE: decoded texture pixels, a framebuffer read back
+    // for a block transfer, and the staging buffer and command buffer of
+    // texture uploads (free again once an upload has waited for the queue).
+    std::vector<std::uint32_t> decoded_pixels;
+    std::vector<std::uint32_t> readback_pixels;
+    VkBuffer upload_buffer{};
+    VkDeviceMemory upload_buffer_memory{};
+    void *upload_buffer_mapped{};
+    VkDeviceSize upload_buffer_size{};
+    VkCommandBuffer upload_commands{};
+    [[nodiscard]] static bool reuse_buffers() {
+        static const bool no_reuse = std::getenv("MHP3RD_NO_BUFFER_REUSE") != nullptr;
+        return !no_reuse && !perf::alternate_off(perf::NewPath::Reuse);
+    }
+    void destroy_upload_buffer() {
+        if (upload_buffer_mapped != nullptr) vkUnmapMemory(device, upload_buffer_memory);
+        vkDestroyBuffer(device, upload_buffer, nullptr);
+        vkFreeMemory(device, upload_buffer_memory, nullptr);
+        upload_buffer = VK_NULL_HANDLE;
+        upload_buffer_memory = VK_NULL_HANDLE;
+        upload_buffer_mapped = nullptr;
+        upload_buffer_size = 0u;
+    }
     // Index list of a draw whose decoded vertices go straight into the vertex
     // buffer (see submit()).
     std::vector<std::uint16_t> direct_indices;
@@ -1913,31 +1937,58 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
         return texture;
 
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4u;
+    const bool reuse = reuse_buffers();
     VkBuffer staging{};
     VkDeviceMemory staging_memory{};
-    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = bytes;
-    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    vkCreateBuffer(device, &buffer_info, nullptr, &staging);
-    VkMemoryRequirements requirements{};
-    vkGetBufferMemoryRequirements(device, staging, &requirements);
-    VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    allocate.allocationSize = requirements.size;
-    allocate.memoryTypeIndex = find_memory_type(
-        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    vkAllocateMemory(device, &allocate, nullptr, &staging_memory);
-    vkBindBufferMemory(device, staging, staging_memory, 0u);
     void *mapped = nullptr;
-    vkMapMemory(device, staging_memory, 0u, bytes, 0u, &mapped);
+    if (reuse && upload_buffer_size >= bytes) {
+        staging = upload_buffer;
+        mapped = upload_buffer_mapped;
+    } else {
+        // A kept buffer grows to a power of two of at least 1 MiB, so a few
+        // sizes cover every texture.
+        VkDeviceSize size = bytes;
+        if (reuse) {
+            size = VkDeviceSize{1u} << 20u;
+            while (size < bytes) size <<= 1u;
+        }
+        VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        buffer_info.size = size;
+        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        vkCreateBuffer(device, &buffer_info, nullptr, &staging);
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(device, staging, &requirements);
+        VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        allocate.allocationSize = requirements.size;
+        allocate.memoryTypeIndex = find_memory_type(
+            requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        vkAllocateMemory(device, &allocate, nullptr, &staging_memory);
+        vkBindBufferMemory(device, staging, staging_memory, 0u);
+        vkMapMemory(device, staging_memory, 0u, size, 0u, &mapped);
+        if (reuse) {
+            // The old buffer's last upload has finished: every upload waits.
+            destroy_upload_buffer();
+            upload_buffer = staging;
+            upload_buffer_memory = staging_memory;
+            upload_buffer_mapped = mapped;
+            upload_buffer_size = size;
+        }
+    }
     std::memcpy(mapped, pixels, static_cast<std::size_t>(bytes));
-    vkUnmapMemory(device, staging_memory);
+    if (!reuse) vkUnmapMemory(device, staging_memory);
 
-    VkCommandBufferAllocateInfo command_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    command_info.commandPool = command_pool;
-    command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    command_info.commandBufferCount = 1u;
     VkCommandBuffer commands{};
-    vkAllocateCommandBuffers(device, &command_info, &commands);
+    if (reuse && upload_commands != VK_NULL_HANDLE) {
+        commands = upload_commands;
+        vkResetCommandBuffer(commands, 0u);
+    } else {
+        VkCommandBufferAllocateInfo command_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        command_info.commandPool = command_pool;
+        command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_info.commandBufferCount = 1u;
+        vkAllocateCommandBuffers(device, &command_info, &commands);
+        if (reuse) upload_commands = commands;
+    }
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(commands, &begin);
@@ -1958,10 +2009,11 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
     vkQueueSubmit(queue, 1u, &submit, VK_NULL_HANDLE);
     vkQueueWaitIdle(queue);
     perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Upload);
-    vkFreeCommandBuffers(device, command_pool, 1u, &commands);
-    vkDestroyBuffer(device, staging, nullptr);
-    vkFreeMemory(device, staging_memory, nullptr);
-
+    if (!reuse) {
+        vkFreeCommandBuffers(device, command_pool, 1u, &commands);
+        vkDestroyBuffer(device, staging, nullptr);
+        vkFreeMemory(device, staging_memory, nullptr);
+    }
     VkDescriptorSetAllocateInfo descriptor_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     descriptor_info.descriptorPool = descriptor_pool;
     descriptor_info.descriptorSetCount = 1u;
@@ -2050,7 +2102,8 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         memo->erased = textures_erased;
         return use(found->second);
     }
-    std::vector<std::uint32_t> pixels;
+    std::vector<std::uint32_t> fresh_pixels;
+    std::vector<std::uint32_t> &pixels = reuse_buffers() ? decoded_pixels : fresh_pixels;
     if (!decode_texture(memory, state, pixels) || pixels.empty()) {
         // MHP3RD_TRACE_WHITE_TEXTURES: each texture that could not be decoded
         // and is drawn white instead, once.
@@ -3880,7 +3933,9 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     impl.forget_bindings();
     impl.writeback_in_flight = false;
     const perf::Clock::time_point copy_start = perf::Clock::now();
-    std::vector<std::uint32_t> pixels(static_cast<std::size_t>(kPspWidth) * kPspHeight);
+    std::vector<std::uint32_t> fresh_pixels;
+    std::vector<std::uint32_t> &pixels = Impl::reuse_buffers() ? impl.readback_pixels : fresh_pixels;
+    pixels.resize(static_cast<std::size_t>(kPspWidth) * kPspHeight);
     std::memcpy(pixels.data(), impl.writeback_mapped, pixels.size() * 4u);
     const perf::Clock::time_point store_start = perf::Clock::now();
     perf::note_stall(perf::Stall::Copy, store_start - copy_start);
@@ -4166,6 +4221,7 @@ void VulkanRenderer::shutdown() {
     vkDestroySemaphore(impl.device, impl.render_finished, nullptr);
     vkDestroyFence(impl.device, impl.frame_fence, nullptr);
     if (impl.gpu_timer != VK_NULL_HANDLE) vkDestroyQueryPool(impl.device, impl.gpu_timer, nullptr);
+    impl.destroy_upload_buffer();
     vkDestroyCommandPool(impl.device, impl.command_pool, nullptr);
     vkDestroySwapchainKHR(impl.device, impl.swapchain, nullptr);
     vkDestroyDevice(impl.device, nullptr);
