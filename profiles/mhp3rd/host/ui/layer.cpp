@@ -82,6 +82,18 @@ void load_fonts() {
         if (exists(candidate)) text_font = candidate;
     }
     ImFont *font = text_font != nullptr ? io.Fonts->AddFontFromFileTTF(text_font) : nullptr;
+#if defined(__ANDROID__)
+    // Android's own faces are variable fonts; the Japanese font the app
+    // carries has Latin too, and the symbols the menu uses (… ○ ×).
+    if (font == nullptr)
+        for (const std::filesystem::path &bundled : bundled_fonts()) {
+            font = io.Fonts->AddFontFromFileTTF(install::path_to_utf8(bundled).c_str());
+            if (font != nullptr) {
+                std::cout << "[ui] text in " << install::path_to_utf8(bundled.filename()) << "\n";
+                return;
+            }
+        }
+#endif
     if (font == nullptr) {
         io.Fonts->AddFontDefaultVector();
         std::cout << "[ui] no system font found; using Dear ImGui's own\n";
@@ -218,7 +230,12 @@ bool Layer::handle_event(const SDL_Event &event) {
         break;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP:
-        if (event.key.key == SDLK_ESCAPE) {
+        // Android's Back is Esc: it opens and closes the menu.
+        if (event.key.key == SDLK_ESCAPE
+#if defined(__ANDROID__)
+            || event.key.key == SDLK_AC_BACK
+#endif
+        ) {
             if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) escape_pending_ = now;
             return true;
         }

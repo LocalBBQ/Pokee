@@ -16,6 +16,10 @@
 #include "input/bindings.hpp"
 #include "settings/settings.hpp"
 
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_jni.hpp"
+#endif
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
@@ -23,6 +27,7 @@
 #include "backends/imgui_impl_vulkan.h"
 #include "imgui.h"
 
+#include <atomic>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -503,6 +508,59 @@ struct VulkanRenderer::Impl {
     VkSwapchainKHR swapchain{};
     VkFormat swapchain_format{VK_FORMAT_B8G8R8A8_UNORM};
     VkExtent2D swapchain_extent{};
+    // The depth buffer's format: 32-bit float where the device can render to
+    // it, which desktop GPUs all can; phones may offer only 24- or 16-bit.
+    VkFormat depth_format{VK_FORMAT_D32_SFLOAT};
+    [[nodiscard]] VkImageAspectFlags depth_aspect() const {
+        return depth_format == VK_FORMAT_D24_UNORM_S8_UINT || depth_format == VK_FORMAT_D32_SFLOAT_S8_UINT
+                   ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT
+                   : VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
+    void choose_depth_format() {
+        const VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT,
+                                       VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D16_UNORM,
+                                       VK_FORMAT_D32_SFLOAT_S8_UINT};
+        for (const VkFormat format : candidates) {
+            VkFormatProperties properties{};
+            vkGetPhysicalDeviceFormatProperties(physical_device, format, &properties);
+            if ((properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0u) {
+                depth_format = format;
+                if (format != VK_FORMAT_D32_SFLOAT)
+                    std::cout << "[render] no 32-bit float depth buffer; using format " << static_cast<int>(format)
+                              << "\n";
+                return;
+            }
+        }
+    }
+    // The part of the window the game and the overlay may use, in pixels:
+    // the whole window, except on Android, where a display cutout or a
+    // system bar can take an edge (SDL's safe area).
+    VkRect2D content_rect{};
+    void update_content_rect() {
+        content_rect = {{0, 0}, swapchain_extent};
+#if defined(MHP3RD_ANDROID_APP)
+        // Only the display cutout: SDL's safe area also counts the gesture
+        // areas of the hidden system bars, which would shrink the picture for
+        // nothing.
+        int window_width = 0;
+        int window_height = 0;
+        if (window == nullptr || !SDL_GetWindowSizeInPixels(window, &window_width, &window_height) ||
+            window_width <= 0 || window_height <= 0)
+            return;
+        const android::Insets cutout = android::cutout_insets();
+        const double x_scale = static_cast<double>(swapchain_extent.width) / window_width;
+        const double y_scale = static_cast<double>(swapchain_extent.height) / window_height;
+        const auto left = static_cast<std::int32_t>(std::lround(cutout.left * x_scale));
+        const auto top = static_cast<std::int32_t>(std::lround(cutout.top * y_scale));
+        const auto right = static_cast<std::int32_t>(swapchain_extent.width) -
+                           static_cast<std::int32_t>(std::lround(cutout.right * x_scale));
+        const auto bottom = static_cast<std::int32_t>(swapchain_extent.height) -
+                            static_cast<std::int32_t>(std::lround(cutout.bottom * y_scale));
+        if (right - left < 16 || bottom - top < 16) return;
+        content_rect = {{left, top},
+                        {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)}};
+#endif
+    }
     std::vector<VkImage> swapchain_images;
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
@@ -581,6 +639,37 @@ struct VulkanRenderer::Impl {
     // image, after the game frame and the performance overlay.
     VkRenderPass ui_render_pass{};
     std::vector<VkFramebuffer> ui_framebuffers;
+#if defined(__ANDROID__)
+    // Pre-rotation for a display turned sideways. The swapchain's images are
+    // in the panel's orientation (swapchain_image_extent) and carry the
+    // surface's transform; everything is drawn upright at swapchain_extent
+    // into one of these per swapchain image, and a last pass turns it into
+    // the swapchain image. The compositor then has nothing left to rotate.
+    struct UprightImage {
+        VkImage image{};
+        VkDeviceMemory memory{};
+        VkImageView view{};
+        VkDescriptorSet set{};
+        VkFramebuffer rotate_framebuffer{};
+    };
+    std::vector<UprightImage> upright_images;
+    VkExtent2D swapchain_image_extent{};
+    std::int32_t swapchain_quarter_turns{};
+    VkRenderPass rotate_render_pass{};
+    VkDescriptorSetLayout rotate_set_layout{};
+    VkDescriptorPool rotate_pool{};
+    VkPipelineLayout rotate_layout{};
+    VkPipeline rotate_pipeline{};
+    VkSampler rotate_sampler{};
+    VkShaderModule rotate_vertex{};
+    VkShaderModule rotate_fragment{};
+    [[nodiscard]] bool prerotated() const { return !upright_images.empty(); }
+    bool create_rotation_pipeline(std::string &error);
+    bool create_upright_images(std::string &error);
+    void destroy_upright_images();
+    void destroy_rotation_pipeline();
+    void record_rotation(VkCommandBuffer commands, std::uint32_t image_index, VkImageLayout layout);
+#endif
     bool ui_ready{};
     ImDrawData *ui_draw_data{};
     std::function<bool(const SDL_Event &)> event_hook;
@@ -594,6 +683,92 @@ struct VulkanRenderer::Impl {
     bool mouse_captured{};
     std::uint32_t mouse_buttons{};  // bit n: SDL mouse button n held
     MouseMotion mouse_motion{};
+    // Touch screen: the on-screen controls, in window coordinates.
+    input::touch::Controls touch;
+    bool touch_visible{};
+    bool real_mouse_seen{};
+    MouseMotion touch_motion{};
+    struct TouchLayoutKey {
+        int width{};
+        int height{};
+        VkRect2D content{};
+        float size{};
+        bool dpad{};
+    } touch_layout_key{};
+    void update_touch_layout() {
+        int width = 0;
+        int height = 0;
+        if (window == nullptr || !SDL_GetWindowSize(window, &width, &height) || width <= 0 || height <= 0) return;
+        const float size = settings::current().touch_size;
+        const bool dpad = settings::current().touch_dpad;
+        const TouchLayoutKey key{width, height, content_rect, size, dpad};
+        if (key.width == touch_layout_key.width && key.height == touch_layout_key.height &&
+            key.size == touch_layout_key.size && key.dpad == touch_layout_key.dpad &&
+            key.content.offset.x == touch_layout_key.content.offset.x &&
+            key.content.offset.y == touch_layout_key.content.offset.y &&
+            key.content.extent.width == touch_layout_key.content.extent.width &&
+            key.content.extent.height == touch_layout_key.content.extent.height)
+            return;
+        touch_layout_key = key;
+        // The content area (clear of a cutout) in window coordinates, plus a
+        // small margin from the rounded corners.
+        input::touch::Insets insets;
+        if (swapchain_extent.width != 0u && swapchain_extent.height != 0u) {
+            const float x_scale = static_cast<float>(width) / static_cast<float>(swapchain_extent.width);
+            const float y_scale = static_cast<float>(height) / static_cast<float>(swapchain_extent.height);
+            insets.left = static_cast<float>(content_rect.offset.x) * x_scale;
+            insets.top = static_cast<float>(content_rect.offset.y) * y_scale;
+            insets.right = static_cast<float>(swapchain_extent.width - content_rect.offset.x -
+                                              content_rect.extent.width) * x_scale;
+            insets.bottom = static_cast<float>(swapchain_extent.height - content_rect.offset.y -
+                                               content_rect.extent.height) * y_scale;
+        }
+        const float margin = static_cast<float>(std::min(width, height)) * 0.02f;
+        insets.left += margin;
+        insets.top += margin;
+        insets.right += margin;
+        insets.bottom += margin;
+        touch.set_layout(
+            input::touch::make_layout(static_cast<float>(width), static_cast<float>(height), insets, size, dpad));
+    }
+    void handle_touch(const SDL_Event &event) {
+        const bool finger = event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||
+                            event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED;
+        if (!finger) {
+            // A gamepad, the keyboard or a real mouse takes over: hide.
+            const bool other = event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || event.type == SDL_EVENT_KEY_DOWN ||
+                               (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.which != SDL_TOUCH_MOUSEID) ||
+                               (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION &&
+                                std::abs(static_cast<int>(event.gaxis.value)) > 16000);
+            if (other && touch_visible) {
+                touch_visible = false;
+                touch.release_all();
+            }
+            return;
+        }
+        if (!settings::current().touch_controls || !game_input) {
+            touch.release_all();
+            return;
+        }
+        int width = 0;
+        int height = 0;
+        if (!SDL_GetWindowSize(window, &width, &height)) return;
+        update_touch_layout();
+        const input::touch::Point at{event.tfinger.x * static_cast<float>(width),
+                                     event.tfinger.y * static_cast<float>(height)};
+        const std::uint64_t id = event.tfinger.fingerID;
+        if (event.type == SDL_EVENT_FINGER_DOWN) {
+            touch_visible = true;
+            touch.finger_down(id, at);
+        } else if (event.type == SDL_EVENT_FINGER_MOTION) {
+            touch.finger_move(id, at);
+        } else {
+            touch.finger_up(id);
+        }
+        const input::touch::Point drag = touch.take_camera_drag();
+        touch_motion.x += drag.x / static_cast<float>(height);
+        touch_motion.y += drag.y / static_cast<float>(height);
+    }
     std::array<bool, input::kKeyPositions> scripted_keys{};
 
     // Captures the pointer for the game when everything allows it and frees
@@ -604,8 +779,12 @@ struct VulkanRenderer::Impl {
     void sample_pad(bool focused);
     void update_pointer(bool focused) {
         const bool minimized = (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0u;
-        const bool wanted = settings::current().mouse && game_input && !pointer_free && !minimized &&
-                            (focused || scripted_input);
+        bool wanted = settings::current().mouse && game_input && !pointer_free && !minimized &&
+                      (focused || scripted_input);
+#if defined(__ANDROID__)
+        // A phone has no mouse to capture until one is actually used.
+        wanted = wanted && real_mouse_seen;
+#endif
         if (wanted == mouse_captured) return;
         mouse_captured = wanted;
         // A scripted run never takes the real pointer from the person at the machine.
@@ -1156,6 +1335,20 @@ struct VulkanRenderer::Impl {
             std::cout << "[pad] SDL_OpenGamepad failed: " << SDL_GetError() << "\n";
             return;
         }
+#if defined(__ANDROID__)
+        // Android reports a keyboard with arrow keys (the emulator's qwerty2,
+        // many tablets' keyboards) as a D-pad device, and SDL lists it as a
+        // gamepad. It has no sticks; taking it as the pad would leave a real
+        // controller connected later unused. Its keys still reach the game
+        // through the keyboard.
+        if (SDL_GetNumJoystickAxes(SDL_GetGamepadJoystick(device)) <= 0) {
+            const char *skipped = SDL_GetGamepadName(device);
+            std::cout << "[pad] " << (skipped != nullptr ? skipped : "gamepad")
+                      << " has no sticks (a keyboard's D-pad), ignored\n";
+            SDL_CloseGamepad(device);
+            return;
+        }
+#endif
         gamepad = device;
         gamepad_id = id;
         const char *name = SDL_GetGamepadName(device);
@@ -1270,6 +1463,35 @@ struct VulkanRenderer::Impl {
     bool create_swapchain(std::string &error);
     void destroy_swapchain_views();
     void recreate_swapchain();
+#if defined(__ANDROID__)
+    // Android takes the window's surface away while the app is in the
+    // background (the home screen, a system picker) and gives a new one when
+    // it returns: nothing is presented in between, and the Vulkan surface and
+    // swapchain are made again for the new one.
+    // Set from SDL's event watch, which Android calls on its own thread; one
+    // window, so one pair for the process.
+    static inline std::atomic<bool> surface_lost{};
+    static inline std::atomic<bool> surface_returned{};
+    void reset_surface();
+    // The native window the Vulkan surface was made for. A different one
+    // means Android replaced it while this thread was busy (a system picker
+    // blocks it through the whole pause), so no lifecycle event was seen.
+    void *native_window{};
+    void *current_native_window() const {
+        return SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER,
+                                      nullptr);
+    }
+    void check_native_window() {
+        void *now = current_native_window();
+        if (now != nullptr && now != native_window) surface_returned = true;
+    }
+    static bool SDLCALL watch_lifecycle(void *, SDL_Event *event) {
+        if (event->type == SDL_EVENT_WILL_ENTER_BACKGROUND || event->type == SDL_EVENT_DID_ENTER_BACKGROUND)
+            surface_lost = true;
+        if (event->type == SDL_EVENT_DID_ENTER_FOREGROUND && surface_lost) surface_returned = true;
+        return true;
+    }
+#endif
     bool create_ui_framebuffers(std::string &error);
     void record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination);
     // Target size for the current settings and window.
@@ -1358,6 +1580,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     else impl.scan_gamepads();
     SDL_WindowFlags window_flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
     if (player.fullscreen) window_flags |= SDL_WINDOW_FULLSCREEN;
+#if defined(__ANDROID__)
+    // A phone runs the game full screen with the system bars hidden: shown,
+    // they cover the top and bottom of the picture (Android 15 draws apps
+    // under them). The safe area keeps the picture clear of a camera cutout.
+    window_flags |= SDL_WINDOW_FULLSCREEN;
+#endif
     impl.window = SDL_CreateWindow(config.title.c_str(), static_cast<int>(kPspWidth * window_scale),
                                    static_cast<int>(kPspHeight * window_scale), window_flags);
     if (impl.window == nullptr) {
@@ -1368,7 +1596,17 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     std::uint32_t extension_count = 0u;
     const char *const *sdl_extensions = SDL_Vulkan_GetInstanceExtensions(&extension_count);
     std::vector<const char *> extensions(sdl_extensions, sdl_extensions + extension_count);
-    extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    // Only a loader that offers portability enumeration may be asked for it:
+    // an instance extension the loader does not list fails vkCreateInstance.
+    std::uint32_t available_count = 0u;
+    vkEnumerateInstanceExtensionProperties(nullptr, &available_count, nullptr);
+    std::vector<VkExtensionProperties> available(available_count);
+    vkEnumerateInstanceExtensionProperties(nullptr, &available_count, available.data());
+    bool portability_enumeration = false;
+    for (const VkExtensionProperties &extension : available)
+        if (std::strcmp(extension.extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0)
+            portability_enumeration = true;
+    if (portability_enumeration) extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     VkApplicationInfo application{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     application.pApplicationName = "Yakumo";
@@ -1379,9 +1617,13 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     instance_info.ppEnabledExtensionNames = extensions.data();
     // MoltenVK reports itself as a portability driver and refuses the instance
     // without this flag.
-    instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    if (portability_enumeration) instance_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
     if (!check(vkCreateInstance(&instance_info, nullptr, &impl.instance), "vkCreateInstance", error)) return false;
 
+#if defined(__ANDROID__)
+    SDL_AddEventWatch(&Impl::watch_lifecycle, &impl);
+    impl.native_window = impl.current_native_window();
+#endif
     if (!SDL_Vulkan_CreateSurface(impl.window, impl.instance, nullptr, &impl.surface)) {
         error = std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError();
         return false;
@@ -1488,7 +1730,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[1] = attachments[0];
-    attachments[1].format = VK_FORMAT_D32_SFLOAT;
+    impl.choose_depth_format();
+    attachments[1].format = impl.depth_format;
     attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     VkAttachmentReference color_reference{0u, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
@@ -1783,11 +2026,11 @@ bool VulkanRenderer::Impl::create_overlay(std::string &error) {
 // staging buffer is free to rewrite: the frame fence has been waited on before
 // any recording of this frame started.
 void VulkanRenderer::Impl::record_overlay(VkCommandBuffer commands, VkImage destination) {
-    const std::uint32_t scale = perf::overlay_scale(swapchain_extent.height);
+    const std::uint32_t scale = perf::overlay_scale(content_rect.extent.height);
     const std::uint32_t inset = 4u * scale;
     const std::uint32_t width = perf::kOverlayWidth * scale;
     const std::uint32_t height = perf::kOverlayHeight * scale;
-    if (inset + width > swapchain_extent.width || inset + height > swapchain_extent.height) return;
+    if (inset + width > content_rect.extent.width || inset + height > content_rect.extent.height) return;
 
     perf::draw_overlay(overlay_pixels.data());
     std::memcpy(overlay_mapped, overlay_pixels.data(), overlay_pixels.size() * sizeof(std::uint32_t));
@@ -1808,8 +2051,10 @@ void VulkanRenderer::Impl::record_overlay(VkCommandBuffer commands, VkImage dest
     blit.srcOffsets[1] = {static_cast<std::int32_t>(perf::kOverlayWidth),
                           static_cast<std::int32_t>(perf::kOverlayHeight), 1};
     blit.dstSubresource = blit.srcSubresource;
-    blit.dstOffsets[0] = {static_cast<std::int32_t>(inset), static_cast<std::int32_t>(inset), 0};
-    blit.dstOffsets[1] = {static_cast<std::int32_t>(inset + width), static_cast<std::int32_t>(inset + height), 1};
+    const std::int32_t left = content_rect.offset.x + static_cast<std::int32_t>(inset);
+    const std::int32_t top = content_rect.offset.y + static_cast<std::int32_t>(inset);
+    blit.dstOffsets[0] = {left, top, 0};
+    blit.dstOffsets[1] = {left + static_cast<std::int32_t>(width), top + static_cast<std::int32_t>(height), 1};
     vkCmdBlitImage(commands, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_NEAREST);
 }
@@ -1849,7 +2094,28 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
                                    capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
     }
     if (extent.width == 0u || extent.height == 0u) extent = target_extent;
+    const VkSurfaceTransformFlagBitsKHR transform = capabilities.currentTransform;
+    VkExtent2D image_extent = extent;
+#if defined(__ANDROID__)
+    // A display turned sideways reports a quarter or half turn. The frame is
+    // drawn upright at the window's size and turned by a last pass into
+    // images in the panel's orientation (see UprightImage).
+    swapchain_quarter_turns = transform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR    ? 1
+                              : transform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR ? 2
+                              : transform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR ? 3
+                                                                                     : 0;
+    {
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSizeInPixels(window, &width, &height);
+        if (width > 0 && height > 0)
+            extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+    }
+    image_extent = swapchain_quarter_turns % 2 == 1 ? VkExtent2D{extent.height, extent.width} : extent;
+    swapchain_image_extent = image_extent;
+#endif
     swapchain_extent = extent;
+    update_content_rect();
     present_mode = wanted_present_mode();
 
     std::uint32_t image_count =
@@ -1865,10 +2131,10 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     swapchain_info.minImageCount = image_count;
     swapchain_info.imageFormat = swapchain_format;
     swapchain_info.imageColorSpace = surface_format.colorSpace;
-    swapchain_info.imageExtent = swapchain_extent;
+    swapchain_info.imageExtent = image_extent;
     swapchain_info.imageArrayLayers = 1u;
     swapchain_info.imageUsage = swapchain_usage;
-    swapchain_info.preTransform = capabilities.currentTransform;
+    swapchain_info.preTransform = transform;
     swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     swapchain_info.presentMode = present_mode;
     swapchain_info.clipped = VK_TRUE;
@@ -1895,6 +2161,9 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
         if (!check(vkCreateImageView(device, &view_info, nullptr, &view), "vkCreateImageView", error)) return false;
         swapchain_views.push_back(view);
     }
+#if defined(__ANDROID__)
+    if (swapchain_quarter_turns != 0 && !create_upright_images(error)) return false;
+#endif
     if (ui_render_pass != VK_NULL_HANDLE && !create_ui_framebuffers(error)) return false;
     swapchain_dirty = false;
     update_display_info();
@@ -1906,7 +2175,31 @@ void VulkanRenderer::Impl::destroy_swapchain_views() {
     ui_framebuffers.clear();
     for (VkImageView view : swapchain_views) vkDestroyImageView(device, view, nullptr);
     swapchain_views.clear();
+#if defined(__ANDROID__)
+    destroy_upright_images();
+#endif
 }
+
+#if defined(__ANDROID__)
+void VulkanRenderer::Impl::reset_surface() {
+    surface_returned = false;
+    vkDeviceWaitIdle(device);
+    destroy_swapchain_views();
+    if (swapchain != VK_NULL_HANDLE) vkDestroySwapchainKHR(device, swapchain, nullptr);
+    swapchain = VK_NULL_HANDLE;
+    if (surface != VK_NULL_HANDLE) vkDestroySurfaceKHR(instance, surface, nullptr);
+    surface = VK_NULL_HANDLE;
+    if (!SDL_Vulkan_CreateSurface(window, instance, nullptr, &surface)) {
+        std::cout << "[render] cannot make the window's surface again: " << SDL_GetError() << "\n";
+        return;
+    }
+    surface_lost = false;
+    native_window = current_native_window();
+    std::string error;
+    if (!create_swapchain(error)) std::cout << "[render] cannot recreate the swapchain: " << error << "\n";
+    else std::cout << "[render] surface made again after the app returned\n";
+}
+#endif
 
 void VulkanRenderer::Impl::recreate_swapchain() {
     // A minimised window has no area to present to; keep the old swapchain
@@ -1926,8 +2219,232 @@ void VulkanRenderer::Impl::recreate_swapchain() {
     if (ui_ready && swapchain_min_images != previous_min_images) ImGui_ImplVulkan_SetMinImageCount(swapchain_min_images);
 }
 
+#if defined(__ANDROID__)
+// The pass that turns the upright frame into a swapchain image, created the
+// first time a sideways display needs it.
+bool VulkanRenderer::Impl::create_rotation_pipeline(std::string &error) {
+    if (rotate_pipeline != VK_NULL_HANDLE) return true;
+    VkAttachmentDescription attachment{};
+    attachment.format = swapchain_format;
+    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentReference reference{0u, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1u;
+    subpass.pColorAttachments = &reference;
+    VkRenderPassCreateInfo pass_info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    pass_info.attachmentCount = 1u;
+    pass_info.pAttachments = &attachment;
+    pass_info.subpassCount = 1u;
+    pass_info.pSubpasses = &subpass;
+    if (!check(vkCreateRenderPass(device, &pass_info, nullptr, &rotate_render_pass), "vkCreateRenderPass", error))
+        return false;
+
+    VkSamplerCreateInfo sampler_info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sampler_info.magFilter = VK_FILTER_NEAREST;
+    sampler_info.minFilter = VK_FILTER_NEAREST;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (!check(vkCreateSampler(device, &sampler_info, nullptr, &rotate_sampler), "vkCreateSampler", error))
+        return false;
+
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0u;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    binding.descriptorCount = 1u;
+    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo set_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    set_info.bindingCount = 1u;
+    set_info.pBindings = &binding;
+    if (!check(vkCreateDescriptorSetLayout(device, &set_info, nullptr, &rotate_set_layout),
+               "vkCreateDescriptorSetLayout", error))
+        return false;
+    constexpr std::uint32_t kMaxImages = 8u;
+    VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxImages};
+    VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pool_info.maxSets = kMaxImages;
+    pool_info.poolSizeCount = 1u;
+    pool_info.pPoolSizes = &pool_size;
+    if (!check(vkCreateDescriptorPool(device, &pool_info, nullptr, &rotate_pool), "vkCreateDescriptorPool", error))
+        return false;
+
+    VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(std::int32_t)};
+    VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layout_info.setLayoutCount = 1u;
+    layout_info.pSetLayouts = &rotate_set_layout;
+    layout_info.pushConstantRangeCount = 1u;
+    layout_info.pPushConstantRanges = &push;
+    if (!check(vkCreatePipelineLayout(device, &layout_info, nullptr, &rotate_layout), "vkCreatePipelineLayout", error))
+        return false;
+
+    const auto create_shader = [&](const std::uint32_t *code, std::size_t size, VkShaderModule &module) {
+        VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        info.codeSize = size;
+        info.pCode = code;
+        return check(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule", error);
+    };
+    if (!create_shader(kRotateVertexShader, sizeof(kRotateVertexShader), rotate_vertex)) return false;
+    if (!create_shader(kRotateFragmentShader, sizeof(kRotateFragmentShader), rotate_fragment)) return false;
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = rotate_vertex;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = rotate_fragment;
+    stages[1].pName = "main";
+    VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewport.viewportCount = 1u;
+    viewport.scissorCount = 1u;
+    VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode = VK_CULL_MODE_NONE;
+    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    raster.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState blend_attachment{};
+    blend_attachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blend.attachmentCount = 1u;
+    blend.pAttachments = &blend_attachment;
+    const std::array<VkDynamicState, 2> dynamic_states{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamic_states.size());
+    dynamic.pDynamicStates = dynamic_states.data();
+    VkGraphicsPipelineCreateInfo pipeline_info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipeline_info.stageCount = static_cast<std::uint32_t>(stages.size());
+    pipeline_info.pStages = stages.data();
+    pipeline_info.pVertexInputState = &vertex_input;
+    pipeline_info.pInputAssemblyState = &assembly;
+    pipeline_info.pViewportState = &viewport;
+    pipeline_info.pRasterizationState = &raster;
+    pipeline_info.pMultisampleState = &multisample;
+    pipeline_info.pColorBlendState = &blend;
+    pipeline_info.pDynamicState = &dynamic;
+    pipeline_info.layout = rotate_layout;
+    pipeline_info.renderPass = rotate_render_pass;
+    return check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1u, &pipeline_info, nullptr, &rotate_pipeline),
+                 "vkCreateGraphicsPipelines", error);
+}
+
+bool VulkanRenderer::Impl::create_upright_images(std::string &error) {
+    if (!create_rotation_pipeline(error)) return false;
+    upright_images.resize(swapchain_images.size());
+    for (std::size_t i = 0; i < upright_images.size(); ++i) {
+        UprightImage &upright = upright_images[i];
+        if (!create_image(swapchain_extent.width, swapchain_extent.height, swapchain_format,
+                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                              VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          upright.image, upright.memory, upright.view, VK_IMAGE_ASPECT_COLOR_BIT, error))
+            return false;
+        VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        allocate.descriptorPool = rotate_pool;
+        allocate.descriptorSetCount = 1u;
+        allocate.pSetLayouts = &rotate_set_layout;
+        if (!check(vkAllocateDescriptorSets(device, &allocate, &upright.set), "vkAllocateDescriptorSets", error))
+            return false;
+        VkDescriptorImageInfo image_info{rotate_sampler, upright.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = upright.set;
+        write.descriptorCount = 1u;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &image_info;
+        vkUpdateDescriptorSets(device, 1u, &write, 0u, nullptr);
+        VkFramebufferCreateInfo framebuffer_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        framebuffer_info.renderPass = rotate_render_pass;
+        framebuffer_info.attachmentCount = 1u;
+        framebuffer_info.pAttachments = &swapchain_views[i];
+        framebuffer_info.width = swapchain_image_extent.width;
+        framebuffer_info.height = swapchain_image_extent.height;
+        framebuffer_info.layers = 1u;
+        if (!check(vkCreateFramebuffer(device, &framebuffer_info, nullptr, &upright.rotate_framebuffer),
+                   "vkCreateFramebuffer", error))
+            return false;
+    }
+    std::cout << "[render] pre-rotating a quarter turn x" << swapchain_quarter_turns << " into "
+              << swapchain_image_extent.width << "x" << swapchain_image_extent.height << "\n";
+    return true;
+}
+
+void VulkanRenderer::Impl::destroy_upright_images() {
+    for (UprightImage &upright : upright_images) {
+        if (upright.rotate_framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, upright.rotate_framebuffer, nullptr);
+        if (upright.set != VK_NULL_HANDLE) vkFreeDescriptorSets(device, rotate_pool, 1u, &upright.set);
+        if (upright.view != VK_NULL_HANDLE) vkDestroyImageView(device, upright.view, nullptr);
+        if (upright.image != VK_NULL_HANDLE) vkDestroyImage(device, upright.image, nullptr);
+        if (upright.memory != VK_NULL_HANDLE) vkFreeMemory(device, upright.memory, nullptr);
+    }
+    upright_images.clear();
+}
+
+void VulkanRenderer::Impl::destroy_rotation_pipeline() {
+    destroy_upright_images();
+    if (rotate_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, rotate_pipeline, nullptr);
+    if (rotate_layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, rotate_layout, nullptr);
+    if (rotate_pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, rotate_pool, nullptr);
+    if (rotate_set_layout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, rotate_set_layout, nullptr);
+    if (rotate_sampler != VK_NULL_HANDLE) vkDestroySampler(device, rotate_sampler, nullptr);
+    if (rotate_vertex != VK_NULL_HANDLE) vkDestroyShaderModule(device, rotate_vertex, nullptr);
+    if (rotate_fragment != VK_NULL_HANDLE) vkDestroyShaderModule(device, rotate_fragment, nullptr);
+    if (rotate_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, rotate_render_pass, nullptr);
+    rotate_pipeline = VK_NULL_HANDLE;
+    rotate_layout = VK_NULL_HANDLE;
+    rotate_pool = VK_NULL_HANDLE;
+    rotate_set_layout = VK_NULL_HANDLE;
+    rotate_sampler = VK_NULL_HANDLE;
+    rotate_vertex = VK_NULL_HANDLE;
+    rotate_fragment = VK_NULL_HANDLE;
+    rotate_render_pass = VK_NULL_HANDLE;
+}
+
+// Turns the finished upright frame into the swapchain image, which the pass
+// leaves ready to present.
+void VulkanRenderer::Impl::record_rotation(VkCommandBuffer commands, std::uint32_t image_index, VkImageLayout layout) {
+    const UprightImage &upright = upright_images[image_index];
+    transition(commands, upright.image, layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    pass.renderPass = rotate_render_pass;
+    pass.framebuffer = upright.rotate_framebuffer;
+    pass.renderArea = {{0, 0}, swapchain_image_extent};
+    vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    const VkViewport viewport{0.0f, 0.0f, static_cast<float>(swapchain_image_extent.width),
+                              static_cast<float>(swapchain_image_extent.height), 0.0f, 1.0f};
+    const VkRect2D scissor{{0, 0}, swapchain_image_extent};
+    vkCmdSetViewport(commands, 0u, 1u, &viewport);
+    vkCmdSetScissor(commands, 0u, 1u, &scissor);
+    vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, rotate_pipeline);
+    vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, rotate_layout, 0u, 1u, &upright.set, 0u,
+                            nullptr);
+    vkCmdPushConstants(commands, rotate_layout, VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(std::int32_t),
+                       &swapchain_quarter_turns);
+    vkCmdDraw(commands, 3u, 1u, 0u, 0u);
+    vkCmdEndRenderPass(commands);
+}
+#endif
+
 bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
-    for (VkImageView view : swapchain_views) {
+    std::vector<VkImageView> views = swapchain_views;
+#if defined(__ANDROID__)
+    if (prerotated()) {
+        views.clear();
+        for (const UprightImage &upright : upright_images) views.push_back(upright.view);
+    }
+#endif
+    for (VkImageView view : views) {
         VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         info.renderPass = ui_render_pass;
         info.attachmentCount = 1u;
@@ -1947,17 +2464,26 @@ bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
 // layout: stretched over the whole window, or at the PSP's aspect ratio with
 // black bars. Fill's target already has the window's shape.
 void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination) {
-    const auto width = static_cast<std::int32_t>(swapchain_extent.width);
-    const auto height = static_cast<std::int32_t>(swapchain_extent.height);
-    VkOffset3D low{0, 0, 0};
-    VkOffset3D high{width, height, 1};
-    if (aspect == settings::Aspect::Original) {
-        const double scale = std::min(static_cast<double>(width) / kPspWidth, static_cast<double>(height) / kPspHeight);
-        const auto shown_width = std::clamp(static_cast<std::int32_t>(std::lround(kPspWidth * scale)), 1, width);
-        const auto shown_height = std::clamp(static_cast<std::int32_t>(std::lround(kPspHeight * scale)), 1, height);
-        low = {(width - shown_width) / 2, (height - shown_height) / 2, 0};
+    const auto width = static_cast<std::int32_t>(content_rect.extent.width);
+    const auto height = static_cast<std::int32_t>(content_rect.extent.height);
+    const std::int32_t x0 = content_rect.offset.x;
+    const std::int32_t y0 = content_rect.offset.y;
+    VkOffset3D low{x0, y0, 0};
+    VkOffset3D high{x0 + width, y0 + height, 1};
+    const bool partial = width < static_cast<std::int32_t>(swapchain_extent.width) ||
+                         height < static_cast<std::int32_t>(swapchain_extent.height);
+    if (aspect == settings::Aspect::Original || partial) {
+        std::int32_t shown_width = width;
+        std::int32_t shown_height = height;
+        if (aspect == settings::Aspect::Original) {
+            const double scale =
+                std::min(static_cast<double>(width) / kPspWidth, static_cast<double>(height) / kPspHeight);
+            shown_width = std::clamp(static_cast<std::int32_t>(std::lround(kPspWidth * scale)), 1, width);
+            shown_height = std::clamp(static_cast<std::int32_t>(std::lround(kPspHeight * scale)), 1, height);
+        }
+        low = {x0 + (width - shown_width) / 2, y0 + (height - shown_height) / 2, 0};
         high = {low.x + shown_width, low.y + shown_height, 1};
-        if (shown_width < width || shown_height < height) {
+        if (partial || shown_width < width || shown_height < height) {
             const VkClearColorValue black{{0.0f, 0.0f, 0.0f, 1.0f}};
             const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u};
             vkCmdClearColorImage(commands, destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1u, &range);
@@ -1982,6 +2508,13 @@ void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage so
 // interface, then submit and present.
 void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence fence, VkImage source,
                                               bool game_frame, bool main_frame) {
+#if defined(__ANDROID__)
+    check_native_window();
+    if (surface_returned) reset_surface();
+    // No window to show it in: the frame is recorded and finished, not shown
+    // (an image acquired before the window went is still given back).
+    if (!surface_lost)
+#endif
     if (!acquired_image && (swapchain_dirty || swapchain == VK_NULL_HANDLE)) recreate_swapchain();
     ImDrawData *ui = ui_ready ? ui_draw_data : nullptr;
     ui_draw_data = nullptr;
@@ -2002,16 +2535,26 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
         image_index = *acquired_image;
         acquired = VK_SUCCESS;
         acquired_image.reset();
-    } else if (has_content && swapchain != VK_NULL_HANDLE) {
+    } else if (has_content && swapchain != VK_NULL_HANDLE
+#if defined(__ANDROID__)
+               && !surface_lost
+#endif
+    ) {
         const perf::Clock::time_point acquire_start = perf::Clock::now();
         acquired = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, image_available, VK_NULL_HANDLE, &image_index);
         perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
         if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
+#if defined(__ANDROID__)
+        if (acquired == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
+#endif
     }
     const bool can_present = acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR;
     bool capture = false;
     if (can_present) {
         VkImage target = swapchain_images[image_index];
+#if defined(__ANDROID__)
+        if (prerotated() && image_index < upright_images.size()) target = upright_images[image_index].image;
+#endif
         transition(commands, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         if (source != VK_NULL_HANDLE) {
             transition(commands, source, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -2068,7 +2611,11 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
                 capture = true;
             }
         }
-        transition(commands, target, layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+#if defined(__ANDROID__)
+        if (prerotated() && image_index < upright_images.size()) record_rotation(commands, image_index, layout);
+        else
+#endif
+            transition(commands, target, layout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     }
     vkEndCommandBuffer(commands);
 
@@ -2099,6 +2646,9 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
         const VkResult presented = vkQueuePresentKHR(queue, &present);
         perf::add_wait_time(perf::Clock::now() - present_start, perf::Stall::Present);
         if (presented == VK_ERROR_OUT_OF_DATE_KHR || presented == VK_SUBOPTIMAL_KHR) swapchain_dirty = true;
+#if defined(__ANDROID__)
+        if (presented == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
+#endif
     }
     if (main_frame) recording = false;
     if (capture) write_capture(fence);
@@ -2183,9 +2733,9 @@ bool VulkanRenderer::Impl::create_target(Target &target, std::string &error) {
                       target.color,
                       target.color_memory, target.color_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return false;
-    if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_D32_SFLOAT,
+    if (!create_image(target_extent.width, target_extent.height, depth_format,
                       VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, target.depth, target.depth_memory,
-                      target.depth_view, VK_IMAGE_ASPECT_DEPTH_BIT, error))
+                      target.depth_view, depth_aspect(), error))
         return false;
     const std::array<VkImageView, 2> views{target.color_view, target.depth_view};
     VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
@@ -2204,7 +2754,7 @@ void VulkanRenderer::Impl::initialize_layouts(VkCommandBuffer commands, Target &
     if (target.initialized) return;
     transition(commands, target.color, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     transition(commands, target.depth, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-               VK_IMAGE_ASPECT_DEPTH_BIT);
+               depth_aspect());
     target.initialized = true;
 }
 
@@ -2261,7 +2811,7 @@ void VulkanRenderer::Impl::begin_pass(std::uint32_t address) {
         transition(command_buffer, target->color, VK_IMAGE_LAYOUT_UNDEFINED,
                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         transition(command_buffer, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                   VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+                   VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depth_aspect());
         target->initialized = true;
     }
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
@@ -2993,13 +3543,25 @@ bool VulkanRenderer::pump_events() {
         // reserved for the in-game menu.
         if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) impl_->update_display_info();
         if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) impl_->swapchain_dirty = true;
+        if (event.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED) {
+            impl_->update_content_rect();
+            impl_->resize_now = true;
+        }
         // The mouse, while captured for the game. Releases always count.
-        if (event.type == SDL_EVENT_MOUSE_MOTION && impl_->mouse_captured &&
+        // Touches also arrive as mouse events; they are the touch controls'
+        // alone and never reach the game as a mouse.
+        if ((event.type == SDL_EVENT_MOUSE_MOTION && event.motion.which != SDL_TOUCH_MOUSEID) ||
+            ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+             event.button.which != SDL_TOUCH_MOUSEID))
+            impl_->real_mouse_seen = true;
+        impl_->handle_touch(event);
+        if (event.type == SDL_EVENT_MOUSE_MOTION && impl_->mouse_captured && event.motion.which != SDL_TOUCH_MOUSEID &&
             (!impl_->scripted_input || event.motion.which == kScriptedMouse)) {
             impl_->mouse_motion.x += event.motion.xrel;
             impl_->mouse_motion.y += event.motion.yrel;
         }
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && impl_->mouse_captured && event.button.button < 32u &&
+            event.button.which != SDL_TOUCH_MOUSEID &&
             (!impl_->scripted_input || event.button.which == kScriptedMouse))
             impl_->mouse_buttons |= 1u << event.button.button;
         if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button < 32u)
@@ -3063,6 +3625,13 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
 
     // The gamepad adds to the same bits and offsets, so both sources are live.
     if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, pad, analog_x, analog_y);
+    // So do the on-screen controls.
+    if (impl_->touch_visible) {
+        pad.buttons |= impl_->touch.buttons();
+        const input::touch::Point stick = impl_->touch.stick();
+        analog_x += static_cast<int>(std::lround(stick.x * 127.0f));
+        analog_y += static_cast<int>(std::lround(stick.y * 127.0f));
+    }
 
     pad.analog_x = static_cast<std::uint8_t>(std::clamp(0x80 + analog_x, 0, 255));
     pad.analog_y = static_cast<std::uint8_t>(std::clamp(0x80 + analog_y, 0, 255));
@@ -3097,6 +3666,21 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
 
 PadState VulkanRenderer::pad() const noexcept { return impl_ ? impl_->pad : PadState{}; }
 
+bool VulkanRenderer::touch_controls_visible() const noexcept {
+    return impl_ && impl_->touch_visible && impl_->game_input && settings::current().touch_controls;
+}
+
+const input::touch::Controls &VulkanRenderer::touch_controls() const {
+    impl_->update_touch_layout();
+    return impl_->touch;
+}
+
+MouseMotion VulkanRenderer::take_touch_motion() noexcept {
+    return impl_ ? std::exchange(impl_->touch_motion, MouseMotion{}) : MouseMotion{};
+}
+
+bool VulkanRenderer::take_touch_menu() noexcept { return impl_ && impl_->touch.take_menu(); }
+
 MouseMotion VulkanRenderer::take_mouse_motion() noexcept {
     return impl_ ? std::exchange(impl_->mouse_motion, MouseMotion{}) : MouseMotion{};
 }
@@ -3123,6 +3707,7 @@ void VulkanRenderer::set_event_hook(std::function<bool(const SDL_Event &)> hook)
 void VulkanRenderer::set_game_input(bool enabled) {
     if (!impl_) return;
     if (enabled && !impl_->game_input) impl_->suppress_held = true;
+    if (!enabled) impl_->touch.release_all();
     impl_->game_input = enabled;
 }
 
@@ -3182,9 +3767,9 @@ std::string VulkanRenderer::device_name() const { return impl_ ? impl_->device_n
 SDL_Gamepad *VulkanRenderer::gamepad() const noexcept { return impl_ ? impl_->gamepad : nullptr; }
 
 VkExtent2D VulkanRenderer::Impl::wanted_target_extent() const {
-    const bool known = swapchain_extent.width != 0u && swapchain_extent.height != 0u;
-    const double window_width = known ? swapchain_extent.width : static_cast<double>(target_extent.width);
-    const double window_height = known ? swapchain_extent.height : static_cast<double>(target_extent.height);
+    const bool known = content_rect.extent.width != 0u && content_rect.extent.height != 0u;
+    const double window_width = known ? content_rect.extent.width : static_cast<double>(target_extent.width);
+    const double window_height = known ? content_rect.extent.height : static_cast<double>(target_extent.height);
     if (aspect != settings::Aspect::Fill) {
         std::uint32_t scale = requested_scale;
         if (scale == 0u) {
@@ -3291,7 +3876,7 @@ void VulkanRenderer::Impl::resize_targets(VkExtent2D extent) {
             transition(commands, target->color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
             transition(commands, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+                       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depth_aspect());
             target->initialized = true;
         }
     });
@@ -3319,6 +3904,9 @@ void VulkanRenderer::set_window_scale(std::uint32_t scale) {
 
 void VulkanRenderer::set_fullscreen(bool fullscreen) {
     if (!impl_ || impl_->window == nullptr) return;
+#if defined(__ANDROID__)
+    fullscreen = true;
+#endif
     SDL_SetWindowFullscreen(impl_->window, fullscreen);
     impl_->swapchain_dirty = true;
 }
@@ -3624,7 +4212,7 @@ void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     if (!target->initialized) {
         impl.transition(impl.command_buffer, target->depth, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, impl.depth_aspect());
         target->initialized = true;
     }
     VkImageBlit blit{};
@@ -4743,6 +5331,11 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     // An image first, waiting at most 3 ms for one: when the display has
     // none free (it refreshes slower than the presents come), this present
     // is dropped rather than hold the game until the next refresh.
+#if defined(__ANDROID__)
+    check_native_window();
+    if (surface_returned) reset_surface();
+    if (surface_lost) return false;
+#endif
     if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
     if (swapchain == VK_NULL_HANDLE) return false;
     std::uint32_t image_index = 0u;
@@ -4750,6 +5343,9 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     const VkResult acquired = vkAcquireNextImageKHR(device, swapchain, 3'000'000u, image_available, VK_NULL_HANDLE, &image_index);
     perf::add_wait_time(perf::Clock::now() - acquire_start, perf::Stall::Acquire);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) swapchain_dirty = true;
+#if defined(__ANDROID__)
+    if (acquired == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
+#endif
     if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) {
         ++stats.blocked;
         if (account) perf::add_render_time(Clock::now() - start);
@@ -5549,6 +6145,9 @@ void VulkanRenderer::shutdown() {
     if (impl.ui_ready && ImGui::GetCurrentContext() != nullptr) ImGui_ImplVulkan_Shutdown();
     impl.ui_ready = false;
     impl.destroy_swapchain_views();
+#if defined(__ANDROID__)
+    impl.destroy_rotation_pipeline();
+#endif
     if (impl.ui_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, impl.ui_render_pass, nullptr);
     for (auto &[key, texture] : impl.textures) impl.destroy_texture(texture);
     impl.textures.clear();
@@ -5599,6 +6198,9 @@ void VulkanRenderer::shutdown() {
     vkDestroyCommandPool(impl.device, impl.command_pool, nullptr);
     vkDestroySwapchainKHR(impl.device, impl.swapchain, nullptr);
     vkDestroyDevice(impl.device, nullptr);
+#if defined(__ANDROID__)
+    SDL_RemoveEventWatch(&Impl::watch_lifecycle, &impl);
+#endif
     if (impl.surface != VK_NULL_HANDLE) vkDestroySurfaceKHR(impl.instance, impl.surface, nullptr);
     vkDestroyInstance(impl.instance, nullptr);
     if (impl.window != nullptr) SDL_DestroyWindow(impl.window);

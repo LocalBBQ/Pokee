@@ -7,6 +7,9 @@
 #include "install/user_data.hpp"
 
 #include "kernel/iso_image.hpp"
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_jni.hpp"
+#endif
 
 #include "psprecomp/sha256.hpp"
 
@@ -316,6 +319,13 @@ bool restart_requested_on_exit() { return restart_on_exit; }
 int restart(char **argv) {
     std::cout.flush();
     std::cerr.flush();
+#if defined(MHP3RD_ANDROID_APP)
+    // An app cannot exec itself; Android starts it again instead.
+    (void)argv;
+    android::relaunch();
+    std::cerr << "Cannot restart; start Yakumo again to load the imported save\n";
+    return 1;
+#endif
     const std::filesystem::path self = executable_path();
     const std::string program = self.empty() ? std::string(argv[0]) : self.string();
 #if defined(_WIN32)
@@ -335,6 +345,15 @@ int restart_for_setup(const char *program) {
     // Nothing buffered survives the exec.
     std::cout.flush();
     std::cerr.flush();
+#if defined(MHP3RD_ANDROID_APP)
+    // The next start runs the setup: a marker in the data directory stands
+    // for --install, which an app is not started with.
+    (void)program;
+    { std::ofstream(user_data_directory() / kSetupMarkerFile) << "setup\n"; }
+    android::relaunch();
+    std::cerr << "Start Yakumo again to set up\n";
+    return 1;
+#endif
     // The player asked for the setup: a game directory chosen for this run
     // would make --install skip it.
 #if defined(_WIN32)

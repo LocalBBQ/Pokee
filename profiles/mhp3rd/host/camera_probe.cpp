@@ -25,7 +25,9 @@ void set_write_watch(std::uint32_t address, std::uint32_t size);
 } // namespace psprecomp
 
 namespace mhp3rd::probe {
+#if defined(MHP3RD_HAS_RENDERER)
 using mhp3rd::active_renderer;
+#endif
 using mhp3rd::log_once;
 namespace {
 

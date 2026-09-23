@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "input/touch_controls.hpp"
 #include "settings/settings.hpp"
 
 union SDL_Event;
@@ -91,6 +92,15 @@ public:
     // The mouse's motion gathered by the pumps since the last call. Only
     // motion made while the pointer was captured for the game counts.
     [[nodiscard]] MouseMotion take_mouse_motion() noexcept;
+    // The on-screen touch controls: shown once the screen is touched while the
+    // game runs, hidden again by a gamepad, the keyboard or a real mouse.
+    [[nodiscard]] bool touch_controls_visible() const noexcept;
+    [[nodiscard]] const input::touch::Controls &touch_controls() const;
+    // A camera drag on the touch screen since the last take, as a fraction of
+    // the screen's height.
+    [[nodiscard]] MouseMotion take_touch_motion() noexcept;
+    // The on-screen menu button was tapped since the last take.
+    [[nodiscard]] bool take_touch_menu() noexcept;
     // The pointer is captured for the game: hidden, and its motion and
     // buttons go to the game. That is while the mouse setting is on, the game
     // has input, no interface screen is up and the window has focus.

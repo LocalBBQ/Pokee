@@ -566,6 +566,16 @@ static std::vector<std::uint8_t> make_vh2f_test_elf() {
     return bytes;
 }
 
+#ifdef PSPRECOMP_CODEGEN_PATH
+// The psp_recomp this build made, or PSPRECOMP_CODEGEN_PATH from the
+// environment: a cross-compiled test run on its target (an Android device
+// through adb) cannot reach the build machine's path.
+static std::filesystem::path codegen_tool_path() {
+    if (const char *path = std::getenv("PSPRECOMP_CODEGEN_PATH"); path != nullptr && *path != '\0') return path;
+    return PSPRECOMP_CODEGEN_PATH;
+}
+#endif
+
 static std::string shell_quote(const std::filesystem::path &path) {
 #ifdef _WIN32
     std::string value = path.string();
@@ -607,7 +617,7 @@ static void test_codegen_branch_before_delay_slot() {
     { std::ofstream out(elf_path, std::ios::binary); out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())); }
     { std::ofstream out(csv_path); out << "name,address,size\nbranch_delay_test,0x08804000,0x0000001C\n"; }
 
-    const std::filesystem::path codegen_path = PSPRECOMP_CODEGEN_PATH;
+    const std::filesystem::path codegen_path = codegen_tool_path();
     const std::string command = shell_quote(codegen_path) + " " + shell_quote(elf_path) + " " + shell_quote(csv_path) + " " + shell_quote(cpp_path);
     require(std::system(shell_command(command).c_str()) == 0, "psp_recomp branch fixture generation failed");
 
@@ -647,7 +657,7 @@ static void test_codegen_vfpu_branch_before_delay_slot() {
     { std::ofstream out(elf_path, std::ios::binary); out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())); }
     { std::ofstream out(csv_path); out << "name,address,size\nvfpu_branch_test,0x08804000,0x0000001C\n"; }
 
-    const std::filesystem::path codegen_path = PSPRECOMP_CODEGEN_PATH;
+    const std::filesystem::path codegen_path = codegen_tool_path();
     const std::string command = shell_quote(codegen_path) + " " + shell_quote(elf_path) + " " + shell_quote(csv_path) + " " + shell_quote(cpp_path);
     require(std::system(shell_command(command).c_str()) == 0, "psp_recomp VFPU branch fixture generation failed");
 
@@ -681,7 +691,7 @@ static void test_codegen_link_branch_before_delay_slot() {
     { std::ofstream out(elf_path, std::ios::binary); out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())); }
     { std::ofstream out(csv_path); out << "name,address,size\nlink_branch_test,0x08804000,0x0000001C\n"; }
 
-    const std::filesystem::path codegen_path = PSPRECOMP_CODEGEN_PATH;
+    const std::filesystem::path codegen_path = codegen_tool_path();
     const std::string command = shell_quote(codegen_path) + " " + shell_quote(elf_path) + " " + shell_quote(csv_path) + " " + shell_quote(cpp_path);
     require(std::system(shell_command(command).c_str()) == 0, "psp_recomp link-branch fixture generation failed");
 
@@ -719,7 +729,7 @@ static void test_codegen_zero_divisor_constant_folding() {
     { std::ofstream out(elf_path, std::ios::binary); out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())); }
     { std::ofstream out(csv_path); out << "name,address,size\ndivzero_test,0x08804000,0x00000010\n"; }
 
-    const std::filesystem::path codegen_path = PSPRECOMP_CODEGEN_PATH;
+    const std::filesystem::path codegen_path = codegen_tool_path();
     const std::string command = shell_quote(codegen_path) + " " + shell_quote(elf_path) + " " + shell_quote(csv_path) + " " + shell_quote(cpp_path);
     require(std::system(shell_command(command).c_str()) == 0, "psp_recomp DIV/DIVU-zero fixture generation failed");
 
@@ -754,7 +764,7 @@ static void test_codegen_vh2f_lowering() {
     { std::ofstream out(elf_path, std::ios::binary); out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())); }
     { std::ofstream out(csv_path); out << "name,address,size\nvh2f_test,0x08804000,0x00000020\n"; }
 
-    const std::filesystem::path codegen_path = PSPRECOMP_CODEGEN_PATH;
+    const std::filesystem::path codegen_path = codegen_tool_path();
     const std::string command = shell_quote(codegen_path) + " " + shell_quote(elf_path) + " " + shell_quote(csv_path) + " " + shell_quote(cpp_path);
     require(std::system(shell_command(command).c_str()) == 0, "psp_recomp VH2F fixture generation failed");
 
@@ -877,7 +887,7 @@ static void test_automatic_cfg_and_codegen() {
     const auto generated_dir = root / "generated";
     { std::ofstream out(elf_path, std::ios::binary); out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())); }
 
-    const std::filesystem::path codegen_path = PSPRECOMP_CODEGEN_PATH;
+    const std::filesystem::path codegen_path = codegen_tool_path();
     const std::string command = shell_quote(codegen_path) + " " + shell_quote(elf_path) +
         " --auto " + shell_quote(generated_dir) + " 0x08804000 64";
     require(std::system(shell_command(command).c_str()) == 0, "psp_recomp automatic generation failed");
@@ -925,7 +935,7 @@ static void test_automatic_cross_unit_tail_chaining() {
     const auto bytes = make_cross_unit_branch_test_elf();
     { std::ofstream out(elf_path, std::ios::binary); out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())); }
 
-    const std::filesystem::path codegen_path = PSPRECOMP_CODEGEN_PATH;
+    const std::filesystem::path codegen_path = codegen_tool_path();
     const std::string command = shell_quote(codegen_path) + " " + shell_quote(elf_path) +
         " --auto " + shell_quote(generated_dir) + " 0x08804000 64";
     require(std::system(shell_command(command).c_str()) == 0,

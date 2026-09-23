@@ -4,11 +4,14 @@
 #include <cstdint>
 #include <string>
 #include <system_error>
+#include <utility>
 
 #if defined(_WIN32)
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
+#elif defined(MHP3RD_ANDROID_APP)
+#include <dlfcn.h>
 #endif
 
 namespace mhp3rd {
@@ -28,6 +31,12 @@ std::filesystem::path executable_path() {
     std::string buffer(size, '\0');
     if (_NSGetExecutablePath(buffer.data(), &size) != 0) return {};
     return std::filesystem::canonical(buffer.c_str());
+#elif defined(MHP3RD_ANDROID_APP)
+    // An Android app runs inside app_process; its own code is libmain.so, in
+    // the directory the package manager extracted the APK's libraries to.
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<const void *>(&executable_path), &info) == 0 || info.dli_fname == nullptr) return {};
+    return std::filesystem::path(info.dli_fname);
 #else
     std::error_code ec;
     const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
@@ -41,6 +50,10 @@ std::filesystem::path executable_directory() {
 }
 
 namespace {
+std::filesystem::path &bundled_resource_directory() {
+    static std::filesystem::path directory;
+    return directory;
+}
 
 // Yakumo.app/Contents when the executable runs from Yakumo.app/Contents/MacOS,
 // empty otherwise (and on other systems).
@@ -65,9 +78,17 @@ std::filesystem::path shipped_directory(const char *bundle_subdirectory, const c
 
 } // namespace
 
+void set_bundled_resource_directory(std::filesystem::path directory) {
+    bundled_resource_directory() = std::move(directory);
+}
+
 std::filesystem::path bundled_overlay_directory() { return shipped_directory("Frameworks", "overlays"); }
 
-std::filesystem::path bundled_font_directory() { return shipped_directory("Resources", "fonts"); }
+// Android unpacks the APK's assets into a directory it names at start-up.
+std::filesystem::path bundled_font_directory() {
+    if (!bundled_resource_directory().empty()) return bundled_resource_directory() / "fonts";
+    return shipped_directory("Resources", "fonts");
+}
 
 std::vector<std::filesystem::path> bundled_fonts() {
     std::vector<std::filesystem::path> fonts;

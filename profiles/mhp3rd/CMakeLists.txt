@@ -54,14 +54,23 @@ if(MHP3RD_RENDERER)
     find_program(MHP3RD_GLSLANG NAMES glslangValidator glslang)
     if(SDL3_FOUND AND Vulkan_FOUND AND MHP3RD_GLSLANG)
         set(MHP3RD_SHADER_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders/ge_shaders.inc")
+        set(MHP3RD_SHADERS
+            "kGeVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
+            "kGeFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.frag")
+        if(ANDROID)
+            # Pre-rotation of the finished frame for a display turned sideways.
+            list(APPEND MHP3RD_SHADERS
+                "kRotateVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/rotate.vert"
+                "kRotateFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/rotate.frag")
+        endif()
+        set(MHP3RD_SHADER_SOURCES ${MHP3RD_SHADERS})
+        list(TRANSFORM MHP3RD_SHADER_SOURCES REPLACE "^[A-Za-z]+=" "")
         add_custom_command(
             OUTPUT "${MHP3RD_SHADER_INC}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
             COMMAND python3 "${MHP3RD_PROFILE_DIR}/tools/embed_shaders.py" "${MHP3RD_GLSLANG}" "${MHP3RD_SHADER_INC}"
-                    "kGeVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
-                    "kGeFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.frag"
-            DEPENDS "${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
-                    "${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.frag"
+                    ${MHP3RD_SHADERS}
+            DEPENDS ${MHP3RD_SHADER_SOURCES}
                     "${MHP3RD_PROFILE_DIR}/tools/embed_shaders.py"
             COMMENT "Compiling GE shaders to SPIR-V")
         add_custom_target(mhp3rd_shaders DEPENDS "${MHP3RD_SHADER_INC}")
@@ -81,6 +90,7 @@ if(MHP3RD_RENDERER)
             host/ui/save_screen.cpp
             host/ui/setup_screens.cpp
             host/ui/text_input.cpp
+            host/ui/touch_overlay.cpp
             host/ui/texture_pack_screen.cpp
             host/ui/widgets.cpp
             third_party/imgui/imgui.cpp
@@ -126,6 +136,7 @@ set(MHP3RD_HOST_SOURCES
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
+    host/input/touch_controls.cpp
     host/gpu/texture_pack.cpp
     host/gpu/texture_pack_import.cpp
     host/perf/frame_stats.cpp
@@ -186,12 +197,28 @@ target_include_directories(mhp3rd_generated PRIVATE
     "${MHP3RD_PROFILE_DIR}/generated")
 set_target_properties(mhp3rd_generated PROPERTIES JOB_POOL_COMPILE psprecomp_generated)
 
-add_executable(Yakumo
+# An Android app is a shared library, libmain.so, that SDL's Java activity
+# loads and calls; the command-line executable still builds for Android without
+# this and runs from adb shell.
+option(MHP3RD_ANDROID_APP "Build the Android app's libmain.so instead of an executable" OFF)
+if(MHP3RD_ANDROID_APP AND NOT (ANDROID AND MHP3RD_RENDERER))
+    message(FATAL_ERROR "MHP3RD_ANDROID_APP needs the Android NDK toolchain and the renderer (SDL3 and Vulkan)")
+endif()
+set(MHP3RD_PROGRAM_SOURCES
     host/main.cpp
     ${MHP3RD_HOST_SOURCES}
     ${MHP3RD_RENDERER_SOURCES}
-    $<TARGET_OBJECTS:mhp3rd_generated>
-)
+    $<TARGET_OBJECTS:mhp3rd_generated>)
+if(MHP3RD_ANDROID_APP)
+    add_library(Yakumo SHARED ${MHP3RD_PROGRAM_SOURCES} host/platform/android_app.cpp
+        host/platform/android_jni.cpp host/platform/android_documents.cpp)
+    target_compile_definitions(Yakumo PRIVATE MHP3RD_ANDROID_APP=1)
+    set_target_properties(Yakumo PROPERTIES
+        OUTPUT_NAME main
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+else()
+    add_executable(Yakumo ${MHP3RD_PROGRAM_SOURCES})
+endif()
 if(WIN32)
     set(MHP3RD_WINDOWS_ICON "${MHP3RD_PROFILE_DIR}/packaging/windows/emblem.ico")
     configure_file(packaging/windows/Yakumo.rc.in Yakumo.rc @ONLY)
@@ -310,6 +337,29 @@ target_link_libraries(mhp3rd_aspect_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_aspect_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_aspect_tests COMMAND mhp3rd_aspect_tests)
+endif()
+
+# Each platform's settings defaults.
+add_executable(mhp3rd_settings_tests
+    tests/settings_defaults_tests.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/input/bindings.cpp)
+target_include_directories(mhp3rd_settings_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_settings_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_settings_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_settings_tests COMMAND mhp3rd_settings_tests)
+endif()
+
+# The on-screen touch controls: layout, fingers and the stick's maths.
+add_executable(mhp3rd_touch_tests
+    tests/touch_controls_tests.cpp
+    host/input/touch_controls.cpp)
+target_include_directories(mhp3rd_touch_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_touch_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_touch_tests COMMAND mhp3rd_touch_tests)
 endif()
 
 # Texture pack import: finding a pack in the layouts packs come in, the
@@ -441,13 +491,20 @@ function(mhp3rd_add_overlay meta_path)
     # the runtime state the host already owns.
     target_include_directories(${target} PRIVATE
         "${source_dir}" "${MHP3RD_PROFILE_DIR}/host" "${PROJECT_SOURCE_DIR}/include")
-    if(WIN32 OR APPLE)
+    if(WIN32 OR APPLE OR MHP3RD_ANDROID_APP)
         # Both linkers want the host binary while linking the module: MSVC for
         # its import library, ld64 as the bundle loader. ELF leaves the host
-        # symbols undefined and resolves them when the module is loaded.
+        # symbols undefined and resolves them when the module is loaded. In an
+        # Android app the host is libmain.so, which the app loads privately,
+        # so the module names it as a dependency to find its symbols.
         target_link_libraries(${target} PRIVATE Yakumo)
     else()
         add_dependencies(${target} Yakumo)
+        if(ANDROID)
+            # The NDK links every shared library with --no-undefined; these
+            # leave the host's symbols to the loader like any other ELF.
+            target_link_options(${target} PRIVATE "LINKER:-z,undefs")
+        endif()
     endif()
     if(MSVC)
         target_compile_definitions(${target} PRIVATE PSPRECOMP_IMPORT_HOST_SYMBOLS=1)
@@ -470,6 +527,10 @@ function(mhp3rd_add_overlay meta_path)
         SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}"
         OUTPUT_NAME "${MHP3RD_OVERLAY_PREFIX}"
         LIBRARY_OUTPUT_DIRECTORY "${MHP3RD_OVERLAY_DIR}")
+    if(MHP3RD_ANDROID_APP)
+        # An APK only carries libraries named lib*.so.
+        set_target_properties(${target} PROPERTIES PREFIX "lib")
+    endif()
 endfunction()
 
 file(GLOB MHP3RD_OVERLAY_METADATA CONFIGURE_DEPENDS "${MHP3RD_PROFILE_DIR}/overlays/*/meta.txt")

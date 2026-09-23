@@ -27,4 +27,8 @@ namespace mhp3rd {
 // after the system's own fonts.
 [[nodiscard]] std::vector<std::filesystem::path> bundled_fonts();
 
+// Where fonts/ is found instead of next to the executable. An Android app
+// ships its font inside the APK and unpacks it to its own storage first.
+void set_bundled_resource_directory(std::filesystem::path directory);
+
 } // namespace mhp3rd

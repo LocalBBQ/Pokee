@@ -284,7 +284,20 @@ void begin_content() {
     ImGui::BeginChild("content", {0.0f, content}, ImGuiChildFlags_NavFlattened);
 }
 
+void touch_scroll() {
+    ImGuiIO &io = ImGui::GetIO();
+    if (io.MouseSource != ImGuiMouseSource_TouchScreen) return;
+    if (!ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+        return;
+    if (!ImGui::IsMouseDragging(ImGuiMouseButton_Left, font() * 0.4f)) return;
+    ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+    // A drag is a scroll, not a press: the row the finger started on must not
+    // act when it lifts.
+    ImGui::ClearActiveID();
+}
+
 void begin_footer() {
+    touch_scroll();
     ImGui::EndChild();
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const ImVec2 line = ImGui::GetCursorScreenPos();
@@ -295,10 +308,18 @@ void begin_footer() {
     // Two lines for the description, whatever it holds, so the hints stay put.
     const float description_height = font() * 2.4f;
     const ImVec2 at = ImGui::GetCursorScreenPos();
-    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.88f);
+    // A description that would wrap past its two lines (a narrow or a very
+    // wide window) is set smaller rather than run into the hints below.
+    const std::string &description = Layer::get().description();
+    float size = ImGui::GetStyle().FontSizeBase * 0.88f;
+    const float smallest = ImGui::GetStyle().FontSizeBase * 0.66f;
+    while (size > smallest &&
+           ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, width, description.c_str()).y > description_height)
+        size -= 1.0f;
+    ImGui::PushFont(nullptr, size);
     ImGui::PushStyleColor(ImGuiCol_Text, colors::kTextDim);
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
-    ImGui::TextUnformatted(Layer::get().description().c_str());
+    ImGui::TextUnformatted(description.c_str());
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::PopFont();

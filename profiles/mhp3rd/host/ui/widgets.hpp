@@ -39,6 +39,9 @@ ImGuiStyle make_style(float scale, float font_size);
 //   begin_footer(); hints(...); end_panel();
 void begin_panel(const char *id, const std::string &title, const std::string &subtitle, bool dim_game);
 void begin_content();
+// A drag with a finger scrolls the current window, as on any touch screen;
+// ImGui itself scrolls only with a wheel. Call before ending the window.
+void touch_scroll();
 void begin_footer();
 void end_panel();
 

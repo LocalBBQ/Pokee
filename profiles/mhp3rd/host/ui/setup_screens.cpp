@@ -14,6 +14,16 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "settings/settings.hpp"
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_jni.hpp"
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cerrno>
+#include <fstream>
+#endif
 
 #include "imgui.h"
 
@@ -70,6 +80,10 @@ public:
 private:
     // A file dropped onto the welcome screen skips the browser.
     std::optional<fs::path> dropped_;
+    fs::path data_dir_;
+#if defined(MHP3RD_ANDROID_APP)
+    void copy_document(const std::string &uri, const fs::path &target);
+#endif
 
     // Progress, written by the worker thread in progress().
     std::mutex mutex_;
@@ -81,6 +95,7 @@ private:
 };
 
 bool SetupScreens::introduce(const fs::path &data_dir) {
+    data_dir_ = data_dir;
     Layer &layer = Layer::get();
     layer.set_interactive(true);
     bool first = true;
@@ -103,10 +118,18 @@ bool SetupScreens::introduce(const fs::path &data_dir) {
                       " from your own copy of the game. It needs the disc image of the game's PSP disc, " +
                       install::kDiscIdDisplay + ", as an .iso file: the PlayStation 3 release carries it.");
             ImGui::Dummy({0.0f, font() * 0.4f});
+#if defined(MHP3RD_ANDROID_APP)
+            paragraph("Choose the image next, in Android's file picker. Yakumo copies it into its own storage (an "
+                      "app cannot keep reading a file elsewhere), checks that it is the right release and prepares "
+                      "the game from it. The copy needs about 1.3 GB of free space, besides the 0.8 GB the app takes; "
+                      "once it is made, the original can be deleted. Nothing is downloaded.",
+                      colors::kTextDim);
+#else
             paragraph("Choose the image next. Yakumo checks that it is the right release, prepares the game from it "
                       "and, unless you choose otherwise, copies it into its data folder so the game keeps working if "
                       "the original is moved or deleted. Nothing is downloaded.",
                       colors::kTextDim);
+#endif
             ImGui::Dummy({0.0f, font() * 0.4f});
             section("Data folder");
             ImGui::Indent(std::round(16.0f * layer.scale()));
@@ -115,8 +138,10 @@ bool SetupScreens::introduce(const fs::path &data_dir) {
             ImGui::Dummy({0.0f, font() * 0.6f});
             answer = button_pair("Choose disc image", "Quit", first);
             first = false;
+#if !defined(MHP3RD_ANDROID_APP)
             ImGui::Dummy({0.0f, font() * 0.4f});
             paragraph("You can also drop the .iso file onto this window.", colors::kTextDim);
+#endif
             layer.set_description("Monster Hunter Portable 3rd HD Ver. (NPJB-40001) is the only release supported.");
             begin_footer();
             hints({{Control::Confirm, "Select"}, {Control::Back, "Quit"}});
@@ -127,6 +152,73 @@ bool SetupScreens::introduce(const fs::path &data_dir) {
     return window_open && answer == 1;
 }
 
+#if defined(MHP3RD_ANDROID_APP)
+// The picked image is a content:// document, readable only through a file
+// descriptor, so it is copied into the data folder, with progress, before it
+// is checked. It cannot be used where it is.
+void SetupScreens::copy_document(const std::string &uri, const fs::path &target) {
+    const int fd = android::open_document(uri, "r");
+    if (fd < 0) throw install::InstallError("Android would not let Yakumo read that file. Choose it again.");
+    struct stat info {};
+    const std::uint64_t size = ::fstat(fd, &info) == 0 ? static_cast<std::uint64_t>(info.st_size) : 0u;
+    // The copy, with room to spare for the executable prepared from it.
+    const std::uint64_t needed = size + 64u * 1024u * 1024u;
+    if (const auto space = install::available_space(data_dir_); space && size != 0u && *space < needed) {
+        ::close(fd);
+        throw install::InstallError("Not enough free space to copy the disc image: it needs " + human_size(needed) +
+                                    " and " + human_size(*space) + " is free on this device.");
+    }
+    std::error_code ec;
+    fs::create_directories(data_dir_, ec);
+    const fs::path partial = target.string() + ".part";
+    const std::string stage = "Copying the disc image";
+    try {
+        std::ofstream out(partial, std::ios::binary | std::ios::trunc);
+        std::vector<char> buffer(4u << 20);
+        std::uint64_t done = 0u;
+        progress(stage, 0u, size);
+        for (;;) {
+            const ssize_t got = ::read(fd, buffer.data(), buffer.size());
+            if (got < 0 && errno == EINTR) continue;
+            if (got < 0) throw install::InstallError("Reading the disc image failed. Choose it again.");
+            if (got == 0) break;
+            out.write(buffer.data(), got);
+            if (!out) throw install::InstallError("Writing the copy of the disc image failed. Check that the device "
+                                                  "has free space.");
+            done += static_cast<std::uint64_t>(got);
+            progress(stage, done, size);
+        }
+        out.close();
+        if (!out) throw install::InstallError("Writing the copy of the disc image failed. Check that the device has "
+                                              "free space.");
+    } catch (...) {
+        ::close(fd);
+        fs::remove(partial, ec);
+        throw;
+    }
+    ::close(fd);
+    fs::rename(partial, target, ec);
+    if (ec) throw install::InstallError("Could not keep the copy of the disc image: " + ec.message() + ".");
+}
+
+std::optional<fs::path> SetupScreens::choose_image() {
+    for (;;) {
+        const std::optional<std::string> uri = android::pick_document();
+        if (!uri) return std::nullopt;
+        std::cout << "[setup] picked " << *uri << std::endl;
+        const fs::path target = data_dir_ / install::kCopiedImageFile;
+        try {
+            run_task("Copying the disc image", [&] { copy_document(*uri, target); });
+            return target;
+        } catch (const install::InstallCancelled &) {
+            return std::nullopt;
+        } catch (const install::InstallError &e) {
+            std::cerr << "Setup: " << e.what() << "\n";
+            if (!offer_retry(e.what())) return std::nullopt;
+        }
+    }
+}
+#else
 std::optional<fs::path> SetupScreens::choose_image() {
     if (dropped_) return std::exchange(dropped_, std::nullopt);
     Layer &layer = Layer::get();
@@ -166,10 +258,18 @@ std::optional<fs::path> SetupScreens::choose_image() {
     }
     return chosen;
 }
+#endif
 
 std::optional<install::ImageStorage> SetupScreens::choose_storage(const fs::path &image,
                                                                   const install::ImageInfo &info,
                                                                   const fs::path &data_dir) {
+#if defined(MHP3RD_ANDROID_APP)
+    // Already copied into the data folder by choose_image().
+    (void)image;
+    (void)info;
+    (void)data_dir;
+    return install::ImageStorage::Copy;
+#endif
     Layer &layer = Layer::get();
     const std::uint64_t needed = install::space_needed_to_copy(info);
     const std::optional<std::uint64_t> space = install::available_space(data_dir);
@@ -359,9 +459,16 @@ void SetupScreens::finished(const fs::path &data_dir) {
             ImGui::Dummy({0.0f, font() * 0.5f});
             paragraph("The game is ready. Later starts go straight to it.", colors::kGood);
             ImGui::Dummy({0.0f, font() * 0.3f});
+#if defined(MHP3RD_ANDROID_APP)
+            paragraph("In the game, Back, the menu button at the top of the touch controls, or L3+R3 on a gamepad "
+                      "(both sticks pressed) opens Yakumo's menu, with the settings and the way back to this setup. "
+                      "Touch the screen to show the touch controls.",
+                      colors::kTextDim);
+#else
             paragraph("In the game, Esc or L3+R3 (both sticks pressed) opens Yakumo's menu, with the settings and the "
                       "way back to this setup.",
                       colors::kTextDim);
+#endif
             ImGui::Dummy({0.0f, font() * 0.3f});
             section("Data folder");
             ImGui::Indent(std::round(16.0f * layer.scale()));

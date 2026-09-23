@@ -211,7 +211,24 @@ else()
                 "--extra-ldflags=-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
         endif()
     endif()
-    if(DEFINED ENV{CC})
+    if(ANDROID)
+        # Cross-compiled with the NDK's clang for the ABI and API level of the
+        # rest of the build. FFmpeg's android target names the libraries
+        # libavcodec.so and libavutil.so, without a version, which is also the
+        # only form an APK's lib/ directory accepts.
+        if(NOT ANDROID_ABI STREQUAL "arm64-v8a")
+            message(FATAL_ERROR "mhp3rd: the bundled FFmpeg is set up for arm64-v8a only, not ${ANDROID_ABI}")
+        endif()
+        set(_mhp3rd_ndk_bin "${ANDROID_TOOLCHAIN_ROOT}/bin")
+        list(APPEND _mhp3rd_ffmpeg_flags
+            --enable-cross-compile --target-os=android --arch=aarch64
+            "--cc=${_mhp3rd_ndk_bin}/aarch64-linux-android${ANDROID_PLATFORM_LEVEL}-clang"
+            "--cxx=${_mhp3rd_ndk_bin}/aarch64-linux-android${ANDROID_PLATFORM_LEVEL}-clang++"
+            "--ar=${_mhp3rd_ndk_bin}/llvm-ar" "--nm=${_mhp3rd_ndk_bin}/llvm-nm"
+            "--ranlib=${_mhp3rd_ndk_bin}/llvm-ranlib" "--strip=${_mhp3rd_ndk_bin}/llvm-strip"
+            # Pages may be 16 KiB on current devices; the NDK's own flag for it.
+            "--extra-ldflags=-Wl,-z,max-page-size=16384")
+    elseif(DEFINED ENV{CC})
         list(APPEND _mhp3rd_ffmpeg_flags "--cc=$ENV{CC}")
     endif()
     # Built once per build directory; again only when the pin or the flags change.
@@ -260,6 +277,8 @@ else()
         list(POP_FRONT _versions lib soversion)
         if(APPLE)
             set(runtime_name "lib${lib}.${soversion}.dylib")
+        elseif(ANDROID)
+            set(runtime_name "lib${lib}.so")
         else()
             set(runtime_name "lib${lib}.so.${soversion}")
         endif()

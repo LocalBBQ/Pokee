@@ -88,6 +88,13 @@ struct Settings {
     bool invert_mouse_x{};
     bool invert_mouse_y{};
     input::Bindings bindings{input::default_bindings()};
+    // On-screen controls for a touch screen, shown once the screen is touched
+    // and hidden again when a gamepad or the keyboard is used.
+    bool touch_controls{true};
+    bool touch_dpad{true};             // the D-pad among them, for the game's menus
+    float touch_opacity{0.5f};         // 0.1-1
+    float touch_size{1.0f};            // 0.6-1.6 of the default size
+    float touch_camera_speed{180.0f};  // degrees the camera turns for a drag across the screen's height
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once
     std::string name{"Hunter"};        // the fixed name
 
@@ -113,11 +120,32 @@ inline constexpr std::uint32_t kMaxInternalScale = 8u;
 inline constexpr std::uint32_t kMaxWindowScale = 4u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
+inline constexpr float kMinTouchOpacity = 0.1f;
+inline constexpr float kMaxTouchOpacity = 1.0f;
+inline constexpr float kMinTouchSize = 0.6f;
+inline constexpr float kMaxTouchSize = 1.6f;
+inline constexpr float kMinTouchCameraSpeed = 30.0f;
+inline constexpr float kMaxTouchCameraSpeed = 720.0f;
 inline constexpr float kMaxMouseSensitivity = 0.99f;
 
-// Loads the settings on first use.
+// The platforms whose defaults differ. A phone plays full screen with a
+// finger or a pad, so a few settings start otherwise there (defaults_for).
+enum class Platform { Desktop, Android };
+#if defined(__ANDROID__)
+inline constexpr Platform kPlatform = Platform::Android;
+#else
+inline constexpr Platform kPlatform = Platform::Desktop;
+#endif
+// The defaults on `platform`: Desktop is Settings{} as declared above;
+// Android differs in video.aspect (fill: a phone is wider than the PSP),
+// video.fullscreen (on: there is no window) and input.mouse (off: a phone
+// has no mouse to capture, and an emulator's pointer would turn the camera).
+[[nodiscard]] Settings defaults_for(Platform platform);
+
+// Loads the settings on first use, starting from defaults().
 [[nodiscard]] Settings &current();
-// The defaults, for "Restore defaults".
+// This platform's defaults, for keys settings.ini lacks and for "Restore
+// defaults".
 [[nodiscard]] const Settings &defaults();
 // Writes current() to settings.ini, leaving values set by environment
 // variables at what the file had. Failures are reported on the console.

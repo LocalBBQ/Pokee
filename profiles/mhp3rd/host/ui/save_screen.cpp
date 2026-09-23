@@ -7,6 +7,9 @@
 #include "install/user_data.hpp"
 #include "settings/settings.hpp"
 #include "save_data/save_transfer.hpp"
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_documents.hpp"
+#endif
 
 #include "imgui.h"
 
@@ -146,7 +149,82 @@ void close() {
     s.focus_row = true;
 }
 
+#if defined(MHP3RD_ANDROID_APP)
+void review(const fs::path &picked);
+
+// Android: folders come from the system's document picker, as content://
+// trees, so imports are checked in a local copy and exports and backups are
+// made locally, then copied into the picked folder. The copies live beside
+// the memory stick and are removed afterwards.
+fs::path transfer_folder(const char *name) { return sd::memory_stick().parent_path() / "transfer" / name; }
+
+void open_picker(Stage stage) {
+    State &s = state();
+    std::error_code ec;
+    if (stage == Stage::ChooseImport) {
+        const std::optional<android::PickedImport> picked = android::pick_saves_to_import(transfer_folder("import"));
+        if (!picked) {
+            close();
+            return;
+        }
+        if (!picked->error.empty()) std::cout << "[saves] " << picked->error << "\n";
+        review(picked->staged);
+        return;
+    }
+    const auto now = std::chrono::system_clock::now();
+    const fs::path local = transfer_folder(stage == Stage::ChooseExport ? "export" : "backup");
+    fs::remove_all(local, ec);
+    fs::create_directories(local, ec);
+    fs::path made;
+    if (stage == Stage::ChooseExport) {
+        s.exported = sd::export_saves(sd::memory_stick(), local, now);
+        made = s.exported.folder;
+        if (!s.exported.ok) {
+            go(Stage::Exported);
+            return;
+        }
+    } else {
+        s.backup_target = sd::backup_folder(local, now);
+        s.backed_up = sd::back_up_saves(sd::memory_stick(), s.backup_target, false);
+        made = s.backed_up.folder;
+        if (!s.backed_up.ok) {
+            go(Stage::BackedUp);
+            return;
+        }
+    }
+    const std::optional<android::PickedExport> copied = android::pick_folder_and_copy(made);
+    fs::remove_all(local, ec);
+    if (!copied) {
+        if (stage == Stage::ChooseBackup) go(Stage::Backup);
+        else close();
+        return;
+    }
+    const fs::path shown = fs::path(copied->where) / made.filename();
+    std::cout << "[saves] copied to " << copied->where << ": " << (copied->error.empty() ? "done" : copied->error)
+              << std::endl;
+    if (stage == Stage::ChooseExport) {
+        s.exported.folder = shown;
+        if (!copied->error.empty()) {
+            s.exported.ok = false;
+            s.exported.error = copied->error;
+        }
+        go(Stage::Exported);
+    } else {
+        s.backed_up.folder = shown;
+        s.backup_target = shown;
+        if (!copied->error.empty()) {
+            s.backed_up.ok = false;
+            s.backed_up.error = copied->error;
+        }
+        go(Stage::BackedUp);
+    }
+}
+#endif
+
 void open_browser(Stage stage) {
+#if defined(MHP3RD_ANDROID_APP)
+    open_picker(stage);
+#else
     State &s = state();
     FileBrowser::Options options;
     options.extensions = {};
@@ -168,6 +246,7 @@ void open_browser(Stage stage) {
     s.browser = std::make_unique<FileBrowser>(s.last_folder.empty() ? FileBrowser::home() : s.last_folder,
                                               std::move(options));
     go(stage);
+#endif
 }
 
 void focus_first() {
@@ -296,7 +375,12 @@ void review_screen(bool back) {
     }
     section("Import saves");
     ImGui::Indent(px(16.0f));
+#if defined(MHP3RD_ANDROID_APP)
+    // The picked folder, not the local copy it was checked in.
+    paragraph("From " + utf8(s.picked.filename()), colors::kTextDim);
+#else
     paragraph("From " + utf8(s.picked), colors::kTextDim);
+#endif
     if (s.found.empty())
         paragraph("No saves of Monster Hunter Portable 3rd were found in this folder. Choose a save folder such as "
                   "ULJM05800, or the PSP/SAVEDATA folder that holds it.",
@@ -425,16 +509,22 @@ void backup_screen(bool back) {
         settings.backup_timestamp = !settings.backup_timestamp;
         settings::save();
     }
+#if !defined(MHP3RD_ANDROID_APP)
+    // An Android app's own folders are out of the player's reach: there a
+    // backup always goes to a folder picked in the system's picker.
     if (button_row("Back up to the backups folder",
                    {names.empty(), {}, "Into " + utf8(backups_directory()) + "."})) {
         std::error_code ec;
         fs::create_directories(backups_directory(), ec);
         start_backup(backups_directory());
     }
+#endif
     if (button_row("Back up to another folder…", {names.empty(), {}, "Choose where the backup goes."}))
         open_browser(Stage::ChooseBackup);
+#if !defined(MHP3RD_ANDROID_APP)
     if (button_row("Open the backups folder", {false, {}, "Show " + utf8(backups_directory()) + "."}))
         open_folder(backups_directory());
+#endif
     if (button_row("Cancel", {false, {}, "Back to the menu."})) close();
 }
 
@@ -471,8 +561,10 @@ void backed_up_screen(bool back) {
         sandbox_note();
     }
     ImGui::Dummy({0.0f, px(12.0f)});
+#if !defined(MHP3RD_ANDROID_APP)
     if (button_row("Open the folder", {false, {}, "Show the backup in the file manager."}))
         open_folder(s.backed_up.ok ? s.backed_up.folder : s.backup_target);
+#endif
     if (button_row("Done", {false, {}, "Back to the menu."})) close();
 }
 
@@ -494,6 +586,17 @@ void save_rows() {
         focus_next_row();
         s.focus_row = false;
     }
+#if defined(MHP3RD_ANDROID_APP)
+    // Android's picker offers no storage's root and no Download folder itself.
+    if (button_row("Import save…", {!available, {},
+                                     "Copy a save from PPSSPP, a memory stick or an export: pick its PSP folder, or "
+                                     "a folder holding it or the save folders. A save it replaces is kept."}))
+        open_browser(Stage::ChooseImport);
+    if (button_row("Export save…", {!available, {},
+                                     "Copy your game data and downloaded quests to a folder you pick (Android does "
+                                     "not offer Download itself: make or pick a folder in it)."}))
+        open_browser(Stage::ChooseExport);
+#else
     if (button_row("Import save…", {!available, {},
                                      "Copy a save from a PSP memory stick, PPSSPP or another installation: choose "
                                      "its folder (ULJM05800, ULJM05800QST) or the PSP/SAVEDATA folder that holds "
@@ -503,15 +606,18 @@ void save_rows() {
                                      "Copy your game data and downloaded quests to a folder you choose, to take them "
                                      "to a PSP or another machine."}))
         open_browser(Stage::ChooseExport);
+#endif
     if (button_row("Back up saves…", {!available, {},
                                       "Copy all of this game's saves, the install data included, to the backups "
                                       "folder or a folder you choose."}))
         go(Stage::Backup);
+#if !defined(MHP3RD_ANDROID_APP)
     if (button_row("Open the saves folder",
                    {!available, {}, "Show the folder the game saves to (PSP/SAVEDATA) in the file manager."}))
         open_folder(sd::memory_stick() / "PSP" / "SAVEDATA");
     if (button_row("Open the backups folder", {false, {}, "Show " + utf8(backups_directory()) + "."}))
         open_folder(backups_directory());
+#endif
 }
 
 bool save_screen_open() { return state().stage != Stage::Closed; }

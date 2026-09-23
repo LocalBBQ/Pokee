@@ -16,6 +16,8 @@ namespace mhp3rd::install {
 // Save data is not here yet: ms0 stays where the host has always kept it.
 inline constexpr const char *kExecutableFile = "EBOOT.ELF";
 inline constexpr const char *kCopiedImageFile = "disc.iso";
+// Android: asks the next start to run the setup, as --install does elsewhere.
+inline constexpr const char *kSetupMarkerFile = "setup-requested";
 inline constexpr const char *kSettingsFile = "settings.ini";
 
 // MHP3RD_DATA_DIR when set, otherwise SDL_GetPrefPath("Yakumo", "MHP3rd")

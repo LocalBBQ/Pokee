@@ -11,6 +11,7 @@
 #include "ui/save_screen.hpp"
 #include "ui/texture_pack_screen.hpp"
 #include "ui/text_input.hpp"
+#include "ui/touch_overlay.hpp"
 #include "ui/widgets.hpp"
 
 #include "adhoc/client.hpp"
@@ -26,6 +27,9 @@
 #include "save_data/save_transfer.hpp"
 #include "settings/settings.hpp"
 #include "yakumo_version.hpp"
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_documents.hpp"
+#endif
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -217,6 +221,8 @@ void Menu::video() {
             settings::save();
         }
     }
+#if !defined(__ANDROID__)
+    // A phone is always full screen: no window to size.
     {
         const int delta =
             choice_row("Display", s.fullscreen ? "Fullscreen" : "Window",
@@ -241,6 +247,7 @@ void Menu::video() {
             settings::save();
         }
     }
+#endif
     {
         static const char *const kAspects[] = {"Original", "Stretch", "Fill"};
         const int current = static_cast<int>(s.aspect);
@@ -593,7 +600,10 @@ void Menu::controls() {
             settings::save();
         }
     }
-    const bool camera = s.right_stick == settings::RightStick::Camera;
+    // On Android a finger drag drives the analog camera whatever the right
+    // stick does, so the row stays open there.
+    const bool camera = s.right_stick == settings::RightStick::Camera ||
+                        settings::kPlatform == settings::Platform::Android;
     {
         RowOptions o = options_for("input.analog_camera",
                                    "Turn and tilt the quest camera as far as the stick is pushed, instead of the "
@@ -750,15 +760,10 @@ void Menu::controls() {
     }
     info_row("Esc", "This menu");
     info_row("F3", "Performance overlay");
-    if (button_row("Use the classic keyboard layout",
-                   {false, {}, "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are "
-                               "the face buttons, Q and W are L and R."})) {
-        s.bindings = input::classic_bindings();
-        settings::save();
-    }
+
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
-                   {false, {}, "Every gamepad, keyboard, mouse and name setting back to how Yakumo ships."})) {
+                   {false, {}, "Every gamepad, keyboard, mouse, touch and name setting back to how Yakumo ships."})) {
         const settings::Settings &d = settings::defaults();
         const auto restore = [&](const char *key, auto &value, const auto &fallback) {
             if (settings::overridden_by(key) == nullptr) value = fallback;
@@ -780,7 +785,64 @@ void Menu::controls() {
         restore("input.mouse_sensitivity", s.mouse_sensitivity, d.mouse_sensitivity);
         restore("input.invert_mouse_x", s.invert_mouse_x, d.invert_mouse_x);
         restore("input.invert_mouse_y", s.invert_mouse_y, d.invert_mouse_y);
+        restore("input.touch_controls", s.touch_controls, d.touch_controls);
+        restore("input.touch_dpad", s.touch_dpad, d.touch_dpad);
+        restore("input.touch_opacity", s.touch_opacity, d.touch_opacity);
+        restore("input.touch_size", s.touch_size, d.touch_size);
+        restore("input.touch_camera_speed", s.touch_camera_speed, d.touch_camera_speed);
         s.bindings = d.bindings;
+        settings::save();
+    }
+
+    section("Touch screen");
+    {
+        RowOptions o = options_for("input.touch_controls",
+                                   "A pad drawn over the game once the screen is touched: a stick that appears "
+                                   "where the left thumb lands, the face buttons on the right, L and R at the top "
+                                   "corners. A drag on the free right half turns the camera. It hides again when a "
+                                   "gamepad or the keyboard is used.");
+        if (toggle_row("On-screen controls", s.touch_controls, o)) {
+            s.touch_controls = !s.touch_controls;
+            settings::save();
+        }
+        const auto off = [&](RowOptions options) {
+            if (!s.touch_controls && !options.disabled) {
+                options.disabled = true;
+                options.note = "On-screen controls are off";
+            }
+            return options;
+        };
+        if (toggle_row("D-pad", s.touch_dpad,
+                       off(options_for("input.touch_dpad", "A D-pad at the left edge, for the game's menus, the item "
+                                                           "box and the camera's D-pad controls. Off gives its place "
+                                                           "to the stick.")))) {
+            s.touch_dpad = !s.touch_dpad;
+            settings::save();
+        }
+        int opacity = static_cast<int>(std::lround(s.touch_opacity * 100.0f));
+        if (slider_row("Controls opacity", opacity, 10, 100, 5, "%d%%",
+                       off(options_for("input.touch_opacity", "How strongly the on-screen controls are drawn.")))) {
+            s.touch_opacity = static_cast<float>(opacity) / 100.0f;
+            settings::save();
+        }
+        int size = static_cast<int>(std::lround(s.touch_size * 100.0f));
+        if (slider_row("Controls size", size, 60, 160, 5, "%d%%",
+                       off(options_for("input.touch_size", "The size of the on-screen controls.")))) {
+            s.touch_size = static_cast<float>(size) / 100.0f;
+            settings::save();
+        }
+        int speed = static_cast<int>(std::lround(s.touch_camera_speed));
+        if (slider_row("Touch camera speed", speed, 30, 720, 10, "%d deg",
+                       off(options_for("input.touch_camera_speed",
+                                       "Degrees the camera turns for a drag across the height of the screen.")))) {
+            s.touch_camera_speed = static_cast<float>(speed);
+            settings::save();
+        }
+    }
+    if (button_row("Use the classic keyboard layout",
+                   {false, {}, "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are "
+                               "the face buttons, Q and W are L and R."})) {
+        s.bindings = input::classic_bindings();
         settings::save();
     }
 }
@@ -1118,10 +1180,37 @@ void Menu::system() {
         s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
         settings::save();
     }
+#if defined(MHP3RD_ANDROID_APP)
+    // An Android app's data folder is out of the file manager's reach; its
+    // log goes where the player picks instead, to send with a report.
+    (void)data_dir;
+    if (button_row("Save the log…", {false, {}, "Copies Yakumo's logs (this run's, the previous run's and the logs "
+                                                "folder) to a folder you pick, to send with a problem report."})) {
+        std::fflush(stdout);
+        std::fflush(stderr);
+        std::error_code ec;
+        const std::filesystem::path storage = install::user_data_directory();
+        const std::filesystem::path local = storage / "transfer" /
+                                            ("Yakumo log " + savedata::timestamp_for_path(std::chrono::system_clock::now()));
+        std::filesystem::remove_all(local.parent_path(), ec);
+        std::filesystem::create_directories(local, ec);
+        std::filesystem::copy_file(storage / "yakumo.log", local / "yakumo.log", ec);
+        std::filesystem::copy_file(storage / "yakumo-previous.log", local / "yakumo-previous.log", ec);
+        if (std::filesystem::is_directory(storage / "logs", ec))
+            std::filesystem::copy(storage / "logs", local / "logs", std::filesystem::copy_options::recursive, ec);
+        const auto copied = android::pick_folder_and_copy(local);
+        std::filesystem::remove_all(local.parent_path(), ec);
+        if (copied)
+            saved_log_path() = copied->error.empty() ? copied->where + "/" + install::path_to_utf8(local.filename())
+                                                     : "Not saved: " + copied->error;
+    }
+    if (!saved_log_path().empty()) info_row("Log", saved_log_path());
+#else
     if (button_row("Open the data folder", {false, {}, "Show Yakumo's data folder in the file manager."})) {
         if (!SDL_OpenURL(file_url(data_dir).c_str()))
             std::cout << "[menu] cannot open " << data_dir << ": " << SDL_GetError() << "\n";
     }
+#endif
     if (button_row("Set up game data again…",
                    {false, {}, "Choose the disc image again, for example after moving it. The game closes first."}))
         confirm_ = Confirm::Setup;
@@ -1293,8 +1382,10 @@ void draw_over_game() {
     }
     const double hint_left = menu || settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
     const bool overlay = network_overlay();
-    if (hint_left <= 0.0 && !overlay && !menu) return;
+    const bool touch = !menu && layer.renderer().touch_controls_visible();
+    if (hint_left <= 0.0 && !overlay && !menu && !touch) return;
     layer.begin_frame();
+    if (touch) draw_touch_controls(layer.renderer().touch_controls(), settings::current().touch_opacity);
     if (hint_left > 0.0) draw_hint(hint_left);
     if (overlay) draw_network_overlay();
     if (menu && !menu->frame()) {
@@ -1329,7 +1420,10 @@ bool take_quit_request() { return std::exchange(quit_requested(), false); }
 
 bool menu_requested() {
     Layer &layer = Layer::get();
-    return layer.attached() && !text_input_open() && layer.take_menu_toggle();
+    if (!layer.attached() || text_input_open()) return false;
+    // The on-screen menu button, then Esc or L3+R3.
+    const bool touched = layer.renderer().take_touch_menu();
+    return layer.take_menu_toggle() || touched;
 }
 
 bool run_menu() {
