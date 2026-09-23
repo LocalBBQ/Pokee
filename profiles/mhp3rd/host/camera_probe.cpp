@@ -2,6 +2,7 @@
 
 #include "gpu/vulkan_renderer.hpp"
 #include "hle/hle_common.hpp"
+#include "platform/utf8_path.hpp"
 
 #include <string>
 
@@ -187,8 +188,8 @@ void write_list(const Hunt &h, std::uint32_t base, std::ofstream &out) {
 }
 
 void write_lists(const Probe &p, std::uint32_t base) {
-    const char *path = std::getenv("MHP3RD_FIND_CAMERA_OUT");
-    if (path == nullptr || *path == '\0') return;
+    const std::filesystem::path path = environment_path("MHP3RD_FIND_CAMERA_OUT");
+    if (path.empty()) return;
     std::ofstream out(path, std::ios::trunc);
     if (!out) return;
     write_list(p.yaw, base, out);

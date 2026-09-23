@@ -10,6 +10,12 @@
 
 namespace psprecomp {
 namespace {
+// A path as UTF-8 for messages: path::string() is in the ANSI code page on
+// Windows and throws for names it cannot hold.
+std::string utf8_name(const std::filesystem::path &path) {
+    const std::u8string text = path.u8string();
+    return {reinterpret_cast<const char *>(text.data()), text.size()};
+}
 constexpr std::array<std::uint32_t, 64> K{
     0x428a2f98u,0x71374491u,0xb5c0fbcfu,0xe9b5dba5u,0x3956c25bu,0x59f111f1u,0x923f82a4u,0xab1c5ed5u,
     0xd807aa98u,0x12835b01u,0x243185beu,0x550c7dc3u,0x72be5d74u,0x80deb1feu,0x9bdc06a7u,0xc19bf174u,
@@ -38,7 +44,7 @@ std::string sha256_bytes(std::span<const std::uint8_t> bytes) {
     std::ostringstream out; out<<std::hex<<std::setfill('0'); for(auto v:h) out<<std::setw(8)<<v; return out.str();
 }
 std::string sha256_file(const std::filesystem::path &path) {
-    std::ifstream in(path, std::ios::binary); if(!in) throw Error("Cannot open file for SHA-256: "+path.string());
+    std::ifstream in(path, std::ios::binary); if(!in) throw Error("Cannot open file for SHA-256: "+utf8_name(path));
     const std::vector<std::uint8_t> data((std::istreambuf_iterator<char>(in)), {});
     return sha256_bytes(data);
 }

@@ -3,6 +3,8 @@
 #include "save_data/param_sfo.hpp"
 #include "save_data/savedata_crypto.hpp"
 
+#include "platform/utf8_path.hpp"
+
 #include <algorithm>
 #include <ctime>
 #include <fstream>
@@ -45,10 +47,7 @@ std::optional<std::vector<std::uint8_t>> read_file(const fs::path &path) {
 
 // A path as UTF-8, for messages and names; path::string() can throw on
 // Windows for names outside the system code page.
-std::string text(const fs::path &path) {
-    const std::u8string utf8 = path.u8string();
-    return std::string(reinterpret_cast<const char *>(utf8.data()), utf8.size());
-}
+std::string text(const fs::path &path) { return path_to_utf8(path); }
 
 bool has_param_sfo(const fs::path &folder) {
     std::error_code ec;

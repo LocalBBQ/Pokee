@@ -9,6 +9,7 @@
 #include "app_paths.hpp"
 #include "hle/hle_common.hpp"
 #include "overlay_module.hpp"
+#include "platform/utf8_path.hpp"
 #include "psprecomp/common.hpp"
 
 #include <algorithm>
@@ -137,7 +138,7 @@ std::map<std::uint32_t, std::uint64_t> &unmatched_slots() {
 }
 
 std::filesystem::path overlay_directory() {
-    if (const char *dir = std::getenv("MHP3RD_OVERLAY_DIR"); dir != nullptr && *dir != '\0') return dir;
+    if (std::filesystem::path dir = environment_path("MHP3RD_OVERLAY_DIR"); !dir.empty()) return dir;
 #if defined(MHP3RD_ANDROID_APP)
     // An APK's libraries all sit in one flat directory, next to libmain.so.
     return executable_directory();
@@ -190,7 +191,7 @@ std::string library_error() {
 void load_overlay_library(const std::filesystem::path &path) {
     void *handle = load_library(path);
     if (handle == nullptr) {
-        std::cerr << "[overlay] cannot load " << path.filename().string() << ": " << library_error() << "\n";
+        std::cerr << "[overlay] cannot load " << path_to_utf8(path.filename()) << ": " << library_error() << "\n";
         return;
     }
     const auto info_of = reinterpret_cast<decltype(&mhp3rd_overlay_info)>(
@@ -198,12 +199,12 @@ void load_overlay_library(const std::filesystem::path &path) {
     const auto install = reinterpret_cast<decltype(&mhp3rd_register_overlay)>(
         library_symbol(handle, "mhp3rd_register_overlay"));
     if (info_of == nullptr || install == nullptr) {
-        std::cerr << "[overlay] " << path.filename().string() << " is not an overlay library\n";
+        std::cerr << "[overlay] " << path_to_utf8(path.filename()) << " is not an overlay library\n";
         return;
     }
     const OverlayModuleInfo *info = info_of();
     if (info == nullptr || info->abi_version != kOverlayAbiVersion) {
-        std::cerr << "[overlay] " << path.filename().string() << " was built for a different host\n";
+        std::cerr << "[overlay] " << path_to_utf8(path.filename()) << " was built for a different host\n";
         return;
     }
     overlay_corpora().push_back(
@@ -215,7 +216,7 @@ void load_overlay_libraries() {
     std::error_code ec;
     std::filesystem::directory_iterator entries(directory, ec);
     if (ec) {
-        std::cerr << "[overlay] no overlay libraries in " << directory.string() << "\n";
+        std::cerr << "[overlay] no overlay libraries in " << path_to_utf8(directory) << "\n";
         return;
     }
     std::vector<std::filesystem::path> paths;
@@ -224,13 +225,13 @@ void load_overlay_libraries() {
     }
     std::sort(paths.begin(), paths.end());
     for (const std::filesystem::path &path : paths) load_overlay_library(path);
-    std::cout << "Overlay corpora: " << overlay_corpora().size() << " from " << directory.string() << "\n";
+    std::cout << "Overlay corpora: " << overlay_corpora().size() << " from " << path_to_utf8(directory) << "\n";
 }
 
 // Writes the loaded image next to the other dumps so the corpus can be built.
 void dump_slot(const psprecomp::GuestMemory &memory, std::uint32_t slot_start, std::uint32_t slot_end) {
-    const char *directory = std::getenv("MHP3RD_DUMP_OVERLAYS");
-    if (directory == nullptr) {
+    const std::optional<std::string> directory_text = environment_utf8("MHP3RD_DUMP_OVERLAYS");
+    if (!directory_text) {
         log_once("overlay-dump-hint",
                  "[overlay] set MHP3RD_DUMP_OVERLAYS=<dir> to dump the loaded overlay for recompilation");
         return;
@@ -250,15 +251,16 @@ void dump_slot(const psprecomp::GuestMemory &memory, std::uint32_t slot_start, s
         return;
     }
     std::error_code ec;
+    const std::filesystem::path directory = path_from_utf8(*directory_text);
     std::filesystem::create_directories(directory, ec);
     const std::filesystem::path path =
-        std::filesystem::path(directory) / ("overlay_" + psprecomp::hex32(slot_start).substr(2) + ".bin");
+        directory / ("overlay_" + psprecomp::hex32(slot_start).substr(2) + ".bin");
     std::ofstream out(path, std::ios::binary);
-    if (!out) throw psprecomp::Error("Cannot write overlay dump: " + path.string());
+    if (!out) throw psprecomp::Error("Cannot write overlay dump: " + path_to_utf8(path));
     out.write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
-    std::cout << "[overlay] dumped " << image.size() / 1024u << " KiB to " << path.string() << "\n"
+    std::cout << "[overlay] dumped " << image.size() / 1024u << " KiB to " << path_to_utf8(path) << "\n"
               << "[overlay] recompile it with: profiles/mhp3rd/tools/add_overlay.py <build_dir> "
-              << path.string() << " " << psprecomp::hex32(slot_start) << "\n";
+              << path_to_utf8(path) << " " << psprecomp::hex32(slot_start) << "\n";
 }
 
 bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {

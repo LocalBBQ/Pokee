@@ -1,5 +1,7 @@
 #include "texture_pack.hpp"
 
+#include "platform/utf8_path.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <cctype>
@@ -302,11 +304,11 @@ std::unique_ptr<TexturePack> TexturePack::parse(const std::filesystem::path &dir
     pack->directory_ = directory;
     std::error_code ec;
     if (!std::filesystem::is_directory(directory, ec)) {
-        error = "no texture pack folder at " + directory.string();
+        error = "no texture pack folder at " + path_to_utf8(directory);
         return nullptr;
     }
     if (std::filesystem::exists(directory / "textures.zip", ec) && !std::filesystem::exists(directory / "textures.ini", ec)) {
-        error = "zipped packs (textures.zip) are not supported; unpack it into " + directory.string();
+        error = "zipped packs (textures.zip) are not supported; unpack it into " + path_to_utf8(directory);
         return nullptr;
     }
     const std::filesystem::path ini = directory / "textures.ini";
@@ -334,12 +336,12 @@ std::unique_ptr<TexturePack> TexturePack::parse(const std::filesystem::path &dir
                 error = "textures.ini: [games] names a file outside the pack: " + name;
                 return nullptr;
             }
-            if (!pack->load_ini(directory / name, true, error)) return nullptr;
+            if (!pack->load_ini(directory / path_from_utf8(name), true, error)) return nullptr;
         }
     }
     pack->scan_hash_named_files();
     if (pack->entries_.empty()) {
-        error = "no textures.ini and no hash-named images in " + directory.string();
+        error = "no textures.ini and no hash-named images in " + path_to_utf8(directory);
         return nullptr;
     }
     return pack;
@@ -358,7 +360,7 @@ TexturePack::~TexturePack() {
 bool TexturePack::load_ini(const std::filesystem::path &path, bool is_override, std::string &error) {
     std::ifstream file(path);
     if (!file) {
-        error = "cannot read " + path.string();
+        error = "cannot read " + path_to_utf8(path);
         return false;
     }
     std::string section;
@@ -408,7 +410,7 @@ bool TexturePack::load_ini(const std::filesystem::path &path, bool is_override, 
             TexturePackKey key;
             int level = 0;
             if (!parse_key(name, key, level)) {
-                std::cerr << "[texpack] " << path.filename().string() << ":" << line_number
+                std::cerr << "[texpack] " << path_to_utf8(path.filename()) << ":" << line_number
                           << ": not a texture key: " << name << "\n";
                 continue;
             }
@@ -468,13 +470,13 @@ void TexturePack::scan_hash_named_files() {
     for (const auto &entry : std::filesystem::directory_iterator(directory_, ec)) {
         if (!entry.is_regular_file(ec)) continue;
         const std::filesystem::path &path = entry.path();
-        if (lower(path.extension().string()) != ".png") continue;
-        const std::string stem = path.stem().string();
+        if (lower(path_to_utf8(path.extension())) != ".png") continue;
+        const std::string stem = path_to_utf8(path.stem());
         if (!is_hex_name(stem)) continue;
         TexturePackKey key;
         int level = 0;
         if (!parse_key(stem, key, level) || level != 0) continue;
-        entries_.try_emplace(key, path.filename().string());
+        entries_.try_emplace(key, path_to_utf8(path.filename()));
     }
 }
 
@@ -524,7 +526,7 @@ std::shared_ptr<Replacement> TexturePack::find(const GuestMemory &memory, const 
     if (inserted) {
         auto replacement = std::make_shared<Replacement>();
         replacement->name = entry->second;
-        replacement->file = directory_ / std::filesystem::path(entry->second);
+        replacement->file = directory_ / path_from_utf8(entry->second);
         replacement->texture_width = texture.width;
         replacement->texture_height = texture.height;
         replacement->covered_width = covered_width;
@@ -566,8 +568,8 @@ std::filesystem::path TexturePack::resolve(const std::string &name) {
         for (auto it = std::filesystem::recursive_directory_iterator(directory_, ec);
              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
             if (!it->is_regular_file(ec)) continue;
-            const std::string relative = std::filesystem::relative(it->path(), directory_, ec).generic_string();
-            folded_names_.emplace(lower(relative), it->path());
+            const std::u8string relative = std::filesystem::relative(it->path(), directory_, ec).generic_u8string();
+            folded_names_.emplace(lower(std::string(relative.begin(), relative.end())), it->path());
         }
     }
     const auto found = folded_names_.find(lower(name));

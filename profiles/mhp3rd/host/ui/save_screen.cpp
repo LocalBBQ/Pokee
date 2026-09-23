@@ -6,6 +6,7 @@
 
 #include "gpu/vulkan_renderer.hpp"
 #include "install/user_data.hpp"
+#include "platform/utf8_path.hpp"
 #include "settings/settings.hpp"
 #include "save_data/save_transfer.hpp"
 #include "ui/ui.hpp"
@@ -101,21 +102,6 @@ fs::path backups_directory() {
     } catch (const std::exception &) {
         return sd::memory_stick().parent_path() / "save-backups";
     }
-}
-
-// Percent-encodes a path for a file:// URL.
-std::string file_url(const std::string &path) {
-    std::string url = "file://";
-    for (const unsigned char c : path) {
-        if (std::isalnum(c) != 0 || c == '/' || c == '-' || c == '_' || c == '.' || c == '~') {
-            url += static_cast<char>(c);
-        } else {
-            char escaped[4];
-            std::snprintf(escaped, sizeof(escaped), "%%%02X", c);
-            url += escaped;
-        }
-    }
-    return url;
 }
 
 // The Flatpak reads the player's folders but writes only to its own data
@@ -692,7 +678,7 @@ bool open_folder(const fs::path &folder) {
     std::error_code ec;
     fs::create_directories(folder, ec);
     const std::string path = utf8(folder);
-    if (SDL_OpenURL(file_url(path).c_str())) return true;
+    if (SDL_OpenURL(folder_url(folder).c_str())) return true;
     std::cout << "[menu] cannot open " << path << ": " << SDL_GetError() << "\n";
     return false;
 }

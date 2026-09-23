@@ -1,6 +1,7 @@
 #include "settings/settings.hpp"
 
 #include "install/user_data.hpp"
+#include "platform/utf8_path.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -785,14 +786,15 @@ void load(State &s) {
     read_entries(s.values, s.file);
     for (const Field &field : all_fields()) {
         if (field.variable == nullptr) continue;
-        const char *text = std::getenv(field.variable);
-        if (text == nullptr) continue;
+        // UTF-8, like settings.ini: MHP3RD_FONT and the folders are paths.
+        const std::optional<std::string> text = environment_utf8(field.variable);
+        if (!text) continue;
         const input::PresetChoice before = s.values.control_preset;
-        field.parse_variable(s.values, text);
+        field.parse_variable(s.values, text->c_str());
         s.overrides[field.key] = field.variable;
         // A preset chosen for the run is put in use, and not saved.
         if (std::string_view(field.key) == "input.preset" && !choose_preset(s.values, s.values.control_preset)) {
-            std::cerr << "[settings] " << field.variable << ": no preset \"" << text << "\"\n";
+            std::cerr << "[settings] " << field.variable << ": no preset \"" << *text << "\"\n";
             s.values.control_preset = before;
         }
     }

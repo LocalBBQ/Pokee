@@ -36,6 +36,7 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "kernel/fast_forward.hpp"
+#include "platform/utf8_path.hpp"
 #include "perf/frame_stats.hpp"
 #include "save_data/save_transfer.hpp"
 #include "settings/settings.hpp"
@@ -100,21 +101,6 @@ RowOptions options_for(const char *key, std::string description) {
 float font_gap() { return Layer::get().font_size() * 0.5f; }
 
 int cycle(int value, int delta, int count) { return ((value + delta) % count + count) % count; }
-
-// Percent-encodes a path for a file:// URL.
-std::string file_url(const std::string &path) {
-    std::string url = "file://";
-    for (const unsigned char c : path) {
-        if (std::isalnum(c) != 0 || c == '/' || c == '-' || c == '_' || c == '.' || c == '~') {
-            url += static_cast<char>(c);
-        } else {
-            char escaped[4];
-            std::snprintf(escaped, sizeof(escaped), "%%%02X", c);
-            url += escaped;
-        }
-    }
-    return url;
-}
 
 float gain(const settings::Settings &s) { return s.mute ? 0.0f : static_cast<float>(s.volume) / 100.0f; }
 
@@ -1629,7 +1615,7 @@ void Menu::system() {
     if (!saved_log_path().empty()) info_row("Log", saved_log_path());
 #else
     if (button_row("Open the data folder", {false, {}, "Show Yakumo's data folder in the file manager."})) {
-        if (!SDL_OpenURL(file_url(data_dir).c_str()))
+        if (!SDL_OpenURL(folder_url(path_from_utf8(data_dir)).c_str()))
             std::cout << "[menu] cannot open " << data_dir << ": " << SDL_GetError() << "\n";
     }
 #endif

@@ -196,6 +196,7 @@ set(MHP3RD_HOST_SOURCES
     host/gpu/screenshot.cpp
     host/perf/frame_stats.cpp
     host/perf/perf_overlay.cpp
+    host/platform/utf8_path.cpp
     host/overlays.cpp
     host/mhp3rd_profile.cpp
     host/kernel/kernel.cpp
@@ -307,8 +308,9 @@ target_include_directories(Yakumo PRIVATE
     "${MHP3RD_PROFILE_DIR}/generated")
 target_link_libraries(Yakumo PRIVATE psprecomp_core ${CMAKE_DL_LIBS})
 if(WIN32)
-    # The ad hoc client's and server's sockets, and the list of interfaces.
-    target_link_libraries(Yakumo PRIVATE ws2_32 iphlpapi)
+    # The ad hoc client's and server's sockets, and the list of interfaces;
+    # CommandLineToArgvW for the arguments as UTF-8.
+    target_link_libraries(Yakumo PRIVATE ws2_32 iphlpapi shell32)
 endif()
 find_package(Threads REQUIRED)
 target_link_libraries(Yakumo PRIVATE Threads::Threads)
@@ -409,6 +411,7 @@ add_executable(mhp3rd_savedata_tests
     host/save_data/savedata_crypto.cpp
     host/save_data/savedata_store.cpp
     host/save_data/save_transfer.cpp
+    host/platform/utf8_path.cpp
     third_party/tiny_aes/aes.c)
 target_include_directories(mhp3rd_savedata_tests PRIVATE
     "${MHP3RD_PROFILE_DIR}/host"
@@ -428,7 +431,8 @@ add_executable(mhp3rd_camera_tests
     host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
-    host/input/touch_controls.cpp)
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
 target_include_directories(mhp3rd_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -569,7 +573,8 @@ add_executable(mhp3rd_texture_pack_tests
     tests/texture_pack_tests.cpp
     host/gpu/texture_decode.cpp
     host/gpu/texture_pack.cpp
-    host/gpu/texture_pack_import.cpp)
+    host/gpu/texture_pack_import.cpp
+    host/platform/utf8_path.cpp)
 target_include_directories(mhp3rd_texture_pack_tests PRIVATE
     "${MHP3RD_PROFILE_DIR}/host"
     "${MHP3RD_PROFILE_DIR}/host/gpu"
@@ -680,6 +685,51 @@ endif()
 set_target_properties(mhp3rd_adhoc_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_adhoc_tests COMMAND mhp3rd_adhoc_tests)
+endif()
+
+# Files under folder names outside ASCII: a Cyrillic user folder, a Japanese
+# folder for the disc image. Settings, saves, texture packs, fonts, the disc
+# image and the executable, in a temporary folder. No game data.
+add_executable(mhp3rd_path_tests
+    tests/path_tests.cpp
+    host/app_paths.cpp
+    host/fonts/game_font.cpp
+    host/gpu/texture_pack.cpp
+    host/gpu/texture_pack_import.cpp
+    host/input/bindings.cpp
+    host/install/user_data.cpp
+    host/kernel/iso_image.cpp
+    host/platform/utf8_path.cpp
+    host/save_data/aes128.cpp
+    host/save_data/param_sfo.cpp
+    host/save_data/savedata_crypto.cpp
+    host/save_data/savedata_store.cpp
+    host/save_data/save_transfer.cpp
+    host/settings/settings.cpp
+    third_party/tiny_aes/aes.c)
+target_include_directories(mhp3rd_path_tests PRIVATE
+    "${MHP3RD_PROFILE_DIR}/host"
+    "${MHP3RD_PROFILE_DIR}/host/gpu"
+    "${MHP3RD_PROFILE_DIR}/third_party")
+target_link_libraries(mhp3rd_path_tests PRIVATE psprecomp_core Threads::Threads)
+if(WIN32)
+    target_link_libraries(mhp3rd_path_tests PRIVATE shell32)
+endif()
+set_target_properties(mhp3rd_path_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_path_tests COMMAND mhp3rd_path_tests)
+endif()
+
+# The host's sources are UTF-8: its text literals (menu text, the Japanese
+# sample the font picker checks fonts with) must stay UTF-8 under MSVC, which
+# otherwise reads sources in the system's ANSI code page. The recompiled code
+# is ASCII and keeps its own flags.
+if(MSVC)
+    foreach(target Yakumo mhp3rd_savedata_tests mhp3rd_camera_tests mhp3rd_aspect_tests mhp3rd_texture_pack_tests
+                   mhp3rd_input_tests mhp3rd_render_tests mhp3rd_interpolation_tests mhp3rd_adhoc_tests
+                   mhp3rd_path_tests)
+        target_compile_options(${target} PRIVATE /utf-8)
+    endforeach()
 endif()
 
 # Chained AOT calls nest native frames; give the guest-executing main thread

@@ -5,6 +5,7 @@
 
 #include "gpu/vulkan_renderer.hpp"
 #include "install/user_data.hpp"
+#include "platform/utf8_path.hpp"
 
 #include "imgui.h"
 
@@ -81,11 +82,11 @@ struct FileBrowser::SystemDialog {
 
 fs::path FileBrowser::home() {
 #if defined(_WIN32)
-    const char *profile = std::getenv("USERPROFILE");
+    fs::path profile = environment_path("USERPROFILE");
 #else
-    const char *profile = std::getenv("HOME");
+    fs::path profile = environment_path("HOME");
 #endif
-    if (profile != nullptr && *profile != '\0') return install::path_from_utf8(profile);
+    if (!profile.empty()) return profile;
     return fs::current_path();
 }
 

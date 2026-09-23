@@ -9,6 +9,12 @@
 
 namespace psprecomp {
 namespace {
+// A path as UTF-8 for messages: path::string() is in the ANSI code page on
+// Windows and throws for names it cannot hold.
+std::string utf8_name(const std::filesystem::path &path) {
+    const std::u8string text = path.u8string();
+    return {reinterpret_cast<const char *>(text.data()), text.size()};
+}
 #pragma pack(push, 1)
 struct ElfHeader32 {
     std::uint8_t ident[16];
@@ -71,15 +77,15 @@ std::uint16_t relocated_hi(std::uint32_t value) {
 
 Elf32Image Elf32Image::from_file(const std::filesystem::path &path) {
     std::ifstream in(path, std::ios::binary);
-    if (!in) throw Error("Cannot open PSP executable: " + path.string());
+    if (!in) throw Error("Cannot open PSP executable: " + utf8_name(path));
     in.seekg(0, std::ios::end);
     const auto end = in.tellg();
-    if (end <= 0) throw Error("PSP executable is empty: " + path.string());
+    if (end <= 0) throw Error("PSP executable is empty: " + utf8_name(path));
     std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
     in.seekg(0, std::ios::beg);
     in.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    if (!in) throw Error("Failed reading PSP executable: " + path.string());
-    return from_bytes(std::move(bytes), path.string());
+    if (!in) throw Error("Failed reading PSP executable: " + utf8_name(path));
+    return from_bytes(std::move(bytes), utf8_name(path));
 }
 
 Elf32Image Elf32Image::from_bytes(std::vector<std::uint8_t> bytes, std::string source_name) {

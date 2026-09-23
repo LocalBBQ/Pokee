@@ -3,6 +3,8 @@
 #include "save_data/param_sfo.hpp"
 #include "save_data/savedata_crypto.hpp"
 
+#include "platform/utf8_path.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -31,7 +33,8 @@ std::optional<std::vector<std::uint8_t>> read_file(const std::filesystem::path &
 bool write_file(const std::filesystem::path &path, const std::vector<std::uint8_t> &bytes) {
     // Write beside the target and rename, so an interrupted save never leaves
     // a half-written file in place of a good one.
-    const std::filesystem::path temporary = path.string() + ".tmp";
+    std::filesystem::path temporary = path;
+    temporary += ".tmp";
     {
         std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
         if (!out) return false;
@@ -138,7 +141,7 @@ bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &file
     std::error_code ec;
     std::filesystem::create_directories(folder, ec);
     if (ec) {
-        error = "cannot create " + folder.string() + ": " + ec.message();
+        error = "cannot create " + path_to_utf8(folder) + ": " + ec.message();
         return false;
     }
 

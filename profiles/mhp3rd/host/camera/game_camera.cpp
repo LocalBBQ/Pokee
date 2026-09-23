@@ -2,6 +2,7 @@
 
 #include "camera/camera_input.hpp"
 #include "camera/lock_on.hpp"
+#include "platform/utf8_path.hpp"
 #include "settings/settings.hpp"
 #include "psprecomp/runtime.hpp"
 
@@ -236,8 +237,8 @@ void release() {
 
 void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t stack, const Turn &turn,
            bool active, bool recentre, bool vertical_command, float y, float z, float target_height) {
-    static const char *path = std::getenv("MHP3RD_TRACE_CAMERA_STATE");
-    if (path == nullptr) return;
+    static const std::filesystem::path path = environment_path("MHP3RD_TRACE_CAMERA_STATE");
+    if (path.empty()) return;
     static std::ofstream out(path);
     const float eye_dx = load_float(memory, address) - load_float(memory, address + 0x10u);
     const float eye_dy = load_float(memory, address + 4u) - load_float(memory, address + 0x14u);
@@ -364,8 +365,8 @@ void drive_follow(psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ct
 // structure whenever the mode is not the ordinary one. For finding what the
 // aiming camera keeps where, before it has a driver.
 std::ofstream *modes_trace() {
-    static const char *path = std::getenv("MHP3RD_TRACE_CAMERA_MODES");
-    if (path == nullptr) return nullptr;
+    static const std::filesystem::path path = environment_path("MHP3RD_TRACE_CAMERA_MODES");
+    if (path.empty()) return nullptr;
     static std::ofstream out(path);
     return &out;
 }

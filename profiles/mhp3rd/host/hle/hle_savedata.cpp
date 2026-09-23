@@ -17,6 +17,8 @@
 #include "save_data/savedata_store.hpp"
 #include "save_data/save_transfer.hpp"
 
+#include "platform/utf8_path.hpp"
+
 #include "psprecomp/common.hpp"
 
 #include <algorithm>
@@ -212,11 +214,11 @@ std::uint32_t do_load(psprecomp::GuestMemory &memory, std::uint32_t params, cons
 
     const auto loaded = savedata::load_save(state().memory_stick, files);
     if (loaded.status == savedata::LoadStatus::NoData) {
-        std::cerr << "[savedata] no save data in " << savedata::save_folder(state().memory_stick, files).string() << "\n";
+        std::cerr << "[savedata] no save data in " << path_to_utf8(savedata::save_folder(state().memory_stick, files)) << "\n";
         return result::kLoadNoData;
     }
     if (loaded.status == savedata::LoadStatus::Broken) {
-        std::cerr << "[savedata] broken save in " << savedata::save_folder(state().memory_stick, files).string()
+        std::cerr << "[savedata] broken save in " << path_to_utf8(savedata::save_folder(state().memory_stick, files))
                   << ": " << loaded.reason << "\n";
         return result::kLoadDataBroken;
     }
@@ -228,7 +230,7 @@ std::uint32_t do_load(psprecomp::GuestMemory &memory, std::uint32_t params, cons
     write_cstring(memory, params + param::kSavedataTitle, loaded.contents.savedata_title, 128u);
     write_cstring(memory, params + param::kDetail, loaded.contents.detail, 1024u);
     std::cerr << "[savedata] loaded " << count << " bytes from "
-              << savedata::save_folder(state().memory_stick, files).string()
+              << path_to_utf8(savedata::save_folder(state().memory_stick, files))
               << (files.key ? " (decrypted)" : "") << "\n";
     if (data.size() > capacity)
         std::cerr << "[savedata] " << files.file_name << " holds " << data.size() << " bytes; the buffer takes "
@@ -258,7 +260,7 @@ std::uint32_t do_save(psprecomp::GuestMemory &memory, std::uint32_t params, cons
         std::cerr << "[savedata] save failed: " << error << "\n";
         return result::kSaveAccessError;
     }
-    std::cerr << "[savedata] saved " << size << " bytes to " << savedata::save_folder(state().memory_stick, files).string()
+    std::cerr << "[savedata] saved " << size << " bytes to " << path_to_utf8(savedata::save_folder(state().memory_stick, files))
               << (files.key ? " (encrypted)" : "") << "\n";
     return result::kOk;
 }
@@ -266,7 +268,7 @@ std::uint32_t do_save(psprecomp::GuestMemory &memory, std::uint32_t params, cons
 std::uint32_t do_delete(psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
     const auto files = files_for(memory, params, save_name);
     if (!savedata::delete_save(state().memory_stick, files)) return result::kDeleteNoData;
-    std::cerr << "[savedata] deleted " << savedata::save_folder(state().memory_stick, files).string() << "\n";
+    std::cerr << "[savedata] deleted " << path_to_utf8(savedata::save_folder(state().memory_stick, files)) << "\n";
     return result::kOk;
 }
 

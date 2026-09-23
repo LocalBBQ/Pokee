@@ -1,5 +1,6 @@
 #include "iso_image.hpp"
 
+#include "platform/utf8_path.hpp"
 #include "psprecomp/common.hpp"
 
 #include <algorithm>
@@ -16,12 +17,12 @@ std::uint32_t read_le32(const std::vector<std::uint8_t> &data, std::size_t offse
 } // namespace
 
 IsoImage::IsoImage(const std::filesystem::path &path) : file_(path, std::ios::binary) {
-    if (!file_) throw psprecomp::Error("Cannot open disc image: " + path.string());
+    if (!file_) throw psprecomp::Error("Cannot open disc image: " + path_to_utf8(path));
     size_bytes_ = std::filesystem::file_size(path);
     std::vector<std::uint8_t> primary(kSectorSize);
     if (read(16u * kSectorSize, primary) != primary.size() || primary[1] != 'C' || primary[2] != 'D' ||
         primary[3] != '0' || primary[4] != '0' || primary[5] != '1')
-        throw psprecomp::Error("Not an ISO9660 image: " + path.string());
+        throw psprecomp::Error("Not an ISO9660 image: " + path_to_utf8(path));
     const std::uint32_t root_lba = read_le32(primary, 156u + 2u);
     const std::uint32_t root_size = read_le32(primary, 156u + 10u);
     entries_[""] = Entry{root_lba, root_size, true};

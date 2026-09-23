@@ -124,6 +124,8 @@ Portable mode is on when there is a file `portable.txt` or a folder `data` next 
 - **From an installed copy.** When a portable copy starts with an empty `data` folder on a computer where Yakumo already has data in the per-user directory, it offers to copy that data into the portable folder, with a progress bar. The per-user directory is only read, never changed or moved. Files already in the portable folder are never replaced, and a cancelled or failed copy removes what it had copied. `Yakumo --portable --copy-user-data` (or `--data-dir DIR --copy-user-data`) makes the same copy from a terminal and exits.
 - **Back to the installed copy.** Remove `portable.txt` and rename or move the `data` folder. Its contents can be copied into the per-user directory by hand.
 
+Any of these folders, and the folder the disc image is in, may have names outside ASCII, such as a Windows user name in Cyrillic or Japanese: the program keeps paths as Unicode throughout and writes them to `settings.ini` as UTF-8. On Windows the console shows them only if its font has the characters.
+
 Saves made before `ms0` moved here stay where they were, in `profiles/mhp3rd/game/ms0`: a developer build keeps using them, and says so at start, until the per-user directory has an `ms0` of its own. Move the folder there to switch.
 
 The same setup runs without any screens from a terminal, for scripts and headless machines:

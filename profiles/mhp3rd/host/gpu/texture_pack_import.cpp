@@ -1,8 +1,9 @@
 #include "texture_pack_import.hpp"
 
+#include "platform/utf8_path.hpp"
+
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
 #include <ctime>
 #include <iostream>
 #include <set>
@@ -19,10 +20,7 @@ std::string lower(std::string text) {
     return text;
 }
 
-std::string utf8(const fs::path &path) {
-    const std::u8string text = path.u8string();
-    return {text.begin(), text.end()};
-}
+std::string utf8(const fs::path &path) { return path_to_utf8(path); }
 
 std::string name_of(const fs::path &path) { return utf8(path.filename()); }
 
@@ -198,15 +196,14 @@ std::string friendly(const std::string &error) {
 
 TexturePackLocation texture_pack_location(const fs::path &textures_root, const std::string &game_id,
                                           const std::string &in_place) {
-    if (const char *variable = std::getenv("MHP3RD_TEXTURE_PACK"); variable != nullptr) {
-        const std::string value = variable;
+    if (const std::optional<std::string> variable = environment_utf8("MHP3RD_TEXTURE_PACK")) {
+        const std::string &value = *variable;
         const std::string l = lower(value);
         if (!value.empty() && l != "0" && l != "1" && l != "on" && l != "off" && l != "yes" && l != "no" &&
             l != "true" && l != "false")
-            return {fs::path(std::u8string(value.begin(), value.end())), TexturePackLocation::Source::Variable};
+            return {path_from_utf8(value), TexturePackLocation::Source::Variable};
     }
-    if (!in_place.empty())
-        return {fs::path(std::u8string(in_place.begin(), in_place.end())), TexturePackLocation::Source::InPlace};
+    if (!in_place.empty()) return {path_from_utf8(in_place), TexturePackLocation::Source::InPlace};
     return {textures_root / game_id, TexturePackLocation::Source::Installed};
 }
 
@@ -373,7 +370,7 @@ void TexturePackCopy::run(fs::path source) {
             std::lock_guard lock(mutex_);
             progress_.current = file.relative;
         }
-        const fs::path target = staging_ / fs::path(std::u8string(file.relative.begin(), file.relative.end()));
+        const fs::path target = staging_ / path_from_utf8(file.relative);
         fs::create_directories(target.parent_path(), ec);
         if (!ec) fs::copy_file(file.path, target, fs::copy_options::overwrite_existing, ec);
         if (ec) {

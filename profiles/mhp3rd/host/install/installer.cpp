@@ -6,6 +6,8 @@
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
 
+#include "platform/utf8_path.hpp"
+
 #include "kernel/iso_image.hpp"
 #if defined(MHP3RD_ANDROID_APP)
 #include "platform/android_jni.hpp"
@@ -387,6 +389,44 @@ bool restart_on_exit = false;
 void request_restart_on_exit() { restart_on_exit = true; }
 bool restart_requested_on_exit() { return restart_on_exit; }
 
+#if defined(_WIN32)
+namespace {
+
+// One argument as the C runtime reads it back: _wexecv joins the arguments
+// with spaces and quotes none of them.
+std::wstring quote_argument(const std::wstring &argument) {
+    if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring::npos) return argument;
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0;
+    for (const wchar_t c : argument) {
+        if (c == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        quoted.append(c == L'"' ? backslashes * 2u + 1u : backslashes, L'\\');
+        backslashes = 0;
+        quoted += c;
+    }
+    quoted.append(backslashes * 2u, L'\\');
+    quoted += L'"';
+    return quoted;
+}
+
+// Replaces this process with `program` and `arguments` (UTF-8, without the
+// program). Returns only on failure.
+void exec_wide(const std::filesystem::path &program, const std::vector<std::string> &arguments) {
+    std::vector<std::wstring> quoted{quote_argument(program.wstring())};
+    for (const std::string &argument : arguments) quoted.push_back(quote_argument(widen(argument)));
+    std::vector<const wchar_t *> pointers;
+    for (const std::wstring &argument : quoted) pointers.push_back(argument.c_str());
+    pointers.push_back(nullptr);
+    const intptr_t result = _wexecv(program.c_str(), pointers.data());
+    (void)result;
+}
+
+} // namespace
+#endif
+
 int restart(char **argv) {
     std::cout.flush();
     std::cerr.flush();
@@ -398,14 +438,19 @@ int restart(char **argv) {
     return 1;
 #endif
     const std::filesystem::path self = executable_path();
-    const std::string program = self.empty() ? std::string(argv[0]) : self.string();
 #if defined(_WIN32)
-    const intptr_t result = _execv(program.c_str(), argv);
-    (void)result;
+    int argc = 0;
+    while (argv[argc] != nullptr) ++argc;
+    const std::vector<std::string> arguments = utf8_arguments(argc, argv);
+    const std::filesystem::path program =
+        !self.empty() || arguments.empty() ? self : path_from_utf8(arguments.front());
+    exec_wide(program, std::vector<std::string>(arguments.empty() ? arguments.end() : arguments.begin() + 1,
+                                                arguments.end()));
 #else
+    const std::filesystem::path program = self.empty() ? std::filesystem::path(argv[0]) : self;
     execv(program.c_str(), argv);
 #endif
-    std::cerr << "Cannot restart " << program << "; start it again to load the imported save\n";
+    std::cerr << "Cannot restart " << path_to_utf8(program) << "; start it again to load the imported save\n";
     return 1;
 }
 
@@ -429,6 +474,10 @@ int restart_for_setup(const char *program) {
     // would make --install skip it.
 #if defined(_WIN32)
     _putenv_s("MHP3RD_GAME_DIR", "");
+    // The executable's own path: argv[0] is in the ANSI code page, which may
+    // not hold the name of the folder it is in.
+    const std::filesystem::path self = executable_path();
+    if (!self.empty()) exec_wide(self, {"--install"});
     const intptr_t result = _execlp(program, program, "--install", nullptr);
     (void)result;
 #else

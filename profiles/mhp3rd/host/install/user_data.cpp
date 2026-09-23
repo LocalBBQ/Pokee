@@ -3,7 +3,6 @@
 #include "app_paths.hpp"
 #include "psprecomp/common.hpp"
 
-#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <system_error>
@@ -28,19 +27,6 @@ std::string trim(const std::string &text) {
     return text.substr(first, last - first + 1u);
 }
 
-std::filesystem::path environment_path(const char *name) {
-#if defined(_WIN32)
-    // The wide environment, so that a user name outside the system code page
-    // survives.
-    const std::wstring wide(name, name + std::char_traits<char>::length(name));
-    const wchar_t *value = _wgetenv(wide.c_str());
-    return value != nullptr && *value != L'\0' ? std::filesystem::path(value) : std::filesystem::path{};
-#else
-    const char *value = std::getenv(name);
-    return value != nullptr && *value != '\0' ? path_from_utf8(value) : std::filesystem::path{};
-#endif
-}
-
 std::filesystem::path &command_line_directory() {
     static std::filesystem::path directory;
     return directory;
@@ -52,15 +38,6 @@ bool &portable_requested() {
 }
 
 } // namespace
-
-std::string path_to_utf8(const std::filesystem::path &path) {
-    const std::u8string text = path.u8string();
-    return {text.begin(), text.end()};
-}
-
-std::filesystem::path path_from_utf8(const std::string &text) {
-    return std::filesystem::path(std::u8string(text.begin(), text.end()));
-}
 
 std::filesystem::path per_user_data_directory() {
 #if defined(MHP3RD_HAS_SDL)
@@ -116,15 +93,15 @@ const DataDirectory &data_directory() {
             result.source = DataSource::CommandLine;
             return result;
         }
-        if (const char *dir = std::getenv("MHP3RD_DATA_DIR"); dir != nullptr && *dir != '\0') {
-            result.path = path_from_utf8(dir);
+        if (std::filesystem::path dir = environment_path("MHP3RD_DATA_DIR"); !dir.empty()) {
+            result.path = std::move(dir);
             result.source = DataSource::Environment;
             return result;
         }
 #if !defined(MHP3RD_ANDROID_APP)
-        const char *portable_env = std::getenv("MHP3RD_PORTABLE");
-        const bool env_on = portable_env != nullptr && std::string(portable_env) == "1";
-        const bool env_off = portable_env != nullptr && std::string(portable_env) == "0";
+        const std::optional<std::string> portable_env = environment_utf8("MHP3RD_PORTABLE");
+        const bool env_on = portable_env == "1";
+        const bool env_off = portable_env == "0";
         const std::filesystem::path portable =
             portable_data_directory(executable_directory(), portable_requested() || env_on, env_off);
         if (!portable.empty()) {

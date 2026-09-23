@@ -3,6 +3,7 @@
 #include "ui/layer.hpp"
 
 #include "gpu/vulkan_renderer.hpp"
+#include "platform/utf8_path.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -52,7 +53,7 @@ struct State {
     // Strings handed to SDL events must outlive them.
     std::deque<std::string> strings;
     // MHP3RD_INPUT_LIVE: a file whose appended lines are read as they come.
-    std::string live_path;
+    std::filesystem::path live_path;
     std::streamoff live_offset{};
 };
 
@@ -367,10 +368,10 @@ void run(const Step &due) {
         event.drop.data = s.strings.emplace_back(step.argument).c_str();
         SDL_PushEvent(&event);
     } else if (step.action == "shot") {
-        const char *dir = std::getenv("MHP3RD_SCREENSHOT_DIR");
+        std::filesystem::path dir = environment_path("MHP3RD_SCREENSHOT_DIR");
+        if (dir.empty()) dir = ".";
         const std::string name = step.argument.empty() ? "frame_" + std::to_string(s.frame) : step.argument;
-        Layer::get().renderer().capture_window((dir != nullptr ? std::string(dir) : std::string(".")) + "/" + name +
-                                               ".bmp");
+        Layer::get().renderer().capture_window(dir / path_from_utf8(name + ".bmp"));
     } else if (step.action == "quit") {
         SDL_Event event{};
         event.type = SDL_EVENT_QUIT;
@@ -439,17 +440,18 @@ void attach() {
     s.attached = true;
     bool uses_pad = false;
     bool uses_mouse = false;
-    if (const char *live = std::getenv("MHP3RD_INPUT_LIVE"); live != nullptr && *live != '\0') {
-        s.live_path = live;
+    if (std::filesystem::path live = environment_path("MHP3RD_INPUT_LIVE"); !live.empty()) {
+        s.live_path = std::move(live);
         // Only what is appended after start-up counts.
         std::ifstream file(s.live_path, std::ios::binary | std::ios::ate);
         if (file) s.live_offset = file.tellg();
         uses_pad = true;
         uses_mouse = true;
-        std::cout << "[script] reading live input from " << s.live_path << std::endl;
+        std::cout << "[script] reading live input from " << path_to_utf8(s.live_path) << std::endl;
     }
-    if (const char *text = std::getenv("MHP3RD_INPUT_SCRIPT"); text != nullptr) {
-        std::stringstream list(text);
+    // UTF-8: typed text and dropped paths go to SDL as they are.
+    if (const std::optional<std::string> text = environment_utf8("MHP3RD_INPUT_SCRIPT")) {
+        std::stringstream list(*text);
         std::string item;
         while (std::getline(list, item, ';')) {
             Step step;

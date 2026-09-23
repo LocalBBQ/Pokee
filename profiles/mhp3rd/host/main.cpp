@@ -1,6 +1,7 @@
 #include "mhp3rd_profile.hpp"
 
 #include "app_paths.hpp"
+#include "platform/utf8_path.hpp"
 
 #include "adhoc/client.hpp"
 #include "adhoc/discovery.hpp"
@@ -40,6 +41,7 @@ void MHP3RD_CAMERA_HELPER_UNIT(Runtime &, AllegrexContext &);
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #if defined(__linux__)
 #include <sys/resource.h>
@@ -132,22 +134,23 @@ public:
     explicit UsageError(const std::string &message) : std::runtime_error(message) {}
 };
 
-Options parse_options(int argc, char **argv) {
+// `arguments` are UTF-8 (utf8_arguments), the program's name first.
+Options parse_options(const std::vector<std::string> &arguments) {
     Options options;
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
+    for (std::size_t i = 1; i < arguments.size(); ++i) {
+        const std::string &arg = arguments[i];
         if (arg == "--help" || arg == "-h") throw UsageError("");
         if (arg == "--install") options.install = true;
         else if (arg == "--in-place") options.in_place = true;
         else if (arg == "--portable") options.portable = true;
         else if (arg == "--copy-user-data") options.copy_user_data = true;
         else if (arg == "--data-dir") {
-            if (i + 1 >= argc) throw UsageError("--data-dir needs a directory");
-            options.data_dir = mhp3rd::install::path_from_utf8(argv[++i]);
+            if (i + 1 >= arguments.size()) throw UsageError("--data-dir needs a directory");
+            options.data_dir = mhp3rd::path_from_utf8(arguments[++i]);
         }
         else if (!arg.empty() && arg[0] == '-') throw UsageError("unknown option " + arg);
         else if (options.install && !options.install_image) options.install_image = mhp3rd::install::path_from_utf8(arg);
-        else if (!options.install && !options.game_dir) options.game_dir = std::filesystem::path(arg);
+        else if (!options.install && !options.game_dir) options.game_dir = mhp3rd::path_from_utf8(arg);
         else throw UsageError("unexpected argument " + arg);
     }
     if (options.in_place && !options.install_image) throw UsageError("--in-place needs --install image.iso");
@@ -171,7 +174,7 @@ GameFiles files_in_game_directory(const std::filesystem::path &game_dir) {
     files.disc_image = game_dir / "disc.iso";
     files.memory_stick = mhp3rd::memory_stick_directory(game_dir);
     if (!std::filesystem::exists(files.disc_image)) {
-        std::cerr << "warning: " << files.disc_image.string() << " not found; disc0: is unavailable\n";
+        std::cerr << "warning: " << mhp3rd::path_to_utf8(files.disc_image) << " not found; disc0: is unavailable\n";
         files.disc_image.clear();
     }
     return files;
@@ -204,8 +207,8 @@ std::filesystem::path installed_memory_stick(const std::filesystem::path &data_d
     if (!checkout_game_dir.empty() && !std::filesystem::exists(memory_stick, ec)) {
         const std::filesystem::path legacy = mhp3rd::memory_stick_directory(checkout_game_dir);
         if (std::filesystem::is_directory(legacy / "PSP" / "SAVEDATA", ec)) {
-            std::cerr << "note: using the saves in " << legacy.string() << "; move that directory to "
-                      << memory_stick.string() << " to keep them with the installation\n";
+            std::cerr << "note: using the saves in " << mhp3rd::path_to_utf8(legacy) << "; move that directory to "
+                      << mhp3rd::path_to_utf8(memory_stick) << " to keep them with the installation\n";
             return legacy;
         }
     }
@@ -218,7 +221,7 @@ std::filesystem::path installed_memory_stick(const std::filesystem::path &data_d
 std::optional<GameFiles> locate_game(const Options &options) {
     namespace install = mhp3rd::install;
     if (options.game_dir) return files_in_game_directory(*options.game_dir);
-    if (const char *dir = std::getenv("MHP3RD_GAME_DIR"); dir != nullptr && *dir != '\0')
+    if (const std::filesystem::path dir = mhp3rd::environment_path("MHP3RD_GAME_DIR"); !dir.empty())
         return files_in_game_directory(dir);
 
     const std::filesystem::path checkout_game_dir = checkout_game_directory();
@@ -254,7 +257,7 @@ std::optional<GameFiles> locate_game(const Options &options) {
         auto ui = install::make_installer_ui();
         if (!ui) {
             std::cerr << "No game data found in " << install::path_to_utf8(data_dir)
-                      << (checkout_game_dir.empty() ? std::string() : " or " + checkout_game_dir.string()) << ".\n"
+                      << (checkout_game_dir.empty() ? std::string() : " or " + install::path_to_utf8(checkout_game_dir)) << ".\n"
                       << "Set up from your disc image of " << install::kGameTitle << " (" << install::kDiscIdDisplay
                       << ") with:\n  Yakumo --install /path/to/image.iso\n";
             return std::nullopt;
@@ -387,11 +390,12 @@ int main(int argc, char **argv) {
 #if defined(__linux__) && !defined(MHP3RD_ANDROID_APP)
     ensure_main_stack(argv);
 #endif
+    mhp3rd::use_utf8_console();
     try {
         if (argc > 1 && std::string(argv[1]) == "--adhoc-server") return run_adhoc_server(argc, argv);
         Options options;
         try {
-            options = parse_options(argc, argv);
+            options = parse_options(mhp3rd::utf8_arguments(argc, argv));
         } catch (const UsageError &e) {
             if (*e.what() == '\0') {
                 std::cout << kUsage;
@@ -421,7 +425,7 @@ int main(int argc, char **argv) {
         paths.disc_image = files->disc_image;
         paths.memory_stick = files->memory_stick;
         if (!std::filesystem::is_regular_file(executable))
-            throw psprecomp::Error("Missing " + executable.string() + " (run profiles/mhp3rd/scripts/prepare_game.sh)");
+            throw psprecomp::Error("Missing " + mhp3rd::path_to_utf8(executable) + " (run profiles/mhp3rd/scripts/prepare_game.sh)");
 
         const std::string sha256 = psprecomp::sha256_file(executable);
         if (sha256 != mhp3rd::install::kExecutableSha256)
@@ -446,9 +450,9 @@ int main(int argc, char **argv) {
 #endif
 
         std::cout << "Yakumo PSP bootstrap\n"
-                  << "Executable: " << executable.string() << "\n"
+                  << "Executable: " << mhp3rd::path_to_utf8(executable) << "\n"
                   << "SHA-256:    " << sha256 << "\n"
-                  << "Disc image: " << (paths.disc_image.empty() ? "<none>" : paths.disc_image.string()) << "\n"
+                  << "Disc image: " << (paths.disc_image.empty() ? "<none>" : mhp3rd::path_to_utf8(paths.disc_image)) << "\n"
                   << "Entry:      " << psprecomp::hex32(elf.runtime_entry(mhp3rd::kLoadBase)) << "\n"
                   << "Functions:  " << runtime.function_count() << "\n";
         if (runtime.function_count() == 0u) {

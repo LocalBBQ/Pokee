@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/utf8_path.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -113,8 +115,8 @@ struct Installation {
 [[nodiscard]] std::optional<Installation> find_installation(const std::filesystem::path &data_dir);
 
 // UTF-8 conversions for paths shown in dialogs, stored in settings or received
-// from SDL.
-[[nodiscard]] std::string path_to_utf8(const std::filesystem::path &path);
-[[nodiscard]] std::filesystem::path path_from_utf8(const std::string &text);
+// from SDL (platform/utf8_path.hpp).
+using mhp3rd::path_from_utf8;
+using mhp3rd::path_to_utf8;
 
 } // namespace mhp3rd::install

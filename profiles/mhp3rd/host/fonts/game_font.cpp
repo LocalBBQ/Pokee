@@ -3,6 +3,7 @@
 #include "app_paths.hpp"
 
 #include "install/user_data.hpp"
+#include "platform/utf8_path.hpp"
 #include "settings/settings.hpp"
 
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -21,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -100,16 +102,16 @@ constexpr float kMinEm = 8.0f;
 std::filesystem::path expand(const std::string &folder) {
     std::string text = folder;
     if (!text.empty() && text[0] == '~') {
-        const char *home = std::getenv("HOME");
-        if (home == nullptr) return {};
-        text = std::string(home) + text.substr(1);
+        const std::optional<std::string> home = environment_utf8("HOME");
+        if (!home) return {};
+        text = *home + text.substr(1);
     }
     for (std::size_t start = text.find('%'); start != std::string::npos; start = text.find('%')) {
         const std::size_t end = text.find('%', start + 1);
         if (end == std::string::npos) return {};
-        const char *value = std::getenv(text.substr(start + 1, end - start - 1).c_str());
-        if (value == nullptr) return {};
-        text.replace(start, end - start + 1, value);
+        const std::optional<std::string> value = environment_utf8(text.substr(start + 1, end - start - 1).c_str());
+        if (!value) return {};
+        text.replace(start, end - start + 1, *value);
     }
     return install::path_from_utf8(text);
 }
@@ -477,7 +479,7 @@ Catalog &catalog_state() {
 }
 
 bool font_extension(const std::filesystem::path &path) {
-    std::string extension = path.extension().string();
+    std::string extension = path_to_utf8(path.extension());
     for (char &c : extension) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return extension == ".ttf" || extension == ".otf" || extension == ".ttc" || extension == ".otc";
 }

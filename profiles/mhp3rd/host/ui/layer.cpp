@@ -9,6 +9,7 @@
 #include "gpu/vulkan_renderer.hpp"
 #include "input/bindings.hpp"
 #include "install/user_data.hpp"
+#include "platform/utf8_path.hpp"
 #include "settings/settings.hpp"
 
 #include "backends/imgui_impl_sdl3.h"
@@ -73,7 +74,9 @@ bool exists(const char *path) {
 
 void load_fonts() {
     ImGuiIO &io = ImGui::GetIO();
-    const char *text_font = std::getenv("MHP3RD_UI_FONT");
+    // Dear ImGui opens font files by UTF-8 name on every platform.
+    const std::optional<std::string> ui_font = environment_utf8("MHP3RD_UI_FONT");
+    const char *text_font = ui_font ? ui_font->c_str() : nullptr;
     if (text_font != nullptr && !exists(text_font)) {
         std::cout << "[ui] MHP3RD_UI_FONT " << text_font << " not found\n";
         text_font = nullptr;

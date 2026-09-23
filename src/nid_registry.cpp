@@ -7,6 +7,16 @@
 #include <sstream>
 
 namespace psprecomp {
+namespace {
+
+// A path as UTF-8 for messages: path::string() is in the ANSI code page on
+// Windows and throws for names it cannot hold.
+std::string utf8_name(const std::filesystem::path &path) {
+    const std::u8string text = path.u8string();
+    return {reinterpret_cast<const char *>(text.data()), text.size()};
+}
+
+} // namespace
 
 std::string NidRegistry::key(const std::string &library, std::uint32_t nid) {
     return library + ":" + hex32(nid);
@@ -113,7 +123,7 @@ void NidRegistry::add(std::string library, std::uint32_t nid, std::string name) 
 
 void NidRegistry::load_csv(const std::filesystem::path &path) {
     std::ifstream in(path);
-    if (!in) throw Error("Cannot open NID CSV: " + path.string());
+    if (!in) throw Error("Cannot open NID CSV: " + utf8_name(path));
     std::string line;
     std::size_t line_number = 0;
     while (std::getline(in, line)) {

@@ -1,6 +1,7 @@
 #include "audio/audio_sink.hpp"
 
 #include "settings/settings.hpp"
+#include "platform/utf8_path.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -34,7 +35,7 @@ constexpr std::size_t kPrebufferFrames = 2048u;
 // is killed still leaves a file that most players will accept.
 class WavWriter {
 public:
-    bool open(const std::string &path) {
+    bool open(const std::filesystem::path &path) {
         stream_.open(path, std::ios::binary | std::ios::trunc);
         if (!stream_) return false;
         static const char header[44] = {};
@@ -208,11 +209,11 @@ void AudioSink::initialize() {
     const settings::Settings &player = settings::current();
     impl.gain = player.mute ? 0.0f : static_cast<float>(player.volume) / 100.0f;
 
-    if (const char *path = std::getenv("MHP3RD_AUDIO_DUMP")) {
+    if (const std::filesystem::path path = environment_path("MHP3RD_AUDIO_DUMP"); !path.empty()) {
         if (impl.dump.open(path))
-            std::cout << "Audio: writing the mix to " << path << "\n";
+            std::cout << "Audio: writing the mix to " << path_to_utf8(path) << "\n";
         else
-            std::cerr << "Audio: cannot write " << path << "\n";
+            std::cerr << "Audio: cannot write " << path_to_utf8(path) << "\n";
     }
 
     if (!impl.enabled) {
