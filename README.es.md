@@ -34,20 +34,21 @@ La licencia de **Yakumo** se aplica únicamente al código y los materiales orig
 
 ## Estado: jugable
 
-Puedes cargar una partida copiada de una PSP o empezar una nueva, salir de caza y guardar tu progreso, con música, la cinemática inicial, iluminación, teclado o mando, y un menú de ajustes dentro del juego (Esc, o L3+R3). El juego va a la velocidad de la PSP, 30 fotogramas por segundo.
+Puedes cargar una partida copiada de una PSP o empezar una nueva, cazar con otros jugadores y guardar tu progreso, con música, cinemáticas e iluminación. La simulación del juego sigue funcionando a los 30 fotogramas por segundo de la PSP; la interpolación opcional puede presentarla a 45, 60, 90, 120 fotogramas o a la frecuencia de la pantalla sin cambiar la velocidad del juego.
 
 | Funciona | Falta o tiene problemas |
 | --- | --- |
-| Arranque, menús, creación de personaje, la aldea y las zonas de caza | En una Steam Deck, la iluminación ralentiza un poco las zonas más cargadas de la aldea (#7) |
+| Arranque, menús, creación de personaje, la aldea y las zonas de caza | |
 | Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y hacer copias de seguridad desde el menú | Superficies curvas (#10); los diálogos de guardado todavía no dibujan nada (#33) |
-| Modelos 3D, animación, texturas, transparencias, iluminación y niebla | |
+| Gráficos Vulkan: modelos, animación, texturas, transparencias, iluminación y niebla; resolución interna ajustable, cualquier forma de ventana e interpolación de fotogramas | |
+| Paquetes de texturas HD compatibles con PPSSPP, instalados desde el menú o copiados al directorio de datos | |
 | Efectos de sonido, música en streaming y cinemáticas | |
-| Teclado, y mandos con cámara real en el stick derecho; un teclado en pantalla para los nombres | |
-| Un menú dentro del juego con ajustes de vídeo, sonido, controles, red y partidas guardadas | |
+| Controles de teclado y ratón totalmente reasignables; mandos con cámara y apuntado analógicos en el stick derecho, además de perfiles de gatillos para arcos y ballestas | |
+| El menú de Yakumo dentro del juego, la configuración inicial, el explorador de archivos y el teclado en pantalla, todos utilizables con mando, teclado o ratón | |
 | Los 355 overlays de código, recompilados | |
 | Multijugador: a través de los servidores ad hoc que usan los jugadores de PSP, o con anfitrión desde el propio juego en una red local o VPN | |
 
-Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK), en una Steam Deck en el modo de juego, con Vulkan nativo y los controles integrados, y en Windows 11 con MSVC. En Windows funcionan la creación de un personaje, varios guardados consecutivos, el reinicio del juego y la carga de la partida guardada.
+Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK), en una Steam Deck en el modo de juego, con Vulkan nativo y los controles integrados, y en Windows 11 con MSVC.
 
 El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
@@ -56,7 +57,8 @@ El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILI
 Una versión publicada solo necesita tu imagen de disco. Descárgala desde la [página de versiones](https://github.com/TeamGDB/Yakumo/releases), iníciala e indica tu imagen en la configuración inicial: comprueba la imagen, prepara el juego a partir de ella y lo guarda todo en un directorio del usuario.
 
 - **Linux y Steam Deck:** un paquete Flatpak y un archivo portátil. [`docs/LINUX.md`](docs/LINUX.md) (en inglés) explica la instalación, el primer inicio, el modo de juego, dónde están las partidas guardadas, cómo actualizar y cómo desinstalar.
-- **macOS y Windows:** todavía no hay versiones publicadas; compila desde el código fuente como se describe a continuación.
+- **Windows:** un archivo portátil para x86-64 con las bibliotecas necesarias.
+- **macOS:** todavía no hay una versión publicada; compila desde el código fuente como se describe a continuación.
 
 ## Requisitos
 
@@ -82,14 +84,15 @@ Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/
 
 ## Controles
 
-En un mando, los botones están donde esperas: en un mando de PlayStation el círculo confirma y la equis vuelve atrás, como indican los mensajes del juego, y el stick derecho mueve la cámara. En el teclado, las flechas son la cruceta, I/J/K/L el stick analógico, X y Z son ○ y ✕, A y S son □ y △, Q y W son L y R, y Enter es START. Ambas tablas están en el [README del perfil](profiles/mhp3rd/README.md#running).
+En un mando, los botones están donde esperas: en un mando de PlayStation el círculo confirma y la equis vuelve atrás, como indican los mensajes del juego, y el stick derecho mueve la cámara y el apuntado. Los perfiles de gatillos opcionales ponen el apuntado en L2 y el ataque del arco o la ballesta en R2. El control con teclado y ratón es completo y reasignable; de forma predeterminada, WASD mueve al personaje, el ratón controla la cámara y sus botones atacan. Las tablas completas están en el [README del perfil](profiles/mhp3rd/README.md#running).
 
-Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo: pausa el juego y reúne los ajustes de imagen, sonido y controles, que se guardan para la próxima vez. El primer arranque prepara el juego a partir de tu imagen de disco en la misma ventana, y basta con un mando para hacerlo.
+Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo. Reúne los ajustes de vídeo, audio, controles, red y partidas, incluidos la relación de aspecto, la frecuencia de fotogramas, la resolución interna y la importación de texturas HD. El primer arranque prepara el juego a partir de tu imagen de disco en la misma ventana, y basta con un mando para hacerlo.
 
 ## Hoja de ruta
 
-- Compilaciones listas para usar, empezando por Linux y Steam Deck (#29)
-- 60 fps mediante interpolación de fotogramas, con el juego simulando todavía a 30 (#39)
+- Compatibilidad con Android, empezando por la investigación de la plataforma, el empaquetado, los gráficos y el rendimiento ([#17](https://github.com/TeamGDB/Yakumo/issues/17))
+- Un estilo visual coherente para las pantallas de configuración, los menús y los overlays de Yakumo ([#33](https://github.com/TeamGDB/Yakumo/issues/33))
+- Controles táctiles para el juego y los menús, además de la cámara y el apuntado
 
 ## Cómo funciona
 
@@ -137,10 +140,12 @@ Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](docs/PROFILE_G
 - [SDL3](https://www.libsdl.org/): ventana, entrada y salida de audio
 - [FFmpeg](https://ffmpeg.org/): decodificación de la música y el vídeo
 - [Vulkan](https://www.vulkan.org/) y [MoltenVK](https://github.com/KhronosGroup/MoltenVK): renderizado
+- [Dear ImGui](https://github.com/ocornut/imgui): menús y pantallas de configuración inicial de Yakumo
+- [tiny-AES-c](https://github.com/kokke/tiny-AES-c): instalador y compatibilidad con las partidas guardadas de PSP
 - [stb_truetype](https://github.com/nothings/stb): rasterización de fuentes
 - [svanheulen/mhef](https://github.com/svanheulen/mhef): documentación de la comunidad sobre el formato de archivo del juego
 - [Cinzel](https://github.com/NDISCOVER/Cinzel) y [Shippori Mincho](https://github.com/fontdasu/ShipporiMincho): tipografías del logotipo, bajo la SIL Open Font License
 
 ## Licencia
 
-El repositorio se distribuye bajo la licencia MIT; consulta [`LICENSE`](LICENSE). Los archivos de terceros conservan sus propias licencias junto a ellos; actualmente, `profiles/mhp3rd/third_party/stb_truetype.h`, bajo MIT o de dominio público.
+El repositorio se distribuye bajo la licencia MIT; consulta [`LICENSE`](LICENSE). Los archivos de terceros conservan sus licencias junto a ellos; [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) enumera sus orígenes y licencias.

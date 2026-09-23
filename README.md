@@ -32,20 +32,21 @@ The license covering **Yakumo** applies only to the project's own original code 
 
 ## Status: playable
 
-You can load a save copied from a PSP or start a new game, hunt, and save your progress, with music, the opening movie, lighting, a keyboard or a gamepad, and an in-game settings menu (Esc, or L3+R3). The game runs at the PSP's speed, 30 frames per second.
+You can load a save copied from a PSP or start a new game, hunt, play with other hunters and save your progress, with music, movies and lighting. The game simulation stays at the PSP's 30 frames per second; optional frame interpolation presents it at 45, 60, 90, 120 or the display's refresh rate without changing game speed.
 
 | Works | Missing or rough |
 | --- | --- |
-| Booting, menus, character creation, the village and hunting areas | On a Steam Deck, lighting slows the busiest village spots slightly below full speed (#7) |
-| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and back up from the menu | Curved surfaces (#10); the save-data dialogs draw nothing yet (#33) |
-| 3D models, animation, textures, transparency, lighting and fog | |
+| Booting, menus, character creation, the village and hunting areas | |
+| Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and backups from the menu | Curved surfaces (#10); the save-data dialogs draw nothing yet (#33) |
+| Vulkan graphics: models, animation, textures, transparency, lighting and fog; adjustable internal resolution, arbitrary window shapes and frame interpolation | |
+| PPSSPP-compatible HD texture packs, installed from the menu or copied into the data directory | |
 | Sound effects, streamed music and cutscene movies | |
-| Keyboard, and gamepads with a real right-stick camera; an on-screen keyboard for names | |
-| An in-game menu with video, audio, control, network and save settings | |
+| Fully rebindable keyboard and mouse controls; gamepads with an analog right-stick camera and aim, plus bow and bowgun trigger profiles | |
+| Yakumo's in-game menu, first-run setup, file browser and on-screen keyboard, all usable with a gamepad, keyboard or mouse | |
 | All 355 code overlays recompiled | |
 | Multiplayer: through the ad hoc servers PSP players use, or hosted from the game on a LAN or VPN | |
 
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Game Mode with native Vulkan and the built-in controls, and on Windows 11 with MSVC. On Windows, creating a character, saving several times, restarting the game and loading the save all work.
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Game Mode with native Vulkan and the built-in controls, and on Windows 11 with MSVC.
 
 The state of each part of the game on each platform is in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
 
@@ -54,7 +55,8 @@ The state of each part of the game on each platform is in [`docs/COMPATIBILITY.m
 A prebuilt release needs nothing but your disc image. Download one from the [releases page](https://github.com/TeamGDB/Yakumo/releases), start it, and point the first-run setup at your image: it checks the image, prepares the game from it and keeps everything in a per-user directory.
 
 - **Linux and Steam Deck:** a Flatpak bundle and a portable tarball. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling.
-- **macOS and Windows:** no prebuilt release yet; build from source as below.
+- **Windows:** a portable x86-64 archive with the required runtime libraries.
+- **macOS:** no prebuilt release yet; build from source as below.
 
 ## Requirements
 
@@ -80,14 +82,15 @@ The full instructions, including every setting, are in [`profiles/mhp3rd/README.
 
 ## Controls
 
-On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera. On a keyboard the arrow keys are the D-pad, I/J/K/L the analog stick, X and Z are ○ and ✕, A and S are □ and △, Q and W are L and R, and Enter is START. Both tables are in the [profile README](profiles/mhp3rd/README.md#running).
+On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Optional trigger profiles put aiming on L2 and a bow or bowgun attack on R2. Keyboard and mouse play is complete and rebindable; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhp3rd/README.md#running).
 
-Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu: it pauses the game and holds the settings for video, sound and controls, which are kept between runs. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
+Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu. It holds video, audio, control, network and save settings, including aspect ratio, frame rate, internal resolution and HD texture pack import. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
 
 ## Roadmap
 
-- Prebuilt releases, starting with Linux and the Steam Deck (#29)
-- 60 fps through frame interpolation, with the game still simulating at 30 (#39)
+- Android support, beginning with platform, packaging, graphics and performance research ([#17](https://github.com/TeamGDB/Yakumo/issues/17))
+- One consistent visual style across Yakumo's setup screens, menus and overlays ([#33](https://github.com/TeamGDB/Yakumo/issues/33))
+- Touch controls for gameplay, menus, camera movement and aiming
 
 ## How it works
 
@@ -135,10 +138,12 @@ To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [
 - [SDL3](https://www.libsdl.org/) — windowing, input and audio output
 - [FFmpeg](https://ffmpeg.org/) — music and movie decoding
 - [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — rendering
+- [Dear ImGui](https://github.com/ocornut/imgui) — Yakumo's menus and setup screens
+- [tiny-AES-c](https://github.com/kokke/tiny-AES-c) — the installer and PSP save-data support
 - [stb_truetype](https://github.com/nothings/stb) — font rasterization
 - [svanheulen/mhef](https://github.com/svanheulen/mhef) — community documentation of the game's archive format
 - [Cinzel](https://github.com/NDISCOVER/Cinzel) and [Shippori Mincho](https://github.com/fontdasu/ShipporiMincho) — the logo's lettering, under the SIL Open Font License
 
 ## License
 
-The repository is distributed under the MIT License; see [`LICENSE`](LICENSE). Third-party files keep their own notices beside them — currently `profiles/mhp3rd/third_party/stb_truetype.h`, under MIT or public domain.
+The repository is distributed under the MIT License; see [`LICENSE`](LICENSE). Third-party files keep their own notices beside them; [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) lists their origins and licences.

@@ -4,19 +4,20 @@ This profile builds `Yakumo` for **Monster Hunter Portable 3rd HD Ver.** (`NPJB-
 
 ## Status
 
-The game boots, loads its overlays, creates a character or loads a save, walks the village, plays hunts and saves, with sound, music, movies, lighting, a keyboard and mouse or a gamepad, at the PSP's speed.
+The game boots, loads its overlays, creates a character or loads a save, walks the village, plays hunts alone or in ad hoc multiplayer and saves, with sound, music, movies and lighting. It can be played with fully rebindable keyboard and mouse controls or a gamepad. The simulation remains at the PSP's 30 frames per second, with optional presentation at 45, 60, 90, 120 or the display's refresh rate through frame interpolation.
 
 | Area | State |
 | --- | --- |
 | Code | The whole executable (362 478 instructions, 89 units) and all 355 code overlays are recompiled ahead of time; an interpreter covers anything they miss |
 | Kernel | Threads with a deterministic virtual clock, semaphores, event flags, mutexes, callbacks, VTimers, partition memory, VBlank interrupts, file I/O straight from the disc image |
 | Imports | 244 of 296 implemented; the rest are logging stubs that return 0 |
-| Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, per-vertex lighting (four directional, point or spot lights and the full material model) and fog, blending, depth and alpha test, sprites, per-framebuffer render targets |
+| Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, per-vertex lighting (four directional, point or spot lights and the full material model) and fog, blending, depth and alpha test, sprites, per-framebuffer render targets, arbitrary window shapes and frame interpolation; PPSSPP-compatible HD texture packs are supported |
 | Audio | `sceSasCore` voice mixing, `sceAudio` output and ATRAC3 music through `sceAtrac3plus` |
 | Movies | PSMF playback through `sceMpeg` and `sceJpegCsc`: H.264 video and ATRAC3plus sound |
-| Input | Keyboard and SDL3 gamepads, including the HD release's second analog stick |
+| Input | Fully rebindable keyboard and mouse controls; SDL3 gamepads with an analog camera and proportional bow and bowgun aim on the second stick, plus optional trigger profiles |
 | Text | `sceLibFont` glyphs rasterized from a host TrueType font |
-| Saves | The save-data utility, with saves in the PSP's own format: a save copied from a PSP loads, and one made here can be copied back |
+| Saves | The save-data utility, with saves in the PSP's own format: a save copied from a PSP loads, and one made here can be copied back; the menu imports, exports and backs up saves |
+| Interface | Gamepad, keyboard and mouse driven first-run setup, file browser, in-game settings, performance statistics and on-screen keyboard |
 | Multiplayer | Ad hoc play through PSP ad hoc servers: two instances have met in a gathering hall and started a quest together; play with PPSSPP and on public servers is still to be tested. See [Multiplayer](#multiplayer-ad-hoc) |
 
 Not done yet:
@@ -24,9 +25,8 @@ Not done yet:
 - **Curved surfaces** (Bézier and spline patches).
 - **Infrastructure networking** (`sceHttp`, `sceNetInet`): the game's download mode. Ad hoc multiplayer works.
 - **Dialog screens.** The save-data and message dialogs work but draw nothing; each answers as if the player confirmed it ([#33](https://github.com/TeamGDB/Yakumo/issues/33)).
-- **Performance:** on a Steam Deck, the lighting path costs enough CPU to slow the busiest village spots slightly below full speed ([#7](https://github.com/TeamGDB/Yakumo/issues/7)); `MHP3RD_NO_LIGHTING=1` avoids it until that is fixed.
 
-Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Game Mode, built with GCC in a Debian 13 container and running on native Vulkan, and on Windows 11 with MSVC. On Windows, creating a character, saving several times, restarting the game and loading the save all work; see [the compatibility table](../../docs/COMPATIBILITY.md).
+Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Game Mode, built with GCC in a Debian 13 container and running on native Vulkan, and on Windows 11 with MSVC; see [the compatibility table](../../docs/COMPATIBILITY.md).
 
 ## Supported executable
 
