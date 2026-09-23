@@ -172,6 +172,11 @@ struct DrawCall {
     bool clear_mode{};                   // CLEARMODE is active for this draw
     std::uint32_t clear_flags{};         // CLEARMODE bits 8..10: color, alpha/stencil, depth
     std::uint32_t vertex_type{};
+    // Where the vertices and indices were read from and how many the prim
+    // consumed: what recognises the same draw in the next frame.
+    std::uint32_t vertex_address{};
+    std::uint32_t index_address{};
+    std::uint32_t primitive_count{};
     std::uint32_t material_color{0xFFFFFFFFu};
     bool lighting_enabled{};
     bool has_vertex_color{};             // the vertex type carries a colour

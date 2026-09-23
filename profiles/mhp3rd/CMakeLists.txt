@@ -68,6 +68,8 @@ if(MHP3RD_RENDERER)
         # Dear ImGui (third_party/imgui, unmodified) draws the port's own
         # interface over the game.
         set(MHP3RD_RENDERER_SOURCES
+            host/gpu/frame_interpolation.cpp
+            host/gpu/frame_pacing.cpp
             host/gpu/replacement_textures.cpp
             host/gpu/vulkan_renderer.cpp
             host/ui/file_browser.cpp
@@ -335,6 +337,20 @@ target_link_libraries(mhp3rd_render_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_render_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_render_tests COMMAND mhp3rd_render_tests)
+endif()
+
+# Frame interpolation checks: matching draws, cuts, blending, the present
+# clock and the frame rate governor.
+add_executable(mhp3rd_interpolation_tests
+    tests/interpolation_tests.cpp
+    host/gpu/frame_interpolation.cpp
+    host/gpu/frame_pacing.cpp)
+target_include_directories(mhp3rd_interpolation_tests PRIVATE
+    "${MHP3RD_PROFILE_DIR}/host"
+    "${PROJECT_SOURCE_DIR}/include")
+set_target_properties(mhp3rd_interpolation_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_interpolation_tests COMMAND mhp3rd_interpolation_tests)
 endif()
 
 # The built-in ad hoc server against the client and a raw protocol peer, and
