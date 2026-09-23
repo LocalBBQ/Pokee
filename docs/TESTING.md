@@ -96,6 +96,26 @@ The speed changes each have an off switch that restores the old path: `MHP3RD_NO
 
 To measure, run with `MHP3RD_PERF=log MHP3RD_TRACE_STALLS=1` and stand still in the village by the shop and the smithy passage for a minute. `MHP3RD_PERF_ALTERNATE=direct,lookup,reuse,merge` turns the new paths off every other second; compare the `render` and `gpu` numbers of the `alt on` and `alt off` lines. A spike shows up as a `[slow-frame]` line naming where the frame waited.
 
+### Frame rate (#39)
+
+Build `mhp3rd_interpolation_tests` and run it through CTest. It needs no GPU or game data and checks matching draws between two frames, the cut rules (a camera turn that keeps growing past 30 degrees blends, a sudden one does not), blending, when each present falls and what it shows at 45, 60, 90 and 120 (the blend factors, no picture going back, skipped presents never queued), and how the frame rate steps down and back up.
+
+For the manual check, open **Video → Frame rate**:
+
+- **30** looks and times exactly as before. The `[perf]` line has no `interpolation` field.
+- At **60**, walk and turn in the village and in a quest: movement, the camera and characters' limbs are smooth, with no doubled or jumping objects. The interface and the minimap stay as they are. A camera cut in a cutscene, entering an area and a loading screen show no blended frame.
+- In a quest with **Controls → Analog camera** on and *Camera speed* at 720, turn the camera at full deflection, alone and diagonally with the tilt: no stutter, and with `MHP3RD_TRACE_INTERPOLATION=1` the `[interp]` lines show no `camera turned` or `camera moved` cuts while turning (a turn measured 24.5-25.4 degrees and 174-180 units per game frame on the Mac).
+- Switching the value while playing takes effect at once; the menu pausing the game and resuming it, changing *Resolution*, *Aspect ratio* or *Vsync*, and turning *Game speed* to Unlimited (which greys the row) do not break it.
+- `MHP3RD_CHECK_REPLAY=1` must print `0 of N pixels differ` for every check.
+
+To measure, run with `MHP3RD_PERF=log MHP3RD_TRACE_INTERPOLATION=1` and stand still in the village by the shop and the smithy passage. `MHP3RD_FRAME_RATE_CYCLE=30,45,60,90` switches the rate every ten seconds; skip the first two `[perf]` lines after each `[interp] cycle:` line. For each rate read:
+
+- `[perf]`: `fps` (45, 60 or 90 — on a Steam Deck with Vsync, 120 and *Match display* run at 90), `speed` (100%), `render` and `gpu` per game frame, and `frame … max` (no regular spikes above the present interval).
+- `[interp]`: `presents` and `skipped` (0 or close to it), the ms of a blended present and of its `recording`, its `gpu`, and `late up to`.
+- No `[interp] frame rate … -> …` line while standing still; if one appears, it gives the speed, the spare time a frame and the cost of a blended present that made the rate step down.
+
+`MHP3RD_INTERPOLATION_EXTRA_MS=16` with *Frame rate* 90 shows the step-down on a fast machine: within a few seconds `[interp] frame rate 90 -> 60: the game had no time to spare`, then 60 fps with nothing skipped.
+
 ## Reporting
 
 Open a **Test report** issue with the platform, hardware, commit and the steps you reached. If a result changes a cell in [the compatibility table](COMPATIBILITY.md), update the table in a pull request as well.

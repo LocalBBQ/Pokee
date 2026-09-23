@@ -303,6 +303,7 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Video | Texture pack | `video.texture_pack` | `MHP3RD_TEXTURE_PACK` | On (default) or off: draw an installed [HD texture pack](#hd-texture-packs) instead of the game's textures. The footer shows how many textures the pack has and how many are on the GPU, or where the pack was looked for |
 | Video | Import texture pack… | `video.texture_pack_folder` | `MHP3RD_TEXTURE_PACK` (a folder) | Empty (default): the pack in `textures/NPJB40001`. A folder: the pack [imported to be used where it is](#importing-a-texture-pack). *Stop using the pack folder* empties it |
 | Video | Vsync | `video.present_mode` | | On (FIFO), or off through mailbox or immediate presentation where the driver offers them |
+| Video | Frame rate | `video.frame_rate` | `MHP3RD_FRAME_RATE` | `30` (default: the game's own frames, as they are), `45`, `60`, `90`, `120` or `display` (the display's refresh rate): frames in between the game's, with blended movement. See [Frame rate](#frame-rate) |
 | Video | Game speed | `video.unthrottled` | `MHP3RD_UNTHROTTLED` | Normal (held to real time) or unlimited |
 | Video | Performance | `video.performance` | `MHP3RD_PERF` | Off, overlay, overlay and log, log only |
 | Video | Font | `text.font` | `MHP3RD_FONT` | Default (a Japanese system font), or an installed font; see [Game text](#game-text) |
@@ -581,6 +582,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either. Emulated time is not held to real time |
 | `MHP3RD_WINDOW_TITLE` | `Yakumo` | Title of the game window, to tell instances apart |
 | `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn (menu: Game speed) |
+| `MHP3RD_FRAME_RATE` | `30` | `45`, `60`, `90`, `120` or `display`: present frames in between the game's 30 (menu: Frame rate). See [Frame rate](#frame-rate) |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
 | `MHP3RD_NO_LIGHTING` | off | Draw lit geometry with the flat white stand-in used before lighting existed, and without fog, to compare a scene with and without them |
 | `MHP3RD_NO_FOG` | off | Turn fog off and keep lighting |
@@ -614,6 +616,35 @@ Every change applies at the next frame; Original with a fixed resolution is exac
 How Fill works: the game keeps the projection's parameters in its camera object (the pointer at `0x08A2F958`): near and far plane, aspect ratio and vertical field of view at `+0x0` to `+0xC`. The camera's set-up (`0x0882D5A4`) copies the aspect ratio from a constant, 480/272 at `0x08969F74`; the projection (`0x0882CF0C`, which calls the perspective builder `0x0882CDCC`) and the culling planes (`0x0882BF1C`) are built from those fields, and the camera's update builds them again only when the field of view differs from the one kept at `+0x10`. At each flip `host/camera/game_aspect.cpp` writes the target's shape into the constant (for cameras set up later) and into the live camera, and makes the next update rebuild by changing `+0x10`. The culling planes cover the view up to an aspect ratio of about 3; beyond that the port also shrinks their depth factor, the constant `-1.5` at `0x08969ED4`, which only `0x0882BF74` reads. Back at Original or Stretch the port writes the game's own values back, bit for bit, and then nothing more. Eleven instructions and the two constants are checked at start-up (listed in `game_aspect.cpp`); if any differs, the view keeps the PSP's shape. The renderer keeps the game's 480×272 coordinates everywhere (viewport, scissor, framebuffer textures, the frame written back to guest memory) and only spreads them over a target of the window's shape; the interface's through-mode draws into the shown framebuffer are pulled in about the centre, their scissor with them.
 
 The community's widescreen cheat for this release (NPJB-40001) patches the same constant; the port does it live, for any shape, and keeps the interface undistorted.
+
+### Frame rate
+
+The game makes 30 frames a second, and its logic is tied to that rate: animation, physics, attack windows, timers and the monsters' behaviour all advance by a fixed step per frame. **Frame rate** (Video) presents more frames than that without touching the game: between two of its frames the renderer draws the older one again with every moving object's transforms blended towards the newer one (frame interpolation). The game keeps its speed and its timing exactly; only the picture is smoother.
+
+- **30** shows the game's frames as they are, when the game flips them. This is the picture of earlier versions.
+- **45**, **60**, **90** and **120** present that many frames a second: 1.5, 2, 3 and 4 per game frame. 45 is half of a 90 Hz screen (the Steam Deck's) and 90 all of it; 120 is for desktop monitors of 120 Hz or more.
+- **Match display** presents at the display's refresh rate.
+- With **Vsync** on, the rate is never above the display's refresh: on a 60 Hz screen 90 and 120 run at 60. The row says so (*now 60*).
+- If presenting that often would slow the game down, it steps down by itself to the fastest rate that fits (120, 90, 60, 45, 30), and tries a faster one again later once there is time to spare. The row shows the rate it runs at (*now 60*) and why. Loading screens and short stalls do not count against it.
+- The picture comes later than at 30: a frame is shown as it is one game frame after its own moment less the first in-between step, 16.7 ms later than at 30 at 60, 22.2 ms at 45 and 90, 25 ms at 120. Input and the camera are read as before, once per game frame.
+
+What is blended: 3D draws into the displayed picture that appear in both frames, recognised by where their vertices, indices and texture come from, with their world, view and projection matrices, skinned characters' vertices (so bones move smoothly) and scrolling textures. What is not: the 2D interface, render-to-texture passes, and anything drawn in only one of the two frames (effects regenerated each frame, objects appearing or leaving), which are shown as the older frame drew them. Two frames are not blended across a camera cut, a scene change or a loading screen: fewer than half of the draws match, the camera turned more than 30° or moved more than 200 units in one game frame, or nothing 3D was drawn. A turn or a move that continues the previous frame's (the analog camera at up to 720° a second, 24° a game frame in yaw alone) may go past those limits, up to 75° and 800 units. Movies stay at 30.
+
+How it is drawn. While the rate is above 30, each game frame is recorded as the renderer draws it: its draw calls (merged as usual) with their state, and a summary of every draw for matching it in the next frame. The vertex and index buffers keep three frames, the one being drawn and the two being blended, so drawing a frame again copies no vertices: an in-between frame records the older frame's draw calls again with blended matrices in their push constants. Only skinned draws get new vertices, blended on the CPU from copies of both frames' vertices, and only lit draws whose world matrix moved get a new lighting block. At each flip the frame is submitted and its picture copied; the presents follow a grid of evenly spaced moments aligned with the game's frames, timed by the real time of the vblank each frame started from, and are made while the kernel waits for real time and, when due, while the game's code runs. The flip no longer presents. The code is in `host/gpu/frame_interpolation.*` (matching, cuts, blending), `host/gpu/frame_pacing.*` (when to present, what each present shows, the rate governor) and `host/gpu/vulkan_renderer.cpp`.
+
+Cost, Apple M1 at ×5 (2400×1360), in the village, vsync off (`MHP3RD_FRAME_RATE_CYCLE`, one run):
+
+| Rate | fps | Speed | CPU per game frame (`render`) | GPU per game frame | One in-between frame: recording / whole present / GPU |
+| --- | --- | --- | --- | --- | --- |
+| 30 | 30.0 | 100% | 3.8 ms | 7.1 ms | |
+| 45 | 45.0 | 100% | 5.4 ms | 12.7 ms | 0.54 / 1.5 / 5.9 ms |
+| 60 | 59.8 | 100% | 5.5 ms | 11.3 ms | 0.55 / 1.7 / 5.3 ms |
+| 90 | 89.9 | 100% | 6.5 ms | 15.2 ms | 0.59 / 1.6 / 4.7 ms |
+| 120 | 119.8 | 100% | 7.1 ms | 18.1 ms | 0.56 / 3.0 / 4.3 ms |
+
+An in-between frame records about 3,300 draw calls; the whole present includes acquiring, submitting and presenting the swapchain image, where MoltenVK waits for a drawable. No present was skipped at any rate.
+
+A game-side 60 fps patch was not used. The one community code for this game (Saramagrean's CWCheat database, NPJB-40001 and ULJM-05800, "60 FPS Beta") takes the vblank handler at `0x0887669C` from starting a frame every other vblank to every one, then halves a quest timer, one counter and a few animation speeds back. The game has no time step to scale: its timers count frames and its animations take fixed steps (about 280 self-doubling `add.s` in the executable and the quest overlays), so everything else — monsters, their attacks, stamina, hit windows — runs at double speed, as its author and testers say. The overlay half of the NPJB code also targets the PSP release's addresses: our overlays load 0x800000 higher. 120 would be four times the game's own rate. Presenting in between keeps every one of those timings.
 
 ### Audio
 
@@ -677,6 +708,10 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_TRACE_GE=1` | Log the first draws of the run with their state |
 | `MHP3RD_CHECK_DIRECT_VERTICES=1` | Expand each transformed draw as well and compare it, vertex by vertex and byte for byte, with what its index list names; prints `[direct-check] N draws compared, M differed` every 300 frames. Slow |
 | `MHP3RD_TRACE_STALLS=1` | Where the render thread waits, once a second and for every slow frame; `MHP3RD_TRACE_STALLS_MS` sets what is slow (default 40). See [Where the render thread waits](#where-the-render-thread-waits) |
+| `MHP3RD_TRACE_INTERPOLATION=1` | With a frame rate above 30, an `[interp]` line a second: the rate running and the one chosen, how many draws matched, the camera's largest turn and move, cuts by reason, presents, the time of a blended present and of recording its draw calls, the draw calls and GPU time of one in-between frame, the plain presents, skipped ones, the latest one, and the delay from a frame's moment to its present. It also says when the rate steps down or up, and why. `frames` adds a line per game frame, `presents` a line per present with its blend factor |
+| `MHP3RD_CHECK_REPLAY=1` | Every 150 game frames, draw the older frame again from its recording without blending and compare it with its own picture pixel by pixel: `[interp] replay check … 0 of N pixels differ`. With `MHP3RD_SCREENSHOT_DIR` it also writes the older frame, the frame drawn again, the frame halfway to the newer one and the newer one as `replay_<frame>_*.bmp` |
+| `MHP3RD_FRAME_RATE_CYCLE=30,60,90` | Switch the frame rate to the next one listed every `MHP3RD_FRAME_RATE_CYCLE_SECONDS` (default 10), to compare rates on one scene in one run |
+| `MHP3RD_INTERPOLATION_EXTRA_MS=N` | Add N ms of busy CPU time to every blended present, to see the frame rate step down on a fast machine as it would on a slow one |
 | `MHP3RD_TRACE_3D=1` | Per-frame counts of transformed draws, their targets and screen-space bounds |
 | `MHP3RD_FIND_CAMERA=1` | Hunt guest memory for the words the camera is kept in, by what they do: one hunt against the yaw the view matrix reports and one against its pitch, trying every word as a float, a 32-bit and a 16-bit number, and as an angle, a rate, or a rate read a frame early. `MHP3RD_FIND_CAMERA_OUT` names a file the surviving list is written to |
 | `MHP3RD_FIND_STEP=N` | Keep the 16-bit fields that move by exactly N between turning frames. The camera's own yaw moves by 1150, which is 1150/65536 of a turn |
@@ -719,7 +754,7 @@ With `MHP3RD_PERF=1` the game draws a small overlay into the top-left corner of 
 
 `MHP3RD_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The menu's *Performance* setting chooses the same modes, plus the overlay without the log. The statistics are collected all the time, so turning them on changes nothing else.
 
-A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer presents) to the next.
+A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer presents) to the next. With a [frame rate](#frame-rate) above 30 the renderer presents between flips instead: `fps`, `frame avg` and `max` and the overlay's graph then follow the presents, while `game`, `guest`, `render`, `wait` and `gpu` stay per game frame and include the in-between frames' work.
 
 | Field | Meaning |
 | --- | --- |
@@ -735,6 +770,7 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | `FIFO 1440x816 90Hz` | Present mode, swapchain size and the display's refresh rate as SDL reports it |
 | `gpu`, `max` | GPU time per frame, averaged over the second, and the longest: from the first command of the frame to its last draw, measured with Vulkan timestamp queries and read back after the frame's fence, so it lags the frame by one. The copy to the window is not included. `gpu n/a` when the graphics queue has no timestamps (`timestampValidBits` 0) or `MHP3RD_NO_GPU_TIMESTAMPS` is set; the log says which at start-up |
 | `overlay` | CPU time spent drawing the overlay, when it is shown |
+| `interpolation` | The frame rate presented, when it is above 30; `interpolation 60 of 90` when it stepped down from the one chosen |
 
 The overlay shows the same numbers (GPU time on the second line, when there is one) and a graph of the last 192 frame times, from 0 to 50 ms, with guides at 16.7 and 33.3 ms: green up to 34 ms, yellow up to 50 ms, red beyond.
 
@@ -800,6 +836,8 @@ host/gpu/vulkan_renderer.*       Vulkan backend, window and input
 host/gpu/texture_pack.*          HD texture packs: textures.ini, texture keys, background image decoding, texture dumps
 host/gpu/texture_pack_import.*   Texture pack import: finding a pack in a folder, its checks, the copy, swap and backup
 host/gpu/replacement_textures.*  Texture pack images on the GPU: uploads with mip levels, memory budget
+host/gpu/frame_interpolation.*   Frame rate above 30: matching draws between frames, cuts, blending transforms
+host/gpu/frame_pacing.*          Frame rate above 30: when to present and what, the rate governor
 host/gpu/shaders/                GLSL, compiled to SPIR-V and embedded at build time
 host/perf/frame_stats.*          Frame timing, the per-second summary and the [perf] log line
 host/perf/perf_overlay.*         Performance overlay drawn on the CPU with a built-in 5x7 font
