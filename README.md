@@ -56,7 +56,7 @@ A prebuilt release needs nothing but your disc image. Download one from the [rel
 
 - **Linux and Steam Deck:** a Flatpak bundle and a portable tarball. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling.
 - **Windows:** a portable x86-64 archive with the required runtime libraries.
-- **macOS:** no prebuilt release yet; build from source as below.
+- **macOS (Apple Silicon, macOS 13 or newer):** a disk image with the app. It is not notarized by Apple, so macOS asks you to allow it once. [`docs/MACOS.md`](docs/MACOS.md) covers installing, the first start, where saves live, updating and uninstalling.
 
 ## Requirements
 
