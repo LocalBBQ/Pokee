@@ -14,6 +14,20 @@
 #include <iostream>
 
 namespace mhp3rd::camera {
+
+namespace {
+// The mouse and a drag on a touch screen move the camera the same way,
+// aiming included: a pointer's motion rather than a held rate.
+Turn combine(const Turn &a, const Turn &b) {
+    return {a.yaw_degrees + b.yaw_degrees, a.pitch_degrees + b.pitch_degrees, a.yaw_held || b.yaw_held,
+            a.pitch_held || b.pitch_held};
+}
+Turn take_pointer() {
+    const Turn mouse = take(Source::Mouse);
+    return combine(mouse, take(Source::Touch));
+}
+Turn peek_pointer() { return combine(peek(Source::Mouse), peek(Source::Touch)); }
+} // namespace
 namespace {
 
 // NPJB-40001: the ordinary camera update calls the rotation helper at
@@ -384,7 +398,7 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
     state.yaw_remainder = 0.0f;
     state.last_update = state.frame;
     ++state.updates;
-    const Turn mouse = take(Source::Mouse);
+    const Turn mouse = take_pointer();
     const Turn turn = take();
     if (!state.aiming || state.aim_hunter != hunter) {
         // The first update of an aim only learns where the aim starts.
@@ -549,7 +563,7 @@ bool game_camera_aim_boost() {
 
 std::optional<StickDirection> game_camera_mouse_aim() {
     if (!game_camera_aim_boost()) return std::nullopt;
-    const Turn pending = peek(Source::Mouse);
+    const Turn pending = peek_pointer();
     const float yaw = state.mouse_yaw + pending.yaw_degrees;
     const float pitch = state.mouse_pitch + pending.pitch_degrees;
     const float length = std::hypot(yaw, pitch);
@@ -560,7 +574,7 @@ std::optional<StickDirection> game_camera_mouse_aim() {
 
 int game_camera_mouse_stock_turn() {
     if (game_camera_driving() || game_camera_aim_boost()) return 0;
-    const float yaw = peek(Source::Mouse).yaw_degrees;
+    const float yaw = peek_pointer().yaw_degrees;
     if (!(std::fabs(yaw) >= kMouseStockTurn)) return 0;
     return yaw > 0.0f ? 1 : -1;
 }

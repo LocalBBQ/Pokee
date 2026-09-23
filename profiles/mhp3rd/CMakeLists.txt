@@ -89,6 +89,7 @@ if(MHP3RD_RENDERER)
             host/ui/save_screen.cpp
             host/ui/setup_screens.cpp
             host/ui/text_input.cpp
+            host/ui/touch_overlay.cpp
             host/ui/texture_pack_screen.cpp
             host/ui/widgets.cpp
             third_party/imgui/imgui.cpp
@@ -134,6 +135,7 @@ set(MHP3RD_HOST_SOURCES
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
+    host/input/touch_controls.cpp
     host/gpu/texture_pack.cpp
     host/gpu/texture_pack_import.cpp
     host/perf/frame_stats.cpp
@@ -326,6 +328,16 @@ target_link_libraries(mhp3rd_aspect_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_aspect_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_aspect_tests COMMAND mhp3rd_aspect_tests)
+endif()
+
+# The on-screen touch controls: layout, fingers and the stick's maths.
+add_executable(mhp3rd_touch_tests
+    tests/touch_controls_tests.cpp
+    host/input/touch_controls.cpp)
+target_include_directories(mhp3rd_touch_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_touch_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_touch_tests COMMAND mhp3rd_touch_tests)
 endif()
 
 # Texture pack import: finding a pack in the layouts packs come in, the

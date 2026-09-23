@@ -284,7 +284,20 @@ void begin_content() {
     ImGui::BeginChild("content", {0.0f, content}, ImGuiChildFlags_NavFlattened);
 }
 
+void touch_scroll() {
+    ImGuiIO &io = ImGui::GetIO();
+    if (io.MouseSource != ImGuiMouseSource_TouchScreen) return;
+    if (!ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+        return;
+    if (!ImGui::IsMouseDragging(ImGuiMouseButton_Left, font() * 0.4f)) return;
+    ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+    // A drag is a scroll, not a press: the row the finger started on must not
+    // act when it lifts.
+    ImGui::ClearActiveID();
+}
+
 void begin_footer() {
+    touch_scroll();
     ImGui::EndChild();
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const ImVec2 line = ImGui::GetCursorScreenPos();

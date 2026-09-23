@@ -84,6 +84,8 @@ void unpack_bundled_fonts() {
 
 int main(int argc, char *argv[]) {
     redirect_output();
+    // Back opens the in-game menu instead of leaving the app.
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
     unpack_bundled_fonts();
     Launch launch{argc, argv, 1};
     pthread_attr_t attributes;

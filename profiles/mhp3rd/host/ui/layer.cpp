@@ -218,7 +218,12 @@ bool Layer::handle_event(const SDL_Event &event) {
         break;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP:
-        if (event.key.key == SDLK_ESCAPE) {
+        // Android's Back is Esc: it opens and closes the menu.
+        if (event.key.key == SDLK_ESCAPE
+#if defined(__ANDROID__)
+            || event.key.key == SDLK_AC_BACK
+#endif
+        ) {
             if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) escape_pending_ = now;
             return true;
         }

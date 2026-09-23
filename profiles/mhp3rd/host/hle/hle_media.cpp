@@ -174,9 +174,17 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
 // layer. Added after the flip, so whoever drives the camera takes it in the
 // update this frame leads to.
 void feed_mouse(gpu::VulkanRenderer &renderer) {
+    const settings::Settings &s = settings::current();
+    // A drag on the touch screen: Touch camera speed degrees for the screen's
+    // height, slowed while aiming as the mouse is.
+    const gpu::MouseMotion drag = renderer.take_touch_motion();
+    if (drag.x != 0.0f || drag.y != 0.0f) {
+        const float scale = camera::game_camera_degrees_per_second() / std::max(s.camera_speed, 1.0f);
+        const float degrees = s.touch_camera_speed * scale;
+        camera::add_motion(camera::Source::Touch, drag.x * degrees, drag.y * degrees);
+    }
     const gpu::MouseMotion motion = renderer.take_mouse_motion();
     if (motion.x == 0.0f && motion.y == 0.0f) return;
-    const settings::Settings &s = settings::current();
     // While a bow or a bowgun aims, Aim speed's share of Camera speed, as
     // for the stick.
     const float scale = camera::game_camera_degrees_per_second() / std::max(s.camera_speed, 1.0f);

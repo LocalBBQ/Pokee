@@ -319,6 +319,7 @@ FileBrowser::Result FileBrowser::frame(bool back) {
         paragraph(note, colors::kTextDim);
         ImGui::Unindent(std::round(16.0f * Layer::get().scale()));
     }
+    touch_scroll();
     ImGui::EndChild();
 
     if (!go_to.empty()) open(go_to);

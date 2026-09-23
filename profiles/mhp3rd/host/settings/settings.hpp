@@ -88,6 +88,12 @@ struct Settings {
     bool invert_mouse_x{};
     bool invert_mouse_y{};
     input::Bindings bindings{input::default_bindings()};
+    // On-screen controls for a touch screen, shown once the screen is touched
+    // and hidden again when a gamepad or the keyboard is used.
+    bool touch_controls{true};
+    float touch_opacity{0.5f};         // 0.1-1
+    float touch_size{1.0f};            // 0.6-1.6 of the default size
+    float touch_camera_speed{180.0f};  // degrees the camera turns for a drag across the screen's height
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once
     std::string name{"Hunter"};        // the fixed name
 
@@ -113,6 +119,12 @@ inline constexpr std::uint32_t kMaxInternalScale = 8u;
 inline constexpr std::uint32_t kMaxWindowScale = 4u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
+inline constexpr float kMinTouchOpacity = 0.1f;
+inline constexpr float kMaxTouchOpacity = 1.0f;
+inline constexpr float kMinTouchSize = 0.6f;
+inline constexpr float kMaxTouchSize = 1.6f;
+inline constexpr float kMinTouchCameraSpeed = 30.0f;
+inline constexpr float kMaxTouchCameraSpeed = 720.0f;
 inline constexpr float kMaxMouseSensitivity = 0.99f;
 
 // Loads the settings on first use.

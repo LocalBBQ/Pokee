@@ -645,6 +645,88 @@ struct VulkanRenderer::Impl {
     bool mouse_captured{};
     std::uint32_t mouse_buttons{};  // bit n: SDL mouse button n held
     MouseMotion mouse_motion{};
+    // Touch screen: the on-screen controls, in window coordinates.
+    input::touch::Controls touch;
+    bool touch_visible{};
+    bool real_mouse_seen{};
+    MouseMotion touch_motion{};
+    struct TouchLayoutKey {
+        int width{};
+        int height{};
+        VkRect2D content{};
+        float size{};
+    } touch_layout_key{};
+    void update_touch_layout() {
+        int width = 0;
+        int height = 0;
+        if (window == nullptr || !SDL_GetWindowSize(window, &width, &height) || width <= 0 || height <= 0) return;
+        const float size = settings::current().touch_size;
+        const TouchLayoutKey key{width, height, content_rect, size};
+        if (key.width == touch_layout_key.width && key.height == touch_layout_key.height &&
+            key.size == touch_layout_key.size && key.content.offset.x == touch_layout_key.content.offset.x &&
+            key.content.offset.y == touch_layout_key.content.offset.y &&
+            key.content.extent.width == touch_layout_key.content.extent.width &&
+            key.content.extent.height == touch_layout_key.content.extent.height)
+            return;
+        touch_layout_key = key;
+        // The content area (clear of a cutout) in window coordinates, plus a
+        // small margin from the rounded corners.
+        input::touch::Insets insets;
+        if (swapchain_extent.width != 0u && swapchain_extent.height != 0u) {
+            const float x_scale = static_cast<float>(width) / static_cast<float>(swapchain_extent.width);
+            const float y_scale = static_cast<float>(height) / static_cast<float>(swapchain_extent.height);
+            insets.left = static_cast<float>(content_rect.offset.x) * x_scale;
+            insets.top = static_cast<float>(content_rect.offset.y) * y_scale;
+            insets.right = static_cast<float>(swapchain_extent.width - content_rect.offset.x -
+                                              content_rect.extent.width) * x_scale;
+            insets.bottom = static_cast<float>(swapchain_extent.height - content_rect.offset.y -
+                                               content_rect.extent.height) * y_scale;
+        }
+        const float margin = static_cast<float>(std::min(width, height)) * 0.02f;
+        insets.left += margin;
+        insets.top += margin;
+        insets.right += margin;
+        insets.bottom += margin;
+        touch.set_layout(input::touch::make_layout(static_cast<float>(width), static_cast<float>(height), insets, size));
+    }
+    void handle_touch(const SDL_Event &event) {
+        const bool finger = event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||
+                            event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED;
+        if (!finger) {
+            // A gamepad, the keyboard or a real mouse takes over: hide.
+            const bool other = event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || event.type == SDL_EVENT_KEY_DOWN ||
+                               (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.which != SDL_TOUCH_MOUSEID) ||
+                               (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION &&
+                                std::abs(static_cast<int>(event.gaxis.value)) > 16000);
+            if (other && touch_visible) {
+                touch_visible = false;
+                touch.release_all();
+            }
+            return;
+        }
+        if (!settings::current().touch_controls || !game_input) {
+            touch.release_all();
+            return;
+        }
+        int width = 0;
+        int height = 0;
+        if (!SDL_GetWindowSize(window, &width, &height)) return;
+        update_touch_layout();
+        const input::touch::Point at{event.tfinger.x * static_cast<float>(width),
+                                     event.tfinger.y * static_cast<float>(height)};
+        const std::uint64_t id = event.tfinger.fingerID;
+        if (event.type == SDL_EVENT_FINGER_DOWN) {
+            touch_visible = true;
+            touch.finger_down(id, at);
+        } else if (event.type == SDL_EVENT_FINGER_MOTION) {
+            touch.finger_move(id, at);
+        } else {
+            touch.finger_up(id);
+        }
+        const input::touch::Point drag = touch.take_camera_drag();
+        touch_motion.x += drag.x / static_cast<float>(height);
+        touch_motion.y += drag.y / static_cast<float>(height);
+    }
     std::array<bool, input::kKeyPositions> scripted_keys{};
 
     // Captures the pointer for the game when everything allows it and frees
@@ -655,8 +737,12 @@ struct VulkanRenderer::Impl {
     void sample_pad(bool focused);
     void update_pointer(bool focused) {
         const bool minimized = (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0u;
-        const bool wanted = settings::current().mouse && game_input && !pointer_free && !minimized &&
-                            (focused || scripted_input);
+        bool wanted = settings::current().mouse && game_input && !pointer_free && !minimized &&
+                      (focused || scripted_input);
+#if defined(__ANDROID__)
+        // A phone has no mouse to capture until one is actually used.
+        wanted = wanted && real_mouse_seen;
+#endif
         if (wanted == mouse_captured) return;
         mouse_captured = wanted;
         // A scripted run never takes the real pointer from the person at the machine.
@@ -3342,12 +3428,20 @@ bool VulkanRenderer::pump_events() {
             impl_->resize_now = true;
         }
         // The mouse, while captured for the game. Releases always count.
-        if (event.type == SDL_EVENT_MOUSE_MOTION && impl_->mouse_captured &&
+        // Touches also arrive as mouse events; they are the touch controls'
+        // alone and never reach the game as a mouse.
+        if ((event.type == SDL_EVENT_MOUSE_MOTION && event.motion.which != SDL_TOUCH_MOUSEID) ||
+            ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+             event.button.which != SDL_TOUCH_MOUSEID))
+            impl_->real_mouse_seen = true;
+        impl_->handle_touch(event);
+        if (event.type == SDL_EVENT_MOUSE_MOTION && impl_->mouse_captured && event.motion.which != SDL_TOUCH_MOUSEID &&
             (!impl_->scripted_input || event.motion.which == kScriptedMouse)) {
             impl_->mouse_motion.x += event.motion.xrel;
             impl_->mouse_motion.y += event.motion.yrel;
         }
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && impl_->mouse_captured && event.button.button < 32u &&
+            event.button.which != SDL_TOUCH_MOUSEID &&
             (!impl_->scripted_input || event.button.which == kScriptedMouse))
             impl_->mouse_buttons |= 1u << event.button.button;
         if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button < 32u)
@@ -3411,6 +3505,13 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
 
     // The gamepad adds to the same bits and offsets, so both sources are live.
     if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, pad, analog_x, analog_y);
+    // So do the on-screen controls.
+    if (impl_->touch_visible) {
+        pad.buttons |= impl_->touch.buttons();
+        const input::touch::Point stick = impl_->touch.stick();
+        analog_x += static_cast<int>(std::lround(stick.x * 127.0f));
+        analog_y += static_cast<int>(std::lround(stick.y * 127.0f));
+    }
 
     pad.analog_x = static_cast<std::uint8_t>(std::clamp(0x80 + analog_x, 0, 255));
     pad.analog_y = static_cast<std::uint8_t>(std::clamp(0x80 + analog_y, 0, 255));
@@ -3445,6 +3546,21 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
 
 PadState VulkanRenderer::pad() const noexcept { return impl_ ? impl_->pad : PadState{}; }
 
+bool VulkanRenderer::touch_controls_visible() const noexcept {
+    return impl_ && impl_->touch_visible && impl_->game_input && settings::current().touch_controls;
+}
+
+const input::touch::Controls &VulkanRenderer::touch_controls() const {
+    impl_->update_touch_layout();
+    return impl_->touch;
+}
+
+MouseMotion VulkanRenderer::take_touch_motion() noexcept {
+    return impl_ ? std::exchange(impl_->touch_motion, MouseMotion{}) : MouseMotion{};
+}
+
+bool VulkanRenderer::take_touch_menu() noexcept { return impl_ && impl_->touch.take_menu(); }
+
 MouseMotion VulkanRenderer::take_mouse_motion() noexcept {
     return impl_ ? std::exchange(impl_->mouse_motion, MouseMotion{}) : MouseMotion{};
 }
@@ -3471,6 +3587,7 @@ void VulkanRenderer::set_event_hook(std::function<bool(const SDL_Event &)> hook)
 void VulkanRenderer::set_game_input(bool enabled) {
     if (!impl_) return;
     if (enabled && !impl_->game_input) impl_->suppress_held = true;
+    if (!enabled) impl_->touch.release_all();
     impl_->game_input = enabled;
 }
 

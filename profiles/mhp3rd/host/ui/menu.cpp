@@ -10,6 +10,7 @@
 #include "ui/save_screen.hpp"
 #include "ui/texture_pack_screen.hpp"
 #include "ui/text_input.hpp"
+#include "ui/touch_overlay.hpp"
 #include "ui/widgets.hpp"
 
 #include "adhoc/client.hpp"
@@ -747,15 +748,10 @@ void Menu::controls() {
     }
     info_row("Esc", "This menu");
     info_row("F3", "Performance overlay");
-    if (button_row("Use the classic keyboard layout",
-                   {false, {}, "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are "
-                               "the face buttons, Q and W are L and R."})) {
-        s.bindings = input::classic_bindings();
-        settings::save();
-    }
+
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
-                   {false, {}, "Every gamepad, keyboard, mouse and name setting back to how Yakumo ships."})) {
+                   {false, {}, "Every gamepad, keyboard, mouse, touch and name setting back to how Yakumo ships."})) {
         const settings::Settings &d = settings::defaults();
         const auto restore = [&](const char *key, auto &value, const auto &fallback) {
             if (settings::overridden_by(key) == nullptr) value = fallback;
@@ -777,7 +773,56 @@ void Menu::controls() {
         restore("input.mouse_sensitivity", s.mouse_sensitivity, d.mouse_sensitivity);
         restore("input.invert_mouse_x", s.invert_mouse_x, d.invert_mouse_x);
         restore("input.invert_mouse_y", s.invert_mouse_y, d.invert_mouse_y);
+        restore("input.touch_controls", s.touch_controls, d.touch_controls);
+        restore("input.touch_opacity", s.touch_opacity, d.touch_opacity);
+        restore("input.touch_size", s.touch_size, d.touch_size);
+        restore("input.touch_camera_speed", s.touch_camera_speed, d.touch_camera_speed);
         s.bindings = d.bindings;
+        settings::save();
+    }
+
+    section("Touch screen");
+    {
+        RowOptions o = options_for("input.touch_controls",
+                                   "A pad drawn over the game once the screen is touched: a stick that appears "
+                                   "where the left thumb lands, the face buttons on the right, L and R at the top "
+                                   "corners. A drag on the free right half turns the camera. It hides again when a "
+                                   "gamepad or the keyboard is used.");
+        if (toggle_row("On-screen controls", s.touch_controls, o)) {
+            s.touch_controls = !s.touch_controls;
+            settings::save();
+        }
+        const auto off = [&](RowOptions options) {
+            if (!s.touch_controls && !options.disabled) {
+                options.disabled = true;
+                options.note = "On-screen controls are off";
+            }
+            return options;
+        };
+        int opacity = static_cast<int>(std::lround(s.touch_opacity * 100.0f));
+        if (slider_row("Controls opacity", opacity, 10, 100, 5, "%d%%",
+                       off(options_for("input.touch_opacity", "How strongly the on-screen controls are drawn.")))) {
+            s.touch_opacity = static_cast<float>(opacity) / 100.0f;
+            settings::save();
+        }
+        int size = static_cast<int>(std::lround(s.touch_size * 100.0f));
+        if (slider_row("Controls size", size, 60, 160, 5, "%d%%",
+                       off(options_for("input.touch_size", "The size of the on-screen controls.")))) {
+            s.touch_size = static_cast<float>(size) / 100.0f;
+            settings::save();
+        }
+        int speed = static_cast<int>(std::lround(s.touch_camera_speed));
+        if (slider_row("Touch camera speed", speed, 30, 720, 10, "%d deg",
+                       off(options_for("input.touch_camera_speed",
+                                       "Degrees the camera turns for a drag across the height of the screen.")))) {
+            s.touch_camera_speed = static_cast<float>(speed);
+            settings::save();
+        }
+    }
+    if (button_row("Use the classic keyboard layout",
+                   {false, {}, "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are "
+                               "the face buttons, Q and W are L and R."})) {
+        s.bindings = input::classic_bindings();
         settings::save();
     }
 }
@@ -1281,8 +1326,10 @@ void draw_over_game() {
     }
     const double hint_left = menu || settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
     const bool overlay = network_overlay();
-    if (hint_left <= 0.0 && !overlay && !menu) return;
+    const bool touch = !menu && layer.renderer().touch_controls_visible();
+    if (hint_left <= 0.0 && !overlay && !menu && !touch) return;
     layer.begin_frame();
+    if (touch) draw_touch_controls(layer.renderer().touch_controls(), settings::current().touch_opacity);
     if (hint_left > 0.0) draw_hint(hint_left);
     if (overlay) draw_network_overlay();
     if (menu && !menu->frame()) {
@@ -1317,7 +1364,10 @@ bool take_quit_request() { return std::exchange(quit_requested(), false); }
 
 bool menu_requested() {
     Layer &layer = Layer::get();
-    return layer.attached() && !text_input_open() && layer.take_menu_toggle();
+    if (!layer.attached() || text_input_open()) return false;
+    // The on-screen menu button, then Esc or L3+R3.
+    const bool touched = layer.renderer().take_touch_menu();
+    return layer.take_menu_toggle() || touched;
 }
 
 bool run_menu() {
