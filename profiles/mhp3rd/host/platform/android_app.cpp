@@ -4,12 +4,17 @@
 // executable does. So the game runs on a thread of its own with the 64 MiB
 // stack the other platforms give their main thread.
 
+#include "app_paths.hpp"
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
 #include <pthread.h>
 
+#include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 int yakumo_main(int argc, char **argv);
@@ -40,10 +45,46 @@ void redirect_output() {
     if (std::freopen(log.c_str(), "a", stderr) != nullptr) std::setvbuf(stderr, nullptr, _IONBF, 0);
 }
 
+// The APK carries the fallback font a release ships in fonts/, as an asset.
+// The font code maps files, so it is unpacked to the app's storage once and
+// found there.
+constexpr const char *kBundledFonts[] = {"NotoSansCJKjp-Regular.otf"};
+
+void unpack_bundled_fonts() {
+    const char *storage = SDL_GetAndroidInternalStoragePath();
+    if (storage == nullptr) return;
+    const std::filesystem::path root = std::filesystem::path(storage) / "bundled";
+    std::error_code ec;
+    std::filesystem::create_directories(root / "fonts", ec);
+    for (const char *name : kBundledFonts) {
+        const std::filesystem::path target = root / "fonts" / name;
+        const std::string asset = std::string("fonts/") + name;
+        SDL_IOStream *stream = SDL_IOFromFile(asset.c_str(), "rb");
+        if (stream == nullptr) continue;
+        const Sint64 size = SDL_GetIOSize(stream);
+        if (size > 0 && std::filesystem::file_size(target, ec) == static_cast<std::uintmax_t>(size)) {
+            SDL_CloseIO(stream);
+            continue;
+        }
+        std::size_t length = 0;
+        void *data = SDL_LoadFile_IO(stream, &length, true);
+        if (data == nullptr) continue;
+        const std::filesystem::path partial = target.string() + ".partial";
+        {
+            std::ofstream out(partial, std::ios::binary | std::ios::trunc);
+            out.write(static_cast<const char *>(data), static_cast<std::streamsize>(length));
+        }
+        SDL_free(data);
+        std::filesystem::rename(partial, target, ec);
+    }
+    mhp3rd::set_bundled_resource_directory(root);
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
     redirect_output();
+    unpack_bundled_fonts();
     Launch launch{argc, argv, 1};
     pthread_attr_t attributes;
     pthread_attr_init(&attributes);

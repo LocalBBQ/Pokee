@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <system_error>
+#include <utility>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -48,9 +49,21 @@ std::filesystem::path executable_directory() {
     return executable.empty() ? std::filesystem::path{} : executable.parent_path();
 }
 
+namespace {
+std::filesystem::path &bundled_resource_directory() {
+    static std::filesystem::path directory;
+    return directory;
+}
+} // namespace
+
+void set_bundled_resource_directory(std::filesystem::path directory) {
+    bundled_resource_directory() = std::move(directory);
+}
+
 std::vector<std::filesystem::path> bundled_fonts() {
     std::vector<std::filesystem::path> fonts;
-    const std::filesystem::path directory = executable_directory();
+    const std::filesystem::path directory =
+        bundled_resource_directory().empty() ? executable_directory() : bundled_resource_directory();
     if (directory.empty()) return fonts;
     std::error_code ec;
     for (const auto &entry : std::filesystem::directory_iterator(directory / "fonts", ec)) {

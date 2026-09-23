@@ -5,6 +5,12 @@
 #
 #   build_apk.sh <build dir> <SDL3 source dir> <libSDL3.so> <output.apk> [overlay limit]
 #
+# FONT_DIR may name a directory holding NotoSansCJKjp-Regular.otf and
+# NotoSansCJK-LICENSE.txt, the fallback font and licence a Linux release
+# fetches (packaging/linux/sources.sh pins both); they go into the APK's
+# assets, and the app unpacks the font on its first start. Without it the
+# game's text is blank unless the device has a font stb_truetype reads.
+#
 # ANDROID_HOME must name the SDK (build-tools and a platform are needed).
 # The overlay limit packs only the first N overlay libraries, to keep a test
 # APK small; without it every one is packed.
@@ -32,9 +38,16 @@ javac -nowarn --release 11 -classpath "$android_jar" -d "$work/classes" \
     $(find "$work/classes" -name '*.class')
 
 echo "linking resources"
+assets=()
+if [[ -n "${FONT_DIR:-}" ]]; then
+    mkdir -p "$work/assets/fonts" "$work/assets/licenses"
+    cp "$FONT_DIR/NotoSansCJKjp-Regular.otf" "$work/assets/fonts/"
+    cp "$FONT_DIR/NotoSansCJK-LICENSE.txt" "$work/assets/licenses/NotoSansCJK-OFL.txt"
+    assets=(-A "$work/assets")
+fi
 "$build_tools/aapt2" compile --dir "$here/res" -o "$work/res.zip"
 "$build_tools/aapt2" link -I "$android_jar" --manifest "$here/AndroidManifest.xml" \
-    --min-sdk-version 29 --target-sdk-version 35 -o "$work/unsigned.apk" "$work/res.zip"
+    --min-sdk-version 29 --target-sdk-version 35 "${assets[@]}" -o "$work/unsigned.apk" "$work/res.zip"
 
 echo "adding native libraries"
 lib="$work/lib/arm64-v8a"
