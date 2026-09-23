@@ -12,6 +12,15 @@
 # game's text is blank unless the device has a font stb_truetype reads.
 #
 # ANDROID_HOME must name the SDK (build-tools and a platform are needed).
+# DEBUGGABLE=1 marks the app debuggable, so `adb shell run-as` reaches its
+# files (its log, its data) on a test device; leave it out for players.
+# KEYSTORE (with KEYSTORE_PASS and KEY_ALIAS) signs with a key of your own, so
+# that later builds install over earlier ones and keep the player's data;
+# without it a throwaway key is made in the build directory.
+#
+# The app needs Android 11 (API 30): the native code uses
+# pthread_cond_clockwait, and every 64-bit device from Android 10 has Vulkan
+# 1.1 anyway.
 # The overlay limit packs only the first N overlay libraries, to keep a test
 # APK small; without it every one is packed.
 set -euo pipefail
@@ -34,7 +43,8 @@ mkdir -p "$work/classes" "$work/dex" "$work/lib/arm64-v8a"
 echo "compiling SDL's Java activity and the app's own"
 javac -nowarn --release 11 -classpath "$android_jar" -d "$work/classes" \
     $(find "$sdl_dir/android-project/app/src/main/java" "$here/java" -name '*.java') 2> "$work/javac.log"
-"$build_tools/d8" --release --min-api 29 --lib "$android_jar" --output "$work/dex" \
+min_sdk=30
+"$build_tools/d8" --release --min-api "$min_sdk" --lib "$android_jar" --output "$work/dex" \
     $(find "$work/classes" -name '*.class')
 
 echo "linking resources"
@@ -46,8 +56,15 @@ if [[ -n "${FONT_DIR:-}" ]]; then
     assets=(-A "$work/assets")
 fi
 "$build_tools/aapt2" compile --dir "$here/res" -o "$work/res.zip"
+# The version: `git describe` of the checkout, and the number of commits as
+# the code Android compares, so a later build is always an update.
+repo="$(cd "$here/../../../.." && pwd)"
+version_name="$(git -C "$repo" describe --tags --always --dirty 2>/dev/null || echo 0.0)"
+version_code="$(git -C "$repo" rev-list --count HEAD 2>/dev/null || echo 1)"
 "$build_tools/aapt2" link -I "$android_jar" --manifest "$here/AndroidManifest.xml" \
-    --min-sdk-version 29 --target-sdk-version 35 "${assets[@]}" -o "$work/unsigned.apk" "$work/res.zip"
+    --min-sdk-version "$min_sdk" --target-sdk-version 35 --version-name "$version_name" \
+    --version-code "$version_code" ${DEBUGGABLE:+--debug-mode} "${assets[@]}" -o "$work/unsigned.apk" \
+    "$work/res.zip"
 
 echo "adding native libraries"
 lib="$work/lib/arm64-v8a"
@@ -64,12 +81,15 @@ strip="$(ls -d "$ANDROID_NDK"/toolchains/llvm/prebuilt/*/bin/llvm-strip | head -
 (cd "$work" && cp dex/classes.dex . && zip -q unsigned.apk classes.dex && zip -q -r -9 unsigned.apk lib)
 
 echo "aligning and signing"
-keystore="$build_dir/apk-research.keystore"
+keystore="${KEYSTORE:-$build_dir/apk-research.keystore}"
+password="${KEYSTORE_PASS:-research}"
+alias="${KEY_ALIAS:-research}"
 if [[ ! -f "$keystore" ]]; then
+    [[ -n "${KEYSTORE:-}" ]] && { echo "error: $keystore not found" >&2; exit 1; }
     keytool -genkeypair -keystore "$keystore" -storepass research -keypass research -alias research \
         -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Yakumo research build" > /dev/null 2>&1
 fi
 "$build_tools/zipalign" -f -P 16 4 "$work/unsigned.apk" "$work/aligned.apk"
-"$build_tools/apksigner" sign --ks "$keystore" --ks-pass pass:research --key-pass pass:research \
-    --out "$output" "$work/aligned.apk"
-echo "wrote $output ($(du -h "$output" | cut -f1), ${#overlays[@]} overlay libraries)"
+"$build_tools/apksigner" sign --ks "$keystore" --ks-pass "pass:$password" --key-pass "pass:$password" \
+    --ks-key-alias "$alias" --out "$output" "$work/aligned.apk"
+echo "wrote $output ($(du -h "$output" | cut -f1), ${#overlays[@]} overlay libraries, version $version_name ($version_code))"
