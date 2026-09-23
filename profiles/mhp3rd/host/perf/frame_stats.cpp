@@ -107,6 +107,8 @@ struct State {
     std::uint32_t list_sum{};
     std::uint64_t draw_sum{};
     std::uint64_t recorded_draw_sum{};
+    std::uint64_t vertex_peak{};
+    std::uint64_t index_peak{};
     StallTallies stall_sum{};
     double gpu_sum_ms{};
     double gpu_max_ms{};
@@ -129,7 +131,7 @@ State &state() {
 }
 
 void print(const Summary &s) {
-    char line[400];
+    char line[512];
     int length = std::snprintf(line, sizeof(line),
                                "[perf] fps %.1f game %.1f speed %.0f%% | frame avg %.1f max %.1f ms | guest %.1f "
                                "render %.1f wait %.1f ms | lists %.0f/s draws %.0f/%.0f | %s %ux%u",
@@ -152,6 +154,9 @@ void print(const Summary &s) {
         else
             length += std::snprintf(line + length, sizeof(line) - length, " | interpolation %.0f", s.frame_rate);
     }
+    if (s.vertex_mib > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
+        length += std::snprintf(line + length, sizeof(line) - length, " | space vertex %.1f index %.1f MiB",
+                                s.vertex_mib, s.index_mib);
     if (s.overlay_ms > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " | overlay %.2f ms", s.overlay_ms);
     if (alternate().paths != 0u && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
@@ -240,6 +245,7 @@ void restart_measurement() {
     s.draw_sum = s.recorded_draw_sum = 0u;
     s.stall_sum = StallTallies{};
     s.gpu_sum_ms = s.gpu_max_ms = 0.0;
+    s.vertex_peak = s.index_peak = 0u;
     s.gpu_frames = 0u;
 }
 
@@ -267,6 +273,12 @@ void add_overlay_time(Clock::duration duration) { state().overlay += duration; }
 void count_display_list() { ++state().lists; }
 void count_draw() { ++state().draws; }
 void count_recorded_draws(std::uint32_t count) { state().recorded_draws += count; }
+
+void note_frame_space(std::uint64_t vertex_bytes, std::uint64_t index_bytes) {
+    State &s = state();
+    s.vertex_peak = std::max(s.vertex_peak, vertex_bytes);
+    s.index_peak = std::max(s.index_peak, index_bytes);
+}
 
 void set_display_info(const std::string &present_mode, std::uint32_t width, std::uint32_t height, float refresh_hz) {
     State &s = state();
@@ -379,6 +391,8 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     out.gpu_valid = !s.gpu_unavailable && s.gpu_frames != 0u;
     out.gpu_avg_ms = s.gpu_frames != 0u ? s.gpu_sum_ms / static_cast<double>(s.gpu_frames) : 0.0;
     out.gpu_max_ms = s.gpu_max_ms;
+    out.vertex_mib = static_cast<double>(s.vertex_peak) / (1024.0 * 1024.0);
+    out.index_mib = static_cast<double>(s.index_peak) / (1024.0 * 1024.0);
     out.present_mode = s.present_mode;
     out.width = s.width;
     out.height = s.height;
@@ -403,6 +417,7 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     s.draw_sum = s.recorded_draw_sum = 0u;
     s.stall_sum = StallTallies{};
     s.gpu_sum_ms = s.gpu_max_ms = 0.0;
+    s.vertex_peak = s.index_peak = 0u;
     s.gpu_frames = 0u;
 }
 
