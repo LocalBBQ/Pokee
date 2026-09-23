@@ -82,6 +82,18 @@ void load_fonts() {
         if (exists(candidate)) text_font = candidate;
     }
     ImFont *font = text_font != nullptr ? io.Fonts->AddFontFromFileTTF(text_font) : nullptr;
+#if defined(__ANDROID__)
+    // Android's own faces are variable fonts; the Japanese font the app
+    // carries has Latin too, and the symbols the menu uses (… ○ ×).
+    if (font == nullptr)
+        for (const std::filesystem::path &bundled : bundled_fonts()) {
+            font = io.Fonts->AddFontFromFileTTF(install::path_to_utf8(bundled).c_str());
+            if (font != nullptr) {
+                std::cout << "[ui] text in " << install::path_to_utf8(bundled.filename()) << "\n";
+                return;
+            }
+        }
+#endif
     if (font == nullptr) {
         io.Fonts->AddFontDefaultVector();
         std::cout << "[ui] no system font found; using Dear ImGui's own\n";
