@@ -339,6 +339,15 @@ int main(int argc, char **argv) {
             return 2;
         }
         if (options.install_image) return install_from_command_line(options);
+#if defined(MHP3RD_ANDROID_APP)
+        {
+            // "Set up game data again" from the menu, left for this start.
+            std::error_code ec;
+            const std::filesystem::path marker =
+                mhp3rd::install::user_data_directory() / mhp3rd::install::kSetupMarkerFile;
+            if (std::filesystem::remove(marker, ec)) options.install = true;
+        }
+#endif
 
         const std::optional<GameFiles> files = locate_game(options);
         if (!files) return 1;

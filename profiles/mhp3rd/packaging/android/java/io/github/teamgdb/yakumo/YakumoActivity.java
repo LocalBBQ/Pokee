@@ -47,14 +47,28 @@ public class YakumoActivity extends SDLActivity {
 
     /** Asks the player for a folder; its tree URI, or null when cancelled. */
     public static String pickFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        return pick(intent);
+    }
+
+    /** Asks the player for a file to read; its document URI, or null when cancelled. */
+    public static String pickDocument() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        // Disc images have no MIME type every provider agrees on.
+        intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        return pick(intent);
+    }
+
+    private static String pick(Intent intent) {
         if (mSingleton == null) return null;
         synchronized (sPickLock) {
             sPickDone = false;
             sPickResult = null;
         }
         mSingleton.runOnUiThread(() -> {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             try {
                 mSingleton.startActivityForResult(intent, kPickTree);
             } catch (Exception e) {
@@ -89,6 +103,15 @@ public class YakumoActivity extends SDLActivity {
             return;
         }
         super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    /** Starts the app afresh: this process ends and a new one opens the activity. */
+    public static void relaunch() {
+        if (mSingleton == null) return;
+        Intent launch = mSingleton.getPackageManager().getLaunchIntentForPackage(mSingleton.getPackageName());
+        if (launch == null || launch.getComponent() == null) return;
+        mSingleton.startActivity(Intent.makeRestartActivityTask(launch.getComponent()));
+        Runtime.getRuntime().exit(0);
     }
 
     /** The document that stands for a picked tree itself. */

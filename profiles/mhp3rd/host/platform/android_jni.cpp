@@ -5,6 +5,8 @@
 
 #include <jni.h>
 
+#include <cstdio>
+
 namespace mhp3rd::android {
 namespace {
 
@@ -67,10 +69,31 @@ Insets cutout_insets() {
     return {values[0], values[1], values[2], values[3]};
 }
 
+void relaunch() {
+    Call call;
+    if (!call.ok()) return;
+    jmethodID id = call.method("relaunch", "()V");
+    if (id == nullptr) return;
+    std::fflush(stdout);
+    std::fflush(stderr);
+    call.env->CallStaticVoidMethod(call.type, id);
+    call.failed();
+}
+
 std::optional<std::string> pick_folder() {
     Call call;
     if (!call.ok()) return std::nullopt;
     jmethodID id = call.method("pickFolder", "()Ljava/lang/String;");
+    if (id == nullptr) return std::nullopt;
+    jobject result = call.env->CallStaticObjectMethod(call.type, id);
+    if (call.failed()) return std::nullopt;
+    return call.text(result);
+}
+
+std::optional<std::string> pick_document() {
+    Call call;
+    if (!call.ok()) return std::nullopt;
+    jmethodID id = call.method("pickDocument", "()Ljava/lang/String;");
     if (id == nullptr) return std::nullopt;
     jobject result = call.env->CallStaticObjectMethod(call.type, id);
     if (call.failed()) return std::nullopt;

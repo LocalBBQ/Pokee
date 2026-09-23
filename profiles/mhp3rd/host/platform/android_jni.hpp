@@ -21,8 +21,13 @@ struct Insets {
 // The display cutout, in window pixels; zero where there is none.
 [[nodiscard]] Insets cutout_insets();
 
+// Ends this process and starts the app again; returns only if it cannot.
+void relaunch();
+
 // A folder the player picks, as a tree URI; nothing when cancelled.
 [[nodiscard]] std::optional<std::string> pick_folder();
+// A file the player picks to read, as a document URI; nothing when cancelled.
+[[nodiscard]] std::optional<std::string> pick_document();
 // The document standing for a picked tree's folder itself.
 [[nodiscard]] std::string tree_root(const std::string &tree_uri);
 
