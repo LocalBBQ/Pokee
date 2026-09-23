@@ -52,14 +52,26 @@ void game_camera_frame(psprecomp::Runtime &runtime);
 [[nodiscard]] bool game_camera_aim_boost();
 
 // A mouse has no stick for the game's aim code to read. While a bow or a
-// bowgun aims and the mouse has moved, the direction, at full length, the
-// second stick should show the game this sample so its aim steps the mouse's
-// way; the driver then sizes those steps from the mouse's degrees.
+// bowgun aims (or a bowgun's scope is up) and the mouse has moved, the
+// direction, at full length, the second stick should show the game this
+// sample so its aim steps the mouse's way; the driver then sizes those steps
+// from the mouse's degrees. Each axis is fully on or off.
 struct StickDirection {
     float x{};
     float y{};
 };
 [[nodiscard]] std::optional<StickDirection> game_camera_mouse_aim();
+
+// Once per game flip, after the mouse's motion for the coming frame is in.
+// The game's camera, and the scope's view, are built from the aim after the
+// aim code has made its own fixed step and before the driver resizes it, so
+// that step shows for a frame: the view jumps by it whenever the game starts,
+// stops or reverses a step, which is what the mouse makes it do. Here the step
+// the game will make for the direction the mouse is about to show (learned
+// from its earlier steps in this aim) is taken off the aim in advance; the
+// next camera update puts it back before resizing, or the next flip does if
+// no update came.
+void game_camera_anticipate_aim(psprecomp::Runtime &runtime);
 
 // Where the port does not drive the camera (Analog camera off, the village,
 // a camera mode without a driver) the game's own turn is one speed, on or

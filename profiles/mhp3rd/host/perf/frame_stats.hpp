@@ -71,6 +71,9 @@ void count_display_list();
 // consecutive draws are merged.
 void count_draw();
 void count_recorded_draws(std::uint32_t count);
+// Bytes of the vertex and index buffers one frame's draws took; the perf line
+// shows the most a frame took in the second, against the room each frame has.
+void note_frame_space(std::uint64_t vertex_bytes, std::uint64_t index_bytes);
 
 // Closes the current frame. `virtual_us` is the kernel's clock, which the
 // game's own frame rate and the emulation speed are measured against.
@@ -119,6 +122,8 @@ struct Summary {
     std::uint32_t width{};
     std::uint32_t height{};
     float refresh_hz{};
+    double vertex_mib{};      // the most one frame took of the vertex buffer, 0 when unknown
+    double index_mib{};
 };
 [[nodiscard]] const Summary &last_second();
 

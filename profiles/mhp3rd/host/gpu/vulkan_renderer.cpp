@@ -59,7 +59,11 @@ constexpr std::uint32_t kSettleFrames = 12u;
 // a fade, a backdrop or a copy of the picture, which spreads with the 3D view
 // instead of keeping the interface's proportions.
 constexpr float kScreenWideDraw = 470.0f;
-constexpr VkDeviceSize kVertexBufferBytes = 16u * 1024u * 1024u;
+// Room for one frame's vertices. With frame interpolation a frame cannot reuse
+// its region part way through, so all of it must fit: measured at 16.1 MiB in
+// the busiest areas found (Flooded Forest area 3, Tundra area 2), where 16 MiB
+// left the interface, drawn last, and parts of the ground out. Twice that.
+constexpr VkDeviceSize kVertexBufferBytes = 32u * 1024u * 1024u;
 // Index lists of merged draws (see submit()), kept apart from the vertices so
 // that the draws of one group have consecutive indices.
 constexpr VkDeviceSize kIndexBufferBytes = 4u * 1024u * 1024u;
@@ -74,6 +78,15 @@ constexpr std::uint32_t kFrameRegions = 3u;
 constexpr VkDeviceSize kPresentScratchBytes = 6u * 1024u * 1024u;
 constexpr VkDeviceSize kVertexBufferTotal = kFrameRegions * kVertexBufferBytes + 2u * kPresentScratchBytes;
 constexpr VkDeviceSize kIndexBufferTotal = kFrameRegions * kIndexBufferBytes;
+
+// Says, once in a while, that a frame's geometry did not fit and some of its
+// draws were left out, instead of dropping them silently.
+void report_frame_space_full(const char *what) {
+    static std::uint64_t count = 0;
+    if (count++ % 600u == 0u)
+        std::cout << "[render] a frame ran out of " << what << " space; the draws past it are not drawn (" << count
+                  << " so far)\n" << std::flush;
+}
 constexpr std::size_t kMaxCachedTextures = 1024u;
 // Descriptor sets for sampling render targets as textures: two per target
 // (with its alpha, and with alpha forced to one for 5650 textures).
@@ -775,6 +788,9 @@ struct VulkanRenderer::Impl {
     VkDeviceSize vertex_limit{kVertexBufferBytes};
     VkDeviceSize index_limit{kIndexBufferBytes};
     void enter_region(std::uint32_t index) {
+        // How much of its region the frame being left used, for the perf line.
+        perf::note_frame_space(vertex_offset - static_cast<VkDeviceSize>(frame_region) * kVertexBufferBytes,
+                               index_offset - static_cast<VkDeviceSize>(frame_region) * kIndexBufferBytes);
         frame_region = index;
         vertex_offset = static_cast<VkDeviceSize>(index) * kVertexBufferBytes;
         vertex_limit = vertex_offset + kVertexBufferBytes;
@@ -801,7 +817,10 @@ struct VulkanRenderer::Impl {
     // Returns false, writing nothing, when the buffer is full.
     bool write_uniform(const void *data, std::size_t size, std::uint32_t &offset) {
         const VkDeviceSize at = (vertex_offset + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
-        if (at + size > vertex_limit) return false;
+        if (at + size > vertex_limit) {
+            report_frame_space_full("vertex");
+            return false;
+        }
         std::memcpy(static_cast<std::uint8_t *>(vertex_mapped) + at, data, size);
         offset = static_cast<std::uint32_t>(at);
         vertex_offset = at + size;
@@ -4074,9 +4093,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         const VkDeviceSize vertex_end = vertex_start + call.vertices.size() * sizeof(GpuVertex);
         index_start = (vertex_end + 3u) & ~VkDeviceSize{3u};
         draw_end = merge ? vertex_end : index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
-        if (draw_end > impl.vertex_limit) return;
-        if (merge && impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit)
+        if (draw_end > impl.vertex_limit) {
+            report_frame_space_full("vertex");
             return;
+        }
+        if (merge && impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit) {
+            report_frame_space_full("index");
+            return;
+        }
         auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
         for (const Vertex &vertex : call.vertices) {
             const GpuVertex converted = to_gpu(vertex);
@@ -4090,7 +4114,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         draw_count = static_cast<std::uint32_t>(impl.direct_indices.size());
     } else {
         const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
-        if (impl.vertex_offset + bytes > impl.vertex_limit) return;
+        if (impl.vertex_offset + bytes > impl.vertex_limit) {
+            report_frame_space_full("vertex");
+            return;
+        }
         std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
                     static_cast<std::size_t>(bytes));
         draw_end = impl.vertex_offset + bytes;
@@ -4420,6 +4447,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     impl.begin_gpu_segment(impl.command_buffer);
     // A frame recorded for drawing again keeps what it wrote so far.
     if (!impl.interpolating) {
+        perf::note_frame_space(impl.vertex_offset, impl.index_offset);
         impl.vertex_offset = 0u;
         impl.index_offset = 0u;
     }

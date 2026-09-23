@@ -18,4 +18,8 @@ void install_overlay_support(psprecomp::Runtime &runtime);
 // this is called; the next jump into the slot then installs the right corpus.
 void revalidate_overlays(psprecomp::Runtime &runtime);
 
+// The guest loaded code: a slot whose image matched no corpus is searched
+// again at the next call into it.
+void forget_unmatched_overlays();
+
 } // namespace mhp3rd

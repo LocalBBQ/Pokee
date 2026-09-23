@@ -40,6 +40,7 @@ You can load a save copied from a PSP or start a new game, hunt, play with other
 | Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and backups from the menu | Curved surfaces (#10); the save-data dialogs draw nothing yet (#33) |
 | Vulkan graphics: models, animation, textures, transparency, lighting and fog; adjustable internal resolution, arbitrary window shapes and frame interpolation | |
 | PPSSPP-compatible HD texture packs, installed from the menu or copied into the data directory | |
+| Mods in the community's mhp3reload format: file replacements and patches, managed from the menu (see the [profile README](profiles/mhp3rd/README.md#mods)) | Code mods (#81) |
 | Sound effects, streamed music and cutscene movies | |
 | Fully rebindable keyboard and mouse controls; gamepads with an analog right-stick camera and aim, plus bow and bowgun trigger profiles | |
 | Yakumo's in-game menu, first-run setup, file browser and on-screen keyboard, all usable with a gamepad, keyboard or mouse | |

@@ -231,7 +231,7 @@ To rebind, activate a control's row and press a key or a mouse button: it is add
 
 **The pointer.** While the game runs and the window has focus, Yakumo captures the mouse: the pointer is hidden and its motion and buttons go to the game. It is given back whenever Yakumo's menu, the on-screen keyboard or a setup screen is up, and when the window loses focus (switching to another window, Cmd+Tab or Alt+Tab, minimising). Buttons and keys still held when it is captured again reach the game only after they are released, and motion made while it was free is never replayed. *Mouse* in the menu (`input.mouse`, `MHP3RD_MOUSE=0`) turns all of this off, leaving the pointer alone.
 
-**The mouse camera** feeds the same camera layer as the right stick, so it works where the [analog camera](#analog-camera) does: in a quest's ordinary camera, moving the mouse sideways turns the camera and moving it forward and back tilts it, by *Mouse sensitivity* degrees for each count of motion (0.10 by default), and it stops where the mouse stops. While a bow or a bowgun aims, the mouse moves the aim the way the right stick does, slowed as *Aim speed* is to *Camera speed*; the game still decides when the aim may move. Where the port does not drive the camera (with *Analog camera* off, in the village or in a camera mode without a driver) the game's own camera turns at one fixed speed or not at all, so the mouse can only switch that turn on: moving it sideways turns the camera for as long as it moves, like holding the right stick, and vertical motion does nothing there (the second stick's up and down are the game's recentring commands). With *Right stick* set to D-pad or off, the mouse does not turn the game's own camera, since D-pad presses would also move cursors in the game's menus.
+**The mouse camera** feeds the same camera layer as the right stick, so it works where the [analog camera](#analog-camera) does: in a quest's ordinary camera, moving the mouse sideways turns the camera and moving it forward and back tilts it, by *Mouse sensitivity* degrees for each count of motion (0.10 by default), and it stops where the mouse stops. While a bow or a bowgun aims, and in a bowgun's scope, the mouse moves the aim the way the right stick does, slowed as *Aim speed* is to *Camera speed*; the game still decides when the aim may move. Where the port does not drive the camera (with *Analog camera* off, in the village or in a camera mode without a driver) the game's own camera turns at one fixed speed or not at all, so the mouse can only switch that turn on: moving it sideways turns the camera for as long as it moves, like holding the right stick, and vertical motion does nothing there (the second stick's up and down are the game's recentring commands). With *Right stick* set to D-pad or off, the mouse does not turn the game's own camera, since D-pad presses would also move cursors in the game's menus.
 
 The keyboard and a gamepad can be used together or in turns: both are read every frame and add up, so nothing is left pressed by switching.
 
@@ -327,6 +327,8 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Controls | A row per control (Move forward … Camera right) | `input.bind.<control>` | | Up to two keys or mouse buttons, see [Keyboard and mouse](#keyboard-and-mouse) |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
+| Mods | Use mods | `[general] enabled` in `mods.ini` | `MHP3RD_NO_MODS` | On (default) or off: every mod off, the game's own files only. See [Mods](#mods) |
+| Mods | A row per mod: On, Priority | `[mod <folder>] enabled`, `rank` in `mods.ini` | | Off (default) or on; a higher rank wins where two mods replace the same file |
 | System | Pause the game when the menu opens | `ui.menu_pause` | `MHP3RD_MENU_PAUSE` | On (default) or off: the game keeps running behind the menu |
 | System | Pause during multiplayer | `ui.menu_pause_multiplayer` | `MHP3RD_MENU_PAUSE_MULTIPLAYER` | Off (default): during ad hoc play the game keeps running behind the menu; on: the setting above decides |
 | System | Add a timestamp to the backup name | `saves.backup_timestamp` | | On (default): each backup from *Back up saves…* is a new folder named by its time; off: plain folder names, replaced after asking |
@@ -334,7 +336,7 @@ Every change applies at once and is saved to `settings.ini` in the per-user dire
 | Network | Server | `network.server` | `MHP3RD_ADHOC_SERVER` | Host name or address of a PSP ad hoc server, optionally `host:port`; empty by default |
 | Network | Nickname | `network.nickname` | `MHP3RD_ADHOC_NICKNAME` | The name other players see; empty uses the hunter name |
 
-Everything applies without a restart; the name settings take effect the next time the game asks for a name. The Controls section also has *Use the classic keyboard layout*, and the System section has *Resume*, *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), the *Saves* rows described under [Saving and loading](#importing-a-save-from-a-psp), and the build version, the data and saves folders and the GPU. Each section has a button that restores its defaults.
+Everything applies without a restart, apart from mods that change a file's size (see [Mods](#mods)); the name settings take effect the next time the game asks for a name. The Controls section also has *Use the classic keyboard layout*, and the System section has *Resume*, *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), the *Saves* rows described under [Saving and loading](#importing-a-save-from-a-psp), and the build version, the data and saves folders and the GPU. Each section but Mods has a button that restores its defaults.
 
 The Network section also shows the connection and has the troubleshooting tools described under [Multiplayer](#multiplayer-ad-hoc). The file also keeps `network.mac`, the address other players know you by (made up the first time you go on line; `MHP3RD_ADHOC_MAC` overrides it), `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
 
@@ -386,6 +388,61 @@ How it works:
 - **Memory.** Images on the GPU are kept within a budget, 1 GiB by default (`MHP3RD_TEXTURE_PACK_MEMORY`); when a new scene needs more, the images drawn least recently are dropped and loaded again when they are next drawn. The village with a full pack needs about 250 MB.
 
 `MHP3RD_TRACE_TEXTURE_PACK=1` logs each texture's key and what the pack does with it, each image decoded and uploaded, and once a second how many draws used a replacement. To make a pack, `MHP3RD_TEXTURE_DUMP=<folder>` writes every texture the game uploads, once, as a PNG named by its key; the folder gets a `textures.ini` that makes it a pack as it is, and edited images in it replace the game's.
+
+## Mods
+
+Yakumo reads mods in the format the game's community already uses with the mhp3reload mod loader and its mod manager, so a mod made for them works without changes. None is included, downloaded or linked here: install mods you downloaded yourself. Each mod is a folder in `mods` in the [per-user directory](#installer) (`~/Library/Application Support/Yakumo/MHP3rd/mods` on macOS, `~/.local/share/Yakumo/MHP3rd/mods` on Linux, `%APPDATA%\Yakumo\MHP3rd\mods` on Windows):
+
+```
+mods/
+  my_armour/        a mod in the mod manager's format
+    mod.ini
+    preview.png     optional, shown in the menu
+    armour.pac
+  some_files/       files named by the file id they replace, as in mhp3reload's files folder
+    0601
+    0602P           a patch for file 0602
+```
+
+A `mod.ini` looks like this:
+
+```ini
+[MOD INFO]
+Name="My armour"
+Author="Me"
+Type="File"
+Version="HD"
+Files="armour.pac;helm.pac"
+Target="0601;05D2"
+Description="First line.\Second line."
+```
+
+A **file id** is the index of a file in the game's `DATA.BIN`, in four hex digits ([DATA_BIN.md](../../docs/DATA_BIN.md#file-ids-and-mods)). What each `Type` does here:
+
+| Type | Here |
+| --- | --- |
+| `File` | Replaces each `Target` file with the matching one of `Files`. A replacement may be larger than the original |
+| `Patch` | Applies each of `Files` to its `Target` file as the game loads it; see below |
+| `Pack` | Turns the mods named in `ModList` (their folder names) on and off together |
+| `PseudoPack` | The `File` and `Patch` parts in its `SubModList` sections, as one mod |
+| `Equip<type>`, `EquipSET`, `EquipCATSET` | A model you point at a piece of equipment: its screen in the menu asks for the file id each file replaces |
+| `Code` | Listed, but cannot be turned on: code mods run their own PSP code inside the game, which recompiled code does not allow yet (#81) |
+
+`Version` says which release a mod was made for: `HD`, `BOTH` (then `FilesHD` and `TargetHD` are used where given) or `NOHD`. A mod without `Version` counts as made for the PSP release, as the mod manager has it; its file ids are the PSP release's, so it cannot be turned on. `Depends` names mods that are turned on with it. `Priority`, `Animation`, `Audio` and `Script` are read but do nothing here; the mod's screen says so.
+
+**Patches.** A patch file is a list of blocks, each a 32-bit address, a 32-bit length and that many bytes, ending with the address `FFFFFFFF` (the format's last 8 bytes, `FFFFFFFF00000000`, which the mod manager strips when it installs a patch; either form works). A block for an address inside a code overlay changes the overlay's bytes as the game loads it, which is the same as changing them in memory right after the load: the game copies an overlay to its load address unchanged. A block for other memory is written right after that overlay has loaded, at the instruction cache flush the game makes after copying code. A block whose address is smaller than the file is an offset into the file, for files that load at no fixed address. A block marked to run as code (the top bit of its length) is skipped, and a patch that changes an overlay's code makes that overlay run in the interpreter; both are reported.
+
+**Several mods on one file.** Where two mods that are on replace the same file, the one higher in the list wins. Patches apply on top of the file the game gets, the winning replacement included, lowest priority first. The mod loader refuses a file that is both replaced and patched; Yakumo applies both, because patches are small edits at known places and a replacement usually keeps them where they were, and it lists the combination under *Conflicts* so it is easy to see which mod to turn off if it is not.
+
+**The Mods page** of the menu lists the mods, highest priority first, with whether each is on. A mod's own screen shows its preview, author, type, the release it was made for, what it changes and its description, and has its switch, its place in the list (left and right move it) and, for equipment mods, the file id each file replaces. *Import mod…* copies a mod you downloaded and unpacked into the mods folder, turned off: choose its folder, the one with `mod.ini`, or a folder that holds several mods, in the file browser, or drop the folder on the window. A mod already installed under the same folder name moves to `mods/.backup` first; nothing is deleted. Unpack `.zip`, `.rar` and `.7z` archives before importing. *Open the mods folder*, *Read the folder again* (after adding or removing folders by hand) and *Use mods*, which turns every mod off for a clean comparison, are on the same page.
+
+**When a change applies.** The game reads `DATA.BIN`'s directory once, at start. A change that keeps every file's size as the directory has it applies the next time the game loads each file: usually the next area, menu or piece of equipment shown; files the game loads once at start, such as the menus' textures, need a restart. A change that makes a file larger, or smaller where the directory has its exact size, applies at the next start; the page says so and offers *Restart now*.
+
+The choices are kept in `mods.ini` next to `settings.ini`: `[general] enabled`, and per mod `enabled`, `rank` (higher wins) and the chosen targets of an equipment mod.
+
+How it works: every file of the game comes from `DATA.BIN`, and the file I/O reads it for the game. The game reads its directory once, a table of where each file starts and a table of exact sizes, and then reads each file from its first block to exactly the size given, trusting the tables alone. With mods on, the file I/O serves an archive with the mods' files in it: a mod's file is encrypted for its place in the archive (the obfuscation is keyed by the block a file starts at), a file that no longer fits its blocks grows, every file after it moves up and is re-keyed on the way, and the directory says the same. With no mod on, not a byte changes. `host/mods/` holds the machinery, which knows no game (the mods folder, `mod.ini`, choices, conflicts, import, a file's bytes with mods), and the `mhp3rd_*` files this game's archive and format.
+
+`MHP3RD_TRACE_MODS=1` logs what the mods change, each read they serve (`[mods] read 0FEE +0 131072 of 628736 bytes: replaced by …`) and each write made after an overlay loads; problems with a mod are logged whether it is set or not. `MHP3RD_TRACE_DATA_BIN=1` logs the id of every file the game reads while a mod is on: change the equipment on screen and the new ids are the files to target.
 
 ## Saving and loading
 
@@ -572,7 +629,9 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_GAME_DIR` | unset | Directory holding `EBOOT.ELF`, `disc.iso` and `ms0/` (the saves); skips the per-user directory |
 | `MHP3RD_DATA_DIR` | SDL's preference path | Per-user data directory the installer fills, with the saves in its `ms0/` |
 | `MHP3RD_OVERLAY_DIR` | `overlays/` next to the executable (`Contents/Frameworks/overlays` in the macOS app) | Directory of overlay libraries |
-| `MHP3RD_FONT` | a system CJK font | Font to draw the game's text with: a `.ttf`, `.otf`, `.ttc` or `.otc` file, with `#N` after the path for the Nth face of a collection. Glyphs it lacks come from the default, a Japanese system font (Hiragino on macOS, Noto Sans CJK on Linux, MS Gothic or Meiryo on Windows; inside a Flatpak, the host's Noto Sans CJK under `/run/host/fonts`), and last the font a release ships in `fonts/` next to the executable (`Contents/Resources/fonts` in the macOS app) |
+| `MHP3RD_MODS_DIR` | `mods/` in the data directory | The [mods](#mods) folder |
+| `MHP3RD_NO_MODS` | off | `1`: no mod applies this run, whatever `mods.ini` says; the menu still lists them |
+| `MHP3RD_FONT` | a system CJK font | Font to draw the game's text with: a `.ttf`, `.otf`, `.ttc` or `.otc` file, with `#N` after the path for the Nth face of a collection. Glyphs it lacks come from the default, a Japanese system font (Hiragino on macOS, Noto Sans CJK on Linux, MS Gothic or Meiryo on Windows; inside a Flatpak, the host's Noto Sans CJK under `/run/host/fonts`), and last the font a release ships in `fonts/` next to the executable |
 | `MHP3RD_UI_FONT` | a system font | TrueType font for Yakumo's menu and setup screens |
 
 ### Video
@@ -700,7 +759,7 @@ A game-side 60 fps patch was not used. The one community code for this game (Sar
 
 ### Analog camera
 
-**Analog camera** (Controls) is on by default and drives both axes in a quest. Small right-stick deflections turn and tilt slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. While a bow or a bowgun aims, the right stick moves the aim in proportion to how far it is pushed, at **Aim speed** (the game's own aim moves at one speed of about 100° a second, and only past half the stick's travel), and the game's camera follows the aim as it always does; the analog camera takes over again when the aim ends. The game still decides whether the aim may move and which way: nothing moves while rolling, an axis the game locks (vertical aim while walking) stays locked, the scope's left-stick aim is untouched, and the game's Quick Aim Controls option applies. The game's own **Quick Aim Camera** option (START → Options) decides whether the camera turns behind the hunter while aiming: with Type 2 it stays where it is. Fixed village cameras and other special camera modes remain stock; this feature does not unlock them.
+**Analog camera** (Controls) is on by default and drives both axes in a quest. Small right-stick deflections turn and tilt slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. While a bow or a bowgun aims, the right stick moves the aim in proportion to how far it is pushed, at **Aim speed** (the game's own aim moves at one speed of about 100° a second, and only past half the stick's travel), and the game's camera follows the aim as it always does; the analog camera takes over again when the aim ends. A bowgun's scope (a short press of R) counts as an aim: the right stick and the mouse move the scope instead of turning the camera behind it. The game still decides whether the aim may move and which way: nothing moves while rolling, an axis the game locks (vertical aim while walking) stays locked, the scope's left-stick aim is untouched, and the game's Quick Aim Controls option applies. The game's own **Quick Aim Camera** option (START → Options) decides whether the camera turns behind the hunter while aiming: with Type 2 it stays where it is. Fixed village cameras and other special camera modes remain stock; this feature does not unlock them.
 
 The option takes effect at run time, with no regeneration or rebuild. Turning it off stops all analog-camera writes, restores the game's vertical presets and passes the right stick through unchanged. Camera speed is in degrees per second of real time, measured between the game's flips, so it does not change when the game slows down.
 
@@ -717,6 +776,8 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | --- | --- |
 | `MHP3RD_STRICT_HLE=1` | Do not bind logging stubs; stop at the first unimplemented import |
 | `MHP3RD_TRACE_KERNEL=1`, `MHP3RD_TRACE_IO=1` | Trace thread and file activity |
+| `MHP3RD_TRACE_MODS=1` | What the [mods](#mods) change at start and after each change, every `DATA.BIN` read they serve, and each write made after an overlay loads |
+| `MHP3RD_TRACE_DATA_BIN=1` | While a mod is on, the id of every `DATA.BIN` file the game reads (`[mods] data 034B (32768 bytes)`): how to find the file behind a model on screen |
 | `MHP3RD_TRACE_SAVEDATA=1` | Log every field of each save-data request and each status poll |
 | `MHP3RD_TRACE_SYNC=1` | Trace semaphores, event flags and mutexes; `MHP3RD_TRACE_SYNC_LIMIT` caps the lines (default 4000) |
 | `MHP3RD_STARVATION_INTERVAL` | Dispatches between virtual-clock advances in code that never calls an import |
@@ -738,6 +799,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_POKE_FLOAT=0xADDRESS:V[,...]` | Write floats into guest memory once a frame, to turn a guess about a constant into a measurement |
 | `MHP3RD_TRACE_CAMERA_STATE=path.csv` | Trace ordinary camera updates: frame, guest camera address, enabled state, stick axes, yaw target/current, stock eye offset and target height, owned pitch, recentre/D-pad flags, adjusted offset and previous observed pitch. Does not enable memory searches or renderer tracing |
 | `MHP3RD_TRACE_CAMERA_MODES=path.csv` | Every call of the camera's rotation helper from the camera update, and one line per game flip, with the camera mode, the aim the weapon reports, the stick, the yaw fields and the whole camera structure in hex. For finding what a camera mode keeps where before it has a driver. Needs Analog camera turned on once in the session, which installs the hook the trace runs in |
+| `MHP3RD_TRACE_AIM=path.csv` | While a bow or a bowgun aims or a bowgun's scope is up: one line per camera update with the scope flag, the stick's and the mouse's degrees, the mouse degrees carried, the game's own step (yaw:pitch), the step taken off in advance and the step the driver made; and one line per frame the mouse shows the game a direction. For telling the game's steps from the driver's |
 | `MHP3RD_TRACE_CAMERA=1` | One line per frame for the camera the game itself set: the second stick's offset from centre, the yaw and pitch read out of the frame's busiest view matrix, the turn since the previous frame, and the camera's world position. Reads the game's own camera, so it tells a stepped turn from a continuous one |
 | `MHP3RD_TRACE_WHITE_TEXTURES=1` | Each texture the decoder cannot decode, once, with its address, size, format, swizzle and palette: those draws are made with a white texture instead, so this is the first thing to check when something draws white |
 | `MHP3RD_TRACE_FB_TEXTURES=1` | Each distinct texture that lies in a framebuffer the renderer drew (with both layouts), each large texture, `sceDmacMemcpy` copies into or out of VRAM, GE block transfers, new render targets, and the GE commands the renderer ignores. Add `PSPRECOMP_TRACE_VRAM_READS=1` to log game code reading VRAM with the CPU, per 64 KiB block and at most once a second |
@@ -789,6 +851,7 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | `gpu`, `max` | GPU time per frame, averaged over the second, and the longest: from the first command of the frame to its last draw, measured with Vulkan timestamp queries and read back after the frame's fence, so it lags the frame by one. The copy to the window is not included. `gpu n/a` when the graphics queue has no timestamps (`timestampValidBits` 0) or `MHP3RD_NO_GPU_TIMESTAMPS` is set; the log says which at start-up |
 | `overlay` | CPU time spent drawing the overlay, when it is shown |
 | `interpolation` | The frame rate presented, when it is above 30; `interpolation 60 of 90` when it stepped down from the one chosen |
+| `space` | The most of the vertex and index buffers one frame took in the second, in MiB, against 32 and 4 MiB a frame. What does not fit is not drawn (the interface goes first, as it is drawn last), and the log then says `[render] a frame ran out of vertex space` |
 
 The overlay shows the same numbers (GPU time on the second line, when there is one) and a graph of the last 192 frame times, from 0 to 50 ms, with guides at 16.7 and 33.3 ms: green up to 34 ms, yellow up to 50 ms, red beyond.
 
