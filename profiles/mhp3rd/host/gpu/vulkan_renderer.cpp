@@ -767,12 +767,12 @@ struct VulkanRenderer::Impl {
     // The region of the vertex and index buffers this frame writes: always
     // the first without frame interpolation, the next of kFrameRegions in
     // turn with it (see kFrameRegions).
-    std::uint32_t region{};
+    std::uint32_t frame_region{};
     std::uint32_t next_region{};
     VkDeviceSize vertex_limit{kVertexBufferBytes};
     VkDeviceSize index_limit{kIndexBufferBytes};
     void enter_region(std::uint32_t index) {
-        region = index;
+        frame_region = index;
         vertex_offset = static_cast<VkDeviceSize>(index) * kVertexBufferBytes;
         vertex_limit = vertex_offset + kVertexBufferBytes;
         index_offset = static_cast<VkDeviceSize>(index) * kIndexBufferBytes;
@@ -4482,32 +4482,32 @@ void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit
     FrameRecord &frame = recording_frame;
     if (!frame.recorded) return;
     if (joined && !frame.groups.empty()) {
-        ReplayGroup &group = frame.groups.back();
+        ReplayGroup &last = frame.groups.back();
         // The copies must follow each other as the vertices do; a draw given
         // up after its vertices were copied breaks that, and the group is
         // then drawn with its own vertices.
-        if (group.skinned != kNone && skinned != group.skinned + group.vertex_count) group.skinned = kNone;
-        group.count += count;
-        group.vertex_count += vertex_count;
+        if (last.skinned != kNone && skinned != last.skinned + last.vertex_count) last.skinned = kNone;
+        last.count += count;
+        last.vertex_count += vertex_count;
     } else {
-        ReplayGroup group{};
-        group.state = state;
-        group.target = call.target.color_address;
-        group.vertex_base = vertex_start;
-        group.index_buffer = indices;
-        group.index_base = index_start;
-        group.count = count;
-        group.vertex_count = vertex_count;
-        group.first_draw = static_cast<std::uint32_t>(frame.summaries.size());
+        ReplayGroup added{};
+        added.state = state;
+        added.target = call.target.color_address;
+        added.vertex_base = vertex_start;
+        added.index_buffer = indices;
+        added.index_base = index_start;
+        added.count = count;
+        added.vertex_count = vertex_count;
+        added.first_draw = static_cast<std::uint32_t>(frame.summaries.size());
         if (lit) {
             if (frame.objects.empty() || frame.object_offset != object_offset) {
                 frame.objects.push_back(last_object);
                 frame.object_offset = object_offset;
             }
-            group.object = static_cast<std::uint32_t>(frame.objects.size() - 1u);
+            added.object = static_cast<std::uint32_t>(frame.objects.size() - 1u);
         }
-        group.skinned = skinned;
-        frame.groups.push_back(group);
+        added.skinned = skinned;
+        frame.groups.push_back(added);
     }
     ++frame.groups.back().draws;
     frame.summaries.push_back(interpolation::summarize(call));
@@ -4543,7 +4543,7 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     std::swap(older_frame, newer_frame);
     std::swap(newer_frame, recording_frame);
     recording_frame.clear();
-    next_region = (region + 1u) % kFrameRegions;
+    next_region = (frame_region + 1u) % kFrameRegions;
 
     // The picture, before the game draws anything else into its target.
     std::string error;
@@ -4693,7 +4693,8 @@ void VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
         return text != nullptr ? std::clamp(std::strtod(text, nullptr), 0.0, 50.0) : 0.0;
     }();
     if (blended && extra_ms > 0.0) {
-        const Clock::time_point until = Clock::now() + std::chrono::microseconds(static_cast<std::int64_t>(extra_ms * 1000.0));
+        const Clock::time_point until =
+            Clock::now() + std::chrono::microseconds(static_cast<std::int64_t>(extra_ms * 1000.0));
         while (Clock::now() < until) {
         }
     }
@@ -4705,7 +4706,8 @@ void VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     }();
     if (trace_presents)
         std::printf("[interp] present at moment %+.1f ms, t %.3f, %s, late %.1f ms, skipped %u, %.2f ms\n",
-                    static_cast<double>(present.time_us - newer_frame.moment_us) / 1000.0, static_cast<double>(present.t),
+                    static_cast<double>(present.time_us - newer_frame.moment_us) / 1000.0,
+                    static_cast<double>(present.t),
                     blended ? "blended" : image == newer_image.color ? "newer" : "older",
                     static_cast<double>(to_us(start) - present.time_us - present_clock.delay_us()) / 1000.0,
                     present.skipped, std::chrono::duration<double, std::milli>(spent).count());
@@ -4747,8 +4749,9 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     vkCmdClearAttachments(commands, static_cast<std::uint32_t>(clears.size()), clears.data(), 1u, &whole);
 
     // The slot's scratch area: blended vertices and object blocks.
-    VkDeviceSize scratch = static_cast<VkDeviceSize>(kFrameRegions) * kVertexBufferBytes + slot * kPresentScratchBytes;
-    const VkDeviceSize scratch_end = scratch + kPresentScratchBytes;
+    VkDeviceSize scratch_at =
+        static_cast<VkDeviceSize>(kFrameRegions) * kVertexBufferBytes + slot * kPresentScratchBytes;
+    const VkDeviceSize scratch_end = scratch_at + kPresentScratchBytes;
     auto *mapped = static_cast<std::uint8_t *>(vertex_mapped);
 
     // What the command buffer has, so that unchanged state is not set again.
@@ -4773,13 +4776,13 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     std::uint32_t written_offset = 0u;
     std::uint64_t replayed = 0u;
 
-    for (const ReplayGroup &group : older.groups) {
-        if (group.target != older.displayed) continue;
-        DrawState state = group.state;
-        VkDeviceSize vertex_base = group.vertex_base;
+    for (const ReplayGroup &drawn : older.groups) {
+        if (drawn.target != older.displayed) continue;
+        DrawState state = drawn.state;
+        VkDeviceSize vertex_base = drawn.vertex_base;
         std::int32_t partner = -1;
-        std::uint32_t member = group.first_draw;
-        for (std::uint32_t i = group.first_draw; i < group.first_draw + group.draws; ++i) {
+        std::uint32_t member = drawn.first_draw;
+        for (std::uint32_t i = drawn.first_draw; i < drawn.first_draw + drawn.draws; ++i) {
             if (matching.newer_of[i] < 0) continue;
             partner = matching.newer_of[i];
             member = i;
@@ -4815,39 +4818,40 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
             // A texture that scrolls moves its offset a little each frame; a
             // jump of half the texture or more is a wrap, left alone.
             for (std::size_t axis = 2u; axis < 4u; ++axis) {
-                const float a = group.state.push.uv_transform[axis];
+                const float a = drawn.state.push.uv_transform[axis];
                 const float b = next.state.push.uv_transform[axis];
                 if (std::fabs(b - a) < 0.5f &&
-                    group.state.push.uv_transform[axis - 2u] == next.state.push.uv_transform[axis - 2u])
+                    drawn.state.push.uv_transform[axis - 2u] == next.state.push.uv_transform[axis - 2u])
                     state.push.uv_transform[axis] = a + (b - a) * t;
             }
             // A lit draw's object block carries the world matrix its lights
             // are evaluated in; everything else in it stays.
-            if (group.object != kNone && world != older.objects[group.object].world) {
-                if (group.object != written_object || world != written_world) {
-                    ObjectBlock block = older.objects[group.object];
+            if (drawn.object != kNone && world != older.objects[drawn.object].world) {
+                if (drawn.object != written_object || world != written_world) {
+                    ObjectBlock block = older.objects[drawn.object];
                     block.world = world;
-                    const VkDeviceSize at = (scratch + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
+                    const VkDeviceSize at =
+                        (scratch_at + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
                     if (at + sizeof(ObjectBlock) <= scratch_end) {
                         std::memcpy(mapped + at, &block, sizeof(block));
-                        scratch = at + sizeof(ObjectBlock);
-                        written_object = group.object;
+                        scratch_at = at + sizeof(ObjectBlock);
+                        written_object = drawn.object;
                         written_world = world;
                         written_offset = static_cast<std::uint32_t>(at);
                     }
                 }
-                if (group.object == written_object && world == written_world) state.lighting[1] = written_offset;
+                if (drawn.object == written_object && world == written_world) state.lighting[1] = written_offset;
             }
             // Skinning is linear in the bone matrices, so blending the skinned
             // vertices blends the bones.
-            if (group.skinned != kNone && next.skinned != kNone && next.vertex_count == group.vertex_count) {
-                const VkDeviceSize at = (scratch + 15u) & ~VkDeviceSize{15u};
-                const VkDeviceSize bytes = static_cast<VkDeviceSize>(group.vertex_count) * sizeof(GpuVertex);
+            if (drawn.skinned != kNone && next.skinned != kNone && next.vertex_count == drawn.vertex_count) {
+                const VkDeviceSize at = (scratch_at + 15u) & ~VkDeviceSize{15u};
+                const VkDeviceSize bytes = static_cast<VkDeviceSize>(drawn.vertex_count) * sizeof(GpuVertex);
                 if (at + bytes <= scratch_end) {
-                    const GpuVertex *a = older.skinned.data() + group.skinned;
+                    const GpuVertex *a = older.skinned.data() + drawn.skinned;
                     const GpuVertex *b = newer.skinned.data() + next.skinned;
                     auto *out = reinterpret_cast<GpuVertex *>(mapped + at);
-                    for (std::uint32_t v = 0; v < group.vertex_count; ++v) {
+                    for (std::uint32_t v = 0; v < drawn.vertex_count; ++v) {
                         GpuVertex blended = a[v];
                         blended.x += (b[v].x - blended.x) * t;
                         blended.y += (b[v].y - blended.y) * t;
@@ -4857,7 +4861,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
                         blended.nz += (b[v].nz - blended.nz) * t;
                         out[v] = blended;
                     }
-                    scratch = at + bytes;
+                    scratch_at = at + bytes;
                     vertex_base = at;
                 }
             }
@@ -4883,11 +4887,11 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
         set = state;
         known = true;
         vkCmdBindVertexBuffers(commands, 0u, 1u, &vertex_buffer, &vertex_base);
-        if (group.index_buffer != VK_NULL_HANDLE) {
-            vkCmdBindIndexBuffer(commands, group.index_buffer, group.index_base, VK_INDEX_TYPE_UINT16);
-            vkCmdDrawIndexed(commands, group.count, 1u, 0u, 0, 0u);
+        if (drawn.index_buffer != VK_NULL_HANDLE) {
+            vkCmdBindIndexBuffer(commands, drawn.index_buffer, drawn.index_base, VK_INDEX_TYPE_UINT16);
+            vkCmdDrawIndexed(commands, drawn.count, 1u, 0u, 0, 0u);
         } else {
-            vkCmdDraw(commands, group.count, 1u, 0u, 0u);
+            vkCmdDraw(commands, drawn.count, 1u, 0u, 0u);
         }
         ++replayed;
     }
@@ -4902,7 +4906,9 @@ void VulkanRenderer::Impl::report_interpolation() {
     InterpolationStats &stats = interpolation_stats;
     const Clock::time_point now = Clock::now();
     if (now - stats.window_start < std::chrono::seconds(1)) return;
-    const auto ms = [](Clock::duration duration) { return std::chrono::duration<double, std::milli>(duration).count(); };
+    const auto ms = [](Clock::duration duration) {
+        return std::chrono::duration<double, std::milli>(duration).count();
+    };
     const std::uint32_t plain = stats.presents - stats.blended;
     // Costs are kept across seconds: a second at 30 measures none.
     if (stats.blended != 0u) blend_cost_ms = ms(stats.blend_time) / stats.blended;
@@ -4916,8 +4922,9 @@ void VulkanRenderer::Impl::report_interpolation() {
                     "recording %.0f draw calls, gpu %.2f ms), %u plain (%.2f ms each), %u skipped, late up to %.1f "
                     "ms; delay %.1f ms (code %.1f ms)\n",
                     governor.rate(), governor.requested(), stats.frames,
-                    stats.eligible != 0u ? 100.0 * static_cast<double>(stats.matched) / static_cast<double>(stats.eligible)
-                                         : 0.0,
+                    stats.eligible != 0u
+                        ? 100.0 * static_cast<double>(stats.matched) / static_cast<double>(stats.eligible)
+                        : 0.0,
                     static_cast<double>(stats.eligible) / frames_now, static_cast<double>(stats.max_camera_angle),
                     static_cast<double>(stats.max_camera_distance), stats.continued,
                     cuts.empty() ? "none" : cuts.substr(2).c_str(), stats.presents, stats.blended,
@@ -5049,7 +5056,8 @@ void VulkanRenderer::Impl::destroy_interpolation_targets() {
     older_picture_valid = newer_picture_valid = false;
 }
 
-bool VulkanRenderer::present(std::uint32_t display_address, std::optional<std::chrono::steady_clock::time_point> moment) {
+bool VulkanRenderer::present(std::uint32_t display_address,
+                             std::optional<std::chrono::steady_clock::time_point> moment) {
     Impl &impl = *impl_;
     if (!impl.ready) return false;
     if (!impl.recording) begin_frame();
