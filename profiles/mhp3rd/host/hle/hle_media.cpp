@@ -279,6 +279,7 @@ void present_frame(Runtime &rt) {
     }
     const bool window_open = renderer.pump_events();
     feed_mouse(renderer);
+    camera::game_camera_anticipate_aim(rt);
     if (!window_open) {
         rt.stop("window closed");
     } else if (ui::take_quit_request()) {
