@@ -60,6 +60,18 @@ using ProgressFn = std::function<void(const std::string &stage, std::uint64_t do
 void install(const std::filesystem::path &image, ImageStorage storage, const std::filesystem::path &data_dir,
              const ProgressFn &progress);
 
+#if defined(MHP3RD_ANDROID_APP)
+// Android: whether an image the player chose is a content:// document (from
+// the system's file picker or another app) rather than a file. A document can
+// only be read through a file descriptor, never opened by its name.
+[[nodiscard]] bool is_document_uri(const std::filesystem::path &image);
+// Copies such a document into data_dir as the copied image (kCopiedImageFile)
+// and returns where it is. Throws InstallError, or InstallCancelled from
+// progress; a partial copy is removed.
+std::filesystem::path copy_image_document(const std::string &uri, const std::filesystem::path &data_dir,
+                                          const ProgressFn &progress);
+#endif
+
 class InstallerUi {
 public:
     virtual ~InstallerUi() = default;

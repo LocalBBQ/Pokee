@@ -253,8 +253,16 @@ void check_folder(const fs::path &chosen) {
 
 void browse(bool back) {
     State &s = state();
+#if defined(MHP3RD_ANDROID_APP)
+    indented("Open the folder of a mod you downloaded and unpacked (the one with its mod.ini), or a folder that "
+             "holds several.");
+    indented("On Android this lists only folders Yakumo can read by itself, which leaves out Downloads and SD "
+             "cards. Importing through Android's file picker is not supported yet.",
+             colors::kTextDim);
+#else
     indented("Open the folder of a mod you downloaded and unpacked (the one with its mod.ini), or a folder that "
              "holds several. You can also drop the folder on the window.");
+#endif
     if (auto dropped = Layer::get().take_dropped_file()) {
         s.last_folder = s.browser->folder();
         s.browser.reset();

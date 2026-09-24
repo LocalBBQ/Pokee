@@ -9,6 +9,11 @@
 #include "kernel/iso_image.hpp"
 #if defined(MHP3RD_ANDROID_APP)
 #include "platform/android_jni.hpp"
+
+#include <fcntl.h>
+#include <sys/stat.h>
+
+#include <cerrno>
 #endif
 
 #include "psprecomp/sha256.hpp"
@@ -262,15 +267,81 @@ void install(const std::filesystem::path &image, ImageStorage storage, const std
     }
 }
 
+#if defined(MHP3RD_ANDROID_APP)
+bool is_document_uri(const std::filesystem::path &image) { return path_to_utf8(image).rfind("content://", 0) == 0; }
+
+std::filesystem::path copy_image_document(const std::string &uri, const std::filesystem::path &data_dir,
+                                          const ProgressFn &progress) {
+    const int fd = android::open_document(uri, "r");
+    if (fd < 0) throw InstallError("Android would not let Yakumo read that file. Choose it again.");
+    struct stat info {};
+    const std::uint64_t size = ::fstat(fd, &info) == 0 ? static_cast<std::uint64_t>(info.st_size) : 0u;
+    // The copy, with room to spare for the executable prepared from it.
+    const std::uint64_t needed = size + kFreeSpaceMargin;
+    if (const auto space = available_space(data_dir); space && size != 0u && *space < needed) {
+        ::close(fd);
+        throw InstallError("Not enough free space to copy the disc image: it needs " + megabytes(needed) + " and " +
+                           megabytes(*space) + " is free on this device.");
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(data_dir, ec);
+    const std::filesystem::path target = data_dir / kCopiedImageFile;
+    const std::filesystem::path partial = data_dir / (std::string(kCopiedImageFile) + ".part");
+    const std::string stage = "Copying the disc image";
+    try {
+        std::ofstream out(partial, std::ios::binary | std::ios::trunc);
+        std::vector<char> buffer(4u << 20);
+        std::uint64_t done = 0u;
+        progress(stage, 0u, size);
+        for (;;) {
+            const ssize_t got = ::read(fd, buffer.data(), buffer.size());
+            if (got < 0 && errno == EINTR) continue;
+            if (got < 0) throw InstallError("Reading the disc image failed. Choose it again.");
+            if (got == 0) break;
+            out.write(buffer.data(), got);
+            if (!out)
+                throw InstallError("Writing the copy of the disc image failed. Check that the device has free space.");
+            done += static_cast<std::uint64_t>(got);
+            progress(stage, done, size);
+        }
+        out.close();
+        if (!out)
+            throw InstallError("Writing the copy of the disc image failed. Check that the device has free space.");
+    } catch (...) {
+        ::close(fd);
+        std::filesystem::remove(partial, ec);
+        throw;
+    }
+    ::close(fd);
+    std::filesystem::rename(partial, target, ec);
+    if (ec) throw InstallError("Could not keep the copy of the disc image: " + ec.message() + ".");
+    return target;
+}
+#endif
+
 void InstallerUi::run_task(const std::string &, const std::function<void()> &work) { work(); }
 
 bool run_installer(InstallerUi &ui, const std::filesystem::path &data_dir) {
     for (;;) {
         if (!ui.introduce(data_dir)) return false;
         for (;;) {
-            const auto image = ui.choose_image();
+            auto image = ui.choose_image();
             if (!image) break;  // back to the introduction
             try {
+#if defined(MHP3RD_ANDROID_APP)
+                // A document that reached here as it is (the SDL dialogs'
+                // picker returns one) is copied in first, as the setup
+                // screens do before they return it.
+                if (is_document_uri(*image)) {
+                    const std::string uri = path_to_utf8(*image);
+                    std::cout << "[setup] copying " << uri << std::endl;
+                    ui.run_task("Copying the disc image", [&] {
+                        image = copy_image_document(uri, data_dir,
+                                                    [&ui](const std::string &stage, std::uint64_t done,
+                                                          std::uint64_t total) { ui.progress(stage, done, total); });
+                    });
+                }
+#endif
                 ImageInfo info;
                 ui.run_task("Checking the disc image", [&] { info = check_image(*image); });
                 const auto storage = ui.choose_storage(*image, info, data_dir);
