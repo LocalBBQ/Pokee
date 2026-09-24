@@ -157,6 +157,7 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
 
     bool finished = false;
     try {
+        const perf::SplitScope split(perf::Split::Lists);
         list.pc = media().ge.execute(rt.memory(), list.pc, list.stall, finished);
     } catch (const psprecomp::Error &error) {
         // A malformed list must not take the whole run down: drop it and carry on.

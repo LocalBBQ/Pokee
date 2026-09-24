@@ -1110,6 +1110,7 @@ struct VulkanRenderer::Impl {
     VkDeviceSize index_offset{};
     void flush_group() {
         if (!group.open) return;
+        const perf::SplitScope split(perf::Split::Record);
         group.open = false;
         vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer, &group.vertex_base);
         vkCmdBindIndexBuffer(command_buffer, index_buffer, group.index_base, VK_INDEX_TYPE_UINT16);
@@ -1118,6 +1119,7 @@ struct VulkanRenderer::Impl {
     }
     // Sets what differs between `state` and what is recorded already.
     void record_state(const DrawState &state) {
+        const perf::SplitScope split(perf::Split::Record);
         if (!state_known || std::memcmp(&state.viewport, &recorded.viewport, sizeof(VkViewport)) != 0)
             vkCmdSetViewport(command_buffer, 0u, 1u, &state.viewport);
         if (!state_known || state.blend != recorded.blend)
@@ -3407,6 +3409,7 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
 }
 
 VkDescriptorSet VulkanRenderer::Impl::texture_descriptor(const GuestMemory &memory, const DrawCall &call) {
+    const perf::SplitScope split(perf::Split::Texture);
     Texture &texture = texture_for(memory, call);
     if (texture.replacement && pack) {
         // Until the image is decoded and on the GPU, the original is drawn.
@@ -3747,6 +3750,7 @@ VulkanRenderer::Impl::FramebufferTexture VulkanRenderer::Impl::find_framebuffer_
 // A sampled copy of the target, brought up to date with its latest draw. The
 // copy is recorded between render passes, so the pass in progress ends here.
 VkDescriptorSet VulkanRenderer::Impl::framebuffer_descriptor(Target &target, bool opaque) {
+    const perf::SplitScope split(perf::Split::Texture);
     if (target.copy == VK_NULL_HANDLE) {
         std::string error;
         if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_R8G8B8A8_UNORM,
@@ -4774,6 +4778,7 @@ void VulkanRenderer::begin_display_list() {
 void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     Impl &impl = *impl_;
     if (!impl.ready) return;
+    const perf::SplitScope split(perf::Split::Draw);
     if (!impl.recording) begin_frame();
     // Presents between flips fall due while the game draws, too: a busy
     // frame spends most of its time in here.
@@ -5439,8 +5444,11 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         if (!direct) {
             impl.flush_group();
             impl.record_state(state);
-            vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &vertex_start);
-            vkCmdDraw(impl.command_buffer, draw_count, 1u, 0u, 0u);
+            {
+                const perf::SplitScope split(perf::Split::Record);
+                vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &vertex_start);
+                vkCmdDraw(impl.command_buffer, draw_count, 1u, 0u, 0u);
+            }
             perf::count_recorded_draws(1u);
             impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start, VK_NULL_HANDLE, 0u,
                                         draw_count, drawn_vertices, false);
@@ -5540,6 +5548,7 @@ void VulkanRenderer::write_back_frame(GuestMemory &memory) {
     }
     if (!impl.writeback_has_pixels) return;
     impl.writeback_has_pixels = false;
+    const perf::SplitScope split(perf::Split::Writeback);
     const perf::Clock::time_point store_start = perf::Clock::now();
     impl.store_frame(memory, impl.writeback_ready, impl.writeback_pixels.data());
     perf::note_stall(perf::Stall::Store, perf::Clock::now() - store_start);
@@ -5753,6 +5762,7 @@ void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit
     if (!interpolating) return;
     FrameRecord &frame = recording_frame;
     if (!frame.recorded) return;
+    const perf::SplitScope split(perf::Split::Summary);
     if (joined && !frame.groups.empty()) {
         ReplayGroup &last = frame.groups.back();
         // The copies must follow each other as the vertices do; a draw given
@@ -5789,6 +5799,7 @@ void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit
 // Ends the frame's recording and submits it without presenting it: with
 // frame interpolation the presents between flips show it.
 void VulkanRenderer::Impl::submit_frame() {
+    const perf::SplitScope split(perf::Split::Present);
     end_pass();
     end_gpu_segment(command_buffer);
     slots[slot].gpu_timer_pending = gpu_timer_used;
@@ -5807,6 +5818,7 @@ void VulkanRenderer::Impl::submit_frame() {
 // copied, and it is matched against the frame before.
 void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32_t displayed,
                                                      std::int64_t moment_us) {
+    const perf::SplitScope split(perf::Split::Interp);
     FrameRecord &frame = recording_frame;
     frame.recorded = frame.recorded && interpolating;
     interpolation::mark_eligible(frame.summaries, displayed);
@@ -5913,6 +5925,7 @@ bool VulkanRenderer::Impl::poll_presents(std::chrono::steady_clock::time_point n
 }
 
 bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &present, bool account) {
+    const perf::SplitScope split(perf::Split::Present);
     using Clock = std::chrono::steady_clock;
     const Clock::time_point start = Clock::now();
     InterpolationStats &stats = interpolation_stats;
@@ -6055,6 +6068,7 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
 // interface, other framebuffers' content), are drawn as the older frame drew
 // them.
 void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, float t) {
+    const perf::SplitScope split(perf::Split::Replay);
     const FrameRecord &older = older_frame;
     const FrameRecord &newer = newer_frame;
     Target &target = blend_targets[slot];
@@ -6608,7 +6622,10 @@ bool VulkanRenderer::present(std::uint32_t display_address,
     }
     // The game's frame as it is, at its flip.
     if (impl.cycle_active || impl.newer_frame.valid) impl.reset_interpolation();
-    impl.submit_and_present(source, true);
+    {
+        const perf::SplitScope split(perf::Split::Present);
+        impl.submit_and_present(source, true);
+    }
     ++impl.frames;
     if (impl.frame_rate != settings::FrameRate::Fps30) impl.report_interpolation();
     impl.follow_window();
