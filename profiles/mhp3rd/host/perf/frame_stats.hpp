@@ -49,6 +49,7 @@ enum class Stall : std::uint8_t {
     Pacing,    // the kernel holding the game to real time
     Copy,      // copying the written-back frame out of mapped memory
     Store,     // converting that frame into guest memory (store_frame)
+    Pipeline,  // creating a graphics pipeline the frame needs (CPU work inside "render")
     Count,
 };
 [[nodiscard]] const char *stall_name(Stall kind);
@@ -71,6 +72,14 @@ void count_display_list();
 // consecutive draws are merged.
 void count_draw();
 void count_recorded_draws(std::uint32_t count);
+// A render pass begun, and a full-size copy of a render target (for sampling
+// it as a texture, for frame interpolation's pictures, for the write-back),
+// shown per frame on the perf line: on a tiled GPU (phones) each pass loads
+// and stores its attachments, and each copy moves a whole target.
+void count_render_pass();
+void count_target_copy();
+// A render pass begun without loading what its first draw, a clear, writes.
+void count_cleared_pass();
 // Bytes of the vertex and index buffers one frame's draws took; the perf line
 // shows the most a frame took in the second, against the room each frame has.
 void note_frame_space(std::uint64_t vertex_bytes, std::uint64_t index_bytes);
@@ -105,6 +114,9 @@ struct Summary {
     double lists{};           // display lists enqueued per real second
     double draws{};           // GE draws per frame
     double recorded_draws{};  // Vulkan draw calls per frame
+    double passes{};          // render passes per frame, presents between flips included
+    double cleared_passes{};  // of those, begun without loading what a clear overwrites
+    double copies{};          // full-size render target copies and blits per frame
     double frame_avg_ms{};
     double frame_max_ms{};
     double guest_ms{};
@@ -130,8 +142,9 @@ struct Summary {
 // MHP3RD_PERF_ALTERNATE=name[,name...]: the named new renderer paths are
 // turned off every other second, so one run measures them against the paths
 // they replaced under the same load. Each [perf] line ends in "alt on" or
-// "alt off" for the second it covers. Names: direct, lookup, reuse, merge.
-enum class NewPath : std::uint8_t { Direct, Lookup, Reuse, Merge };
+// "alt off" for the second it covers. Names: direct, lookup, reuse, merge,
+// store, decode, alpha, uploads, clearload.
+enum class NewPath : std::uint8_t { Direct, Lookup, Reuse, Merge, Store, Decode, Alpha, Uploads, ClearLoad, Count };
 // True while `path` is to take its old route this second.
 [[nodiscard]] bool alternate_off(NewPath path);
 

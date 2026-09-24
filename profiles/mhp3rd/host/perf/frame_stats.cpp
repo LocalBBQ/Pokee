@@ -2,6 +2,10 @@
 
 #include "settings/settings.hpp"
 
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_performance.hpp"
+#endif
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -53,8 +57,9 @@ Alternate &alternate() {
         const char *text = std::getenv("MHP3RD_PERF_ALTERNATE");
         if (text == nullptr) return result;
         const std::string names = std::string(",") + text + ",";
-        const char *known[] = {"direct", "lookup", "reuse", "merge"};
-        for (std::uint32_t i = 0; i < 4u; ++i)
+        const char *known[] = {"direct", "lookup", "reuse", "merge", "store", "decode", "alpha", "uploads", "clearload"};
+        static_assert(sizeof(known) / sizeof(known[0]) == static_cast<std::size_t>(NewPath::Count));
+        for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(NewPath::Count); ++i)
             if (names.find(std::string(",") + known[i] + ",") != std::string::npos) result.paths |= 1u << i;
         return result;
     }();
@@ -77,6 +82,7 @@ const StallTrace &stall_trace() {
 struct State {
     // Frame in progress.
     Clock::time_point frame_start{Clock::now()};
+    Clock::time_point frame_start_previous{Clock::now()};  // of the frame end_frame() closes
     Clock::duration render{};
     Clock::duration wait{};
     Clock::duration pacing{};
@@ -107,6 +113,9 @@ struct State {
     std::uint32_t list_sum{};
     std::uint64_t draw_sum{};
     std::uint64_t recorded_draw_sum{};
+    std::uint64_t pass_sum{};
+    std::uint64_t cleared_pass_sum{};
+    std::uint64_t copy_sum{};
     std::uint64_t vertex_peak{};
     std::uint64_t index_peak{};
     StallTallies stall_sum{};
@@ -157,6 +166,9 @@ void print(const Summary &s) {
     if (s.vertex_mib > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " | space vertex %.1f index %.1f MiB",
                                 s.vertex_mib, s.index_mib);
+    if (s.passes > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
+        length += std::snprintf(line + length, sizeof(line) - length, " | passes %.1f (%.1f cleared) copies %.1f",
+                                s.passes, s.cleared_passes, s.copies);
     if (s.overlay_ms > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " | overlay %.2f ms", s.overlay_ms);
     if (alternate().paths != 0u && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
@@ -206,6 +218,7 @@ const char *stall_name(Stall kind) {
     case Stall::Pacing: return "pacing";
     case Stall::Copy: return "copy";
     case Stall::Store: return "store";
+    case Stall::Pipeline: return "pipeline";
     case Stall::Count: break;
     }
     return "?";
@@ -243,6 +256,7 @@ void restart_measurement() {
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
     s.draw_sum = s.recorded_draw_sum = 0u;
+    s.pass_sum = s.copy_sum = s.cleared_pass_sum = 0u;
     s.stall_sum = StallTallies{};
     s.gpu_sum_ms = s.gpu_max_ms = 0.0;
     s.vertex_peak = s.index_peak = 0u;
@@ -273,6 +287,9 @@ void add_overlay_time(Clock::duration duration) { state().overlay += duration; }
 void count_display_list() { ++state().lists; }
 void count_draw() { ++state().draws; }
 void count_recorded_draws(std::uint32_t count) { state().recorded_draws += count; }
+void count_render_pass() { ++state().pass_sum; }
+void count_target_copy() { ++state().copy_sum; }
+void count_cleared_pass() { ++state().cleared_pass_sum; }
 
 void note_frame_space(std::uint64_t vertex_bytes, std::uint64_t index_bytes) {
     State &s = state();
@@ -311,6 +328,7 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     if (presented) count_present();
     const Clock::time_point now = Clock::now();
     const double frame_ms = to_ms(now - s.frame_start);
+    s.frame_start_previous = s.frame_start;
     s.frame_start = now;
 
     if (!s.window_has_clock) {
@@ -333,6 +351,11 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
         ++s.gpu_frames;
     }
     ++s.frame_number;
+#if defined(MHP3RD_ANDROID_APP)
+    // The frame's work, without the sleep that holds the game to real time.
+    android::report_frame_work(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - (s.frame_start_previous + s.pacing)).count());
+#endif
     const StallTrace &trace = stall_trace();
     if (trace.enabled && frame_ms > trace.slow_frame_ms) {
         // The GPU time is the previous frame's: that is the work a fence wait
@@ -377,6 +400,9 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     out.lists = static_cast<double>(s.list_sum) * 1000.0 / window_ms;
     out.draws = static_cast<double>(s.draw_sum) / frames;
     out.recorded_draws = static_cast<double>(s.recorded_draw_sum) / frames;
+    out.passes = static_cast<double>(s.pass_sum) / frames;
+    out.cleared_passes = static_cast<double>(s.cleared_pass_sum) / frames;
+    out.copies = static_cast<double>(s.copy_sum) / frames;
     out.frame_avg_ms = s.presents != 0u ? s.present_sum_ms / presents : 0.0;
     out.frame_max_ms = s.present_max_ms;
     const double gpu_wait_ms = to_ms(s.wait_sum) / frames;
@@ -400,7 +426,15 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     out.frame_rate = s.frame_rate;
     out.requested_rate = s.requested_rate;
     if (options().log) print(out);
-    if (trace.enabled)
+    // A phone has no environment to set MHP3RD_TRACE_STALLS in: there the
+    // [stalls] line comes with the [perf] line (Performance: Log), so a log a
+    // player saves from the menu says where the frame time went.
+#if defined(__ANDROID__)
+    const bool stalls_line = trace.enabled || options().log;
+#else
+    const bool stalls_line = trace.enabled;
+#endif
+    if (stalls_line)
         std::cout << "[stalls] ms per frame over " << s.frames << " frames:" << format_stalls(s.stall_sum, frames, true)
                   << std::endl;
 
@@ -415,6 +449,7 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
     s.list_sum = 0u;
     s.draw_sum = s.recorded_draw_sum = 0u;
+    s.pass_sum = s.copy_sum = s.cleared_pass_sum = 0u;
     s.stall_sum = StallTallies{};
     s.gpu_sum_ms = s.gpu_max_ms = 0.0;
     s.vertex_peak = s.index_peak = 0u;

@@ -9,6 +9,11 @@ layout(location = 0) out vec4 out_color;
 
 layout(set = 0, binding = 0) uniform sampler2D guest_texture;
 
+// False for pipelines of draws without an alpha test (texture_params.w 0):
+// the discard below is then compiled out, so tiled GPUs keep their early
+// depth test and hidden surface removal for them.
+layout(constant_id = 0) const bool kAlphaTest = true;
+
 layout(push_constant) uniform Push {
     mat4 transform;
     vec4 viewport;
@@ -46,6 +51,10 @@ void main() {
     if ((int(push.viewport.w + 0.5) & 1) != 0) color.rgb = mix(lighting.fog_color.rgb, color.rgb, clamp(frag_fog, 0.0, 1.0));
 
     // PSP alpha test, evaluated per fragment.
+    if (!kAlphaTest) {
+        out_color = color;
+        return;
+    }
     int alpha_function = int(push.texture_params.w + 0.5);
     float reference = push.texture_params.z / 255.0;
     float alpha = color.a;
