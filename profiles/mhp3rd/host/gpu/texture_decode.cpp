@@ -105,13 +105,39 @@ std::uint32_t read_clut_copy(const std::vector<std::uint8_t> &clut, const Textur
     }
 }
 
+// A DXT endpoint colour: RGB565 with red in the top bits, the block formats'
+// own order, unlike the GE's 5650 texels, which keep red in the low bits.
+std::uint32_t expand_dxt_565(std::uint16_t value) {
+    const std::uint32_t r = ((value >> 11u) & 0x1Fu) * 255u / 31u;
+    const std::uint32_t g = ((value >> 5u) & 0x3Fu) * 255u / 63u;
+    const std::uint32_t b = (value & 0x1Fu) * 255u / 31u;
+    return (b << 16u) | (g << 8u) | r;
+}
+
+// One 4x4 block as the PSP stores it, which is not the PC's DXT layout:
+//
+//   colour part, 8 bytes:  4 bytes of 2-bit indices, one byte per row with the
+//                          leftmost texel in the low bits, then the two
+//                          RGB565 endpoints
+//   DXT3, 8 more bytes:    4-bit alphas, one 16-bit word per row
+//   DXT5, 8 more bytes:    48 bits of 3-bit alpha indices, then the two
+//                          alpha endpoints
+//
+// The colour part comes first and the alpha part after it, and within the
+// colour part the indices come before the endpoints. The DXT1 layout is traced
+// from the game (issue #144): The Boss Face's 64x128 and The Boss Body's
+// 256x128 DXT1 textures, read as PC blocks with the endpoints first, came out
+// as coloured 4x4 noise, and read as her face and suit this way. The game drew
+// no DXT3 or DXT5 texture in the scenes traced; their alpha parts follow the
+// PSP layout public documentation describes.
 void decode_dxt_block(const std::uint8_t *block, TextureFormat format, std::uint32_t *out, std::uint32_t stride) {
-    const std::uint8_t *colors = block + (format == TextureFormat::Dxt1 ? 0u : 8u);
-    const auto color0 = static_cast<std::uint16_t>(colors[0] | (colors[1] << 8));
-    const auto color1 = static_cast<std::uint16_t>(colors[2] | (colors[3] << 8));
+    const std::uint8_t *indices = block;
+    const std::uint8_t *alphas = block + 8u;
+    const auto color0 = static_cast<std::uint16_t>(block[4] | (block[5] << 8));
+    const auto color1 = static_cast<std::uint16_t>(block[6] | (block[7] << 8));
     std::array<std::uint32_t, 4> palette{};
-    palette[0] = expand_5650(color0) & 0x00FFFFFFu;
-    palette[1] = expand_5650(color1) & 0x00FFFFFFu;
+    palette[0] = expand_dxt_565(color0);
+    palette[1] = expand_dxt_565(color1);
     const auto lerp = [](std::uint32_t a, std::uint32_t b, std::uint32_t numerator, std::uint32_t denominator) {
         std::uint32_t result = 0u;
         for (std::uint32_t shift = 0; shift < 24u; shift += 8u) {
@@ -126,7 +152,7 @@ void decode_dxt_block(const std::uint8_t *block, TextureFormat format, std::uint
     palette[3] = one_bit_alpha ? 0u : lerp(palette[0], palette[1], 2u, 3u);
 
     for (std::uint32_t row = 0; row < 4u; ++row) {
-        const std::uint8_t bits = colors[4u + row];
+        const std::uint8_t bits = indices[row];
         for (std::uint32_t column = 0; column < 4u; ++column) {
             const std::uint32_t selector = (bits >> (column * 2u)) & 3u;
             std::uint32_t alpha = 0xFFu;
@@ -134,13 +160,13 @@ void decode_dxt_block(const std::uint8_t *block, TextureFormat format, std::uint
                 if (one_bit_alpha && selector == 3u) alpha = 0u;
             } else if (format == TextureFormat::Dxt3) {
                 const std::uint32_t nibble_index = row * 4u + column;
-                const std::uint8_t byte = block[nibble_index / 2u];
+                const std::uint8_t byte = alphas[nibble_index / 2u];
                 alpha = ((nibble_index & 1u) != 0u ? (byte >> 4u) : (byte & 0xFu)) * 17u;
             } else {  // DXT5
-                const std::uint32_t alpha0 = block[0];
-                const std::uint32_t alpha1 = block[1];
+                const std::uint32_t alpha0 = alphas[6];
+                const std::uint32_t alpha1 = alphas[7];
                 std::uint64_t codes = 0u;
-                for (std::uint32_t i = 0; i < 6u; ++i) codes |= static_cast<std::uint64_t>(block[2u + i]) << (i * 8u);
+                for (std::uint32_t i = 0; i < 6u; ++i) codes |= static_cast<std::uint64_t>(alphas[i]) << (i * 8u);
                 const std::uint32_t code = static_cast<std::uint32_t>((codes >> ((row * 4u + column) * 3u)) & 7u);
                 if (code == 0u) alpha = alpha0;
                 else if (code == 1u) alpha = alpha1;
@@ -446,11 +472,21 @@ std::uint64_t texture_key(const GuestMemory &memory, const TextureState &texture
     mix(static_cast<std::uint64_t>(texture.format));
     mix(texture.buffer_width);
     mix(texture.swizzled ? 1u : 0u);
-    mix(texture.clut_address);
-    mix(texture.clut_format);
+    // The palette only for the formats that read one: a direct colour or
+    // block texture is drawn with whatever CLUT address the game left set, and
+    // The Boss Face's DXT1 texture is drawn with it at the framebuffer, whose
+    // first word changes every frame (issue #144).
+    const bool indexed = texture.format == TextureFormat::Clut4 || texture.format == TextureFormat::Clut8 ||
+                         texture.format == TextureFormat::Clut16 || texture.format == TextureFormat::Clut32;
+    if (indexed) {
+        mix(texture.clut_address);
+        mix(texture.clut_format);
+    }
     const std::uint32_t bits = bits_per_texel(texture.format);
-    const std::uint32_t size = bits != 0u ? texture.width * texture.height * bits / 8u
-                                          : texture.width * texture.height / 2u;
+    // DXT1 blocks hold half a byte per texel, DXT3 and DXT5 blocks a byte.
+    const std::uint32_t size = bits != 0u                               ? texture.width * texture.height * bits / 8u
+                               : texture.format == TextureFormat::Dxt1 ? texture.width * texture.height / 2u
+                                                                       : texture.width * texture.height;
     // Resolve the texture once; this runs for every textured draw.
     if (const std::uint8_t *data = memory.raw_pointer(texture.address, static_cast<std::size_t>(size) + 3u)) {
         // MHP3RD_SAMPLED_TEXTURE_KEYS=1 samples small textures too, as before.
@@ -484,7 +520,7 @@ std::uint64_t texture_key(const GuestMemory &memory, const TextureState &texture
             mix(memory.load32(texture.address + offset));
         }
     }
-    if (texture.clut_address != 0u && memory.contains(texture.clut_address, 4u))
+    if (indexed && texture.clut_address != 0u && memory.contains(texture.clut_address, 4u))
         mix(memory.load32(texture.clut_address));
     return key;
 }

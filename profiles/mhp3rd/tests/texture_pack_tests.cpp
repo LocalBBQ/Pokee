@@ -8,8 +8,13 @@
 //
 // The second form prints what the menu's import would find in a folder, for
 // example a real pack, and reads nothing but that folder.
+//
+// It also checks the decoding of the PSP's DXT blocks, whose layout is not
+// the PC's (issue #144).
+#include "gpu/texture_decode.hpp"
 #include "gpu/texture_pack.hpp"
 #include "gpu/texture_pack_import.hpp"
+#include "perf/frame_stats.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -22,6 +27,10 @@
 
 using namespace mhp3rd::gpu;
 namespace fs = std::filesystem;
+
+// The decoder asks whether its buffer reuse is being measured against the old
+// path; these checks link no frame statistics, so it never is.
+bool mhp3rd::perf::alternate_off(NewPath) { return false; }
 
 namespace {
 
@@ -276,6 +285,81 @@ int check_folder(const char *folder) {
     return c.ok() ? 0 : 1;
 }
 
+// One 4x4 block of each DXT format, laid out as the PSP stores it: the colour
+// part first, its four rows of 2-bit indices before the two RGB565 endpoints,
+// then for DXT3 and DXT5 the alpha part. Read as a PC block, endpoints first,
+// The Boss Face's DXT1 texture was coloured noise.
+void test_dxt_decode() {
+    psprecomp::GuestMemory memory;
+    constexpr std::uint32_t kAddress = 0x08800000u;
+    const auto put = [&](const std::vector<std::uint8_t> &bytes) {
+        for (std::size_t i = 0; i < bytes.size(); ++i) memory.store8(kAddress + static_cast<std::uint32_t>(i), bytes[i]);
+    };
+    TextureState texture;
+    texture.address = kAddress;
+    texture.width = 4u;
+    texture.height = 4u;
+    texture.buffer_width = 4u;
+    // A CLUT address left pointing anywhere must not matter to a block format.
+    texture.clut_address = kAddress;
+    std::vector<std::uint32_t> out;
+
+    // Rows use indices 0 1 2 3, 3 2 1 0, all 0, all 1. Endpoints: pure red
+    // (0xF800, red in the top bits) and pure blue (0x001F); red > blue, so
+    // four colours and no transparency.
+    const std::vector<std::uint8_t> colour = {0xE4, 0x1B, 0x00, 0x55, 0x00, 0xF8, 0x1F, 0x00};
+    constexpr std::uint32_t kRed = 0xFF0000FFu, kBlue = 0xFFFF0000u;
+    constexpr std::uint32_t kTwoThirdsRed = 0xFF5500AAu, kOneThirdRed = 0xFFAA0055u;
+    texture.format = TextureFormat::Dxt1;
+    put(colour);
+    check(decode_texture(memory, texture, out) && out.size() == 16u, "a DXT1 block decodes");
+    check(out[0] == kRed && out[1] == kBlue && out[2] == kTwoThirdsRed && out[3] == kOneThirdRed,
+          "DXT1: the first four bytes are the rows' indices, the endpoints follow, red in the top bits");
+    check(out[4] == kOneThirdRed && out[7] == kRed && out[8] == kRed && out[12] == kBlue,
+          "DXT1: one index byte per row, the leftmost texel in the low bits");
+
+    // Endpoints in the other order: three colours and transparent black.
+    put({0xE4, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0xF8});
+    decode_texture(memory, texture, out);
+    check(out[0] == kBlue && out[1] == kRed && out[2] == 0xFF7F007Fu && out[3] == 0u,
+          "DXT1: endpoints in rising order give a midpoint and transparent black");
+
+    // DXT3: 4-bit alphas after the colour part, a 16-bit word per row.
+    std::vector<std::uint8_t> dxt3 = colour;
+    for (const std::uint8_t byte : {0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE}) dxt3.push_back(byte);
+    texture.format = TextureFormat::Dxt3;
+    put(dxt3);
+    decode_texture(memory, texture, out);
+    bool alphas = true;
+    for (std::uint32_t i = 0; i < 16u; ++i) alphas = alphas && (out[i] >> 24u) == i * 17u;
+    check(out[0] == (kRed & 0x00FFFFFFu) && (out[1] & 0x00FFFFFFu) == (kBlue & 0x00FFFFFFu) && alphas,
+          "DXT3: the colour part first, then 4-bit alphas");
+
+    // DXT5: 48 bits of 3-bit alpha indices, then the two alpha endpoints.
+    // Texel i takes index i % 8: 0, 1, then the six steps between 200 and 30.
+    std::vector<std::uint8_t> dxt5 = colour;
+    std::uint64_t codes = 0u;
+    for (std::uint32_t i = 0; i < 16u; ++i) codes |= static_cast<std::uint64_t>(i % 8u) << (i * 3u);
+    for (std::uint32_t i = 0; i < 6u; ++i) dxt5.push_back(static_cast<std::uint8_t>(codes >> (i * 8u)));
+    dxt5.push_back(200u);
+    dxt5.push_back(30u);
+    texture.format = TextureFormat::Dxt5;
+    put(dxt5);
+    decode_texture(memory, texture, out);
+    check((out[0] >> 24u) == 200u && (out[1] >> 24u) == 30u && (out[2] >> 24u) == (6u * 200u + 30u) / 7u &&
+              (out[7] >> 24u) == (200u + 6u * 30u) / 7u && (out[8] >> 24u) == 200u && (out[0] & 0x00FFFFFFu) == 0x0000FFu,
+          "DXT5: the colour part first, then the alpha indices, then the alpha endpoints");
+
+    // The key of a block texture ignores the CLUT: the game leaves its address
+    // at the framebuffer, whose first word changes every frame.
+    texture.format = TextureFormat::Dxt1;
+    put(colour);
+    const std::uint64_t before = texture_key(memory, texture);
+    memory.store32(kAddress + 64u, 0x12345678u);
+    texture.clut_address = kAddress + 64u;
+    check(texture_key(memory, texture) == before, "a DXT texture's key does not follow the CLUT");
+}
+
 int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--check") return check_folder(argv[2]);
     const Scratch scratch;
@@ -284,6 +368,7 @@ int main(int argc, char **argv) {
     test_hashes(scratch.root);
     test_copy(scratch.root);
     test_location(scratch.root);
+    test_dxt_decode();
     std::printf("%s\n", failures == 0 ? "all texture pack checks passed" : "texture pack checks FAILED");
     return failures == 0 ? 0 : 1;
 }
