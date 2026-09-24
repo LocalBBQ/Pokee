@@ -34,7 +34,7 @@ La licencia de **Yakumo** se aplica únicamente al código y los materiales orig
 
 ## Estado: jugable
 
-Puedes cargar una partida copiada de una PSP o empezar una nueva, cazar con otros jugadores y guardar tu progreso, con música, cinemáticas e iluminación. La simulación del juego sigue funcionando a los 30 fotogramas por segundo de la PSP; la interpolación opcional puede presentarla a 45, 60, 90, 120 fotogramas o a la frecuencia de la pantalla sin cambiar la velocidad del juego.
+Puedes cargar una partida copiada de una PSP o empezar una nueva, cazar con otros jugadores y guardar tu progreso, con música, cinemáticas e iluminación. La simulación del juego sigue funcionando a los 30 fotogramas por segundo de la PSP; la interpolación opcional puede presentarla a 45, 60, 90, 120 fotogramas o a la frecuencia de la pantalla sin cambiar la velocidad del juego. Las cargas son más cortas que en una PSP: mientras el juego carga en silencio, avanza más deprisa que el tiempo real (*Fast loading*, activado por defecto).
 
 | Funciona | Falta o tiene problemas |
 | --- | --- |

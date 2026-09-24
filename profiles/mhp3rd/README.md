@@ -308,6 +308,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | Frame rate | `video.frame_rate` | `MHP3RD_FRAME_RATE` | `30` (default: the game's own frames, as they are), `45`, `60`, `90`, `120` or `display` (the display's refresh rate): frames in between the game's, with blended movement. See [Frame rate](#frame-rate) |
 | Video | Lower when behind | `video.frame_rate_auto` | `MHP3RD_FRAME_RATE_AUTO` | On (default): the frame rate steps down by itself rather than slow the game. Off: the chosen rate stays, and the game may run below full speed |
 | Video | Game speed | `video.unthrottled` | `MHP3RD_UNTHROTTLED` | Normal (held to real time) or unlimited |
+| Video | Fast loading | `video.fast_loading` | `MHP3RD_FAST_LOADING` | On (default) or off: while the game loads, and only then, it runs ahead of real time. See [Fast loading](#fast-loading) |
 | Video | Performance | `video.performance` | `MHP3RD_PERF` | Off, overlay, overlay and log, log only |
 | Video | Font | `text.font` | `MHP3RD_FONT` | Default (a Japanese system font), or an installed font; see [Game text](#game-text) |
 | Video | Weight | `text.weight` | | Regular, bold (default) or heavy: thickens the game's text by 0–2 pixel columns |
@@ -649,6 +650,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_NO_RENDER` | off | Run without a window; the installer shows no dialogs either. Emulated time is not held to real time |
 | `MHP3RD_WINDOW_TITLE` | `Yakumo` | Title of the game window, to tell instances apart |
 | `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn (menu: Game speed) |
+| `MHP3RD_FAST_LOADING` | on | `0` keeps loads at the PSP's pace (menu: Fast loading). See [Fast loading](#fast-loading) |
 | `MHP3RD_FRAME_RATE` | `30` | `45`, `60`, `90`, `120` or `display`: present frames in between the game's 30 (menu: Frame rate). See [Frame rate](#frame-rate) |
 | `MHP3RD_FRAME_RATE_AUTO` | on | `0` keeps the chosen frame rate even when the game falls behind (menu: Lower when behind) |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
@@ -727,6 +729,31 @@ At 90 the kernel still waits about 12 ms of every game frame, so the rate has ro
 
 A game-side 60 fps patch was not used. The one community code for this game (Saramagrean's CWCheat database, NPJB-40001 and ULJM-05800, "60 FPS Beta") takes the vblank handler at `0x0887669C` from starting a frame every other vblank to every one, then halves a quest timer, one counter and a few animation speeds back. The game has no time step to scale: its timers count frames and its animations take fixed steps (about 280 self-doubling `add.s` in the executable and the quest overlays), so everything else — monsters, their attacks, stamina, hit windows — runs at double speed, as its author and testers say. The overlay half of the NPJB code also targets the PSP release's addresses: our overlays load 0x800000 higher. 120 would be four times the game's own rate. Presenting in between keeps every one of those timings.
 
+### Fast loading
+
+Reading the disc costs nothing here, yet a load takes as long as on a PSP: the game's loader threads read, check and unpack its data a piece at a time and wait on the emulated clock in between, and the kernel holds that clock to real time. Measured with `MHP3RD_TRACE_LOAD`, the host sits idle for 80–95% of a load. **Fast loading** (Video, on by default) lets the clock run ahead while the game loads, up to 16 times real time, so a load takes as long as the work itself.
+
+A load is recognised from what the game does rather than from a timer: it has read from the disc within the last half second of game time, and for a quarter of a second everything it has handed to `sceAudio` has been exact silence once the channel's volume is applied (a loading screen's sound is nothing but zeros). Anything else keeps real time, and ends a fast stretch at once:
+
+- any sound, however quiet: the buffer that carries it plays in full, and so does everything after it. Only the buffers of zeros a fast stretch hands over are dropped, so no sound is ever cut or sped up, and the audio stays in step afterwards;
+- a button or a D-pad direction held (moving a stick is fine), so a press never lasts longer in the game than on the pad;
+- a movie, the in-game menu, and ad hoc play: once the game has started its ad hoc networking, or a session is going, time stays real for the other players;
+- Game speed set to Unlimited, which already runs everything unpaced, and runs without a window.
+
+On a Mac with an M1, from the button press to the new scene's first sound (for the Guild Hall and the farm, *before* is the game time the load took, which normal speed plays in real time):
+
+| Load | Before | After |
+| --- | --- | --- |
+| Boot to the first logo | 1.0 s | 0.3 s |
+| Title to character select (*Now Loading*) | 4.7 s | 2.5 s |
+| Character select to the village | 9.2 s | 5.0 s |
+| Village to the Guild Hall (offline) | 3.9 s | 0.7 s |
+| Guild Hall to the farm | 5.6 s | 1.0 s |
+| Village to a quest's base camp | 6.9 s | 1.7 s |
+| Quest end to the village | 6.0 s | 1.4 s |
+
+What is left is the game's own music fading out and its animations, which play at real time, the game's check of what it read (`sha1Thread`) and unpacking, and installing a code overlay. While a load runs fast, a flip reaches the window at most about 30 times a second and the others are drawn and not shown, so Vsync never holds it back; frame interpolation pauses and picks up again after it. Each fast stretch logs one line: `[load] fast 4922 ms of game time in 434 ms real, 4488 ms saved (sound; 18.4 s saved so far)`, with what ended it. `MHP3RD_FAST_LOADING=0` or the menu's Off keeps every load at the PSP's pace.
+
 ### Audio
 
 | Variable | Default | Effect |
@@ -783,6 +810,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | --- | --- |
 | `MHP3RD_STRICT_HLE=1` | Do not bind logging stubs; stop at the first unimplemented import |
 | `MHP3RD_TRACE_KERNEL=1`, `MHP3RD_TRACE_IO=1` | Trace thread and file activity |
+| `MHP3RD_TRACE_LOAD=1` | Four `[loadtrace]` lines a second: real and emulated time, flips, disc and memory stick reads, the loudest audio sample, time spent holding the game to real time, and which guest threads had the CPU. What [Fast loading](#fast-loading) was measured with |
 | `MHP3RD_TRACE_MODS=1` | What the [mods](#mods) change at start and after each change, every `DATA.BIN` read they serve, and each write made after an overlay loads |
 | `MHP3RD_TRACE_DATA_BIN=1` | While a mod is on, the id of every `DATA.BIN` file the game reads (`[mods] data 034B (32768 bytes)`): how to find the file behind a model on screen |
 | `MHP3RD_TRACE_SAVEDATA=1` | Log every field of each save-data request and each status poll |
