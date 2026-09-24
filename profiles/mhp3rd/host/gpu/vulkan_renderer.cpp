@@ -1317,6 +1317,36 @@ struct VulkanRenderer::Impl {
     void *upload_buffer_mapped{};
     VkDeviceSize upload_buffer_size{};
     VkCommandBuffer upload_commands{};
+    // Texture uploads without waiting (MHP3RD_SYNC_UPLOADS waits, as
+    // before). A texture first drawn while a frame is recorded is copied by a
+    // command buffer of its own, submitted with the frame ahead of the
+    // frame's commands, from a staging ring the frame fence frees again. A
+    // texture evicted from the cache is destroyed once the frames that may
+    // still draw it have finished, instead of after a queue idle wait.
+    VkCommandBuffer frame_uploads{};
+    bool frame_uploads_open{};
+    VkBuffer upload_ring{};
+    VkDeviceMemory upload_ring_memory{};
+    void *upload_ring_mapped{};
+    VkDeviceSize upload_ring_size{};
+    VkDeviceSize upload_ring_used{};
+    // Staging buffers of uploads too large for the ring, and evicted
+    // textures, freed after the frame fence.
+    std::vector<std::pair<VkBuffer, VkDeviceMemory>> retired_buffers;
+    std::vector<Texture> retired_textures;
+    std::uint32_t frame_upload_count{};
+    [[nodiscard]] static bool async_uploads() {
+        static const bool sync = std::getenv("MHP3RD_SYNC_UPLOADS") != nullptr;
+        return !sync && !perf::alternate_off(perf::NewPath::Uploads);
+    }
+    // Stages `bytes` of pixels for a copy recorded into frame_uploads; null
+    // when there is no room and no memory.
+    [[nodiscard]] bool stage_upload(const void *pixels, VkDeviceSize bytes, VkBuffer &buffer, VkDeviceSize &offset);
+    // The command buffers a submission of the frame's own commands runs:
+    // the frame's uploads first, when it has any.
+    std::uint32_t frame_batch(VkCommandBuffer commands, std::array<VkCommandBuffer, 2> &batch);
+    // After the frame fence: the ring is free again and retired objects can go.
+    void release_frame_uploads();
     [[nodiscard]] static bool reuse_buffers() {
         static const bool no_reuse = std::getenv("MHP3RD_NO_BUFFER_REUSE") != nullptr;
         return !no_reuse && !perf::alternate_off(perf::NewPath::Reuse);
@@ -1843,14 +1873,16 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                "vkCreateDescriptorSetLayout", error))
         return false;
 
+    // Evicted textures keep their sets until their frame has finished, so
+    // the pool has room for a second cache's worth.
     const std::array<VkDescriptorPoolSize, 2> pool_sizes{
         VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                             static_cast<std::uint32_t>(kMaxCachedTextures + 1u + kMaxFramebufferTextureSets)},
+                             static_cast<std::uint32_t>(2u * kMaxCachedTextures + 1u + kMaxFramebufferTextureSets)},
         VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2u},
     };
     VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_info.maxSets = static_cast<std::uint32_t>(kMaxCachedTextures + 2u + kMaxFramebufferTextureSets);
+    pool_info.maxSets = static_cast<std::uint32_t>(2u * kMaxCachedTextures + 2u + kMaxFramebufferTextureSets);
     pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
     pool_info.pPoolSizes = pool_sizes.data();
     if (!check(vkCreateDescriptorPool(impl.device, &pool_info, nullptr, &impl.descriptor_pool),
@@ -2686,9 +2718,10 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
     vkEndCommandBuffer(commands);
 
     const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    std::array<VkCommandBuffer, 2> batch{};
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.commandBufferCount = 1u;
-    submit.pCommandBuffers = &commands;
+    submit.commandBufferCount = frame_batch(commands, batch);
+    submit.pCommandBuffers = batch.data();
     if (can_present) {
         submit.waitSemaphoreCount = 1u;
         submit.pWaitSemaphores = &image_available;
@@ -2909,6 +2942,28 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
         return texture;
 
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4u;
+    VkBuffer ring_buffer{};
+    VkDeviceSize ring_offset = 0u;
+    if (recording && async_uploads() && stage_upload(pixels, bytes, ring_buffer, ring_offset)) {
+        if (!frame_uploads_open) {
+            VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(frame_uploads, &begin);
+            frame_uploads_open = true;
+        }
+        transition(frame_uploads, texture.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkBufferImageCopy copy{};
+        copy.bufferOffset = ring_offset;
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+        copy.imageExtent = {width, height, 1u};
+        vkCmdCopyBufferToImage(frame_uploads, ring_buffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u,
+                               &copy);
+        // The barrier's second scope covers the frame's commands, submitted
+        // after these in the same batch.
+        transition(frame_uploads, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        ++frame_upload_count;
+    } else {
     const bool reuse = reuse_buffers();
     VkBuffer staging{};
     VkDeviceMemory staging_memory{};
@@ -2986,6 +3041,7 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
         vkDestroyBuffer(device, staging, nullptr);
         vkFreeMemory(device, staging_memory, nullptr);
     }
+    }
     VkDescriptorSetAllocateInfo descriptor_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     descriptor_info.descriptorPool = descriptor_pool;
     descriptor_info.descriptorSetCount = 1u;
@@ -3000,6 +3056,98 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
     vkUpdateDescriptorSets(device, 1u, &write, 0u, nullptr);
     texture.last_used = ++texture_clock;
     return texture;
+}
+
+bool VulkanRenderer::Impl::stage_upload(const void *pixels, VkDeviceSize bytes, VkBuffer &buffer,
+                                        VkDeviceSize &offset) {
+    const auto make = [&](VkDeviceSize size, VkBuffer &made, VkDeviceMemory &memory, void *&mapped) {
+        VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        buffer_info.size = size;
+        buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        if (vkCreateBuffer(device, &buffer_info, nullptr, &made) != VK_SUCCESS) return false;
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(device, made, &requirements);
+        VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        allocate.allocationSize = requirements.size;
+        allocate.memoryTypeIndex = find_memory_type(
+            requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (vkAllocateMemory(device, &allocate, nullptr, &memory) != VK_SUCCESS ||
+            vkBindBufferMemory(device, made, memory, 0u) != VK_SUCCESS ||
+            vkMapMemory(device, memory, 0u, size, 0u, &mapped) != VK_SUCCESS) {
+            vkDestroyBuffer(device, made, nullptr);
+            vkFreeMemory(device, memory, nullptr);
+            made = VK_NULL_HANDLE;
+            memory = VK_NULL_HANDLE;
+            return false;
+        }
+        return true;
+    };
+    if (frame_uploads == VK_NULL_HANDLE) {
+        VkCommandBufferAllocateInfo command_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        command_info.commandPool = command_pool;
+        command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_info.commandBufferCount = 1u;
+        if (vkAllocateCommandBuffers(device, &command_info, &frame_uploads) != VK_SUCCESS) {
+            frame_uploads = VK_NULL_HANDLE;
+            return false;
+        }
+    }
+    // 8 MiB covers what a frame uploads when a new area comes into view.
+    constexpr VkDeviceSize kRingBytes = 8u * 1024u * 1024u;
+    if (upload_ring == VK_NULL_HANDLE) {
+        void *mapped = nullptr;
+        if (!make(kRingBytes, upload_ring, upload_ring_memory, mapped)) return false;
+        upload_ring_mapped = mapped;
+        upload_ring_size = kRingBytes;
+        upload_ring_used = 0u;
+    }
+    const VkDeviceSize at = (upload_ring_used + 15u) & ~VkDeviceSize{15u};
+    if (at + bytes <= upload_ring_size) {
+        std::memcpy(static_cast<std::uint8_t *>(upload_ring_mapped) + at, pixels, static_cast<std::size_t>(bytes));
+        upload_ring_used = at + bytes;
+        buffer = upload_ring;
+        offset = at;
+        return true;
+    }
+    // Past the ring: a buffer of its own, freed with the frame.
+    VkBuffer own{};
+    VkDeviceMemory own_memory{};
+    void *mapped = nullptr;
+    if (!make(bytes, own, own_memory, mapped)) return false;
+    std::memcpy(mapped, pixels, static_cast<std::size_t>(bytes));
+    vkUnmapMemory(device, own_memory);
+    retired_buffers.emplace_back(own, own_memory);
+    buffer = own;
+    offset = 0u;
+    return true;
+}
+
+std::uint32_t VulkanRenderer::Impl::frame_batch(VkCommandBuffer commands, std::array<VkCommandBuffer, 2> &batch) {
+    std::uint32_t count = 0u;
+    if (commands == command_buffer && frame_uploads_open) {
+        vkEndCommandBuffer(frame_uploads);
+        frame_uploads_open = false;
+        batch[count++] = frame_uploads;
+    }
+    batch[count++] = commands;
+    return count;
+}
+
+void VulkanRenderer::Impl::release_frame_uploads() {
+    upload_ring_used = 0u;
+    frame_upload_count = 0u;
+    for (const auto &[buffer, memory] : retired_buffers) {
+        vkDestroyBuffer(device, buffer, nullptr);
+        vkFreeMemory(device, memory, nullptr);
+    }
+    retired_buffers.clear();
+    if (retired_textures.empty()) return;
+    // A present between flips recorded before the eviction may still draw an
+    // evicted texture; its fence says when it has finished.
+    for (VkFence fence : present_fences)
+        if (fence != VK_NULL_HANDLE && vkGetFenceStatus(device, fence) != VK_SUCCESS) return;
+    for (Texture &texture : retired_textures) destroy_texture(texture);
+    retired_textures.clear();
 }
 
 void VulkanRenderer::Impl::destroy_texture(Texture &texture) {
@@ -3101,16 +3249,27 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         dumper->dump(memory, state, max_seen_v, pack ? pack->options() : kDumpOptions, pixels.data());
     }
 
-    if (textures.size() >= kMaxCachedTextures) {
+    // MHP3RD_TEXTURE_CACHE_LIMIT keeps fewer textures, to test eviction.
+    static const std::size_t cache_limit = [] {
+        const char *text = std::getenv("MHP3RD_TEXTURE_CACHE_LIMIT");
+        const std::size_t limit = text != nullptr ? std::strtoull(text, nullptr, 10) : 0u;
+        return limit != 0u ? std::min(limit, kMaxCachedTextures) : kMaxCachedTextures;
+    }();
+    if (textures.size() >= cache_limit) {
         auto oldest = textures.begin();
         for (auto it = textures.begin(); it != textures.end(); ++it) {
             if (it->second.last_used < oldest->second.last_used) oldest = it;
         }
-        const perf::Clock::time_point wait_start = perf::Clock::now();
-        vkQueueWaitIdle(queue);
-        perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Evict);
         destroyed_texture_clock = std::max(destroyed_texture_clock, oldest->second.last_used);
-        destroy_texture(oldest->second);
+        if (async_uploads()) {
+            // The frame being recorded may have drawn it already.
+            retired_textures.push_back(oldest->second);
+        } else {
+            const perf::Clock::time_point wait_start = perf::Clock::now();
+            vkQueueWaitIdle(queue);
+            perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Evict);
+            destroy_texture(oldest->second);
+        }
         textures.erase(oldest);
         ++textures_erased;
     }
@@ -3148,6 +3307,8 @@ void VulkanRenderer::Impl::apply_texture_pack() {
     // no pack draws.
     vkDeviceWaitIdle(device);
     replacements.clear();
+    for (Texture &texture : retired_textures) destroy_texture(texture);
+    retired_textures.clear();
     for (auto &[key, texture] : textures) destroy_texture(texture);
     textures.clear();
     destroyed_texture_clock = texture_clock;
@@ -4305,6 +4466,7 @@ void VulkanRenderer::begin_frame() {
     vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
     perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Fence);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
+    impl.release_frame_uploads();
     impl.collect_gpu_time();
     impl.report_pipelines(false);
     impl.apply_texture_pack();
@@ -5205,14 +5367,17 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     // Run everything recorded so far and carry on recording afterwards.
     impl.end_gpu_segment(impl.command_buffer);
     vkEndCommandBuffer(impl.command_buffer);
+    std::array<VkCommandBuffer, 2> batch{};
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.commandBufferCount = 1u;
-    submit.pCommandBuffers = &impl.command_buffer;
+    submit.commandBufferCount = impl.frame_batch(impl.command_buffer, batch);
+    submit.pCommandBuffers = batch.data();
     const perf::Clock::time_point wait_start = perf::Clock::now();
     vkQueueSubmit(impl.queue, 1u, &submit, impl.frame_fence);
     vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
     perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Readback);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
+    // Uploads and evictions recorded so far have finished with the frame.
+    impl.release_frame_uploads();
     vkResetCommandBuffer(impl.command_buffer, 0u);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -5424,9 +5589,10 @@ void VulkanRenderer::Impl::submit_frame() {
     end_gpu_segment(command_buffer);
     gpu_timer_pending = gpu_timer_used;
     vkEndCommandBuffer(command_buffer);
+    std::array<VkCommandBuffer, 2> batch{};
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit.commandBufferCount = 1u;
-    submit.pCommandBuffers = &command_buffer;
+    submit.commandBufferCount = frame_batch(command_buffer, batch);
+    submit.pCommandBuffers = batch.data();
     const perf::Clock::time_point submit_start = perf::Clock::now();
     vkQueueSubmit(queue, 1u, &submit, frame_fence);
     perf::add_wait_time(perf::Clock::now() - submit_start, perf::Stall::Submit);
@@ -6395,6 +6561,16 @@ void VulkanRenderer::shutdown() {
     if (impl.ui_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, impl.ui_render_pass, nullptr);
     for (auto &[key, texture] : impl.textures) impl.destroy_texture(texture);
     impl.textures.clear();
+    for (Impl::Texture &texture : impl.retired_textures) impl.destroy_texture(texture);
+    impl.retired_textures.clear();
+    for (const auto &[buffer, memory] : impl.retired_buffers) {
+        vkDestroyBuffer(impl.device, buffer, nullptr);
+        vkFreeMemory(impl.device, memory, nullptr);
+    }
+    impl.retired_buffers.clear();
+    if (impl.upload_ring_mapped != nullptr) vkUnmapMemory(impl.device, impl.upload_ring_memory);
+    vkDestroyBuffer(impl.device, impl.upload_ring, nullptr);
+    vkFreeMemory(impl.device, impl.upload_ring_memory, nullptr);
     impl.replacements.shutdown();
     impl.pack.reset();
     impl.dumper.reset();
