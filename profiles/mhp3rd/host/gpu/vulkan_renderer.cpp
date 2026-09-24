@@ -974,6 +974,11 @@ struct VulkanRenderer::Impl {
     CameraReading reading{};
     bool pass_active{};
     VkRenderPass render_pass{};
+    // The same pass with the colour (bit 0) or depth (bit 1) attachment not
+    // loaded, for a pass whose first draw is a clear that writes all of it:
+    // a tiled GPU then does not read the target from memory first.
+    // MHP3RD_NO_CLEAR_LOAD always loads, as before.
+    std::array<VkRenderPass, 4> discard_passes{};
     VkExtent2D target_extent{};
 
     VkShaderModule vertex_shader{};
@@ -1629,7 +1634,9 @@ struct VulkanRenderer::Impl {
     bool create_overlay(std::string &error);
     void record_overlay(VkCommandBuffer commands, VkImage destination);
     void update_display_info();
-    void begin_pass(std::uint32_t address);
+    // `overwritten`: bit 0, the pass's first draw writes every pixel's colour
+    // and alpha; bit 1, every pixel's depth.
+    void begin_pass(std::uint32_t address, std::uint32_t overwritten = 0u);
     void end_pass();
     VkPipeline pipeline_for(const PipelineKey &key);
     Texture &texture_for(const GuestMemory &memory, const DrawCall &call);
@@ -1878,6 +1885,17 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (!check(vkCreateRenderPass(impl.device, &render_pass_info, nullptr, &impl.render_pass), "vkCreateRenderPass",
                error))
         return false;
+    if (std::getenv("MHP3RD_NO_CLEAR_LOAD") == nullptr) {
+        for (std::uint32_t variant = 1u; variant < 4u; ++variant) {
+            std::array<VkAttachmentDescription, 2> skipped = attachments;
+            if ((variant & 1u) != 0u) skipped[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            if ((variant & 2u) != 0u) skipped[1].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            VkRenderPassCreateInfo variant_info = render_pass_info;
+            variant_info.pAttachments = skipped.data();
+            if (vkCreateRenderPass(impl.device, &variant_info, nullptr, &impl.discard_passes[variant]) != VK_SUCCESS)
+                impl.discard_passes[variant] = VK_NULL_HANDLE;
+        }
+    }
 
     // Shaders, descriptors and pipeline layout.
     const auto create_shader = [&](const std::uint32_t *code, std::size_t size, VkShaderModule &module) {
@@ -2664,6 +2682,7 @@ void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage so
     blit.dstOffsets[1] = high;
     vkCmdBlitImage(commands, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, sharp_screen ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
+    perf::count_target_copy();
 }
 
 // Finishes the frame being recorded: the game frame (or a plain background
@@ -2751,6 +2770,7 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
             pass.framebuffer = ui_framebuffers[image_index];
             pass.renderArea = {{0, 0}, swapchain_extent};
             vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
+            perf::count_render_pass();
             ImGui_ImplVulkan_RenderDrawData(ui, commands);
             vkCmdEndRenderPass(commands);
         }
@@ -2976,7 +2996,7 @@ bool VulkanRenderer::Impl::create_upload(std::uint32_t width, std::uint32_t heig
     return true;
 }
 
-void VulkanRenderer::Impl::begin_pass(std::uint32_t address) {
+void VulkanRenderer::Impl::begin_pass(std::uint32_t address, std::uint32_t overwritten) {
     std::string error;
     Target *target = target_for(address, error);
     if (target == nullptr) return;
@@ -2990,10 +3010,12 @@ void VulkanRenderer::Impl::begin_pass(std::uint32_t address) {
         target->initialized = true;
     }
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    pass.renderPass = render_pass;
+    pass.renderPass = discard_passes[overwritten & 3u] != VK_NULL_HANDLE ? discard_passes[overwritten & 3u] : render_pass;
     pass.framebuffer = target->framebuffer;
     pass.renderArea = {{0, 0}, target_extent};
     vkCmdBeginRenderPass(command_buffer, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    perf::count_render_pass();
+    if ((overwritten & 3u) != 0u) perf::count_cleared_pass();
     forget_bindings();
     current_target = address;
     last_drawn_target = address;
@@ -3612,6 +3634,7 @@ void VulkanRenderer::Impl::record_writeback(std::uint32_t address) {
     blit.dstOffsets[1] = {static_cast<std::int32_t>(kPspWidth), static_cast<std::int32_t>(kPspHeight), 1};
     vkCmdBlitImage(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, writeback_image,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+    perf::count_target_copy();
     transition(command_buffer, writeback_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkBufferImageCopy copy{};
@@ -3746,6 +3769,7 @@ VkDescriptorSet VulkanRenderer::Impl::framebuffer_descriptor(Target &target, boo
         region.extent = {target_extent.width, target_extent.height, 1u};
         vkCmdCopyImage(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target.copy,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        perf::count_target_copy();
         transition(command_buffer, target.copy, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         transition(command_buffer, target.color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -5273,7 +5297,26 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
 
     if (!impl.pass_active || impl.current_target != call.target.color_address) {
         impl.end_pass();
-        impl.begin_pass(call.target.color_address);
+        // A clear that covers the whole screen, first in its pass, writes
+        // every pixel of what it clears: nothing needs loading for it.
+        std::uint32_t overwritten = 0u;
+        static const bool no_clear_load = std::getenv("MHP3RD_NO_CLEAR_LOAD") != nullptr;
+        if (call.clear_mode && call.through && call.primitive == PrimitiveType::Sprites && !no_clear_load &&
+            !perf::alternate_off(perf::NewPath::ClearLoad) && call.viewport.scissor_x1 == 0u &&
+            call.viewport.scissor_y1 == 0u && call.viewport.scissor_x2 >= kPspWidth - 1u &&
+            call.viewport.scissor_y2 >= kPspHeight - 1u && call.vertices.size() == 2u) {
+            const Vertex &a = call.vertices[0];
+            const Vertex &b = call.vertices[1];
+            const bool covers = std::min(a.position[0], b.position[0]) <= 0.0f &&
+                                std::min(a.position[1], b.position[1]) <= 0.0f &&
+                                std::max(a.position[0], b.position[0]) >= static_cast<float>(kPspWidth) &&
+                                std::max(a.position[1], b.position[1]) >= static_cast<float>(kPspHeight);
+            if (covers && call.indices.empty()) {
+                if ((call.clear_flags & 3u) == 3u) overwritten |= 1u;
+                if ((call.clear_flags & 4u) != 0u) overwritten |= 2u;
+            }
+        }
+        impl.begin_pass(call.target.color_address, overwritten);
         if (!impl.pass_active) return;
     }
     {
@@ -5762,6 +5805,7 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     copy.extent = {target_extent.width, target_extent.height, 1u};
     vkCmdCopyImage(command_buffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, picture.color,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
+    perf::count_target_copy();
     transition(command_buffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     transition(command_buffer, picture.color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -5986,6 +6030,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     pass.framebuffer = target.framebuffer;
     pass.renderArea = {{0, 0}, target_extent};
     vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    perf::count_render_pass();
     // The game clears its framebuffer itself; start from a known state for
     // any part it does not.
     std::array<VkClearAttachment, 2> clears{};
@@ -6751,6 +6796,8 @@ void VulkanRenderer::shutdown() {
     for (VkFence fence : impl.present_fences) vkDestroyFence(impl.device, fence, nullptr);
     if (impl.present_timer != VK_NULL_HANDLE) vkDestroyQueryPool(impl.device, impl.present_timer, nullptr);
     vkDestroyRenderPass(impl.device, impl.render_pass, nullptr);
+    for (VkRenderPass pass : impl.discard_passes)
+        if (pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, pass, nullptr);
     for (VkSemaphore semaphore : impl.image_available) vkDestroySemaphore(impl.device, semaphore, nullptr);
     for (VkSemaphore semaphore : impl.render_finished) vkDestroySemaphore(impl.device, semaphore, nullptr);
     for (Impl::FrameSlot &frame : impl.slots) vkDestroyFence(impl.device, frame.fence, nullptr);
