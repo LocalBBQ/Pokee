@@ -53,7 +53,7 @@ Alternate &alternate() {
         const char *text = std::getenv("MHP3RD_PERF_ALTERNATE");
         if (text == nullptr) return result;
         const std::string names = std::string(",") + text + ",";
-        const char *known[] = {"direct", "lookup", "reuse", "merge", "store", "decode"};
+        const char *known[] = {"direct", "lookup", "reuse", "merge", "store", "decode", "alpha"};
         static_assert(sizeof(known) / sizeof(known[0]) == static_cast<std::size_t>(NewPath::Count));
         for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(NewPath::Count); ++i)
             if (names.find(std::string(",") + known[i] + ",") != std::string::npos) result.paths |= 1u << i;
@@ -207,6 +207,7 @@ const char *stall_name(Stall kind) {
     case Stall::Pacing: return "pacing";
     case Stall::Copy: return "copy";
     case Stall::Store: return "store";
+    case Stall::Pipeline: return "pipeline";
     case Stall::Count: break;
     }
     return "?";

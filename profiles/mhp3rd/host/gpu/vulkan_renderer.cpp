@@ -237,6 +237,9 @@ struct PipelineKey {
     bool cull_clockwise{};
     std::uint32_t color_mask{VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
                              VK_COLOR_COMPONENT_A_BIT};
+    // The fragment shader's alpha test (kAlphaTest in ge.frag). Draws without
+    // one get a pipeline whose shader cannot discard.
+    bool alpha_test{true};
 
     auto operator<=>(const PipelineKey &) const = default;
 };
@@ -957,6 +960,23 @@ struct VulkanRenderer::Impl {
     VkSampler clamp_sampler{};
     VkSampler clamp_sharp_sampler{};
     std::map<PipelineKey, VkPipeline> pipelines;
+    // Pipelines compiled in earlier runs, kept in the data directory
+    // (pipeline_cache.bin) so that a new area does not compile its shaders
+    // again: drivers on phones compile slowly and some keep no cache of their
+    // own. MHP3RD_NO_PIPELINE_CACHE creates every pipeline from scratch.
+    VkPipelineCache pipeline_cache{};
+    std::filesystem::path pipeline_cache_path;
+    bool pipeline_cache_dirty{};
+    std::chrono::steady_clock::time_point pipeline_cache_changed{};
+    // Pipelines created since the last report, and how long they took.
+    std::uint32_t pipelines_reported{};
+    std::uint32_t pipelines_new{};
+    double pipeline_new_ms{};
+    void load_pipeline_cache();
+    void save_pipeline_cache();
+    // Every few seconds after a pipeline was created: saves the cache and
+    // says how many pipelines the game needed and what they cost.
+    void report_pipelines(bool final);
     // The pipeline of the previous lookup: consecutive draws mostly share it.
     // MHP3RD_NO_LOOKUP_CACHE looks every draw up in the map, as before.
     PipelineKey last_pipeline_key{};
@@ -1722,6 +1742,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (!check(vkCreateDevice(impl.physical_device, &device_info, nullptr, &impl.device), "vkCreateDevice", error))
         return false;
     vkGetDeviceQueue(impl.device, impl.queue_family, 0u, &impl.queue);
+    impl.load_pipeline_cache();
 
     // Swapchain.
     std::uint32_t format_count = 0u;
@@ -3477,6 +3498,97 @@ VkDescriptorSet VulkanRenderer::Impl::framebuffer_descriptor(Target &target, boo
     return target.copy_descriptors[opaque ? 1u : 0u];
 }
 
+void VulkanRenderer::Impl::load_pipeline_cache() {
+    if (std::getenv("MHP3RD_NO_PIPELINE_CACHE") != nullptr) {
+        std::cout << "[render] pipeline cache off (MHP3RD_NO_PIPELINE_CACHE)\n";
+        return;
+    }
+    pipeline_cache_path = install::user_data_directory() / "pipeline_cache.bin";
+    std::vector<char> data;
+    {
+        std::ifstream in(pipeline_cache_path, std::ios::binary);
+        if (in) data.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    // The header names the device and driver the data is for; anything else
+    // is dropped here rather than trusted to every driver to reject.
+    const char *dropped = nullptr;
+    if (!data.empty()) {
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(physical_device, &properties);
+        std::uint32_t header[4]{};
+        if (data.size() < 16u + VK_UUID_SIZE) {
+            dropped = "too short";
+        } else {
+            std::memcpy(header, data.data(), sizeof(header));
+            if (header[1] != VK_PIPELINE_CACHE_HEADER_VERSION_ONE || header[0] < 16u + VK_UUID_SIZE ||
+                header[2] != properties.vendorID || header[3] != properties.deviceID ||
+                std::memcmp(data.data() + 16, properties.pipelineCacheUUID, VK_UUID_SIZE) != 0)
+                dropped = "made by another device or driver";
+        }
+        if (dropped != nullptr) data.clear();
+    }
+    VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    info.initialDataSize = data.size();
+    info.pInitialData = data.empty() ? nullptr : data.data();
+    if (vkCreatePipelineCache(device, &info, nullptr, &pipeline_cache) != VK_SUCCESS) {
+        info.initialDataSize = 0u;
+        info.pInitialData = nullptr;
+        if (vkCreatePipelineCache(device, &info, nullptr, &pipeline_cache) != VK_SUCCESS) {
+            pipeline_cache = VK_NULL_HANDLE;
+            std::cout << "[render] no pipeline cache: vkCreatePipelineCache failed\n";
+            return;
+        }
+        data.clear();
+    }
+    if (!data.empty())
+        std::cout << "[render] pipeline cache: " << (data.size() + 1023u) / 1024u << " KiB from "
+                  << install::path_to_utf8(pipeline_cache_path) << "\n";
+    else
+        std::cout << "[render] pipeline cache: new" << (dropped != nullptr ? std::string(", the old one was ") + dropped : "")
+                  << "\n";
+}
+
+void VulkanRenderer::Impl::save_pipeline_cache() {
+    if (pipeline_cache == VK_NULL_HANDLE || !pipeline_cache_dirty) return;
+    pipeline_cache_dirty = false;
+    std::size_t size = 0u;
+    if (vkGetPipelineCacheData(device, pipeline_cache, &size, nullptr) != VK_SUCCESS || size == 0u) return;
+    std::vector<char> data(size);
+    if (vkGetPipelineCacheData(device, pipeline_cache, &size, data.data()) != VK_SUCCESS) return;
+    data.resize(size);
+    // Written next to the file and renamed over it, so a crash or a phone
+    // killing the app mid-write leaves the old cache, not half a new one.
+    std::filesystem::path partial = pipeline_cache_path;
+    partial += ".partial";
+    {
+        std::ofstream out(partial, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(data.data(), static_cast<std::streamsize>(data.size()));
+        if (!out) return;
+    }
+    std::error_code ec;
+    std::filesystem::rename(partial, pipeline_cache_path, ec);
+    if (ec) std::filesystem::remove(partial, ec);
+}
+
+void VulkanRenderer::Impl::report_pipelines(bool final) {
+    if (pipelines_new == 0u && !pipeline_cache_dirty) return;
+    // A burst of new pipelines (a new area, an effect seen for the first
+    // time) is reported, and the cache written, once it has settled.
+    if (!final && std::chrono::steady_clock::now() - pipeline_cache_changed < std::chrono::seconds(3)) return;
+    if (pipelines_new != 0u) {
+        pipelines_reported += pipelines_new;
+        std::cout << "[render] " << pipelines_new << " new pipeline" << (pipelines_new == 1u ? "" : "s") << " in "
+                  << std::fixed << std::setprecision(1) << pipeline_new_ms << std::defaultfloat
+                  << std::setprecision(6) << " ms, " << pipelines_reported << " so far"
+                  << (pipeline_cache != VK_NULL_HANDLE ? "; pipeline cache saved" : "") << "\n"
+                  << std::flush;
+        pipelines_new = 0u;
+        pipeline_new_ms = 0.0;
+    }
+    save_pipeline_cache();
+}
+
 VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
     static const bool no_lookup_env = std::getenv("MHP3RD_NO_LOOKUP_CACHE") != nullptr;
     const bool no_lookup_cache = no_lookup_env || perf::alternate_off(perf::NewPath::Lookup);
@@ -3550,6 +3662,16 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
     blend.attachmentCount = 1u;
     blend.pAttachments = &blend_attachment;
 
+    // kAlphaTest in ge.frag.
+    const VkBool32 alpha_test = key.alpha_test ? VK_TRUE : VK_FALSE;
+    const VkSpecializationMapEntry alpha_entry{0u, 0u, sizeof(VkBool32)};
+    VkSpecializationInfo specialization{};
+    specialization.mapEntryCount = 1u;
+    specialization.pMapEntries = &alpha_entry;
+    specialization.dataSize = sizeof(alpha_test);
+    specialization.pData = &alpha_test;
+    stages[1].pSpecializationInfo = &specialization;
+
     VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     info.stageCount = static_cast<std::uint32_t>(stages.size());
     info.pStages = stages.data();
@@ -3564,8 +3686,17 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
     info.layout = pipeline_layout;
     info.renderPass = render_pass;
     VkPipeline pipeline{};
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1u, &info, nullptr, &pipeline) != VK_SUCCESS)
-        return VK_NULL_HANDLE;
+    const perf::Clock::time_point create_start = perf::Clock::now();
+    const VkResult created = vkCreateGraphicsPipelines(device, pipeline_cache, 1u, &info, nullptr, &pipeline);
+    const perf::Clock::duration create_time = perf::Clock::now() - create_start;
+    perf::note_stall(perf::Stall::Pipeline, create_time);
+    ++pipelines_new;
+    pipeline_new_ms += std::chrono::duration<double, std::milli>(create_time).count();
+    if (pipeline_cache != VK_NULL_HANDLE) {
+        pipeline_cache_dirty = true;
+        pipeline_cache_changed = std::chrono::steady_clock::now();
+    }
+    if (created != VK_SUCCESS) return VK_NULL_HANDLE;
     pipelines.emplace(key, pipeline);
     last_pipeline_key = key;
     last_pipeline = pipeline;
@@ -4175,6 +4306,7 @@ void VulkanRenderer::begin_frame() {
     perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Fence);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
     impl.collect_gpu_time();
+    impl.report_pipelines(false);
     impl.apply_texture_pack();
     impl.replacements.begin_frame(impl.frames);
     if (texture_pack_trace() && impl.pack && impl.frames % 60u == 0u) {
@@ -4801,6 +4933,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         key.cull = call.culling_enabled && !call.through && call.primitive != PrimitiveType::Sprites;
         key.cull_clockwise = call.cull_clockwise;
     }
+    // Matches texture_params.w below: without an alpha test the pipeline's
+    // shader has no discard. MHP3RD_NO_ALPHA_VARIANTS keeps the one shader
+    // that tests alpha for every draw, as before.
+    static const bool no_alpha_variants = std::getenv("MHP3RD_NO_ALPHA_VARIANTS") != nullptr;
+    key.alpha_test = no_alpha_variants || perf::alternate_off(perf::NewPath::Alpha) ||
+                     (!call.clear_mode && call.alpha_test.enabled && call.alpha_test.function != 0u);
     // Escape hatch for bisecting "nothing is visible" reports.
     static const bool no_cull = std::getenv("MHP3RD_NO_CULL") != nullptr;
     static const bool no_depth = std::getenv("MHP3RD_NO_DEPTH") != nullptr;
@@ -6269,6 +6407,9 @@ void VulkanRenderer::shutdown() {
     vkFreeMemory(impl.device, impl.overlay_memory, nullptr);
     impl.destroy_upload();
     impl.destroy_writeback();
+    impl.report_pipelines(true);
+    if (impl.pipeline_cache != VK_NULL_HANDLE) vkDestroyPipelineCache(impl.device, impl.pipeline_cache, nullptr);
+    impl.pipeline_cache = VK_NULL_HANDLE;
     for (auto &[key, pipeline] : impl.pipelines) vkDestroyPipeline(impl.device, pipeline, nullptr);
     impl.pipelines.clear();
     impl.last_pipeline = VK_NULL_HANDLE;
