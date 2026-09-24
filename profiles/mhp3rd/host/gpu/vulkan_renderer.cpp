@@ -4562,8 +4562,12 @@ bool VulkanRenderer::initialize_ui(std::string &error) {
     info.Queue = impl.queue;
     info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
     info.MinImageCount = impl.swapchain_min_images;
-    info.ImageCount = std::max<std::uint32_t>(static_cast<std::uint32_t>(impl.swapchain_images.size()),
-                                              impl.swapchain_min_images);
+    // ImGui keeps this many vertex and index buffers and writes the next one
+    // for each draw of the interface. Two frames in flight and two presents
+    // between flips can all still be reading one, so there are enough for
+    // all of them however few images the swapchain has.
+    info.ImageCount = std::max<std::uint32_t>({static_cast<std::uint32_t>(impl.swapchain_images.size()),
+                                               impl.swapchain_min_images, 8u});
     info.PipelineInfoMain.RenderPass = impl.ui_render_pass;
     info.PipelineInfoMain.Subpass = 0u;
     info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
