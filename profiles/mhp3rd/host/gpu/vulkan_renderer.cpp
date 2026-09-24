@@ -707,6 +707,53 @@ struct VulkanRenderer::Impl {
     // present may still be waiting for its own when the next one is made.
     std::array<VkSemaphore, 4> image_available{};
     std::vector<VkSemaphore> render_finished;
+
+    // MHP3RD_GPU_BREADCRUMBS (VK_AMD_buffer_marker): each marked point of
+    // every command buffer writes its number twice into a host-visible
+    // buffer, once when the GPU reaches it and once when everything before it
+    // has finished. After a GPU hang (VK_ERROR_DEVICE_LOST) the log names the
+    // last point finished and the last one reached: the work that hung lies
+    // between them.
+    struct Breadcrumbs {
+        bool available{};
+        VkBuffer buffer{};
+        VkDeviceMemory memory{};
+        volatile std::uint32_t *mapped{};
+        PFN_vkCmdWriteBufferMarkerAMD write{};
+        std::uint32_t next{};
+        std::array<std::string, 1024> labels;  // by marker number, modulo the size
+    } breadcrumbs;
+    void breadcrumb(VkCommandBuffer commands, const std::string &label) {
+        Breadcrumbs &b = breadcrumbs;
+        if (b.write == nullptr) return;
+        const std::uint32_t id = ++b.next;
+        b.labels[id % b.labels.size()] = label + " (frame " + std::to_string(frames) + ")";
+        b.write(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, b.buffer, 0u, id);
+        b.write(commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, b.buffer, 4u, id);
+    }
+    // Reports a lost device, with the breadcrumbs when they are on, and ends
+    // the process: nothing more can be drawn.
+    [[noreturn]] void device_lost(const char *where) {
+        std::cout << "[render] the GPU stopped responding (VK_ERROR_DEVICE_LOST) in " << where << "\n";
+        Breadcrumbs &b = breadcrumbs;
+        if (b.mapped != nullptr) {
+            const std::uint32_t reached = b.mapped[0];
+            const std::uint32_t finished = b.mapped[1];
+            std::cout << "[render] breadcrumbs: last finished " << finished << " "
+                      << b.labels[finished % b.labels.size()] << "; last reached " << reached << " "
+                      << b.labels[reached % b.labels.size()] << "; last recorded " << b.next << "\n";
+            const std::uint32_t first = finished > 8u ? finished - 8u : 1u;
+            for (std::uint32_t id = first; id <= std::min(b.next, finished + 24u); ++id)
+                std::cout << "[render]   " << id << (id <= finished ? " done " : id <= reached ? " busy " : " queued ")
+                          << b.labels[id % b.labels.size()] << "\n";
+        }
+        std::cout << std::flush;
+        std::_Exit(3);
+    }
+    void wait_fence(VkFence fence, const char *where) {
+        const VkResult result = vkWaitForFences(device, 1u, &fence, VK_TRUE, UINT64_MAX);
+        if (result == VK_ERROR_DEVICE_LOST) device_lost(where);
+    }
     VkPresentModeKHR present_mode{VK_PRESENT_MODE_FIFO_KHR};
     VkSurfaceFormatKHR surface_format{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
     VkImageUsageFlags swapchain_usage{};
@@ -1707,6 +1754,16 @@ struct VulkanRenderer::Impl {
         if (!check(vkAllocateMemory(device, &allocate, nullptr, &memory), "vkAllocateMemory", error)) return false;
         vkBindImageMemory(device, image, memory, 0u);
 
+        // An image only copied to and from (the overlay, the write-back, a
+        // movie frame) has no view: one is not allowed without a usage that
+        // reads or renders through it (VUID-VkImageViewCreateInfo-image-04441).
+        constexpr VkImageUsageFlags kViewed = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT |
+                                              VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        if ((usage & kViewed) == 0u) {
+            view = VK_NULL_HANDLE;
+            return true;
+        }
         VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         view_info.image = image;
         view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -2081,10 +2138,17 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     vkEnumerateDeviceExtensionProperties(impl.physical_device, nullptr, &device_extension_count,
                                          device_extensions.data());
     std::vector<const char *> enabled_device_extensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const bool want_breadcrumbs = std::getenv("MHP3RD_GPU_BREADCRUMBS") != nullptr;
     for (const VkExtensionProperties &extension : device_extensions) {
         if (std::strcmp(extension.extensionName, "VK_KHR_portability_subset") == 0)
             enabled_device_extensions.push_back("VK_KHR_portability_subset");
+        if (want_breadcrumbs && std::strcmp(extension.extensionName, VK_AMD_BUFFER_MARKER_EXTENSION_NAME) == 0) {
+            enabled_device_extensions.push_back(VK_AMD_BUFFER_MARKER_EXTENSION_NAME);
+            impl.breadcrumbs.available = true;
+        }
     }
+    if (want_breadcrumbs && !impl.breadcrumbs.available)
+        std::cout << "[render] MHP3RD_GPU_BREADCRUMBS needs VK_AMD_buffer_marker, which this device lacks\n";
 
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -2105,6 +2169,13 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                          "lacks\n";
         }
     }
+    // Out-of-range buffer reads (a vertex, an index, the raw vertex bytes the
+    // vertex shader reads, a uniform) return zeros or stay within the buffer
+    // instead of reading whatever memory follows it, which on some GPUs can
+    // fault or hang. MHP3RD_NO_ROBUST_BUFFERS leaves it off, as before.
+    if (supported_features.robustBufferAccess == VK_TRUE && std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr)
+        enabled_features.robustBufferAccess = VK_TRUE;
+    std::cout << "[render] robust buffer access " << (enabled_features.robustBufferAccess ? "on" : "off") << "\n";
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     device_info.pEnabledFeatures = &enabled_features;
     device_info.queueCreateInfoCount = 1u;
@@ -2114,6 +2185,31 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (!check(vkCreateDevice(impl.physical_device, &device_info, nullptr, &impl.device), "vkCreateDevice", error))
         return false;
     vkGetDeviceQueue(impl.device, impl.queue_family, 0u, &impl.queue);
+    if (impl.breadcrumbs.available) {
+        Impl::Breadcrumbs &b = impl.breadcrumbs;
+        VkBufferCreateInfo marker_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        marker_info.size = 256u;
+        marker_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        VkMemoryRequirements marker_requirements{};
+        void *mapped = nullptr;
+        if (vkCreateBuffer(impl.device, &marker_info, nullptr, &b.buffer) == VK_SUCCESS) {
+            vkGetBufferMemoryRequirements(impl.device, b.buffer, &marker_requirements);
+            VkMemoryAllocateInfo marker_allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            marker_allocate.allocationSize = marker_requirements.size;
+            marker_allocate.memoryTypeIndex = impl.find_memory_type(
+                marker_requirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            if (vkAllocateMemory(impl.device, &marker_allocate, nullptr, &b.memory) == VK_SUCCESS &&
+                vkBindBufferMemory(impl.device, b.buffer, b.memory, 0u) == VK_SUCCESS &&
+                vkMapMemory(impl.device, b.memory, 0u, 256u, 0u, &mapped) == VK_SUCCESS) {
+                b.mapped = static_cast<volatile std::uint32_t *>(mapped);
+                b.mapped[0] = b.mapped[1] = 0u;
+                b.write = reinterpret_cast<PFN_vkCmdWriteBufferMarkerAMD>(
+                    vkGetDeviceProcAddr(impl.device, "vkCmdWriteBufferMarkerAMD"));
+            }
+        }
+        std::cout << "[render] GPU breadcrumbs " << (b.write != nullptr ? "on" : "unavailable") << "\n";
+    }
     impl.load_pipeline_cache();
 
     // Swapchain.
@@ -3091,6 +3187,7 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
     }
     const bool can_present = acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR;
     bool capture = false;
+    breadcrumb(commands, main_frame ? "the frame's copy to the window" : "a present's copy to the window");
     if (can_present) {
         VkImage target = swapchain_images[image_index];
 #if defined(__ANDROID__)
@@ -3175,7 +3272,7 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
     }
     // MoltenVK waits for the next drawable here rather than in the acquire.
     const perf::Clock::time_point submit_start = perf::Clock::now();
-    vkQueueSubmit(queue, 1u, &submit, fence);
+    if (vkQueueSubmit(queue, 1u, &submit, fence) == VK_ERROR_DEVICE_LOST) device_lost("a frame's submit");
     perf::add_wait_time(perf::Clock::now() - submit_start, perf::Stall::Submit);
 
     if (can_present) {
@@ -3200,7 +3297,7 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
 
 // Writes the image copied by submit_and_present once its frame has finished.
 void VulkanRenderer::Impl::write_capture(VkFence fence) {
-    vkWaitForFences(device, 1u, &fence, VK_TRUE, UINT64_MAX);
+    wait_fence(fence, "a window capture");
     void *mapped = nullptr;
     vkMapMemory(device, capture_memory, 0u, VK_WHOLE_SIZE, 0u, &mapped);
     const bool bgra = swapchain_format == VK_FORMAT_B8G8R8A8_UNORM || swapchain_format == VK_FORMAT_B8G8R8A8_SRGB;
@@ -3367,6 +3464,12 @@ void VulkanRenderer::Impl::begin_pass(std::uint32_t address, std::uint32_t overw
     pass.renderPass = discard_passes[overwritten & 3u] != VK_NULL_HANDLE ? discard_passes[overwritten & 3u] : render_pass;
     pass.framebuffer = target->framebuffer;
     pass.renderArea = {{0, 0}, target_extent};
+    if (breadcrumbs.write != nullptr) {
+        char label[64];
+        std::snprintf(label, sizeof(label), "render pass into 0x%08x%s", address,
+                      (overwritten & 3u) != 0u ? " (cleared)" : "");
+        breadcrumb(command_buffer, label);
+    }
     vkCmdBeginRenderPass(command_buffer, &pass, VK_SUBPASS_CONTENTS_INLINE);
     perf::count_render_pass();
     if ((overwritten & 3u) != 0u) perf::count_cleared_pass();
@@ -3592,6 +3695,7 @@ std::uint32_t VulkanRenderer::Impl::frame_batch(VkCommandBuffer commands, std::a
     if (commands == command_buffer) finish_pending_textures();
     std::uint32_t count = 0u;
     if (commands == command_buffer && frame_uploads_open) {
+        breadcrumb(frame_uploads, "texture uploads (" + std::to_string(frame_upload_count) + ")");
         vkEndCommandBuffer(frame_uploads);
         frame_uploads_open = false;
         batch[count++] = frame_uploads;
@@ -3989,7 +4093,7 @@ void VulkanRenderer::Impl::collect_writeback(std::uint32_t from, bool wait) {
     if (!frame.writeback_in_flight) return;
     if (wait) {
         const perf::Clock::time_point wait_start = perf::Clock::now();
-        vkWaitForFences(device, 1u, &frame.fence, VK_TRUE, UINT64_MAX);
+        wait_fence(frame.fence, "the write-back of a frame");
         perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Fence);
     }
     const perf::Clock::time_point copy_start = perf::Clock::now();
@@ -5126,7 +5230,7 @@ void VulkanRenderer::begin_frame() {
     impl.frame_fence = frame.fence;
     impl.frame_uploads = frame.uploads;
     const perf::Clock::time_point wait_start = perf::Clock::now();
-    vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
+    impl.wait_fence(impl.frame_fence, "the wait for a frame two back");
     perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Fence);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
     impl.release_frame_uploads(impl.slot);
@@ -5148,6 +5252,7 @@ void VulkanRenderer::begin_frame() {
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(impl.command_buffer, &begin);
+    impl.breadcrumb(impl.command_buffer, "frame begins");
     if (impl.gpu_timer != VK_NULL_HANDLE) {
         vkCmdResetQueryPool(impl.command_buffer, impl.gpu_timer, impl.gpu_timer_base(), 2u * kGpuTimerSegments);
         impl.gpu_timer_used = 0u;
@@ -5165,14 +5270,14 @@ void VulkanRenderer::begin_frame() {
         if (other != impl.slot && impl.slots[other].region == region &&
             vkGetFenceStatus(impl.device, impl.slots[other].fence) != VK_SUCCESS) {
             const perf::Clock::time_point region_start = perf::Clock::now();
-            vkWaitForFences(impl.device, 1u, &impl.slots[other].fence, VK_TRUE, UINT64_MAX);
+            impl.wait_fence(impl.slots[other].fence, "the wait for the frame before");
             perf::add_wait_time(perf::Clock::now() - region_start, perf::Stall::Fence);
         }
     }
     for (std::uint32_t present = 0; present < impl.present_fences.size(); ++present) {
         if ((impl.present_regions[present] & (1u << region)) != 0u) {
             const perf::Clock::time_point region_start = perf::Clock::now();
-            vkWaitForFences(impl.device, 1u, &impl.present_fences[present], VK_TRUE, UINT64_MAX);
+            impl.wait_fence(impl.present_fences[present], "the wait for a present");
             perf::add_wait_time(perf::Clock::now() - region_start, perf::Stall::Fence);
             impl.present_regions[present] = 0u;
         }
@@ -6184,7 +6289,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     // is taken first, as it is older than this one.
     for (std::uint32_t other = 0; other < impl.slot_count; ++other)
         if (other != impl.slot) impl.collect_writeback(other, true);
-    vkWaitForFences(impl.device, 1u, &impl.frame_fence, VK_TRUE, UINT64_MAX);
+    impl.wait_fence(impl.frame_fence, "a framebuffer read back");
     perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Readback);
     vkResetFences(impl.device, 1u, &impl.frame_fence);
     // Uploads and evictions recorded so far have finished with the frame.
@@ -6193,6 +6298,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(impl.command_buffer, &begin);
+    impl.breadcrumb(impl.command_buffer, "frame goes on after a read-back");
     // The queries written so far stay valid: they were reset at the start of
     // the frame, and the next pair follows them.
     impl.begin_gpu_segment(impl.command_buffer);
@@ -6413,7 +6519,7 @@ void VulkanRenderer::Impl::submit_frame() {
     submit.commandBufferCount = frame_batch(command_buffer, batch);
     submit.pCommandBuffers = batch.data();
     const perf::Clock::time_point submit_start = perf::Clock::now();
-    vkQueueSubmit(queue, 1u, &submit, frame_fence);
+    if (vkQueueSubmit(queue, 1u, &submit, frame_fence) == VK_ERROR_DEVICE_LOST) device_lost("a frame's submit");
     perf::add_wait_time(perf::Clock::now() - submit_start, perf::Stall::Submit);
     recording = false;
 }
@@ -6542,7 +6648,7 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     VkCommandBuffer commands = present_commands[slot];
     VkFence fence = present_fences[slot];
     const perf::Clock::time_point wait_start = perf::Clock::now();
-    vkWaitForFences(device, 1u, &fence, VK_TRUE, UINT64_MAX);
+    wait_fence(fence, "the wait for a present slot");
     perf::add_wait_time(perf::Clock::now() - wait_start, perf::Stall::Fence);
     if (present_timed[slot]) {
         std::array<std::uint64_t, 4> results{};
@@ -6673,6 +6779,7 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
 // them.
 void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, float t) {
     const perf::SplitScope split(perf::Split::Replay);
+    breadcrumb(commands, "blended present, " + std::to_string(older_frame.groups.size()) + " draw calls");
     const FrameRecord &older = older_frame;
     const FrameRecord &newer = newer_frame;
     Target &target = blend_targets[slot];
@@ -7459,6 +7566,9 @@ void VulkanRenderer::shutdown() {
     vkFreeMemory(impl.device, impl.overlay_memory, nullptr);
     impl.destroy_upload();
     impl.destroy_writeback();
+    if (impl.breadcrumbs.mapped != nullptr) vkUnmapMemory(impl.device, impl.breadcrumbs.memory);
+    vkDestroyBuffer(impl.device, impl.breadcrumbs.buffer, nullptr);
+    vkFreeMemory(impl.device, impl.breadcrumbs.memory, nullptr);
     impl.prewarm->stop = true;
     if (impl.prewarm->thread.joinable()) impl.prewarm->thread.join();
     if (impl.pipelines_prewarm_used != 0u)
