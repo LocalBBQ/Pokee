@@ -5,6 +5,10 @@
 #include "ui/ui.hpp"
 
 #include "ui/font_menu.hpp"
+#if defined(MHP3RD_DEBUG_MENU)
+#include "debug/debug_tools.hpp"
+#include "ui/debug_screen.hpp"
+#endif
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
 #include "ui/mods_screen.hpp"
@@ -153,13 +157,22 @@ bool Menu::frame() {
     const bool start = ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false);
     // Back closes the font list, or the save import and export, before it
     // closes the menu.
-    const bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
-                                    (tab_ == 4 && mods_screen_open()) || (tab_ == 5 && save_screen_open());
+    bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
+                              (tab_ == 4 && mods_screen_open()) || (tab_ == 5 && save_screen_open());
+#if defined(MHP3RD_DEBUG_MENU)
+    font_list_was_open = font_list_was_open || (tab_ == 6 && debug_screen_open());
+#endif
     back_ = back || pad_back;
 
     begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
-    static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System"};
-    const bool switched = tab_bar(kTabs, 6, tab_) || first_frame_;
+    static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System", "Debug"};
+#if defined(MHP3RD_DEBUG_MENU)
+    // The developer tools' page, in developer builds run with MHP3RD_DEBUG_MENU=1.
+    const int tab_count = debug::enabled() ? 7 : 6;
+#else
+    const int tab_count = 6;
+#endif
+    const bool switched = tab_bar(kTabs, tab_count, tab_) || first_frame_;
     first_frame_ = false;
     begin_content();
     if (switched) {
@@ -172,6 +185,9 @@ bool Menu::frame() {
     case 2: controls(); break;
     case 3: network(); break;
     case 4: mods(); break;
+#if defined(MHP3RD_DEBUG_MENU)
+    case 6: debug_page(back_); break;
+#endif
     default: system(); break;
     }
     begin_footer();

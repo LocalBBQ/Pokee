@@ -845,6 +845,8 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_FRAME_RATE_CYCLE=30,60,90` | Switch the frame rate to the next one listed every `MHP3RD_FRAME_RATE_CYCLE_SECONDS` (default 10), to compare rates on one scene in one run |
 | `MHP3RD_INTERPOLATION_EXTRA_MS=N` | Add N ms of busy CPU time to every blended present, to see the frame rate step down on a fast machine as it would on a slow one |
 | `MHP3RD_TRACE_3D=1` | Per-frame counts of transformed draws, their targets and screen-space bounds |
+| `MHP3RD_DEBUG_MENU=1` | Developer builds only: show the menu's **Debug** page, with cheats for testing (money, any item or equipment piece into the boxes, infinite health and stamina, a frozen quest clock, monsters at 1 health). Release builds (`-DMHP3RD_RELEASE=ON`) do not contain it, and it writes nothing during ad hoc play. See [docs/DEBUG_MENU.md](../../docs/DEBUG_MENU.md) |
+| `MHP3RD_DEBUG_COMMANDS=path` | With `MHP3RD_DEBUG_MENU=1`: a file read while the game runs; each line appended to it is a command run at the next flip (memory search and dumps, `give`, `money`, `giveequip`, `quest` and more), answered with `[debug]` lines. The commands are listed in [docs/DEBUG_MENU.md](../../docs/DEBUG_MENU.md) |
 | `MHP3RD_FIND_CAMERA=1` | Hunt guest memory for the words the camera is kept in, by what they do: one hunt against the yaw the view matrix reports and one against its pitch, trying every word as a float, a 32-bit and a 16-bit number, and as an angle, a rate, or a rate read a frame early. `MHP3RD_FIND_CAMERA_OUT` names a file the surviving list is written to |
 | `MHP3RD_FIND_STEP=N` | Keep the 16-bit fields that move by exactly N between turning frames. The camera's own yaw moves by 1150, which is 1150/65536 of a turn |
 | `MHP3RD_FIND_FLOAT=V`, `MHP3RD_FIND_INT32=N` | List every place in guest memory holding that value. `MHP3RD_FIND_INT16_WIDE=1` searches 16-bit fields instead of 32-bit |
@@ -960,6 +962,7 @@ host/settings/                   Player settings: settings.ini, environment over
 host/camera/                     Camera input from every device, the driver for the game's own camera, and its view's shape
 host/input/                      Keyboard and mouse bindings: names, settings.ini spelling, what held keys press
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
+host/debug/                      Developer tools (not in release builds): the game's money, boxes and quest state, cheats, command file
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
 host/kernel/kernel.{hpp,cpp}     Scheduler, waits, virtual clock, interrupts, memory
 host/kernel/iso_image.{hpp,cpp}  Read-only ISO 9660 view of the disc image
