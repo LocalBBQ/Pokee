@@ -2,6 +2,10 @@
 
 #include "settings/settings.hpp"
 
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_performance.hpp"
+#endif
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -78,6 +82,7 @@ const StallTrace &stall_trace() {
 struct State {
     // Frame in progress.
     Clock::time_point frame_start{Clock::now()};
+    Clock::time_point frame_start_previous{Clock::now()};  // of the frame end_frame() closes
     Clock::duration render{};
     Clock::duration wait{};
     Clock::duration pacing{};
@@ -323,6 +328,7 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     if (presented) count_present();
     const Clock::time_point now = Clock::now();
     const double frame_ms = to_ms(now - s.frame_start);
+    s.frame_start_previous = s.frame_start;
     s.frame_start = now;
 
     if (!s.window_has_clock) {
@@ -345,6 +351,11 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
         ++s.gpu_frames;
     }
     ++s.frame_number;
+#if defined(MHP3RD_ANDROID_APP)
+    // The frame's work, without the sleep that holds the game to real time.
+    android::report_frame_work(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - (s.frame_start_previous + s.pacing)).count());
+#endif
     const StallTrace &trace = stall_trace();
     if (trace.enabled && frame_ms > trace.slow_frame_ms) {
         // The GPU time is the previous frame's: that is the work a fence wait
