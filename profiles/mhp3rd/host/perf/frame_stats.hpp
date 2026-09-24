@@ -50,6 +50,7 @@ enum class Stall : std::uint8_t {
     Copy,      // copying the written-back frame out of mapped memory
     Store,     // converting that frame into guest memory (store_frame)
     Pipeline,  // creating a graphics pipeline the frame needs (CPU work inside "render")
+    Decode,    // waiting at the frame's submit for textures decoded in the background
     Count,
 };
 [[nodiscard]] const char *stall_name(Stall kind);
@@ -143,9 +144,9 @@ struct Summary {
 // turned off every other second, so one run measures them against the paths
 // they replaced under the same load. Each [perf] line ends in "alt on" or
 // "alt off" for the second it covers. Names: direct, lookup, reuse, merge,
-// store, decode, alpha, uploads, clearload, gpudecode.
+// store, decode, alpha, uploads, clearload, gpudecode, texturedecode.
 enum class NewPath : std::uint8_t {
-    Direct, Lookup, Reuse, Merge, Store, Decode, Alpha, Uploads, ClearLoad, GpuDecode, Count
+    Direct, Lookup, Reuse, Merge, Store, Decode, Alpha, Uploads, ClearLoad, GpuDecode, TextureDecode, Count
 };
 // True while `path` is to take its old route this second.
 [[nodiscard]] bool alternate_off(NewPath path);

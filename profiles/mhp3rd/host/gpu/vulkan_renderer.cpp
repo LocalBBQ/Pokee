@@ -29,6 +29,9 @@
 
 #include <atomic>
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
 #include <bit>
 #include <array>
 #include <chrono>
@@ -506,6 +509,86 @@ void read_gamepad(SDL_Gamepad *device, PadState &pad, int &analog_x, int &analog
     analog_x += static_cast<int>(nub_x) - 0x80;
     analog_y += static_cast<int>(nub_y) - 0x80;
 }
+
+// Background texture decoding (MHP3RD_SYNC_TEXTURE_DECODE turns it off): a
+// texture first drawn while a frame is recorded is copied out of guest
+// memory, decoded on these threads while the frame goes on, and uploaded
+// ahead of the frame's commands when the frame is submitted.
+struct DecodeJob {
+    TextureSnapshot snapshot;
+    std::vector<std::uint32_t> pixels;
+    bool ok{};
+    std::atomic<bool> done{};
+};
+
+class DecodePool {
+public:
+    explicit DecodePool(std::uint32_t threads) {
+        for (std::uint32_t i = 0; i < threads; ++i) workers_.emplace_back([this] { work(); });
+    }
+    ~DecodePool() {
+        {
+            std::lock_guard<std::mutex> guard(lock_);
+            stopping_ = true;
+        }
+        wake_.notify_all();
+        for (std::thread &worker : workers_) worker.join();
+    }
+    DecodePool(const DecodePool &) = delete;
+    DecodePool &operator=(const DecodePool &) = delete;
+
+    void submit(std::shared_ptr<DecodeJob> job) {
+        {
+            std::lock_guard<std::mutex> guard(lock_);
+            queue_.push_back(std::move(job));
+        }
+        wake_.notify_one();
+    }
+    // Waits for `job`, decoding jobs still queued on this thread meanwhile.
+    void wait(DecodeJob &job) {
+        std::unique_lock<std::mutex> guard(lock_);
+        while (!job.done.load(std::memory_order_acquire)) {
+            if (!queue_.empty()) {
+                std::shared_ptr<DecodeJob> next = std::move(queue_.front());
+                queue_.pop_front();
+                guard.unlock();
+                run(*next);
+                guard.lock();
+                continue;
+            }
+            finished_.wait(guard);
+        }
+    }
+
+private:
+    void run(DecodeJob &job) {
+        job.ok = decode_snapshot(job.snapshot, job.pixels);
+        {
+            std::lock_guard<std::mutex> guard(lock_);
+            job.done.store(true, std::memory_order_release);
+        }
+        finished_.notify_all();
+    }
+    void work() {
+        std::unique_lock<std::mutex> guard(lock_);
+        for (;;) {
+            wake_.wait(guard, [this] { return stopping_ || !queue_.empty(); });
+            if (stopping_) return;
+            std::shared_ptr<DecodeJob> job = std::move(queue_.front());
+            queue_.pop_front();
+            guard.unlock();
+            run(*job);
+            guard.lock();
+        }
+    }
+
+    std::mutex lock_;
+    std::condition_variable wake_;
+    std::condition_variable finished_;
+    std::deque<std::shared_ptr<DecodeJob>> queue_;
+    std::vector<std::thread> workers_;
+    bool stopping_{};
+};
 
 } // namespace
 
@@ -1461,6 +1544,22 @@ struct VulkanRenderer::Impl {
     // Index list of a draw whose decoded vertices go straight into the vertex
     // buffer (see submit()).
     std::vector<std::uint16_t> direct_indices;
+    // Background texture decoding: the pool (made on first use) and the
+    // textures of the frame being recorded whose pixels are still decoding.
+    std::unique_ptr<DecodePool> decode_pool;
+    struct PendingTexture {
+        std::shared_ptr<DecodeJob> job;
+        VkImage image{};
+        std::uint32_t width{};
+        std::uint32_t height{};
+    };
+    std::vector<PendingTexture> pending_textures;
+    [[nodiscard]] static bool background_decode() {
+        static const bool sync = std::getenv("MHP3RD_SYNC_TEXTURE_DECODE") != nullptr;
+        return !sync && !perf::alternate_off(perf::NewPath::TextureDecode);
+    }
+    // Waits for the frame's pending textures and records their uploads.
+    void finish_pending_textures();
     // MHP3RD_CHECK_DIRECT_VERTICES: draws compared with the expansion, and
     // those that differed.
     std::uint64_t direct_checked{};
@@ -1723,6 +1822,11 @@ struct VulkanRenderer::Impl {
     VkDescriptorSet framebuffer_descriptor(Target &target, bool opaque);
     void snapshot_guest_words(const GuestMemory &memory, std::uint32_t address, Target &target);
     Texture create_texture(std::uint32_t width, std::uint32_t height, const std::uint32_t *pixels);
+    // The image, view and descriptor of a texture, with no pixels yet.
+    Texture create_texture_image(std::uint32_t width, std::uint32_t height);
+    // Copies pixels into a texture's image: ahead of the frame's commands
+    // while one is recorded, else at once (waiting for the queue).
+    void upload_texture(VkImage image, std::uint32_t width, std::uint32_t height, const std::uint32_t *pixels);
     void destroy_texture(Texture &texture);
 };
 
@@ -3259,13 +3363,36 @@ void VulkanRenderer::Impl::end_pass() {
 
 VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t width, std::uint32_t height,
                                                                    const std::uint32_t *pixels) {
+    Texture texture = create_texture_image(width, height);
+    if (texture.descriptor != VK_NULL_HANDLE && pixels != nullptr) upload_texture(texture.image, width, height, pixels);
+    return texture;
+}
+
+VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture_image(std::uint32_t width, std::uint32_t height) {
     Texture texture{};
     std::string error;
     if (!create_image(width, height, VK_FORMAT_R8G8B8A8_UNORM,
                       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, texture.image, texture.memory,
                       texture.view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return texture;
+    VkDescriptorSetAllocateInfo descriptor_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    descriptor_info.descriptorPool = descriptor_pool;
+    descriptor_info.descriptorSetCount = 1u;
+    descriptor_info.pSetLayouts = &descriptor_layout;
+    vkAllocateDescriptorSets(device, &descriptor_info, &texture.descriptor);
+    VkDescriptorImageInfo image_info{texture_sampler(), texture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = texture.descriptor;
+    write.descriptorCount = 1u;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &image_info;
+    vkUpdateDescriptorSets(device, 1u, &write, 0u, nullptr);
+    texture.last_used = ++texture_clock;
+    return texture;
+}
 
+void VulkanRenderer::Impl::upload_texture(VkImage image, std::uint32_t width, std::uint32_t height,
+                                          const std::uint32_t *pixels) {
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4u;
     VkBuffer ring_buffer{};
     VkDeviceSize ring_offset = 0u;
@@ -3276,16 +3403,16 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
             vkBeginCommandBuffer(frame_uploads, &begin);
             frame_uploads_open = true;
         }
-        transition(frame_uploads, texture.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        transition(frame_uploads, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkBufferImageCopy copy{};
         copy.bufferOffset = ring_offset;
         copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
         copy.imageExtent = {width, height, 1u};
-        vkCmdCopyBufferToImage(frame_uploads, ring_buffer, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u,
+        vkCmdCopyBufferToImage(frame_uploads, ring_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u,
                                &copy);
         // The barrier's second scope covers the frame's commands, submitted
         // after these in the same batch.
-        transition(frame_uploads, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        transition(frame_uploads, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         ++frame_upload_count;
     } else {
@@ -3344,12 +3471,12 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(commands, &begin);
-    transition(commands, texture.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transition(commands, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
     copy.imageExtent = {width, height, 1u};
-    vkCmdCopyBufferToImage(commands, staging, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
-    transition(commands, texture.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+    vkCmdCopyBufferToImage(commands, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
+    transition(commands, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vkEndCommandBuffer(commands);
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -3367,20 +3494,6 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t
         vkFreeMemory(device, staging_memory, nullptr);
     }
     }
-    VkDescriptorSetAllocateInfo descriptor_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    descriptor_info.descriptorPool = descriptor_pool;
-    descriptor_info.descriptorSetCount = 1u;
-    descriptor_info.pSetLayouts = &descriptor_layout;
-    vkAllocateDescriptorSets(device, &descriptor_info, &texture.descriptor);
-    VkDescriptorImageInfo image_info{texture_sampler(), texture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    write.dstSet = texture.descriptor;
-    write.descriptorCount = 1u;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.pImageInfo = &image_info;
-    vkUpdateDescriptorSets(device, 1u, &write, 0u, nullptr);
-    texture.last_used = ++texture_clock;
-    return texture;
 }
 
 bool VulkanRenderer::Impl::stage_upload(const void *pixels, VkDeviceSize bytes, VkBuffer &buffer,
@@ -3439,7 +3552,22 @@ bool VulkanRenderer::Impl::stage_upload(const void *pixels, VkDeviceSize bytes, 
     return true;
 }
 
+void VulkanRenderer::Impl::finish_pending_textures() {
+    if (pending_textures.empty()) return;
+    const perf::SplitScope split(perf::Split::Texture);
+    const perf::Clock::time_point wait_start = perf::Clock::now();
+    for (PendingTexture &pending : pending_textures) {
+        decode_pool->wait(*pending.job);
+        if (!pending.job->ok) pending.job->pixels.assign(static_cast<std::size_t>(pending.width) * pending.height, 0u);
+        upload_texture(pending.image, pending.width, pending.height, pending.job->pixels.data());
+    }
+    pending_textures.clear();
+    perf::note_stall(perf::Stall::Decode, perf::Clock::now() - wait_start);
+}
+
 std::uint32_t VulkanRenderer::Impl::frame_batch(VkCommandBuffer commands, std::array<VkCommandBuffer, 2> &batch) {
+    // Textures still decoding are uploaded ahead of the draws that use them.
+    if (commands == command_buffer) finish_pending_textures();
     std::uint32_t count = 0u;
     if (commands == command_buffer && frame_uploads_open) {
         vkEndCommandBuffer(frame_uploads);
@@ -3542,9 +3670,16 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         memo->erased = textures_erased;
         return use(found->second);
     }
+    // Decoded in the background when it can be: copied out of guest memory
+    // now, uploaded when the frame is submitted (finish_pending_textures).
+    std::shared_ptr<DecodeJob> job;
+    if (recording && async_uploads() && background_decode() && !dumper) {
+        job = std::make_shared<DecodeJob>();
+        if (!snapshot_texture(memory, state, job->snapshot)) job.reset();
+    }
     std::vector<std::uint32_t> fresh_pixels;
     std::vector<std::uint32_t> &pixels = reuse_buffers() ? decoded_pixels : fresh_pixels;
-    if (!decode_texture(memory, state, pixels) || pixels.empty()) {
+    if (!job && (!decode_texture(memory, state, pixels) || pixels.empty())) {
         // MHP3RD_TRACE_WHITE_TEXTURES: each texture that could not be decoded
         // and is drawn white instead, once.
         static const bool trace_white = std::getenv("MHP3RD_TRACE_WHITE_TEXTURES") != nullptr;
@@ -3593,8 +3728,17 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         textures.erase(oldest);
         ++textures_erased;
     }
-    Texture texture = create_texture(state.width, state.height, pixels.data());
+    Texture texture = job ? create_texture_image(state.width, state.height)
+                          : create_texture(state.width, state.height, pixels.data());
     if (texture.descriptor == VK_NULL_HANDLE) return white_texture;
+    if (job) {
+        if (!decode_pool) {
+            const std::uint32_t cores = std::max(1u, std::thread::hardware_concurrency());
+            decode_pool = std::make_unique<DecodePool>(std::clamp(cores / 2u, 1u, 3u));
+        }
+        decode_pool->submit(job);
+        pending_textures.push_back({std::move(job), texture.image, state.width, state.height});
+    }
     texture.max_seen_v = max_seen_v;
     // The pack's hash reads the whole texture, so it is taken here, once per
     // upload, and never on the per-draw path above.
@@ -7142,6 +7286,8 @@ void VulkanRenderer::shutdown() {
     impl.destroy_upload();
     impl.destroy_writeback();
     impl.report_pipelines(true);
+    impl.pending_textures.clear();
+    impl.decode_pool.reset();
     if (impl.pipeline_cache != VK_NULL_HANDLE) vkDestroyPipelineCache(impl.device, impl.pipeline_cache, nullptr);
     impl.pipeline_cache = VK_NULL_HANDLE;
     for (auto &[key, pipeline] : impl.pipelines) vkDestroyPipeline(impl.device, pipeline, nullptr);
