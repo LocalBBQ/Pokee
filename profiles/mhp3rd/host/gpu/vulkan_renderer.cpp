@@ -5202,6 +5202,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         // their indices in the index buffer, written once the draw's group is
         // known.
         vertex_start = (impl.vertex_offset + 15u) & ~VkDeviceSize{15u};
+        // A draw that can join the open group follows its vertices directly,
+        // so its indices rebase onto the group's first vertex. A GpuVertex is
+        // 40 bytes: rounding its start up to 16 bytes as before broke that
+        // for every other draw, and half the draws that could have merged
+        // did not (MHP3RD_NO_TIGHT_MERGE rounds as before).
+        static const bool loose_merge = std::getenv("MHP3RD_NO_TIGHT_MERGE") != nullptr;
+        if (merge && !loose_merge && impl.group.open && impl.vertex_offset == impl.group.vertex_end)
+            vertex_start = impl.vertex_offset;
         const VkDeviceSize vertex_end = vertex_start + call.vertices.size() * sizeof(GpuVertex);
         index_start = (vertex_end + 3u) & ~VkDeviceSize{3u};
         draw_end = merge ? vertex_end : index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
