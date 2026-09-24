@@ -177,7 +177,7 @@ void page() {
         });
 
     section("Item box");
-    info_row("Free slots", std::to_string(n.free_items) + " of " + std::to_string(game::kItemBoxSlots));
+    info_row("Free slots##items", std::to_string(n.free_items) + " of " + std::to_string(game::kItemBoxSlots));
     {
         RowOptions o = write_row("Any item by name, with a count, or take an item out of the box.");
         if (s.items.empty()) {
@@ -197,7 +197,8 @@ void page() {
         });
 
     section("Equipment box");
-    info_row("Free slots", std::to_string(n.free_equipment) + " of " + std::to_string(game::kEquipmentBoxSlots));
+    info_row("Free slots##equipment",
+             std::to_string(n.free_equipment) + " of " + std::to_string(game::kEquipmentBoxSlots));
     if (value_row("Give equipment", "",
                   write_row("Any weapon or armor piece, layered and collaboration sets included, new and at "
                             "level 1. Equip it from the item box in the hunter's house."))) {
@@ -224,7 +225,10 @@ void page() {
         held_row("Monsters at 1 health", held.one_hit, "Every large monster's health is set to 1, so the next hit "
                                                          "ends it.");
         if (changed) debug::set_held_cheats(held);
-        for (const std::string &line : debug::quest_status()) info_row("Quest", line);
+        // Each row needs an id of its own for the pad to move between them.
+        int row = 0;
+        for (const std::string &line : debug::quest_status())
+            info_row(("Quest##quest" + std::to_string(row++)).c_str(), line);
     }
 
     section("Log");

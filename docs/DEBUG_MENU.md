@@ -215,15 +215,20 @@ and write them only while `game_task.ovl` is there.
 ## Not verified, and not done
 
 - *Unlock all quests*, village progress flags and hunter rank are not on the
-  page. The hint list has a quest-flag area, and the byte after the points
-  that looked like the rank (`0x09FAC8C5`, 6 on a rank 6 hunter) did not
-  change the Status screen's HR when written, so neither is understood well
-  enough to write without risking an inconsistent save.
-- The quest cheats were verified on one quest (a gathering quest in the
-  Misty Peaks at night): health, stamina and the clock by writing them and
-  watching the game; *Monsters at 1 health* only by reading the monster
-  table, not by fighting a monster to the end. Multi-monster quests, arena
-  quests and the Guild Hall with companions were not tried.
-- The item box and equipment box layouts were verified with a late save.
-  An early save loads into the same addresses (the same executable), but
-  the page was not exercised there.
+  page. The hint list has a quest-flag area, and a byte beside the points
+  that looked like the rank (`0x09FAC8C5`: 6 on a rank 6 hunter, but 0 on a
+  rank 1 hunter) did not change the Status screen's HR when written, so
+  neither is understood well enough to write without risking an
+  inconsistent save.
+- The quest addresses were traced on a gathering quest in the Misty Peaks,
+  and the page's switches verified on a low-rank hunting quest there: with infinite health on, health written down
+  to 20 was back at its most by the next read; stamina stayed at 900 while
+  the hunter sprinted; the clock stood at the same second for over ten
+  seconds; with monsters at 1 health the quest's Arzuros read 1/960. Killing
+  a monster with that one hit was not tried, nor were multi-monster quests,
+  arena quests or the Guild Hall with companions.
+- Saves: a late save (every armor, HR 6) and an early one (HR 1, three hours
+  played). With the early one the page read the character, set zenny to
+  9,999,999 (the Status screen showed it) and gave an item and an armor
+  piece; that equipment was not opened in the game's equipment screen on the
+  early save.
