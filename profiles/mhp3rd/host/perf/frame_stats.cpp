@@ -7,6 +7,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -57,7 +58,8 @@ Alternate &alternate() {
         const char *text = std::getenv("MHP3RD_PERF_ALTERNATE");
         if (text == nullptr) return result;
         const std::string names = std::string(",") + text + ",";
-        const char *known[] = {"direct", "lookup", "reuse", "merge", "store", "decode", "alpha", "uploads", "clearload"};
+        const char *known[] = {"direct", "lookup", "reuse", "merge", "store", "decode", "alpha", "uploads", "clearload",
+                               "gpudecode", "texturedecode"};
         static_assert(sizeof(known) / sizeof(known[0]) == static_cast<std::size_t>(NewPath::Count));
         for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(NewPath::Count); ++i)
             if (names.find(std::string(",") + known[i] + ",") != std::string::npos) result.paths |= 1u << i;
@@ -219,6 +221,7 @@ const char *stall_name(Stall kind) {
     case Stall::Copy: return "copy";
     case Stall::Store: return "store";
     case Stall::Pipeline: return "pipeline";
+    case Stall::Decode: return "decode";
     case Stall::Count: break;
     }
     return "?";
@@ -264,6 +267,77 @@ void restart_measurement() {
 }
 
 void add_render_time(Clock::duration duration) { state().render += duration; }
+
+namespace {
+
+constexpr std::size_t kSplitKinds = static_cast<std::size_t>(Split::Count);
+
+struct RenderSplit {
+    std::array<std::uint64_t, kSplitKinds> ticks{};
+    // Counter ticks per millisecond, measured against the steady clock over
+    // the first second.
+    double ticks_per_ms{};
+    std::uint64_t calibration_ticks{};
+    Clock::time_point calibration_start{};
+};
+
+RenderSplit &render_split() {
+    static RenderSplit value;
+    return value;
+}
+
+// Prints the second's split per game frame; `frames` flips in it.
+void report_split(double frames) {
+    RenderSplit &split = render_split();
+    const std::uint64_t now_ticks = split_ticks();
+    const Clock::time_point now = Clock::now();
+    if (split.calibration_ticks == 0u) {
+        split.calibration_ticks = now_ticks;
+        split.calibration_start = now;
+        split.ticks = {};
+        return;
+    }
+    if (split.ticks_per_ms == 0.0) {
+        const double ms = to_ms(now - split.calibration_start);
+        if (ms > 0.0) split.ticks_per_ms = static_cast<double>(now_ticks - split.calibration_ticks) / ms;
+    }
+    if (split.ticks_per_ms <= 0.0 || frames <= 0.0) return;
+    const auto ms = [&](Split kind) {
+        return static_cast<double>(split.ticks[static_cast<std::size_t>(kind)]) / split.ticks_per_ms / frames;
+    };
+    const double lists = ms(Split::Lists), decode = ms(Split::Decode), draw = ms(Split::Draw);
+    const double texture = ms(Split::Texture), record = ms(Split::Record), summary = ms(Split::Summary);
+    const double replay = ms(Split::Replay);
+    std::printf("[render-split] ms per game frame: lists %.2f = parse %.2f + decode %.2f + draw %.2f (host %.2f, "
+                "texture %.2f, record %.2f, summary %.2f) | interp %.2f replay %.2f present %.2f writeback %.2f\n",
+                lists, std::max(0.0, lists - decode - draw), decode, draw,
+                std::max(0.0, draw - texture - record - summary), texture, record, summary, ms(Split::Interp),
+                replay, std::max(0.0, ms(Split::Present) - replay), ms(Split::Writeback));
+    std::fflush(stdout);
+    split.ticks = {};
+}
+
+} // namespace
+
+bool split_enabled() noexcept {
+    static const bool enabled = std::getenv("MHP3RD_TRACE_RENDER") != nullptr;
+    return enabled;
+}
+
+std::uint64_t split_ticks() noexcept {
+#if defined(__aarch64__) && !defined(_MSC_VER)
+    std::uint64_t value;
+    asm volatile("mrs %0, cntvct_el0" : "=r"(value));
+    return value;
+#elif (defined(__x86_64__) || defined(_M_X64)) && !defined(_MSC_VER)
+    return __builtin_ia32_rdtsc();
+#else
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
+#endif
+}
+
+void add_split(Split kind, std::uint64_t ticks) noexcept { render_split().ticks[static_cast<std::size_t>(kind)] += ticks; }
 void add_wait_time(Clock::duration duration, Stall kind) {
     State &s = state();
     s.wait += duration;
@@ -426,6 +500,7 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     out.frame_rate = s.frame_rate;
     out.requested_rate = s.requested_rate;
     if (options().log) print(out);
+    if (split_enabled()) report_split(frames);
     // A phone has no environment to set MHP3RD_TRACE_STALLS in: there the
     // [stalls] line comes with the [perf] line (Performance: Log), so a log a
     // player saves from the menu says where the frame time went.

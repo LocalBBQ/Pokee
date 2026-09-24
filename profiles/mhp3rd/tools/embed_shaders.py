@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Compile the GE shaders to SPIR-V and emit them as C arrays.
 
-    embed_shaders.py <glslang> <output.inc> <name=shader.glsl> ...
+    embed_shaders.py <glslang> <output.inc> <name=[DEFINE,...@]shader.glsl> ...
+
+A shader can be compiled more than once with different preprocessor
+definitions: `kName=RAW,CHECK@ge.vert` compiles ge.vert with -DRAW -DCHECK.
 
 Keeping the SPIR-V in the binary means the renderer has no runtime file
 dependency on the build directory.
@@ -13,11 +16,12 @@ import sys
 import tempfile
 
 
-def compile_shader(compiler, source):
+def compile_shader(compiler, source, defines):
     with tempfile.NamedTemporaryFile(suffix=".spv", delete=False) as handle:
         output = handle.name
     try:
-        subprocess.run([compiler, "-V", source, "-o", output], check=True, capture_output=True)
+        subprocess.run([compiler, "-V"] + [f"-D{name}" for name in defines] + [source, "-o", output], check=True,
+                       capture_output=True)
         with open(output, "rb") as binary:
             return binary.read()
     finally:
@@ -32,7 +36,11 @@ def main(argv):
     parts = []
     for entry in argv[3:]:
         name, _, path = entry.partition("=")
-        data = compile_shader(compiler, path)
+        defines = []
+        if "@" in path:
+            listed, _, path = path.partition("@")
+            defines = [define for define in listed.split(",") if define]
+        data = compile_shader(compiler, path, defines)
         words = [int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)]
         body = ",\n    ".join(", ".join(f"0x{word:08x}u" for word in words[i:i + 6]) for i in range(0, len(words), 6))
         parts.append(f"// {os.path.basename(path)}, {len(data)} bytes\n"

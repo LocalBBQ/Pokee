@@ -150,6 +150,7 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
         gpu::VulkanRenderer &renderer = *media().renderer;
         const psprecomp::GuestMemory &memory = rt.memory();
         renderer.begin_display_list();
+        media().ge.set_raw_vertices(renderer.gpu_decode(), renderer.check_gpu_decode());
         media().ge.set_draw_sink([&renderer, &memory](const gpu::DrawCall &call) { renderer.submit(call, memory); });
     }
 #endif
@@ -157,6 +158,7 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
 
     bool finished = false;
     try {
+        const perf::SplitScope split(perf::Split::Lists);
         list.pc = media().ge.execute(rt.memory(), list.pc, list.stall, finished);
     } catch (const psprecomp::Error &error) {
         // A malformed list must not take the whole run down: drop it and carry on.

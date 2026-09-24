@@ -192,7 +192,29 @@ struct DrawCall {
     std::array<float, 16> view{};
     std::array<float, 16> projection{};
     std::array<float, 16> texture_matrix{};
+    // GPU vertex decode (GeState::set_raw_vertices): a transformed triangle
+    // draw whose vertices were not decoded here. `vertices` is then empty, and
+    // these give the guest's own bytes of the vertices the draw uses (from its
+    // lowest index), valid while the draw sink runs, as are the bone matrices
+    // (8 of them, 3x4 each, as uploaded) a skinned vertex type is blended by.
+    const std::uint8_t *raw_vertices{};
+    std::uint32_t raw_count{};
+    std::uint32_t raw_stride{};
+    const float *bone_matrices{};
 };
+
+// Where each field of a vertex of `vertex_type` lies in its bytes, as
+// decode_vertices() reads them; kNoVertexField when the type has none.
+inline constexpr std::uint32_t kNoVertexField = 0xFFFFFFFFu;
+struct VertexFormat {
+    std::uint32_t stride{};  // of one morph target
+    std::uint32_t weight_offset{kNoVertexField};
+    std::uint32_t texcoord_offset{kNoVertexField};
+    std::uint32_t color_offset{kNoVertexField};
+    std::uint32_t normal_offset{kNoVertexField};
+    std::uint32_t position_offset{kNoVertexField};
+};
+[[nodiscard]] VertexFormat vertex_format(std::uint32_t vertex_type) noexcept;
 
 // A GE block transfer: a rectangle of `width` x `height` pixels of
 // `bytes_per_pixel` bytes copied from one buffer to another, each with its own
@@ -223,6 +245,14 @@ public:
     void set_signal_sink(SignalSink sink) { signal_sink_ = std::move(sink); }
     // Block transfers are carried out by the sink, which can write guest memory.
     void set_transfer_sink(TransferSink sink) { transfer_sink_ = std::move(sink); }
+    // On, transformed triangles, strips and fans of one morph target whose
+    // vertices lie contiguously in host memory reach the sink undecoded
+    // (DrawCall::raw_vertices), for the renderer to decode on the GPU.
+    // `also_decode` decodes them as well, for checking the GPU's decode.
+    void set_raw_vertices(bool raw, bool also_decode = false) noexcept {
+        raw_vertices_ = raw;
+        raw_also_decoded_ = also_decode;
+    }
 
     // Runs commands from `pc` until `stall` (0 = no stall) or END. Returns the
     // address execution stopped at; `finished` reports whether the list ended.
@@ -290,6 +320,8 @@ private:
     std::uint64_t draw_count_{};
     std::uint64_t vertex_count_{};
     std::uint64_t unhandled_commands_{};
+    bool raw_vertices_{};
+    bool raw_also_decoded_{};
 };
 
 // Copies the game makes out of VRAM with the DMA controller, remembered for

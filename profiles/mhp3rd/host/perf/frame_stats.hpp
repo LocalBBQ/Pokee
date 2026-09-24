@@ -50,6 +50,7 @@ enum class Stall : std::uint8_t {
     Copy,      // copying the written-back frame out of mapped memory
     Store,     // converting that frame into guest memory (store_frame)
     Pipeline,  // creating a graphics pipeline the frame needs (CPU work inside "render")
+    Decode,    // waiting at the frame's submit for textures decoded in the background
     Count,
 };
 [[nodiscard]] const char *stall_name(Stall kind);
@@ -143,10 +144,51 @@ struct Summary {
 // turned off every other second, so one run measures them against the paths
 // they replaced under the same load. Each [perf] line ends in "alt on" or
 // "alt off" for the second it covers. Names: direct, lookup, reuse, merge,
-// store, decode, alpha, uploads, clearload.
-enum class NewPath : std::uint8_t { Direct, Lookup, Reuse, Merge, Store, Decode, Alpha, Uploads, ClearLoad, Count };
+// store, decode, alpha, uploads, clearload, gpudecode, texturedecode.
+enum class NewPath : std::uint8_t {
+    Direct, Lookup, Reuse, Merge, Store, Decode, Alpha, Uploads, ClearLoad, GpuDecode, TextureDecode, Count
+};
 // True while `path` is to take its old route this second.
 [[nodiscard]] bool alternate_off(NewPath path);
+
+// MHP3RD_TRACE_RENDER: where the render thread's CPU time goes, as a
+// [render-split] line once a second in milliseconds per game frame. The parts
+// are timed with the CPU's own counter (cntvct/rdtsc), cheap enough to leave
+// the frame's timing nearly as it was; off, a scope costs one test of a flag.
+//   Lists:     running display lists (GeState::execute), draws included
+//   Decode:    reading a draw's indices and decoding its vertices
+//   Draw:      the renderer's handling of a draw (VulkanRenderer::submit)
+//   Texture:   of Draw, finding, decoding and uploading its texture
+//   Record:    of Draw, recording the Vulkan state and draw commands
+//   Interp:    frame interpolation's bookkeeping at the flip: matching the
+//              frame's draws with the frame before's, copying its picture
+//   Replay:    recording the draws of a blended present again
+//   Present:   presents and submits, the flip's and those between flips
+//              (MoltenVK's own encoding included when submits are synchronous)
+//   Writeback: storing the shown frame into guest memory
+//   Summary:   of Draw, what interpolation keeps of each draw
+enum class Split : std::uint8_t {
+    Lists, Decode, Draw, Texture, Record, Summary, Interp, Replay, Present, Writeback, Count
+};
+[[nodiscard]] bool split_enabled() noexcept;
+[[nodiscard]] std::uint64_t split_ticks() noexcept;
+void add_split(Split kind, std::uint64_t ticks) noexcept;
+class SplitScope {
+public:
+    explicit SplitScope(Split kind) noexcept : kind_(kind), on_(split_enabled()) {
+        if (on_) start_ = split_ticks();
+    }
+    ~SplitScope() {
+        if (on_) add_split(kind_, split_ticks() - start_);
+    }
+    SplitScope(const SplitScope &) = delete;
+    SplitScope &operator=(const SplitScope &) = delete;
+
+private:
+    Split kind_;
+    bool on_;
+    std::uint64_t start_{};
+};
 
 // Frame times in milliseconds, a ring written at `history_cursor()`.
 inline constexpr std::size_t kHistoryFrames = 192u;

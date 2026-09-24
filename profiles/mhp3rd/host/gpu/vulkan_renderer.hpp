@@ -112,6 +112,12 @@ public:
     // Call before walking each display list. Guest memory cannot change while a
     // list is walked, so texture contents are hashed once per list, not per draw.
     void begin_display_list();
+    // GPU vertex decode (MHP3RD_GPU_DECODE): whether the display list about
+    // to run should hand transformed triangle draws over undecoded
+    // (GeState::set_raw_vertices), and whether it should also decode them
+    // for MHP3RD_CHECK_GPU_DECODE.
+    [[nodiscard]] bool gpu_decode() const;
+    [[nodiscard]] bool check_gpu_decode() const;
     void submit(const DrawCall &call, const GuestMemory &memory);
     // Writes the framebuffer shown a frame or two ago back to guest VRAM, in
     // the guest's pixel format at 480x272, so game code that copies a frame
