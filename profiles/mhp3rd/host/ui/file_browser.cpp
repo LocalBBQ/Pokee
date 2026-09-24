@@ -241,8 +241,14 @@ FileBrowser::Result FileBrowser::frame(bool back) {
         open(folder_);
     }
     // Under gamescope the portal dialog never shows; do not offer it there.
-    const bool gamescope = std::getenv("GAMESCOPE_WAYLAND_DISPLAY") != nullptr;
-    if (!gamescope && chip("##system", "System dialog\u2026")) {
+    // On Android it gives content:// documents, which nothing that uses the
+    // browser can read by name.
+#if defined(MHP3RD_ANDROID_APP)
+    const bool system_dialog = false;
+#else
+    const bool system_dialog = std::getenv("GAMESCOPE_WAYLAND_DISPLAY") == nullptr;
+#endif
+    if (system_dialog && chip("##system", "System dialog\u2026")) {
         static const SDL_DialogFileFilter kFilters[] = {{"Disc images (*.iso)", "iso"}, {"All files", "*"}};
         const bool folders = !options_.choose_folder.empty();
         auto *state = new std::shared_ptr<SystemDialog>(dialog_);

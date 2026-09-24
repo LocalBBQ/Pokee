@@ -174,8 +174,16 @@ void log_review(const Review &r) {
 
 bool browse(bool back) {
     State &s = state();
+#if defined(MHP3RD_ANDROID_APP)
+    indented("Import: open the pack's folder, the one that holds textures.ini, or choose a folder that holds it, "
+             "such as PPSSPP's PSP/TEXTURES.");
+    indented("On Android this lists only folders Yakumo can read by itself, which leaves out Downloads and SD "
+             "cards. Importing through Android's file picker is not supported yet.",
+             colors::kTextDim);
+#else
     indented("Import: open the pack's folder, the one that holds textures.ini, or choose a folder that holds it, "
              "such as PPSSPP's PSP/TEXTURES. You can also drop the folder on the window.");
+#endif
     // A folder dropped on the window is chosen at once.
     if (auto dropped = Layer::get().take_dropped_file()) {
         s.last_folder = s.browser->folder();
