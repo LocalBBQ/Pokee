@@ -1069,6 +1069,9 @@ struct VulkanRenderer::Impl {
     // image is used.
     Target held{};
     bool holding{};
+    // A load running fast: presents are thinned out (set_fast_forward).
+    bool fast_forward{};
+    std::chrono::steady_clock::time_point fast_forward_shown{};
     // Per-frame tally, so "no 3D" can be told from "3D drawn somewhere else".
     std::uint32_t frame_through_draws{};
     std::uint32_t frame_transformed_draws{};
@@ -6341,7 +6344,7 @@ double VulkanRenderer::Impl::wanted_rate() const {
 bool VulkanRenderer::Impl::interpolation_wanted() const {
     // Emulated time running ahead of real time already presents faster than
     // the game's own rate; the keyboard's held frame is shown as it is.
-    return frame_rate != settings::FrameRate::Fps30 && !settings::current().unthrottled && !holding &&
+    return frame_rate != settings::FrameRate::Fps30 && !settings::current().unthrottled && !holding && !fast_forward &&
            governor.rate() > 30.5;
 }
 
@@ -7242,6 +7245,18 @@ bool VulkanRenderer::present(std::uint32_t display_address,
     }
     // The game's frame as it is, at its flip.
     if (impl.cycle_active || impl.newer_frame.valid) impl.reset_interpolation();
+    if (impl.fast_forward) {
+        // A load running fast: the flip is drawn, and shown only when the
+        // window has not had a picture for a while, so the display's refresh
+        // never holds the load back.
+        if (now - impl.fast_forward_shown < kFastForwardPresentInterval) {
+            impl.ui_draw_data = nullptr;
+            impl.submit_frame();
+            ++impl.frames;
+            return false;
+        }
+        impl.fast_forward_shown = now;
+    }
     {
         const perf::SplitScope split(perf::Split::Present);
         impl.submit_and_present(source, true);
@@ -7275,6 +7290,13 @@ void VulkanRenderer::present_until(std::chrono::steady_clock::time_point wake) {
         // presents: the next ones would find none either.
         if (!impl.poll_presents(Clock::now(), true, true)) return;
     }
+}
+
+void VulkanRenderer::set_fast_forward(bool on) {
+    if (!impl_ || impl_->fast_forward == on) return;
+    impl_->fast_forward = on;
+    // The first flip of a fast stretch is shown.
+    impl_->fast_forward_shown = {};
 }
 
 void VulkanRenderer::pause_interpolation() {

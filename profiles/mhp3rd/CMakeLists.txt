@@ -147,6 +147,9 @@ set(MHP3RD_HOST_SOURCES
     host/overlays.cpp
     host/mhp3rd_profile.cpp
     host/kernel/kernel.cpp
+    host/kernel/load_trace.cpp
+    host/kernel/fast_loading.cpp
+    host/kernel/load_detector.cpp
     host/kernel/iso_image.cpp
     host/hle/hle_common.cpp
     host/hle/hle_threadman.cpp
@@ -353,6 +356,16 @@ target_link_libraries(mhp3rd_settings_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_settings_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_settings_tests COMMAND mhp3rd_settings_tests)
+endif()
+
+# Fast loading's decision: when a load runs ahead of real time.
+add_executable(mhp3rd_fast_loading_tests
+    tests/fast_loading_tests.cpp
+    host/kernel/load_detector.cpp)
+target_include_directories(mhp3rd_fast_loading_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_fast_loading_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_fast_loading_tests COMMAND mhp3rd_fast_loading_tests)
 endif()
 
 # The on-screen touch controls: layout, fingers and the stick's maths.

@@ -373,6 +373,20 @@ void Menu::video() {
         settings::save();
     }
     {
+        RowOptions o = options_for("video.fast_loading",
+                                   "Lets the game run ahead of real time while it loads and is silent, so loads "
+                                   "take as long as the computer needs. Never during play, sound, movies or "
+                                   "ad hoc play.");
+        if (s.unthrottled && !o.disabled) {
+            o.disabled = true;
+            o.note = "Game speed is Unlimited";
+        }
+        if (toggle_row("Fast loading", s.fast_loading, o)) {
+            s.fast_loading = !s.fast_loading;
+            settings::save();
+        }
+    }
+    {
         static const char *const kPerf[] = {"Off", "Overlay", "Overlay and log", "Log only"};
         const int current = static_cast<int>(s.perf);
         if (const int delta = choice_row(
@@ -402,6 +416,7 @@ void Menu::video() {
         restore("video.frame_rate", s.frame_rate, d.frame_rate);
         restore("video.frame_rate_auto", s.frame_rate_auto, d.frame_rate_auto);
         restore("video.unthrottled", s.unthrottled, d.unthrottled);
+        restore("video.fast_loading", s.fast_loading, d.fast_loading);
         restore("video.performance", s.perf, d.perf);
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
