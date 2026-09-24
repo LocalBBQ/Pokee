@@ -20,9 +20,11 @@
 # that later builds install over earlier ones and keep the player's data;
 # without it a throwaway key is made in the build directory.
 #
-# The app needs Android 11 (API 30): the native code uses
-# pthread_cond_clockwait, and every 64-bit device from Android 10 has Vulkan
-# 1.1 anyway.
+# The app needs Android 10 (API 29), where every 64-bit device has Vulkan
+# 1.1: build the native code for android-29 (ANDROID_PLATFORM), or it may
+# import libc functions Android 10 lacks (libc++ waits with
+# pthread_cond_clockwait from android-30 on). Newer Android features are
+# looked up at run time.
 # The overlay limit packs only the first N overlay libraries, to keep a test
 # APK small; without it every one is packed.
 set -euo pipefail
@@ -45,7 +47,7 @@ mkdir -p "$work/classes" "$work/dex" "$work/lib/arm64-v8a"
 echo "compiling SDL's Java activity and the app's own"
 javac -nowarn --release 11 -classpath "$android_jar" -d "$work/classes" \
     $(find "$sdl_dir/android-project/app/src/main/java" "$here/java" -name '*.java') 2> "$work/javac.log"
-min_sdk=30
+min_sdk=29
 "$build_tools/d8" --release --min-api "$min_sdk" --lib "$android_jar" --output "$work/dex" \
     $(find "$work/classes" -name '*.class')
 
