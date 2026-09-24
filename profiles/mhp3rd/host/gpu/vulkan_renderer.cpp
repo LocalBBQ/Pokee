@@ -1706,6 +1706,14 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     impl.governor.set_automatic(player.frame_rate_auto);
     const std::uint32_t window_scale = std::clamp<std::uint32_t>(player.window_scale, 1u, settings::kMaxWindowScale);
 
+#if defined(__APPLE__)
+    // MoltenVK turns a frame's Vulkan commands into Metal ones when they are
+    // submitted, on the calling thread: 1-2 ms of the game's thread a frame.
+    // Asynchronous submits do that on MoltenVK's own thread instead; fences
+    // and semaphores keep their meaning. Setting the variable yourself (to 1)
+    // keeps submits synchronous.
+    setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 0);
+#endif
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         error = std::string("SDL_Init failed: ") + SDL_GetError();
         return false;
@@ -5042,7 +5050,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         ++impl.frame_through_draws;
     } else {
         ++impl.frame_transformed_draws;
-        ++impl.frame_transformed_targets[call.target.color_address];
+        // Only MHP3RD_TRACE_3D reads it: a map insert per draw otherwise.
+        if (trace3d) ++impl.frame_transformed_targets[call.target.color_address];
         if (watch_camera) {
             const auto same = std::find_if(impl.frame_views.begin(), impl.frame_views.end(),
                                            [&](const auto &entry) { return entry.first == call.view; });
