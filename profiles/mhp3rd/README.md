@@ -687,7 +687,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TRACE_RENDER` | off | A `[render-split]` line each second: the render thread's milliseconds per game frame running display lists (parsing, vertex decode, the renderer's handling of each draw with its texture and command recording) and on interpolation, replays, presents and the write-back. Timed with the CPU's own counter, so the frame barely changes |
 | `MHP3RD_NO_FAST_STORE` | off | Convert the frame written back to guest memory pixel by pixel, as before, instead of a row at a time |
 | `MHP3RD_TEXTURE_CACHE_LIMIT` | `1024` | Keep at most this many decoded textures on the GPU; a small number tests eviction |
-| `MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS` | `0` on macOS | MoltenVK's own setting, which the renderer sets to `0` unless it is already set: MoltenVK then turns each submitted frame into Metal commands on a thread of its own instead of the game's. `1` does it on the game's thread, as before |
+| `MHP3RD_MOLTENVK_ASYNC_SUBMITS` | off | macOS: `1` lets MoltenVK turn each submitted frame into Metal commands on a thread of its own instead of the game's, saving 1–2 ms of the game's thread a frame. Off by default: it crashed after minutes of play in v0.6.0-alpha.4. MoltenVK's own `MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=0` does the same |
 
 ### Picture shape and size
 
