@@ -58,7 +58,7 @@ A prebuilt release needs nothing but your disc image. Download one from the [rel
 - **Linux and Steam Deck:** a Flatpak bundle and a portable tarball. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling.
 - **Windows:** a portable x86-64 archive with the required runtime libraries.
 - **macOS (Apple Silicon, macOS 13 or newer):** a disk image with the app. It is not notarized by Apple, so macOS asks you to allow it once. [`docs/MACOS.md`](docs/MACOS.md) covers installing, the first start, where saves live, updating and uninstalling.
-- **Android:** an APK for 64-bit phones and handhelds with Android 11 or later and Vulkan 1.1. On its first start it takes your `.iso` through Android's file picker and copies it into the app (about 1.3 GB besides the app's 0.8 GB). Touch controls are drawn over the game; gamepads work too. Tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
+- **Android:** an APK for 64-bit phones and handhelds with Android 10 or later and Vulkan 1.1. On its first start it takes your `.iso` through Android's file picker and copies it into the app (about 1.3 GB besides the app's 0.8 GB). Touch controls are drawn over the game; gamepads work too. Tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
 
 ## Requirements
 

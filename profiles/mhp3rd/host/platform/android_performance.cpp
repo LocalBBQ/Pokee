@@ -15,7 +15,7 @@ namespace {
 constexpr std::int64_t kTargetWorkNs = 25'000'000;
 
 // Resolved at run time: the functions exist from API 33, and the app runs on
-// Android 11 and later.
+// Android 10 and later.
 struct Hints {
     using GetManager = void *(*)();
     using CreateSession = void *(*)(void *, const std::int32_t *, std::size_t, std::int64_t);

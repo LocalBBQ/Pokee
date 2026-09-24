@@ -5,10 +5,11 @@
 #
 # From an Android build directory whose overlays are already built (the NDK
 # toolchain, -DMHP3RD_ANDROID_APP=ON; docs/RELEASING.md has the commands),
-# this switches it to a release build (MHP3RD_RELEASE, the pinned SDL3),
-# rebuilds libmain.so if that changes it, copies the 355 overlay libraries as
-# they are, packs and signs the APK with the release key, checks that it holds
-# no game data, and prints its size and SHA-256. Everything lands in
+# this switches it to a release build (MHP3RD_RELEASE, the pinned SDL3,
+# Android 10 as the oldest system), rebuilds libmain.so if that changes it,
+# copies the 355 overlay libraries as they are, packs and signs the APK with
+# the release key, checks that it holds no game data and that its libraries
+# import nothing Android 10 lacks, and prints its size and SHA-256. Everything lands in
 # out/release-android; the artifacts in out/release-android/dist.
 #
 # Needs ANDROID_HOME (the SDK, with build-tools and platform 35), the NDK the
@@ -49,7 +50,12 @@ cached() { sed -n "s/^$1:[A-Z]*=//p" "$cache" | head -1 || true; }
 : "${ANDROID_HOME:?set ANDROID_HOME to the Android SDK}"
 toolchain="$(cached CMAKE_TOOLCHAIN_FILE)"
 ndk="$(cd "$(dirname "$toolchain")/../.." && pwd)"
-platform="$(cached ANDROID_PLATFORM)"
+# The oldest Android the APK installs on (build_apk.sh's minSdkVersion):
+# libmain.so and SDL3 are compiled for it, so the NDK leaves out what newer
+# systems added. Overlay libraries compiled for a newer platform are kept;
+# they call only the host and plain libc, which the import check confirms.
+min_api=29
+platform="android-$min_api"
 
 key_env="${KEY_ENV:-$repo_dir/keys/key.env}"
 if [[ -z "${KEYSTORE:-}" && -f "$key_env" ]]; then
@@ -108,8 +114,8 @@ if [[ ! -f "$sdl_install/.stamp" || "$(cat "$sdl_install/.stamp")" != "$stamp" ]
 fi
 
 step "libmain.so for release"
-cmake -S "$repo_dir" -B "$build_dir" -DMHP3RD_RELEASE=ON -DSDL3_DIR="$sdl_install/lib/cmake/SDL3" \
-    -DCMAKE_FIND_ROOT_PATH="$sdl_install" > "$work/configure.log"
+cmake -S "$repo_dir" -B "$build_dir" -DMHP3RD_RELEASE=ON -DANDROID_PLATFORM="$platform" \
+    -DSDL3_DIR="$sdl_install/lib/cmake/SDL3" -DCMAKE_FIND_ROOT_PATH="$sdl_install" > "$work/configure.log"
 cmake --build "$build_dir" --target Yakumo -j "$jobs"
 
 step "Checking the overlay libraries"
@@ -147,6 +153,26 @@ if unzip -l "$apk" | grep -Ei '\.(iso|cso|elf|pbp|prx)$|EBOOT|DATA\.BIN|PARAM\.S
     exit 1
 fi
 "$build_tools/aapt2" dump badging "$apk" | grep -E "^package:|^minSdkVersion|^application-label:|^native-code"
+# Every function a packed library imports must be in Android $min_api's system
+# libraries or in another packed one; a missing one stops the app loading
+# there. Weak imports may be missing: their callers check them first.
+llvm="$ndk/toolchains/llvm/prebuilt/$(ls "$ndk/toolchains/llvm/prebuilt" | head -1)"
+stubs="$llvm/sysroot/usr/lib/aarch64-linux-android/$min_api"
+packed="$build_dir/apk/lib/arm64-v8a"
+exports="$work/exports.txt"
+{
+    for system in libc libm libdl liblog libandroid libvulkan libOpenSLES libGLESv1_CM libGLESv2 libEGL; do
+        "$llvm/bin/llvm-nm" -D --defined-only "$stubs/$system.so"
+    done
+    "$llvm/bin/llvm-nm" -D --defined-only "$packed"/*.so
+} 2> /dev/null | awk 'NF >= 3 { sub(/@.*/, "", $3); print $3 }' | sort -u > "$exports"
+missing="$("$llvm/bin/llvm-nm" -D --undefined-only "$packed"/*.so | awk '$1 == "U" { sub(/@.*/, "", $2); print $2 }' |
+    sort -u | comm -23 - "$exports")"
+if [[ -n "$missing" ]]; then
+    echo "error: the libraries import what Android $min_api lacks:" $missing >&2
+    exit 1
+fi
+echo "every import is in Android $min_api"
 (cd "$dist" && for f in *.apk; do echo "$(sha256 "$f")  $f"; done > SHA256SUMS)
 size="$(wc -c < "$apk" | tr -d ' ')"
 echo

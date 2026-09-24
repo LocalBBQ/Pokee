@@ -213,7 +213,7 @@ SDL3 and the font are pinned in `packaging/linux/sources.sh` for both systems; t
 
 ## Android
 
-`profiles/mhp3rd/scripts/release_android.sh <build-dir>` packs `yakumo-<version>-android-arm64.apk` for 64-bit phones and handhelds with Android 11 or later and Vulkan 1.1, and a `SHA256SUMS` next to it, in `out/release-android/dist/`. There is no Play Store build (no AAB): players install the APK themselves, and on its first start the app asks for their `.iso` through Android's file picker and copies it into its own storage (about 1.3 GB, besides the app's 0.8 GB).
+`profiles/mhp3rd/scripts/release_android.sh <build-dir>` packs `yakumo-<version>-android-arm64.apk` for 64-bit phones and handhelds with Android 10 or later and Vulkan 1.1, and a `SHA256SUMS` next to it, in `out/release-android/dist/`. There is no Play Store build (no AAB): players install the APK themselves, and on its first start the app asks for their `.iso` through Android's file picker and copies it into its own storage (about 1.3 GB, besides the app's 0.8 GB).
 
 ### Build directory
 
@@ -222,21 +222,23 @@ The script packs an Android build directory whose overlay libraries are already 
 ```sh
 cmake -S . -B out/android-app -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-34 -DCMAKE_BUILD_TYPE=Release \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DCMAKE_BUILD_TYPE=Release \
   -DPSPRECOMP_PROFILE=mhp3rd -DMHP3RD_ANDROID_APP=ON \
   -DSDL3_DIR=<SDL3 built for Android>/lib/cmake/SDL3 -DCMAKE_FIND_ROOT_PATH=<SDL3 built for Android>
 cmake --build out/android-app -j 2
 ```
 
+`android-29` is the oldest system the APK installs on (Android 10); the script configures the directory for it every time and builds SDL3 for it, since code compiled for a newer platform may import functions Android 10 lacks. A directory configured for a newer platform from before keeps its overlay libraries: they call only the host and plain libc, and after packing the script checks that nothing any packed library imports is missing from Android 10's system libraries. (Ninja then counts those overlays as out of date, so a plain `cmake --build` of that directory would compile them again.)
+
 The first configure needs an SDL3 built for Android to find; the release script builds the pinned one (`packaging/linux/sources.sh`) into `out/release-android/deps` and points the directory at it. The overlay libraries are reused as they are as long as `include/psprecomp/` has not changed since they were built; the script refuses them otherwise, and when any is missing.
 
 ### What the script does
 
-1. Fetches the pinned SDL3 and the fallback font, checks their SHA-256 and builds SDL3 for Android once.
-2. Reconfigures the build directory as a release (`MHP3RD_RELEASE`, no checkout paths) against that SDL3 and rebuilds `libmain.so` if that changed it.
+1. Fetches the pinned SDL3 and the fallback font, checks their SHA-256 and builds SDL3 for Android 10 once.
+2. Reconfigures the build directory as a release (`MHP3RD_RELEASE`, no checkout paths, `android-29`) against that SDL3 and rebuilds `libmain.so` if that changed it.
 3. Checks that every overlay library is there and newer than the framework headers.
 4. Packs the APK with `packaging/android/build_apk.sh`: the native libraries, SDL's Java activity and the app's own, the font, and under `assets/licenses` the third-party notices, SDL's licence, FFmpeg's LGPL with where its source is, and the font's licence. The version name is `git describe`; the version code is the number of commits, so a later release installs as an update.
-5. Signs it with the release key, verifies the signature, refuses it if it holds any game file, and prints its size and SHA-256.
+5. Signs it with the release key, verifies the signature, refuses it if it holds any game file or if a library imports a function Android 10 lacks, and prints its size and SHA-256.
 
 ### The release key
 
