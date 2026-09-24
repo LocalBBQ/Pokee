@@ -29,6 +29,7 @@
 
 #include <atomic>
 #include <algorithm>
+#include <bit>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -5109,6 +5110,51 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
                   << " back for a block transfer\n";
 }
 
+namespace {
+
+// 480x272 RGBA pixels (red in the low byte) into guest framebuffer rows of
+// `stride` pixels in `format`: 8888 copied, the 16-bit formats packed a row at
+// a time into a buffer the compiler vectorises. The same bits as the
+// per-pixel conversion in store_frame().
+void store_rows(std::uint8_t *out, std::uint32_t stride, std::uint32_t format, const std::uint32_t *pixels) {
+    const std::size_t bytes_per_pixel = format == 3u ? 4u : 2u;
+    std::array<std::uint16_t, kPspWidth> packed{};
+    for (std::uint32_t y = 0; y < kPspHeight; ++y) {
+        const std::uint32_t *row = pixels + static_cast<std::size_t>(y) * kPspWidth;
+        std::uint8_t *line = out + static_cast<std::size_t>(y) * stride * bytes_per_pixel;
+        if (format == 3u) {
+            std::memcpy(line, row, static_cast<std::size_t>(kPspWidth) * 4u);
+            continue;
+        }
+        if (format == 0u) {
+            for (std::uint32_t x = 0; x < kPspWidth; ++x) {
+                const std::uint32_t pixel = row[x];
+                packed[x] = static_cast<std::uint16_t>(((pixel & 0xFFu) >> 3u) | (((pixel >> 8u) & 0xFFu) >> 2u) << 5u |
+                                                       (((pixel >> 16u) & 0xFFu) >> 3u) << 11u);
+            }
+        } else if (format == 1u) {
+            for (std::uint32_t x = 0; x < kPspWidth; ++x) {
+                const std::uint32_t pixel = row[x];
+                packed[x] = static_cast<std::uint16_t>(((pixel & 0xFFu) >> 3u) | (((pixel >> 8u) & 0xFFu) >> 3u) << 5u |
+                                                       (((pixel >> 16u) & 0xFFu) >> 3u) << 10u |
+                                                       (pixel >> 31u) << 15u);
+            }
+        } else {
+            for (std::uint32_t x = 0; x < kPspWidth; ++x) {
+                const std::uint32_t pixel = row[x];
+                packed[x] = static_cast<std::uint16_t>(((pixel & 0xFFu) >> 4u) | (((pixel >> 8u) & 0xFFu) >> 4u) << 4u |
+                                                       (((pixel >> 16u) & 0xFFu) >> 4u) << 8u |
+                                                       (pixel >> 28u) << 12u);
+            }
+        }
+        // Guest memory is little-endian, as every host this runs on.
+        static_assert(std::endian::native == std::endian::little);
+        std::memcpy(line, packed.data(), static_cast<std::size_t>(kPspWidth) * 2u);
+    }
+}
+
+} // namespace
+
 void VulkanRenderer::Impl::store_frame(GuestMemory &memory, const WritebackFrame &frame,
                                        const std::uint32_t *pixels) {
     Impl &impl = *this;
@@ -5116,6 +5162,16 @@ void VulkanRenderer::Impl::store_frame(GuestMemory &memory, const WritebackFrame
     const std::size_t bytes = static_cast<std::size_t>(frame.stride) * kPspHeight * bytes_per_pixel;
     std::uint8_t *out = memory.raw_pointer(frame.address, bytes);
     if (out == nullptr) return;
+    // MHP3RD_NO_FAST_STORE converts pixel by pixel into guest memory, as
+    // before, instead of a whole row at a time into a buffer the compiler can
+    // vectorise; the bytes written are the same.
+    static const bool slow_store = std::getenv("MHP3RD_NO_FAST_STORE") != nullptr;
+    if (!slow_store && !perf::alternate_off(perf::NewPath::Store)) {
+        store_rows(out, frame.stride, frame.format, pixels);
+        const auto target = impl.targets.find(frame.address);
+        if (target != impl.targets.end()) impl.snapshot_guest_words(memory, frame.address, target->second);
+        return;
+    }
     for (std::uint32_t y = 0; y < kPspHeight; ++y) {
         const std::uint32_t *row = pixels + static_cast<std::size_t>(y) * kPspWidth;
         std::uint8_t *line = out + static_cast<std::size_t>(y) * frame.stride * bytes_per_pixel;

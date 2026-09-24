@@ -130,8 +130,9 @@ struct Summary {
 // MHP3RD_PERF_ALTERNATE=name[,name...]: the named new renderer paths are
 // turned off every other second, so one run measures them against the paths
 // they replaced under the same load. Each [perf] line ends in "alt on" or
-// "alt off" for the second it covers. Names: direct, lookup, reuse, merge.
-enum class NewPath : std::uint8_t { Direct, Lookup, Reuse, Merge };
+// "alt off" for the second it covers. Names: direct, lookup, reuse, merge,
+// store, decode.
+enum class NewPath : std::uint8_t { Direct, Lookup, Reuse, Merge, Store, Decode, Count };
 // True while `path` is to take its old route this second.
 [[nodiscard]] bool alternate_off(NewPath path);
 
