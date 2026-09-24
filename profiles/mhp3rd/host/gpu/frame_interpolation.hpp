@@ -29,6 +29,13 @@ struct DrawSummary {
     std::uint32_t count{};
     PrimitiveType primitive{};
     std::uint32_t target{};  // framebuffer address drawn into
+    // Filled by summarize() while the draw's matrices are at hand, so that
+    // matching a frame need not read them again: the identity's hash, and
+    // the translation column of view times world. `prepared` says they are
+    // there; a summary made otherwise has them computed when matched.
+    bool prepared{};
+    std::uint64_t key_hash{};
+    std::array<float, 3> eye_translation{};
     // Transformed through a perspective projection, and not a clear.
     bool perspective{};
     // A perspective draw into the framebuffer the game showed. Only these are
@@ -142,6 +149,14 @@ private:
         std::int32_t cursor{-1};
     };
     static Key key_of(const DrawSummary &draw) noexcept;
+
+public:
+    // The identity's hash and eye-space translation of a draw, as summarize()
+    // stores them.
+    static std::uint64_t hash_of(const DrawSummary &draw) noexcept;
+    static std::array<float, 3> eye_translation_of(const DrawSummary &draw) noexcept;
+
+private:
 
     std::vector<Slot> slots_;
     std::vector<std::int32_t> next_;  // for each newer draw, the next with its key
