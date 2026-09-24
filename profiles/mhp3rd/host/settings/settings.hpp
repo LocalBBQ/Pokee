@@ -51,6 +51,7 @@ struct Settings {
     bool texture_pack{true};           // draw an installed HD texture pack's images instead of the game's
     std::string texture_pack_folder;   // a pack used where it is instead of textures/<disc id>; empty: none
     bool unthrottled{};                // let emulated time run ahead of real time
+    bool fast_loading{true};           // ...but only while the game loads (kernel/fast_loading.hpp)
     FrameRate frame_rate{FrameRate::Fps30};
     bool frame_rate_auto{true};        // lower the frame rate rather than slow the game
     PerfDisplay perf{PerfDisplay::Off};

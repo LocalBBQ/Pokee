@@ -903,6 +903,8 @@ void adhoc_apply_settings(bool switch_now) {
 
 std::string adhoc_player_name() { return nickname(); }
 
+bool adhoc_networking_on() { return state().ctl_initialized || state().adhoc_initialized; }
+
 bool adhoc_session_active() {
     const adhoc::Diagnostics d = Client::get().diagnostics();
     return adhoc_hosting() || Client::get().in_group() || d.joining.has_value() || d.rejoin_ms.has_value();

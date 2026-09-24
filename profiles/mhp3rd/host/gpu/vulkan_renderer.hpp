@@ -39,6 +39,10 @@ struct PadState {
 // window does not disturb a scripted run.
 inline constexpr std::uint32_t kScriptedMouse = 0xFFFFFF00u;
 
+// How often a load running faster than real time shows a picture: about 30
+// times a second, which a display never makes wait (set_fast_forward).
+inline constexpr std::chrono::milliseconds kFastForwardPresentInterval{33};
+
 // Relative mouse motion, in counts, while the pointer is captured for the game.
 struct MouseMotion {
     float x{};
@@ -141,6 +145,12 @@ public:
     void present_until(std::chrono::steady_clock::time_point wake);
     // Drops the presents scheduled, as the game pauses.
     void pause_interpolation();
+    // A load running faster than real time (kernel/fast_loading.hpp) flips
+    // several times per refresh of the display. While it does, a flip reaches
+    // the window only if the one before it was shown at least
+    // kFastForwardPresentInterval ago; the others are drawn and not shown, and
+    // frame interpolation waits until it is over.
+    void set_fast_forward(bool on);
     void set_frame_rate(settings::FrameRate rate);
     // On, the frame rate steps down by itself rather than slow the game.
     void set_frame_rate_auto(bool automatic);

@@ -3,6 +3,8 @@
 // list completion callbacks, blocking audio output); the drawing and the
 // mixing themselves live under gpu/ and audio/.
 #include "hle_common.hpp"
+#include "kernel/fast_loading.hpp"
+#include "kernel/load_trace.hpp"
 
 #include "overlays.hpp"
 
@@ -219,6 +221,7 @@ std::uint64_t frame_start_us(std::uint64_t latest_vblank_us) {
 }
 
 void present_frame(Runtime &rt) {
+    load_trace::note_flip();
     // Overlays are swapped between frames; re-check before drawing the next one.
     revalidate_overlays(rt);
 #if defined(MHP3RD_HAS_RENDERER)
@@ -244,6 +247,8 @@ void present_frame(Runtime &rt) {
     }
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
+    // A load running fast flips far more often than the display refreshes.
+    renderer.set_fast_forward(fast_loading::active());
     // The real time the frame stands for, which frame interpolation spaces
     // its presents by: that of the vblank the game's frame started from.
     const bool presented = renderer.present(address, kernel().real_time_of(frame_start_us(kernel().last_vblank_us())));
@@ -364,6 +369,7 @@ void register_display_ctrl(HleRegistrar &hle) {
             if (!at_flip) media().renderer->sample_pad();
             const gpu::PadState pad = media().renderer->pad();
             buttons = pad.buttons;
+            fast_loading::note_buttons(buttons != 0u);
             analog_x = pad.analog_x;
             analog_y = pad.analog_y;
             right_x = pad.right_x;
@@ -506,7 +512,21 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
                                                 : static_cast<std::int16_t>(source[(index + 1u) * 2u] |
                                                                             (source[(index + 1u) * 2u + 1u] << 8));
             }
-            audio::AudioSink::instance().mix(state.cursor, staging.data(), frames, left, right);
+            // How loud the buffer is after the channel's volume, worked out
+            // as the sink mixes it (0x8000 is full volume): 0 means the sink
+            // would add nothing but zeros.
+            const std::int32_t gains[2] = {static_cast<std::int32_t>(std::min<std::uint32_t>(left, 0x8000u)),
+                                           static_cast<std::int32_t>(std::min<std::uint32_t>(right, 0x8000u))};
+            int peak = 0;
+            for (std::size_t i = 0; i < frames * 2u; ++i)
+                peak = std::max(peak, std::abs((static_cast<std::int32_t>(staging[i]) * gains[i & 1u]) >> 15));
+            load_trace::note_audio_peak(peak);
+            // While a load runs faster than real time its silence is dropped:
+            // played, it would pile up faster than the device plays it. The
+            // channel's cursor stays where it was and catches up with the
+            // device when sound comes back.
+            if (!fast_loading::note_audio(peak))
+                audio::AudioSink::instance().mix(state.cursor, staging.data(), frames, left, right);
         } else {
             log_once("audio-buffer", "[audio] output buffer is not a single mapped range; dropping it");
         }

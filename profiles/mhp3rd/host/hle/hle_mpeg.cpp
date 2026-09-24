@@ -599,6 +599,8 @@ void register_movie_skip(HleRegistrar &hle) {
 
 } // namespace
 
+bool mpeg_active() { return !module().instances.empty(); }
+
 void register_mpeg(HleRegistrar &hle) {
     if (!movie::AvcDecoder::available() || !audio::AtracDecoder::available()) {
         register_movie_skip(hle);

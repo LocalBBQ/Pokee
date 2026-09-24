@@ -210,11 +210,12 @@ public:
     // racing to make up the pause.
     void resync_real_time() noexcept { pacing_started_ = false; }
     // The moment of real time the hold to real time maps `virtual_us` of
-    // emulated time to; empty while emulated time is not held to real time.
+    // emulated time to; empty while emulated time is not held to real time,
+    // a load running fast included (kernel/fast_loading.hpp).
     // Frame interpolation times its presents by it (gpu/frame_pacing.hpp).
     [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> real_time_of(
         std::uint64_t virtual_us) const noexcept {
-        if (!pacing_started_) return std::nullopt;
+        if (!pacing_started_ || pacing_fast_) return std::nullopt;
         return pacing_real_base_ + std::chrono::microseconds(static_cast<std::int64_t>(virtual_us) -
                                                              static_cast<std::int64_t>(pacing_virtual_base_));
     }
@@ -359,6 +360,7 @@ private:
     std::map<SceUID, std::unique_ptr<Thread>> threads_;
     std::uint64_t now_us_{};
     bool pacing_started_{};
+    bool pacing_fast_{};  // the hold lets emulated time run ahead: a load runs fast
     std::chrono::steady_clock::time_point pacing_real_base_{};
     std::uint64_t pacing_virtual_base_{};
     IdleHook idle_hook_;

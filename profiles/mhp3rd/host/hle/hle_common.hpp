@@ -62,6 +62,11 @@ void log_sync(const std::string &message);
 // Prints a message the first time `key` is seen.
 void log_once(const std::string &key, const std::string &message);
 
+// A movie is being decoded: the game has a sceMpeg instance (hle_mpeg.cpp).
+[[nodiscard]] bool mpeg_active();
+// The game has ad hoc networking initialised (hle_adhoc.cpp).
+[[nodiscard]] bool adhoc_networking_on();
+
 void register_threadman(HleRegistrar &hle);
 void register_sysmem(HleRegistrar &hle);
 void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, const std::filesystem::path &memory_stick);

@@ -1,5 +1,7 @@
 #include "kernel.hpp"
 
+#include "kernel/fast_loading.hpp"
+#include "kernel/load_trace.hpp"
 #include "perf/frame_stats.hpp"
 #include "settings/settings.hpp"
 #include "psprecomp/common.hpp"
@@ -310,6 +312,7 @@ void Kernel::switch_to(AllegrexContext &ctx, Thread &thread) {
     current_uid_ = thread.uid;
     ctx = thread.context;
     psprecomp::set_runtime_thread_identity(thread.uid, thread.name);
+    load_trace::run_as(thread.name);
     idle_vblanks_ = 0u;
 }
 
@@ -396,6 +399,7 @@ void Kernel::wait_host(AllegrexContext &ctx, std::optional<std::uint64_t> timeou
 
 void Kernel::schedule(AllegrexContext &ctx) {
     if (poll_hook_) poll_hook_();
+    load_trace::run_as("idle");
     for (;;) {
         if (runtime_->stopped()) return;
         process_timers();
@@ -453,6 +457,15 @@ bool Kernel::pace_to_real_time() {
         pacing_started_ = false;
         return false;
     }
+    // While the game loads, emulated time may run up to kMaxSpeed times as
+    // fast as real time (kernel/fast_loading.hpp). Either change starts the
+    // hold over from the current moment, so a load that ran fast is not made
+    // up for afterwards, and normal time is not rushed to catch up with it.
+    const bool fast = fast_loading::active();
+    if (fast != pacing_fast_) {
+        pacing_fast_ = fast;
+        pacing_started_ = false;
+    }
     using Clock = std::chrono::steady_clock;
     const Clock::time_point now = Clock::now();
     if (!pacing_started_) {
@@ -464,7 +477,9 @@ bool Kernel::pace_to_real_time() {
     const std::int64_t real_us =
         std::chrono::duration_cast<std::chrono::microseconds>(now - pacing_real_base_).count();
     const std::int64_t virtual_us = static_cast<std::int64_t>(now_us_ - pacing_virtual_base_);
-    const std::int64_t ahead_us = virtual_us - real_us;
+    const std::int64_t ahead_us =
+        fast ? static_cast<std::int64_t>(static_cast<double>(virtual_us) / fast_loading::kMaxSpeed) - real_us
+             : virtual_us - real_us;
     // Ahead of real time: wait. More than a tenth of a second behind (a slow
     // frame, a load): drop the debt instead of racing to make it up.
     constexpr std::int64_t kMinSleepUs = 1000;
@@ -479,6 +494,7 @@ bool Kernel::pace_to_real_time() {
         }
         if (sleep_start < wake) std::this_thread::sleep_until(wake);
         perf::add_pacing_time(Clock::now() - sleep_start);
+        load_trace::note_pacing_sleep(std::chrono::duration<double, std::milli>(Clock::now() - now).count());
     } else if (ahead_us < -kMaxLagUs) {
         pacing_real_base_ = now;
         pacing_virtual_base_ = now_us_;
@@ -837,6 +853,8 @@ bool Kernel::deliver_callbacks() {
 
 void Kernel::on_vblank() {
     for (const auto &hook : vblank_hooks_) hook();
+    load_trace::tick(now_us_);
+    fast_loading::update();
     ++vblank_count_;
     for (auto &[uid, thread] : threads_) {
         (void)uid;
@@ -866,6 +884,7 @@ bool Kernel::begin_pending_interrupt(AllegrexContext &ctx) {
     ctx.set_gpr(31, kInterruptReturnStub);
     ctx.pc = call.function;
     psprecomp::set_runtime_thread_identity(kInterruptIdentity, "interrupt");
+    load_trace::run_as("interrupt");
     return true;
 }
 
@@ -888,6 +907,7 @@ void Kernel::interrupt_return_stub(AllegrexContext &ctx) {
     ctx = interrupted_context_;
     Thread *current = current_thread();
     psprecomp::set_runtime_thread_identity(current->uid, current->name);
+    load_trace::run_as(current->name);
     if (!dispatch_enabled_) return;
     Thread *best = best_ready_thread();
     if (best != nullptr && best->priority < current->priority) {

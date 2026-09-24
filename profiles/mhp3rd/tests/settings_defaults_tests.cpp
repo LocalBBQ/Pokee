@@ -24,6 +24,7 @@ void test_desktop_is_the_declared_defaults() {
           "the desktop defaults are Settings{} as declared");
     check(desktop.aspect == Aspect::Original && !desktop.fullscreen && desktop.mouse,
           "the desktop keeps the original aspect, a window and the mouse");
+    check(desktop.fast_loading && !desktop.unthrottled, "loads run fast and the game keeps real time otherwise");
 }
 
 void test_android() {
@@ -37,6 +38,7 @@ void test_android() {
     check(android.frame_rate == FrameRate::Fps30 && android.frame_rate_auto, "30 fps, lowered when behind");
     check(android.present_mode == PresentMode::Fifo && android.perf == PerfDisplay::Off,
           "vsync on and no performance overlay");
+    check(android.fast_loading, "a phone loads fast too");
 }
 
 void test_this_build() {
