@@ -28,6 +28,9 @@ DrawSummary summarize(const DrawCall &call) {
     draw.world = call.world;
     draw.view = call.view;
     draw.projection = call.projection;
+    draw.key_hash = Matcher::hash_of(draw);
+    draw.eye_translation = Matcher::eye_translation_of(draw);
+    draw.prepared = true;
     return draw;
 }
 
@@ -55,6 +58,19 @@ std::size_t Matcher::KeyHash::operator()(const Key &key) const noexcept {
     return static_cast<std::size_t>(hash);
 }
 
+std::uint64_t Matcher::hash_of(const DrawSummary &draw) noexcept { return KeyHash{}(key_of(draw)); }
+
+std::array<float, 3> Matcher::eye_translation_of(const DrawSummary &draw) noexcept {
+    // Column 3 of multiply(view, world), term for term as multiply() sums it.
+    std::array<float, 3> column{};
+    for (std::uint32_t row = 0; row < 3u; ++row) {
+        float sum = 0.0f;
+        for (std::uint32_t k = 0; k < 4u; ++k) sum += draw.view[k * 4u + row] * draw.world[12u + k];
+        column[row] = sum;
+    }
+    return column;
+}
+
 Matcher::Key Matcher::key_of(const DrawSummary &draw) noexcept {
     return Key{draw.vertex_address, draw.index_address, draw.vertex_type, draw.texture_address, draw.count,
                static_cast<std::uint8_t>(draw.primitive)};
@@ -63,7 +79,10 @@ Matcher::Key Matcher::key_of(const DrawSummary &draw) noexcept {
 const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
                                const CutThresholds &thresholds) {
     Matching &out = result_;
+    // The vector keeps its capacity from one frame to the next.
+    std::vector<std::int32_t> newer_of = std::move(out.newer_of);
     out = Matching{};
+    out.newer_of = std::move(newer_of);
     out.newer_of.assign(older.size(), -1);
 
     // The newer frame's eligible draws by key, in an open-addressed table
@@ -77,8 +96,8 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     slots_.assign(capacity, Slot{});
     next_.assign(newer.size(), -1);
     const std::size_t mask = capacity - 1u;
-    const auto slot_for = [&](const Key &key) -> Slot & {
-        std::size_t at = KeyHash{}(key) & mask;
+    const auto slot_for = [&](const Key &key, const DrawSummary &draw) -> Slot & {
+        std::size_t at = static_cast<std::size_t>(draw.prepared ? draw.key_hash : KeyHash{}(key)) & mask;
         while (slots_[at].first >= 0 && !(slots_[at].key == key)) at = (at + 1u) & mask;
         return slots_[at];
     };
@@ -86,7 +105,7 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
         if (!newer[i].eligible) continue;
         ++out.eligible_newer;
         const Key key = key_of(newer[i]);
-        Slot &slot = slot_for(key);
+        Slot &slot = slot_for(key, newer[i]);
         const auto index = static_cast<std::int32_t>(i);
         if (slot.first < 0) {
             slot.key = key;
@@ -100,7 +119,7 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     for (std::size_t i = 0; i < older.size(); ++i) {
         if (!older[i].eligible) continue;
         ++out.eligible_older;
-        Slot &slot = slot_for(key_of(older[i]));
+        Slot &slot = slot_for(key_of(older[i]), older[i]);
         if (slot.first < 0 || slot.cursor < 0) continue;
         out.newer_of[i] = slot.cursor;
         shared_[i] = slot.first != slot.last ? 1u : 0u;
@@ -148,17 +167,20 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     // older draw against where the newer one is, in eye space.
     if (out.camera_found && thresholds.max_own_motion > 0.0f) {
         const Matrix &c = out.camera;
+        // Only the translation column of view times world is used; summarize()
+        // stores it (eye_translation_of, the same sums as multiply()).
         for (std::size_t i = 0; i < older.size(); ++i) {
             const std::int32_t partner = out.newer_of[i];
             if (partner < 0) continue;
-            const Matrix before = multiply(older[i].view, older[i].world);
-            const Matrix after = multiply(newer[static_cast<std::size_t>(partner)].view,
-                                          newer[static_cast<std::size_t>(partner)].world);
+            const DrawSummary &from = older[i];
+            const DrawSummary &to = newer[static_cast<std::size_t>(partner)];
+            const std::array<float, 3> before_column = from.prepared ? from.eye_translation : eye_translation_of(from);
+            const std::array<float, 3> after_column = to.prepared ? to.eye_translation : eye_translation_of(to);
             float distance = 0.0f;
             for (std::size_t row = 0; row < 3u; ++row) {
-                const float predicted = c[row] * before[12] + c[4u + row] * before[13] + c[8u + row] * before[14] +
-                                        c[12u + row];
-                const float d = after[12u + row] - predicted;
+                const float predicted = c[row] * before_column[0] + c[4u + row] * before_column[1] +
+                                        c[8u + row] * before_column[2] + c[12u + row];
+                const float d = after_column[row] - predicted;
                 distance += d * d;
             }
             distance = std::sqrt(distance);

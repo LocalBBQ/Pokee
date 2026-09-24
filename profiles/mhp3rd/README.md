@@ -111,7 +111,7 @@ The per-user directory is SDL's preference path for `Yakumo/MHP3rd`:
 | Linux | `~/.local/share/Yakumo/MHP3rd/` (or under `$XDG_DATA_HOME`) |
 | Windows | `%APPDATA%\Yakumo\MHP3rd\` |
 
-It holds `EBOOT.ELF`, `disc.iso` when the image was copied, `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu), `ms0`, the memory stick with the [saves](#saving-and-loading), and `textures/NPJB40001` when you install an [HD texture pack](#hd-texture-packs). `MHP3RD_DATA_DIR` points the program at another directory. The Flatpak keeps this directory inside its own data directory, `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/`.
+It holds `EBOOT.ELF`, `disc.iso` when the image was copied, `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu), `ms0`, the memory stick with the [saves](#saving-and-loading), `textures/NPJB40001` when you install an [HD texture pack](#hd-texture-packs), `pipeline_cache.bin`, the graphics pipelines compiled in earlier runs, and `pipeline_keys.bin`, the list of them the next run makes in the background from the start (deleting either only makes the next run compile them again). `MHP3RD_DATA_DIR` points the program at another directory. The Flatpak keeps this directory inside its own data directory, `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/`.
 
 Saves made before `ms0` moved here stay where they were, in `profiles/mhp3rd/game/ms0`: a developer build keeps using them, and says so at start, until the per-user directory has an `ms0` of its own. Move the folder there to switch.
 
@@ -670,6 +670,22 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_NO_BUFFER_REUSE` | off | Allocate the texture decoder's working buffers, the staging buffer and command buffer of each texture upload, and the pixels of a framebuffer read back for a block transfer every time, as before, instead of keeping them for the next use |
 | `MHP3RD_NO_DRAW_MERGE` | off | Record every draw with all of its state, as before, instead of setting only the state that changed and merging consecutive transformed draws with identical state into one draw call |
 | `MHP3RD_NO_GPU_TIMESTAMPS` | off | Do not time the GPU with timestamp queries; the perf line reads `gpu n/a` |
+| `MHP3RD_FRAMES_IN_FLIGHT` | `2` | `1` waits for the GPU to finish each frame before the next is recorded, as before, instead of recording a frame while the GPU draws the one before. The frame written back to guest memory reaches it at the same flip either way |
+| `MHP3RD_SYNC_UPLOADS` | off | Copy each new texture with a command buffer of its own and wait for the queue to go idle, and wait again before destroying an evicted one, as before, instead of copying it ahead of the frame's commands in the same submission and destroying evicted ones once their frames have finished |
+| `MHP3RD_NO_PIPELINE_CACHE` | off | Create every pipeline without the cache kept in `pipeline_cache.bin` |
+| `MHP3RD_NO_ALPHA_VARIANTS` | off | Use the one fragment shader that tests alpha for every draw, as before, instead of pipelines without the test (and so without `discard`) for draws that have none |
+| `MHP3RD_NO_CLEAR_LOAD` | off | Load the target's colour and depth at the start of every render pass, as before, even when the pass begins with a clear that writes all of them |
+| `MHP3RD_NO_FAST_DECODE` | off | Decode every vertex with the general loop, as before, instead of a loop specialised for the run's formats. `MHP3RD_CHECK_DECODE` runs both and reports runs whose vertices differ |
+| `MHP3RD_GPU_DECODE` | on | `0` decodes and skins every transformed draw's vertices on the CPU, as before, instead of handing the guest's own vertex bytes to the vertex shader, which decodes and skins them. Through-mode draws, sprites and morphing vertices are decoded on the CPU either way |
+| `MHP3RD_CHECK_GPU_DECODE` | off | Has the vertex shader write what it decoded to a buffer, decodes every checked draw on the CPU too, and compares them after the frame; a `[gpu-decode-check]` line every 300 frames counts vertices equal bit for bit, within rounding (skinned positions, whose bone terms the GPU sums with its own rounding) and different. Needs `vertexPipelineStoresAndAtomics` |
+| `MHP3RD_NO_TIGHT_MERGE` | off | Starts every draw's vertices on a 16-byte boundary, as before, which keeps about half the draws that could merge from merging |
+| `MHP3RD_SYNC_TEXTURE_DECODE` | off | Decodes each new texture on the spot, as before, instead of copying its bytes and palette when it is drawn and decoding it on background threads until the frame is submitted |
+| `MHP3RD_NO_FAST_TEXTURE_DECODE` | off | Decodes textures texel by texel with every palette entry read from guest memory again, as before. `MHP3RD_CHECK_TEXTURE_DECODE` decodes every texture both ways and compares them |
+| `MHP3RD_NO_PIPELINE_PREWARM` | off | Makes each pipeline when a draw first needs it, instead of making the last run's pipelines (`pipeline_keys.bin`) on a background thread from the start |
+| `MHP3RD_TRACE_RENDER` | off | A `[render-split]` line each second: the render thread's milliseconds per game frame running display lists (parsing, vertex decode, the renderer's handling of each draw with its texture and command recording) and on interpolation, replays, presents and the write-back. Timed with the CPU's own counter, so the frame barely changes |
+| `MHP3RD_NO_FAST_STORE` | off | Convert the frame written back to guest memory pixel by pixel, as before, instead of a row at a time |
+| `MHP3RD_TEXTURE_CACHE_LIMIT` | `1024` | Keep at most this many decoded textures on the GPU; a small number tests eviction |
+| `MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS` | `0` on macOS | MoltenVK's own setting, which the renderer sets to `0` unless it is already set: MoltenVK then turns each submitted frame into Metal commands on a thread of its own instead of the game's. `1` does it on the game's thread, as before |
 
 ### Picture shape and size
 
@@ -887,12 +903,13 @@ A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer pr
 | `overlay` | CPU time spent drawing the overlay, when it is shown |
 | `interpolation` | The frame rate presented, when it is above 30; `interpolation 60 of 90` when it stepped down from the one chosen |
 | `space` | The most of the vertex and index buffers one frame took in the second, in MiB, against 32 and 4 MiB a frame. What does not fit is not drawn (the interface goes first, as it is drawn last), and the log then says `[render] a frame ran out of vertex space` |
+| `passes`, `cleared`, `copies` | Render passes a frame begins, presents between flips included; of those, the ones begun without loading what their first draw, a clear, overwrites; and full-size copies or blits of a render target (for sampling it as a texture, for frame interpolation's pictures, for the write-back to guest memory, to the window). On a phone's tiled GPU each pass reads and writes its target, and each copy moves a whole one |
 
 The overlay shows the same numbers (GPU time on the second line, when there is one) and a graph of the last 192 frame times, from 0 to 50 ms, with guides at 16.7 and 33.3 ms: green up to 34 ms, yellow up to 50 ms, red beyond.
 
 #### Comparing the old and new renderer paths
 
-The renderer changes made for speed each have an off switch (see [Video](#video)). `MHP3RD_PERF_ALTERNATE=name[,name...]` instead turns the named ones off every other second, so a single run compares them under the same scene and load; each `[perf]` line then ends in `alt on` or `alt off`. Stand still in one spot for a minute and compare the `render` (CPU) and `gpu` numbers of the `on` and `off` lines. Names: `direct` (`MHP3RD_NO_DIRECT_VERTICES`), `lookup` (`MHP3RD_NO_LOOKUP_CACHE`), `reuse` (`MHP3RD_NO_BUFFER_REUSE`) and `merge` (`MHP3RD_NO_DRAW_MERGE`).
+The renderer changes made for speed each have an off switch (see [Video](#video)). `MHP3RD_PERF_ALTERNATE=name[,name...]` instead turns the named ones off every other second, so a single run compares them under the same scene and load; each `[perf]` line then ends in `alt on` or `alt off`. Stand still in one spot for a minute and compare the `render` (CPU) and `gpu` numbers of the `on` and `off` lines. Names: `direct` (`MHP3RD_NO_DIRECT_VERTICES`), `lookup` (`MHP3RD_NO_LOOKUP_CACHE`), `reuse` (`MHP3RD_NO_BUFFER_REUSE`), `merge` (`MHP3RD_NO_DRAW_MERGE`), `store` (`MHP3RD_NO_FAST_STORE`), `decode` (`MHP3RD_NO_FAST_DECODE`), `alpha` (`MHP3RD_NO_ALPHA_VARIANTS`), `uploads` (`MHP3RD_SYNC_UPLOADS`), `clearload` (`MHP3RD_NO_CLEAR_LOAD`), `gpudecode` (`MHP3RD_GPU_DECODE=0`) and `texturedecode` (`MHP3RD_SYNC_TEXTURE_DECODE`).
 
 #### Where the render thread waits
 
@@ -903,21 +920,33 @@ The renderer changes made for speed each have an off switch (see [Video](#video)
 [slow-frame] 714 152.0 ms | guest 2.5 render 81.6 wait 67.9 ms | gpu(prev) 2.0 ms | fence 2.02 x1 acquire 0.09 x1 submit 6.88 x1 present 0.03 x1 upload 43.93 x80 pacing 14.91 x4 copy 0.02 x1 store 0.51 x1
 ```
 
-Each kind that happened is listed with its time per frame averaged over the second, its longest single stall and how many there were; a `[slow-frame]` line gives that frame's totals and the GPU time of the frame before it, which is what a fence wait at the start of the frame waits for.
+On Android, where no variable can be set, the `[stalls]` line comes with the `[perf]` line whenever Performance logs, so a log saved from the menu has it. Each kind that happened is listed with its time per frame averaged over the second, its longest single stall and how many there were; a `[slow-frame]` line gives that frame's totals and the GPU time of the frame before it, which is what a fence wait at the start of the frame waits for.
 
 | Kind | Where |
 | --- | --- |
-| `fence` | The previous frame's fence, before the next frame is recorded: the GPU is still busy with it |
+| `fence` | A frame's fence: before a frame slot is recorded again (the frame two back, with two frames in flight), and before the previous frame's picture is written back to guest memory at the next flip. The GPU is still busy with that frame |
 | `acquire` | `vkAcquireNextImageKHR` |
 | `submit` | The frame's `vkQueueSubmit`; MoltenVK waits for the next drawable here |
 | `present` | `vkQueuePresentKHR` |
-| `upload` | A texture upload, which waits for the queue to go idle, and so for the frame before it |
-| `evict` | The queue idle wait before a cached texture is destroyed to make room |
+| `upload` | A texture upload that waits for the queue to go idle, and so for the frames before it: with `MHP3RD_SYNC_UPLOADS`, or one made outside a frame |
+| `evict` | The queue idle wait before a cached texture is destroyed to make room, with `MHP3RD_SYNC_UPLOADS` |
 | `readback` | A framebuffer read back for a GE block transfer (submits the frame so far and waits for it) |
 | `idle` | Other device idle waits, such as a movie frame changing size |
 | `pacing` | The kernel holding the game to real time (not a GPU wait, but part of `wait`) |
 | `copy` | CPU time copying the written-back frame out of mapped memory, which may be uncached (part of `render`) |
+| `decode` | Waiting at the frame's submit for textures decoded in the background |
+| `pipeline` | CPU time creating graphics pipelines the frame needed (part of `render`). A burst of them, as in a new area, is also reported once it settles: `[render] 4 new pipelines in 12.3 ms, 57 so far; pipeline cache saved` |
 | `store` | CPU time converting that frame into guest memory, `store_frame` (part of `render`) |
+
+#### A report from a phone
+
+On Android, set Performance to *Log* in the menu, play to the place that is slow for a minute, then use *Save the log…*. The start of the log names the Vulkan driver (`[render] Vulkan …, driver …`), the memory the vertex buffer lives in, the swapchain's images and present mode, the internal resolution (`Renderer: … target WxH`) and how many frames are in flight. Each second then has a `[perf]` and a `[stalls]` line. Where to look:
+
+- `gpu` close to or above the frame time (33 ms at 30 fps, 16.7 ms at 60): the GPU is the limit. Lower Resolution first, then Frame rate.
+- `render` plus `guest` close to the frame time: the CPU is the limit; Frame rate's in-between frames add to `render`.
+- `fence`, `acquire` or `present` large in `[stalls]`: waiting for the GPU or the display.
+- `pipeline` and `[render] N new pipelines in X ms` lines: shader compiles. They should appear once per new area and not again in a later run, which loads them from `pipeline_cache.bin`.
+- `upload` in `[stalls]`: texture uploads that waited for the GPU, which should not happen during play any more.
 
 ## Host layout
 

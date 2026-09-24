@@ -1,6 +1,9 @@
 #include "ge_state.hpp"
 
+#include "perf/frame_stats.hpp"
+
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -198,6 +201,189 @@ void identity(std::array<float, 16> &matrix) {
 
 } // namespace
 
+namespace {
+
+// Where each field of a vertex lies, from decode_vertices(); kNoField when the
+// vertex type has none.
+constexpr std::uint32_t kNoField = 0xFFFFFFFFu;
+struct VertexLayout {
+    std::uint32_t texcoord_type{};
+    std::uint32_t color_type{};
+    std::uint32_t weight_count{};
+    std::uint32_t weight_offset{kNoField};
+    std::uint32_t texcoord_offset{kNoField};
+    std::uint32_t color_offset{kNoField};
+    std::uint32_t normal_offset{kNoField};
+    std::uint32_t position_offset{kNoField};
+    std::uint32_t stride{};
+    bool through{};
+    bool skinned{};
+};
+
+template <typename T>
+[[gnu::always_inline]] inline T read_raw(const std::uint8_t *at) {
+    T value{};
+    std::memcpy(&value, at, sizeof(value));
+    return value;
+}
+
+// A component of `Type` (1: 8-bit, 2: 16-bit, 3: float), signed or unsigned,
+// as decode_vertices() reads it.
+template <std::uint32_t Type, bool Signed>
+[[gnu::always_inline]] inline float read_field(const std::uint8_t *at) {
+    if constexpr (Type == 1u) {
+        return Signed ? static_cast<float>(static_cast<std::int8_t>(at[0])) : static_cast<float>(at[0]);
+    } else if constexpr (Type == 2u) {
+        const std::uint16_t value = read_raw<std::uint16_t>(at);
+        return Signed ? static_cast<float>(static_cast<std::int16_t>(value)) : static_cast<float>(value);
+    } else if constexpr (Type == 3u) {
+        return read_raw<float>(at);
+    } else {
+        return 0.0f;
+    }
+}
+
+constexpr std::uint32_t kFieldSize[4] = {0u, 1u, 2u, 4u};
+
+// decode_vertices() for a contiguous run of one morph target, with the
+// weight, normal and position formats fixed at compile time. Every value is
+// computed by the same expressions in the same order as the general loop, so
+// the vertices are the same bit for bit (MHP3RD_CHECK_DECODE compares them).
+template <std::uint32_t WeightType, std::uint32_t NormalType, std::uint32_t PositionType>
+void decode_run(const std::uint8_t *data, std::uint32_t count, const VertexLayout &layout, Vertex *out,
+                const float *bone_matrices) {
+    constexpr std::uint32_t normal_size = kFieldSize[NormalType];
+    constexpr std::uint32_t position_size = kFieldSize[PositionType];
+    constexpr std::uint32_t weight_size = kFieldSize[WeightType];
+    const std::uint32_t texcoord_type = layout.texcoord_type;
+    const std::uint32_t texcoord_size = kFieldSize[texcoord_type];
+    const float texcoord_scale = texcoord_type == 1u ? 1.0f / 128.0f
+                                                     : (texcoord_type == 2u && !layout.through ? 1.0f / 32768.0f : 1.0f);
+    constexpr float normal_scale = NormalType == 1u ? 1.0f / 128.0f : (NormalType == 2u ? 1.0f / 32768.0f : 1.0f);
+    const float position_scale = layout.through ? 1.0f
+                                                : (PositionType == 1u ? 1.0f / 128.0f
+                                                                      : (PositionType == 2u ? 1.0f / 32768.0f : 1.0f));
+    constexpr float weight_scale = WeightType == 1u ? 1.0f / 128.0f : (WeightType == 2u ? 1.0f / 32768.0f : 1.0f);
+    const std::uint32_t color_type = layout.color_type;
+    const bool skinned = WeightType != 0u && layout.skinned;
+    const std::uint32_t bones = std::min(layout.weight_count, 8u);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const std::uint8_t *base = data + static_cast<std::size_t>(i) * layout.stride;
+        Vertex vertex{};
+        if (layout.texcoord_offset != kNoField) {
+            const std::uint8_t *at = base + layout.texcoord_offset;
+            switch (texcoord_type) {
+            case 1u:
+                vertex.texcoord[0] = read_field<1u, false>(at) * texcoord_scale;
+                vertex.texcoord[1] = read_field<1u, false>(at + texcoord_size) * texcoord_scale;
+                break;
+            case 2u:
+                vertex.texcoord[0] = read_field<2u, false>(at) * texcoord_scale;
+                vertex.texcoord[1] = read_field<2u, false>(at + texcoord_size) * texcoord_scale;
+                break;
+            default:
+                vertex.texcoord[0] = read_field<3u, false>(at) * texcoord_scale;
+                vertex.texcoord[1] = read_field<3u, false>(at + texcoord_size) * texcoord_scale;
+                break;
+            }
+        }
+        if (layout.color_offset != kNoField) {
+            const std::uint8_t *at = base + layout.color_offset;
+            const std::uint32_t raw = color_type == 7u ? read_raw<std::uint32_t>(at) : read_raw<std::uint16_t>(at);
+            vertex.color = expand_color(raw, color_type);
+        }
+        if constexpr (NormalType != 0u) {
+            const std::uint8_t *at = base + layout.normal_offset;
+            for (std::uint32_t axis = 0; axis < 3u; ++axis)
+                vertex.normal[axis] = read_field<NormalType, true>(at + axis * normal_size) * normal_scale;
+        }
+        if constexpr (PositionType != 0u) {
+            const std::uint8_t *at = base + layout.position_offset;
+            for (std::uint32_t axis = 0; axis < 3u; ++axis) {
+                float value = read_field<PositionType, true>(at + axis * position_size);
+                if (PositionType == 2u && axis == 2u && layout.through)
+                    value = static_cast<float>(read_raw<std::uint16_t>(at + axis * position_size));
+                vertex.position[axis] = value * position_scale;
+            }
+        }
+        if constexpr (WeightType != 0u) {
+            if (skinned) {
+                const std::uint8_t *at = base + layout.weight_offset;
+                std::array<float, 3> position{};
+                std::array<float, 3> normal{};
+                for (std::uint32_t bone = 0; bone < bones; ++bone) {
+                    const float weight = read_field<WeightType, false>(at + bone * weight_size) * weight_scale;
+                    if (weight == 0.0f) continue;
+                    const float *m = bone_matrices + bone * 12u;
+                    for (std::uint32_t axis = 0; axis < 3u; ++axis) {
+                        position[axis] += weight * (vertex.position[0] * m[axis] + vertex.position[1] * m[3u + axis] +
+                                                    vertex.position[2] * m[6u + axis] + m[9u + axis]);
+                        normal[axis] += weight * (vertex.normal[0] * m[axis] + vertex.normal[1] * m[3u + axis] +
+                                                  vertex.normal[2] * m[6u + axis]);
+                    }
+                }
+                vertex.position[0] = position[0];
+                vertex.position[1] = position[1];
+                vertex.position[2] = position[2];
+                vertex.normal = normal;
+            }
+        }
+        out[i] = vertex;
+    }
+}
+
+using DecodeRun = void (*)(const std::uint8_t *, std::uint32_t, const VertexLayout &, Vertex *, const float *);
+
+template <std::uint32_t WeightType, std::uint32_t NormalType>
+constexpr std::array<DecodeRun, 4> runs_for_position() {
+    return {nullptr, &decode_run<WeightType, NormalType, 1u>, &decode_run<WeightType, NormalType, 2u>,
+            &decode_run<WeightType, NormalType, 3u>};
+}
+
+template <std::uint32_t WeightType>
+constexpr std::array<std::array<DecodeRun, 4>, 4> runs_for_normal() {
+    return {runs_for_position<WeightType, 0u>(), runs_for_position<WeightType, 1u>(),
+            runs_for_position<WeightType, 2u>(), runs_for_position<WeightType, 3u>()};
+}
+
+// By weight, normal and position format.
+constexpr std::array<std::array<std::array<DecodeRun, 4>, 4>, 4> kDecodeRuns{
+    runs_for_normal<0u>(), runs_for_normal<1u>(), runs_for_normal<2u>(), runs_for_normal<3u>()};
+
+// MHP3RD_NO_FAST_DECODE decodes every vertex with the general loop, as
+// before; MHP3RD_CHECK_DECODE decodes each run both ways and reports runs
+// that differ.
+bool fast_decode_enabled() {
+    static const bool disabled = std::getenv("MHP3RD_NO_FAST_DECODE") != nullptr;
+    return !disabled && !perf::alternate_off(perf::NewPath::Decode);
+}
+
+} // namespace
+
+VertexFormat vertex_format(std::uint32_t vertex_type) noexcept {
+    // The same placement as decode_vertices() below.
+    static constexpr std::uint32_t kComponentSize[4] = {0u, 1u, 2u, 4u};
+    static constexpr std::uint32_t kColorSize[8] = {0u, 0u, 0u, 0u, 2u, 2u, 2u, 4u};
+    std::uint32_t offset = 0u;
+    std::uint32_t biggest = 1u;
+    const auto place = [&](std::uint32_t component, std::uint32_t components) {
+        if (component == 0u) return kNoVertexField;
+        offset = align_up(offset, component);
+        biggest = std::max(biggest, component);
+        const std::uint32_t at = offset;
+        offset += component * components;
+        return at;
+    };
+    VertexFormat format{};
+    format.weight_offset = place(kComponentSize[(vertex_type >> 9u) & 3u], ((vertex_type >> 14u) & 7u) + 1u);
+    format.texcoord_offset = place(kComponentSize[vertex_type & 3u], 2u);
+    format.color_offset = place(kColorSize[(vertex_type >> 2u) & 7u], 1u);
+    format.normal_offset = place(kComponentSize[(vertex_type >> 5u) & 3u], 3u);
+    format.position_offset = place(kComponentSize[(vertex_type >> 7u) & 3u], 3u);
+    format.stride = align_up(offset, biggest);
+    return format;
+}
+
 std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, std::uint32_t vertex_type,
                               std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices) {
     // Field order is weights, texcoords, color, normal, position; every field is
@@ -239,6 +425,32 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
     // contiguous in host memory falls back to checked loads.
     const std::uint8_t *data =
         count != 0u ? memory.raw_pointer(address, static_cast<std::size_t>(count) * stride) : nullptr;
+    static const bool check_decode = std::getenv("MHP3RD_CHECK_DECODE") != nullptr;
+    const DecodeRun fast_run = data != nullptr && morph_count == 1u && position_type != 0u
+                                   ? kDecodeRuns[weight_type][normal_type][position_type]
+                                   : nullptr;
+    if (fast_run != nullptr && (fast_decode_enabled() || check_decode)) {
+        VertexLayout layout{};
+        layout.texcoord_type = texcoord_type;
+        layout.color_type = color_type;
+        layout.weight_count = weight_count;
+        layout.weight_offset = weight_offset;
+        layout.texcoord_offset = texcoord_offset;
+        layout.color_offset = color_offset;
+        layout.normal_offset = normal_offset;
+        layout.position_offset = position_offset;
+        layout.stride = stride;
+        layout.through = through;
+        layout.skinned = skinned;
+        out.resize(count);
+        fast_run(data, count, layout, out.data(), bone_matrices);
+        if (!check_decode) return stride;
+    }
+    // MHP3RD_CHECK_DECODE: the fast run's vertices, compared below with the
+    // general loop's.
+    static std::vector<Vertex> fast_copy;
+    const bool compare = check_decode && fast_run != nullptr;
+    if (compare) fast_copy = out;
     const auto load8 = [&](std::uint32_t at) -> std::uint8_t {
         return data != nullptr ? data[at - address] : memory.load8(at);
     };
@@ -356,6 +568,19 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
             vertex.normal = normal;
         }
         out.push_back(vertex);
+    }
+    if (compare) {
+        static std::uint64_t checked = 0u;
+        static std::uint64_t differed = 0u;
+        ++checked;
+        if (fast_copy.size() != out.size() ||
+            std::memcmp(fast_copy.data(), out.data(), out.size() * sizeof(Vertex)) != 0) {
+            if (++differed <= 20u)
+                std::cout << "[decode-check] vertex type 0x" << std::hex << vertex_type << std::dec << " differs over "
+                          << out.size() << " vertices\n";
+        }
+        if (checked % 100000u == 0u)
+            std::cout << "[decode-check] " << checked << " runs compared, " << differed << " differed" << std::endl;
     }
     return stride;
 }
@@ -758,6 +983,9 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     call.projection = projection_;
     call.texture_matrix = texture_matrix_;
 
+    // MHP3RD_TRACE_RENDER: from here to the decoded vertices is "decode".
+    const bool split = perf::split_enabled();
+    const std::uint64_t split_start = split ? perf::split_ticks() : 0u;
     std::uint32_t vertex_count = count;
     std::uint32_t first_vertex = 0u;
     if (index_type != 0u && index_address_ != 0u) {
@@ -808,9 +1036,29 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     if (probe == 0u) return;
     const std::uint32_t first_address = vertex_address_ + first_vertex * probe;
     if (!memory.contains(first_address, static_cast<std::size_t>(probe) * vertex_count)) return;
-    const std::uint32_t stride =
-        decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices, bone_matrices_.data());
-    if (stride == 0u || call.vertices.empty()) return;
+    call.raw_vertices = nullptr;
+    call.raw_count = 0u;
+    call.raw_stride = 0u;
+    call.bone_matrices = nullptr;
+    std::uint32_t stride = 0u;
+    const bool triangles = primitive == PrimitiveType::Triangles || primitive == PrimitiveType::TriangleStrip ||
+                           primitive == PrimitiveType::TriangleFan;
+    const bool one_morph = ((vertex_type_ >> 18u) & 7u) == 0u;
+    const bool positioned = ((vertex_type_ >> 7u) & 3u) != 0u;
+    if (raw_vertices_ && !call.through && triangles && one_morph && positioned && vertex_count != 0u) {
+        call.raw_vertices = memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
+        if (call.raw_vertices != nullptr) {
+            call.raw_count = vertex_count;
+            call.raw_stride = probe;
+            call.bone_matrices = bone_matrices_.data();
+            stride = probe;
+        }
+    }
+    if (call.raw_vertices == nullptr || raw_also_decoded_)
+        stride = decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices,
+                                 bone_matrices_.data());
+    if (split) perf::add_split(perf::Split::Decode, perf::split_ticks() - split_start);
+    if (stride == 0u || (call.vertices.empty() && call.raw_vertices == nullptr)) return;
     // A prim leaves VADDR/IADDR alone but advances the pointer it consumed, so
     // a run of prims can share one setup. An indexed prim consumes indices, not
     // vertices: advancing the vertex pointer instead walked it off the mesh and
@@ -824,7 +1072,7 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     // distinct combination of vertex type, enables and material registers,
     // printed with every non-zero register lighting may read. Light positions
     // and colours are left out of the key because the game animates them.
-    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr; trace && lighting_enabled_) {
+    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr; trace && lighting_enabled_ && !call.vertices.empty()) {
         static std::map<std::vector<std::uint32_t>, std::uint64_t> seen;
         std::vector<std::uint32_t> key{vertex_type_};
         for (std::uint32_t command = 0x18u; command <= 0x1Fu; ++command) key.push_back(registers_[command]);
@@ -843,7 +1091,7 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     }
 
     ++draw_count_;
-    vertex_count_ += call.vertices.size();
+    vertex_count_ += call.raw_vertices != nullptr ? call.raw_count : call.vertices.size();
     if (draw_sink_) draw_sink_(call);
 }
 
