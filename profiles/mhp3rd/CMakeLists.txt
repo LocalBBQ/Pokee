@@ -304,6 +304,35 @@ set_target_properties(Yakumo PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     JOB_POOL_COMPILE psprecomp_generated)
 
+# Developer tools (host/debug): the menu's Debug page, with cheats for testing,
+# and the command file that drives it from a script. Never in a release build:
+# MHP3RD_RELEASE compiles all of it out whatever this option says. A developer
+# build still shows it only when MHP3RD_DEBUG_MENU=1 is set at run time.
+option(MHP3RD_DEBUG_MENU "Compile the developer tools (Debug page) into non-release builds" ON)
+if(MHP3RD_DEBUG_MENU AND NOT MHP3RD_RELEASE)
+    target_sources(Yakumo PRIVATE
+        host/debug/debug_console.cpp
+        host/debug/debug_tools.cpp
+        host/debug/game_state.cpp)
+    if(MHP3RD_RENDERER)
+        target_sources(Yakumo PRIVATE host/ui/debug_screen.cpp)
+    endif()
+    target_compile_definitions(Yakumo PRIVATE MHP3RD_DEBUG_MENU=1)
+    message(STATUS "mhp3rd: developer tools compiled in (shown with MHP3RD_DEBUG_MENU=1)")
+
+    # The game's structures as the tools read and write them, on a buffer.
+    add_executable(mhp3rd_debug_tools_tests
+        tests/debug_tools_tests.cpp
+        host/debug/game_state.cpp)
+    target_include_directories(mhp3rd_debug_tools_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+    set_target_properties(mhp3rd_debug_tools_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    if(PSPRECOMP_BUILD_TESTS)
+        add_test(NAME mhp3rd_debug_tools_tests COMMAND mhp3rd_debug_tools_tests)
+    endif()
+else()
+    message(STATUS "mhp3rd: developer tools not compiled in")
+endif()
+
 # Save-data checks that need no game data: crypto test vectors and round trips.
 add_executable(mhp3rd_savedata_tests
     tests/savedata_tests.cpp

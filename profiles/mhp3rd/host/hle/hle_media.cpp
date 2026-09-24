@@ -14,6 +14,9 @@
 #include "psprecomp/common.hpp"
 
 #include "camera_probe.hpp"
+#if defined(MHP3RD_DEBUG_MENU)
+#include "debug/debug_tools.hpp"
+#endif
 #include "camera/camera_input.hpp"
 #include "camera/game_aspect.hpp"
 #include "camera/game_camera.hpp"
@@ -226,6 +229,11 @@ void present_frame(Runtime &rt) {
     load_trace::note_flip();
     // Overlays are swapped between frames; re-check before drawing the next one.
     revalidate_overlays(rt);
+#if defined(MHP3RD_DEBUG_MENU)
+    // Between two game frames: the developer tools' queued writes and held
+    // cheats land here, never while guest code runs.
+    debug::frame(rt);
+#endif
 #if defined(MHP3RD_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
         perf::end_frame(kernel().now_us());
