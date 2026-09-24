@@ -415,7 +415,15 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     out.frame_rate = s.frame_rate;
     out.requested_rate = s.requested_rate;
     if (options().log) print(out);
-    if (trace.enabled)
+    // A phone has no environment to set MHP3RD_TRACE_STALLS in: there the
+    // [stalls] line comes with the [perf] line (Performance: Log), so a log a
+    // player saves from the menu says where the frame time went.
+#if defined(__ANDROID__)
+    const bool stalls_line = trace.enabled || options().log;
+#else
+    const bool stalls_line = trace.enabled;
+#endif
+    if (stalls_line)
         std::cout << "[stalls] ms per frame over " << s.frames << " frames:" << format_stalls(s.stall_sum, frames, true)
                   << std::endl;
 

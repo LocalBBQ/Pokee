@@ -2149,6 +2149,25 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(impl.physical_device, &properties);
     impl.device_name = properties.deviceName;
+    // What a player's log needs to tell drivers and memory apart.
+    {
+        VkPhysicalDeviceMemoryProperties memory{};
+        vkGetPhysicalDeviceMemoryProperties(impl.physical_device, &memory);
+        VkMemoryRequirements vertex_requirements{};
+        vkGetBufferMemoryRequirements(impl.device, impl.vertex_buffer, &vertex_requirements);
+        const std::uint32_t vertex_type = impl.find_memory_type(
+            vertex_requirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        const VkMemoryPropertyFlags flags = memory.memoryTypes[vertex_type].propertyFlags;
+        std::cout << "[render] Vulkan " << VK_API_VERSION_MAJOR(properties.apiVersion) << "."
+                  << VK_API_VERSION_MINOR(properties.apiVersion) << "." << VK_API_VERSION_PATCH(properties.apiVersion)
+                  << ", driver 0x" << std::hex << properties.driverVersion << ", vendor 0x" << properties.vendorID
+                  << ", device 0x" << properties.deviceID << std::dec << "; vertex buffer "
+                  << (kVertexBufferTotal >> 20u) << " MiB in memory type " << vertex_type << " ("
+                  << ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u ? "device local, " : "")
+                  << ((flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0u ? "cached" : "uncached")
+                  << "); depth format " << static_cast<int>(impl.depth_format) << "\n";
+    }
     std::cout << "Renderer: Vulkan on " << properties.deviceName << ", target " << impl.target_extent.width << "x"
               << impl.target_extent.height << "\n";
     impl.ready = true;
@@ -2348,6 +2367,8 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     if (ui_render_pass != VK_NULL_HANDLE && !create_ui_framebuffers(error)) return false;
     swapchain_dirty = false;
     update_display_info();
+    std::cout << "[render] swapchain " << image_extent.width << "x" << image_extent.height << ", " << count
+              << " images, " << present_mode_name(present_mode) << "\n";
     return true;
 }
 
