@@ -16,7 +16,12 @@ constexpr std::uint32_t kMaxResident = 4096u;
 // frame would stall it.
 constexpr std::uint64_t kUploadBytesPerFrame = 32ull * 1024u * 1024u;
 // A replacement drawn within this many frames is never dropped for the budget.
-constexpr std::uint64_t kKeepFrames = 2u;
+// When a frame begins, the renderer has waited only for the frame two back:
+// the frame before may still be drawing, and so may the presents between the
+// flips before it, which draw the frame before that again with frame
+// interpolation. Those reach three frames back; a fourth is margin. (Two was
+// enough while each frame waited for the one before.)
+constexpr std::uint64_t kKeepFrames = 4u;
 
 std::uint64_t budget_from_environment() {
     // MHP3RD_TEXTURE_PACK_MEMORY: megabytes of GPU memory for replacements.
