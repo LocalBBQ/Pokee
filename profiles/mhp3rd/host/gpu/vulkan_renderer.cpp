@@ -2032,10 +2032,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 #if defined(__APPLE__)
     // MoltenVK turns a frame's Vulkan commands into Metal ones when they are
     // submitted, on the calling thread: 1-2 ms of the game's thread a frame.
-    // Asynchronous submits do that on MoltenVK's own thread instead; fences
-    // and semaphores keep their meaning. Setting the variable yourself (to 1)
-    // keeps submits synchronous.
-    setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 0);
+    // Its asynchronous submits do that on a thread of their own, but they
+    // crashed a release build after minutes of play (a freed Objective-C
+    // object retained on MoltenVK's dispatch queue), so they are opt-in:
+    // MHP3RD_MOLTENVK_ASYNC_SUBMITS=1, or MoltenVK's own variable set to 0.
+    if (const char *async = std::getenv("MHP3RD_MOLTENVK_ASYNC_SUBMITS"); async != nullptr && *async == '1')
+        setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "0", 0);
 #endif
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         error = std::string("SDL_Init failed: ") + SDL_GetError();
