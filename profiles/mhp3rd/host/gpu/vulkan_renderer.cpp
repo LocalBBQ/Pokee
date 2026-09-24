@@ -1151,6 +1151,24 @@ struct VulkanRenderer::Impl {
     double pipeline_new_ms{};
     void load_pipeline_cache();
     void save_pipeline_cache();
+    // Pipeline prewarming (MHP3RD_NO_PIPELINE_PREWARM turns it off): the keys
+    // of every pipeline a run made are kept in pipeline_keys.bin, and the next
+    // run makes them on a thread of its own from the start, so a new area or
+    // effect finds its pipelines ready instead of compiling them in its
+    // first frame.
+    struct Prewarm {
+        std::thread thread;
+        std::mutex lock;
+        std::map<PipelineKey, VkPipeline> made;  // not yet asked for
+        std::atomic<bool> stop{};
+    };
+    std::unique_ptr<Prewarm> prewarm = std::make_unique<Prewarm>();
+    std::uint32_t pipelines_prewarm_used{};
+    bool pipeline_keys_dirty{};
+    std::filesystem::path pipeline_keys_path;
+    void prewarm_pipelines();
+    void save_pipeline_keys();
+    [[nodiscard]] VkPipeline create_pipeline(const PipelineKey &key) const;
     // Every few seconds after a pipeline was created: saves the cache and
     // says how many pipelines the game needed and what they cost.
     void report_pipelines(bool final);
@@ -2460,6 +2478,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(impl.physical_device, &properties);
     impl.device_name = properties.deviceName;
+    impl.prewarm_pipelines();
     // What a player's log needs to tell drivers and memory apart.
     {
         VkPhysicalDeviceMemoryProperties memory{};
@@ -4227,6 +4246,117 @@ void VulkanRenderer::Impl::save_pipeline_cache() {
     if (ec) std::filesystem::remove(partial, ec);
 }
 
+namespace {
+
+constexpr std::uint32_t kPipelineKeysMagic = 0x4B504B59u;  // "YKPK"
+constexpr std::uint32_t kPipelineKeysVersion = 1u;
+constexpr std::uint32_t kPipelineKeyWords = 12u;
+constexpr std::uint32_t kMaxPipelineKeys = 4096u;
+
+std::array<std::uint32_t, kPipelineKeyWords> key_words(const PipelineKey &key) {
+    return {key.blend ? 1u : 0u, key.source_factor,  key.destination_factor, key.equation,
+            key.depth_test ? 1u : 0u, key.depth_write ? 1u : 0u, key.depth_function, key.cull ? 1u : 0u,
+            key.cull_clockwise ? 1u : 0u, key.color_mask, key.alpha_test ? 1u : 0u, key.raw ? 1u : 0u};
+}
+
+PipelineKey key_from(const std::array<std::uint32_t, kPipelineKeyWords> &words) {
+    PipelineKey key{};
+    key.blend = words[0] != 0u;
+    key.source_factor = words[1];
+    key.destination_factor = words[2];
+    key.equation = words[3];
+    key.depth_test = words[4] != 0u;
+    key.depth_write = words[5] != 0u;
+    key.depth_function = words[6];
+    key.cull = words[7] != 0u;
+    key.cull_clockwise = words[8] != 0u;
+    key.color_mask = words[9] & 0xFu;
+    key.alpha_test = words[10] != 0u;
+    key.raw = words[11] != 0u;
+    return key;
+}
+
+} // namespace
+
+void VulkanRenderer::Impl::save_pipeline_keys() {
+    if (!pipeline_keys_dirty || pipeline_keys_path.empty()) return;
+    pipeline_keys_dirty = false;
+    // The pipelines made this run and those the prewarm made unasked.
+    std::vector<std::uint32_t> data{kPipelineKeysMagic, kPipelineKeysVersion, kPipelineKeyWords, 0u};
+    std::uint32_t count = 0u;
+    const auto add = [&](const PipelineKey &key) {
+        if (count >= kMaxPipelineKeys) return;
+        const auto words = key_words(key);
+        data.insert(data.end(), words.begin(), words.end());
+        ++count;
+    };
+    for (const auto &[key, pipeline] : pipelines) add(key);
+    {
+        std::lock_guard<std::mutex> guard(prewarm->lock);
+        for (const auto &[key, pipeline] : prewarm->made) add(key);
+    }
+    data[3] = count;
+    std::filesystem::path partial = pipeline_keys_path;
+    partial += ".partial";
+    {
+        std::ofstream out(partial, std::ios::binary | std::ios::trunc);
+        if (!out) return;
+        out.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size() * 4u));
+        if (!out) return;
+    }
+    std::error_code ec;
+    std::filesystem::rename(partial, pipeline_keys_path, ec);
+    if (ec) std::filesystem::remove(partial, ec);
+}
+
+void VulkanRenderer::Impl::prewarm_pipelines() {
+    if (pipeline_cache == VK_NULL_HANDLE || std::getenv("MHP3RD_NO_PIPELINE_PREWARM") != nullptr) return;
+    pipeline_keys_path = pipeline_cache_path.parent_path() / "pipeline_keys.bin";
+    std::vector<std::uint32_t> data;
+    {
+        std::ifstream in(pipeline_keys_path, std::ios::binary);
+        if (!in) return;
+        in.seekg(0, std::ios::end);
+        const std::streamoff size = in.tellg();
+        if (size < 16 || size % 4 != 0 || size > 16 + static_cast<std::streamoff>(kMaxPipelineKeys) * 48) return;
+        in.seekg(0);
+        data.resize(static_cast<std::size_t>(size / 4));
+        in.read(reinterpret_cast<char *>(data.data()), size);
+        if (!in) return;
+    }
+    if (data[0] != kPipelineKeysMagic || data[1] != kPipelineKeysVersion || data[2] != kPipelineKeyWords ||
+        data.size() != 4u + static_cast<std::size_t>(data[3]) * kPipelineKeyWords)
+        return;
+    std::vector<PipelineKey> keys;
+    for (std::uint32_t i = 0; i < data[3]; ++i) {
+        std::array<std::uint32_t, kPipelineKeyWords> words{};
+        std::copy_n(data.begin() + 4 + static_cast<std::ptrdiff_t>(i) * kPipelineKeyWords, kPipelineKeyWords,
+                    words.begin());
+        keys.push_back(key_from(words));
+    }
+    prewarm->thread = std::thread([this, keys = std::move(keys)] {
+        const auto start = std::chrono::steady_clock::now();
+        std::uint32_t made = 0u;
+        for (const PipelineKey &key : keys) {
+            if (prewarm->stop.load(std::memory_order_relaxed)) break;
+            {
+                std::lock_guard<std::mutex> guard(prewarm->lock);
+                if (prewarm->made.contains(key)) continue;
+            }
+            const VkPipeline pipeline = create_pipeline(key);
+            if (pipeline == VK_NULL_HANDLE) continue;
+            std::lock_guard<std::mutex> guard(prewarm->lock);
+            if (!prewarm->made.emplace(key, pipeline).second) vkDestroyPipeline(device, pipeline, nullptr);
+            ++made;
+        }
+        std::cout << "[render] " << made << " pipelines of earlier runs made in the background in " << std::fixed
+                  << std::setprecision(1)
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count()
+                  << std::defaultfloat << std::setprecision(6) << " ms\n"
+                  << std::flush;
+    });
+}
+
 void VulkanRenderer::Impl::report_pipelines(bool final) {
     if (pipelines_new == 0u && !pipeline_cache_dirty) return;
     // A burst of new pipelines (a new area, an effect seen for the first
@@ -4243,6 +4373,7 @@ void VulkanRenderer::Impl::report_pipelines(bool final) {
         pipeline_new_ms = 0.0;
     }
     save_pipeline_cache();
+    save_pipeline_keys();
 }
 
 VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
@@ -4255,7 +4386,40 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
         last_pipeline = found->second;
         return found->second;
     }
+    // Made in the background from the last run's list (prewarm_pipelines).
+    if (prewarm->thread.joinable()) {
+        std::lock_guard<std::mutex> guard(prewarm->lock);
+        if (const auto ready = prewarm->made.find(key); ready != prewarm->made.end()) {
+            const VkPipeline pipeline = ready->second;
+            prewarm->made.erase(ready);
+            pipelines.emplace(key, pipeline);
+            last_pipeline_key = key;
+            last_pipeline = pipeline;
+            ++pipelines_prewarm_used;
+            return pipeline;
+        }
+    }
+    const perf::Clock::time_point create_start = perf::Clock::now();
+    VkPipeline pipeline = create_pipeline(key);
+    const perf::Clock::duration create_time = perf::Clock::now() - create_start;
+    perf::note_stall(perf::Stall::Pipeline, create_time);
+    ++pipelines_new;
+    pipeline_new_ms += std::chrono::duration<double, std::milli>(create_time).count();
+    if (pipeline_cache != VK_NULL_HANDLE) {
+        pipeline_cache_dirty = true;
+        pipeline_cache_changed = std::chrono::steady_clock::now();
+    }
+    if (pipeline == VK_NULL_HANDLE) return VK_NULL_HANDLE;
+    pipelines.emplace(key, pipeline);
+    pipeline_keys_dirty = true;
+    last_pipeline_key = key;
+    last_pipeline = pipeline;
+    return pipeline;
+}
 
+// The pipeline for `key`; touches nothing but immutable state and the
+// (internally synchronised) pipeline cache, so the prewarm thread uses it too.
+VkPipeline VulkanRenderer::Impl::create_pipeline(const PipelineKey &key) const {
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -4345,20 +4509,8 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
     info.layout = pipeline_layout;
     info.renderPass = render_pass;
     VkPipeline pipeline{};
-    const perf::Clock::time_point create_start = perf::Clock::now();
-    const VkResult created = vkCreateGraphicsPipelines(device, pipeline_cache, 1u, &info, nullptr, &pipeline);
-    const perf::Clock::duration create_time = perf::Clock::now() - create_start;
-    perf::note_stall(perf::Stall::Pipeline, create_time);
-    ++pipelines_new;
-    pipeline_new_ms += std::chrono::duration<double, std::milli>(create_time).count();
-    if (pipeline_cache != VK_NULL_HANDLE) {
-        pipeline_cache_dirty = true;
-        pipeline_cache_changed = std::chrono::steady_clock::now();
-    }
-    if (created != VK_SUCCESS) return VK_NULL_HANDLE;
-    pipelines.emplace(key, pipeline);
-    last_pipeline_key = key;
-    last_pipeline = pipeline;
+    if (vkCreateGraphicsPipelines(device, pipeline_cache, 1u, &info, nullptr, &pipeline) != VK_SUCCESS)
+        return VK_NULL_HANDLE;
     return pipeline;
 }
 
@@ -7285,6 +7437,10 @@ void VulkanRenderer::shutdown() {
     vkFreeMemory(impl.device, impl.overlay_memory, nullptr);
     impl.destroy_upload();
     impl.destroy_writeback();
+    impl.prewarm->stop = true;
+    if (impl.prewarm->thread.joinable()) impl.prewarm->thread.join();
+    if (impl.pipelines_prewarm_used != 0u)
+        std::cout << "[render] " << impl.pipelines_prewarm_used << " pipelines came from the background prewarm\n";
     impl.report_pipelines(true);
     impl.pending_textures.clear();
     impl.decode_pool.reset();
@@ -7292,6 +7448,8 @@ void VulkanRenderer::shutdown() {
     impl.pipeline_cache = VK_NULL_HANDLE;
     for (auto &[key, pipeline] : impl.pipelines) vkDestroyPipeline(impl.device, pipeline, nullptr);
     impl.pipelines.clear();
+    for (auto &[key, pipeline] : impl.prewarm->made) vkDestroyPipeline(impl.device, pipeline, nullptr);
+    impl.prewarm->made.clear();
     impl.last_pipeline = VK_NULL_HANDLE;
     if (impl.vertex_mapped != nullptr) vkUnmapMemory(impl.device, impl.vertex_memory);
     vkDestroyBuffer(impl.device, impl.vertex_buffer, nullptr);
