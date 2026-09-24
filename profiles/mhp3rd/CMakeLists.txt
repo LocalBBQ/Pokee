@@ -56,6 +56,8 @@ if(MHP3RD_RENDERER)
         set(MHP3RD_SHADER_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders/ge_shaders.inc")
         set(MHP3RD_SHADERS
             "kGeVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
+            "kGeRawVertexShader=GE_RAW_VERTICES@${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
+            "kGeCheckVertexShader=GE_RAW_VERTICES,GE_CHECK_DECODE@${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
             "kGeFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.frag")
         if(ANDROID)
             # Pre-rotation of the finished frame for a display turned sideways.
@@ -64,7 +66,8 @@ if(MHP3RD_RENDERER)
                 "kRotateFragmentShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/rotate.frag")
         endif()
         set(MHP3RD_SHADER_SOURCES ${MHP3RD_SHADERS})
-        list(TRANSFORM MHP3RD_SHADER_SOURCES REPLACE "^[A-Za-z]+=" "")
+        list(TRANSFORM MHP3RD_SHADER_SOURCES REPLACE "^[A-Za-z]+=([A-Z_,]+@)?" "")
+        list(REMOVE_DUPLICATES MHP3RD_SHADER_SOURCES)
         add_custom_command(
             OUTPUT "${MHP3RD_SHADER_INC}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"

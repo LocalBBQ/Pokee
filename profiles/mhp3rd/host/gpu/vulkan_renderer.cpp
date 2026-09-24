@@ -218,6 +218,26 @@ struct ObjectBlock {
 
 static_assert(sizeof(ObjectBlock) == 144u, "ObjectBlock must match the std140 layout in ge.vert");
 
+// GPU vertex decode (MHP3RD_GPU_DECODE): what the raw vertex shader needs to
+// decode and skin a draw's own bytes; the layout matches the Raw block in
+// ge.vert. Only the bones the vertex type weights are written.
+constexpr std::uint32_t kRawNoField = 0xFFu;
+struct RawBlock {
+    std::array<std::uint32_t, 4> format{};  // stride, vertex type, packed field offsets, position offset
+    std::array<std::uint32_t, 4> extra{};   // colour of a vertex without one, check slot
+    std::array<float, 8u * 16u> bones{};    // four vec4 rows per bone
+};
+static_assert(sizeof(RawBlock) == 544u, "RawBlock must match the std140 layout in ge.vert");
+// A draw MHP3RD_CHECK_GPU_DECODE compares.
+struct CheckDraw {
+    std::uint32_t slot{};   // in the check buffer, in vec4s
+    std::uint32_t first{};  // into FrameSlot::check_expected
+    std::uint32_t count{};
+    std::uint32_t vertex_type{};
+};
+constexpr std::size_t kRawHeaderBytes = 32u;
+constexpr std::size_t kRawBoneBytes = 64u;
+
 // A GE colour register (0x00BBGGRR) as 0..1 floats, with an explicit alpha.
 std::array<float, 4> unpack_color(std::uint32_t color, float alpha = 1.0f) {
     return {static_cast<float>(color & 0xFFu) / 255.0f, static_cast<float>((color >> 8u) & 0xFFu) / 255.0f,
@@ -240,6 +260,9 @@ struct PipelineKey {
     // The fragment shader's alpha test (kAlphaTest in ge.frag). Draws without
     // one get a pipeline whose shader cannot discard.
     bool alpha_test{true};
+    // The raw vertex shader, which decodes the guest's vertex bytes, and its
+    // check build (MHP3RD_CHECK_GPU_DECODE).
+    bool raw{};
 
     auto operator<=>(const PipelineKey &) const = default;
 };
@@ -920,6 +943,12 @@ struct VulkanRenderer::Impl {
         Staging movie{};
         std::uint32_t gpu_timer_pending{};  // queries the frame wrote, read after its fence
         std::uint32_t region{kNoRegion};    // of the vertex and index buffers
+        // MHP3RD_CHECK_GPU_DECODE: the draws the frame checks and the host's
+        // own decode of their vertices.
+        std::vector<CheckDraw> checks;
+        std::vector<GpuVertex> check_expected;
+        std::vector<std::uint8_t> check_drawn;  // for each: the draw's indices name it, so the shader ran for it
+        std::uint32_t check_used{};         // vertices of the slot's check area handed out
     };
     static constexpr std::uint32_t kNoRegion = 0xFFFFFFFFu;
     std::array<FrameSlot, kMaxSlots> slots{};
@@ -940,6 +969,9 @@ struct VulkanRenderer::Impl {
     }
     // Takes the pixels a slot's frame wrote back, waiting for it if `wait`.
     void collect_writeback(std::uint32_t from, bool wait);
+    // After a slot's fence: compares what its raw vertex shader decoded with
+    // the host's decode (MHP3RD_CHECK_GPU_DECODE).
+    void compare_gpu_decode(std::uint32_t from);
     bool create_writeback(std::string &error);
     void destroy_writeback();
     void record_writeback(std::uint32_t address);
@@ -982,6 +1014,32 @@ struct VulkanRenderer::Impl {
     VkExtent2D target_extent{};
 
     VkShaderModule vertex_shader{};
+    VkShaderModule raw_vertex_shader{};  // GPU vertex decode, or its check build
+    // GPU vertex decode (MHP3RD_GPU_DECODE): the renderer asks GeState for
+    // the guest's vertex bytes of transformed triangle draws and the vertex
+    // shader decodes and skins them.
+    bool gpu_decode_available{};
+    bool check_gpu_decode{};  // MHP3RD_CHECK_GPU_DECODE
+    std::uint32_t raw_offset{};  // the raw block most recently written this frame
+    RawBlock last_raw{};
+    std::size_t last_raw_bytes{};
+    bool raw_valid{};
+    // MHP3RD_CHECK_GPU_DECODE: the shader writes what it decoded to this
+    // buffer (three vec4s a vertex, from each draw's slot), and after the
+    // frame's fence the host compares it with its own decode, kept here.
+    VkBuffer check_buffer{};
+    VkDeviceMemory check_memory{};
+    void *check_mapped{};
+    static constexpr std::uint32_t kCheckVertices = 65536u;  // compared per frame slot
+    struct CheckTally {
+        std::uint64_t draws{};
+        std::uint64_t vertices{};
+        std::uint64_t exact{};
+        std::uint64_t close{};
+        std::uint64_t differed{};
+        double max_error{};
+        std::array<std::array<std::uint64_t, 12>, 2> fields{};  // inexact values by kind (unskinned, skinned) and field
+    } check_tally;
     VkShaderModule fragment_shader{};
     VkPipelineLayout pipeline_layout{};
     VkDescriptorSetLayout descriptor_layout{};
@@ -1052,7 +1110,7 @@ struct VulkanRenderer::Impl {
     // What the command buffer has bound, so that unchanged state is not bound
     // again; begin_frame() and begin_pass() forget it.
     VkPipeline bound_pipeline{};
-    std::array<std::uint32_t, 2> bound_lighting_offsets{};
+    std::array<std::uint32_t, 3> bound_lighting_offsets{};
     bool lighting_bound{};
 
     // Copies a uniform block into the vertex buffer at the next aligned offset.
@@ -1085,7 +1143,7 @@ struct VulkanRenderer::Impl {
     struct DrawState {
         VkPipeline pipeline{};
         VkDescriptorSet texture{};
-        std::array<std::uint32_t, 2> lighting{};
+        std::array<std::uint32_t, 3> lighting{};  // environment, object, raw block
         VkViewport viewport{};
         VkRect2D scissor{};
         std::array<float, 4> blend{};
@@ -1100,6 +1158,8 @@ struct VulkanRenderer::Impl {
         VkDeviceSize index_base{};   // bytes into the index buffer
         std::uint32_t index_count{};
         std::uint32_t draws{};
+        bool raw{};                  // the guest's vertex bytes, decoded on the GPU
+        std::uint32_t stride{};      // of a raw group's vertices
     };
     DrawGroup group{};
     bool group_skinned{};  // the open group is of skinned draws recorded for drawing again
@@ -1114,7 +1174,9 @@ struct VulkanRenderer::Impl {
         group.open = false;
         vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer, &group.vertex_base);
         vkCmdBindIndexBuffer(command_buffer, index_buffer, group.index_base, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(command_buffer, group.index_count, 1u, 0u, 0, 0u);
+        // A raw group finds its bytes at its first instance (ge.vert).
+        vkCmdDrawIndexed(command_buffer, group.index_count, 1u, 0u, 0,
+                         group.raw ? static_cast<std::uint32_t>(group.vertex_base) : 0u);
         perf::count_recorded_draws(1u);
     }
     // Sets what differs between `state` and what is recorded already.
@@ -1178,6 +1240,8 @@ struct VulkanRenderer::Impl {
         std::uint32_t draws{};
         std::uint32_t object{kNone};  // FrameRecord::objects, for a lit group
         std::uint32_t skinned{kNone}; // FrameRecord::skinned: the vertices of a group of skinned draws
+        bool raw{};                   // drawn from the guest's vertex bytes at vertex_base (first instance)
+        std::uint32_t raw_block{kNone}; // FrameRecord::raws: its format and bones
     };
     struct FrameRecord {
         std::vector<interpolation::DrawSummary> summaries;
@@ -1186,6 +1250,8 @@ struct VulkanRenderer::Impl {
         std::vector<GpuVertex> skinned;       // skinned draws' vertices
         std::vector<ObjectBlock> objects;
         std::uint32_t object_offset{kNone};   // where objects.back() lies
+        std::vector<RawBlock> raws;           // raw blocks of raw groups, for blending their bones
+        std::uint32_t raw_offset{kNone};      // where raws.back() lies
         std::uint32_t displayed{};
         std::int64_t moment_us{};
         std::uint64_t texture_clock{};        // texture_clock when the frame began
@@ -1197,6 +1263,8 @@ struct VulkanRenderer::Impl {
             groups.clear();
             skinned.clear();
             objects.clear();
+            raws.clear();
+            raw_offset = kNone;
             object_offset = kNone;
             recorded = false;
             valid = false;
@@ -1283,7 +1351,7 @@ struct VulkanRenderer::Impl {
     void finish_interpolated_frame(VkImage source, std::uint32_t displayed, std::int64_t moment_us);
     void record_draw_for_replay(const DrawCall &call, bool lit, std::uint32_t skinned, const DrawState &state,
                                 VkDeviceSize vertex_start, VkBuffer indices, VkDeviceSize index_start,
-                                std::uint32_t count, std::uint32_t vertex_count, bool joined);
+                                std::uint32_t count, std::uint32_t vertex_count, bool joined, bool raw = false);
     // `idle`: the kernel is waiting for real time, so the present costs the
     // game nothing; otherwise it is made while the game's code runs, within
     // a budget per game frame. Returns whether a present was made.
@@ -1658,6 +1726,77 @@ struct VulkanRenderer::Impl {
     void destroy_texture(Texture &texture);
 };
 
+void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
+    FrameSlot &frame = slots[from];
+    if (!check_gpu_decode || check_mapped == nullptr) return;
+    const auto *out = static_cast<const float *>(check_mapped);
+    CheckTally &tally = check_tally;
+    for (const CheckDraw &draw : frame.checks) {
+        ++tally.draws;
+        const bool skinned = ((draw.vertex_type >> 9u) & 3u) != 0u;
+        for (std::uint32_t v = 0; v < draw.count; ++v) {
+            if (frame.check_drawn[draw.first + v] == 0u) continue;
+            const float *got = out + (static_cast<std::size_t>(draw.slot) + v * 3u) * 4u;
+            const GpuVertex &want = frame.check_expected[draw.first + v];
+            const float expected[12]{want.x,  want.y,  want.z,  want.u,
+                                     want.nx, want.ny, want.nz, want.v,
+                                     static_cast<float>(want.color & 0xFFu) / 255.0f,
+                                     static_cast<float>((want.color >> 8u) & 0xFFu) / 255.0f,
+                                     static_cast<float>((want.color >> 16u) & 0xFFu) / 255.0f,
+                                     static_cast<float>(want.color >> 24u) / 255.0f};
+            bool exact = true;
+            double worst = 0.0;
+            for (std::uint32_t i = 0; i < 12u; ++i) {
+                if (got[i] == expected[i]) continue;
+                exact = false;
+                ++tally.fields[skinned ? 1u : 0u][i];
+                // Relative to the size of the vector the value belongs to
+                // (a position's largest component, say), at least 1: a small
+                // coordinate of a large skinned position is the difference
+                // of large terms, and carries their rounding.
+                const std::uint32_t group_first = i < 3u ? 0u : (i >= 4u && i < 7u ? 4u : i);
+                const std::uint32_t group_size = i < 3u || (i >= 4u && i < 7u) ? 3u : 1u;
+                double size = 1.0;
+                for (std::uint32_t k = group_first; k < group_first + group_size; ++k)
+                    size = std::max(size, std::fabs(static_cast<double>(expected[k])));
+                const double error = std::fabs(static_cast<double>(got[i]) - expected[i]) / size;
+                worst = std::max(worst, error);
+            }
+            ++tally.vertices;
+            if (exact) {
+                ++tally.exact;
+            } else if (worst <= (skinned ? 1e-5 : 1e-6)) {
+                ++tally.close;
+                tally.max_error = std::max(tally.max_error, worst);
+            } else {
+                if (++tally.differed <= 20u)
+                    std::cout << "[gpu-decode-check] vertex type 0x" << std::hex << draw.vertex_type << std::dec
+                              << " vertex " << v << " differs by " << worst << ": got (" << got[0] << ", " << got[1]
+                              << ", " << got[2] << ") expected (" << expected[0] << ", " << expected[1] << ", "
+                              << expected[2] << ")\n";
+                tally.max_error = std::max(tally.max_error, worst);
+            }
+        }
+    }
+    frame.checks.clear();
+    frame.check_expected.clear();
+    frame.check_drawn.clear();
+    frame.check_used = 0u;
+    if (tally.draws != 0u && frames % 300u == 0u)
+        std::cout << "[gpu-decode-check] " << tally.draws << " draws, " << tally.vertices << " vertices: "
+                  << tally.exact << " exact, " << tally.close << " within rounding (largest " << tally.max_error
+                  << "), " << tally.differed << " differed" << std::endl;
+    if (tally.draws != 0u && frames % 300u == 0u) {
+        // Inexact values of unskinned and skinned vertices, by field: x y z u
+        // nx ny nz v r g b a.
+        for (std::uint32_t kind = 0; kind < 2u; ++kind) {
+            std::cout << "[gpu-decode-check] inexact " << (kind == 0u ? "unskinned" : "skinned") << ":";
+            for (const std::uint64_t count : tally.fields[kind]) std::cout << " " << count;
+            std::cout << std::endl;
+        }
+    }
+}
+
 void VulkanRenderer::Impl::collect_gpu_time(std::uint32_t from) {
     FrameSlot &frame = slots[from];
     if (gpu_timer == VK_NULL_HANDLE || frame.gpu_timer_pending == 0u) return;
@@ -1827,7 +1966,22 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     queue_info.queueFamilyIndex = impl.queue_family;
     queue_info.queueCount = 1u;
     queue_info.pQueuePriorities = &priority;
+    // MHP3RD_CHECK_GPU_DECODE: the check build of the raw vertex shader
+    // writes what it decoded to a storage buffer.
+    VkPhysicalDeviceFeatures supported_features{};
+    vkGetPhysicalDeviceFeatures(impl.physical_device, &supported_features);
+    VkPhysicalDeviceFeatures enabled_features{};
+    if (std::getenv("MHP3RD_CHECK_GPU_DECODE") != nullptr) {
+        if (supported_features.vertexPipelineStoresAndAtomics == VK_TRUE) {
+            enabled_features.vertexPipelineStoresAndAtomics = VK_TRUE;
+            impl.check_gpu_decode = true;
+        } else {
+            std::cout << "[render] MHP3RD_CHECK_GPU_DECODE needs vertexPipelineStoresAndAtomics, which this device "
+                         "lacks\n";
+        }
+    }
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    device_info.pEnabledFeatures = &enabled_features;
     device_info.queueCreateInfoCount = 1u;
     device_info.pQueueCreateInfos = &queue_info;
     device_info.enabledExtensionCount = static_cast<std::uint32_t>(enabled_device_extensions.size());
@@ -1915,6 +2069,11 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         return check(vkCreateShaderModule(impl.device, &info, nullptr, &module), "vkCreateShaderModule", error);
     };
     if (!create_shader(kGeVertexShader, sizeof(kGeVertexShader), impl.vertex_shader)) return false;
+    if (impl.check_gpu_decode) {
+        if (!create_shader(kGeCheckVertexShader, sizeof(kGeCheckVertexShader), impl.raw_vertex_shader)) return false;
+    } else if (!create_shader(kGeRawVertexShader, sizeof(kGeRawVertexShader), impl.raw_vertex_shader)) {
+        return false;
+    }
     if (!create_shader(kGeFragmentShader, sizeof(kGeFragmentShader), impl.fragment_shader)) return false;
 
     VkDescriptorSetLayoutBinding binding{};
@@ -1931,7 +2090,9 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     // Set 1: the lighting environment and the lit object, windows into the
     // vertex buffer.
-    std::array<VkDescriptorSetLayoutBinding, 2> lighting_bindings{};
+    // Bindings 2 to 4 are GPU vertex decode's: its raw block, the vertex
+    // buffer read as words, and the check output (ge.vert).
+    std::array<VkDescriptorSetLayoutBinding, 5> lighting_bindings{};
     lighting_bindings[0].binding = 0u;
     lighting_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     lighting_bindings[0].descriptorCount = 1u;
@@ -1940,6 +2101,13 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     lighting_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     lighting_bindings[1].descriptorCount = 1u;
     lighting_bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    lighting_bindings[2] = lighting_bindings[1];
+    lighting_bindings[2].binding = 2u;
+    lighting_bindings[3] = lighting_bindings[1];
+    lighting_bindings[3].binding = 3u;
+    lighting_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    lighting_bindings[4] = lighting_bindings[3];
+    lighting_bindings[4].binding = 4u;
     VkDescriptorSetLayoutCreateInfo lighting_layout_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     lighting_layout_info.bindingCount = static_cast<std::uint32_t>(lighting_bindings.size());
     lighting_layout_info.pBindings = lighting_bindings.data();
@@ -1949,10 +2117,11 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     // Evicted textures keep their sets until their frame has finished, so
     // the pool has room for a second cache's worth.
-    const std::array<VkDescriptorPoolSize, 2> pool_sizes{
+    const std::array<VkDescriptorPoolSize, 3> pool_sizes{
         VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                              static_cast<std::uint32_t>(2u * kMaxCachedTextures + 1u + kMaxFramebufferTextureSets)},
-        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2u},
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 3u},
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2u},
     };
     VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -2073,8 +2242,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = kVertexBufferTotal;
-    buffer_info.usage =
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!check(vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.vertex_buffer), "vkCreateBuffer", error))
         return false;
@@ -2113,20 +2282,48 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         if (!check(vkAllocateDescriptorSets(impl.device, &lighting_info, &impl.lighting_descriptor),
                    "vkAllocateDescriptorSets", error))
             return false;
-        const std::array<VkDescriptorBufferInfo, 2> lighting_buffers{
+        // The vertex buffer read as words must fit the storage range every
+        // device offers at least (2^27 bytes); GPU vertex decode needs it.
+        impl.gpu_decode_available = kVertexBufferTotal <= device_properties.limits.maxStorageBufferRange;
+        if (impl.check_gpu_decode) {
+            // Two frame slots' worth, each with room past the compared part
+            // for draws beyond it to write into.
+            const VkDeviceSize bytes = 2u * 2u * Impl::kCheckVertices * 3u * 16u;
+            VkBufferCreateInfo check_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            check_info.size = bytes;
+            check_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            VkMemoryRequirements check_requirements{};
+            if (vkCreateBuffer(impl.device, &check_info, nullptr, &impl.check_buffer) == VK_SUCCESS) {
+                vkGetBufferMemoryRequirements(impl.device, impl.check_buffer, &check_requirements);
+                VkMemoryAllocateInfo check_allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+                check_allocate.allocationSize = check_requirements.size;
+                check_allocate.memoryTypeIndex = impl.find_memory_type(
+                    check_requirements.memoryTypeBits,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                vkAllocateMemory(impl.device, &check_allocate, nullptr, &impl.check_memory);
+                vkBindBufferMemory(impl.device, impl.check_buffer, impl.check_memory, 0u);
+                vkMapMemory(impl.device, impl.check_memory, 0u, bytes, 0u, &impl.check_mapped);
+            }
+        }
+        const std::array<VkDescriptorBufferInfo, 5> lighting_buffers{
             VkDescriptorBufferInfo{impl.vertex_buffer, 0u, sizeof(EnvironmentBlock)},
             VkDescriptorBufferInfo{impl.vertex_buffer, 0u, sizeof(ObjectBlock)},
+            VkDescriptorBufferInfo{impl.vertex_buffer, 0u, sizeof(RawBlock)},
+            VkDescriptorBufferInfo{impl.vertex_buffer, 0u, VK_WHOLE_SIZE},
+            VkDescriptorBufferInfo{impl.check_buffer, 0u, VK_WHOLE_SIZE},
         };
         VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         write.dstSet = impl.lighting_descriptor;
         write.descriptorCount = 1u;
         write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        std::array<VkWriteDescriptorSet, 2> writes{write, write};
-        for (std::uint32_t i = 0; i < 2u; ++i) {
+        std::array<VkWriteDescriptorSet, 5> writes{write, write, write, write, write};
+        for (std::uint32_t i = 0; i < 5u; ++i) {
             writes[i].dstBinding = i;
             writes[i].pBufferInfo = &lighting_buffers[i];
+            if (i >= 3u) writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         }
-        vkUpdateDescriptorSets(impl.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0u, nullptr);
+        const std::uint32_t write_count = impl.check_buffer != VK_NULL_HANDLE ? 5u : 4u;
+        vkUpdateDescriptorSets(impl.device, write_count, writes.data(), 0u, nullptr);
     }
 
     const std::uint32_t white = 0xFFFFFFFFu;
@@ -3918,7 +4115,7 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vertex_shader;
+    stages[0].module = key.raw ? raw_vertex_shader : vertex_shader;
     stages[0].pName = "main";
     stages[1] = stages[0];
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -3932,10 +4129,13 @@ VkPipeline VulkanRenderer::Impl::pipeline_for(const PipelineKey &key) {
         VkVertexInputAttributeDescription{3u, 0u, VK_FORMAT_R32G32B32_SFLOAT, offsetof(GpuVertex, nx)},
     };
     VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertex_input.vertexBindingDescriptionCount = 1u;
-    vertex_input.pVertexBindingDescriptions = &binding;
-    vertex_input.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attributes.size());
-    vertex_input.pVertexAttributeDescriptions = attributes.data();
+    // The raw vertex shader reads the vertex buffer itself.
+    if (!key.raw) {
+        vertex_input.vertexBindingDescriptionCount = 1u;
+        vertex_input.pVertexBindingDescriptions = &binding;
+        vertex_input.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attributes.size());
+        vertex_input.pVertexAttributeDescriptions = attributes.data();
+    }
 
     VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -4632,6 +4832,7 @@ void VulkanRenderer::begin_frame() {
     vkResetFences(impl.device, 1u, &impl.frame_fence);
     impl.release_frame_uploads(impl.slot);
     impl.collect_gpu_time(impl.slot);
+    impl.compare_gpu_decode(impl.slot);
     // With one frame in flight its write-back is taken here, as before;
     // with more, write_back_frame() takes it.
     impl.collect_writeback(impl.slot, false);
@@ -4686,6 +4887,7 @@ void VulkanRenderer::begin_frame() {
     }
     impl.environment_version = 0u;
     impl.object_valid = false;
+    impl.raw_valid = false;
     impl.forget_bindings();
     impl.pass_active = false;
     impl.recording = true;
@@ -4769,6 +4971,24 @@ void VulkanRenderer::upload_frame(std::uint32_t display_address, const std::uint
     target->guest_words.clear();
 }
 
+bool VulkanRenderer::gpu_decode() const {
+    if (!impl_ || !impl_->ready || !impl_->gpu_decode_available) return false;
+    // Off switches, and the paths and traces that need decoded vertices.
+    static const bool off = [] {
+        const char *text = std::getenv("MHP3RD_GPU_DECODE");
+        return text != nullptr && std::strcmp(text, "0") == 0;
+    }();
+    static const bool needs_vertices =
+        std::getenv("MHP3RD_NO_DIRECT_VERTICES") != nullptr || std::getenv("MHP3RD_CHECK_DIRECT_VERTICES") != nullptr ||
+        std::getenv("MHP3RD_TRACE_GE") != nullptr || std::getenv("MHP3RD_TRACE_3D") != nullptr ||
+        std::getenv("MHP3RD_TRACE_SPRITES") != nullptr || std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr ||
+        std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
+    return !off && !needs_vertices && !perf::alternate_off(perf::NewPath::Direct) &&
+           !perf::alternate_off(perf::NewPath::GpuDecode);
+}
+
+bool VulkanRenderer::check_gpu_decode() const { return impl_ && impl_->check_gpu_decode; }
+
 void VulkanRenderer::begin_display_list() {
     if (!impl_) return;
     impl_->list_texture_keys.clear();
@@ -4784,7 +5004,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // frame spends most of its time in here.
     if (impl.cycle_active && (++impl.draws_since_poll & 15u) == 0u)
         impl.poll_presents(std::chrono::steady_clock::now(), false, false);
-    if (call.vertices.empty()) return;
+    // GPU vertex decode: the draw carries the guest's vertex bytes instead of
+    // decoded vertices (GeState::set_raw_vertices).
+    const bool raw = call.raw_vertices != nullptr;
+    if (call.vertices.empty() && !raw) return;
 
     // Everything becomes a triangle list; sprites expand to two triangles.
     impl.scratch.clear();
@@ -4825,7 +5048,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         }
         return call.vertices[std::min(index, call.vertices.size() - 1u)];
     };
-    const std::size_t count = call.indices.empty() ? call.vertices.size() : call.indices.size();
+    const std::size_t vertex_total = raw ? call.raw_count : call.vertices.size();
+    const std::size_t count = call.indices.empty() ? vertex_total : call.indices.size();
 
     static const bool trace = std::getenv("MHP3RD_TRACE_GE") != nullptr;
     static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
@@ -4845,7 +5069,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // keep the expansion too.
     static const bool legacy_vertices = std::getenv("MHP3RD_NO_DIRECT_VERTICES") != nullptr;
     static const bool check_direct = std::getenv("MHP3RD_CHECK_DIRECT_VERTICES") != nullptr;
-    const bool direct = !legacy_vertices && !perf::alternate_off(perf::NewPath::Direct) && !call.through &&
+    const bool direct = raw || !legacy_vertices && !perf::alternate_off(perf::NewPath::Direct) && !call.through &&
                         (call.primitive == PrimitiveType::Triangles ||
                          call.primitive == PrimitiveType::TriangleStrip ||
                          call.primitive == PrimitiveType::TriangleFan) &&
@@ -4906,9 +5130,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         return true;
     };
     if (direct) {
-        triangle_indices(call.primitive, count, call.indices, call.vertices.size(), impl.direct_indices);
+        triangle_indices(call.primitive, count, call.indices, vertex_total, impl.direct_indices);
         if (impl.direct_indices.empty()) return;
-        if (check_direct) {
+        if (check_direct && !raw) {
             // Every index must name a vertex equal, byte for byte, to the one
             // the expansion puts in its place.
             if (!expand()) return;
@@ -5148,6 +5372,62 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             impl.object_valid = true;
         }
     }
+    // A raw draw's format, colour and bones, written when they differ from
+    // the last raw draw's. With MHP3RD_CHECK_GPU_DECODE every raw draw gets
+    // its own, naming the slot its shader writes what it decoded into.
+    std::uint32_t check_slot = 0u;
+    bool checked = false;
+    if (raw) {
+        const VertexFormat format = vertex_format(call.vertex_type);
+        const auto field = [](std::uint32_t offset) { return offset == kNoVertexField ? kRawNoField : offset; };
+        RawBlock block{};
+        block.format = {call.raw_stride, call.vertex_type,
+                        field(format.weight_offset) | field(format.texcoord_offset) << 8u |
+                            field(format.color_offset) << 16u | field(format.normal_offset) << 24u,
+                        format.position_offset};
+        // A vertex without a colour is drawn with the material colour when
+        // unlit, white when lit (to_gpu).
+        block.extra = {use_material_color ? call.material_color : 0xFFFFFFFFu, 0u, 0u, 0u};
+        std::size_t bytes = kRawHeaderBytes;
+        if (((call.vertex_type >> 9u) & 3u) != 0u && call.bone_matrices != nullptr) {
+            const std::uint32_t bones = std::min<std::uint32_t>(((call.vertex_type >> 14u) & 7u) + 1u, 8u);
+            for (std::uint32_t bone = 0; bone < bones; ++bone)
+                for (std::uint32_t row = 0; row < 4u; ++row)
+                    for (std::uint32_t axis = 0; axis < 3u; ++axis)
+                        block.bones[bone * 16u + row * 4u + axis] = call.bone_matrices[bone * 12u + row * 3u + axis];
+            bytes += bones * kRawBoneBytes;
+        }
+        if (impl.check_gpu_decode) {
+            Impl::FrameSlot &frame = impl.slots[impl.slot];
+            const std::uint32_t half = impl.slot * 2u * Impl::kCheckVertices * 3u;
+            if (frame.check_used + call.raw_count <= Impl::kCheckVertices) {
+                check_slot = half + frame.check_used * 3u;
+                frame.check_used += call.raw_count;
+                checked = true;
+            } else {
+                // Past the compared part: written, never read.
+                check_slot = half + Impl::kCheckVertices * 3u;
+            }
+            block.extra[1] = check_slot;
+        }
+        if (impl.check_gpu_decode || !impl.raw_valid || bytes != impl.last_raw_bytes ||
+            std::memcmp(&block, &impl.last_raw, bytes) != 0) {
+            if (!impl.write_uniform(&block, bytes, impl.raw_offset)) return;
+            impl.last_raw = block;
+            impl.last_raw_bytes = bytes;
+            impl.raw_valid = true;
+        }
+        if (checked) {
+            Impl::FrameSlot &frame = impl.slots[impl.slot];
+            frame.checks.push_back({check_slot, static_cast<std::uint32_t>(frame.check_expected.size()),
+                                    call.raw_count, call.vertex_type});
+            const std::size_t first = frame.check_expected.size();
+            for (const Vertex &vertex : call.vertices) frame.check_expected.push_back(to_gpu(vertex));
+            frame.check_drawn.resize(frame.check_expected.size(), 0u);
+            for (const std::uint16_t index : impl.direct_indices)
+                if (first + index < frame.check_drawn.size()) frame.check_drawn[first + index] = 1u;
+        }
+    }
     // A texture in a framebuffer the renderer drew is read from that render
     // target: the pixels never reach guest memory, which holds whatever was
     // there before. MHP3RD_NO_FB_TEXTURES decodes guest memory as before.
@@ -5189,7 +5469,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // A skinned draw recorded for drawing again keeps a copy of its vertices,
     // to blend them with the next frame's; ge_state.cpp skins exactly the
     // transformed vertices whose type has weights.
-    const bool skinned = impl.interpolating && !call.through && ((call.vertex_type >> 9u) & 3u) != 0u;
+    // A raw draw is blended through its bones instead (replay()).
+    const bool skinned = impl.interpolating && !raw && !call.through && ((call.vertex_type >> 9u) & 3u) != 0u;
     const std::uint32_t skinned_first =
         skinned ? static_cast<std::uint32_t>(impl.recording_frame.skinned.size()) : Impl::kNone;
     VkDeviceSize vertex_start = impl.vertex_offset;
@@ -5203,14 +5484,17 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         // known.
         vertex_start = (impl.vertex_offset + 15u) & ~VkDeviceSize{15u};
         // A draw that can join the open group follows its vertices directly,
-        // so its indices rebase onto the group's first vertex. A GpuVertex is
-        // 40 bytes: rounding its start up to 16 bytes as before broke that
-        // for every other draw, and half the draws that could have merged
-        // did not (MHP3RD_NO_TIGHT_MERGE rounds as before).
+        // so its indices rebase onto the group's first vertex by the stride.
+        // A GpuVertex is 40 bytes: rounding its start up to 16 bytes as
+        // before broke that for every other draw, and half the draws that
+        // could have merged did not (MHP3RD_NO_TIGHT_MERGE rounds as before).
         static const bool loose_merge = std::getenv("MHP3RD_NO_TIGHT_MERGE") != nullptr;
-        if (merge && !loose_merge && impl.group.open && impl.vertex_offset == impl.group.vertex_end)
+        if (merge && impl.group.open && impl.group.raw == raw && impl.vertex_offset == impl.group.vertex_end &&
+            (raw ? impl.group.stride == call.raw_stride && !impl.check_gpu_decode : !loose_merge))
             vertex_start = impl.vertex_offset;
-        const VkDeviceSize vertex_end = vertex_start + call.vertices.size() * sizeof(GpuVertex);
+        const VkDeviceSize vertex_bytes =
+            raw ? static_cast<VkDeviceSize>(call.raw_count) * call.raw_stride : call.vertices.size() * sizeof(GpuVertex);
+        const VkDeviceSize vertex_end = vertex_start + vertex_bytes;
         index_start = (vertex_end + 3u) & ~VkDeviceSize{3u};
         draw_end = merge ? vertex_end : index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
         if (draw_end > impl.vertex_limit) {
@@ -5222,7 +5506,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             return;
         }
         auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
-        for (const Vertex &vertex : call.vertices) {
+        if (raw) std::memcpy(out, call.raw_vertices, static_cast<std::size_t>(vertex_bytes));
+        else for (const Vertex &vertex : call.vertices) {
             const GpuVertex converted = to_gpu(vertex);
             std::memcpy(out, &converted, sizeof(GpuVertex));
             out += sizeof(GpuVertex);
@@ -5246,8 +5531,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             impl.recording_frame.skinned.insert(impl.recording_frame.skinned.end(), impl.scratch.begin(),
                                                 impl.scratch.end());
     }
-    const auto drawn_vertices =
-        static_cast<std::uint32_t>(direct ? call.vertices.size() : impl.scratch.size());
+    const auto drawn_vertices = static_cast<std::uint32_t>(direct ? vertex_total : impl.scratch.size());
 
     PipelineKey key{};
     if (call.clear_mode) {
@@ -5290,6 +5574,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     static const bool no_alpha_variants = std::getenv("MHP3RD_NO_ALPHA_VARIANTS") != nullptr;
     key.alpha_test = no_alpha_variants || perf::alternate_off(perf::NewPath::Alpha) ||
                      (!call.clear_mode && call.alpha_test.enabled && call.alpha_test.function != 0u);
+    key.raw = raw;
     // Escape hatch for bisecting "nothing is visible" reports.
     static const bool no_cull = std::getenv("MHP3RD_NO_CULL") != nullptr;
     static const bool no_depth = std::getenv("MHP3RD_NO_DEPTH") != nullptr;
@@ -5445,7 +5730,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     VkRect2D vk_scissor{};
     vk_scissor.offset = {left, top};
     vk_scissor.extent = {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
-    const std::array<std::uint32_t, 2> lighting_offsets{impl.environment_offset, impl.object_offset};
+    const std::array<std::uint32_t, 3> lighting_offsets{impl.environment_offset, impl.object_offset, impl.raw_offset};
     if (merge) {
         const Impl::DrawState state{pipeline, texture_descriptor, lighting_offsets, vk_viewport, vk_scissor,
                                     blend_constants, push};
@@ -5462,16 +5747,18 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                                         draw_count, drawn_vertices, false);
         } else {
             Impl::DrawGroup &group = impl.group;
-            const auto vertex_count = static_cast<std::uint32_t>(call.vertices.size());
+            const auto vertex_count = static_cast<std::uint32_t>(vertex_total);
             std::uint32_t rebase = 0u;
             bool join = group.open && vertex_start == group.vertex_end && impl.state_known &&
-                        Impl::same_state(state, impl.recorded);
+                        Impl::same_state(state, impl.recorded) && group.raw == raw &&
+                        (!raw || group.stride == call.raw_stride) && !impl.check_gpu_decode;
             // Recorded for drawing again, skinned draws join only skinned
             // ones: their vertices are kept on the CPU too, one after another
             // like the group's, so blended ones can replace the group's.
             if (join && impl.interpolating && skinned != impl.group_skinned) join = false;
             if (join) {
-                rebase = static_cast<std::uint32_t>((vertex_start - group.vertex_base) / sizeof(GpuVertex));
+                rebase = static_cast<std::uint32_t>((vertex_start - group.vertex_base) /
+                                                    (raw ? call.raw_stride : sizeof(GpuVertex)));
                 join = rebase + vertex_count <= 65536u;
             }
             if (!join) {
@@ -5479,12 +5766,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 impl.record_state(state);
                 // Metal wants index buffer offsets on 4 bytes.
                 impl.index_offset = (impl.index_offset + 3u) & ~VkDeviceSize{3u};
-                group = Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u};
+                group = Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u, raw, call.raw_stride};
                 rebase = 0u;
                 impl.group_skinned = skinned;
             }
             impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start, impl.index_buffer,
-                                        group.index_base, draw_count, vertex_count, join);
+                                        group.index_base, draw_count, vertex_count, join, raw);
             auto *indices = reinterpret_cast<std::uint8_t *>(impl.index_mapped) + impl.index_offset;
             if (rebase == 0u) {
                 std::memcpy(indices, impl.direct_indices.data(), impl.direct_indices.size() * sizeof(std::uint16_t));
@@ -5527,7 +5814,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &vertex_start);
     if (direct) {
         vkCmdBindIndexBuffer(impl.command_buffer, impl.vertex_buffer, index_start, VK_INDEX_TYPE_UINT16);
-        vkCmdDrawIndexed(impl.command_buffer, draw_count, 1u, 0u, 0, 0u);
+        vkCmdDrawIndexed(impl.command_buffer, draw_count, 1u, 0u, 0, raw ? static_cast<std::uint32_t>(vertex_start) : 0u);
     } else {
         vkCmdDraw(impl.command_buffer, draw_count, 1u, 0u, 0u);
     }
@@ -5536,7 +5823,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                                     blend_constants, push};
         impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start,
                                     direct ? impl.vertex_buffer : VK_NULL_HANDLE, index_start, draw_count,
-                                    drawn_vertices, false);
+                                    drawn_vertices, false, raw);
     }
     impl.vertex_offset = draw_end;
     ++impl.draws;
@@ -5614,6 +5901,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     if (!impl.interpolating) impl.enter_region(impl.frame_region);
     impl.environment_version = 0u;
     impl.object_valid = false;
+    impl.raw_valid = false;
     impl.forget_bindings();
     frame.writeback_in_flight = false;
     const perf::Clock::time_point copy_start = perf::Clock::now();
@@ -5766,7 +6054,7 @@ bool VulkanRenderer::Impl::interpolation_wanted() const {
 void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit, std::uint32_t skinned,
                                                   const DrawState &state, VkDeviceSize vertex_start,
                                                   VkBuffer indices, VkDeviceSize index_start, std::uint32_t count,
-                                                  std::uint32_t vertex_count, bool joined) {
+                                                  std::uint32_t vertex_count, bool joined, bool raw) {
     if (!interpolating) return;
     FrameRecord &frame = recording_frame;
     if (!frame.recorded) return;
@@ -5797,6 +6085,15 @@ void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit
             added.object = static_cast<std::uint32_t>(frame.objects.size() - 1u);
         }
         added.skinned = skinned;
+        added.raw = raw;
+        if (raw && ((call.vertex_type >> 9u) & 3u) != 0u) {
+            // A skinned raw group is blended through its bones.
+            if (frame.raws.empty() || frame.raw_offset != raw_offset) {
+                frame.raws.push_back(last_raw);
+                frame.raw_offset = raw_offset;
+            }
+            added.raw_block = static_cast<std::uint32_t>(frame.raws.size() - 1u);
+        }
         frame.groups.push_back(added);
     }
     ++frame.groups.back().draws;
@@ -6233,6 +6530,24 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
                 }
                 if (drawn.object == written_object && world == written_world) state.lighting[1] = written_offset;
             }
+            // A raw skinned group is skinned on the GPU: its bones are blended
+            // instead, which blends the skinned vertices the same way.
+            if (drawn.raw_block != kNone && next.raw_block != kNone && next.vertex_count == drawn.vertex_count) {
+                const RawBlock &a = older.raws[drawn.raw_block];
+                const RawBlock &b = newer.raws[next.raw_block];
+                if (a.format == b.format) {
+                    RawBlock blended = a;
+                    for (std::size_t i = 0; i < blended.bones.size(); ++i)
+                        blended.bones[i] += (b.bones[i] - blended.bones[i]) * t;
+                    const VkDeviceSize at =
+                        (scratch_at + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
+                    if (at + sizeof(RawBlock) <= scratch_end) {
+                        std::memcpy(mapped + at, &blended, sizeof(RawBlock));
+                        scratch_at = at + sizeof(RawBlock);
+                        state.lighting[2] = static_cast<std::uint32_t>(at);
+                    }
+                }
+            }
             // Skinning is linear in the bone matrices, so blending the skinned
             // vertices blends the bones.
             if (drawn.skinned != kNone && next.skinned != kNone && next.vertex_count == drawn.vertex_count) {
@@ -6280,7 +6595,8 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
         vkCmdBindVertexBuffers(commands, 0u, 1u, &vertex_buffer, &vertex_base);
         if (drawn.index_buffer != VK_NULL_HANDLE) {
             vkCmdBindIndexBuffer(commands, drawn.index_buffer, drawn.index_base, VK_INDEX_TYPE_UINT16);
-            vkCmdDrawIndexed(commands, drawn.count, 1u, 0u, 0, 0u);
+            vkCmdDrawIndexed(commands, drawn.count, 1u, 0u, 0,
+                             drawn.raw ? static_cast<std::uint32_t>(vertex_base) : 0u);
         } else {
             vkCmdDraw(commands, drawn.count, 1u, 0u, 0u);
         }
@@ -6845,6 +7161,10 @@ void VulkanRenderer::shutdown() {
     vkDestroyDescriptorSetLayout(impl.device, impl.lighting_layout, nullptr);
     vkDestroyPipelineLayout(impl.device, impl.pipeline_layout, nullptr);
     vkDestroyShaderModule(impl.device, impl.vertex_shader, nullptr);
+    vkDestroyShaderModule(impl.device, impl.raw_vertex_shader, nullptr);
+    if (impl.check_mapped != nullptr) vkUnmapMemory(impl.device, impl.check_memory);
+    vkDestroyBuffer(impl.device, impl.check_buffer, nullptr);
+    vkFreeMemory(impl.device, impl.check_memory, nullptr);
     vkDestroyShaderModule(impl.device, impl.fragment_shader, nullptr);
     for (auto &[address, target] : impl.targets) impl.destroy_target(target);
     impl.targets.clear();

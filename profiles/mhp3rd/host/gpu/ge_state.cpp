@@ -360,6 +360,30 @@ bool fast_decode_enabled() {
 
 } // namespace
 
+VertexFormat vertex_format(std::uint32_t vertex_type) noexcept {
+    // The same placement as decode_vertices() below.
+    static constexpr std::uint32_t kComponentSize[4] = {0u, 1u, 2u, 4u};
+    static constexpr std::uint32_t kColorSize[8] = {0u, 0u, 0u, 0u, 2u, 2u, 2u, 4u};
+    std::uint32_t offset = 0u;
+    std::uint32_t biggest = 1u;
+    const auto place = [&](std::uint32_t component, std::uint32_t components) {
+        if (component == 0u) return kNoVertexField;
+        offset = align_up(offset, component);
+        biggest = std::max(biggest, component);
+        const std::uint32_t at = offset;
+        offset += component * components;
+        return at;
+    };
+    VertexFormat format{};
+    format.weight_offset = place(kComponentSize[(vertex_type >> 9u) & 3u], ((vertex_type >> 14u) & 7u) + 1u);
+    format.texcoord_offset = place(kComponentSize[vertex_type & 3u], 2u);
+    format.color_offset = place(kColorSize[(vertex_type >> 2u) & 7u], 1u);
+    format.normal_offset = place(kComponentSize[(vertex_type >> 5u) & 3u], 3u);
+    format.position_offset = place(kComponentSize[(vertex_type >> 7u) & 3u], 3u);
+    format.stride = align_up(offset, biggest);
+    return format;
+}
+
 std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, std::uint32_t vertex_type,
                               std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices) {
     // Field order is weights, texcoords, color, normal, position; every field is
@@ -1012,10 +1036,29 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     if (probe == 0u) return;
     const std::uint32_t first_address = vertex_address_ + first_vertex * probe;
     if (!memory.contains(first_address, static_cast<std::size_t>(probe) * vertex_count)) return;
-    const std::uint32_t stride =
-        decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices, bone_matrices_.data());
+    call.raw_vertices = nullptr;
+    call.raw_count = 0u;
+    call.raw_stride = 0u;
+    call.bone_matrices = nullptr;
+    std::uint32_t stride = 0u;
+    const bool triangles = primitive == PrimitiveType::Triangles || primitive == PrimitiveType::TriangleStrip ||
+                           primitive == PrimitiveType::TriangleFan;
+    const bool one_morph = ((vertex_type_ >> 18u) & 7u) == 0u;
+    const bool positioned = ((vertex_type_ >> 7u) & 3u) != 0u;
+    if (raw_vertices_ && !call.through && triangles && one_morph && positioned && vertex_count != 0u) {
+        call.raw_vertices = memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
+        if (call.raw_vertices != nullptr) {
+            call.raw_count = vertex_count;
+            call.raw_stride = probe;
+            call.bone_matrices = bone_matrices_.data();
+            stride = probe;
+        }
+    }
+    if (call.raw_vertices == nullptr || raw_also_decoded_)
+        stride = decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices,
+                                 bone_matrices_.data());
     if (split) perf::add_split(perf::Split::Decode, perf::split_ticks() - split_start);
-    if (stride == 0u || call.vertices.empty()) return;
+    if (stride == 0u || (call.vertices.empty() && call.raw_vertices == nullptr)) return;
     // A prim leaves VADDR/IADDR alone but advances the pointer it consumed, so
     // a run of prims can share one setup. An indexed prim consumes indices, not
     // vertices: advancing the vertex pointer instead walked it off the mesh and
@@ -1029,7 +1072,7 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     // distinct combination of vertex type, enables and material registers,
     // printed with every non-zero register lighting may read. Light positions
     // and colours are left out of the key because the game animates them.
-    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr; trace && lighting_enabled_) {
+    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr; trace && lighting_enabled_ && !call.vertices.empty()) {
         static std::map<std::vector<std::uint32_t>, std::uint64_t> seen;
         std::vector<std::uint32_t> key{vertex_type_};
         for (std::uint32_t command = 0x18u; command <= 0x1Fu; ++command) key.push_back(registers_[command]);
@@ -1048,7 +1091,7 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     }
 
     ++draw_count_;
-    vertex_count_ += call.vertices.size();
+    vertex_count_ += call.raw_vertices != nullptr ? call.raw_count : call.vertices.size();
     if (draw_sink_) draw_sink_(call);
 }
 
