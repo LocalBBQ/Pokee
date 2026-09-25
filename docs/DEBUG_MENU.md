@@ -57,9 +57,14 @@ itself.
 
 `host/debug/` holds everything; the page is `host/ui/debug_screen.cpp`.
 
-- `game_state.{hpp,cpp}`: every address and layout, and the functions that
-  read and change them. They work on a small `Ram` interface
-  (`guest_ram.hpp`), so `tests/debug_tools_tests.cpp` runs them on a buffer.
+- `game_state.{hpp,cpp}`: the addresses and layouts only the tools use, and
+  the functions that read and change them. What the rest of the host reads
+  too (the character, the game's text, the equipment kinds and their name
+  tables) is in `host/game/game_data.{hpp,cpp}`, which release builds compile
+  as well: the Mods page reads the worn armor from it
+  ([EQUIPMENT_MODS.md](EQUIPMENT_MODS.md)). Both work on a small `Ram`
+  interface (`host/game/guest_ram.hpp`), so `tests/debug_tools_tests.cpp`
+  runs them on a buffer.
 - `debug_tools.{hpp,cpp}`: the switch, the ad hoc guard, the log, the held
   cheats and the request queue. The page never writes guest memory itself: it
   queues a request, and requests run between two game frames, on the thread

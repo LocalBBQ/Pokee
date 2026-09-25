@@ -145,10 +145,14 @@ void test_format(const fs::path &root) {
              {"h.pac", "b.pac", "l.pac"});
     mod = format.read(mods / "set");
     check(mod && mod->slots.size() == 3u && mod->slots[1].label == "Body", "format: an armour set has a slot per piece");
+    check(mod && mod->slots.size() == 3u && mod->slots[0].part == "HEAD" && mod->slots[1].part == "BODY" &&
+              mod->slots[2].part == "LEGS",
+          "format: a set's slots say which piece each stands in for, past the null ones");
     make_mod(mods / "weapon", "Name=\"GS\"\nType=\"EquipGS\"\nFiles=\"w.pac\"\nAnimation=\"w.json\"\n", {"w.pac"});
     mod = format.read(mods / "weapon");
     check(mod && mod->slots.size() == 1u && mod->type == "Great Sword" && !mod->notes.empty(),
           "format: a weapon model, its animations reported");
+    check(mod && mod->slots.size() == 1u && mod->slots[0].part == "GS", "format: a weapon slot names its class");
     write(mods / "withpreview" / "PREVIEW.PNG", "x");
     make_mod(mods / "withpreview", "Name=\"P\"\nType=\"Pack\"\nModList=\"a\"\n");
     check(!format.read(mods / "withpreview")->preview.empty(), "format: the preview is found without case");

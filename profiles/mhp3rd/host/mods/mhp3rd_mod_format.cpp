@@ -160,7 +160,9 @@ public:
         }
     }
 
-    void slots(const std::string &files, const std::vector<std::string> &labels) {
+    // `parts`: the manager's key for what each file stands in for (HEAD, GS).
+    void slots(const std::string &files, const std::vector<std::string> &labels,
+               const std::vector<std::string> &parts) {
         const std::vector<std::string> names = split_list(files);
         if (names.size() != labels.size()) {
             unusable("Its mod.ini lists " + std::to_string(names.size()) + " files; this type takes " +
@@ -174,7 +176,7 @@ public:
                 unusable("The file \"" + names[i] + "\" is missing from the folder.");
                 return;
             }
-            mod_.slots.push_back({labels[i], *source});
+            mod_.slots.push_back({labels[i], *source, parts[i]});
         }
     }
 
@@ -294,10 +296,11 @@ std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
         mod.version.clear();
         if (iequals(kind, "SET")) {
             mod.type = "Armour set";
-            reader.slots(ini->get(kInfo, "Files"), {"Head", "Arms", "Body", "Waist", "Legs"});
+            reader.slots(ini->get(kInfo, "Files"), {"Head", "Arms", "Body", "Waist", "Legs"},
+                         {"HEAD", "ARMS", "BODY", "WAIST", "LEGS"});
         } else if (iequals(kind, "CATSET")) {
             mod.type = "Felyne armour set";
-            reader.slots(ini->get(kInfo, "Files"), {"Felyne helm", "Felyne plate"});
+            reader.slots(ini->get(kInfo, "Files"), {"Felyne helm", "Felyne plate"}, {"CATHELM", "CATPLATE"});
         } else {
             const auto found = std::find_if(std::begin(kEquipTypes), std::end(kEquipTypes),
                                             [&kind](const EquipType &t) { return iequals(t.key, kind); });
@@ -306,7 +309,7 @@ std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
                 reader.unusable("Unknown equipment type " + kind + ".");
             } else {
                 mod.type = found->label;
-                reader.slots(ini->get(kInfo, "Files"), {found->label});
+                reader.slots(ini->get(kInfo, "Files"), {found->label}, {found->key});
             }
         }
         if (ini->find(kInfo, "Animation") != nullptr)

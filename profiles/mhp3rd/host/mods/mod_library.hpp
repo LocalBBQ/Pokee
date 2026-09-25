@@ -32,6 +32,9 @@ struct FileChange {
 struct Slot {
     std::string label;  // "Head", "Weapon"
     std::filesystem::path source;
+    // What the file stands in for, in the game's own terms ("HEAD", "GS" for
+    // this game), so a tool can find the file the player means.
+    std::string part;
 };
 
 struct Mod {

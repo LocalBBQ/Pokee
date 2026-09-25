@@ -6,6 +6,9 @@
 #include "ui/text_input.hpp"
 #include "ui/widgets.hpp"
 
+#include "game/equipment_models.hpp"
+#include "game/game_data.hpp"
+#include "game/guest_ram.hpp"
 #include "install/user_data.hpp"
 #include "mods/mhp3rd_mods.hpp"
 #include "mods/mod_import.hpp"
@@ -67,6 +70,11 @@ struct State {
     std::map<fs::path, Preview> previews;
     // Slot targets typed on the keyboard, applied on the next frame.
     std::optional<std::pair<std::size_t, std::string>> typed_slot;
+    // What the last "Use my current armor" or "No armor" did, for the mod it
+    // was pressed on.
+    std::string equip_mod;
+    std::string equip_note;
+    bool equip_failed{};
 };
 
 State &state() {
@@ -339,6 +347,115 @@ void result_screen(bool back) {
     if (button_row("Done", {false, {}, "Back to the mods."})) back_to_list();
 }
 
+// Equipment mods: filling the slots from the game ------------------------------
+
+// The equipment kind each slot of a mod stands in for; nothing for slots the
+// game's tables do not cover (Felyne gear).
+std::vector<std::optional<std::uint8_t>> slot_kinds(const Mod &mod) {
+    std::vector<std::optional<std::uint8_t>> kinds;
+    for (const mods::Slot &slot : mod.slots) kinds.push_back(game::kind_of_mod_part(slot.part));
+    return kinds;
+}
+
+const char *kind_label(std::uint8_t kind) {
+    const game::EquipmentKind *k = game::equipment_kind(kind);
+    return k != nullptr ? k->label : "piece";
+}
+
+// Points each slot of an equipment mod at a model file of the loaded hunter:
+// the one of the piece worn in that slot, or with `bare`, the one the game
+// shows when the slot is empty. Reads the game's memory; writes only the mod's
+// choices.
+void fill_slots(ModSession &session, const Mod &mod, bool bare) {
+    State &s = state();
+    const std::vector<std::optional<std::uint8_t>> kinds = slot_kinds(mod);
+    std::vector<std::pair<std::size_t, mods::FileId>> fills;
+    std::string done;
+    std::string problem;
+    std::string who;
+    const bool running = game::read([&](const game::Ram &ram) {
+        const std::optional<game::Look> look = game::hunter_look(ram);
+        if (!look) {
+            problem = "No hunter is loaded yet. Choose your character in the game and try again once you are in the "
+                      "village.";
+            return;
+        }
+        who = game::hunter_name(ram) + " (" + game::sex_name(look->sex) + ")";
+        for (std::size_t slot = 0; slot < kinds.size(); ++slot) {
+            if (!kinds[slot]) continue;
+            const std::uint8_t kind = *kinds[slot];
+            std::optional<game::Piece> piece;
+            if (game::is_armor(kind)) {
+                piece = bare ? std::optional<game::Piece>(game::Piece{kind, 0u}) : game::worn_armor(ram, kind);
+            } else if (!bare) {
+                piece = game::carried_weapon(ram);
+                if (piece && piece->kind != kind) {
+                    problem = game::hunter_name(ram) + " carries a " + kind_label(piece->kind) + "; this mod replaces "
+                              "a " + kind_label(kind) + ". Equip one at the item box first.";
+                    continue;
+                }
+            }
+            if (!piece) continue;
+            const std::optional<std::uint32_t> file = game::model_file(ram, *piece, *look);
+            if (!file) {
+                problem = "The game's equipment tables could not be read for the " + mod.slots[slot].label + " slot.";
+                continue;
+            }
+            fills.emplace_back(slot, *file);
+            const std::string what = game::describe_file(ram, *file);
+            done += (done.empty() ? "" : "; ") + mod.slots[slot].label + " " + file_name(session, *file) +
+                    (what.empty() ? "" : " (" + what + ")");
+        }
+    });
+    if (!running) problem = "The game is not running yet.";
+    s.equip_mod = mod.id;
+    s.equip_failed = fills.empty();
+    if (fills.empty()) {
+        s.equip_note = !problem.empty() ? problem : "This mod has no slot for the hunter's armor.";
+        std::cout << "[mods] " << mod.id << ": slots not set: " << s.equip_note << std::endl;
+        return;
+    }
+    mods::ModLibrary &library = session.library();
+    for (const auto &[slot, file] : fills) library.set_slot(mod.id, slot, file);
+    const bool turned_on = !library.enabled(mod.id) && mod.unusable.empty();
+    if (turned_on) library.set_enabled(mod.id, true);
+    session.commit();
+    const bool armor = std::any_of(kinds.begin(), kinds.end(), [](const auto &k) { return k && game::is_armor(*k); });
+    s.equip_note = std::string(bare ? "Set to no armor for " : "Set to what ") + who +
+                   (bare ? ": " : armor ? " wears: " : " carries: ") + done +
+                   "." + (turned_on ? " The mod is on now." : "") + (problem.empty() ? "" : " " + problem);
+    std::cout << "[mods] " << mod.id << ": " << s.equip_note << std::endl;
+}
+
+// The buttons that fill an equipment mod's slots from the game, and what the
+// last press did.
+void equipment_buttons(ModSession &session, const Mod &mod) {
+    State &s = state();
+    const std::vector<std::optional<std::uint8_t>> kinds = slot_kinds(mod);
+    const bool armor = std::any_of(kinds.begin(), kinds.end(), [](const auto &k) { return k && game::is_armor(*k); });
+    const bool weapon = std::any_of(kinds.begin(), kinds.end(), [](const auto &k) { return k && game::is_weapon(*k); });
+    if (!armor && !weapon) return;
+    if (button_row(armor ? "Use my current armor" : "Use my current weapon",
+                   {false, {},
+                    armor ? "Point each slot at the model of the armor your hunter wears in that part now, for your "
+                            "hunter's sex. The hunter must be loaded (in the village, not on the title screen)."
+                          : "Point the slot at the model of the weapon your hunter carries now. It must be of the "
+                            "mod's weapon class."}))
+        fill_slots(session, mod, false);
+    if (armor &&
+        button_row("No armor",
+                   {false, {},
+                    "Point each slot at what the game shows when that part is empty, for your hunter's sex and "
+                    "inner wear: take the armor off in the game to see the mod."}))
+        fill_slots(session, mod, true);
+    if (s.equip_mod != mod.id || s.equip_note.empty()) return;
+    indented(s.equip_note, s.equip_failed ? colors::kDanger : colors::kText);
+    if (!s.equip_failed && !session.restart_pending())
+        indented("The hunter shows it the next time the game loads these models: at the item box (Manage "
+                 "Equipment), change to other equipment and back, or restart Yakumo. Putting on what the hunter "
+                 "already wears, or moving between the village and the Guild Hall, keeps the models already loaded.");
+}
+
 void details(ModSession &session, bool back) {
     State &s = state();
     mods::ModLibrary &library = session.library();
@@ -379,13 +496,21 @@ void details(ModSession &session, bool back) {
         library.move(mod.id, -delta);
         session.commit();
     }
+    // What the game draws from each chosen file, in its own words.
+    std::vector<std::string> described(mod.slots.size());
+    game::read([&](const game::Ram &ram) {
+        for (std::size_t slot = 0; slot < mod.slots.size() && slot < choice.slots.size(); ++slot)
+            if (choice.slots[slot]) described[slot] = game::describe_file(ram, *choice.slots[slot]);
+    });
     for (std::size_t slot = 0; slot < mod.slots.size(); ++slot) {
         const std::optional<mods::FileId> target = slot < choice.slots.size() ? choice.slots[slot] : std::nullopt;
         const std::string label = "Replaces (" + mod.slots[slot].label + ")";
-        if (value_row(label.c_str(), target ? file_name(session, *target) : "Choose…",
+        const std::string value =
+            target ? file_name(session, *target) + (described[slot].empty() ? "" : "  " + described[slot]) : "Choose…";
+        if (value_row(label.c_str(), value,
                       {false, {},
-                       "The file id of the piece this model takes the place of, in four hex digits (0601). "
-                       "Community file lists give the ids of each weapon and armour piece. Empty: none."})) {
+                       "The file id of the piece this model takes the place of, in four hex digits (0601), typed "
+                       "here or filled in by the buttons below. Empty: none."})) {
             TextInputRequest request;
             request.title = label;
             request.prompt = "File id, four hex digits";
@@ -397,6 +522,7 @@ void details(ModSession &session, bool back) {
             });
         }
     }
+    equipment_buttons(session, mod);
 
     section("About");
     if (!mod.author.empty()) info_row("Author", mod.author);
