@@ -8,7 +8,7 @@
 
 #include "debug/debug_tools.hpp"
 #include "debug/game_state.hpp"
-#include "debug/guest_ram.hpp"
+#include "game/guest_ram.hpp"
 #include "ui/text_input.hpp"
 #include "ui/widgets.hpp"
 

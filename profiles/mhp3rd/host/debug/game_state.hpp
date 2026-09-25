@@ -1,8 +1,10 @@
 #pragma once
 
-// What the developer tools know about the game's memory, in one place: where
-// the running game keeps the hunter's money, item box and equipment box, its
-// own item and equipment names, and the functions that read and change them.
+// What the developer tools know about the game's memory: where the running
+// game keeps the hunter's money, item box and equipment box, the quest's
+// state, and the functions that read and change them. What other parts of the
+// host read too (the character, the game's text, the equipment kinds) is in
+// game/game_data.hpp.
 //
 // Every address here was traced in the running game (NPJB-40001, the one
 // executable Yakumo supports); docs/DEBUG_MENU.md says how each was found.
@@ -10,23 +12,25 @@
 //
 // Pure functions over a Ram, so the unit tests run them on a buffer.
 
+#include "game/game_data.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
+namespace mhp3rd::game {
+class Ram;
+}
+
 namespace mhp3rd::debug {
 
-class Ram;
+using game::Ram;
 
 namespace p3rd {
 
-// The loaded character ------------------------------------------------------
-
-// The hunter's name, UTF-16 fullwidth as the game keeps it, 12 characters and
-// a terminator. Empty on the title screen, before a character is loaded.
-inline constexpr std::uint32_t kHunterName = 0x09F4FCACu;
-inline constexpr std::size_t kHunterNameUnits = 12u;
+// The character, the text and the equipment kinds.
+using namespace ::mhp3rd::game;
 
 // Money (zenny) and the two point balances, 32-bit each.
 inline constexpr std::uint32_t kPoints1 = 0x09FAC8CCu;
@@ -40,34 +44,12 @@ inline constexpr std::uint32_t kItemBox = 0x09F52CF4u;
 inline constexpr std::uint32_t kItemBoxSlots = 1000u;
 inline constexpr std::uint16_t kMostPerStack = 99u;
 
-// The equipment box: 1000 slots of 12 bytes: u8 1 for a used slot, u8 kind
-// (EquipmentKind), u16 id, u16 armor level or weapon flags, u16[3] the item
-// ids of the decorations in its slots. It ends where the item box begins.
-inline constexpr std::uint32_t kEquipmentBox = 0x09F4FE14u;
-inline constexpr std::uint32_t kEquipmentBoxSlots = 1000u;
-inline constexpr std::uint32_t kEquipmentRecord = 12u;
-
 // The game's item table in the executable: 20 bytes per item id.
 inline constexpr std::uint32_t kItemData = 0x089D0FA0u;
 inline constexpr std::uint32_t kItemRecord = 20u;
 
-// The game's text: one block the game loads at start, a header of 32-bit
-// offsets to its tables, each table a list of 32-bit offsets (from the table)
-// to UTF-8 strings, ended by 0xFFFFFFFF.
-inline constexpr std::uint32_t kTextBlock = 0x08A40640u;
+// The item names: text table 3, by item id.
 inline constexpr int kItemNameTable = 3;
-
-// True once a character is loaded: its name is there.
-[[nodiscard]] bool character_loaded(const Ram &ram);
-[[nodiscard]] std::string hunter_name(const Ram &ram);
-
-// Text ------------------------------------------------------------------------
-
-// Table `index` of the text block, or empty when it does not look like one
-// (the block not loaded yet, or a different executable).
-[[nodiscard]] std::vector<std::string> text_table(const Ram &ram, std::uint32_t block, int index);
-// One entry of a table, or "" when there is none.
-[[nodiscard]] std::string text_entry(const Ram &ram, std::uint32_t block, int index, std::uint32_t entry);
 
 // Items -------------------------------------------------------------------------
 
@@ -115,16 +97,6 @@ std::uint32_t fill_materials(Ram &ram, std::uint16_t count);
 
 // Equipment ---------------------------------------------------------------------
 
-// The kind byte of an equipment record, and the text table with its names.
-struct EquipmentKind {
-    std::uint8_t kind;
-    int name_table;
-    const char *label;
-};
-// Armor parts first, then the weapon classes in the game's own order.
-[[nodiscard]] const std::vector<EquipmentKind> &equipment_kinds();
-[[nodiscard]] const EquipmentKind *equipment_kind(std::uint8_t kind);
-
 struct Equipment {
     std::uint8_t kind{};
     std::uint16_t id{};
@@ -135,8 +107,6 @@ struct Equipment {
 // Puts one piece in the first free slot of the equipment box, new and without
 // decorations. Returns the slot, or nullopt when the box is full.
 std::optional<std::uint32_t> give_equipment(Ram &ram, std::uint8_t kind, std::uint16_t id);
-// The names of one kind's pieces, indexed by id. Id 0 is "no equipment".
-[[nodiscard]] std::vector<std::string> equipment_names(const Ram &ram, std::uint8_t kind);
 
 // On a quest ---------------------------------------------------------------------
 

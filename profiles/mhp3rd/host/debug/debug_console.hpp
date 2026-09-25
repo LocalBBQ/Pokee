@@ -11,9 +11,13 @@
 #include <string>
 #include <vector>
 
+namespace mhp3rd::game {
+class Ram;
+}
+
 namespace mhp3rd::debug {
 
-class Ram;
+using game::Ram;
 
 // Runs one command line against guest memory; returns what it printed.
 std::vector<std::string> run_command(Ram &ram, const std::string &line);

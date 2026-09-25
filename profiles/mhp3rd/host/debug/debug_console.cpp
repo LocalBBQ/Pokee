@@ -2,7 +2,7 @@
 
 #include "debug/debug_tools.hpp"
 #include "debug/game_state.hpp"
-#include "debug/guest_ram.hpp"
+#include "game/guest_ram.hpp"
 
 #include <cstdio>
 #include <cstdlib>

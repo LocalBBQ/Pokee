@@ -1,20 +1,23 @@
 #pragma once
 
-// The debug tools' view of guest memory: loads and stores by guest address,
-// and a check that a range is backed by memory. The game code runs on
-// psprecomp::GuestMemory; the unit tests run the same functions on a plain
-// buffer, so everything that reads or writes the game's structures can be
-// tested without the game.
+// The host's view of guest memory for code that reads the game's own
+// structures (game_data.hpp, the developer tools, the Mods page): loads and
+// stores by guest address, and a check that a range is backed by memory. The
+// game runs on psprecomp::GuestMemory; the unit tests run the same functions on
+// a plain buffer, so everything that reads or writes the game's structures can
+// be tested without the game.
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace psprecomp {
 class GuestMemory;
+class Runtime;
 }
 
-namespace mhp3rd::debug {
+namespace mhp3rd::game {
 
 class Ram {
 public:
@@ -74,4 +77,12 @@ private:
     std::vector<std::uint8_t> bytes_;
 };
 
-} // namespace mhp3rd::debug
+// The running game, for the interface. attach() is called at every flip, on
+// the thread that runs the game; the menu is drawn at the flip too, between two
+// game frames, so read() from the menu sees memory the game is not changing.
+void attach(psprecomp::Runtime &runtime);
+// Calls `reader` with the game's memory; false (and no call) before the game
+// has run a frame.
+bool read(const std::function<void(const Ram &)> &reader);
+
+} // namespace mhp3rd::game

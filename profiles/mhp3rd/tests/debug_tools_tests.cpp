@@ -4,7 +4,7 @@
 // names here are made up.
 #include "debug/debug_tools.hpp"
 #include "debug/game_state.hpp"
-#include "debug/guest_ram.hpp"
+#include "game/guest_ram.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -14,6 +14,7 @@
 
 namespace {
 using namespace mhp3rd::debug;
+using mhp3rd::game::BufferRam;
 namespace game = mhp3rd::debug::p3rd;
 int failures{};
 

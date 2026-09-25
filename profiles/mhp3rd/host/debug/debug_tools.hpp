@@ -21,9 +21,13 @@ namespace psprecomp {
 class Runtime;
 }
 
+namespace mhp3rd::game {
+class Ram;
+}
+
 namespace mhp3rd::debug {
 
-class Ram;
+using game::Ram;
 
 // Compiled in and switched on for this run (MHP3RD_DEBUG_MENU=1).
 [[nodiscard]] bool enabled();
