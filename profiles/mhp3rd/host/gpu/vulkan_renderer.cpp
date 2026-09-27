@@ -684,6 +684,43 @@ struct VulkanRenderer::Impl {
                         {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)}};
 #endif
     }
+#if defined(__ANDROID__)
+    // Every number the picture's place on the screen comes from, in
+    // yakumo.log and logcat: the window as SDL sees it, the surface as the
+    // driver reports it, the swapchain made for it, the cutout and SDL's safe
+    // area, and the content area drawn into. Once per swapchain and per change
+    // of the insets, so a player's log shows where a bar comes from.
+    void log_layout(const char *why) {
+        int points_w = 0, points_h = 0, pixels_w = 0, pixels_h = 0;
+        SDL_GetWindowSize(window, &points_w, &points_h);
+        SDL_GetWindowSizeInPixels(window, &pixels_w, &pixels_h);
+        SDL_Rect safe{};
+        SDL_GetWindowSafeArea(window, &safe);
+        VkSurfaceCapabilitiesKHR capabilities{};
+        if (surface != VK_NULL_HANDLE)
+            vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities);
+        int cut[4]{};
+#if defined(MHP3RD_ANDROID_APP)
+        const android::Insets cutout = android::cutout_insets();
+        cut[0] = cutout.left;
+        cut[1] = cutout.top;
+        cut[2] = cutout.right;
+        cut[3] = cutout.bottom;
+#endif
+        char line[512];
+        std::snprintf(line, sizeof line,
+                      "layout (%s): window %dx%d px (%dx%d pt), surface %ux%u transform 0x%x, swapchain %ux%u "
+                      "(images %ux%u, transform 0x%x), cutout %d,%d,%d,%d, safe area %d,%d %dx%d, content %d,%d %ux%u",
+                      why, pixels_w, pixels_h, points_w, points_h, capabilities.currentExtent.width,
+                      capabilities.currentExtent.height, static_cast<unsigned>(capabilities.currentTransform),
+                      swapchain_extent.width, swapchain_extent.height, swapchain_image_extent.width,
+                      swapchain_image_extent.height, static_cast<unsigned>(swapchain_transform), cut[0], cut[1],
+                      cut[2], cut[3], safe.x, safe.y, safe.w, safe.h, content_rect.offset.x, content_rect.offset.y,
+                      content_rect.extent.width, content_rect.extent.height);
+        std::cout << "[render] " << line << "\n";
+        SDL_Log("Yakumo: %s", line);
+    }
+#endif
     std::vector<VkImage> swapchain_images;
     VkCommandPool command_pool{};
     VkCommandBuffer command_buffer{};
@@ -2994,6 +3031,9 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     if (ui_render_pass != VK_NULL_HANDLE && !create_ui_framebuffers(error)) return false;
     swapchain_dirty = false;
     update_display_info();
+#if defined(__ANDROID__)
+    log_layout("swapchain");
+#endif
     std::cout << "[render] swapchain " << image_extent.width << "x" << image_extent.height << ", " << count
               << " images, " << present_mode_name(present_mode) << ", " << format_name(swapchain_format)
               << (composite != VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR ? ", composite alpha " + std::to_string(composite)
@@ -5137,6 +5177,11 @@ bool VulkanRenderer::pump_events() {
             impl_->update_content_rect();
             impl_->resize_now = true;
         }
+#if defined(__ANDROID__)
+        if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) impl_->log_layout("pixel size changed");
+        if (event.type == SDL_EVENT_DISPLAY_ORIENTATION) impl_->log_layout("display orientation");
+        if (event.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED) impl_->log_layout("safe area changed");
+#endif
         // The mouse, while captured for the game. Releases always count.
         // Touches also arrive as mouse events; they are the touch controls'
         // alone and never reach the game as a mouse.
