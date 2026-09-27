@@ -553,6 +553,14 @@ if(PSPRECOMP_BUILD_TESTS)
 endif()
 
 # Renderer helpers that need no GPU.
+# MMPX, the 2D interface's pixel-art upscaler (host/gpu/mmpx.hpp).
+add_executable(mhp3rd_mmpx_tests tests/mmpx_tests.cpp host/gpu/mmpx.cpp)
+target_include_directories(mhp3rd_mmpx_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_mmpx_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_mmpx_tests COMMAND mhp3rd_mmpx_tests)
+endif()
+
 add_executable(mhp3rd_render_tests tests/render_tests.cpp)
 target_include_directories(mhp3rd_render_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_render_tests PRIVATE psprecomp_core)
