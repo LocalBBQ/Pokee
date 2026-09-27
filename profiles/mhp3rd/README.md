@@ -235,12 +235,14 @@ The game can be played with a keyboard and a mouse alone. Every control can be r
 | F3 | Performance overlay on or off | |
 | F6 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu | |
 | `` ` `` (the key under Esc) | [Fast-forward](#fast-forward) | Runs the game faster while held; single player only |
+| F12, Print Screen | [Screenshot](#screenshots) | The game's picture at full size, as a PNG in `screenshots/` |
+| . | [Frame step](#frame-step) | In the free camera's photo mode: the game runs on by one frame |
 
 A bow aims with Left Shift held and shoots with the left button; a bowgun fires with the right one.
 
 The **Classic keyboard** preset brings back the keys of earlier versions, for play without a mouse: I / J / K / L move, X ○, Z ✕, A □, S △, Q / W L / R, Enter START, Right Shift or Backspace SELECT, and the arrow keys the D-pad. **Left-handed** has the mouse in the left hand: I / J / K / L move, H ○ (and the right button), U □, O L, Right Shift R, Enter START, Backspace SELECT, the arrow keys the D-pad and keypad 8 / 4 / 5 / 6 the camera. **Modern** is Default plus △ + ○ on the side mouse button (Mouse 4) and C. *Restore control defaults* returns to Default.
 
-To rebind, see [Rebinding](#rebinding). Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`, and `fast_forward`, which is not a PSP control; an empty value leaves a control unbound).
+To rebind, see [Rebinding](#rebinding). Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`, and `fast_forward`, `screenshot` and `frame_step`, which are not PSP controls; an empty value leaves a control unbound).
 
 **The pointer.** While the game runs and the window has focus, Yakumo captures the mouse: the pointer is hidden and its motion and buttons go to the game. It is given back whenever Yakumo's menu, the on-screen keyboard or a setup screen is up, and when the window loses focus (switching to another window, Cmd+Tab or Alt+Tab, minimising). Buttons and keys still held when it is captured again reach the game only after they are released, and motion made while it was free is never replayed. *Mouse* in the menu (`input.mouse`, `MHP3RD_MOUSE=0`) turns all of this off, leaving the pointer alone.
 
@@ -263,6 +265,8 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | Right stick | The HD release's second stick (camera) |
 | L3 + R3 (both sticks pressed) | In-game menu |
 | Back + R3 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu |
+| R3 + D-pad left | [Screenshot](#screenshots) |
+| D-pad right, in the photo mode | [Frame step](#frame-step): the game runs on by one frame |
 
 That is the **Default** preset. Its buttons, triggers included, can be rebound like the keyboard's (Controls, [Rebinding](#rebinding)), to one button or to a combination such as LB + ○, and other presets change them: **Modern** attacks with RT (△, which also shoots a bow), does the second attack with RB (○, which also fires a bowgun) and guards and aims with LT (R), with LB as L; **Left-handed** mirrors the pad, moving with the right stick, the D-pad doing the face buttons and the face buttons the D-pad, and the shoulders and triggers changing sides. The sticks stay sticks: *Move with the right stick* swaps them, and the other one is the *Camera stick*. L3 + R3 always opens the menu.
 
@@ -278,6 +282,8 @@ A control preset is a whole layout: every control on the keyboard and mouse and 
 | Modern | Default, plus △ + ○ on Mouse 4 and C | RT △ (attack, shoot a bow), RB ○ (second attack, fire a bowgun), LT R (guard, aim), LB L; the face buttons as in Default |
 | Left-handed | The mouse in the left hand, I J K L to move | Mirrored: the right stick moves, the D-pad is △ ○ ✕ □, the face buttons the D-pad, the shoulders and triggers change sides |
 | Classic keyboard | The keys of earlier versions, without a mouse | As in Default |
+
+Every preset has the same port binds on the keyboard: `` ` `` fast-forward, F12 or Print Screen a [screenshot](#screenshots), . a [frame step](#frame-step). On a gamepad a screenshot is R3 + D-pad left and a frame step D-pad right; Left-handed mirrors both, to L3 + □ (west) and ○ (east).
 
 The shipped presets never change. Changing a binding while one of them is chosen makes a preset of your own from it, named *Custom* (then *Custom 2*, and so on), and chooses that; later changes go into it as you make them. *Save as a new preset* copies the current bindings into another one. Your presets can be renamed (*Name*) and deleted (*Delete this preset*, which asks first and goes back to Default); up to 32 are kept, in `settings.ini` as `input.user_preset.<n>.name`, `.bind.<control>`, `.pad.<control>`, `.move_stick` and `.base`, the shipped preset it was made from, which resetting a control goes back to (Default for presets made before it was kept). The chosen preset is `input.preset` (`default`, `modern`, `left_handed`, `classic`, or `user:` and a name of yours), and the bindings in use are also kept as `input.bind.<control>`, `input.pad.<control>` and `input.move_stick`.
 
@@ -296,7 +302,7 @@ While Yakumo waits for the input, a box over the menu says what is being bound a
 
 **△ + ○ (together)** is a control of its own: one key or button that presses △ and ○ in the same frame, for the combined attacks that two fingers do not always manage together. Default leaves it unbound.
 
-**Conflicts.** A binding that clashes is drawn in red, with a line under its control that says with what: the same input or combination on another control (one press does both), or a combination whose held input does another control on its own. The line has the fix: *Remove from …* takes the input away from the other control, *Keep both* leaves them and hides the warning until Yakumo starts again. Conflicts are allowed, and the ones not kept are counted under the preset.
+**Conflicts.** A binding that clashes is drawn in red, with a line under its control that says with what: the same input or combination on another control (one press does both), or a combination whose held input does another control on its own. The line has the fix: *Remove from …* takes the input away from the other control, *Keep both* leaves them and hides the warning until Yakumo starts again. Conflicts are allowed, and the ones not kept are counted under the preset. *Frame step* is read only in the photo mode, when the game gets no input, so it shares an input with a game control without a clash: D-pad right is both the game's → and, in the photo mode, frame step. *Screenshot* is read during play as well and clashes like any other control.
 
 **From earlier versions.** Settings without a preset become one the first time they are read: the Default or Classic keyboard preset if the bindings are exactly one of those, otherwise a preset of your own named *Custom* with your keyboard bindings. The **trigger profiles** of earlier versions are part of it: *Bows* became LT on R and RT on △, *Bowguns* LT on R and RT on ○, over the Default pad. `input.trigger_profile` is dropped at the next save, and `MHP3RD_PAD_TRIGGERS` is no longer read (`MHP3RD_CONTROL_PRESET` chooses a preset for a run).
 
@@ -413,7 +419,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Controls opacity | `input.touch_opacity` | | 10–100%; default 50% |
 | Controls | Controls size | `input.touch_size` | | 60–160% of the default size; default 100% |
 | Controls | Touch camera speed | `input.touch_camera_speed` | | Degrees the camera turns for a drag across the screen's height, 30 to 720; default 180 |
-| Controls | A control's *Keyboard and mouse* bindings under [Rebinding](#rebinding) | `input.bind.<control>` | | Up to four keys, mouse buttons or combinations, see [Keyboard and mouse](#keyboard-and-mouse); part of the preset |
+| Controls | A control's *Keyboard and mouse* bindings under [Rebinding](#rebinding) (Move forward … △ + ○, Fast-forward, Screenshot, Frame step) | `input.bind.<control>` | | Up to four keys, mouse buttons or combinations, see [Keyboard and mouse](#keyboard-and-mouse); part of the preset |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
 | Controls (Experimental) | Free camera | `experimental.free_camera` | `MHP3RD_FREE_CAMERA` | Off (default) or on: F6, or Back + R3, detaches the view from the game's camera. See [Free camera](#free-camera-experimental) |
@@ -428,7 +434,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Network | Server | `network.server` | `MHP3RD_ADHOC_SERVER` | Host name or address of a PSP ad hoc server, optionally `host:port`; empty by default |
 | Network | Nickname | `network.nickname` | `MHP3RD_ADHOC_NICKNAME` | The name other players see; empty uses the hunter name |
 
-Everything applies without a restart, apart from mods that change a file's size (see [Mods](#mods)); the name settings take effect the next time the game asks for a name. The System section has *Resume*, *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), the *Saves* rows described under [Saving and loading](#importing-a-save-from-a-psp), and the build version, the data and saves folders and the GPU. Each section but Mods has a button that restores its defaults.
+Everything applies without a restart, apart from mods that change a file's size (see [Mods](#mods)); the name settings take effect the next time the game asks for a name. The System section has *Resume*, *Take a screenshot* and *Open the screenshots folder* (see [Screenshots](#screenshots)), *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), the *Saves* rows described under [Saving and loading](#importing-a-save-from-a-psp), and the build version, the data and saves folders and the GPU. Each section but Mods has a button that restores its defaults.
 
 The Network section also shows the connection and has the troubleshooting tools described under [Multiplayer](#multiplayer-ad-hoc). The file also keeps `network.mac`, the address other players know you by (made up the first time you go on line; `MHP3RD_ADHOC_MAC` overrides it), `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
 
@@ -964,6 +970,10 @@ The code is in two layers under `host/camera/`:
 
 Safeguards: CMake finds the generated unit that holds the rotation helper and fails the configure if none does, so a new partition of the corpus cannot call the wrong code. At start-up the driver compares twenty-two instructions and constants of the game (listed in `game_camera.cpp`) with what it expects and stays out, saying which differs, if any does. The wrapper is installed only when the option is on (from the first frame, by default): a player who turns it off before starting keeps the helper's generated unit on its direct calls, and the feature costs nothing. No shared preset table or generated code is patched, and guest RAM is never scanned.
 
+### Screenshots
+
+**Screenshot** (F12 or Print Screen; R3 + D-pad left on a gamepad; *Take a screenshot* in the menu's System section) saves the game's picture as a PNG in `screenshots/` in the [data directory](#installer), or in the portable folder's `data/screenshots/` for a [portable copy](#portable-copy), named by the time, such as `Yakumo_2026-09-27_14-03-22.png` (`_2`, `_3` for more in one second). It is the frame the game last drew, at the size it is drawn at: *Resolution* ×2 gives 960×544, ×4 1920×1088, and Auto the window's size, whatever the window shows it at. The picture is the game's own render target, so the port's interface is never in it: not the menu, the free camera's line, the performance overlay or the note that says where the file went, which shows at the bottom of the window for three seconds. What the game draws itself, its HUD and the names over hunters, is in it, unless the HUD is hidden. It works in play, in the [free camera](#free-camera-experimental) (the picture is the free camera's view) and in its photo mode, and from the menu (the game's picture behind the menu). The file is written on a background thread; the log says `[screenshot] <path> (<width>x<height>)` once it is.
+
 ### Free camera (experimental)
 
 **Free camera** (Controls → Experimental, `experimental.free_camera`, `MHP3RD_FREE_CAMERA=1`) is off by default. It is experimental: it may break, and it may change. With it on, F6, or Back + R3 on a gamepad, detaches the view from the game's camera, and the same again gives the game's camera back exactly as it was. It is for pictures, for looking at models and levels, and for debugging the renderer.
@@ -976,12 +986,18 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | Left Shift / Left Ctrl, held | RT / LT, held | Four times faster / four times slower |
 | Mouse wheel, + / - | D-pad up / down | Speed times or divided by 1.25; kept as *Free camera speed* |
 | P | Start | Photo mode on or off |
+| . | D-pad right | In the photo mode, the game runs on by one frame; held, about ten a second ([Frame step](#frame-step)) |
+| F12, Print Screen | R3 + D-pad left | [Screenshot](#screenshots), as the free camera sees it |
 | R | Y (north) | Back to where the game's camera is |
 | F6 | Back + R3 | Leave |
 
 The game keeps running underneath, and it reads a neutral pad the whole time, so the hunter stands where it was and nothing is pressed by accident; buttons still held when the free camera ends reach the game only after they are released. A small line at the top of the window says the free camera is on, its speed, and how to leave. It is left out of window captures (`shot` in `MHP3RD_INPUT_SCRIPT`), and the game frame captures (`MHP3RD_SCREENSHOT_DIR`) never have the interface in them. Esc still opens the menu. On a gamepad, Back is the game's SELECT until the free camera is on, so the game sees SELECT for as long as Back is held before R3 completes the chord.
 
 **Photo mode** holds the game still as the paused menu does (no guest code runs, emulated time stands still, the sound stops) and draws the frame it last drew again from wherever the camera goes. It works with any frame rate; the frames it shows are not interpolated.
+
+#### Frame step
+
+In the photo mode, **Frame step** (. on the keyboard, D-pad right on a gamepad; Controls, *Frame step (photo mode)*) runs the game on by exactly one frame and holds it still again, so the moment an attack lands can be caught; held, it steps again after 0.4 s and then about ten times a second. The camera stays where it is. A step lets the photo mode's hold go at the game's flip and takes it again at the next flip: the game runs one whole frame as in play, its code, its threads and its two vblanks (it starts a frame every other vblank, 30 a second), and draws it, and the photo mode then shows that frame from the free camera's place. Each step logs the vblanks it took, `[freecam] frame step: vblank 8720 to 8722 (2)`; in the village and in a quest every step took two, and consecutive screenshots differ by one frame of animation. The sound stays paused through the steps, and a stepped frame is shown at once like the photo mode's own, never blended with the one before by frame interpolation. P (Start) ends the photo mode as before.
 
 What the picture has, and what it lacks:
 
