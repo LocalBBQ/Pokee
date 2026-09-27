@@ -443,6 +443,12 @@ const std::vector<Field> &fields() {
              return true;
          },
          [](const Settings &s) { return s.last_folder; }, nullptr},
+        {"ui.menu_tab", nullptr,
+         [](Settings &s, const std::string &t) {
+             s.menu_tab = t;
+             return true;
+         },
+         [](const Settings &s) { return s.menu_tab; }, nullptr},
     };
     return table;
 }

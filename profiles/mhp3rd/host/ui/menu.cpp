@@ -52,6 +52,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <functional>
@@ -113,9 +114,51 @@ std::string file_url(const std::string &path) {
 
 float gain(const settings::Settings &s) { return s.mute ? 0.0f : static_cast<float>(s.volume) / 100.0f; }
 
+constexpr const char *kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System", "Debug"};
+constexpr int kTabCount = static_cast<int>(std::size(kTabs));
+
+// Where the menu was when it last closed (#189): its page, how far that page
+// was scrolled and which row had the focus. Opening the menu again goes back
+// there. The page is also kept in settings.ini for the next start; the rest
+// only for this session, as rows come and go between runs.
+struct MenuPlace {
+    bool known{};
+    int tab{};
+    float scroll{};
+    ImGuiID focus{};
+};
+MenuPlace &menu_place() {
+    static MenuPlace place = [] {
+        MenuPlace p;
+        const std::string &saved = settings::current().menu_tab;
+        for (int i = 0; i < kTabCount; ++i)
+            if (!saved.empty() && std::equal(saved.begin(), saved.end(), kTabs[i], kTabs[i] + std::strlen(kTabs[i]),
+                                             [](char a, char b) {
+                                                 return std::tolower(static_cast<unsigned char>(a)) ==
+                                                        std::tolower(static_cast<unsigned char>(b));
+                                             }))
+                p.tab = i;
+        return p;
+    }();
+    return place;
+}
+
 class Menu {
 public:
-    explicit Menu(bool paused) : paused_(paused) {}
+    explicit Menu(bool paused) : paused_(paused), tab_(menu_place().tab) {}
+    ~Menu() {
+        // The page for the next start, in settings.ini, when it changed.
+        std::string name = kTabs[menu_place().tab];
+        std::transform(name.begin(), name.end(), name.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        settings::Settings &s = settings::current();
+        if (s.menu_tab != name) {
+            s.menu_tab = name;
+            settings::save();
+        }
+    }
+    Menu(const Menu &) = delete;
+    Menu &operator=(const Menu &) = delete;
     // One frame; false once the menu closes.
     bool frame();
     [[nodiscard]] bool quit() const noexcept { return quit_; }
@@ -178,17 +221,31 @@ bool Menu::frame() {
     }
 
     begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
-    static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System", "Debug"};
 #if defined(MHP3RD_DEBUG_MENU)
     // The developer tools' page, in developer builds run with MHP3RD_DEBUG_MENU=1.
     const int tab_count = debug::enabled() ? 7 : 6;
 #else
     const int tab_count = 6;
 #endif
+    // A page that is not there this run (Debug) gives way to the first.
+    if (tab_ >= tab_count) tab_ = 0;
+    const bool opening = first_frame_;
     const bool switched = tab_bar(kTabs, tab_count, tab_) || first_frame_;
     first_frame_ = false;
     begin_content();
-    if (switched) {
+    MenuPlace &place = menu_place();
+    bool restoring = false;
+    if (opening && place.known && place.tab == tab_ && !font_list_was_open) {
+        // Back where the menu closed: the same scroll, the same row.
+        ImGui::SetScrollY(place.scroll);
+        if (place.focus != 0u) {
+            ImGui::SetFocusID(place.focus, ImGui::GetCurrentWindow());
+            ImGui::GetCurrentContext()->NavCursorVisible = true;
+            restoring = true;
+        } else {
+            focus_next_row();
+        }
+    } else if (switched) {
         focus_next_row();
         ImGui::SetScrollY(0.0f);
     }
@@ -202,6 +259,21 @@ bool Menu::frame() {
     case 6: debug_page(back_); break;
 #endif
     default: system(); break;
+    }
+    // The row that had the focus is gone (a row this platform or this state
+    // does not have): the top of the page, as when the page is opened.
+    if (restoring && !ImGui::GetCurrentContext()->NavIdIsAlive) {
+        focus_next_row();
+        ImGui::SetScrollY(0.0f);
+    }
+    // Where the menu is now, unless a screen of its own is over the page.
+    if (!font_list_was_open && !restoring) {
+        const ImGuiContext &g = *ImGui::GetCurrentContext();
+        place.known = true;
+        place.tab = tab_;
+        place.scroll = ImGui::GetScrollY();
+        if (g.NavWindow == ImGui::GetCurrentWindow() && g.NavId != 0u) place.focus = g.NavId;
+        else if (switched) place.focus = 0u;
     }
     begin_footer();
     const BindingsFocus binding = tab_ == 2 ? bindings_focus() : BindingsFocus::None;
