@@ -216,7 +216,7 @@ The window renders at twice the PSP resolution by default (960×544). Esc, or L3
 
 ### Keyboard and mouse
 
-The game can be played with a keyboard and a mouse alone. Every control can be rebound in the menu (Controls → *Keyboard and mouse*, see [Control presets](#control-presets)); these are the defaults, the **Default** preset:
+The game can be played with a keyboard and a mouse alone. Every control can be rebound in the menu (Controls, see [Rebinding](#rebinding) and [Control presets](#control-presets)); these are the defaults, the **Default** preset:
 
 | Key or button | PSP | In the game |
 | --- | --- | --- |
@@ -240,7 +240,7 @@ A bow aims with Left Shift held and shoots with the left button; a bowgun fires 
 
 The **Classic keyboard** preset brings back the keys of earlier versions, for play without a mouse: I / J / K / L move, X ○, Z ✕, A □, S △, Q / W L / R, Enter START, Right Shift or Backspace SELECT, and the arrow keys the D-pad. **Left-handed** has the mouse in the left hand: I / J / K / L move, H ○ (and the right button), U □, O L, Right Shift R, Enter START, Backspace SELECT, the arrow keys the D-pad and keypad 8 / 4 / 5 / 6 the camera. **Modern** is Default plus △ + ○ on the side mouse button (Mouse 4) and C. *Restore control defaults* returns to Default.
 
-To rebind, activate a control's row and press a key or a mouse button: it is added (a control takes two), or removed if the control has it already; Esc cancels. Hold one key and press another for a combination, such as Left Shift + F: the capture ends when the first key is let go, and Shift, Ctrl, Alt and GUI are always the held one. Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`, and `fast_forward`, which is not a PSP control; an empty value leaves a control unbound).
+To rebind, see [Rebinding](#rebinding). Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`, and `fast_forward`, which is not a PSP control; an empty value leaves a control unbound).
 
 **The pointer.** While the game runs and the window has focus, Yakumo captures the mouse: the pointer is hidden and its motion and buttons go to the game. It is given back whenever Yakumo's menu, the on-screen keyboard or a setup screen is up, and when the window loses focus (switching to another window, Cmd+Tab or Alt+Tab, minimising). Buttons and keys still held when it is captured again reach the game only after they are released, and motion made while it was free is never replayed. *Mouse* in the menu (`input.mouse`, `MHP3RD_MOUSE=0`) turns all of this off, leaving the pointer alone.
 
@@ -264,7 +264,7 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | L3 + R3 (both sticks pressed) | In-game menu |
 | Back + R3 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu |
 
-That is the **Default** preset. Its buttons, triggers included, can be rebound like the keyboard's (Controls → *Gamepad buttons*), to one button or to a combination such as LB + ○, and other presets change them: **Modern** attacks with RT (△, which also shoots a bow), does the second attack with RB (○, which also fires a bowgun) and guards and aims with LT (R), with LB as L; **Left-handed** mirrors the pad, moving with the right stick, the D-pad doing the face buttons and the face buttons the D-pad, and the shoulders and triggers changing sides. The sticks stay sticks: *Move with the right stick* swaps them, and the other one is the *Camera stick*. L3 + R3 always opens the menu.
+That is the **Default** preset. Its buttons, triggers included, can be rebound like the keyboard's (Controls, [Rebinding](#rebinding)), to one button or to a combination such as LB + ○, and other presets change them: **Modern** attacks with RT (△, which also shoots a bow), does the second attack with RB (○, which also fires a bowgun) and guards and aims with LT (R), with LB as L; **Left-handed** mirrors the pad, moving with the right stick, the D-pad doing the face buttons and the face buttons the D-pad, and the shoulders and triggers changing sides. The sticks stay sticks: *Move with the right stick* swaps them, and the other one is the *Camera stick*. L3 + R3 always opens the menu.
 
 The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. The menu's *Confirm button* setting (or `MHP3RD_PAD_FACE=xbox`) moves confirm to the bottom button for pads labelled the other way round: it swaps the bottom and right buttons in every preset, and the menu shows the bindings as they are then pressed.
 
@@ -279,13 +279,24 @@ A control preset is a whole layout: every control on the keyboard and mouse and 
 | Left-handed | The mouse in the left hand, I J K L to move | Mirrored: the right stick moves, the D-pad is △ ○ ✕ □, the face buttons the D-pad, the shoulders and triggers change sides |
 | Classic keyboard | The keys of earlier versions, without a mouse | As in Default |
 
-The shipped presets never change. Changing a binding while one of them is chosen makes a preset of your own from it, named *Custom* (then *Custom 2*, and so on), and chooses that; later changes go into it as you make them. *Save as a new preset* copies the current bindings into another one. Your presets can be renamed (*Name*) and deleted (*Delete this preset*, which asks first and goes back to Default); up to 32 are kept, in `settings.ini` as `input.user_preset.<n>.name`, `.bind.<control>`, `.pad.<control>` and `.move_stick`. The chosen preset is `input.preset` (`default`, `modern`, `left_handed`, `classic`, or `user:` and a name of yours), and the bindings in use are also kept as `input.bind.<control>`, `input.pad.<control>` and `input.move_stick`.
+The shipped presets never change. Changing a binding while one of them is chosen makes a preset of your own from it, named *Custom* (then *Custom 2*, and so on), and chooses that; later changes go into it as you make them. *Save as a new preset* copies the current bindings into another one. Your presets can be renamed (*Name*) and deleted (*Delete this preset*, which asks first and goes back to Default); up to 32 are kept, in `settings.ini` as `input.user_preset.<n>.name`, `.bind.<control>`, `.pad.<control>`, `.move_stick` and `.base`, the shipped preset it was made from, which resetting a control goes back to (Default for presets made before it was kept). The chosen preset is `input.preset` (`default`, `modern`, `left_handed`, `classic`, or `user:` and a name of yours), and the bindings in use are also kept as `input.bind.<control>`, `input.pad.<control>` and `input.move_stick`.
+
+### Rebinding
+
+Under the preset, Controls lists every control in groups (movement, attacks, items, camera, system, and the port's own features such as fast-forward), each with its keyboard and mouse bindings and its gamepad bindings side by side. Every binding is a chip, and a control takes up to four on each device:
+
+- **Rebind:** select a chip (confirm, Enter, a click or a tap) and press what should take its place.
+- **Add:** select the *+* chip after a control's bindings. Nothing is ever replaced to make room.
+- **Clear:** the pad's top face button (Y, △), Delete or Backspace, a right click, or the chip's ×. A control may be left with nothing.
+- **Reset:** the round arrow at the end of a row, or the pad's View (Select) button on any of the row's chips, puts the control back as the shipped preset has it that the bindings came from. It shows only when the control differs.
+
+While Yakumo waits for the input, a box over the menu says what is being bound and shows what is held so far. Esc or a touch cancels it; on the gamepad, so does holding the menu's back button (B, or A with the Japanese confirm button) for a second, with a bar that fills while it is held, while a short press binds it. A gamepad capture gives up after six seconds without a press, and a keyboard capture ends at any gamepad button. Everything works with a gamepad alone, as on a Steam Deck, and with a mouse or touch.
 
 **Combinations.** A binding is one input or two held together, such as L1 + ○ on a pad or Left Shift + F on the keyboard. It presses its control while both are held, and the second input then does nothing else: with LB + B bound to △ + ○, holding LB and pressing B gives △ + ○ and not ○. The held input still does its own control, so LB also presses L. Shoulders, triggers, Back and the stick buttons on a pad, and Shift, Ctrl, Alt and GUI on a keyboard, are always taken as the held one.
 
 **△ + ○ (together)** is a control of its own: one key or button that presses △ and ○ in the same frame, for the combined attacks that two fingers do not always manage together. Default leaves it unbound.
 
-**Conflicts.** A binding that clashes is drawn in red, and the focused row says with what: the same input or combination on another control (one press does both), or a combination whose held input does another control on its own. They are allowed, and counted under the preset.
+**Conflicts.** A binding that clashes is drawn in red, with a line under its control that says with what: the same input or combination on another control (one press does both), or a combination whose held input does another control on its own. The line has the fix: *Remove from …* takes the input away from the other control, *Keep both* leaves them and hides the warning until Yakumo starts again. Conflicts are allowed, and the ones not kept are counted under the preset.
 
 **From earlier versions.** Settings without a preset become one the first time they are read: the Default or Classic keyboard preset if the bindings are exactly one of those, otherwise a preset of your own named *Custom* with your keyboard bindings. The **trigger profiles** of earlier versions are part of it: *Bows* became LT on R and RT on △, *Bowguns* LT on R and RT on ○, over the Default pad. `input.trigger_profile` is dropped at the next save, and `MHP3RD_PAD_TRIGGERS` is no longer read (`MHP3RD_CONTROL_PRESET` chooses a preset for a run).
 
@@ -344,6 +355,8 @@ The menu's text fields (*Hunter name*, *Server*, *Nickname*) open the same keybo
 
 Esc, or L3+R3 on a gamepad, opens Yakumo's menu over the game; the same again, back at its top level or Start closes it. Esc never quits the game: Steam's desktop controller layout on a Steam Deck sends Esc with the B button, so an Esc that arrives together with a gamepad button is ignored.
 
+The menu opens where it was last closed: the same page, scrolled as it was, with the same row focused. The page is also kept for the next start (`ui.menu_tab` in `settings.ini`); the scroll position and the row only for the session. When that row is not there any more, the page opens at its top.
+
 By default the game is paused while the menu is open: no guest code runs, emulated time stands still, the audio device stops, and the last frame stays behind the menu, dimmed. On resume the kernel's clock picks up from real time again, so the game neither races to make up the pause nor counts it in the `[perf]` statistics.
 
 Two settings in the System section change that. With *Pause the game when the menu opens* off, the game keeps running behind the menu: it keeps drawing frames at its own pace, the sound keeps playing and its clock keeps running, and the menu is drawn over each frame. During ad hoc play (in a gathering hall, joining one, or hosting a session) the game keeps running behind the menu unless *Pause during multiplayer* is on, whatever the first setting says, because a paused game stops answering the other players and can drop a quest; this one is off by default. The menu's header says which applies: *Paused* or *Running*. Either way, input goes to the menu only, so moving through it never moves the hunter, and buttons still held when it closes reach the game only after they are released.
@@ -388,7 +401,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Invert camera horizontally / vertically | `input.invert_camera_x`, `input.invert_camera_y` | | For the right-stick camera |
 | Controls | Camera stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
 | Controls | Move with the right stick | `input.move_stick` | | `left` (default) or `right`; part of the preset |
-| Controls | A row per control under *Gamepad buttons* | `input.pad.<control>` | | Up to two buttons, triggers or combinations, such as `Pad North / Pad LB + Pad East`; part of the preset |
+| Controls | A control's *Gamepad* bindings under [Rebinding](#rebinding) | `input.pad.<control>` | | Up to four buttons, triggers or combinations, such as `Pad North / Pad LB + Pad East`; part of the preset |
 | Controls | Mouse | `input.mouse` | `MHP3RD_MOUSE` | On (default): the window captures the pointer while the game runs, and the mouse turns the camera and presses its bound buttons; off: the pointer is left alone |
 | Controls | Mouse sensitivity | `input.mouse_sensitivity` | `MHP3RD_MOUSE_SENSITIVITY` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99; default 0.10 |
 | Controls | Invert mouse horizontally / vertically | `input.invert_mouse_x`, `input.invert_mouse_y` | | For the mouse camera and aim |
@@ -400,7 +413,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Controls opacity | `input.touch_opacity` | | 10–100%; default 50% |
 | Controls | Controls size | `input.touch_size` | | 60–160% of the default size; default 100% |
 | Controls | Touch camera speed | `input.touch_camera_speed` | | Degrees the camera turns for a drag across the screen's height, 30 to 720; default 180 |
-| Controls | A row per control under *Keyboard and mouse* (Move forward … △ + ○, Fast-forward) | `input.bind.<control>` | | Up to two keys, mouse buttons or combinations, see [Keyboard and mouse](#keyboard-and-mouse); part of the preset |
+| Controls | A control's *Keyboard and mouse* bindings under [Rebinding](#rebinding) | `input.bind.<control>` | | Up to four keys, mouse buttons or combinations, see [Keyboard and mouse](#keyboard-and-mouse); part of the preset |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
 | Controls (Experimental) | Free camera | `experimental.free_camera` | `MHP3RD_FREE_CAMERA` | Off (default) or on: F6, or Back + R3, detaches the view from the game's camera. See [Free camera](#free-camera-experimental) |
