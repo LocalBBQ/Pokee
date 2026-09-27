@@ -1,5 +1,7 @@
 #pragma once
 
+#include "input/bindings.hpp"
+
 #include <cstddef>
 #include <string>
 
@@ -21,6 +23,11 @@ enum class BindingsFocus { None, Binding, Add, Reset, Fix };
 [[nodiscard]] BindingsFocus bindings_focus();
 // Whether the focused action differs from its preset's default.
 [[nodiscard]] bool bindings_focus_resettable();
+
+// An action's bindings in one line, the keyboard's then the gamepad's as
+// the pad in use labels them: "F12 / PrintScreen; RS + D-pad Left". Empty
+// when neither device has any.
+[[nodiscard]] std::string bindings_summary(input::Action action);
 
 // How many actions have a conflict the player has not chosen to keep.
 [[nodiscard]] std::size_t bindings_conflicts();

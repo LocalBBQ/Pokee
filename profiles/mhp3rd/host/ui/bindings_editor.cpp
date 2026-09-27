@@ -649,6 +649,23 @@ void bindings_editor(std::string &notice) {
 
 BindingsFocus bindings_focus() { return state().focus; }
 
+std::string bindings_summary(input::Action action) {
+    const settings::Settings &s = settings::current();
+    const auto i = static_cast<std::size_t>(action);
+    if (i >= input::kActions) return {};
+    const input::PadStyle style = pad_style();
+    const auto line = [&](const input::Slots &slots, bool pad) {
+        std::string text;
+        for (std::size_t n = 0; n < input::count(slots); ++n)
+            text += (text.empty() ? "" : " / ") + chord_label(slots[n], pad, style);
+        return text;
+    };
+    const std::string keys = line(s.controls.keys[i], false);
+    const std::string pad = line(s.controls.pad[i], true);
+    if (keys.empty() || pad.empty()) return keys + pad;
+    return keys + "; " + pad;
+}
+
 std::size_t bindings_conflicts() {
     const settings::Settings &s = settings::current();
     std::size_t count = 0;
