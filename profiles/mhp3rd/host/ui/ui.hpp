@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -52,5 +54,20 @@ std::unique_ptr<install::InstallerUi> make_setup_screens();
 // to run the setup again. Unavailable when there is no window to show it in.
 enum class ProblemAnswer { Unavailable, Quit, SetUpAgain };
 ProblemAnswer show_problem(const std::string &title, const std::string &message, bool ask_setup);
+
+// A question with two answers before the game starts. Unavailable when there
+// is no window to ask it in; Closed when the player closed the window or
+// went back.
+enum class ChoiceAnswer { Unavailable, First, Second, Closed };
+ChoiceAnswer ask_choice(const std::string &title, const std::string &message, const std::string &first,
+                        const std::string &second);
+
+// Runs work on another thread under the setup's progress screen, with a
+// Cancel button. work reports through the function it is given, which throws
+// install::InstallCancelled once the player cancels. False when there is no
+// window to show it in (work has not run then). Exceptions from work reach
+// the caller.
+using ReportProgress = std::function<void(const std::string &stage, std::uint64_t done, std::uint64_t total)>;
+bool run_with_progress(const std::string &title, const std::function<void(const ReportProgress &)> &work);
 
 } // namespace mhp3rd::ui

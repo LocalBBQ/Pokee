@@ -110,6 +110,17 @@ std::unique_ptr<InstallerUi> make_dialog_ui();
 bool report_problem(const std::string &title, const std::string &message, bool ask_setup);
 bool report_problem_in_dialog(const std::string &title, const std::string &message, bool ask_setup);
 
+// A portable copy whose data folder is still empty, on a machine where the
+// installed Yakumo has data: offers to copy that data (settings, the prepared
+// game, saves) into the portable folder. The installed copy is never changed.
+// False when the player quit; true to go on, with or without the copy.
+bool offer_user_data_copy(const std::filesystem::path &from, const std::filesystem::path &to);
+// The copy itself, on the console: `Yakumo --portable --copy-user-data`.
+int copy_user_data_on_console(const std::filesystem::path &from, const std::filesystem::path &to);
+// Two answers in an SDL message box: 1 or 2, 0 when closed, -1 without dialogs.
+int ask_choice_in_dialog(const std::string &title, const std::string &message, const std::string &first,
+                         const std::string &second);
+
 // "Set up game data again" in the in-game menu: the game quits, and the
 // program starts again with --install once it has shut down.
 void request_setup_on_exit();

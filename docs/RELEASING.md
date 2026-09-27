@@ -4,7 +4,7 @@ A release gives players the program ready to run: the executable with the recomp
 
 Releases are built by maintainers, not by CI: the recompiled code is generated from the game's executable, so a build needs a copy of the game. The game data stays on the maintainer's machine. Every artifact is checked for it before it is published.
 
-So far there are Linux and macOS builds. Windows follows in [#29](https://github.com/TeamGDB/Yakumo/issues/29). Android is described [below](#android); it has been tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
+There are Linux, macOS and [Windows](#windows) builds. Android is described [below](#android); it has been tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
 
 ## Linux
 
@@ -210,6 +210,65 @@ As for Linux: attach every file from `out/release-macos/dist/` except `BUILDINFO
 ### Updating a bundled component
 
 SDL3 and the font are pinned in `packaging/linux/sources.sh` for both systems; the Vulkan loader, MoltenVK and the deployment target in `packaging/macos/sources.sh`. Update the matching entry in `THIRD_PARTY_NOTICES.md` as well; the script refuses to pack when they disagree. Raising the deployment target needs that release's SDK for the import check.
+
+## Windows
+
+`profiles/mhp3rd/scripts/release_windows.sh` packages a finished Windows build into two zips:
+
+| Artifact | Contents |
+| --- | --- |
+| `yakumo-<version>-windows-x86_64.zip` | The folder `yakumo-<version>-windows-x86_64` with `Yakumo.exe`, `overlays/` (the 355 overlay DLLs), `SDL3.dll`, the FFmpeg DLLs (`avcodec`, `avutil`, `swresample`), the Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), `licenses/`, `README.txt` and `BUILDINFO.txt`. It keeps its data in `%APPDATA%\Yakumo\MHP3rd` |
+| `yakumo-<version>-windows-x86_64-portable.zip` | The same in a folder named `…-portable`, plus `portable.txt`, which keeps all data in `data\` next to `Yakumo.exe` (see [Portable copy](../profiles/mhp3rd/README.md#portable-copy)) ([#152](https://github.com/TeamGDB/Yakumo/issues/152)) |
+| `BUILDINFO-windows.txt` | Commit, compiler, SDL3 and FFmpeg versions and the overlay count, for the release notes |
+
+The FFmpeg DLLs are BtbN's prebuilt LGPL shared build, which the build downloads and checks against its pinned SHA-256 (see [FFmpeg](BUILDING.md#ffmpeg)); `licenses/FFmpeg-SOURCE.txt` names the build and its source.
+
+### What the script does
+
+1. Checks the build directory: configured with `-DMHP3RD_RELEASE=ON`, `bin/Yakumo.exe` built, one overlay DLL for every corpus in `profiles/mhp3rd/overlays`, and the bundled FFmpeg next to the executable. Nothing in the build directory is rebuilt or changed.
+2. Stages the program with `SDL3.dll` from the SDL3 the build found (`SDL3_DIR` in its CMake cache; the official `SDL3-devel-*-VC.zip` layout), the Visual C++ runtime from the toolchain's redistributable folder (`$VCToolsRedistDir`) and the license texts.
+3. Checks with `dumpbin /dependents` that every DLL the executable and the overlays import is in the package or in `System32`. The Vulkan loader, `vulkan-1.dll`, comes with the graphics driver.
+4. Packs each zip with Windows' own `tar.exe`, unpacks it again, and refuses it if any file is named like game data (`EBOOT*`, `*.iso`, `*.cso`, `*.bin`, `*.prx`, `*.pbp`, `*.elf`, `*.ovl`, `DATA.BIN`, `PARAM.SFO`, `ms0`, `SAVEDATA`) or looks like it by content (an ELF, a PBP, an encrypted PSP module, a `PARAM.SFO` or an ISO 9660 image), or if any file contains the checkout's path, the user profile's path, the user name or the computer name.
+5. Prints the checksums.
+
+### Requirements
+
+The Windows build tools of [BUILDING.md](BUILDING.md#windows): the MSVC toolchain, CMake, Ninja, Python, Git for Windows, the Vulkan SDK and SDL3. Run the script in Git Bash started from an **x64 Native Tools Command Prompt**, which puts `dumpbin`, `cl` and `VCToolsRedistDir` in the environment.
+
+### Build
+
+Build a release configuration in a directory of its own, with the generated code and the overlay corpora in the checkout (copy them from a developer checkout as [BUILDING.md](BUILDING.md#several-checkouts) describes, or run `generate.sh` and `build_overlays.sh`). The compiler cache makes this quick when a developer build of the same sources exists:
+
+```bash
+cmake -S . -B out/release-windows/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd \
+    -DMHP3RD_RELEASE=ON -DCMAKE_PREFIX_PATH="C:/path/to/SDL3"
+cmake --build out/release-windows/build -j 4
+profiles/mhp3rd/scripts/release_windows.sh --version 0.7.0 out/release-windows/build
+```
+
+`cmake --build` without a target builds the overlay DLLs as well. Without `--version`, the artifacts are named after `git describe`. `--no-portable` and `--no-installed` leave one zip out. The staged tree is kept in `out/release-windows/stage/`, the artifacts in `out/release-windows/dist/`.
+
+### Check
+
+On a machine with the game, before publishing. Never touch a player's own `%APPDATA%\Yakumo\MHP3rd`: check each zip in a folder of your own.
+
+```bat
+rem The normal zip, with its data in a folder of your own
+tar -xf yakumo-<version>-windows-x86_64.zip -C C:\check
+set MHP3RD_DATA_DIR=C:\check\data
+C:\check\yakumo-<version>-windows-x86_64\Yakumo.exe --install C:\path\to\your.iso --in-place
+set MHP3RD_DATA_DIR=
+
+rem The portable zip: the first line must say "(portable)" and name data\ next to the executable
+tar -xf yakumo-<version>-windows-x86_64-portable.zip -C C:\check
+C:\check\yakumo-<version>-windows-x86_64-portable\Yakumo.exe --install C:\path\to\your.iso
+```
+
+Then start each one with `MHP3RD_NO_AUDIO=1` and a time limit, play past the title screen, save once, and check that the portable copy wrote only into its `data` folder. On a machine where Yakumo is set up already, the portable copy's first start offers to copy that data: choose *Start empty* unless the copy is what you are testing, and delete only the folders you created.
+
+### Publish
+
+Attach both zips to the GitHub release, and put `BUILDINFO-windows.txt` into the release notes.
 
 ## Android
 

@@ -471,7 +471,62 @@ ProblemAnswer run_problem(const std::string &title, const std::string &message, 
     return ask_setup && answer == 1 ? ProblemAnswer::SetUpAgain : ProblemAnswer::Quit;
 }
 
+ChoiceAnswer run_choice(const std::string &title, const std::string &message, const std::string &first_label,
+                        const std::string &second_label) {
+    Layer &layer = Layer::get();
+    layer.set_interactive(true);
+    int answer = 0;
+    bool first = true;
+    const bool window_open = layer.run(
+        [&] {
+            if (layer.take_back()) {
+                answer = 3;
+                return false;
+            }
+            begin_panel("##choice", title, kSubtitle, false);
+            begin_content();
+            ImGui::Dummy({0.0f, font() * 0.5f});
+            paragraph(message);
+            ImGui::Dummy({0.0f, font() * 0.8f});
+            answer = button_pair(first_label.c_str(), second_label.c_str(), first);
+            first = false;
+            begin_footer();
+            hints({{Control::Confirm, "Select"}, {Control::Back, "Quit"}});
+            end_panel();
+            return answer == 0;
+        },
+        false);
+    layer.set_interactive(false);
+    if (!window_open || answer == 3) return ChoiceAnswer::Closed;
+    return answer == 1 ? ChoiceAnswer::First : ChoiceAnswer::Second;
+}
+
 } // namespace
+
+ChoiceAnswer ask_choice(const std::string &title, const std::string &message, const std::string &first,
+                        const std::string &second) {
+    if (ensure_renderer() == nullptr || !Layer::get().attached()) return ChoiceAnswer::Unavailable;
+    return run_choice(title, message, first, second);
+}
+
+bool run_with_progress(const std::string &title, const std::function<void(const ReportProgress &)> &work) {
+    if (ensure_renderer() == nullptr || !Layer::get().attached()) return false;
+    SetupScreens screens;
+    Layer &layer = Layer::get();
+    layer.set_interactive(true);
+    try {
+        screens.run_task(title, [&] {
+            work([&screens](const std::string &stage, std::uint64_t done, std::uint64_t total) {
+                screens.progress(stage, done, total);
+            });
+        });
+    } catch (...) {
+        layer.set_interactive(false);
+        throw;
+    }
+    layer.set_interactive(false);
+    return true;
+}
 
 std::unique_ptr<install::InstallerUi> make_setup_screens() {
     if (ensure_renderer() == nullptr || !Layer::get().attached()) return nullptr;

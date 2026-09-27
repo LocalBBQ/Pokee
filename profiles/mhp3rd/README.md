@@ -86,7 +86,7 @@ Each step is described below. [`docs/BUILDING.md`](../../docs/BUILDING.md) cover
 The program needs two things from your own copy of the game: the disc image and the game's executable. It finds them in this order:
 
 1. A directory given on the command line or in `MHP3RD_GAME_DIR`.
-2. The **per-user data directory** that the installer fills.
+2. The **per-user data directory** that the installer fills, or a [portable copy](#portable-copy)'s own `data` folder.
 3. `profiles/mhp3rd/game` in the checkout, set up by `prepare_game.sh`. A release build (`-DMHP3RD_RELEASE=ON`, see [Release builds](#release-builds)) has no checkout and skips this.
 
 If neither the per-user directory nor `profiles/mhp3rd/game` holds game data, the program starts its installer instead of the game.
@@ -112,6 +112,17 @@ The per-user directory is SDL's preference path for `Yakumo/MHP3rd`:
 | Windows | `%APPDATA%\Yakumo\MHP3rd\` |
 
 It holds `EBOOT.ELF`, `disc.iso` when the image was copied, `settings.ini`, which records where the image is and keeps the settings of the [in-game menu](#in-game-menu), `ms0`, the memory stick with the [saves](#saving-and-loading), `textures/NPJB40001` when you install an [HD texture pack](#hd-texture-packs), `pipeline_cache.bin`, the graphics pipelines compiled in earlier runs, and `pipeline_keys.bin`, the list of them the next run makes in the background from the start (deleting either only makes the next run compile them again). `MHP3RD_DATA_DIR` points the program at another directory. The Flatpak keeps this directory inside its own data directory, `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/`.
+
+### Portable copy
+
+A portable copy keeps everything in one folder next to `Yakumo.exe` (or the Linux `Yakumo`) instead of the per-user directory: the settings, the prepared game (`EBOOT.ELF`, and `disc.iso` when the image was copied), the saves in `ms0`, the pipeline caches, `logs`, `mods`, texture packs and save backups. The folder can then live on a USB drive, be copied to another computer or be deleted without leaving anything behind. The Windows release comes as a portable zip besides the normal one.
+
+Portable mode is on when there is a file `portable.txt` or a folder `data` next to the executable, and the data then goes into that `data` folder. The first start without either uses the per-user directory as before. To choose for one run, `--portable` (or `MHP3RD_PORTABLE=1`) uses `data` next to the executable even without the marker, `MHP3RD_PORTABLE=0` ignores the marker, and `--data-dir DIR` (or `MHP3RD_DATA_DIR`) uses any folder. The first line the program prints names the folder and why: `[data] D:\Yakumo\data (portable)`.
+
+- **Moving it.** Everything the portable folder keeps is found relative to it, so the folder works from another path or another drive letter, with one exception: a disc image the setup was told to *use in place* is recorded by its full path. Choose *Copy* in the setup to take the image along.
+- **A folder Yakumo cannot write to**, such as a portable copy unpacked into `Program Files` or on a read-only drive, stops the program with a message that names the folder. It never falls back to another location on its own, so settings and saves cannot end up somewhere the player does not expect.
+- **From an installed copy.** When a portable copy starts with an empty `data` folder on a computer where Yakumo already has data in the per-user directory, it offers to copy that data into the portable folder, with a progress bar. The per-user directory is only read, never changed or moved. Files already in the portable folder are never replaced, and a cancelled or failed copy removes what it had copied. `Yakumo --portable --copy-user-data` (or `--data-dir DIR --copy-user-data`) makes the same copy from a terminal and exits.
+- **Back to the installed copy.** Remove `portable.txt` and rename or move the `data` folder. Its contents can be copied into the per-user directory by hand.
 
 Saves made before `ms0` moved here stay where they were, in `profiles/mhp3rd/game/ms0`: a developer build keeps using them, and says so at start, until the per-user directory has an `ms0` of its own. Move the folder there to switch.
 
@@ -636,6 +647,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | --- | --- | --- |
 | `MHP3RD_GAME_DIR` | unset | Directory holding `EBOOT.ELF`, `disc.iso` and `ms0/` (the saves); skips the per-user directory |
 | `MHP3RD_DATA_DIR` | SDL's preference path | Per-user data directory the installer fills, with the saves in its `ms0/` |
+| `MHP3RD_PORTABLE` | unset | `1`: keep the data in `data` next to the executable, as `portable.txt` does ([Portable copy](#portable-copy)); `0`: ignore `portable.txt` and `data` there |
 | `MHP3RD_OVERLAY_DIR` | `overlays/` next to the executable (`Contents/Frameworks/overlays` in the macOS app) | Directory of overlay libraries |
 | `MHP3RD_MODS_DIR` | `mods/` in the data directory | The [mods](#mods) folder |
 | `MHP3RD_NO_MODS` | off | `1`: no mod applies this run, whatever `mods.ini` says; the menu still lists them |

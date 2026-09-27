@@ -106,6 +106,10 @@ constexpr const char *kUsage =
     "       Yakumo --install [image.iso [--in-place]]\n"
     "       Yakumo --adhoc-server [port]\n"
     "  game_dir        play from a directory holding EBOOT.ELF, disc.iso and ms0/\n"
+    "  --data-dir dir  keep settings, saves and the prepared game in dir\n"
+    "  --portable      keep them in data/ next to Yakumo (as portable.txt does)\n"
+    "  --copy-user-data copy the data of the installed Yakumo into the data\n"
+    "                  folder of this run (with --portable or --data-dir), then exit\n"
     "  --install       run the setup again on screen, then play\n"
     "  --install image set up from image.iso without the setup screens, then exit\n"
     "  --in-place      use the image where it is instead of copying it\n"
@@ -118,6 +122,9 @@ struct Options {
     bool install = false;
     std::optional<std::filesystem::path> install_image;
     bool in_place = false;
+    std::optional<std::filesystem::path> data_dir;
+    bool portable = false;
+    bool copy_user_data = false;
 };
 
 class UsageError final : public std::runtime_error {
@@ -132,6 +139,12 @@ Options parse_options(int argc, char **argv) {
         if (arg == "--help" || arg == "-h") throw UsageError("");
         if (arg == "--install") options.install = true;
         else if (arg == "--in-place") options.in_place = true;
+        else if (arg == "--portable") options.portable = true;
+        else if (arg == "--copy-user-data") options.copy_user_data = true;
+        else if (arg == "--data-dir") {
+            if (i + 1 >= argc) throw UsageError("--data-dir needs a directory");
+            options.data_dir = mhp3rd::install::path_from_utf8(argv[++i]);
+        }
         else if (!arg.empty() && arg[0] == '-') throw UsageError("unknown option " + arg);
         else if (options.install && !options.install_image) options.install_image = mhp3rd::install::path_from_utf8(arg);
         else if (!options.install && !options.game_dir) options.game_dir = std::filesystem::path(arg);
@@ -139,6 +152,9 @@ Options parse_options(int argc, char **argv) {
     }
     if (options.in_place && !options.install_image) throw UsageError("--in-place needs --install image.iso");
     if (options.install && options.game_dir) throw UsageError("--install does not take a game_dir");
+    if (options.portable && options.data_dir) throw UsageError("--portable and --data-dir choose the same thing");
+    if (options.copy_user_data && !options.portable && !options.data_dir)
+        throw UsageError("--copy-user-data needs --portable or --data-dir");
     return options;
 }
 
@@ -263,6 +279,52 @@ int install_from_command_line(const Options &options) {
     return 0;
 }
 
+#if !defined(MHP3RD_ANDROID_APP)
+const char *data_source_name(mhp3rd::install::DataSource source) {
+    using mhp3rd::install::DataSource;
+    switch (source) {
+    case DataSource::CommandLine: return "--data-dir";
+    case DataSource::Environment: return "MHP3RD_DATA_DIR";
+    case DataSource::Portable: return "portable";
+    case DataSource::PerUser: return "per-user";
+    }
+    return "?";
+}
+
+// Decides where this run keeps its data, checks that it can write there and,
+// for a portable copy starting empty, offers the installed copy's data. -1 to
+// go on, otherwise the exit code.
+int prepare_data_directory(const Options &options) {
+    namespace install = mhp3rd::install;
+    if (options.data_dir) install::set_data_directory_override(*options.data_dir);
+    if (options.portable) install::set_portable_requested();
+    const install::DataDirectory &data = install::data_directory();
+    std::cout << "[data] " << install::path_to_utf8(data.path) << " (" << data_source_name(data.source) << ")"
+              << std::endl;
+    // A portable copy on a read-only medium or in Program Files must say so
+    // rather than lose its settings and saves, or quietly keep them elsewhere.
+    if (const std::string problem = install::check_writable(data.path); !problem.empty()) {
+        (void)install::report_problem("Can't write to the data folder", problem, false);
+        return 1;
+    }
+    const std::filesystem::path installed = install::expected_per_user_data_directory();
+    std::error_code ec;
+    const bool elsewhere = !installed.empty() && !std::filesystem::equivalent(installed, data.path, ec);
+    if (options.copy_user_data) {
+        if (!elsewhere) {
+            std::cerr << "Yakumo: the data folder of this run is the installed one; nothing to copy\n";
+            return 1;
+        }
+        return install::copy_user_data_on_console(installed, data.path);
+    }
+    if (data.source == install::DataSource::Portable && elsewhere && !install::has_user_data(data.path) &&
+        install::has_user_data(installed) && !options.install_image) {
+        if (!install::offer_user_data_copy(installed, data.path)) return 1;
+    }
+    return -1;
+}
+#endif
+
 std::atomic<bool> stop_server{false};
 
 extern "C" void on_stop_signal(int) { stop_server = true; }
@@ -338,6 +400,9 @@ int main(int argc, char **argv) {
             std::cerr << "Yakumo: " << e.what() << "\n" << kUsage;
             return 2;
         }
+#if !defined(MHP3RD_ANDROID_APP)
+        if (const int code = prepare_data_directory(options); code >= 0) return code;
+#endif
         if (options.install_image) return install_from_command_line(options);
 #if defined(MHP3RD_ANDROID_APP)
         {

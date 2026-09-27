@@ -56,7 +56,7 @@ The state of each part of the game on each platform is in [`docs/COMPATIBILITY.m
 A prebuilt release needs nothing but your disc image. Download one from the [releases page](https://github.com/TeamGDB/Yakumo/releases), start it, and point the first-run setup at your image: it checks the image, prepares the game from it and keeps everything in a per-user directory.
 
 - **Linux and Steam Deck:** a Flatpak bundle and a portable tarball. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling.
-- **Windows:** a portable x86-64 archive with the required runtime libraries.
+- **Windows:** an x86-64 zip with the required runtime libraries, in two kinds: the normal one keeps its data in `%APPDATA%`, the portable one keeps everything (settings, saves, the prepared game) in a `data` folder next to `Yakumo.exe`, for a USB drive or a self-contained folder. See [Portable copy](profiles/mhp3rd/README.md#portable-copy).
 - **macOS (Apple Silicon, macOS 13 or newer):** a disk image with the app. It is not notarized by Apple, so macOS asks you to allow it once. [`docs/MACOS.md`](docs/MACOS.md) covers installing, the first start, where saves live, updating and uninstalling.
 - **Android:** an APK for 64-bit phones and handhelds with Android 10 or later and Vulkan 1.1. On its first start it takes your `.iso` through Android's file picker and copies it into the app (about 1.3 GB besides the app's 0.8 GB). Touch controls are drawn over the game; gamepads work too. Tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
 

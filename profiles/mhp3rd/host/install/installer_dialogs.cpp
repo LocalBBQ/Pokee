@@ -214,9 +214,22 @@ bool report_problem_in_dialog(const std::string &title, const std::string &messa
                 {0, "Quit", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}}) == 1;
 }
 
+int ask_choice_in_dialog(const std::string &title, const std::string &message, const std::string &first,
+                         const std::string &second) {
+    if (!dialogs_available()) return -1;
+    const int pressed = ask(SDL_MESSAGEBOX_INFORMATION, title.c_str(), message,
+                            {{1, first.c_str(), SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
+                             {2, second.c_str(), SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}});
+    return pressed < 0 ? 0 : pressed;
+}
+
 #else
 
 std::unique_ptr<InstallerUi> make_dialog_ui() { return nullptr; }
+
+int ask_choice_in_dialog(const std::string &, const std::string &, const std::string &, const std::string &) {
+    return -1;
+}
 
 bool report_problem_in_dialog(const std::string &, const std::string &, bool) { return false; }
 

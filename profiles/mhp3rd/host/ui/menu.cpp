@@ -1255,7 +1255,14 @@ void Menu::system() {
     section("About");
     info_row("Yakumo", std::string(kYakumoVersion));
     info_row("Game", std::string(install::kGameTitle) + " (" + install::kDiscIdDisplay + ")");
-    info_row("Data folder", data_dir);
+    {
+        std::string where = data_dir;
+        try {
+            if (install::data_directory().source == install::DataSource::Portable) where += "  (portable)";
+        } catch (const std::exception &) {
+        }
+        info_row("Data folder", where);
+    }
     if (!savedata::memory_stick().empty())
         info_row("Saves folder", install::path_to_utf8(savedata::memory_stick() / "PSP" / "SAVEDATA"));
     info_row("Graphics", "Vulkan on " + renderer().device_name());

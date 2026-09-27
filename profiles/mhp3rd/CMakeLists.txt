@@ -379,12 +379,26 @@ add_executable(mhp3rd_settings_tests
     tests/settings_defaults_tests.cpp
     host/settings/settings.cpp
     host/install/user_data.cpp
+    host/app_paths.cpp
     host/input/bindings.cpp)
 target_include_directories(mhp3rd_settings_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_settings_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_settings_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_settings_tests COMMAND mhp3rd_settings_tests)
+endif()
+
+# Where the data directory is (portable or per-user) and the copy of an
+# installed copy's data into a portable folder. No game data.
+add_executable(mhp3rd_data_directory_tests
+    tests/data_directory_tests.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp)
+target_include_directories(mhp3rd_data_directory_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_data_directory_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_data_directory_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_data_directory_tests COMMAND mhp3rd_data_directory_tests)
 endif()
 
 # Fast loading's decision: when a load runs ahead of real time.
