@@ -56,6 +56,7 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `3f1c0e9` (save-data pass) | 2026-09-27 |
 | Windows 11 Pro | Ryzen 5 5600, 16 GB | AMD Radeon RX 5600 XT | `87bc4d9` (save-data pass) | 2026-09-27 |
 | Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | SwiftShader | `2caf2fd` (save-data pass) | 2026-09-27 |
+| macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `65daf82` (the hot spring's glints at 60 fps, [#168]: 240 presents in a row from a scripted run, against `MHP3RD_INTERPOLATION_NO_NEAREST_INSTANCES`) | 2026-09-27 |
 
 ## Updating this page
 
@@ -76,3 +77,4 @@ To report a result without editing the page, open a **Test report** issue.
 [#127]: https://github.com/TeamGDB/Yakumo/issues/127
 [#162]: https://github.com/TeamGDB/Yakumo/issues/162
 [#167]: https://github.com/TeamGDB/Yakumo/issues/167
+[#168]: https://github.com/TeamGDB/Yakumo/issues/168
