@@ -42,7 +42,7 @@ You can load a save copied from a PSP or start a new game, hunt, play with other
 | PPSSPP-compatible HD texture packs, installed from the menu or copied into the data directory | |
 | Mods in the community's mhp3reload format: file replacements and patches, managed from the menu (see the [profile README](profiles/mhp3rd/README.md#mods)) | Code mods (#81) |
 | Sound effects, streamed music and cutscene movies | |
-| Fully rebindable keyboard and mouse controls; gamepads with an analog right-stick camera and aim, plus bow and bowgun trigger profiles | |
+| Fully rebindable keyboard and mouse controls; gamepads with an analog right-stick camera and aim, control presets and button-combination binds | |
 | Yakumo's in-game menu, first-run setup, file browser and on-screen keyboard, all usable with a gamepad, keyboard or mouse | |
 | All 355 code overlays recompiled | |
 | Multiplayer: through the ad hoc servers PSP players use, or hosted from the game on a LAN or VPN | |
@@ -84,7 +84,7 @@ The full instructions, including every setting, are in [`profiles/mhp3rd/README.
 
 ## Controls
 
-On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Optional trigger profiles put aiming on L2 and a bow or bowgun attack on R2. Keyboard and mouse play is complete and rebindable; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhp3rd/README.md#running).
+On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Control presets (Default, Modern with attacks on the triggers, Left-handed, Classic keyboard, and your own) cover every control, and any of them can be bound to a single button or a combination such as L1 + ○. Keyboard and mouse play is complete; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhp3rd/README.md#running).
 
 Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu. It holds video, audio, control, network and save settings, including aspect ratio, frame rate, internal resolution and HD texture pack import. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
 

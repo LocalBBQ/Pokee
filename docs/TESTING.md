@@ -62,7 +62,7 @@ For the manual check, open **Video** in the menu and compare the three **Aspect 
 
 ### Keyboard and mouse (#94)
 
-`mhp3rd_input_tests` (CTest) checks the bindings without SDL or game data: key and button names, how `settings.ini` spells them, the shipped layouts, the menu's rebinding rules and what held keys press. `mhp3rd_camera_tests` covers the mouse in the camera layer: its turn in the ordinary camera, sizing the game's aim steps from the mouse (including a step the game makes an update late, and one made after the mouse stopped), and switching the game's own turn where the port does not drive the camera.
+`mhp3rd_input_tests` (CTest) checks the bindings and control presets without SDL or game data: key and pad button names, how `settings.ini` spells them and their combinations, the shipped presets, turning earlier versions' bindings and trigger profiles into a preset, the menu's rebinding rules, conflicts and what held inputs press. `mhp3rd_settings_tests` reads and writes presets through `settings.ini`'s keys. `mhp3rd_camera_tests` covers the mouse in the camera layer: its turn in the ordinary camera, sizing the game's aim steps from the mouse (including a step the game makes an update late, and one made after the mouse stopped), and switching the game's own turn where the port does not drive the camera.
 
 For the manual check, unplug the gamepad (or leave it untouched) and play from the title screen with the keyboard and mouse only, on the default layout (see the profile README's *Keyboard and mouse*):
 
@@ -71,7 +71,8 @@ For the manual check, unplug the gamepad (or leave it untouched) and play from t
 - In the quest, the mouse turns and tilts the camera smoothly and stops where it stops; *Mouse sensitivity* and both *Invert mouse* settings change it at once. With *Analog camera* off, moving the mouse sideways turns the game's own camera while it moves. Q puts the camera behind the hunter.
 - Attack with the left button, roll with Space, use an item with E, guard or run with Left Shift. With a bow: hold Left Shift and move the mouse, the aim follows in proportion, then shoot with the left button; with a bowgun, fire with the right button. Rolling or walking while aiming must not move the aim more than the game allows.
 - Hold a key or a mouse button, open the menu with Esc, release it, close the menu: nothing stays pressed. Pick the gamepad up mid-quest and put it down again: both work, and no camera motion is left over.
-- In Controls, rebind a control (activate its row, press a key or a mouse button), check it in play and in `settings.ini`, try *Use the classic keyboard layout* and *Restore control defaults*.
+- In Controls, rebind a control (activate its row, press a key or a mouse button), check it in play and in `settings.ini`: the change becomes a preset of your own named *Custom*. Bind a combination (hold Left Shift, press F) to *△ + ○ (together)* and check the combined attack in a quest. Bind a key another control has and see both rows turn red. Switch *Preset* to Classic keyboard and back, rename and delete your preset, and try *Restore control defaults*.
+- With a gamepad, rebind a button under *Gamepad buttons* and a combination such as LB + ○; try the Modern preset (RT attacks, LT guards) and Left-handed (the right stick moves).
 
 With `MHP3RD_TRACE_PAD=1` the console shows `[pad] pointer captured` and `[pad] pointer free` as the pointer changes hands, and the mouse's motion in counts and degrees.
 

@@ -44,7 +44,7 @@ Puedes cargar una partida copiada de una PSP o empezar una nueva, cazar con otro
 | Paquetes de texturas HD compatibles con PPSSPP, instalados desde el menú o copiados al directorio de datos | |
 | Mods en el formato de la comunidad (mhp3reload): reemplazos y parches de archivos, gestionados desde el menú (ver el [README del perfil](profiles/mhp3rd/README.md#mods)) | Mods de código (#81) |
 | Efectos de sonido, música en streaming y cinemáticas | |
-| Controles de teclado y ratón totalmente reasignables; mandos con cámara y apuntado analógicos en el stick derecho, además de perfiles de gatillos para arcos y ballestas | |
+| Controles de teclado y ratón totalmente reasignables; mandos con cámara y apuntado analógicos en el stick derecho, preajustes de control y asignación de combinaciones de botones | |
 | El menú de Yakumo dentro del juego, la configuración inicial, el explorador de archivos y el teclado en pantalla, todos utilizables con mando, teclado o ratón | |
 | Los 355 overlays de código, recompilados | |
 | Multijugador: a través de los servidores ad hoc que usan los jugadores de PSP, o con anfitrión desde el propio juego en una red local o VPN | |
@@ -86,7 +86,7 @@ Las instrucciones completas, con todos los ajustes, están en [`profiles/mhp3rd/
 
 ## Controles
 
-En un mando, los botones están donde esperas: en un mando de PlayStation el círculo confirma y la equis vuelve atrás, como indican los mensajes del juego, y el stick derecho mueve la cámara y el apuntado. Los perfiles de gatillos opcionales ponen el apuntado en L2 y el ataque del arco o la ballesta en R2. El control con teclado y ratón es completo y reasignable; de forma predeterminada, WASD mueve al personaje, el ratón controla la cámara y sus botones atacan. Las tablas completas están en el [README del perfil](profiles/mhp3rd/README.md#running).
+En un mando, los botones están donde esperas: en un mando de PlayStation el círculo confirma y la equis vuelve atrás, como indican los mensajes del juego, y el stick derecho mueve la cámara y el apuntado. Los preajustes de control (Default, Modern con los ataques en los gatillos, Left-handed, Classic keyboard y los tuyos propios) abarcan todas las acciones, y cualquiera puede asignarse a un solo botón o a una combinación como L1 + ○. El control con teclado y ratón es completo; de forma predeterminada, WASD mueve al personaje, el ratón controla la cámara y sus botones atacan. Las tablas completas están en el [README del perfil](profiles/mhp3rd/README.md#running).
 
 Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Yakumo. Reúne los ajustes de vídeo, audio, controles, red y partidas, incluidos la relación de aspecto, la frecuencia de fotogramas, la resolución interna y la importación de texturas HD. El primer arranque prepara el juego a partir de tu imagen de disco en la misma ventana, y basta con un mando para hacerlo.
 

@@ -14,7 +14,7 @@ The game boots, loads its overlays, creates a character or loads a save, walks t
 | Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, per-vertex lighting (four directional, point or spot lights and the full material model) and fog, blending, depth and alpha test, sprites, per-framebuffer render targets, arbitrary window shapes and frame interpolation; PPSSPP-compatible HD texture packs are supported |
 | Audio | `sceSasCore` voice mixing, `sceAudio` output and ATRAC3 music through `sceAtrac3plus` |
 | Movies | PSMF playback through `sceMpeg` and `sceJpegCsc`: H.264 video and ATRAC3plus sound |
-| Input | Fully rebindable keyboard and mouse controls; SDL3 gamepads with an analog camera and proportional bow and bowgun aim on the second stick, plus optional trigger profiles |
+| Input | Control presets (Default, Modern, Left-handed, Classic keyboard, and the player's own) with every keyboard, mouse and gamepad control rebindable, combinations such as LB + ○ included; SDL3 gamepads with an analog camera and proportional bow and bowgun aim on the second stick |
 | Text | `sceLibFont` glyphs rasterized from a host TrueType font |
 | Saves | The save-data utility, with saves in the PSP's own format: a save copied from a PSP loads, and one made here can be copied back; the menu imports, exports and backs up saves |
 | Interface | Gamepad, keyboard and mouse driven first-run setup, file browser, in-game settings, performance statistics and on-screen keyboard |
@@ -216,7 +216,7 @@ The window renders at twice the PSP resolution by default (960×544). Esc, or L3
 
 ### Keyboard and mouse
 
-The game can be played with a keyboard and a mouse alone. Every control can be rebound in the menu (Controls → *Keyboard and mouse*); these are the defaults:
+The game can be played with a keyboard and a mouse alone. Every control can be rebound in the menu (Controls → *Keyboard and mouse*, see [Control presets](#control-presets)); these are the defaults, the **Default** preset:
 
 | Key or button | PSP | In the game |
 | --- | --- | --- |
@@ -237,13 +237,13 @@ The game can be played with a keyboard and a mouse alone. Every control can be r
 
 A bow aims with Left Shift held and shoots with the left button; a bowgun fires with the right one.
 
-*Use the classic keyboard layout* in the same section brings back the keys of earlier versions, for play without a mouse: I / J / K / L move, X ○, Z ✕, A □, S △, Q / W L / R, Enter START, Right Shift or Backspace SELECT, and the arrow keys the D-pad. *Restore control defaults* returns to the table above.
+The **Classic keyboard** preset brings back the keys of earlier versions, for play without a mouse: I / J / K / L move, X ○, Z ✕, A □, S △, Q / W L / R, Enter START, Right Shift or Backspace SELECT, and the arrow keys the D-pad. **Left-handed** has the mouse in the left hand: I / J / K / L move, H ○ (and the right button), U □, O L, Right Shift R, Enter START, Backspace SELECT, the arrow keys the D-pad and keypad 8 / 4 / 5 / 6 the camera. **Modern** is Default plus △ + ○ on the side mouse button (Mouse 4) and C. *Restore control defaults* returns to Default.
 
-To rebind, activate a control's row and press a key or a mouse button: it is added (a control takes two), or removed if the control has it already; Esc or a gamepad button cancels. A key taken from another control leaves that one. Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`; an empty value leaves a control unbound).
+To rebind, activate a control's row and press a key or a mouse button: it is added (a control takes two), or removed if the control has it already; Esc cancels. Hold one key and press another for a combination, such as Left Shift + F: the capture ends when the first key is let go, and Shift, Ctrl, Alt and GUI are always the held one. Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`; an empty value leaves a control unbound).
 
 **The pointer.** While the game runs and the window has focus, Yakumo captures the mouse: the pointer is hidden and its motion and buttons go to the game. It is given back whenever Yakumo's menu, the on-screen keyboard or a setup screen is up, and when the window loses focus (switching to another window, Cmd+Tab or Alt+Tab, minimising). Buttons and keys still held when it is captured again reach the game only after they are released, and motion made while it was free is never replayed. *Mouse* in the menu (`input.mouse`, `MHP3RD_MOUSE=0`) turns all of this off, leaving the pointer alone.
 
-**The mouse camera** feeds the same camera layer as the right stick, so it works where the [analog camera](#analog-camera) does: in a quest's ordinary camera, moving the mouse sideways turns the camera and moving it forward and back tilts it, by *Mouse sensitivity* degrees for each count of motion (0.10 by default), and it stops where the mouse stops. While a bow or a bowgun aims, and in a bowgun's scope, the mouse moves the aim the way the right stick does, slowed as *Aim speed* is to *Camera speed*; the game still decides when the aim may move. Where the port does not drive the camera (with *Analog camera* off, in the village or in a camera mode without a driver) the game's own camera turns at one fixed speed or not at all, so the mouse can only switch that turn on: moving it sideways turns the camera for as long as it moves, like holding the right stick, and vertical motion does nothing there (the second stick's up and down are the game's recentring commands). With *Right stick* set to D-pad or off, the mouse does not turn the game's own camera, since D-pad presses would also move cursors in the game's menus.
+**The mouse camera** feeds the same camera layer as the right stick, so it works where the [analog camera](#analog-camera) does: in a quest's ordinary camera, moving the mouse sideways turns the camera and moving it forward and back tilts it, by *Mouse sensitivity* degrees for each count of motion (0.10 by default), and it stops where the mouse stops. While a bow or a bowgun aims, and in a bowgun's scope, the mouse moves the aim the way the right stick does, slowed as *Aim speed* is to *Camera speed*; the game still decides when the aim may move. Where the port does not drive the camera (with *Analog camera* off, in the village or in a camera mode without a driver) the game's own camera turns at one fixed speed or not at all, so the mouse can only switch that turn on: moving it sideways turns the camera for as long as it moves, like holding the right stick, and vertical motion does nothing there (the second stick's up and down are the game's recentring commands). With *Camera stick* set to D-pad or off, the mouse does not turn the game's own camera, since D-pad presses would also move cursors in the game's menus.
 
 The keyboard and a gamepad can be used together or in turns: both are read every frame and add up, so nothing is left pressed by switching.
 
@@ -255,7 +255,7 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | --- | --- |
 | South / East / West / North face buttons | ✕ / ○ / □ / △ |
 | LB, RB | L, R |
-| LT / RT (L2 / R2) past their threshold | L, R with the **Standard** trigger profile (the default); R, △ with **Bows**; R, ○ with **Bowguns** |
+| LT / RT (L2 / R2) past the trigger point | L, R |
 | Start / Back | START / SELECT |
 | D-pad | D-pad |
 | Left stick | Analog stick |
@@ -263,9 +263,30 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | L3 + R3 (both sticks pressed) | In-game menu |
 | Back + R3 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu |
 
-The trigger profiles are for shooting: R, held to aim, moves onto L2, and the weapon's attack goes onto R2. They only add copies: RB, △ and ○ keep working, LB stays L, and the keyboard and Yakumo's own menu are unchanged. Choose one in the menu (*Trigger profile*) or with `MHP3RD_PAD_TRIGGERS`.
+That is the **Default** preset. Its buttons, triggers included, can be rebound like the keyboard's (Controls → *Gamepad buttons*), to one button or to a combination such as LB + ○, and other presets change them: **Modern** attacks with RT (△, which also shoots a bow), does the second attack with RB (○, which also fires a bowgun) and guards and aims with LT (R), with LB as L; **Left-handed** mirrors the pad, moving with the right stick, the D-pad doing the face buttons and the face buttons the D-pad, and the shoulders and triggers changing sides. The sticks stay sticks: *Move with the right stick* swaps them, and the other one is the *Camera stick*. L3 + R3 always opens the menu.
 
-The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. The menu's *Confirm button* setting (or `MHP3RD_PAD_FACE=xbox`) moves confirm to the bottom button for pads labelled the other way round.
+The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. The menu's *Confirm button* setting (or `MHP3RD_PAD_FACE=xbox`) moves confirm to the bottom button for pads labelled the other way round: it swaps the bottom and right buttons in every preset, and the menu shows the bindings as they are then pressed.
+
+### Control presets
+
+A control preset is a whole layout: every control on the keyboard and mouse and on gamepads, and which stick moves. Choose one at the top of Controls (*Preset*); it applies at once.
+
+| Preset | Keyboard and mouse | Gamepad |
+| --- | --- | --- |
+| Default | W A S D and the mouse, as in [Keyboard and mouse](#keyboard-and-mouse) | The PSP's buttons where the pad has them; LT / RT are L / R |
+| Modern | Default, plus △ + ○ on Mouse 4 and C | RT △ (attack, shoot a bow), RB ○ (second attack, fire a bowgun), LT R (guard, aim), LB L; the face buttons as in Default |
+| Left-handed | The mouse in the left hand, I J K L to move | Mirrored: the right stick moves, the D-pad is △ ○ ✕ □, the face buttons the D-pad, the shoulders and triggers change sides |
+| Classic keyboard | The keys of earlier versions, without a mouse | As in Default |
+
+The shipped presets never change. Changing a binding while one of them is chosen makes a preset of your own from it, named *Custom* (then *Custom 2*, and so on), and chooses that; later changes go into it as you make them. *Save as a new preset* copies the current bindings into another one. Your presets can be renamed (*Name*) and deleted (*Delete this preset*, which asks first and goes back to Default); up to 32 are kept, in `settings.ini` as `input.user_preset.<n>.name`, `.bind.<control>`, `.pad.<control>` and `.move_stick`. The chosen preset is `input.preset` (`default`, `modern`, `left_handed`, `classic`, or `user:` and a name of yours), and the bindings in use are also kept as `input.bind.<control>`, `input.pad.<control>` and `input.move_stick`.
+
+**Combinations.** A binding is one input or two held together, such as L1 + ○ on a pad or Left Shift + F on the keyboard. It presses its control while both are held, and the second input then does nothing else: with LB + B bound to △ + ○, holding LB and pressing B gives △ + ○ and not ○. The held input still does its own control, so LB also presses L. Shoulders, triggers, Back and the stick buttons on a pad, and Shift, Ctrl, Alt and GUI on a keyboard, are always taken as the held one.
+
+**△ + ○ (together)** is a control of its own: one key or button that presses △ and ○ in the same frame, for the combined attacks that two fingers do not always manage together. Default leaves it unbound.
+
+**Conflicts.** A binding that clashes is drawn in red, and the focused row says with what: the same input or combination on another control (one press does both), or a combination whose held input does another control on its own. They are allowed, and counted under the preset.
+
+**From earlier versions.** Settings without a preset become one the first time they are read: the Default or Classic keyboard preset if the bindings are exactly one of those, otherwise a preset of your own named *Custom* with your keyboard bindings. The **trigger profiles** of earlier versions are part of it: *Bows* became LT on R and RT on △, *Bowguns* LT on R and RT on ○, over the Default pad. `input.trigger_profile` is dropped at the next save, and `MHP3RD_PAD_TRIGGERS` is no longer read (`MHP3RD_CONTROL_PRESET` chooses a preset for a run).
 
 ## On-screen keyboard
 
@@ -305,7 +326,7 @@ The menu follows the game's confirm convention: with the default layout the righ
 
 Every change applies at once and is saved to `settings.ini` in the per-user directory, next to the installer's `disc_image`. A setting whose environment variable is set is decided by that variable for the run: the menu shows it greyed with *Set by MHP3RD_…* and leaves the file's value alone. So the order is: environment variable, then `settings.ini`, then the default.
 
-The Android app starts from other defaults where a phone differs, with the same keys and values: `video.aspect` is `fill` (a phone is wider than the PSP), `video.fullscreen` is on (there is no window) and `input.mouse` is off (a phone has no mouse to capture). Everything else starts as in the table. On Android, *Analog camera* alone decides whether a finger drag turns the camera: *Right stick* is about a physical stick there.
+The Android app starts from other defaults where a phone differs, with the same keys and values: `video.aspect` is `fill` (a phone is wider than the PSP), `video.fullscreen` is on (there is no window) and `input.mouse` is off (a phone has no mouse to capture). Everything else starts as in the table. On Android, *Analog camera* alone decides whether a finger drag turns the camera: *Camera stick* is about a physical stick there.
 
 | Section | Setting | Key in `settings.ini` | Variable | Values |
 | --- | --- | --- | --- | --- |
@@ -331,13 +352,15 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Confirm button | `input.confirm` | `MHP3RD_PAD_FACE` | Right (○, Japanese) or bottom (Western) |
 | Controls | Stick dead zone | `input.dead_zone` | `MHP3RD_PAD_DEADZONE` | 0–50% |
 | Controls | Trigger point | `input.trigger` | `MHP3RD_PAD_TRIGGER` | 5–100% |
-| Controls | Trigger profile | `input.trigger_profile` | `MHP3RD_PAD_TRIGGERS` | `standard` (L / R, the default), `bows` (R / △), `bowguns` (R / ○) |
-| Controls | Right stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off |
+| Controls | Preset | `input.preset` | `MHP3RD_CONTROL_PRESET` | `default`, `modern`, `left_handed`, `classic` or `user:<name>`; see [Control presets](#control-presets). The variable takes a shipped preset's id or the name of one of yours, for the run only |
+| Controls | Camera stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off, for the stick that does not move the hunter |
 | Controls | Analog camera | `input.analog_camera` | `MHP3RD_ANALOG_CAMERA` | Proportional turn and continuous tilt in the ordinary quest camera, and proportional bow and bowgun aim; on by default |
 | Controls | Aim speed | `input.aim_speed` | `MHP3RD_AIM_SPEED` | Degrees a second at full deflection while a bow or a bowgun aims, 10 to 360; default 90 |
 | Controls | Camera speed | `input.camera_speed` | `MHP3RD_CAMERA_SPEED` | 20–720 degrees per second at full deflection; default 190 |
 | Controls | Invert camera horizontally / vertically | `input.invert_camera_x`, `input.invert_camera_y` | | For the right-stick camera |
-| Controls | Right stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
+| Controls | Camera stick D-pad point | `input.right_stick_zone` | `MHP3RD_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
+| Controls | Move with the right stick | `input.move_stick` | | `left` (default) or `right`; part of the preset |
+| Controls | A row per control under *Gamepad buttons* | `input.pad.<control>` | | Up to two buttons, triggers or combinations, such as `Pad North / Pad LB + Pad East`; part of the preset |
 | Controls | Mouse | `input.mouse` | `MHP3RD_MOUSE` | On (default): the window captures the pointer while the game runs, and the mouse turns the camera and presses its bound buttons; off: the pointer is left alone |
 | Controls | Mouse sensitivity | `input.mouse_sensitivity` | `MHP3RD_MOUSE_SENSITIVITY` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99; default 0.10 |
 | Controls | Invert mouse horizontally / vertically | `input.invert_mouse_x`, `input.invert_mouse_y` | | For the mouse camera and aim |
@@ -346,7 +369,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Controls opacity | `input.touch_opacity` | | 10–100%; default 50% |
 | Controls | Controls size | `input.touch_size` | | 60–160% of the default size; default 100% |
 | Controls | Touch camera speed | `input.touch_camera_speed` | | Degrees the camera turns for a drag across the screen's height, 30 to 720; default 180 |
-| Controls | A row per control (Move forward … Camera right) | `input.bind.<control>` | | Up to two keys or mouse buttons, see [Keyboard and mouse](#keyboard-and-mouse) |
+| Controls | A row per control under *Keyboard and mouse* (Move forward … △ + ○) | `input.bind.<control>` | | Up to two keys, mouse buttons or combinations, see [Keyboard and mouse](#keyboard-and-mouse); part of the preset |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
 | Controls (Experimental) | Free camera | `experimental.free_camera` | `MHP3RD_FREE_CAMERA` | Off (default) or on: F6, or Back + R3, detaches the view from the game's camera. See [Free camera](#free-camera-experimental) |
@@ -361,7 +384,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Network | Server | `network.server` | `MHP3RD_ADHOC_SERVER` | Host name or address of a PSP ad hoc server, optionally `host:port`; empty by default |
 | Network | Nickname | `network.nickname` | `MHP3RD_ADHOC_NICKNAME` | The name other players see; empty uses the hunter name |
 
-Everything applies without a restart, apart from mods that change a file's size (see [Mods](#mods)); the name settings take effect the next time the game asks for a name. The Controls section also has *Use the classic keyboard layout*, and the System section has *Resume*, *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), the *Saves* rows described under [Saving and loading](#importing-a-save-from-a-psp), and the build version, the data and saves folders and the GPU. Each section but Mods has a button that restores its defaults.
+Everything applies without a restart, apart from mods that change a file's size (see [Mods](#mods)); the name settings take effect the next time the game asks for a name. The System section has *Resume*, *Open the data folder*, *Set up game data again…* and *Quit game* (both of the last two ask first), the *Saves* rows described under [Saving and loading](#importing-a-save-from-a-psp), and the build version, the data and saves folders and the GPU. Each section but Mods has a button that restores its defaults.
 
 The Network section also shows the connection and has the troubleshooting tools described under [Multiplayer](#multiplayer-ad-hoc). The file also keeps `network.mac`, the address other players know you by (made up the first time you go on line; `MHP3RD_ADHOC_MAC` overrides it), `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
 
@@ -841,14 +864,14 @@ What is left is the game's own music fading out and its animations, which play a
 | `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button (menu: Confirm button) |
 | `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel (menu: Stick dead zone) |
 | `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press anything (menu: Trigger point) |
-| `MHP3RD_PAD_TRIGGERS` | `standard` | What LT/RT (L2/R2) press: `standard` L and R, `bows` R and △, `bowguns` R and ○ (menu: Trigger profile) |
+| `MHP3RD_CONTROL_PRESET` | unset | The control preset for this run: `default`, `modern`, `left_handed`, `classic`, or the name of one of the player's (menu: Preset). `MHP3RD_PAD_TRIGGERS`, which chose a trigger profile, is retired: its profiles are presets now |
 | `MHP3RD_ANALOG_CAMERA` | on | Proportional yaw and continuous tilt in the ordinary quest camera, the tilt limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the angle. The physical D-pad and recentre return control to the game. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
 | `MHP3RD_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
 | `MHP3RD_AIM_SPEED` | `90` | Degrees a second at full deflection while a bow or a bowgun aims, 10 to 360 (menu: Aim speed) |
 | `MHP3RD_MOUSE` | on | `0` leaves the pointer alone: no capture, no mouse camera and no mouse buttons (menu: Mouse) |
 | `MHP3RD_MOUSE_SENSITIVITY` | `0.10` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99 (menu: Mouse sensitivity) |
-| `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Right stick) |
-| `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Right stick D-pad point) |
+| `MHP3RD_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Camera stick) |
+| `MHP3RD_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Camera stick D-pad point) |
 | `MHP3RD_OSK_TEXT` | `Hunter` | Fixed name given when the game asks for one, at once and without the on-screen keyboard unless `MHP3RD_OSK_MODE=keyboard` (menu: Hunter name) |
 | `MHP3RD_OSK_MODE` | `keyboard` | `keyboard` opens the on-screen keyboard; `fixed` gives the fixed name at once (menu: When the game asks for a name) |
 | `MHP3RD_AUTO_CONFIRM` | off | Press ○ every N frames, to walk through menus unattended |
@@ -1048,7 +1071,7 @@ host/app_paths.{hpp,cpp}         The executable's own location, and what a relea
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/settings/                   Player settings: settings.ini, environment overrides, defaults
 host/camera/                     Camera input from every device, the driver for the game's own camera, its view's shape, the free camera
-host/input/                      Keyboard and mouse bindings: names, settings.ini spelling, what held keys press
+host/input/                      Bindings and control presets: names, settings.ini spelling, combinations, what held inputs press; the touch controls' logic
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
 host/debug/                      Developer tools (not in release builds): the game's money, boxes and quest state, cheats, command file
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
