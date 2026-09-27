@@ -52,6 +52,9 @@ enum class Action : std::uint8_t {
     // in the free camera's photo mode runs the game on by one frame.
     Screenshot,
     FrameStep,
+    // Not a PSP control: hides the game's HUD and brings it back
+    // (gpu/game_hud.hpp).
+    HideHud,
     Count
 };
 inline constexpr std::size_t kActions = static_cast<std::size_t>(Action::Count);
@@ -230,6 +233,7 @@ struct PadState {
     bool fast_forward{};      // the fast-forward bind is held
     bool screenshot{};        // the screenshot bind is held
     bool frame_step{};        // the frame step bind is held
+    bool hide_hud{};          // the hide-HUD bind is held
 };
 [[nodiscard]] PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held);
 

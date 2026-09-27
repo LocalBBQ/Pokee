@@ -2,6 +2,7 @@
 
 #include "frame_interpolation.hpp"
 #include "frame_pacing.hpp"
+#include "game_hud.hpp"
 #include "replacement_textures.hpp"
 #include "texture_decode.hpp"
 #include "triangle_indices.hpp"
@@ -861,6 +862,11 @@ struct VulkanRenderer::Impl {
     bool screenshot_request{};
     bool frame_step{};
     void sample_host_binds(bool focused);
+    // The Hide HUD bind (gpu/game_hud.hpp): read while the game has input,
+    // the free camera's flight included, and counted once per press.
+    bool hide_hud_held{};
+    bool hide_hud_pressed{};
+    void sample_hide_hud(bool focused);
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
     // Keyboard and mouse (input/bindings.hpp). Mouse buttons are followed
@@ -5166,6 +5172,7 @@ bool VulkanRenderer::pump_events() {
     impl_->sample_pad(focused);
     impl_->sample_free_camera(focused);
     impl_->sample_host_binds(focused);
+    impl_->sample_hide_hud(focused);
     return !impl_->quit;
 }
 
@@ -5192,6 +5199,34 @@ void VulkanRenderer::Impl::sample_host_binds(bool focused) {
     if (pressed.screenshot && !screenshot_held && game_input) screenshot_request = true;
     screenshot_held = pressed.screenshot;
     frame_step = pressed.frame_step && game_input;
+}
+
+void VulkanRenderer::Impl::sample_hide_hud(bool focused) {
+    if (!game_input) {
+        hide_hud_held = false;
+        return;
+    }
+    const settings::Settings &player = settings::current();
+    const bool *keys = SDL_GetKeyboardState(nullptr);
+    bool held = input::read(player.controls.keys, [&](input::Binding binding) {
+                    if (const int button = input::mouse_button_of(binding))
+                        return mouse_captured && (mouse_buttons & (1u << button)) != 0u;
+                    const int position = input::key_position(binding);
+                    return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
+                                             scripted_keys[static_cast<std::size_t>(position)]);
+                }).hide_hud;
+    if (gamepad != nullptr) {
+        const PadTuning tuning = pad_tuning();
+        held = held || input::read(player.controls.pad, [&](input::Binding binding) {
+                           return pad_input_held(gamepad, binding, tuning);
+                       }).hide_hud;
+    }
+    if (held && !hide_hud_held) hide_hud_pressed = true;
+    hide_hud_held = held;
+}
+
+bool VulkanRenderer::take_hide_hud_toggle() noexcept {
+    return impl_ && std::exchange(impl_->hide_hud_pressed, false);
 }
 
 void VulkanRenderer::Impl::sample_free_camera(bool focused) {
@@ -6067,6 +6102,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // decoded vertices (GeState::set_raw_vertices).
     const bool raw = call.raw_vertices != nullptr;
     if (call.vertices.empty() && !raw) return;
+    // While the game's HUD is hidden, its draws are left out (game_hud.hpp);
+    // the GE state they were made with was already set, so nothing else
+    // changes.
+    if (call.through && hud::hides(call.command_address, call.call_return)) return;
 
     // Everything becomes a triangle list; sprites expand to two triangles.
     impl.scratch.clear();

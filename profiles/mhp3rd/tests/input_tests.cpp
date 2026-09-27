@@ -134,6 +134,10 @@ void test_presets() {
               "every keyboard preset fast-forwards on the key under Esc");
         check(slots_of(l.pad, Action::FastForward)[0].empty() && slots_of(l.pad, Action::FastForward)[1].empty(),
               "and no gamepad preset binds fast-forward yet");
+        check(slots_of(l.keys, Action::HideHud)[0] == single(from_name("F7")),
+              "every keyboard preset hides the HUD on F7");
+        check(slots_of(l.pad, Action::HideHud)[0].empty() && slots_of(l.pad, Action::HideHud)[1].empty(),
+              "and no gamepad preset binds hiding the HUD");
     }
     for (std::size_t p = 0; p < kPresets; ++p) {
         const Layout &l = layout(static_cast<Preset>(p));

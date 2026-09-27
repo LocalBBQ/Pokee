@@ -428,6 +428,10 @@ const std::vector<Field> &fields() {
          [](Settings &s, const char *t) {
              s.free_camera_speed = variable_float(t, 400.0f, kMinFreeCameraSpeed, kMaxFreeCameraSpeed);
          }},
+        {"experimental.free_camera_hide_hud", "MHP3RD_FREE_CAMERA_HIDE_HUD",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.free_camera_hide_hud); },
+         [](const Settings &s) { return std::string(s.free_camera_hide_hud ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.free_camera_hide_hud = variable_flag(t); }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
         BOOL_FIELD("saves.backup_timestamp", backup_timestamp),
         BOOL_FIELD("saves.backup_reminder", backup_reminder),

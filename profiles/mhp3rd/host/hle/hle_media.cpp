@@ -24,6 +24,7 @@
 #include "camera/game_camera.hpp"
 #include "input/bindings.hpp"
 #include "settings/settings.hpp"
+#include "gpu/game_hud.hpp"
 #include "gpu/ge_state.hpp"
 #include "perf/frame_stats.hpp"
 #if defined(MHP3RD_HAS_RENDERER)
@@ -279,6 +280,7 @@ void fly_free_camera(Runtime &rt, gpu::VulkanRenderer &renderer, float seconds) 
     }
     camera::free_camera_update(rt, request, seconds);
     renderer.set_free_camera(camera::free_camera_active());
+    gpu::hud::set_free_camera(camera::free_camera_active());
     // Nothing the player does meanwhile is for the game's camera.
     if (camera::free_camera_active()) camera::discard();
 }
@@ -365,6 +367,9 @@ bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t ad
         fly_free_camera_now(rt, renderer);
         // The picture presented last: the frame as the free camera saw it.
         if (renderer.take_screenshot_request()) (void)ui::take_screenshot();
+        // The HUD can be hidden and shown again on the held frame: it was
+        // sorted from the rest when the game drew it.
+        if (renderer.take_hide_hud_toggle()) gpu::hud::toggle();
         if (ui::menu_requested() && !ui::run_menu()) {
             rt.stop("quit from the menu");
             break;
@@ -478,6 +483,8 @@ void present_frame(Runtime &rt) {
     // A frame ends when its image has been handed to the swapchain, or with
     // frame interpolation when the presents after it are scheduled.
     perf::end_frame(kernel().now_us(), presented);
+    gpu::hud::frame(rt, renderer.frames_presented());
+    if (renderer.take_hide_hud_toggle()) gpu::hud::toggle();
 
     // Optional frame capture, independent of the window.
     static const char *screenshot_dir = std::getenv("MHP3RD_SCREENSHOT_DIR");

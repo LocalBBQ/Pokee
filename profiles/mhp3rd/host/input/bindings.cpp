@@ -90,13 +90,14 @@ constexpr ActionInfo kInfo[kActions] = {
     {"fast_forward", "Fast-forward"},
     {"screenshot", "Screenshot"},
     {"frame_step", "Frame step (photo mode)"},
+    {"hide_hud", "Hide HUD"},
 };
 
 // SceCtrlButtons for the actions that are buttons.
 constexpr std::uint32_t kButtonBits[kActions] = {
     0u,      0u,      0u,      0u,      0x1000u, 0x2000u, 0x4000u, 0x8000u, 0x0100u, 0x0200u, 0x0008u,
     0x0001u, 0x0010u, 0x0080u, 0x0040u, 0x0020u, 0u,      0u,      0u,      0u,      0x3000u, 0u,
-    0u,      0u,
+    0u,      0u,      0u,
 };
 
 bool equal_ignoring_case(std::string_view a, std::string_view b) {
@@ -392,6 +393,7 @@ PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held
     pad.fast_forward = on[static_cast<std::size_t>(Action::FastForward)];
     pad.screenshot = on[static_cast<std::size_t>(Action::Screenshot)];
     pad.frame_step = on[static_cast<std::size_t>(Action::FrameStep)];
+    pad.hide_hud = on[static_cast<std::size_t>(Action::HideHud)];
     return pad;
 }
 

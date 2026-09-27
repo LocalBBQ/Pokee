@@ -26,6 +26,7 @@
 #include "audio/audio_sink.hpp"
 #include "camera/free_camera.hpp"
 #include "gpu/screenshot.hpp"
+#include "gpu/game_hud.hpp"
 #include "gpu/vulkan_renderer.hpp"
 #include "hle/hle_common.hpp"
 #include "input/bindings.hpp"
@@ -542,6 +543,19 @@ void Menu::video() {
             s.fast_forward_speed = static_cast<std::uint32_t>(speed);
             settings::save();
         }
+    }
+    {
+        const std::string key =
+            input::format(s.controls.keys[static_cast<std::size_t>(input::Action::HideHud)]);
+        RowOptions o;
+        o.description = "Hides the game's HUD for pictures and videos: health, stamina, sharpness, the clock, the "
+                        "item bar, the map, name tags and prompts. Menus and dialogs stay. Its key (" +
+                        (key.empty() ? std::string("none: set it in Controls") : key) + ") does the same.";
+        if (!gpu::hud::available()) {
+            o.disabled = true;
+            o.note = "Not with this game's code";
+        }
+        if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
     }
     {
         static const char *const kPerf[] = {"Off", "Overlay", "Overlay and log", "Log only"};
@@ -1144,6 +1158,19 @@ void Menu::controls() {
         int speed = static_cast<int>(std::lround(s.free_camera_speed));
         if (slider_row("Free camera speed", speed, 50, 5000, 50, "%d/s", o)) {
             s.free_camera_speed = static_cast<float>(speed);
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("experimental.free_camera_hide_hud",
+                                   "Hides the game's HUD and name tags while the free camera flies or holds a "
+                                   "picture: they belong to the game's own view.");
+        if (!s.free_camera && !o.disabled) {
+            o.disabled = true;
+            o.note = "Free camera is off";
+        }
+        if (toggle_row("Hide the HUD while flying", s.free_camera_hide_hud, o)) {
+            s.free_camera_hide_hud = !s.free_camera_hide_hud;
             settings::save();
         }
     }
@@ -1816,6 +1843,32 @@ void draw_note(const Note &n) {
     ImGui::PopStyleVar(2);
 }
 
+// For a moment after the HUD is hidden or shown (gpu/game_hud.hpp): a short
+// line at the top, fading out. Left out of window captures, as the free
+// camera's line is.
+void draw_hud_note(double seconds_left, bool below_free_camera) {
+    const ImGuiIO &io = ImGui::GetIO();
+    const float font = Layer::get().font_size();
+    const float alpha = static_cast<float>(std::clamp(seconds_left / 0.4, 0.0, 1.0));
+    // Under the free camera's line when that is up.
+    const float top = below_free_camera ? font * 1.9f : font * 0.5f;
+    ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, top}, ImGuiCond_Always, {0.5f, 0.0f});
+    ImGui::SetNextWindowBgAlpha(0.5f * alpha);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.25f});
+    ImGui::Begin("##hud_note", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::SetWindowFontScale(0.75f);
+    const std::string key =
+        input::format(settings::current().controls.keys[static_cast<std::size_t>(input::Action::HideHud)]);
+    std::string text = gpu::hud::note_text();
+    if (!key.empty()) text += " (" + key + ")";
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
 // The menu while it is open over the running game, and a quit chosen in it.
 std::optional<Menu> &menu_over_game_state() {
     static std::optional<Menu> menu;
@@ -1905,7 +1958,10 @@ void draw_over_game() {
     const bool flying = free_camera.active && !menu && !layer.renderer().window_capture_pending();
     const bool fast = !menu && fast_forward::active();
     const bool noted = !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted) return;
+    const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted &&
+        hud_note <= 0.0)
+        return;
     layer.begin_frame();
     if (noted) draw_note(note());
     if (flying) draw_free_camera_indicator(free_camera);
@@ -1920,6 +1976,7 @@ void draw_over_game() {
     if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);
     if (overlay) draw_network_overlay();
     if (fast) draw_fast_forward();
+    if (hud_note > 0.0) draw_hud_note(hud_note, flying);
     if (menu && !menu->frame()) {
         const bool quit = menu->quit() || layer.window_closed();
         menu.reset();

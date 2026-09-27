@@ -12,7 +12,7 @@ namespace hid {
 constexpr std::uint16_t A = 4, C = 6, D = 7, E = 8, F = 9, H = 11, I = 12, J = 13, K = 14, L = 15, O = 18;
 constexpr std::uint16_t Q = 20, S = 22, U = 24, W = 26, X = 27, Z = 29;
 constexpr std::uint16_t Return = 40, Backspace = 42, Tab = 43, Space = 44, Grave = 53, Period = 55;
-constexpr std::uint16_t F12 = 69, PrintScreen = 70;
+constexpr std::uint16_t F7 = 64, F12 = 69, PrintScreen = 70;
 constexpr std::uint16_t Right = 79, Left = 80, Down = 81, Up = 82;
 constexpr std::uint16_t Keypad4 = 92, Keypad5 = 93, Keypad6 = 94, Keypad8 = 96;
 constexpr std::uint16_t LeftShift = 225, RightShift = 229;
@@ -36,7 +36,9 @@ public:
         // it to the game.
         set(Action::Screenshot, key(hid::F12), key(hid::PrintScreen));
         // As in video players: . steps one frame.
-        return set(Action::FrameStep, key(hid::Period));
+        set(Action::FrameStep, key(hid::Period));
+        // Beside F6, the free camera's key: nothing else uses it.
+        return set(Action::HideHud, key(hid::F7));
     }
     // The pad's: a screenshot on a chord of the camera stick's button, which
     // the game does not use, and the D-pad button the free camera leaves

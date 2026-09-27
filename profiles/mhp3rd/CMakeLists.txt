@@ -37,6 +37,24 @@ if(MHP3RD_GENERATED)
                             "host/camera/game_camera.cpp if the helper has moved")
     endif()
     message(STATUS "mhp3rd: camera rotation helper in ${MHP3RD_CAMERA_HELPER_UNIT}")
+
+    # Hiding the HUD (host/gpu/game_hud.cpp) wraps the game's 2D functions the
+    # same way, so their units are read from the corpus too, in one pass.
+    set(MHP3RD_HUD_FUNCTIONS
+        08876874 088EA9B0 088EB07C 088EBF0C 088EC060 088EC0F8 088EC1F0 088EC2EC 088EC3E0
+        088EC63C 088ECB74 088ECC38 088ECCE4 088ECD9C 088ECE58)
+    list(JOIN MHP3RD_HUD_FUNCTIONS "|" hud_pattern)
+    set(hud_lines "")
+    foreach(unit IN LISTS MHP3RD_GENERATED)
+        file(STRINGS "${unit}" hits REGEX "register_function\\(0x(${hud_pattern})u, &recomp_unit_[0-9]+,")
+        foreach(hit IN LISTS hits)
+            string(REGEX MATCH "0x[0-9A-F]+u, &recomp_unit_[0-9]+" pair "${hit}")
+            string(REPLACE ", &" ", " pair "${pair}")
+            string(APPEND hud_lines "MHP3RD_HUD_FUNCTION(${pair})\n")
+        endforeach()
+    endforeach()
+    set(MHP3RD_HUD_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_hooks/hud_functions.inc")
+    file(CONFIGURE OUTPUT "${MHP3RD_HUD_INC}" CONTENT "${hud_lines}" @ONLY)
     # A regenerated corpus with the same file names must be read again.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${MHP3RD_GENERATED})
 else()
@@ -141,6 +159,7 @@ set(MHP3RD_HOST_SOURCES
     host/camera/game_aspect.cpp
     host/camera/game_camera.cpp
     host/camera/free_camera.cpp
+    host/gpu/game_hud.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
@@ -273,6 +292,10 @@ set_target_properties(Yakumo PROPERTIES
 if(MHP3RD_CAMERA_HELPER_UNIT)
     set_property(SOURCE host/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
         MHP3RD_CAMERA_HELPER_UNIT=${MHP3RD_CAMERA_HELPER_UNIT})
+endif()
+if(MHP3RD_HUD_INC)
+    set_property(SOURCE host/gpu/game_hud.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+        "MHP3RD_HUD_FUNCTIONS_INC=\"${MHP3RD_HUD_INC}\"")
 endif()
 # The NID table is compiled in, so the program reads nothing from the checkout
 # it was built in.

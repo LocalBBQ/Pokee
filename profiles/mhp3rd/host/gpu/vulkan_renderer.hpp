@@ -283,6 +283,8 @@ public:
     [[nodiscard]] bool take_screenshot_request() noexcept;
     // The frame step bind is held now (#187); only the photo mode acts on it.
     [[nodiscard]] bool frame_step_held() const noexcept;
+    // A press of the Hide HUD bind since the last take (gpu/game_hud.hpp).
+    [[nodiscard]] bool take_hide_hud_toggle() noexcept;
     // A window capture (capture_window) waits for the next present, so the
     // interface can leave out what does not belong in a picture.
     [[nodiscard]] bool window_capture_pending() const noexcept;

@@ -144,6 +144,7 @@ struct Settings {
     // or its picture changes; on, a key or a gamepad chord detaches the view.
     bool free_camera{};
     float free_camera_speed{400.0f};   // game units a second, before the fast and slow modifiers
+    bool free_camera_hide_hud{true};   // hide the game's HUD while it flies (gpu/game_hud.hpp)
 };
 
 inline constexpr std::uint32_t kMaxInternalScale = 8u;
