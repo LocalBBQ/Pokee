@@ -21,6 +21,9 @@
 #if defined(MHP3RD_ANDROID_APP)
 #include "platform/android_jni.hpp"
 #endif
+#if defined(__ANDROID__)
+#include <sys/system_properties.h>
+#endif
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -655,34 +658,96 @@ struct VulkanRenderer::Impl {
             }
         }
     }
-    // The part of the window the game and the overlay may use, in pixels:
-    // the whole window, except on Android, where a display cutout or a
-    // system bar can take an edge (SDL's safe area).
+    // The part of the window clear of a display cutout, in pixels: the whole
+    // window, except on Android, where a cutout can take an edge. The touch
+    // controls and the performance overlay keep inside it.
     VkRect2D content_rect{};
+    // Where the game's picture goes, and the shape Fill gives it: the whole
+    // window when the game's 2D interface stays clear of the cutout there,
+    // otherwise the window less the cutout's depth on both sides, so the
+    // picture is always centred (see update_picture_rect).
+    VkRect2D picture_rect{};
     void update_content_rect() {
         content_rect = {{0, 0}, swapchain_extent};
+        cutout_px = {};
 #if defined(MHP3RD_ANDROID_APP)
         // Only the display cutout: SDL's safe area also counts the gesture
         // areas of the hidden system bars, which would shrink the picture for
         // nothing.
         int window_width = 0;
         int window_height = 0;
-        if (window == nullptr || !SDL_GetWindowSizeInPixels(window, &window_width, &window_height) ||
-            window_width <= 0 || window_height <= 0)
-            return;
-        const android::Insets cutout = android::cutout_insets();
-        const double x_scale = static_cast<double>(swapchain_extent.width) / window_width;
-        const double y_scale = static_cast<double>(swapchain_extent.height) / window_height;
-        const auto left = static_cast<std::int32_t>(std::lround(cutout.left * x_scale));
-        const auto top = static_cast<std::int32_t>(std::lround(cutout.top * y_scale));
-        const auto right = static_cast<std::int32_t>(swapchain_extent.width) -
-                           static_cast<std::int32_t>(std::lround(cutout.right * x_scale));
-        const auto bottom = static_cast<std::int32_t>(swapchain_extent.height) -
-                            static_cast<std::int32_t>(std::lround(cutout.bottom * y_scale));
-        if (right - left < 16 || bottom - top < 16) return;
-        content_rect = {{left, top},
-                        {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)}};
+        if (window != nullptr && SDL_GetWindowSizeInPixels(window, &window_width, &window_height) &&
+            window_width > 0 && window_height > 0) {
+            const android::Insets cutout = android::cutout_insets();
+            const double x_scale = static_cast<double>(swapchain_extent.width) / window_width;
+            const double y_scale = static_cast<double>(swapchain_extent.height) / window_height;
+            const auto left = static_cast<std::int32_t>(std::lround(cutout.left * x_scale));
+            const auto top = static_cast<std::int32_t>(std::lround(cutout.top * y_scale));
+            const auto right_inset = static_cast<std::int32_t>(std::lround(cutout.right * x_scale));
+            const auto bottom_inset = static_cast<std::int32_t>(std::lround(cutout.bottom * y_scale));
+            const auto right = static_cast<std::int32_t>(swapchain_extent.width) - right_inset;
+            const auto bottom = static_cast<std::int32_t>(swapchain_extent.height) - bottom_inset;
+            if (right - left >= 16 && bottom - top >= 16) {
+                content_rect = {{left, top},
+                                {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)}};
+                cutout_px = {left, top, right_inset, bottom_inset};
+            }
+        }
 #endif
+        update_picture_rect();
+    }
+    // The cutout's depth at each edge (left, top, right, bottom) in swapchain
+    // pixels, as update_content_rect last read it.
+    std::array<std::int32_t, 4> cutout_px{};
+    // The picture used to go into content_rect, which moved it off the
+    // cutout's side and left a bar there alone (#170). MHP3RD_PICTURE_BESIDE_CUTOUT=1,
+    // or on Android the property debug.yakumo.picture_beside_cutout=1, brings
+    // that back for comparison.
+    static bool picture_beside_cutout() {
+        static const bool beside = [] {
+            if (const char *value = std::getenv("MHP3RD_PICTURE_BESIDE_CUTOUT"); value != nullptr)
+                return std::strcmp(value, "0") != 0;
+#if defined(__ANDROID__)
+            char value[PROP_VALUE_MAX]{};
+            if (__system_property_get("debug.yakumo.picture_beside_cutout", value) > 0)
+                return std::strcmp(value, "0") != 0;
+#endif
+            return false;
+        }();
+        return beside;
+    }
+    void update_picture_rect() {
+        const VkRect2D full{{0, 0}, swapchain_extent};
+        picture_rect = full;
+        const auto [left, top, right, bottom] = cutout_px;
+        if (left == 0 && top == 0 && right == 0 && bottom == 0) return;
+        if (picture_beside_cutout()) {
+            picture_rect = content_rect;
+            return;
+        }
+        // The game's 2D interface: the whole picture under Stretch; under
+        // Original and Fill the PSP's shape, centred and as large as fits
+        // (Fill draws the interface there, interface_fit).
+        const auto width = static_cast<std::int32_t>(full.extent.width);
+        const auto height = static_cast<std::int32_t>(full.extent.height);
+        std::int32_t box_width = width;
+        std::int32_t box_height = height;
+        if (aspect != settings::Aspect::Stretch) {
+            const double scale = std::min(static_cast<double>(width) / kPspWidth,
+                                          static_cast<double>(height) / kPspHeight);
+            box_width = static_cast<std::int32_t>(std::lround(kPspWidth * scale));
+            box_height = static_cast<std::int32_t>(std::lround(kPspHeight * scale));
+        }
+        const std::int32_t side = (width - box_width) / 2;
+        const std::int32_t above = (height - box_height) / 2;
+        if (side >= std::max(left, right) && above >= std::max(top, bottom)) return;
+        // It would reach into the cutout: keep the cutout's depth free on
+        // both sides of each axis it takes, so the picture stays centred.
+        const std::int32_t x = std::max(left, right);
+        const std::int32_t y = std::max(top, bottom);
+        if (width - 2 * x < 16 || height - 2 * y < 16) return;
+        picture_rect = {{x, y},
+                        {static_cast<std::uint32_t>(width - 2 * x), static_cast<std::uint32_t>(height - 2 * y)}};
     }
 #if defined(__ANDROID__)
     // Every number the picture's place on the screen comes from, in
@@ -707,16 +772,18 @@ struct VulkanRenderer::Impl {
         cut[2] = cutout.right;
         cut[3] = cutout.bottom;
 #endif
-        char line[512];
+        char line[640];
         std::snprintf(line, sizeof line,
                       "layout (%s): window %dx%d px (%dx%d pt), surface %ux%u transform 0x%x, swapchain %ux%u "
-                      "(images %ux%u, transform 0x%x), cutout %d,%d,%d,%d, safe area %d,%d %dx%d, content %d,%d %ux%u",
+                      "(images %ux%u, transform 0x%x), cutout %d,%d,%d,%d, safe area %d,%d %dx%d, content %d,%d %ux%u, "
+                      "picture %d,%d %ux%u",
                       why, pixels_w, pixels_h, points_w, points_h, capabilities.currentExtent.width,
                       capabilities.currentExtent.height, static_cast<unsigned>(capabilities.currentTransform),
                       swapchain_extent.width, swapchain_extent.height, swapchain_image_extent.width,
                       swapchain_image_extent.height, static_cast<unsigned>(swapchain_transform), cut[0], cut[1],
                       cut[2], cut[3], safe.x, safe.y, safe.w, safe.h, content_rect.offset.x, content_rect.offset.y,
-                      content_rect.extent.width, content_rect.extent.height);
+                      content_rect.extent.width, content_rect.extent.height, picture_rect.offset.x,
+                      picture_rect.offset.y, picture_rect.extent.width, picture_rect.extent.height);
         std::cout << "[render] " << line << "\n";
         SDL_Log("Yakumo: %s", line);
     }
@@ -3336,10 +3403,10 @@ bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
 // layout: stretched over the whole window, or at the PSP's aspect ratio with
 // black bars. Fill's target already has the window's shape.
 void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination) {
-    const auto width = static_cast<std::int32_t>(content_rect.extent.width);
-    const auto height = static_cast<std::int32_t>(content_rect.extent.height);
-    const std::int32_t x0 = content_rect.offset.x;
-    const std::int32_t y0 = content_rect.offset.y;
+    const auto width = static_cast<std::int32_t>(picture_rect.extent.width);
+    const auto height = static_cast<std::int32_t>(picture_rect.extent.height);
+    const std::int32_t x0 = picture_rect.offset.x;
+    const std::int32_t y0 = picture_rect.offset.y;
     VkOffset3D low{x0, y0, 0};
     VkOffset3D high{x0 + width, y0 + height, 1};
     const bool partial = width < static_cast<std::int32_t>(swapchain_extent.width) ||
@@ -5574,9 +5641,9 @@ std::string VulkanRenderer::device_name() const { return impl_ ? impl_->device_n
 SDL_Gamepad *VulkanRenderer::gamepad() const noexcept { return impl_ ? impl_->gamepad : nullptr; }
 
 VkExtent2D VulkanRenderer::Impl::wanted_target_extent() const {
-    const bool known = content_rect.extent.width != 0u && content_rect.extent.height != 0u;
-    const double window_width = known ? content_rect.extent.width : static_cast<double>(target_extent.width);
-    const double window_height = known ? content_rect.extent.height : static_cast<double>(target_extent.height);
+    const bool known = picture_rect.extent.width != 0u && picture_rect.extent.height != 0u;
+    const double window_width = known ? picture_rect.extent.width : static_cast<double>(target_extent.width);
+    const double window_height = known ? picture_rect.extent.height : static_cast<double>(target_extent.height);
     if (aspect != settings::Aspect::Fill) {
         std::uint32_t scale = requested_scale;
         if (scale == 0u) {
@@ -5736,6 +5803,7 @@ bool VulkanRenderer::supports_present_mode(settings::PresentMode mode) const {
 void VulkanRenderer::set_aspect(settings::Aspect aspect) {
     if (!impl_) return;
     impl_->aspect = aspect;
+    impl_->update_picture_rect();
     impl_->resize_now = true;
     impl_->follow_window();
 }
