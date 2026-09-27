@@ -13,9 +13,11 @@
 //   mouse DX DY       move the mouse by DX, DY counts
 //   click BUTTON [N]  press a mouse button (left, middle, right, x1, x2) for N
 //                     frames, 4 by default
-//   pad BUTTON[+...]  press and release buttons of a virtual gamepad (SDL names:
-//                     a, b, x, y, start, leftstick, rightstick, leftshoulder,
-//                     dpup, dpdown, dpleft, dpright, ...)
+//   pad BUTTON[+...] [N]
+//                     press buttons of a virtual gamepad and release them N
+//                     frames later, 4 by default (SDL names: a, b, x, y,
+//                     start, leftstick, rightstick, leftshoulder, dpup,
+//                     dpdown, dpleft, dpright, ...)
 //   axis NAME VALUE   hold an axis of the virtual gamepad at VALUE, -1 to 1
 //                     (leftx, lefty, rightx, righty, lefttrigger, righttrigger)
 //   finger ID down|move|up X Y

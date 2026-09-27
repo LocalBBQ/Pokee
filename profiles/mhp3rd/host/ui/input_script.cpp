@@ -198,8 +198,9 @@ void run(const Step &due) {
         s.releases.push_back({s.frame + frames, SDLK_UNKNOWN, {}, button});
     } else if (step.action == "pad") {
         if (s.pad == nullptr) return;
+        const auto [held, frames] = name_and_frames(step.argument, kHoldFrames);
         std::vector<SDL_GamepadButton> buttons;
-        std::stringstream names(step.argument);
+        std::stringstream names(held);
         std::string name;
         while (std::getline(names, name, '+')) {
             const SDL_GamepadButton button = SDL_GetGamepadButtonFromString(name.c_str());
@@ -210,7 +211,7 @@ void run(const Step &due) {
             SDL_SetJoystickVirtualButton(s.pad, button, true);
             buttons.push_back(button);
         }
-        s.releases.push_back({s.frame + kHoldFrames, SDLK_UNKNOWN, buttons});
+        s.releases.push_back({s.frame + frames, SDLK_UNKNOWN, buttons});
     } else if (step.action == "axis") {
         if (s.pad == nullptr) return;
         const auto space = step.argument.find(' ');
