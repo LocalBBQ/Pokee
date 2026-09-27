@@ -474,6 +474,8 @@ void read_gamepad(SDL_Gamepad *device, const input::Bindings &bindings, PadState
         input::read(bindings, [&](input::Binding binding) { return pad_input_held(device, binding, tuning); });
     std::uint32_t &buttons = pad.buttons;
     buttons |= mapped.buttons;
+    // No shipped preset puts fast-forward on a gamepad, but a player may.
+    pad.fast_forward = pad.fast_forward || mapped.fast_forward;
     analog_x += mapped.stick_x;
     analog_y += mapped.stick_y;
 
@@ -5250,6 +5252,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     });
     PadState pad{};
     pad.buttons = typed.buttons;
+    pad.fast_forward = typed.fast_forward;
     int analog_x = typed.stick_x;
     int analog_y = typed.stick_y;
     // Camera keys push the second stick fully, as a right stick would: in

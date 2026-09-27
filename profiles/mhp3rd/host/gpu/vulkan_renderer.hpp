@@ -33,6 +33,9 @@ struct PadState {
     // skips its camera path entirely only when both bytes are exactly centred.
     std::uint8_t right_x{0x80u};
     std::uint8_t right_y{0x80u};
+    // The host's fast-forward bind (kernel/fast_forward.hpp), never shown to
+    // the game.
+    bool fast_forward{};
 };
 
 // The mouse the input script's events come from. With scripted input on,

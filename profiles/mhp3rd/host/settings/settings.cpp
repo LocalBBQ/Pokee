@@ -113,6 +113,9 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"},
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
 const Names<TouchLayout> kTouchLayouts{{{TouchLayout::Psp, "psp"}, {TouchLayout::Action, "action"}}};
+const Names<fast_forward::Mode> kFastForwardModes{{{fast_forward::Mode::Hold, "hold"},
+                                                    {fast_forward::Mode::Toggle, "toggle"},
+                                                    {fast_forward::Mode::Off, "off"}}};
 const Names<NameEntry> kNameEntries{{{NameEntry::Keyboard, "keyboard"}, {NameEntry::Fixed, "fixed"}}};
 const Names<FrameRate> kFrameRates{{{FrameRate::Fps30, "30"},
                                     {FrameRate::Fps45, "45"},
@@ -188,6 +191,23 @@ const std::vector<Field> &fields() {
          [](Settings &s, const std::string &t) { return parse_bool(t, s.fast_loading); },
          [](const Settings &s) { return std::string(s.fast_loading ? "1" : "0"); },
          [](Settings &s, const char *t) { s.fast_loading = variable_flag(t); }},
+        {"video.fast_forward", "MHP3RD_FAST_FORWARD",
+         [](Settings &s, const std::string &t) { return kFastForwardModes.parse(t, s.fast_forward); },
+         [](const Settings &s) { return kFastForwardModes.format(s.fast_forward); },
+         [](Settings &s, const char *t) {
+             // hold, toggle or off; 0, no and false also turn it off.
+             if (!kFastForwardModes.parse(t, s.fast_forward))
+                 s.fast_forward = variable_flag(t) ? fast_forward::Mode::Hold : fast_forward::Mode::Off;
+         }},
+        {"video.fast_forward_speed", "MHP3RD_FAST_FORWARD_SPEED",
+         [](Settings &s, const std::string &t) {
+             return parse_uint(t, fast_forward::kMinSpeed, fast_forward::kMaxSpeed, s.fast_forward_speed);
+         },
+         [](const Settings &s) { return std::to_string(s.fast_forward_speed); },
+         [](Settings &s, const char *t) {
+             std::uint32_t value = s.fast_forward_speed;
+             if (parse_uint(t, fast_forward::kMinSpeed, fast_forward::kMaxSpeed, value)) s.fast_forward_speed = value;
+         }},
         {"video.frame_rate", "MHP3RD_FRAME_RATE",
          [](Settings &s, const std::string &t) { return kFrameRates.parse(t, s.frame_rate); },
          [](const Settings &s) { return kFrameRates.format(s.frame_rate); },

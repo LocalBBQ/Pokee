@@ -25,10 +25,12 @@
 #include "audio/audio_sink.hpp"
 #include "camera/free_camera.hpp"
 #include "gpu/vulkan_renderer.hpp"
+#include "hle/hle_common.hpp"
 #include "input/bindings.hpp"
 #include "install/game_identity.hpp"
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
+#include "kernel/fast_forward.hpp"
 #include "perf/frame_stats.hpp"
 #include "save_data/save_transfer.hpp"
 #include "settings/settings.hpp"
@@ -416,6 +418,46 @@ void Menu::video() {
         }
     }
     {
+        // Single player only: during ad hoc play the bind does nothing.
+        const bool online = adhoc_networking_on() || adhoc_session_active();
+        const auto guarded = [&](RowOptions o) {
+            if (o.disabled) return o;
+            if (s.unthrottled) {
+                o.disabled = true;
+                o.note = "Game speed is Unlimited";
+            } else if (online) {
+                o.disabled = true;
+                o.note = "Single player only";
+            }
+            return o;
+        };
+        static const char *const kModes[] = {"Hold", "Toggle", "Off"};
+        const int current = static_cast<int>(s.fast_forward);
+        const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::FastForward)]);
+        const std::string help = "Runs the game faster than real time while its key (" +
+                                 (key.empty() ? std::string("none: set it in Controls") : key) +
+                                 ") is held, or from one press to the next. The sound is muted meanwhile. "
+                                 "Single player only.";
+        if (const int delta = choice_row("Fast-forward", kModes[current],
+                                         guarded(options_for("video.fast_forward", help)))) {
+            s.fast_forward = static_cast<fast_forward::Mode>(cycle(current, delta, 3));
+            settings::save();
+        }
+        RowOptions o = guarded(options_for("video.fast_forward_speed",
+                                           "How many times faster than real time the game runs while it "
+                                           "fast-forwards, if the computer keeps up."));
+        if (s.fast_forward == fast_forward::Mode::Off && !o.disabled) {
+            o.disabled = true;
+            o.note = "Fast-forward is off";
+        }
+        int speed = static_cast<int>(s.fast_forward_speed);
+        if (slider_row("Fast-forward speed", speed, static_cast<int>(fast_forward::kMinSpeed),
+                       static_cast<int>(fast_forward::kMaxSpeed), 1, "%dx", o)) {
+            s.fast_forward_speed = static_cast<std::uint32_t>(speed);
+            settings::save();
+        }
+    }
+    {
         static const char *const kPerf[] = {"Off", "Overlay", "Overlay and log", "Log only"};
         const int current = static_cast<int>(s.perf);
         if (const int delta = choice_row(
@@ -461,6 +503,8 @@ void Menu::video() {
         restore("video.frame_rate_auto", s.frame_rate_auto, d.frame_rate_auto);
         restore("video.unthrottled", s.unthrottled, d.unthrottled);
         restore("video.fast_loading", s.fast_loading, d.fast_loading);
+        restore("video.fast_forward", s.fast_forward, d.fast_forward);
+        restore("video.fast_forward_speed", s.fast_forward_speed, d.fast_forward_speed);
         restore("video.performance", s.perf, d.perf);
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
@@ -1732,6 +1776,38 @@ void draw_free_camera_indicator(const camera::FreeCameraStatus &status) {
     ImGui::PopStyleVar();
 }
 
+// While the game fast-forwards: two arrowheads and the speed, small, in the
+// top-right corner. Drawn by the interface, so it is never part of the game's
+// own frames (MHP3RD_SCREENSHOT_DIR).
+void draw_fast_forward() {
+    const ImGuiIO &io = ImGui::GetIO();
+    const float font = Layer::get().font_size();
+    ImGui::SetNextWindowPos({io.DisplaySize.x - font * 0.5f, font * 0.5f}, ImGuiCond_Always, {1.0f, 0.0f});
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.4f, font * 0.2f});
+    ImGui::Begin("##fast_forward", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::SetWindowFontScale(0.75f);
+    const float height = ImGui::GetTextLineHeight();
+    const float size = height * 0.6f;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    const ImU32 ink = ImGui::GetColorU32(ImGuiCol_Text);
+    const float top = at.y + (height - size) * 0.5f;
+    for (int i = 0; i < 2; ++i) {
+        const float left = at.x + static_cast<float>(i) * size * 0.8f;
+        draw->AddTriangleFilled({left, top}, {left + size * 0.8f, top + size * 0.5f}, {left, top + size}, ink);
+    }
+    ImGui::Dummy({size * 1.6f + height * 0.25f, height});
+    ImGui::SameLine(0.0f, 0.0f);
+    char text[16];
+    std::snprintf(text, sizeof(text), "%.0fx", fast_forward::speed());
+    ImGui::TextUnformatted(text);
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
 // The menu while it is open over the running game, and a quit chosen in it.
 std::optional<Menu> &menu_over_game_state() {
     static std::optional<Menu> menu;
@@ -1789,7 +1865,8 @@ void draw_over_game() {
         menu || gpu_problem_seen() ? std::string() : layer.renderer().gpu_problem();
     const camera::FreeCameraStatus free_camera = camera::free_camera_status();
     const bool flying = free_camera.active && !menu && !layer.renderer().window_capture_pending();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying) return;
+    const bool fast = !menu && fast_forward::active();
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast) return;
     layer.begin_frame();
     if (flying) draw_free_camera_indicator(free_camera);
     if (touch) {
@@ -1802,6 +1879,7 @@ void draw_over_game() {
     if (hint_left > 0.0) draw_hint(hint_left);
     if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);
     if (overlay) draw_network_overlay();
+    if (fast) draw_fast_forward();
     if (menu && !menu->frame()) {
         const bool quit = menu->quit() || layer.window_closed();
         menu.reset();

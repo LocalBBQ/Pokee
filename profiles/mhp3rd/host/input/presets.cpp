@@ -11,7 +11,7 @@ namespace {
 namespace hid {
 constexpr std::uint16_t A = 4, C = 6, D = 7, E = 8, F = 9, H = 11, I = 12, J = 13, K = 14, L = 15, O = 18;
 constexpr std::uint16_t Q = 20, S = 22, U = 24, W = 26, X = 27, Z = 29;
-constexpr std::uint16_t Return = 40, Backspace = 42, Tab = 43, Space = 44;
+constexpr std::uint16_t Return = 40, Backspace = 42, Tab = 43, Space = 44, Grave = 53;
 constexpr std::uint16_t Right = 79, Left = 80, Down = 81, Up = 82;
 constexpr std::uint16_t Keypad4 = 92, Keypad5 = 93, Keypad6 = 94, Keypad8 = 96;
 constexpr std::uint16_t LeftShift = 225, RightShift = 229;
@@ -58,7 +58,9 @@ Bindings default_keys() {
         .set(Action::CameraUp, key(hid::I))
         .set(Action::CameraLeft, key(hid::J))
         .set(Action::CameraDown, key(hid::K))
-        .set(Action::CameraRight, key(hid::L));
+        .set(Action::CameraRight, key(hid::L))
+        // The key under Esc, which nothing else is bound to.
+        .set(Action::FastForward, key(hid::Grave));
     return b.done();
 }
 
@@ -81,7 +83,8 @@ Bindings classic_keys() {
         .set(Action::Up, key(hid::Up))
         .set(Action::Left, key(hid::Left))
         .set(Action::Down, key(hid::Down))
-        .set(Action::Right, key(hid::Right));
+        .set(Action::Right, key(hid::Right))
+        .set(Action::FastForward, key(hid::Grave));
     return b.done();
 }
 
@@ -108,7 +111,8 @@ Bindings left_handed_keys() {
         .set(Action::CameraUp, key(hid::Keypad8))
         .set(Action::CameraLeft, key(hid::Keypad4))
         .set(Action::CameraDown, key(hid::Keypad5))
-        .set(Action::CameraRight, key(hid::Keypad6));
+        .set(Action::CameraRight, key(hid::Keypad6))
+        .set(Action::FastForward, key(hid::Grave));
     return b.done();
 }
 

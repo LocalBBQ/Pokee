@@ -45,6 +45,9 @@ enum class Action : std::uint8_t {
     // △ and ○ in the same frame: the game's combined attacks, which two
     // fingers or two keys do not always manage together.
     TriangleCircle,
+    // Not a PSP control: runs the game faster than real time while held, or
+    // turns that on and off (kernel/fast_forward.hpp). Single player only.
+    FastForward,
     Count
 };
 inline constexpr std::size_t kActions = static_cast<std::size_t>(Action::Count);
@@ -193,6 +196,7 @@ struct PadState {
     int stick_y{};
     int camera_x{};           // the second stick
     int camera_y{};
+    bool fast_forward{};      // the fast-forward bind is held
 };
 [[nodiscard]] PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held);
 

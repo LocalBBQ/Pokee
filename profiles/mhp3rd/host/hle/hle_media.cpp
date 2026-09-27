@@ -3,6 +3,7 @@
 // list completion callbacks, blocking audio output); the drawing and the
 // mixing themselves live under gpu/ and audio/.
 #include "hle_common.hpp"
+#include "kernel/fast_forward.hpp"
 #include "kernel/fast_loading.hpp"
 #include "kernel/load_trace.hpp"
 
@@ -390,8 +391,9 @@ void present_frame(Runtime &rt) {
     }
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
-    // A load running fast flips far more often than the display refreshes.
-    renderer.set_fast_forward(fast_loading::active());
+    // A load running fast, or fast-forward, flips more often than the
+    // display refreshes.
+    renderer.set_fast_forward(fast_loading::active() || fast_forward::active());
     // The real time the frame stands for, which frame interpolation spaces
     // its presents by: that of the vblank the game's frame started from.
     const bool presented = renderer.present(address, kernel().real_time_of(frame_start_us(kernel().last_vblank_us())));
@@ -447,6 +449,9 @@ void present_frame(Runtime &rt) {
         previous = now;
     }
     if (window_open && camera::free_camera_status().paused) window_open = run_photo_mode(rt, renderer, address);
+    // The fast-forward bind as the events just pumped left it; the kernel's
+    // pacing follows it from the next wait on.
+    fast_forward::note_bind(renderer.pad().fast_forward);
     feed_mouse(renderer);
     camera::game_camera_anticipate_aim(rt);
     if (!window_open) {
@@ -695,10 +700,12 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
                 peak = std::max(peak, std::abs((static_cast<std::int32_t>(staging[i]) * gains[i & 1u]) >> 15));
             load_trace::note_audio_peak(peak);
             // While a load runs faster than real time its silence is dropped:
-            // played, it would pile up faster than the device plays it. The
-            // channel's cursor stays where it was and catches up with the
-            // device when sound comes back.
-            if (!fast_loading::note_audio(peak))
+            // played, it would pile up faster than the device plays it. So is
+            // everything while the player fast-forwards: the sound is muted
+            // rather than sped up. The channel's cursor stays where it was
+            // and catches up with the device when sound comes back.
+            const bool silent_load = fast_loading::note_audio(peak);
+            if (!silent_load && !fast_forward::active())
                 audio::AudioSink::instance().mix(state.cursor, staging.data(), frames, left, right);
         } else {
             log_once("audio-buffer", "[audio] output buffer is not a single mapped range; dropping it");

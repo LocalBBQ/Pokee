@@ -1,5 +1,6 @@
 #include "kernel.hpp"
 
+#include "kernel/fast_forward.hpp"
 #include "kernel/fast_loading.hpp"
 #include "kernel/load_trace.hpp"
 #include "perf/frame_stats.hpp"
@@ -458,12 +459,15 @@ bool Kernel::pace_to_real_time() {
         return false;
     }
     // While the game loads, emulated time may run up to kMaxSpeed times as
-    // fast as real time (kernel/fast_loading.hpp). Either change starts the
-    // hold over from the current moment, so a load that ran fast is not made
-    // up for afterwards, and normal time is not rushed to catch up with it.
-    const bool fast = fast_loading::active();
-    if (fast != pacing_fast_) {
-        pacing_fast_ = fast;
+    // fast as real time (kernel/fast_loading.hpp), and while the player
+    // fast-forwards, the chosen number of times (kernel/fast_forward.hpp).
+    // Every change of speed starts the hold over from the current moment, so
+    // time that ran fast is not made up for afterwards, and normal time is
+    // not rushed to catch up with it.
+    const double speed = std::max(fast_loading::active() ? fast_loading::kMaxSpeed : 1.0, fast_forward::speed());
+    const bool fast = speed != 1.0;
+    if (speed != pacing_speed_) {
+        pacing_speed_ = speed;
         pacing_started_ = false;
     }
     using Clock = std::chrono::steady_clock;
@@ -478,7 +482,7 @@ bool Kernel::pace_to_real_time() {
         std::chrono::duration_cast<std::chrono::microseconds>(now - pacing_real_base_).count();
     const std::int64_t virtual_us = static_cast<std::int64_t>(now_us_ - pacing_virtual_base_);
     const std::int64_t ahead_us =
-        fast ? static_cast<std::int64_t>(static_cast<double>(virtual_us) / fast_loading::kMaxSpeed) - real_us
+        fast ? static_cast<std::int64_t>(static_cast<double>(virtual_us) / speed) - real_us
              : virtual_us - real_us;
     // Ahead of real time: wait. More than a tenth of a second behind (a slow
     // frame, a load): drop the debt instead of racing to make it up.

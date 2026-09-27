@@ -155,6 +155,8 @@ set(MHP3RD_HOST_SOURCES
     host/kernel/kernel.cpp
     host/kernel/load_trace.cpp
     host/kernel/fast_loading.cpp
+    host/kernel/fast_forward.cpp
+    host/kernel/fast_forward_switch.cpp
     host/kernel/load_detector.cpp
     host/kernel/iso_image.cpp
     host/hle/hle_common.cpp
@@ -439,6 +441,16 @@ target_include_directories(mhp3rd_fast_loading_tests PRIVATE "${MHP3RD_PROFILE_D
 set_target_properties(mhp3rd_fast_loading_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_fast_loading_tests COMMAND mhp3rd_fast_loading_tests)
+endif()
+
+# Fast-forward's switch: hold, toggle, and what keeps real time.
+add_executable(mhp3rd_fast_forward_tests
+    tests/fast_forward_tests.cpp
+    host/kernel/fast_forward_switch.cpp)
+target_include_directories(mhp3rd_fast_forward_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_fast_forward_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_fast_forward_tests COMMAND mhp3rd_fast_forward_tests)
 endif()
 
 # The on-screen touch controls: layout, fingers and the stick's maths.

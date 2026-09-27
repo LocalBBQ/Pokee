@@ -118,6 +118,13 @@ void test_presets() {
           "the default moves on W A S D");
     check(slots_of(d, Action::Triangle)[0] == single(mouse_button(1)), "the left mouse button attacks");
     check(slots_of(d, Action::TriangleCircle)[0].empty(), "the default has no key for △ + ○, as before");
+    for (std::size_t p = 0; p < kPresets; ++p) {
+        const Layout &l = layout(static_cast<Preset>(p));
+        check(slots_of(l.keys, Action::FastForward)[0] == single(from_name("`")),
+              "every keyboard preset fast-forwards on the key under Esc");
+        check(slots_of(l.pad, Action::FastForward)[0].empty() && slots_of(l.pad, Action::FastForward)[1].empty(),
+              "and no gamepad preset binds fast-forward yet");
+    }
     const Bindings &c = layout(Preset::Classic).keys;
     check(slots_of(c, Action::StickUp)[0] == single(from_name("I")) &&
               slots_of(c, Action::Circle)[0] == single(from_name("X")) &&

@@ -86,12 +86,13 @@ constexpr ActionInfo kInfo[kActions] = {
     {"dpad_up", "D-pad up"},       {"dpad_left", "D-pad left"},    {"dpad_down", "D-pad down"},
     {"dpad_right", "D-pad right"}, {"camera_up", "Camera up"},     {"camera_left", "Camera left"},
     {"camera_down", "Camera down"}, {"camera_right", "Camera right"}, {"triangle_circle", "△ + ○  (together)"},
+    {"fast_forward", "Fast-forward"},
 };
 
 // SceCtrlButtons for the actions that are buttons.
 constexpr std::uint32_t kButtonBits[kActions] = {
     0u,      0u,      0u,      0u,      0x1000u, 0x2000u, 0x4000u, 0x8000u, 0x0100u, 0x0200u, 0x0008u,
-    0x0001u, 0x0010u, 0x0080u, 0x0040u, 0x0020u, 0u,      0u,      0u,      0u,      0x3000u,
+    0x0001u, 0x0010u, 0x0080u, 0x0040u, 0x0020u, 0u,      0u,      0u,      0u,      0x3000u, 0u,
 };
 
 bool equal_ignoring_case(std::string_view a, std::string_view b) {
@@ -305,6 +306,7 @@ PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held
     pad.stick_y = axis(Action::StickUp, Action::StickDown);
     pad.camera_x = axis(Action::CameraLeft, Action::CameraRight);
     pad.camera_y = axis(Action::CameraUp, Action::CameraDown);
+    pad.fast_forward = on[static_cast<std::size_t>(Action::FastForward)];
     return pad;
 }
 
