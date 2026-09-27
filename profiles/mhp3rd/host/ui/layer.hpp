@@ -58,20 +58,29 @@ public:
     std::optional<std::filesystem::path> take_dropped_file();
     [[nodiscard]] bool window_closed() const noexcept { return window_closed_; }
 
-    // Binding a control (the menu's binding rows): what is pressed next is
-    // kept for the caller instead of reaching the interface. One input, or
-    // two held together (a chord: the first is the modifier), ends at the
-    // first release. For Keys, keys and mouse buttons count, and Esc or a
-    // gamepad button cancels; for Pad, gamepad buttons and triggers count,
-    // and Esc or kPadCaptureTimeout without a press cancels.
+    // Binding a control (the menu's bindings): what is pressed next is kept
+    // for the caller instead of reaching the interface. One input, or two
+    // held together (a chord: the first is the modifier), ends at the first
+    // release. For Keys, keys and mouse buttons count, and Esc, a gamepad
+    // button or a touch cancels; for Pad, gamepad buttons and triggers
+    // count, and Esc, a touch, holding the menu's back button for
+    // kHoldToCancel, or kPadCaptureTimeout without a press cancels. A short
+    // press of the back button binds it like any other.
     enum class Capture { Keys, Pad };
     static constexpr auto kPadCaptureTimeout = std::chrono::seconds(6);
+    static constexpr auto kHoldToCancel = std::chrono::milliseconds(1000);
     void begin_binding_capture(Capture device = Capture::Keys);
     [[nodiscard]] bool capturing_binding() const noexcept { return capturing_binding_; }
+    [[nodiscard]] Capture capture_device() const noexcept { return capture_device_; }
     // The inputs held so far while capturing, the modifier first.
     [[nodiscard]] const std::vector<input::Binding> &capture_held() const noexcept { return capture_held_; }
     // Seconds left before a gamepad capture gives up.
     [[nodiscard]] int capture_seconds_left() const;
+    // 0 to 1: how long the back button has been held, alone, towards
+    // cancelling a gamepad capture.
+    [[nodiscard]] float capture_cancel_progress() const;
+    // The gamepad button that backs out of the menu, as the pad has it.
+    [[nodiscard]] input::Binding pad_back_button() const;
     // Once capture has ended: the chord pressed, or an empty one if cancelled.
     std::optional<input::Chord> take_captured_binding();
 
@@ -117,6 +126,10 @@ private:
     bool capturing_binding_{};
     Capture capture_device_{Capture::Keys};
     Clock::time_point capture_started_{};
+    Clock::time_point capture_first_press_{};
+    // A touch cancelled the capture: the pointer events of that finger reach
+    // nothing until it lifts, so the tap does not also press a row.
+    bool swallow_touch_{};
     std::vector<input::Binding> capture_held_;
     bool capture_triggers_[2]{};
     // After a gamepad capture, the pad reaches the interface again only once

@@ -219,6 +219,18 @@ void Layer::begin_binding_capture(Capture device) {
     if (device == Capture::Pad) pad_quiet_ = true;
 }
 
+float Layer::capture_cancel_progress() const {
+    if (!capturing_binding_ || capture_device_ != Capture::Pad || capture_held_.size() != 1u ||
+        capture_held_.front() != pad_back_button())
+        return 0.0f;
+    const auto held = std::chrono::duration<float>(Clock::now() - capture_first_press_);
+    return std::clamp(held / std::chrono::duration<float>(kHoldToCancel), 0.0f, 1.0f);
+}
+
+input::Binding Layer::pad_back_button() const {
+    return input::pad(confirm_south() ? input::PadInput::East : input::PadInput::South);
+}
+
 int Layer::capture_seconds_left() const {
     const auto left = kPadCaptureTimeout - (Clock::now() - capture_started_);
     return std::max(0, static_cast<int>(std::chrono::ceil<std::chrono::seconds>(left).count()));
@@ -243,8 +255,10 @@ bool Layer::handle_event(const SDL_Event &event) {
     if (capturing_binding_ && interactive_) {
         const auto press = [&](input::Binding binding) {
             if (std::find(capture_held_.begin(), capture_held_.end(), binding) == capture_held_.end() &&
-                capture_held_.size() < 2u)
+                capture_held_.size() < 2u) {
+                if (capture_held_.empty()) capture_first_press_ = now;
                 capture_held_.push_back(binding);
+            }
         };
         const auto release = [&](input::Binding binding) {
             if (std::find(capture_held_.begin(), capture_held_.end(), binding) == capture_held_.end()) return false;
@@ -259,6 +273,14 @@ bool Layer::handle_event(const SDL_Event &event) {
                             );
         if (escape) {
             finish_capture(true);
+            return true;
+        }
+        // A finger cancels: a touch screen has no key or button to bind.
+        const bool touch = event.type == SDL_EVENT_FINGER_DOWN ||
+                           (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.which == SDL_TOUCH_MOUSEID);
+        if (touch) {
+            finish_capture(true);
+            swallow_touch_ = true;
             return true;
         }
         if (capture_device_ == Capture::Keys) {
@@ -313,6 +335,15 @@ bool Layer::handle_event(const SDL_Event &event) {
             default: break;
             }
         }
+    }
+    if (swallow_touch_) {
+        const bool from_touch = ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+                                 event.button.which == SDL_TOUCH_MOUSEID) ||
+                                (event.type == SDL_EVENT_MOUSE_MOTION && event.motion.which == SDL_TOUCH_MOUSEID);
+        const bool lifted = event.type == SDL_EVENT_FINGER_UP ||
+                            (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.which == SDL_TOUCH_MOUSEID);
+        if (lifted) swallow_touch_ = false;
+        if (from_touch || event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_MOTION) return true;
     }
     switch (event.type) {
     case SDL_EVENT_QUIT:
@@ -418,6 +449,7 @@ void Layer::begin_frame() {
     if (capturing_binding_ && capture_device_ == Capture::Pad && capture_held_.empty() &&
         Clock::now() - capture_started_ > kPadCaptureTimeout)
         finish_capture(true);
+    if (capture_cancel_progress() >= 1.0f) finish_capture(true);
     // While a gamepad binding is captured, and until the pad is let go of
     // after it, the interface does not see the pad at all.
     if (pad_quiet_ && !capturing_binding_ && !pad_input_held()) pad_quiet_ = false;

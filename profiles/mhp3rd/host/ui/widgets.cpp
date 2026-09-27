@@ -647,7 +647,8 @@ void hints(std::initializer_list<Hint> list) {
     for (const Hint &hint : list) {
         // The browser's file filter switch has a button on the pad only.
         const bool pad_only = hint.control == Control::Toggle || hint.control == Control::Shift ||
-                              hint.control == Control::Space || hint.control == Control::Symbols;
+                              hint.control == Control::Space || hint.control == Control::Symbols ||
+                              hint.control == Control::Reset;
         if (pad_only && !pad) continue;
         float x = at.x;
         const auto cap = [&](const char *text) { x += draw_cap(draw, {x, at.y}, text, false) + gap; };
@@ -690,6 +691,11 @@ void hints(std::initializer_list<Hint> list) {
             else cap("Backspace");
             break;
         case Control::Shift: x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_WEST) + gap; break;
+        case Control::Reset: cap(select_name()); break;
+        case Control::Clear:
+            if (pad) x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_NORTH) + gap;
+            else cap("Del");
+            break;
         case Control::Symbols: cap(select_name()); break;
         case Control::Cursor:
             if (pad) {

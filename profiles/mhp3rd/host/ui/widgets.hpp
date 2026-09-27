@@ -106,6 +106,8 @@ enum class Control {
     Space,    // the top face button
     Symbols,  // Select, Share, Create or View, as the pad names it
     Cursor,   // the shoulder buttons; the arrow keys
+    Clear,    // the top face button; Delete
+    Reset,    // Select, Share, Create or View, as Symbols
 };
 struct Hint {
     Control control;
