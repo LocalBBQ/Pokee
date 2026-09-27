@@ -121,6 +121,8 @@ const Names<FrameRate> kFrameRates{{{FrameRate::Fps30, "30"},
                                     {FrameRate::Fps120, "120"},
                                     {FrameRate::Display, "display"}}};
 
+const Names<GpuCompat> kGpuCompats{{{GpuCompat::Auto, "auto"}, {GpuCompat::On, "on"}, {GpuCompat::Off, "off"}}};
+
 // Written by earlier versions: 1 typed the name into the window, which the
 // on-screen keyboard now covers.
 constexpr const char *kRetiredTypeNameKey = "input.type_name";
@@ -198,6 +200,15 @@ const std::vector<Field> &fields() {
              // `1` has always meant the overlay and the log, `log` the log only.
              if (std::strcmp(t, "log") == 0) s.perf = PerfDisplay::Log;
              else s.perf = *t != '\0' && variable_flag(t) ? PerfDisplay::OverlayAndLog : PerfDisplay::Off;
+         }},
+        {"video.gpu_compat", "MHP3RD_GPU_COMPAT",
+         [](Settings &s, const std::string &t) { return kGpuCompats.parse(t, s.gpu_compat); },
+         [](const Settings &s) { return kGpuCompats.format(s.gpu_compat); },
+         [](Settings &s, const char *t) {
+             // 1/on and 0/off as for the other switches; auto as in the file.
+             bool on = false;
+             if (kGpuCompats.parse(t, s.gpu_compat)) return;
+             if (parse_bool(t, on)) s.gpu_compat = on ? GpuCompat::On : GpuCompat::Off;
          }},
         {"text.font", "MHP3RD_FONT",
          [](Settings &s, const std::string &t) {

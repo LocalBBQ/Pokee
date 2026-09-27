@@ -38,6 +38,10 @@ enum class NameEntry { Keyboard, Fixed };
 // Display follows the display's refresh rate. 30 presents the game's frames
 // as they are, as before interpolation existed.
 enum class FrameRate { Fps30, Fps45, Fps60, Fps90, Fps120, Display };
+// GPU compatibility mode: the renderer leaves out what old mobile drivers
+// have been seen to get wrong (gpu/device_report.hpp). Auto turns it on for
+// those drivers only; it applies from the next start.
+enum class GpuCompat { Auto, On, Off };
 
 struct Settings {
     // Video
@@ -55,6 +59,7 @@ struct Settings {
     FrameRate frame_rate{FrameRate::Fps30};
     bool frame_rate_auto{true};        // lower the frame rate rather than slow the game
     PerfDisplay perf{PerfDisplay::Off};
+    GpuCompat gpu_compat{GpuCompat::Auto};
 
     // Text
     std::string font;                  // the game's text font: path, "#face" for a collection; empty: the default
