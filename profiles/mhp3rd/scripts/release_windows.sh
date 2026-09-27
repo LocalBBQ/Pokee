@@ -166,7 +166,7 @@ check_tree() {
             7f454c46) echo "  an ELF file: ${file#"$tree"/}" >&2; bad=1 ;;
             00504250|7e505350|00505346) echo "  a PSP file: ${file#"$tree"/}" >&2; bad=1 ;;
         esac
-        [[ "$(dd if="$file" bs=2048 skip=16 count=1 2> /dev/null | head -c 6 | tail -c 5)" == CD001 ]] &&
+        [[ "$(dd if="$file" bs=2048 skip=16 count=1 2> /dev/null | head -c 6 | tail -c 5 | tr -d '\0')" == CD001 ]] &&
             { echo "  an ISO 9660 image: ${file#"$tree"/}" >&2; bad=1; }
     done < <(find "$tree" -type f -print0)
     local here
