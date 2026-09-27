@@ -168,6 +168,10 @@ public:
     void present_until(std::chrono::steady_clock::time_point wake);
     // Drops the presents scheduled, as the game pauses.
     void pause_interpolation();
+    // While on, present() shows each frame at once, as at 30 frames a second:
+    // the free camera's photo mode draws the game's last frame again and
+    // again while the game stands still, with nothing in between to blend.
+    void set_still(bool still);
     // A load running faster than real time (kernel/fast_loading.hpp) flips
     // several times per refresh of the display. While it does, a flip reaches
     // the window only if the one before it was shown at least

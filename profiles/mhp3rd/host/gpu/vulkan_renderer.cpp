@@ -835,6 +835,7 @@ struct VulkanRenderer::Impl {
     std::function<bool(const SDL_Event &)> event_hook;
     bool game_input{true};
     bool free_camera{};  // flying: the game reads a neutral pad
+    bool still{};        // the photo mode: each frame is shown at once, never interpolated
     FreeCameraControls free_controls;
     bool free_toggle_held{};
     bool free_pause_held{};
@@ -6991,7 +6992,7 @@ bool VulkanRenderer::Impl::interpolation_wanted() const {
     // Emulated time running ahead of real time already presents faster than
     // the game's own rate; the keyboard's held frame is shown as it is.
     return frame_rate != settings::FrameRate::Fps30 && !settings::current().unthrottled && !holding && !fast_forward &&
-           governor.rate() > 30.5;
+           !still && governor.rate() > 30.5;
 }
 
 // Keeps what drawing a draw again needs: a new group for a draw call the
@@ -7952,6 +7953,12 @@ void VulkanRenderer::pause_interpolation() {
     // the frames' moments start over when it resumes.
     impl_->present_clock.reset();
     impl_->cycle_active = false;
+}
+
+void VulkanRenderer::set_still(bool still) {
+    if (!impl_ || impl_->still == still) return;
+    if (still) pause_interpolation();
+    impl_->still = still;
 }
 
 void VulkanRenderer::set_frame_rate(settings::FrameRate rate) {

@@ -43,6 +43,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace mhp3rd {
@@ -303,7 +304,8 @@ bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t ad
         renderer.set_free_camera(false);
         return true;
     }
-    renderer.pause_interpolation();
+    renderer.set_still(true);
+    renderer.set_fast_forward(false);
     audio::AudioSink::instance().set_paused(true);
     bool window_open = true;
     perf::Clock::time_point previous = perf::Clock::now();
@@ -324,7 +326,11 @@ bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t ad
         renderer.write_back_frame(rt.memory());
         renderer.present(address);
         camera::free_camera_frame_end(rt);
+        // A display that does not hold the present back (mailbox, immediate)
+        // would draw the same frame as fast as it can; 60 a second is plenty.
+        std::this_thread::sleep_until(now + std::chrono::microseconds(16'667));
     }
+    renderer.set_still(false);
     audio::AudioSink::instance().set_paused(false);
     kernel().resync_real_time();
     perf::restart_measurement();
