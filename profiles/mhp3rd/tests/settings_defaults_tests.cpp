@@ -121,6 +121,78 @@ void test_control_presets() {
           "bindings that are no longer the preset are kept as Custom");
 }
 
+// A settings.ini written by the version before bindings could be cleared:
+// two chords at most, user presets without the preset they were made from.
+// Everything reads the same, and what is cleared stays cleared.
+void test_controls_from_the_previous_version() {
+    using namespace mhp3rd;
+    const auto action = [](input::Action a) { return static_cast<std::size_t>(a); };
+    Entries previous = to_entries(from_entries({}));
+    previous["input.preset"] = "user:Mine";
+    previous["input.user_preset.1.name"] = "Mine";
+    previous["input.user_preset.1.move_stick"] = "right";
+    for (std::size_t i = 0; i < input::kActions; ++i) {
+        const char *key = input::info(static_cast<input::Action>(i)).key;
+        previous[std::string("input.user_preset.1.bind.") + key] =
+            input::format(input::layout(input::Preset::Modern).keys[i]);
+        previous[std::string("input.user_preset.1.pad.") + key] =
+            input::format(input::layout(input::Preset::Modern).pad[i]);
+    }
+    previous["input.user_preset.1.pad.circle"] = "Pad East / Pad LB + Pad South";
+    previous["input.user_preset.1.bind.square"] = "";
+    // The layout in use, which that version wrote as the preset is.
+    for (auto &[key, value] : Entries(previous)) {
+        const std::string prefix = "input.user_preset.1.";
+        if (key.starts_with(prefix + "bind.") || key.starts_with(prefix + "pad."))
+            previous["input." + key.substr(prefix.size())] = value;
+    }
+    previous["input.move_stick"] = "right";
+    Settings read = from_entries(previous);
+    check(read.control_preset.user == "Mine" && read.user_presets.size() == 1u &&
+              read.user_presets[0].base == input::Preset::Default && read.controls.swap_sticks,
+          "a preset of the previous version is read, made from Default");
+    const input::Slots &circle = read.controls.pad[action(input::Action::Circle)];
+    check(circle[0] == input::single(input::pad(input::PadInput::East)) &&
+              circle[1] == input::chord(input::pad(input::PadInput::LeftShoulder), input::pad(input::PadInput::South)) &&
+              input::count(circle) == 2u,
+          "with its chords as they were");
+    check(input::count(read.controls.keys[action(input::Action::Square)]) == 0u, "and an unbound action unbound");
+    check(settings::base_preset(read) == input::Preset::Default, "reset goes back to Default");
+
+    // Cleared bindings, and more than two, survive a save.
+    input::clear(read.controls.pad, input::Action::Cross, 0u);
+    input::add(read.controls.keys, input::Action::Circle, input::single(input::from_name("G")));
+    input::add(read.controls.keys, input::Action::Circle, input::single(input::from_name("H")));
+    controls_edited(read);
+    Settings again = from_entries(to_entries(read));
+    check(input::count(again.controls.pad[action(input::Action::Cross)]) == 0u &&
+              input::count(again.user_presets[0].layout.pad[action(input::Action::Cross)]) == 0u,
+          "a cleared binding stays cleared");
+    check(input::count(again.controls.keys[action(input::Action::Circle)]) == 4u, "four bindings are kept");
+
+    // Editing a shipped preset makes one of the player's based on it.
+    choose_preset(again, {input::Preset::LeftHanded, {}});
+    check(settings::base_preset(again) == input::Preset::LeftHanded, "a shipped preset is its own base");
+    prepare_controls_edit(again);
+    check(!again.control_preset.shipped && settings::base_preset(again) == input::Preset::LeftHanded,
+          "the preset made from it remembers it");
+    Settings reread = from_entries(to_entries(again));
+    check(settings::base_preset(reread) == input::Preset::LeftHanded, "through settings.ini");
+
+    // Bindings changed by hand behind Modern's back are based on Modern.
+    Entries by_hand = to_entries(from_entries({}));
+    by_hand["input.preset"] = "modern";
+    for (std::size_t i = 0; i < input::kActions; ++i) {
+        const char *key = input::info(static_cast<input::Action>(i)).key;
+        by_hand[std::string("input.bind.") + key] = input::format(input::layout(input::Preset::Modern).keys[i]);
+        by_hand[std::string("input.pad.") + key] = input::format(input::layout(input::Preset::Modern).pad[i]);
+    }
+    by_hand["input.pad.square"] = "";
+    Settings behind = from_entries(by_hand);
+    check(!behind.control_preset.shipped && settings::base_preset(behind) == input::Preset::Modern,
+          "a changed shipped preset becomes Custom, based on it");
+}
+
 } // namespace
 
 int main() {
@@ -128,6 +200,7 @@ int main() {
     test_android();
     test_this_build();
     test_control_presets();
+    test_controls_from_the_previous_version();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;

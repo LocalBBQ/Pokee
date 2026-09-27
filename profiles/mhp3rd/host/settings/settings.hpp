@@ -191,6 +191,9 @@ bool choose_preset(Settings &settings, const input::PresetChoice &choice);
 // layout is first copied into a new preset of the player's, which is then
 // chosen. Returns that preset's name when one was made.
 std::optional<std::string> prepare_controls_edit(Settings &settings);
+// The shipped preset the layout in use is based on: the one chosen, or the
+// one the player's preset was made from.
+[[nodiscard]] input::Preset base_preset(const Settings &settings);
 // After the layout in use was changed: the chosen preset of the player's
 // keeps it.
 void controls_edited(Settings &settings);

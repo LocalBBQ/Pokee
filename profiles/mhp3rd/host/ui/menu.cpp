@@ -765,7 +765,7 @@ void Menu::preset_rows() {
         if (button_row("Save as a new preset", o)) {
             const std::string base = s.control_preset.shipped ? std::string("Custom") : s.control_preset.user;
             const std::string name = input::unique_preset_name(s.user_presets, base);
-            s.user_presets.push_back({name, s.controls});
+            s.user_presets.push_back({name, s.controls, settings::base_preset(s)});
             s.control_preset = {std::nullopt, name};
             preset_notice_ = "The bindings are now also the preset " + name + ".";
             settings::save();
@@ -801,7 +801,8 @@ void Menu::binding_rows(bool pad) {
                     preset_notice_ = "Your change is in a new preset of your own, " + *made +
                                      ". The shipped presets stay as they are.";
                 input::Bindings &edited = pad ? s.controls.pad : s.controls.keys;
-                input::assign(edited, *binding_, pad ? confirm_swap(*pressed) : *pressed);
+                const input::Chord chord = pad ? confirm_swap(*pressed) : *pressed;
+                if (!input::remove(edited, *binding_, chord)) input::add(edited, *binding_, chord);
                 settings::controls_edited(s);
                 settings::save();
             }

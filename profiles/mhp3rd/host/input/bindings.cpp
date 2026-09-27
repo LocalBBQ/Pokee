@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -163,6 +164,44 @@ Chord chord_pressed(Binding first, Binding second) {
 
 const ActionInfo &info(Action action) { return kInfo[static_cast<std::size_t>(action)]; }
 
+ActionGroup group_of(Action action) {
+    switch (action) {
+    case Action::StickUp:
+    case Action::StickLeft:
+    case Action::StickDown:
+    case Action::StickRight:
+    case Action::Cross: return ActionGroup::Movement;
+    case Action::Triangle:
+    case Action::Circle:
+    case Action::TriangleCircle:
+    case Action::R: return ActionGroup::Attacks;
+    case Action::Square:
+    case Action::L: return ActionGroup::Items;
+    case Action::CameraUp:
+    case Action::CameraLeft:
+    case Action::CameraDown:
+    case Action::CameraRight:
+    case Action::Up:
+    case Action::Left:
+    case Action::Down:
+    case Action::Right: return ActionGroup::Camera;
+    case Action::Start:
+    case Action::Select: return ActionGroup::System;
+    default: return ActionGroup::Port;
+    }
+}
+
+const char *group_name(ActionGroup group) {
+    switch (group) {
+    case ActionGroup::Movement: return "Movement";
+    case ActionGroup::Attacks: return "Attacks";
+    case ActionGroup::Items: return "Items";
+    case ActionGroup::Camera: return "Camera";
+    case ActionGroup::System: return "System";
+    default: return "Port features";
+    }
+}
+
 std::uint32_t buttons_of(Action action) { return kButtonBits[static_cast<std::size_t>(action)]; }
 
 std::string name(Binding binding) {
@@ -246,20 +285,49 @@ bool parse(std::string_view text, Slots &slots) {
     return true;
 }
 
-void assign(Bindings &bindings, Action action, Chord c) {
-    if (c.empty() || c.modifier == c.main) return;
+std::size_t count(const Slots &slots) {
+    return static_cast<std::size_t>(std::count_if(slots.begin(), slots.end(), [](const Chord &c) { return !c.empty(); }));
+}
+
+bool add(Bindings &bindings, Action action, Chord c) {
+    if (c.empty() || c.modifier == c.main) return false;
     Slots &slots = bindings[static_cast<std::size_t>(action)];
-    const auto end = std::remove(slots.begin(), slots.end(), c);
-    if (end != slots.end()) {
-        std::fill(end, slots.end(), Chord{});
-        return;
-    }
+    if (std::find(slots.begin(), slots.end(), c) != slots.end()) return false;
     for (Chord &slot : slots) {
         if (!slot.empty()) continue;
         slot = c;
-        return;
+        return true;
     }
-    slots.back() = c;
+    return false;
+}
+
+bool replace(Bindings &bindings, Action action, std::size_t slot, Chord c) {
+    Slots &slots = bindings[static_cast<std::size_t>(action)];
+    if (slot >= kSlots || slots[slot].empty() || c.empty() || c.modifier == c.main) return false;
+    if (slots[slot] == c) return true;
+    const auto same = std::find(slots.begin(), slots.end(), c);
+    slots[slot] = c;
+    if (same != slots.end()) clear(bindings, action, static_cast<std::size_t>(same - slots.begin()));
+    return true;
+}
+
+bool clear(Bindings &bindings, Action action, std::size_t slot) {
+    Slots &slots = bindings[static_cast<std::size_t>(action)];
+    if (slot >= kSlots || slots[slot].empty()) return false;
+    std::move(slots.begin() + static_cast<std::ptrdiff_t>(slot) + 1, slots.end(),
+              slots.begin() + static_cast<std::ptrdiff_t>(slot));
+    slots.back() = Chord{};
+    // Earlier files may have left a gap; keep the chords packed.
+    const auto end = std::stable_partition(slots.begin(), slots.end(), [](const Chord &c) { return !c.empty(); });
+    std::fill(end, slots.end(), Chord{});
+    return true;
+}
+
+bool remove(Bindings &bindings, Action action, Chord c) {
+    const Slots &slots = bindings[static_cast<std::size_t>(action)];
+    const auto found = std::find(slots.begin(), slots.end(), c);
+    if (c.empty() || found == slots.end()) return false;
+    return clear(bindings, action, static_cast<std::size_t>(found - slots.begin()));
 }
 
 std::vector<Conflict> conflicts(const Bindings &bindings, Action action) {
@@ -272,9 +340,9 @@ std::vector<Conflict> conflicts(const Bindings &bindings, Action action) {
             if (other == action) continue;
             for (const Chord &theirs : bindings[i]) {
                 if (theirs.empty()) continue;
-                if (theirs == c) found.push_back({Conflict::Kind::Same, other, c});
+                if (theirs == c) found.push_back({Conflict::Kind::Same, other, c, theirs});
                 else if (c.combined() && !theirs.combined() && theirs.main == c.modifier)
-                    found.push_back({Conflict::Kind::Modifier, other, c});
+                    found.push_back({Conflict::Kind::Modifier, other, c, theirs});
             }
         }
     }

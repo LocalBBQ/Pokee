@@ -51,8 +51,9 @@ enum class Action : std::uint8_t {
     Count
 };
 inline constexpr std::size_t kActions = static_cast<std::size_t>(Action::Count);
-// Every action takes up to two chords on each device.
-inline constexpr std::size_t kSlots = 2u;
+// Every action takes up to four chords on each device. Earlier versions kept
+// two, so what they wrote always fits.
+inline constexpr std::size_t kSlots = 4u;
 
 // 0: none. 1-511: a key position. kMouse + 1..5: a mouse button, numbered as
 // SDL numbers them (left, middle, right, back, forward). kPad + 1 + n: the
@@ -143,6 +144,13 @@ struct ActionInfo {
     const char *label;  // in the menu
 };
 [[nodiscard]] const ActionInfo &info(Action action);
+
+// How the menu groups the actions. Anything that is no PSP control, such as
+// fast-forward, is a feature of the port.
+enum class ActionGroup : std::uint8_t { Movement, Attacks, Items, Camera, System, Port, Count };
+inline constexpr std::size_t kActionGroups = static_cast<std::size_t>(ActionGroup::Count);
+[[nodiscard]] ActionGroup group_of(Action action);
+[[nodiscard]] const char *group_name(ActionGroup group);
 // The SceCtrlButtons an action presses; 0 for the sticks.
 [[nodiscard]] std::uint32_t buttons_of(Action action);
 
@@ -167,11 +175,22 @@ enum class PadStyle { Generic, Xbox, PlayStation, Nintendo };
 // False, leaving `slots` alone, if a name is not known.
 bool parse(std::string_view text, Slots &slots);
 
-// The menu's way of changing a binding: pressing a chord the action has
-// already removes it; anything else is added, replacing the second slot when
-// both are full. Other actions keep what they have: a chord bound twice is
-// shown as a conflict, not taken away.
-void assign(Bindings &bindings, Action action, Chord chord);
+// The menu's ways of changing an action's chords. The chords stay packed at
+// the front of the slots, in the order they were added. Other actions keep
+// what they have: a chord bound twice is shown as a conflict, not taken away.
+[[nodiscard]] std::size_t count(const Slots &slots);
+// Adds a chord after the ones the action has. False, changing nothing, when
+// the action has it already, all its slots are full, or it is not a chord.
+bool add(Bindings &bindings, Action action, Chord chord);
+// Puts a chord in place of the one in `slot`. If the action has the chord in
+// another slot already, that one goes, so it is never bound twice. False,
+// changing nothing, when `slot` is empty or the chord is no chord.
+bool replace(Bindings &bindings, Action action, std::size_t slot, Chord chord);
+// Removes the chord in `slot`; the ones after it move up. False when there
+// is none.
+bool clear(Bindings &bindings, Action action, std::size_t slot);
+// Removes `chord` from an action, wherever it is. False when it has none.
+bool remove(Bindings &bindings, Action action, Chord chord);
 
 // What clashes with a chord of an action.
 struct Conflict {
@@ -181,7 +200,8 @@ struct Conflict {
     };
     Kind kind{};
     Action other{};
-    Chord chord;  // the chord of `action` that clashes
+    Chord chord;   // the chord of `action` that clashes
+    Chord theirs;  // and the chord of `other` it clashes with
 };
 [[nodiscard]] std::vector<Conflict> conflicts(const Bindings &bindings, Action action);
 

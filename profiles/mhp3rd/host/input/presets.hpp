@@ -37,10 +37,13 @@ struct PresetInfo {
 // The shipped preset `layout` is exactly, if any.
 [[nodiscard]] std::optional<Preset> matching_preset(const Layout &layout);
 
-// A preset the player made.
+// A preset the player made, and the shipped preset it was made from, which
+// "reset to default" returns an action to. Presets from before this was kept
+// count as made from Default.
 struct UserPreset {
     std::string name;
     Layout layout;
+    Preset base{Preset::Default};
 };
 inline constexpr std::size_t kMaxUserPresets = 32u;
 inline constexpr std::size_t kMaxPresetName = 24u;

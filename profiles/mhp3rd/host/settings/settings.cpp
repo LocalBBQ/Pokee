@@ -504,6 +504,8 @@ std::vector<input::UserPreset> read_user_presets(const Entries &entries) {
             named[number] = !preset.name.empty();
         } else if (field == "move_stick") {
             preset.layout.swap_sticks = it->second == "right";
+        } else if (field == "base") {
+            if (const std::optional<input::Preset> base = input::preset_from_id(it->second)) preset.base = *base;
         } else {
             const bool keys = field.starts_with(kBindPrefix.substr(6));
             const bool pad = field.starts_with(kPadPrefix.substr(6));
@@ -536,6 +538,7 @@ void write_user_presets(const std::vector<input::UserPreset> &presets, Entries &
         const input::UserPreset &preset = presets[n];
         entries[prefix + "name"] = preset.name;
         entries[prefix + "move_stick"] = preset.layout.swap_sticks ? "right" : "left";
+        entries[prefix + "base"] = input::info(preset.base).id;
         for (std::size_t i = 0; i < input::kActions; ++i) {
             const char *action = input::info(static_cast<input::Action>(i)).key;
             entries[prefix + "bind." + action] = input::format(preset.layout.keys[i]);
@@ -563,8 +566,9 @@ void settle_controls(Settings &s, const Entries &entries) {
             return;
         }
         const std::string name = input::unique_preset_name(s.user_presets, "Custom");
-        if (s.user_presets.size() < input::kMaxUserPresets) s.user_presets.push_back({name, s.controls});
-        else s.user_presets.back() = {name, s.controls};
+        const input::UserPreset made{name, s.controls, *s.control_preset.shipped};
+        if (s.user_presets.size() < input::kMaxUserPresets) s.user_presets.push_back(made);
+        else s.user_presets.back() = made;
         s.control_preset = {std::nullopt, name};
         return;
     }
@@ -722,9 +726,16 @@ std::optional<std::string> prepare_controls_edit(Settings &settings) {
     if (!settings.control_preset.shipped) return std::nullopt;
     if (settings.user_presets.size() >= input::kMaxUserPresets) settings.user_presets.pop_back();
     const std::string name = input::unique_preset_name(settings.user_presets, "Custom");
-    settings.user_presets.push_back({name, settings.controls});
+    settings.user_presets.push_back({name, settings.controls, *settings.control_preset.shipped});
     settings.control_preset = {std::nullopt, name};
     return name;
+}
+
+input::Preset base_preset(const Settings &settings) {
+    if (settings.control_preset.shipped) return *settings.control_preset.shipped;
+    for (const input::UserPreset &preset : settings.user_presets)
+        if (preset.name == settings.control_preset.user) return preset.base;
+    return input::Preset::Default;
 }
 
 void controls_edited(Settings &settings) {

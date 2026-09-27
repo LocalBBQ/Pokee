@@ -77,7 +77,8 @@ void test_settings_spelling() {
     check(parse("", slots) && slots[0].empty() && slots[1].empty(), "empty means unbound");
     check(format(slots).empty(), "and unbound is written empty");
     slots = {single(key(4)), {}};
-    check(!parse("A / B / C", slots) && slots[0] == single(key(4)), "three bindings are refused, leaving the old ones");
+    check(!parse("A / B / C / D / E", slots) && slots[0] == single(key(4)),
+          "more bindings than slots are refused, leaving the old ones");
     check(!parse("Q / Nonsense", slots) && slots[0] == single(key(4)), "an unknown name refuses the whole value");
     check(parse("Left Shift + F / Pad LB + Pad East", slots) && slots[0] == chord(key(225), key(9)) &&
               slots[1] == chord(pad(PadInput::LeftShoulder), pad(PadInput::East)),
@@ -180,29 +181,85 @@ void test_names_of_presets() {
     check(!parse_choice("nonsense") && !parse_choice("user:"), "anything else is refused");
 }
 
-void test_assign() {
+void test_editing() {
     Bindings b = default_keys();
-    assign(b, Action::Cross, single(key(9)));  // F, which ○ has
+    check(count(slots_of(b, Action::Circle)) == 2u && count(slots_of(b, Action::TriangleCircle)) == 0u,
+          "count() counts the chords an action has");
+    check(add(b, Action::Cross, single(key(9))), "a new key is added");  // F, which ○ has
     check(slots_of(b, Action::Cross)[0] == single(key(44)) && slots_of(b, Action::Cross)[1] == single(key(9)),
-          "a new key fills the free slot");
+          "after the ones the action has");
     check(slots_of(b, Action::Circle)[1] == single(key(9)), "and the control that had it keeps it");
     const std::vector<Conflict> found = conflicts(b, Action::Cross);
-    check(found.size() == 1u && found[0].kind == Conflict::Kind::Same && found[0].other == Action::Circle,
+    check(found.size() == 1u && found[0].kind == Conflict::Kind::Same && found[0].other == Action::Circle &&
+              found[0].theirs == single(key(9)),
           "which is shown as a conflict");
-    assign(b, Action::Cross, single(key(10)));
-    check(slots_of(b, Action::Cross)[0] == single(key(44)) && slots_of(b, Action::Cross)[1] == single(key(10)),
-          "with both slots full the second is replaced");
-    check(conflicts(b, Action::Cross).empty(), "and the conflict is gone");
-    assign(b, Action::Cross, single(key(44)));
-    check(slots_of(b, Action::Cross)[0] == single(key(10)) && slots_of(b, Action::Cross)[1].empty(),
-          "pressing a key the control has removes it");
-    assign(b, Action::Cross, Chord{});
-    check(slots_of(b, Action::Cross)[0] == single(key(10)), "nothing pressed changes nothing");
-    assign(b, Action::TriangleCircle, chord(key(20), mouse_button(1)));  // Q + Mouse Left
+    check(!add(b, Action::Cross, single(key(44))), "adding a key the action has changes nothing");
+    check(count(slots_of(b, Action::Cross)) == 2u, "so it is not bound twice, nor removed");
+    check(add(b, Action::Cross, single(key(10))) && add(b, Action::Cross, single(key(11))),
+          "up to kSlots chords");
+    check(!add(b, Action::Cross, single(key(12))) && count(slots_of(b, Action::Cross)) == kSlots,
+          "and never silently one more");
+    check(!add(b, Action::Cross, Chord{}) && !add(b, Action::Cross, chord(key(4), key(4))),
+          "nothing pressed, or one input twice, is no chord");
+
+    // Replacing: in place, and never leaving the action with a chord twice.
+    check(replace(b, Action::Cross, 1u, single(key(29))) && slots_of(b, Action::Cross)[1] == single(key(29)),
+          "a chord is replaced in its slot");
+    check(conflicts(b, Action::Cross).empty(), "and the conflict it had is gone");
+    check(replace(b, Action::Cross, 0u, single(key(11))), "replacing with a chord the action has elsewhere");
+    check(slots_of(b, Action::Cross)[0] == single(key(11)) && slots_of(b, Action::Cross)[1] == single(key(29)) &&
+              slots_of(b, Action::Cross)[2] == single(key(10)) && slots_of(b, Action::Cross)[3].empty(),
+          "moves it there");
+    check(!replace(b, Action::Cross, 3u, single(key(14))), "an empty slot is not replaced; that is adding");
+
+    // Clearing, including the last chord an action has.
+    check(clear(b, Action::Cross, 0u), "a chord is cleared");
+    check(slots_of(b, Action::Cross)[0] == single(key(29)) && slots_of(b, Action::Cross)[1] == single(key(10)) &&
+              slots_of(b, Action::Cross)[2].empty(),
+          "and the ones after it move up");
+    check(!clear(b, Action::Cross, 2u), "an empty slot has nothing to clear");
+    check(clear(b, Action::Cross, 1u) && clear(b, Action::Cross, 0u) && count(slots_of(b, Action::Cross)) == 0u,
+          "an action can be left with nothing");
+    check(read(b, [](Binding held) { return held == key(44) || held == key(29); }).buttons == 0u,
+          "and then nothing presses it");
+    check(format(slots_of(b, Action::Cross)).empty(), "which settings.ini keeps as empty");
+
+    // Chords, and the conflict of a modifier that does something alone.
+    check(add(b, Action::TriangleCircle, chord(key(20), mouse_button(1))), "a chord is added");  // Q + Mouse Left
     const std::vector<Conflict> modifier = conflicts(b, Action::TriangleCircle);
-    check(modifier.size() == 1u && modifier[0].kind == Conflict::Kind::Modifier && modifier[0].other == Action::L,
+    check(modifier.size() == 1u && modifier[0].kind == Conflict::Kind::Modifier && modifier[0].other == Action::L &&
+              modifier[0].theirs == single(key(20)),
           "a chord's modifier that does something alone is a conflict");
     check(conflicts(b, Action::Triangle).empty(), "a chord's main input done alone is not");
+    check(remove(b, modifier[0].other, modifier[0].theirs) && conflicts(b, Action::TriangleCircle).empty(),
+          "removing the other action's input fixes it");
+    check(!remove(b, Action::L, single(key(20))), "and it is gone from there");
+    check(remove(b, Action::TriangleCircle, chord(key(20), mouse_button(1))) &&
+              count(slots_of(b, Action::TriangleCircle)) == 0u,
+          "a chord is removed like a single input");
+}
+
+void test_slots_in_settings() {
+    Slots slots{};
+    check(parse("Left Shift + F / Mouse Right / G / Pad LB + Pad South", slots) && count(slots) == 4u &&
+              slots[3] == chord(pad(PadInput::LeftShoulder), pad(PadInput::South)),
+          "four chords are read");
+    check(format(slots) == "Left Shift + F / Mouse Right / G / Pad LB + Pad South", "and written back");
+    const Slots before = slots;
+    check(!parse("A / B / C / D / E", slots) && slots == before, "a fifth is refused and nothing changes");
+    check(parse("Mouse Right / F", slots) && count(slots) == 2u && slots[2].empty(),
+          "two, as earlier versions wrote them, still read");
+    check(parse("", slots) && count(slots) == 0u, "and none");
+}
+
+void test_groups() {
+    std::size_t in_group[kActionGroups]{};
+    for (std::size_t i = 0; i < kActions; ++i) ++in_group[static_cast<std::size_t>(group_of(static_cast<Action>(i)))];
+    for (std::size_t g = 0; g < kActionGroups; ++g) check(in_group[g] != 0u, "every group has an action");
+    check(group_of(Action::StickUp) == ActionGroup::Movement && group_of(Action::Triangle) == ActionGroup::Attacks &&
+              group_of(Action::Square) == ActionGroup::Items && group_of(Action::CameraLeft) == ActionGroup::Camera &&
+              group_of(Action::Start) == ActionGroup::System && group_of(Action::FastForward) == ActionGroup::Port,
+          "actions are grouped by what they do");
 }
 
 void test_read() {
@@ -233,7 +290,7 @@ void test_read() {
 
     // Chords: Left Shift + F does △ + ○, and F alone stays ○.
     Bindings b = d;
-    assign(b, Action::TriangleCircle, chord(key(225), key(9)));
+    add(b, Action::TriangleCircle, chord(key(225), key(9)));
     held = {key(9)};
     check(read_held(b).buttons == 0x2000u, "the main input alone does its own action");
     held = {key(225)};
@@ -266,7 +323,9 @@ int main() {
     test_presets();
     test_earlier_versions();
     test_names_of_presets();
-    test_assign();
+    test_editing();
+    test_slots_in_settings();
+    test_groups();
     test_read();
     test_mouse_turn();
     std::cout << (failures ? "FAIL" : "PASS") << ": input bindings (" << failures << " failures)\n";
