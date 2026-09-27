@@ -18,6 +18,17 @@
 //                     dpup, dpdown, dpleft, dpright, ...)
 //   axis NAME VALUE   hold an axis of the virtual gamepad at VALUE, -1 to 1
 //                     (leftx, lefty, rightx, righty, lefttrigger, righttrigger)
+//   finger ID down|move|up X Y
+//                     a finger of a virtual touch screen, X and Y from 0 to 1
+//                     across the window (up needs no position)
+//   hold ID X Y [N]   a finger down at X Y and lifted N frames later, 4 by default
+//   swipe ID X1 Y1 X2 Y2 [N]
+//                     a finger down at X1 Y1, moved to X2 Y2 over N frames
+//                     (8 by default) and lifted
+//   drag X1 Y1 X2 Y2 [N]
+//                     the pointer pressed at X1 Y1, moved to X2 Y2 over N
+//                     frames (8 by default) and released, as a touch sends it
+//                     to the interface (X and Y from 0 to 1)
 //   text STRING       type text
 //   drop PATH         drop a file onto the window
 //   shot NAME         write the window image to MHP3RD_SCREENSHOT_DIR/NAME.bmp

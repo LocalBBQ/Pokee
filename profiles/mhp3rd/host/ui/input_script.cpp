@@ -97,7 +97,68 @@ std::pair<std::string, std::uint64_t> name_and_frames(const std::string &argumen
 
 bool mouse_step(const std::string &action) { return action == "mouse" || action == "click"; }
 
-void run(const Step &step) {
+// The virtual touch screen's device id.
+constexpr SDL_TouchID kScriptTouch = 0x59414bu;
+
+void push_finger(Uint32 type, std::uint64_t finger, float x, float y) {
+    SDL_Event event{};
+    event.type = type;
+    event.tfinger.timestamp = SDL_GetTicksNS();
+    event.tfinger.touchID = kScriptTouch;
+    event.tfinger.fingerID = static_cast<SDL_FingerID>(finger);
+    event.tfinger.x = x;
+    event.tfinger.y = y;
+    event.tfinger.pressure = type == SDL_EVENT_FINGER_UP ? 0.0f : 1.0f;
+    event.tfinger.windowID = SDL_GetWindowID(Layer::get().renderer().window());
+    SDL_PushEvent(&event);
+}
+
+// The pointer as a touch moves it: absolute, in window coordinates.
+void push_pointer(float x, float y) {
+    int width = 0;
+    int height = 0;
+    SDL_GetWindowSize(Layer::get().renderer().window(), &width, &height);
+    SDL_Event event{};
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.timestamp = SDL_GetTicksNS();
+    event.motion.windowID = SDL_GetWindowID(Layer::get().renderer().window());
+    event.motion.which = SDL_TOUCH_MOUSEID;
+    event.motion.x = x * static_cast<float>(width);
+    event.motion.y = y * static_cast<float>(height);
+    SDL_PushEvent(&event);
+}
+
+void push_pointer_button(bool down) {
+    SDL_Event event{};
+    event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+    event.button.timestamp = SDL_GetTicksNS();
+    event.button.windowID = SDL_GetWindowID(Layer::get().renderer().window());
+    event.button.which = SDL_TOUCH_MOUSEID;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.down = down;
+    event.button.clicks = 1u;
+    float x = 0.0f;
+    float y = 0.0f;
+    SDL_GetMouseState(&x, &y);
+    event.button.x = x;
+    event.button.y = y;
+    SDL_PushEvent(&event);
+}
+
+// Numbers after an action's first word.
+std::vector<float> numbers(const std::string &text) {
+    std::vector<float> values;
+    std::stringstream in(text);
+    float value = 0.0f;
+    while (in >> value) values.push_back(value);
+    return values;
+}
+
+void add_step(std::uint64_t frame, std::string action, std::string argument);
+
+void run(const Step &due) {
+    // A copy: the steps some actions add reorder the list `due` is in.
+    const Step step = due;
     State &s = state();
     std::cout << "[script] frame " << s.frame << ": " << step.action << " " << step.argument << std::endl;
     if (step.action == "key") {
@@ -160,6 +221,55 @@ void run(const Step &step) {
             return;
         }
         SDL_SetJoystickVirtualAxis(s.pad, axis, static_cast<Sint16>(std::clamp(value, -1.0f, 1.0f) * 32767.0f));
+    } else if (step.action == "finger") {
+        std::stringstream in(step.argument);
+        std::uint64_t id = 0;
+        std::string what;
+        float x = 0.0f;
+        float y = 0.0f;
+        in >> id >> what >> x >> y;
+        const Uint32 type = what == "down"   ? SDL_EVENT_FINGER_DOWN
+                            : what == "move" ? SDL_EVENT_FINGER_MOTION
+                                             : SDL_EVENT_FINGER_UP;
+        push_finger(type, id + 1u, x, y);
+    } else if (step.action == "hold" || step.action == "swipe") {
+        const std::vector<float> v = numbers(step.argument);
+        const bool swipe = step.action == "swipe";
+        if (v.size() < (swipe ? 5u : 3u)) {
+            std::cout << "[script] " << step.action << " needs a finger and a position" << std::endl;
+            return;
+        }
+        const std::string id = std::to_string(static_cast<std::uint64_t>(v[0]));
+        const auto frames = static_cast<std::uint64_t>(v.size() > (swipe ? 5u : 3u) ? v[swipe ? 5 : 3] : (swipe ? 8 : 4));
+        push_finger(SDL_EVENT_FINGER_DOWN, static_cast<std::uint64_t>(v[0]) + 1u, v[1], v[2]);
+        for (std::uint64_t k = 1; swipe && k <= frames; ++k) {
+            const float t = static_cast<float>(k) / static_cast<float>(frames);
+            add_step(s.frame + k, "finger",
+                     id + " move " + std::to_string(v[1] + (v[3] - v[1]) * t) + " " + std::to_string(v[2] + (v[4] - v[2]) * t));
+        }
+        add_step(s.frame + frames + 1u, "finger", id + " up");
+    } else if (step.action == "drag") {
+        const std::vector<float> v = numbers(step.argument);
+        if (v.size() < 4u) {
+            std::cout << "[script] drag needs two positions" << std::endl;
+            return;
+        }
+        const auto frames = static_cast<std::uint64_t>(v.size() > 4u ? v[4] : 8);
+        push_pointer(v[0], v[1]);
+        add_step(s.frame + 1u, "pointer", "down");
+        for (std::uint64_t k = 1; k <= frames; ++k) {
+            const float t = static_cast<float>(k) / static_cast<float>(frames);
+            add_step(s.frame + 1u + k, "pointer",
+                     std::to_string(v[0] + (v[2] - v[0]) * t) + " " + std::to_string(v[1] + (v[3] - v[1]) * t));
+        }
+        add_step(s.frame + frames + 3u, "pointer", "up");
+    } else if (step.action == "pointer") {
+        if (step.argument == "down" || step.argument == "up") {
+            push_pointer_button(step.argument == "down");
+        } else {
+            const std::vector<float> v = numbers(step.argument);
+            if (v.size() >= 2u) push_pointer(v[0], v[1]);
+        }
     } else if (step.action == "text") {
         SDL_Event event{};
         event.type = SDL_EVENT_TEXT_INPUT;
@@ -184,6 +294,13 @@ void run(const Step &step) {
     } else {
         std::cout << "[script] unknown action " << step.action << std::endl;
     }
+}
+
+void add_step(std::uint64_t frame, std::string action, std::string argument) {
+    State &s = state();
+    s.steps.push_back({frame, std::move(action), std::move(argument)});
+    std::stable_sort(s.steps.begin(), s.steps.end(),
+                     [](const Step &a, const Step &b) { return a.frame < b.frame; });
 }
 
 // Parses `frame:action argument`; `base` is added to the frame.
