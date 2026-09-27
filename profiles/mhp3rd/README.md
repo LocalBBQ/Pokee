@@ -234,12 +234,13 @@ The game can be played with a keyboard and a mouse alone. Every control can be r
 | Esc | In-game menu | Frees the pointer |
 | F3 | Performance overlay on or off | |
 | F6 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu | |
+| `` ` `` (the key under Esc) | [Fast-forward](#fast-forward) | Runs the game faster while held; single player only |
 
 A bow aims with Left Shift held and shoots with the left button; a bowgun fires with the right one.
 
 The **Classic keyboard** preset brings back the keys of earlier versions, for play without a mouse: I / J / K / L move, X ○, Z ✕, A □, S △, Q / W L / R, Enter START, Right Shift or Backspace SELECT, and the arrow keys the D-pad. **Left-handed** has the mouse in the left hand: I / J / K / L move, H ○ (and the right button), U □, O L, Right Shift R, Enter START, Backspace SELECT, the arrow keys the D-pad and keypad 8 / 4 / 5 / 6 the camera. **Modern** is Default plus △ + ○ on the side mouse button (Mouse 4) and C. *Restore control defaults* returns to Default.
 
-To rebind, activate a control's row and press a key or a mouse button: it is added (a control takes two), or removed if the control has it already; Esc cancels. Hold one key and press another for a combination, such as Left Shift + F: the capture ends when the first key is let go, and Shift, Ctrl, Alt and GUI are always the held one. Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`; an empty value leaves a control unbound).
+To rebind, activate a control's row and press a key or a mouse button: it is added (a control takes two), or removed if the control has it already; Esc cancels. Hold one key and press another for a combination, such as Left Shift + F: the capture ends when the first key is let go, and Shift, Ctrl, Alt and GUI are always the held one. Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`, and `fast_forward`, which is not a PSP control; an empty value leaves a control unbound).
 
 **The pointer.** While the game runs and the window has focus, Yakumo captures the mouse: the pointer is hidden and its motion and buttons go to the game. It is given back whenever Yakumo's menu, the on-screen keyboard or a setup screen is up, and when the window loses focus (switching to another window, Cmd+Tab or Alt+Tab, minimising). Buttons and keys still held when it is captured again reach the game only after they are released, and motion made while it was free is never replayed. *Mouse* in the menu (`input.mouse`, `MHP3RD_MOUSE=0`) turns all of this off, leaving the pointer alone.
 
@@ -368,6 +369,8 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | Lower when behind | `video.frame_rate_auto` | `MHP3RD_FRAME_RATE_AUTO` | On (default): the frame rate steps down by itself rather than slow the game. Off: the chosen rate stays, and the game may run below full speed |
 | Video | Game speed | `video.unthrottled` | `MHP3RD_UNTHROTTLED` | Normal (held to real time) or unlimited |
 | Video | Fast loading | `video.fast_loading` | `MHP3RD_FAST_LOADING` | On (default) or off: while the game loads, and only then, it runs ahead of real time. See [Fast loading](#fast-loading) |
+| Video | Fast-forward | `video.fast_forward` | `MHP3RD_FAST_FORWARD` | `hold` (default): the game runs faster while the Fast-forward key is held; `toggle`: one press turns it on, the next off; `off`: the key does nothing. Single player only. See [Fast-forward](#fast-forward) |
+| Video | Fast-forward speed | `video.fast_forward_speed` | `MHP3RD_FAST_FORWARD_SPEED` | 2×–8× real time; default 3× |
 | Video | Performance | `video.performance` | `MHP3RD_PERF` | Off, overlay, overlay and log, log only |
 | Video | GPU compatibility | `video.gpu_compat` | `MHP3RD_GPU_COMPAT` | Auto (default), on or off; applies from the next start. See [GPU compatibility mode](#gpu-compatibility-mode) |
 | Video | Font | `text.font` | `MHP3RD_FONT` | Default (a Japanese system font), or an installed font; see [Game text](#game-text) |
@@ -397,7 +400,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Controls opacity | `input.touch_opacity` | | 10–100%; default 50% |
 | Controls | Controls size | `input.touch_size` | | 60–160% of the default size; default 100% |
 | Controls | Touch camera speed | `input.touch_camera_speed` | | Degrees the camera turns for a drag across the screen's height, 30 to 720; default 180 |
-| Controls | A row per control under *Keyboard and mouse* (Move forward … △ + ○) | `input.bind.<control>` | | Up to two keys, mouse buttons or combinations, see [Keyboard and mouse](#keyboard-and-mouse); part of the preset |
+| Controls | A row per control under *Keyboard and mouse* (Move forward … △ + ○, Fast-forward) | `input.bind.<control>` | | Up to two keys, mouse buttons or combinations, see [Keyboard and mouse](#keyboard-and-mouse); part of the preset |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
 | Controls (Experimental) | Free camera | `experimental.free_camera` | `MHP3RD_FREE_CAMERA` | Off (default) or on: F6, or Back + R3, detaches the view from the game's camera. See [Free camera](#free-camera-experimental) |
@@ -743,6 +746,8 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_WINDOW_TITLE` | `Yakumo` | Title of the game window, to tell instances apart |
 | `MHP3RD_UNTHROTTLED` | off | Let emulated time run ahead of real time, so the game runs as fast as it can be drawn (menu: Game speed) |
 | `MHP3RD_FAST_LOADING` | on | `0` keeps loads at the PSP's pace (menu: Fast loading). See [Fast loading](#fast-loading) |
+| `MHP3RD_FAST_FORWARD` | `hold` | `toggle` makes the Fast-forward key a switch; `off` (or `0`) makes it do nothing (menu: Fast-forward). See [Fast-forward](#fast-forward) |
+| `MHP3RD_FAST_FORWARD_SPEED` | `3` | Times real time while fast-forwarding, 2 to 8 (menu: Fast-forward speed) |
 | `MHP3RD_FRAME_RATE` | `30` | `45`, `60`, `90`, `120` or `display`: present frames in between the game's 30 (menu: Frame rate). See [Frame rate](#frame-rate) |
 | `MHP3RD_FRAME_RATE_AUTO` | on | `0` keeps the chosen frame rate even when the game falls behind (menu: Lower when behind) |
 | `MHP3RD_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
@@ -877,6 +882,20 @@ On a Mac with an M1, from the button press to the new scene's first sound (for t
 | Quest end to the village | 6.0 s | 1.4 s |
 
 What is left is the game's own music fading out and its animations, which play at real time, the game's check of what it read (`sha1Thread`) and unpacking, and installing a code overlay. While a load runs fast, a flip reaches the window at most about 30 times a second and the others are drawn and not shown, so Vsync never holds it back; frame interpolation pauses and picks up again after it. Each fast stretch logs one line: `[load] fast 4922 ms of game time in 434 ms real, 4488 ms saved (sound; 18.4 s saved so far)`, with what ended it. `MHP3RD_FAST_LOADING=0` or the menu's Off keeps every load at the PSP's pace.
+
+### Fast-forward
+
+Holding the **Fast-forward** key (by default `` ` ``, the key under Esc; Controls → *Keyboard and mouse*) runs the whole game faster than real time, 3× by default: long walks, gathering, cutscenes drawn by the game. Release it and the game is back at 100% at once. *Fast-forward* (Video) makes the key a switch instead (`toggle`), or turns it off; *Fast-forward speed* sets 2× to 8×. Nothing changes until the key is pressed.
+
+It is the same clock as always, let go further. The kernel holds emulated time to real time; while fast-forwarding it lets emulated time run the chosen number of times as fast, the way [fast loading](#fast-loading) does during a load. Every vblank still comes one PSP vblank period (16.68 ms) of emulated time after the one before, so the game runs every one of its frames, its timers and its sound thread exactly as on a PSP; they only come sooner. Each stretch logs one line, with the vblanks the game saw: `[fast-forward] off (released): 20020 ms of game time, 1200 vblanks, in 6681 ms real (3.00x)`. `MHP3RD_PERF=log` reads `speed 300%` and three times the display lists while it runs. If the computer cannot keep up, the game runs as fast as it can instead, never skipping a frame.
+
+- **Sound** is muted while fast-forwarding: the buffers the game hands to `sceAudio` are dropped, as a fast load drops its silence, and sound resumes, in step, as soon as the key is released. Sped-up sound would pile up faster than the device can play it, and dropping part of it would be choppy.
+- **The picture**: the window shows a flip at most about 30 times a second and the others are drawn and not shown, so Vsync never holds it back; frame interpolation pauses and picks up again after it.
+- **The indicator**, two arrowheads and the speed in the top-right corner, is drawn by Yakumo's interface over the game. It is never part of the game's own frames (`MHP3RD_SCREENSHOT_DIR`); window captures show it, like the rest of the interface.
+- **Single player only.** While the game has ad hoc networking on, or a session is going, the key does nothing: the other players' time is real. A press there says so once on the console, and the menu's rows show *Single player only*. A toggle made before going on line does not come back on its own.
+- It also does nothing while the menu is open over the game, with Game speed set to Unlimited (which already runs unpaced), and without a window. A loading screen while fast-forwarding runs at fast loading's pace, whichever is faster.
+- The camera keeps turning at real-time speed, so it stays controllable.
+- There is no gamepad button for it yet. On a Steam Deck, Steam Input can put the key on a back button.
 
 ### Audio
 
