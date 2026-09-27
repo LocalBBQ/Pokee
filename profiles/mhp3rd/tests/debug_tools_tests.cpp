@@ -138,7 +138,9 @@ void test_equipment() {
 void test_money_and_name() {
     BufferRam ram(kBase, kSize);
     check(!game::character_loaded(ram), "no name, no character");
-    const char16_t name[] = u"Ｈｕｎ　A";  // fullwidth "Hun", a space, "A"
+    // Fullwidth "Hun", an ideographic space, "A". Escaped, because MSVC reads a
+    // source file without a BOM in the system's code page.
+    const char16_t name[] = u"\uFF28\uFF55\uFF4E\u3000A";
     for (std::size_t i = 0; i < 5; ++i) ram.store16(game::kHunterName + static_cast<std::uint32_t>(i * 2u), name[i]);
     check(game::character_loaded(ram) && game::hunter_name(ram) == "Hun A", "fullwidth names read as ASCII");
     game::set_money(ram, 123u);
