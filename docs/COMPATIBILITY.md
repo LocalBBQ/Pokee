@@ -25,6 +25,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ✅ a new character saves and loads after restarting the game [#13] | ✅ saves load; import and export through Android's file picker |
 | Save-data pass [#167]: create, save, load after a restart, overwrite, import, backup | ✅ all of it, the backup reminder and the import's *Back up now* included | ❔ | ❔ the Deck was offline for the pass | ✅ all of it on `main`; the backup reminder is newer than that build and was not checked | ✅ the reminder and *Back up now* through the picker, import of an encrypted PSP save with the review's backup, load after the restart; ❔ creating and overwriting a character (emulator keyboard) |
 | Downloadable content | ✅ a player's `ULJM05800QST` folder is read by the download menu | ❔ | ❔ | ❔ | ❔ |
+| Free camera (experimental) | ✅ `8690816`: the village and the Misty Peaks base camp, keyboard and mouse and the input script's virtual gamepad, photo mode at 30 and 60 frames a second [#162] | ❔ | ❔ | ❔ | ❔ |
 | Multiplayer | ✅ with a Steam Deck through an ad hoc server: hall and a full quest [#2] | ❔ | ✅ with a Mac through an ad hoc server: hall and a full quest [#2] | ❔ | ❔ |
 
 Rows marked ❌ on every platform are missing features rather than platform problems.
@@ -73,4 +74,5 @@ To report a result without editing the page, open a **Test report** issue.
 [#14]: https://github.com/TeamGDB/Yakumo/issues/14
 [#33]: https://github.com/TeamGDB/Yakumo/issues/33
 [#127]: https://github.com/TeamGDB/Yakumo/issues/127
+[#162]: https://github.com/TeamGDB/Yakumo/issues/162
 [#167]: https://github.com/TeamGDB/Yakumo/issues/167

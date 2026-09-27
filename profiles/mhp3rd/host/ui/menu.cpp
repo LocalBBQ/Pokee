@@ -921,6 +921,7 @@ void Menu::controls() {
         }
     }
     if (s.free_camera) {
+        info_row("On and off", "F6; Back and R3");
         info_row("Fly", "W A S D, E and Q up and down; left stick, RB and LB");
         info_row("Look", "Mouse; right stick");
         info_row("Faster, slower", "Left Shift, Left Ctrl; RT, LT");
