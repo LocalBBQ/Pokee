@@ -1015,6 +1015,11 @@ struct VulkanRenderer::Impl {
     VkDeviceMemory capture_memory{};
     VkExtent2D capture_extent{};
     bool capture_recorded{};
+    // MHP3RD_CAPTURE_PRESENTS=N: a window capture goes on for N presents in
+    // a row (NAME_1.bmp and so on), frames in between the game's included.
+    std::string capture_burst_base;
+    int capture_burst_left{};
+    int capture_burst_index{};
 
     // Performance overlay: drawn on the CPU, copied through a mapped staging
     // buffer into a small image and scaled onto the swapchain image after the
@@ -3506,6 +3511,10 @@ void VulkanRenderer::Impl::write_capture(VkFence fence) {
     capture_buffer = VK_NULL_HANDLE;
     capture_memory = VK_NULL_HANDLE;
     capture_path.clear();
+    if (capture_burst_left > 0) {
+        --capture_burst_left;
+        capture_path = capture_burst_base + "_" + std::to_string(++capture_burst_index) + ".bmp";
+    }
 }
 
 void VulkanRenderer::Impl::destroy_target(Target &target) {
@@ -5742,6 +5751,16 @@ void VulkanRenderer::capture_window(const std::string &path) {
         return;
     }
     impl_->capture_path = path;
+    static const int burst = [] {
+        const char *text = std::getenv("MHP3RD_CAPTURE_PRESENTS");
+        return text != nullptr ? std::atoi(text) : 0;
+    }();
+    if (burst > 1) {
+        const std::size_t dot = path.rfind(".bmp");
+        impl_->capture_burst_base = dot == std::string::npos ? path : path.substr(0u, dot);
+        impl_->capture_burst_left = burst - 1;
+        impl_->capture_burst_index = 0;
+    }
 }
 
 bool VulkanRenderer::initialize_ui(std::string &error) {
