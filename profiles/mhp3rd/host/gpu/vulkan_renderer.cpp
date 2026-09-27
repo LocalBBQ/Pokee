@@ -854,6 +854,13 @@ struct VulkanRenderer::Impl {
     bool free_faster_held{};
     bool free_slower_held{};
     void sample_free_camera(bool focused);
+    // The port's own binds in the presets (#187): a screenshot, counted
+    // once per press, and frame step, held. Read in play, in the free camera
+    // and in its photo mode alike.
+    bool screenshot_held{};
+    bool screenshot_request{};
+    bool frame_step{};
+    void sample_host_binds(bool focused);
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
     // Keyboard and mouse (input/bindings.hpp). Mouse buttons are followed
@@ -5146,7 +5153,33 @@ bool VulkanRenderer::pump_events() {
     impl_->update_pointer(focused);
     impl_->sample_pad(focused);
     impl_->sample_free_camera(focused);
+    impl_->sample_host_binds(focused);
     return !impl_->quit;
+}
+
+void VulkanRenderer::Impl::sample_host_binds(bool focused) {
+    const settings::Settings &player = settings::current();
+    const bool *keys = SDL_GetKeyboardState(nullptr);
+    const input::PadState typed = input::read(player.controls.keys, [&](input::Binding binding) {
+        if (const int button = input::mouse_button_of(binding))
+            return mouse_captured && (mouse_buttons & (1u << button)) != 0u;
+        const int position = input::key_position(binding);
+        return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
+                                 scripted_keys[static_cast<std::size_t>(position)]);
+    });
+    input::PadState pressed = typed;
+    if (gamepad != nullptr) {
+        const PadTuning tuning = pad_tuning();
+        const input::PadState mapped = input::read(
+            player.controls.pad, [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); });
+        pressed.screenshot = pressed.screenshot || mapped.screenshot;
+        pressed.frame_step = pressed.frame_step || mapped.frame_step;
+    }
+    // Nothing while a menu or the on-screen keyboard has the input; a press
+    // counts when it goes down, so one held as the menu closes does not.
+    if (pressed.screenshot && !screenshot_held && game_input) screenshot_request = true;
+    screenshot_held = pressed.screenshot;
+    frame_step = pressed.frame_step && game_input;
 }
 
 void VulkanRenderer::Impl::sample_free_camera(bool focused) {
@@ -5384,6 +5417,12 @@ FreeCameraControls VulkanRenderer::take_free_camera_controls() {
     impl_->free_controls.speed_steps = 0;
     return taken;
 }
+
+bool VulkanRenderer::take_screenshot_request() noexcept {
+    return impl_ && std::exchange(impl_->screenshot_request, false);
+}
+
+bool VulkanRenderer::frame_step_held() const noexcept { return impl_ && impl_->frame_step; }
 
 bool VulkanRenderer::window_capture_pending() const noexcept { return impl_ && !impl_->capture_path.empty(); }
 

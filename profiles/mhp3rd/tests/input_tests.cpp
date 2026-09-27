@@ -99,12 +99,21 @@ void test_presets() {
     for (std::size_t p = 0; p < kPresets; ++p) {
         const Layout &l = layout(static_cast<Preset>(p));
         for (const Bindings *table : {&l.keys, &l.pad}) {
-            std::set<std::pair<Binding, Binding>> seen;
+            // Frame step is read only in the photo mode, when the game has
+            // no input, so it may share one with a game action.
             bool unique = true;
+            for (std::size_t a = 0; a < kActions; ++a)
+                for (std::size_t b = a + 1u; b < kActions; ++b) {
+                    const Context ca = context_of(static_cast<Action>(a));
+                    const Context cb = context_of(static_cast<Action>(b));
+                    if (ca != cb && ca != Context::Anywhere && cb != Context::Anywhere) continue;
+                    for (const Chord &x : (*table)[a])
+                        for (const Chord &y : (*table)[b])
+                            if (!x.empty() && x == y) unique = false;
+                }
             for (const Slots &slots : *table)
-                for (const Chord &c : slots)
-                    if (!c.empty() && !seen.insert({c.modifier, c.main}).second) unique = false;
-            check(unique, "no input does two things in a shipped preset");
+                if (!slots[0].empty() && slots[0] == slots[1]) unique = false;
+            check(unique, "no input does two things at once in a shipped preset");
             for (std::size_t i = 0; i < kActions; ++i)
                 check(conflicts(*table, static_cast<Action>(i)).empty(), "and no preset has a conflict");
         }
@@ -125,6 +134,40 @@ void test_presets() {
               "every keyboard preset fast-forwards on the key under Esc");
         check(slots_of(l.pad, Action::FastForward)[0].empty() && slots_of(l.pad, Action::FastForward)[1].empty(),
               "and no gamepad preset binds fast-forward yet");
+    }
+    for (std::size_t p = 0; p < kPresets; ++p) {
+        const Layout &l = layout(static_cast<Preset>(p));
+        check(slots_of(l.keys, Action::Screenshot)[0] == single(from_name("F12")) &&
+                  slots_of(l.keys, Action::Screenshot)[1] == single(from_name("PrintScreen")),
+              "every keyboard preset takes a screenshot on F12 or Print Screen");
+        check(slots_of(l.keys, Action::FrameStep)[0] == single(from_name(".")), "and steps a frame on .");
+        const bool mirrored = l.swap_sticks;
+        check(slots_of(l.pad, Action::Screenshot)[0] ==
+                  (mirrored ? chord(pad(PadInput::LeftStick), pad(PadInput::West))
+                            : chord(pad(PadInput::RightStick), pad(PadInput::DpadLeft))),
+              "gamepads take a screenshot with the camera stick's button and D-pad left, mirrored left-handed");
+        check(slots_of(l.pad, Action::FrameStep)[0] == single(pad(mirrored ? PadInput::East : PadInput::DpadRight)),
+              "and step a frame on D-pad right, mirrored left-handed");
+        // Neither pad chord is one the port already reads by itself: L3 + R3
+        // opens the menu and Back + R3 turns the free camera on and off.
+        for (const Chord &c : slots_of(l.pad, Action::Screenshot)) {
+            const auto has = [&](PadInput input) { return c.modifier == pad(input) || c.main == pad(input); };
+            check(!(has(PadInput::LeftStick) && has(PadInput::RightStick)), "the screenshot chord is not the menu's");
+            check(!(has(PadInput::Back) && has(PadInput::RightStick)), "nor the free camera's");
+        }
+    }
+    {
+        // Frame step and a game action on one input do not clash; a
+        // screenshot, taken during play as well, does.
+        Bindings b{};
+        b[static_cast<std::size_t>(Action::Right)] = {single(pad(PadInput::DpadRight)), {}};
+        b[static_cast<std::size_t>(Action::FrameStep)] = {single(pad(PadInput::DpadRight)), {}};
+        check(conflicts(b, Action::FrameStep).empty() && conflicts(b, Action::Right).empty(),
+              "frame step shares an input with the game without a conflict");
+        b[static_cast<std::size_t>(Action::Screenshot)] = {single(pad(PadInput::DpadRight)), {}};
+        check(conflicts(b, Action::Screenshot).size() == 2u, "a screenshot on it clashes with both");
+        const PadState held = read(b, [](Binding x) { return x == pad(PadInput::DpadRight); });
+        check(held.frame_step && held.screenshot && (held.buttons & 0x0020u) != 0u, "each is read as held");
     }
     const Bindings &c = layout(Preset::Classic).keys;
     check(slots_of(c, Action::StickUp)[0] == single(from_name("I")) &&

@@ -272,6 +272,12 @@ public:
     // The free camera's controls since the last take; nothing unless the
     // free camera setting is on and the game has input.
     [[nodiscard]] FreeCameraControls take_free_camera_controls();
+    // The screenshot bind was pressed since the last take (#187). Read in
+    // play, in the free camera and in its photo mode, not while a menu has
+    // the input.
+    [[nodiscard]] bool take_screenshot_request() noexcept;
+    // The frame step bind is held now (#187); only the photo mode acts on it.
+    [[nodiscard]] bool frame_step_held() const noexcept;
     // A window capture (capture_window) waits for the next present, so the
     // interface can leave out what does not belong in a picture.
     [[nodiscard]] bool window_capture_pending() const noexcept;

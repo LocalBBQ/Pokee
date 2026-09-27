@@ -88,12 +88,15 @@ constexpr ActionInfo kInfo[kActions] = {
     {"dpad_right", "D-pad right"}, {"camera_up", "Camera up"},     {"camera_left", "Camera left"},
     {"camera_down", "Camera down"}, {"camera_right", "Camera right"}, {"triangle_circle", "△ + ○  (together)"},
     {"fast_forward", "Fast-forward"},
+    {"screenshot", "Screenshot"},
+    {"frame_step", "Frame step (photo mode)"},
 };
 
 // SceCtrlButtons for the actions that are buttons.
 constexpr std::uint32_t kButtonBits[kActions] = {
     0u,      0u,      0u,      0u,      0x1000u, 0x2000u, 0x4000u, 0x8000u, 0x0100u, 0x0200u, 0x0008u,
     0x0001u, 0x0010u, 0x0080u, 0x0040u, 0x0020u, 0u,      0u,      0u,      0u,      0x3000u, 0u,
+    0u,      0u,
 };
 
 bool equal_ignoring_case(std::string_view a, std::string_view b) {
@@ -199,6 +202,14 @@ const char *group_name(ActionGroup group) {
     case ActionGroup::Camera: return "Camera";
     case ActionGroup::System: return "System";
     default: return "Port features";
+    }
+}
+
+Context context_of(Action action) {
+    switch (action) {
+    case Action::FrameStep: return Context::PhotoMode;
+    case Action::Screenshot: return Context::Anywhere;
+    default: return Context::Game;
     }
 }
 
@@ -338,6 +349,10 @@ std::vector<Conflict> conflicts(const Bindings &bindings, Action action) {
         for (std::size_t i = 0; i < kActions; ++i) {
             const auto other = static_cast<Action>(i);
             if (other == action) continue;
+            const Context mine_when = context_of(action);
+            const Context their_when = context_of(other);
+            if (mine_when != their_when && mine_when != Context::Anywhere && their_when != Context::Anywhere)
+                continue;
             for (const Chord &theirs : bindings[i]) {
                 if (theirs.empty()) continue;
                 if (theirs == c) found.push_back({Conflict::Kind::Same, other, c, theirs});
@@ -375,6 +390,8 @@ PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held
     pad.camera_x = axis(Action::CameraLeft, Action::CameraRight);
     pad.camera_y = axis(Action::CameraUp, Action::CameraDown);
     pad.fast_forward = on[static_cast<std::size_t>(Action::FastForward)];
+    pad.screenshot = on[static_cast<std::size_t>(Action::Screenshot)];
+    pad.frame_step = on[static_cast<std::size_t>(Action::FrameStep)];
     return pad;
 }
 

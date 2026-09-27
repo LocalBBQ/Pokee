@@ -48,6 +48,10 @@ enum class Action : std::uint8_t {
     // Not a PSP control: runs the game faster than real time while held, or
     // turns that on and off (kernel/fast_forward.hpp). Single player only.
     FastForward,
+    // Not PSP controls either (#187): saves the game's picture as a PNG, and
+    // in the free camera's photo mode runs the game on by one frame.
+    Screenshot,
+    FrameStep,
     Count
 };
 inline constexpr std::size_t kActions = static_cast<std::size_t>(Action::Count);
@@ -151,6 +155,12 @@ enum class ActionGroup : std::uint8_t { Movement, Attacks, Items, Camera, System
 inline constexpr std::size_t kActionGroups = static_cast<std::size_t>(ActionGroup::Count);
 [[nodiscard]] ActionGroup group_of(Action action);
 [[nodiscard]] const char *group_name(ActionGroup group);
+// When an action's bindings are read. The PSP's controls and fast-forward
+// reach the game only while it has input; frame step is read only in the
+// free camera's photo mode, when the game has none, so it may share an input
+// with them; a screenshot is taken whenever the game is on screen.
+enum class Context : std::uint8_t { Game, PhotoMode, Anywhere };
+[[nodiscard]] Context context_of(Action action);
 // The SceCtrlButtons an action presses; 0 for the sticks.
 [[nodiscard]] std::uint32_t buttons_of(Action action);
 
@@ -192,7 +202,8 @@ bool clear(Bindings &bindings, Action action, std::size_t slot);
 // Removes `chord` from an action, wherever it is. False when it has none.
 bool remove(Bindings &bindings, Action action, Chord chord);
 
-// What clashes with a chord of an action.
+// What clashes with a chord of an action. Actions never read at the same
+// time (context_of) do not clash.
 struct Conflict {
     enum class Kind : std::uint8_t {
         Same,      // another action has the same chord: one press does both
@@ -217,6 +228,8 @@ struct PadState {
     int camera_x{};           // the second stick
     int camera_y{};
     bool fast_forward{};      // the fast-forward bind is held
+    bool screenshot{};        // the screenshot bind is held
+    bool frame_step{};        // the frame step bind is held
 };
 [[nodiscard]] PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held);
 

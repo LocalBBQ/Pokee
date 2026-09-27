@@ -11,7 +11,8 @@ namespace {
 namespace hid {
 constexpr std::uint16_t A = 4, C = 6, D = 7, E = 8, F = 9, H = 11, I = 12, J = 13, K = 14, L = 15, O = 18;
 constexpr std::uint16_t Q = 20, S = 22, U = 24, W = 26, X = 27, Z = 29;
-constexpr std::uint16_t Return = 40, Backspace = 42, Tab = 43, Space = 44, Grave = 53;
+constexpr std::uint16_t Return = 40, Backspace = 42, Tab = 43, Space = 44, Grave = 53, Period = 55;
+constexpr std::uint16_t F12 = 69, PrintScreen = 70;
 constexpr std::uint16_t Right = 79, Left = 80, Down = 81, Up = 82;
 constexpr std::uint16_t Keypad4 = 92, Keypad5 = 93, Keypad6 = 94, Keypad8 = 96;
 constexpr std::uint16_t LeftShift = 225, RightShift = 229;
@@ -25,6 +26,28 @@ public:
     }
     Builder &set(Action action, Binding first, Binding second = kNone) {
         return set(action, single(first), second != kNone ? single(second) : Chord{});
+    }
+    // What every keyboard preset has: the port's own binds, on keys no
+    // preset gives the game.
+    Builder &host_keys() {
+        // The key under Esc, which nothing else is bound to.
+        set(Action::FastForward, key(hid::Grave));
+        // F12 as in many PC games, and Print Screen where the system leaves
+        // it to the game.
+        set(Action::Screenshot, key(hid::F12), key(hid::PrintScreen));
+        // As in video players: . steps one frame.
+        return set(Action::FrameStep, key(hid::Period));
+    }
+    // The pad's: a screenshot on a chord of the camera stick's button, which
+    // the game does not use, and the D-pad button the free camera leaves
+    // free for frame step. `mirrored` puts both on the other side, as the
+    // left-handed layout does.
+    Builder &host_pad(bool mirrored = false) {
+        if (mirrored)
+            set(Action::Screenshot, chord(pad(PadInput::LeftStick), pad(PadInput::West)));
+        else
+            set(Action::Screenshot, chord(pad(PadInput::RightStick), pad(PadInput::DpadLeft)));
+        return set(Action::FrameStep, pad(mirrored ? PadInput::East : PadInput::DpadRight));
     }
     [[nodiscard]] const Bindings &done() const { return bindings_; }
 
@@ -59,8 +82,7 @@ Bindings default_keys() {
         .set(Action::CameraLeft, key(hid::J))
         .set(Action::CameraDown, key(hid::K))
         .set(Action::CameraRight, key(hid::L))
-        // The key under Esc, which nothing else is bound to.
-        .set(Action::FastForward, key(hid::Grave));
+        .host_keys();
     return b.done();
 }
 
@@ -84,7 +106,7 @@ Bindings classic_keys() {
         .set(Action::Left, key(hid::Left))
         .set(Action::Down, key(hid::Down))
         .set(Action::Right, key(hid::Right))
-        .set(Action::FastForward, key(hid::Grave));
+        .host_keys();
     return b.done();
 }
 
@@ -112,7 +134,7 @@ Bindings left_handed_keys() {
         .set(Action::CameraLeft, key(hid::Keypad4))
         .set(Action::CameraDown, key(hid::Keypad5))
         .set(Action::CameraRight, key(hid::Keypad6))
-        .set(Action::FastForward, key(hid::Grave));
+        .host_keys();
     return b.done();
 }
 
@@ -131,7 +153,8 @@ Bindings default_pad() {
         .set(Action::Up, pad(PadInput::DpadUp))
         .set(Action::Left, pad(PadInput::DpadLeft))
         .set(Action::Down, pad(PadInput::DpadDown))
-        .set(Action::Right, pad(PadInput::DpadRight));
+        .set(Action::Right, pad(PadInput::DpadRight))
+        .host_pad();
     return b.done();
 }
 
@@ -151,7 +174,8 @@ Bindings modern_pad() {
         .set(Action::Up, pad(PadInput::DpadUp))
         .set(Action::Left, pad(PadInput::DpadLeft))
         .set(Action::Down, pad(PadInput::DpadDown))
-        .set(Action::Right, pad(PadInput::DpadRight));
+        .set(Action::Right, pad(PadInput::DpadRight))
+        .host_pad();
     return b.done();
 }
 
@@ -176,7 +200,8 @@ Bindings left_handed_pad() {
         .set(Action::Up, pad(PadInput::North))
         .set(Action::Left, pad(PadInput::West))
         .set(Action::Down, pad(PadInput::South))
-        .set(Action::Right, pad(PadInput::East));
+        .set(Action::Right, pad(PadInput::East))
+        .host_pad(true);
     return b.done();
 }
 
