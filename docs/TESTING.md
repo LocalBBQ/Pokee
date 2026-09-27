@@ -76,6 +76,19 @@ For the manual check, unplug the gamepad (or leave it untouched) and play from t
 
 With `MHP3RD_TRACE_PAD=1` the console shows `[pad] pointer captured` and `[pad] pointer free` as the pointer changes hands, and the mouse's motion in counts and degrees.
 
+### Touch controls (#174)
+
+`mhp3rd_touch_tests` (CTest) checks both touch layouts without a screen: that the Action layout fits 20:9, 16:9 and tablet shapes with no two elements overlapping, how `settings.ini` spells a placement, that a button presses its PSP buttons (the combined attack △ and ○ in one frame), that the stick, a button and a camera drag work at once, that a thumb slides across the attack cluster, that a quick swipe presses D-pad Left or Right for a moment and a slow drag in the swipe area turns the camera instead, and that hidden and rebound elements behave. On a desktop the input script's `finger`, `hold` and `swipe` steps are a virtual touch screen, and `drag` moves the menu's pointer as a touch does (see `host/ui/input_script.hpp`).
+
+On a phone, with Controls → Touch screen → *Layout* set to Action, in a quest:
+
+- Move with the stick while attacking and turning the camera with another finger; hold R (Guard) and attack; tap the combined attack button and see the combined attack come out at once.
+- Evade, sheathe with □, open the item pouch with L and scroll the item bar with quick swipes left and right in the area above the middle; a slow drag there turns the camera.
+- Pause opens Yakumo's menu; Start and Select open the game's.
+- *Edit the action layout…*: move, resize, rebind (for example Special to R + △) and hide elements, change the opacity and haptic feedback, leave and come back, restart the app: the layout is as you left it. *Reset the whole layout* brings the first one back.
+- Rotate the phone and come back from the background: the layout stays clear of the cutout and the game's health, sharpness and item bar.
+- Set *Layout* back to PSP buttons: the old layout is unchanged.
+
 ### Texture pack import (#49)
 
 `mhp3rd_texture_pack_tests` (CTest) checks the import without game data or a window: finding a pack in each layout (the pack folder, `textures/NPJB40001`, `NPJB40001`, `PSP/TEXTURES/NPJB40001`, in any case), a pack named for `ULJM05800` taken only when its `[games]` lists `NPJB40001`, `quick` and hashless packs refused, zipped packs refused with "unpack it first", key, image, size and missing-image counts, the copy into a staging folder, the swap that moves the old pack to `textures/.backup/<date>_<time>/NPJB40001`, cancelling, and where the pack is read from with `MHP3RD_TEXTURE_PACK` and a pack used in place. `mhp3rd_texture_pack_tests --check <folder>` prints what the menu would find in a real folder and reads nothing else.

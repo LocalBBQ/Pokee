@@ -288,6 +288,31 @@ The shipped presets never change. Changing a binding while one of them is chosen
 
 **From earlier versions.** Settings without a preset become one the first time they are read: the Default or Classic keyboard preset if the bindings are exactly one of those, otherwise a preset of your own named *Custom* with your keyboard bindings. The **trigger profiles** of earlier versions are part of it: *Bows* became LT on R and RT on △, *Bowguns* LT on R and RT on ○, over the Default pad. `input.trigger_profile` is dropped at the next save, and `MHP3RD_PAD_TRIGGERS` is no longer read (`MHP3RD_CONTROL_PRESET` chooses a preset for a run).
 
+### Touch screen
+
+On a touch screen (the Android app, or any screen SDL reports touches from) controls are drawn over the game once it is touched, and hidden again when a gamepad or the keyboard is used. Controls → *Touch screen* → *Layout* chooses between two:
+
+- **PSP buttons** (the default): a stick that appears where the left thumb lands, the four face buttons in the PSP's diamond on the right, L and R at the top corners, a D-pad at the left edge (*D-pad*), and Select, the menu button and Start small at the top.
+- **Action**: large buttons named for what they do, each pressing a PSP button or two in the same frame:
+
+| Element | Where | Presses |
+| --- | --- | --- |
+| Stick | Low on the left, fixed | The analog stick; a thumb landing on or near it takes it |
+| Item pouch | Above the stick, at the edge | L |
+| D-pad Up, D-pad Down | Beside the stick | D-pad Up, Down |
+| Attack | The large button low on the right | △ |
+| Second attack | Above the attack | ○ |
+| Combined attack | Left of the attack, high | △ and ○ in the same frame |
+| Evade | Left of the attack, low | × |
+| Use / sheathe | Small, further left | □ |
+| Guard, Special | Right of the attack | R, both |
+| Pause, Start, Select | Small, top right | Yakumo's menu; START; SELECT |
+| Swipe area | Above the middle | A quick swipe left or right presses D-pad Left or Right for a moment (the item bar), again for each further length of swipe |
+
+  Every finger is independent: the stick, the buttons and a camera drag work at the same time, and buttons stay pressed while held. A thumb on the right-hand cluster can slide from one button to the next. A finger anywhere free turns the camera, as on the PSP-button layout; in the swipe area a finger that does not swipe within about a quarter of a second turns the camera too, with the motion it made, so a swipe never turns the camera and a slow drag is never a swipe. The icons are drawn by Yakumo, simple shapes; each button shows what it presses beside it. Placements keep their distance from the nearer edge of the screen's safe area (the swipe area from its middle), in heights of the screen, so the layout fits phones and tablets of any shape and stays clear of a cutout.
+
+**Editing the action layout.** *Edit the action layout…* shows it over the game. Drag an element to move it; tap one to choose it, and the panel then sets what it presses (one PSP button, or two such as △ + ○ or R + △), its size, whether it is shown, or resets it. With nothing chosen the panel sets the opacity, the size of all elements, haptic feedback and where the panel sits, or resets the whole layout. Every change is saved at once, in `settings.ini` on this device (`input.touch_action.<element>`, for example `input.touch_action.combo=right 0.540 0.620 0.060 0x3000 1`: the anchor, the distance from it and from the top in heights of the safe area, the radius, the PSP buttons and whether it is shown). Pause cannot be hidden: it is the way into this menu. **Haptic feedback** (on by default) gives a short vibration when an Action button is pressed or a swipe is taken, as the system does for a key; the system's own touch feedback setting decides whether it is felt.
+
 ## On-screen keyboard
 
 When the game asks for text (the hunter's name at character creation), Yakumo opens its own keyboard over the game. It works with a gamepad alone, and a physical keyboard types into it at the same time; the mouse can click its keys.
@@ -364,8 +389,11 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Mouse | `input.mouse` | `MHP3RD_MOUSE` | On (default): the window captures the pointer while the game runs, and the mouse turns the camera and presses its bound buttons; off: the pointer is left alone |
 | Controls | Mouse sensitivity | `input.mouse_sensitivity` | `MHP3RD_MOUSE_SENSITIVITY` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99; default 0.10 |
 | Controls | Invert mouse horizontally / vertically | `input.invert_mouse_x`, `input.invert_mouse_y` | | For the mouse camera and aim |
-| Controls | On-screen controls | `input.touch_controls` | | On (default): a touch screen shows the on-screen pad once it is touched |
-| Controls | D-pad | `input.touch_dpad` | | On (default): the on-screen controls have a D-pad at the left edge, for the game's menus; off gives its place to the stick |
+| Controls | On-screen controls | `input.touch_controls` | | On (default): a touch screen shows the on-screen controls once it is touched |
+| Controls | Layout | `input.touch_layout` | `MHP3RD_TOUCH_LAYOUT` | `psp` (PSP buttons, the default) or `action`; see [Touch screen](#touch-screen) |
+| Controls | Edit the action layout… | `input.touch_action.<element>` | | Where each element of the Action layout is, what it presses and whether it is shown |
+| Controls | Haptic feedback | `input.touch_haptics` | | On (default): a short vibration for an Action button or swipe |
+| Controls | D-pad | `input.touch_dpad` | | On (default): the PSP-button layout has a D-pad at the left edge, for the game's menus; off gives its place to the stick |
 | Controls | Controls opacity | `input.touch_opacity` | | 10–100%; default 50% |
 | Controls | Controls size | `input.touch_size` | | 60–160% of the default size; default 100% |
 | Controls | Touch camera speed | `input.touch_camera_speed` | | Degrees the camera turns for a drag across the screen's height, 30 to 720; default 180 |
@@ -864,6 +892,7 @@ What is left is the game's own music fading out and its animations, which play a
 | `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button (menu: Confirm button) |
 | `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel (menu: Stick dead zone) |
 | `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press anything (menu: Trigger point) |
+| `MHP3RD_TOUCH_LAYOUT` | unset | The touch layout for this run: `psp` or `action` (menu: Layout) |
 | `MHP3RD_CONTROL_PRESET` | unset | The control preset for this run: `default`, `modern`, `left_handed`, `classic`, or the name of one of the player's (menu: Preset). `MHP3RD_PAD_TRIGGERS`, which chose a trigger profile, is retired: its profiles are presets now |
 | `MHP3RD_ANALOG_CAMERA` | on | Proportional yaw and continuous tilt in the ordinary quest camera, the tilt limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the angle. The physical D-pad and recentre return control to the game. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
 | `MHP3RD_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
@@ -983,7 +1012,7 @@ With the setting off nothing is hooked into the display lists, no input is read 
 | `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes |
 | `MHP3RD_TRACE_OSK=1` | Every keyboard utility call with the status it returns, and the words of the parameter block, its first field and the strings they point to |
 | `MHP3RD_TRACE_ADHOC=1` | Every ad hoc, network dialog and wireless call with its arguments and result, and every packet header sent to or received from the ad hoc server (menu: Network, *Log every call and packet*) |
-| `MHP3RD_INPUT_SCRIPT` | Scripted keys, mouse motion and buttons, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu, the setup, the on-screen keyboard and the game's controls without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Its virtual gamepad also becomes the game's pad, in place of a real one that is connected; its keys reach the game through the bindings as well as the interface; with mouse steps the pointer counts as captured without taking the real one. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick;400:key W 30;430:mouse 50 0` |
+| `MHP3RD_INPUT_SCRIPT` | Scripted keys, mouse motion and buttons, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu, the setup, the on-screen keyboard and the game's controls without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Its virtual gamepad also becomes the game's pad, in place of a real one that is connected; its keys reach the game through the bindings as well as the interface; with mouse steps the pointer counts as captured without taking the real one; its finger steps are a virtual touch screen, and `drag` moves the interface's pointer as a touch does. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick;400:key W 30;430:mouse 50 0` |
 | `MHP3RD_INPUT_LIVE` | A file read while the game runs; each line appended to it is an input-script step timed from when it is read, to drive two instances side by side |
 | `MHP3RD_DUMP_OVERLAYS` | Directory to dump an overlay that has no library into |
 | `PSPRECOMP_NO_INTERPRETER=1` | Stop at uncompiled code instead of interpreting it |
