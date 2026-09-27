@@ -321,6 +321,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | Game speed | `video.unthrottled` | `MHP3RD_UNTHROTTLED` | Normal (held to real time) or unlimited |
 | Video | Fast loading | `video.fast_loading` | `MHP3RD_FAST_LOADING` | On (default) or off: while the game loads, and only then, it runs ahead of real time. See [Fast loading](#fast-loading) |
 | Video | Performance | `video.performance` | `MHP3RD_PERF` | Off, overlay, overlay and log, log only |
+| Video | GPU compatibility | `video.gpu_compat` | `MHP3RD_GPU_COMPAT` | Auto (default), on or off; applies from the next start. See [GPU compatibility mode](#gpu-compatibility-mode) |
 | Video | Font | `text.font` | `MHP3RD_FONT` | Default (a Japanese system font), or an installed font; see [Game text](#game-text) |
 | Video | Weight | `text.weight` | | Regular, bold (default) or heavy: thickens the game's text by 0–2 pixel columns |
 | Audio | Volume | `audio.volume` | | 0–100% |
@@ -723,7 +724,21 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TRACE_RENDER` | off | A `[render-split]` line each second: the render thread's milliseconds per game frame running display lists (parsing, vertex decode, the renderer's handling of each draw with its texture and command recording) and on interpolation, replays, presents and the write-back. Timed with the CPU's own counter, so the frame barely changes |
 | `MHP3RD_NO_FAST_STORE` | off | Convert the frame written back to guest memory pixel by pixel, as before, instead of a row at a time |
 | `MHP3RD_TEXTURE_CACHE_LIMIT` | `1024` | Keep at most this many decoded textures on the GPU; a small number tests eviction |
+| `MHP3RD_GPU_COMPAT` | `auto` | `1` or `on` forces [GPU compatibility mode](#gpu-compatibility-mode) on, `0` or `off` keeps it off even for the drivers Auto turns it on for (menu: GPU compatibility) |
+| `MHP3RD_NO_GPU_SELFTEST` | off | Skips the start-up self-test of the GE's pipelines |
+| `MHP3RD_GPU_SELFTEST` | unset | `fail` counts the self-test's result with the specialized fragment shader as wrong, so the retry with the plain one runs; `fail-all` counts both as wrong, so the note over the game shows. For testing the fallbacks on any GPU |
+| `MHP3RD_GPU_FAIL_PIPELINES` | off | Refuses every pipeline with the specialized fragment shader, as a driver that cannot build one would, so the fallback to the plain shader runs on any GPU |
 | `MHP3RD_MOLTENVK_ASYNC_SUBMITS` | off | macOS: `1` lets MoltenVK turn each submitted frame into Metal commands on a thread of its own instead of the game's, saving 1–2 ms of the game's thread a frame. Off by default: it crashed after minutes of play in v0.6.0-alpha.4. MoltenVK's own `MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS=0` does the same |
+
+### GPU compatibility mode
+
+Phones with MediaTek Helio chips and older Mali or PowerVR drivers showed a black screen with sound (issues #159 and #169). The renderer now checks the GPU before it relies on it and falls back where it can:
+
+- At start the log gets `[gpu]` lines: the GPU, the driver (`r32p1` for a Mali driver), the limits, features and formats the renderer uses, the memory types and the surface's formats and capabilities. On Android they go to logcat as well. A GPU without something the renderer needs is named in the error instead of failing later; on Android the error is shown in a message box. Compressed texture formats are not needed: the game's DXT textures are decoded on the CPU.
+- A self-test (`[gpu-selftest]`) draws a small picture with the game's own pipelines and reads it back. If it comes out wrong, it is tried again with the fragment shader built without its specialization constant, which is then used for everything.
+- A pipeline the driver refuses is logged with its `VkResult`, then retried without the pipeline cache and with the plain fragment shader.
+- **GPU compatibility mode** (Video → GPU compatibility, `video.gpu_compat`) leaves out what old drivers are suspected of getting wrong: the specialization constant, robust buffer access, the pipeline cache and the background pipelines, render passes that skip loading the target, GPU timestamps, and a second frame in flight. Auto, the default, turns it on for Mali drivers older than r38 and for PowerVR drivers only; the picture is the same, and other GPUs are unchanged.
+- If the picture is still known to be wrong, a note over the game says so and where to send the log, until the menu is opened. A lost GPU on Android is reported in a message box before the app closes.
 
 ### Picture shape and size
 
