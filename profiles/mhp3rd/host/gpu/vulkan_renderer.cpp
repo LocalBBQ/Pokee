@@ -6114,10 +6114,19 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     static const bool trace3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
     // MHP3RD_TRACE_SPRITES=N: every through-mode sprite of frame N, with the
     // texture state it samples, to find the tiles a 2D screen is built from.
-    static const std::uint64_t trace_sprites_frame = [] {
+    // MHP3RD_TRACE_SPRITES=N/K traces frame N and every Kth frame after it.
+    static const std::pair<std::uint64_t, std::uint64_t> trace_sprites_frames = [] {
         const char *text = std::getenv("MHP3RD_TRACE_SPRITES");
-        return text != nullptr ? std::strtoull(text, nullptr, 10) : ~0ull;
+        if (text == nullptr) return std::pair{~0ull, 0ull};
+        char *end = nullptr;
+        const std::uint64_t first = std::strtoull(text, &end, 10);
+        const std::uint64_t every = end != nullptr && *end == '/' ? std::strtoull(end + 1, nullptr, 10) : 0ull;
+        return std::pair{first, every};
     }();
+    const bool trace_sprites =
+        impl.frames == trace_sprites_frames.first ||
+        (trace_sprites_frames.second != 0u && impl.frames > trace_sprites_frames.first &&
+         (impl.frames - trace_sprites_frames.first) % trace_sprites_frames.second == 0u);
 
     // Transformed triangles, strips and fans go straight into the vertex
     // buffer: each decoded vertex once, converted as it is written, and a
@@ -6132,7 +6141,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                         (call.primitive == PrimitiveType::Triangles ||
                          call.primitive == PrimitiveType::TriangleStrip ||
                          call.primitive == PrimitiveType::TriangleFan) &&
-                        !trace && !trace3d && impl.frames != trace_sprites_frame;
+                        !trace && !trace3d && !trace_sprites;
 
     const auto expand = [&]() -> bool {
         switch (call.primitive) {
@@ -6243,29 +6252,36 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     }
 
 
-    if (impl.frames == trace_sprites_frame && call.primitive != PrimitiveType::Sprites) {
+    if (trace_sprites && call.primitive != PrimitiveType::Sprites) {
         float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f, u0 = 1e9f, v0 = 1e9f, u1 = -1e9f, v1 = -1e9f;
+        float z0 = 1e9f, z1 = -1e9f;
         for (std::size_t i = 0; i < count; ++i) {
             const Vertex &v = vertex_at(i);
             x0 = std::min(x0, v.position[0]); x1 = std::max(x1, v.position[0]);
             y0 = std::min(y0, v.position[1]); y1 = std::max(y1, v.position[1]);
+            z0 = std::min(z0, v.position[2]); z1 = std::max(z1, v.position[2]);
             u0 = std::min(u0, v.texcoord[0]); u1 = std::max(u1, v.texcoord[0]);
             v0 = std::min(v0, v.texcoord[1]); v1 = std::max(v1, v.texcoord[1]);
         }
-        std::cout << "[sprite] other prim=" << static_cast<int>(call.primitive) << (call.through ? " through" : " transform")
+        std::cout << "[sprite] f=" << impl.frames << " at=0x" << std::hex << call.command_address << " ret=0x"
+                  << call.call_return << " vtx=0x" << call.vertex_address << " fb=0x" << call.target.color_address
+                  << std::dec << " z=" << z0 << "-" << z1 << " other prim=" << static_cast<int>(call.primitive)
+                  << (call.through ? " through" : " transform")
                   << " n=" << count << " pos=(" << x0 << "," << y0 << ")-(" << x1 << "," << y1 << ") uv=(" << u0
                   << "," << v0 << ")-(" << u1 << "," << v1 << ") tex=" << (call.texture.enabled ? 1 : 0) << " 0x"
                   << std::hex << call.texture.address << std::dec << " " << call.texture.width << "x"
                   << call.texture.height << " fmt=" << static_cast<int>(call.texture.format)
                   << " filter=" << call.texture.min_filter << "/" << call.texture.mag_filter << "\n";
     }
-    if (call.through && call.primitive == PrimitiveType::Sprites && impl.frames == trace_sprites_frame) {
+    if (call.through && call.primitive == PrimitiveType::Sprites && trace_sprites) {
         for (std::size_t i = 0; i + 1u < count; i += 2u) {
             const Vertex &a = vertex_at(i);
             const Vertex &b = vertex_at(i + 1u);
-            std::cout << "[sprite] pos=(" << a.position[0] << "," << a.position[1] << ")-(" << b.position[0] << ","
-                      << b.position[1] << ") uv=(" << a.texcoord[0] << "," << a.texcoord[1] << ")-("
-                      << b.texcoord[0] << "," << b.texcoord[1] << ") tex=" << (call.texture.enabled ? 1 : 0)
+            std::cout << "[sprite] f=" << impl.frames << " at=0x" << std::hex << call.command_address << " ret=0x"
+                      << call.call_return << " vtx=0x" << call.vertex_address << " fb=0x"
+                      << call.target.color_address << std::dec << " z=" << b.position[2] << " pos=(" << a.position[0]
+                      << "," << a.position[1] << ")-(" << b.position[0] << "," << b.position[1] << ") uv=("
+                      << a.texcoord[0] << "," << a.texcoord[1] << ")-(" << b.texcoord[0] << "," << b.texcoord[1] << ") tex=" << (call.texture.enabled ? 1 : 0)
                       << " 0x" << std::hex << call.texture.address << std::dec << " " << call.texture.width << "x"
                       << call.texture.height << " fmt=" << static_cast<int>(call.texture.format)
                       << " filter=" << call.texture.min_filter << "/" << call.texture.mag_filter

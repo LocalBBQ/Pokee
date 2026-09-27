@@ -971,6 +971,8 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     call.vertex_address = vertex_address_;
     call.index_address = index_type != 0u ? index_address_ : 0u;
     call.primitive_count = count;
+    call.command_address = command_pc_;
+    call.call_return = call_stack_.empty() ? 0u : call_stack_.back();
     call.material_color = material_color_;
     call.lighting_enabled = lighting_enabled_;
     call.has_vertex_color = ((vertex_type_ >> 2u) & 7u) != 0u;
@@ -1149,6 +1151,7 @@ std::uint32_t GeState::execute(const GuestMemory &memory, std::uint32_t pc, std:
             if (signal_sink_) signal_sink_(data & 0xFFFFu, pc);
             continue;
         case kPrimitive:
+            command_pc_ = pc - 4u;
             draw_primitive(memory, data);
             continue;
         case kBezier:

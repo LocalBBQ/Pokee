@@ -177,6 +177,11 @@ struct DrawCall {
     std::uint32_t vertex_address{};
     std::uint32_t index_address{};
     std::uint32_t primitive_count{};
+    // The PRIM command's own address, and where the innermost CALL of the
+    // list returns to (0 at the top level): which part of the game's list
+    // made the draw.
+    std::uint32_t command_address{};
+    std::uint32_t call_return{};
     std::uint32_t material_color{0xFFFFFFFFu};
     bool lighting_enabled{};
     bool has_vertex_color{};             // the vertex type carries a colour
@@ -318,6 +323,7 @@ private:
     std::uint32_t bone_write_index_{};
 
     std::vector<std::uint32_t> call_stack_;
+    std::uint32_t command_pc_{};
     DrawCall call_;  // reused by draw_primitive for every draw
     DrawSink draw_sink_;
     SignalSink signal_sink_;
