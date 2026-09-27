@@ -59,6 +59,7 @@ For the manual check, open **Video** in the menu and compare the three **Aspect 
 - Switching the value back and forth takes effect at once; the console logs `[aspect] the game's view is … wide to 1 high`, and back at Original the game's `1.76471`.
 - With **Resolution** on Auto, resize the window, toggle fullscreen and, where possible, move it to another display: after a moment the console logs `[render] internal resolution W×H` with the window's size.
 - On a Steam Deck (1280×800, 16:10), Fill with Auto draws 1280×800 and should hold 30 fps in a quest.
+- On a phone with a notch or a camera hole (#170), in both landscapes, after turning the phone, after returning from the home screen and after pulling down the notification shade: Fill covers the whole screen, the cutout's edge included, with no black strip beside the cutout; Original shows bars of the same width on both sides; Stretch is letterboxed evenly by the cutout's depth. The touch controls stay clear of the cutout. The log's `[render] layout` lines give the window, the surface, the cutout and the picture's place for a report.
 
 ### Keyboard and mouse (#94)
 

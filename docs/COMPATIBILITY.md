@@ -16,11 +16,12 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ✅ MSVC 19.44, all 355 overlay DLLs [#13] | ✅ NDK r28c, arm64-v8a; all 355 overlay libraries |
 | Boot, title and menus | ✅ | ❔ | ✅ | ✅ | ✅ |
 | Character creation | ✅ | ❔ | ✅ | ❔ | ✅ |
-| Village | ✅ | ❔ | ✅ | ✅ reached from a loaded save | ❔ |
+| Village | ✅ | ❔ | ✅ | ✅ reached from a loaded save | ✅ reached from a loaded save |
 | Hunts | ✅ | ❔ | ✅ | ❔ | ✅ |
 | Graphics | ✅ lighting, fog, the quest reward screen and tiled 2D screens | ❔ | ✅ lighting, fog, the quest reward screen and tiled 2D screens; ⚠️ lighting slows the busiest village spots slightly [#7] | ❔ | ❔ on a device |
 | Sound effects | ❔ re-check [#4]: the game now runs at real time | ❔ | ❔ | ❔ | ❔ |
 | Music | ✅ with FFmpeg | ❔ | ❔ | ❔ | ❔ |
+| Picture beside a display cutout [#170] | ✅ unchanged (no cutout) | ❔ | ❔ | ❔ | ✅ centred and full screen with hole, corner and tall cutouts, in both landscapes, after turns, the home screen and the notification shade; ❔ on a device |
 | Cutscene movies | ✅ with FFmpeg; the opening movie checked | ❔ | ❔ | ❔ | ✅ the opening movie |
 | Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ✅ a new character saves and loads after restarting the game [#13] | ✅ saves load; import and export through Android's file picker |
 | Save-data pass [#167]: create, save, load after a restart, overwrite, import, backup | ✅ all of it, the backup reminder and the import's *Back up now* included | ❔ | ❔ the Deck was offline for the pass | ✅ all of it on `main`; the backup reminder is newer than that build and was not checked | ✅ the reminder and *Back up now* through the picker, import of an encrypted PSP save with the review's backup, load after the restart; ❔ creating and overwriting a character (emulator keyboard) |
@@ -57,6 +58,8 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | Windows 11 Pro | Ryzen 5 5600, 16 GB | AMD Radeon RX 5600 XT | `87bc4d9` (save-data pass) | 2026-09-27 |
 | Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | SwiftShader | `2caf2fd` (save-data pass) | 2026-09-27 |
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `65daf82` (the hot spring's glints at 60 fps, [#168]: 240 presents in a row from a scripted run, against `MHP3RD_INTERPOLATION_NO_NEAREST_INSTANCES`) | 2026-09-27 |
+| Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
+| Android 10 emulator (API 29, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
 
 ## Updating this page
 
@@ -78,3 +81,4 @@ To report a result without editing the page, open a **Test report** issue.
 [#162]: https://github.com/TeamGDB/Yakumo/issues/162
 [#167]: https://github.com/TeamGDB/Yakumo/issues/167
 [#168]: https://github.com/TeamGDB/Yakumo/issues/168
+[#170]: https://github.com/TeamGDB/Yakumo/issues/170
