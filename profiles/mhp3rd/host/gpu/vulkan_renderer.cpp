@@ -1553,6 +1553,7 @@ struct VulkanRenderer::Impl {
         std::uint64_t followed{};        // draw calls without a partner moved with the camera only
         std::uint32_t rejected{};        // pairs given up: moved too far on their own
         std::uint32_t rejected_shared{}; // of those, with other draws of the same mesh
+        std::uint32_t repaired{};        // instances of a mesh given a nearer partner than drawing order's
         float max_own_motion{};
         std::chrono::steady_clock::duration blend_time{};  // CPU time of blended presents
         std::chrono::steady_clock::duration plain_time{};  // CPU time of the other presents
@@ -2133,6 +2134,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     impl.sharp_textures = player.sharp_textures;
     impl.trace_interpolation = std::getenv("MHP3RD_TRACE_INTERPOLATION") != nullptr;
     if (std::getenv("MHP3RD_INTERPOLATION_NO_MOTION_GUARD") != nullptr) impl.cut_thresholds.max_own_motion = 0.0f;
+    if (std::getenv("MHP3RD_INTERPOLATION_NO_NEAREST_INSTANCES") != nullptr)
+        impl.cut_thresholds.nearest_instances = false;
     impl.frame_rate = player.frame_rate;
     impl.governor.set_automatic(player.frame_rate_auto);
     const std::uint32_t window_scale = std::clamp<std::uint32_t>(player.window_scale, 1u, settings::kMaxWindowScale);
@@ -7234,6 +7237,7 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     if (matching.continued) ++stats.continued;
     stats.rejected += matching.rejected;
     stats.rejected_shared += matching.rejected_shared;
+    stats.repaired += matching.repaired;
     stats.max_own_motion = std::max(stats.max_own_motion, matching.max_own_motion);
     if (matching.camera_found) {
         stats.max_camera_angle = std::max(stats.max_camera_angle, matching.camera_angle_degrees);
@@ -7708,10 +7712,11 @@ void VulkanRenderer::Impl::report_interpolation() {
                     "dropped, %u other; not made: %u display busy, %u over budget\n",
                     stats.plain_newest, stats.plain_oldest, stats.plain_cut, stats.plain_textures,
                     plain > reasons_known ? plain - reasons_known : 0u, stats.blocked, stats.over_budget);
-        std::printf("[interp] guards: %u pairs moved too far on their own (%u with the same mesh drawn more than "
-                    "once), own motion kept up to %.1f units; %.0f draw calls a blend followed the camera only; "
-                    "%.0f texture offsets a blend held (flipbook steps)\n",
-                    stats.rejected, stats.rejected_shared, static_cast<double>(stats.max_own_motion),
+        std::printf("[interp] guards: %u instances of a mesh paired with a nearer one than drawing order's; %u "
+                    "pairs moved too far on their own (%u with the same mesh drawn more than once), own motion kept "
+                    "up to %.1f units; %.0f draw calls a blend followed the camera only; %.0f texture offsets a "
+                    "blend held (flipbook steps)\n",
+                    stats.repaired, stats.rejected, stats.rejected_shared, static_cast<double>(stats.max_own_motion),
                     stats.blended != 0u ? static_cast<double>(stats.followed) / stats.blended : 0.0,
                     stats.blended != 0u ? static_cast<double>(stats.flipbook_steps) / stats.blended : 0.0);
         std::fflush(stdout);

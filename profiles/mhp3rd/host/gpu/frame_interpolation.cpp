@@ -114,13 +114,23 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
             next_[static_cast<std::size_t>(slot.last)] = index;
         }
         slot.last = index;
+        ++slot.newer_count;
     }
     shared_.assign(older.size(), 0u);
+    older_slot_.assign(older.size(), -1);
+    older_next_.assign(older.size(), -1);
     for (std::size_t i = 0; i < older.size(); ++i) {
         if (!older[i].eligible) continue;
         ++out.eligible_older;
         Slot &slot = slot_for(key_of(older[i]), older[i]);
-        if (slot.first < 0 || slot.cursor < 0) continue;
+        if (slot.first < 0) continue;
+        const auto index = static_cast<std::int32_t>(i);
+        older_slot_[i] = static_cast<std::int32_t>(&slot - slots_.data());
+        if (slot.older_first < 0) slot.older_first = index;
+        else older_next_[static_cast<std::size_t>(slot.older_last)] = index;
+        slot.older_last = index;
+        ++slot.older_count;
+        if (slot.cursor < 0) continue;
         out.newer_of[i] = slot.cursor;
         shared_[i] = slot.first != slot.last ? 1u : 0u;
         slot.cursor = next_[static_cast<std::size_t>(slot.cursor)];
@@ -162,6 +172,8 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
         out.camera_distance = std::sqrt(out.camera[12] * out.camera[12] + out.camera[13] * out.camera[13] +
                                         out.camera[14] * out.camera[14]);
     }
+
+    if (out.camera_found && thresholds.nearest_instances) pair_nearest_instances(older, newer, thresholds);
 
     // Each pair's own motion: where the camera's motion would have taken the
     // older draw against where the newer one is, in eye space.
@@ -222,6 +234,76 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     previous_angle_degrees_ = out.camera_found ? out.camera_angle_degrees : 0.0f;
     previous_distance_ = out.camera_found ? out.camera_distance : 0.0f;
     return out;
+}
+
+void Matcher::pair_nearest_instances(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
+                                     const CutThresholds &thresholds) {
+    Matching &out = result_;
+    const Matrix &c = out.camera;
+    done_slot_.assign(slots_.size(), 0u);
+    for (std::size_t i = 0; i < older.size(); ++i) {
+        const std::int32_t at = older_slot_[i];
+        if (at < 0 || done_slot_[static_cast<std::size_t>(at)] != 0u) continue;
+        done_slot_[static_cast<std::size_t>(at)] = 1u;
+        const Slot &slot = slots_[static_cast<std::size_t>(at)];
+        if (slot.newer_count < 2u && slot.older_count < 2u) continue;
+        if (slot.newer_count > thresholds.max_nearest_instances || slot.older_count > thresholds.max_nearest_instances)
+            continue;
+        instance_older_.clear();
+        instance_newer_.clear();
+        for (std::int32_t k = slot.older_first; k >= 0; k = older_next_[static_cast<std::size_t>(k)])
+            instance_older_.push_back(k);
+        for (std::int32_t k = slot.first; k >= 0; k = next_[static_cast<std::size_t>(k)]) instance_newer_.push_back(k);
+        // Every pair's distance in the newer frame's eye space, with the
+        // older instance carried there by the camera's motion; the nearest
+        // pairs are taken first.
+        candidates_.clear();
+        for (std::size_t a = 0; a < instance_older_.size(); ++a) {
+            const DrawSummary &from = older[static_cast<std::size_t>(instance_older_[a])];
+            const std::array<float, 3> before = from.prepared ? from.eye_translation : eye_translation_of(from);
+            std::array<float, 3> predicted{};
+            for (std::size_t row = 0; row < 3u; ++row)
+                predicted[row] = c[row] * before[0] + c[4u + row] * before[1] + c[8u + row] * before[2] + c[12u + row];
+            for (std::size_t b = 0; b < instance_newer_.size(); ++b) {
+                const DrawSummary &to = newer[static_cast<std::size_t>(instance_newer_[b])];
+                const std::array<float, 3> after = to.prepared ? to.eye_translation : eye_translation_of(to);
+                float distance = 0.0f;
+                for (std::size_t row = 0; row < 3u; ++row) {
+                    const float d = after[row] - predicted[row];
+                    distance += d * d;
+                }
+                candidates_.push_back({distance, static_cast<std::int32_t>(a), static_cast<std::int32_t>(b)});
+            }
+        }
+        // Ties keep drawing order, so instances that stand still pair as before.
+        std::sort(candidates_.begin(), candidates_.end(), [](const Candidate &x, const Candidate &y) {
+            if (x.distance != y.distance) return x.distance < y.distance;
+            if (x.older != y.older) return x.older < y.older;
+            return x.newer < y.newer;
+        });
+        std::vector<std::int32_t> &partner = instance_partner_;
+        std::vector<std::uint8_t> &taken = instance_taken_;
+        partner.assign(instance_older_.size(), Matching::kNoPartner);
+        taken.assign(instance_newer_.size(), 0u);
+        std::size_t left = std::min(instance_older_.size(), instance_newer_.size());
+        for (const Candidate &candidate : candidates_) {
+            if (left == 0u) break;
+            const auto a = static_cast<std::size_t>(candidate.older);
+            const auto b = static_cast<std::size_t>(candidate.newer);
+            if (partner[a] != Matching::kNoPartner || taken[b] != 0u) continue;
+            partner[a] = instance_newer_[b];
+            taken[b] = 1u;
+            --left;
+        }
+        for (std::size_t a = 0; a < instance_older_.size(); ++a) {
+            std::int32_t &was = out.newer_of[static_cast<std::size_t>(instance_older_[a])];
+            if (was == partner[a]) continue;
+            if (was >= 0) --out.matched;
+            if (partner[a] >= 0) ++out.matched;
+            was = partner[a];
+            ++out.repaired;
+        }
+    }
 }
 
 Matrix blend_affine(const Matrix &a, const Matrix &b, float t) noexcept {

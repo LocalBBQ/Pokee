@@ -73,6 +73,9 @@ struct Matching {
     std::uint32_t rejected_shared{};
     float max_own_motion{};  // the largest own motion among the pairs kept
     float max_rejected_motion{};  // the largest among those given up
+    // Draws of a mesh drawn more than once that were given a nearer partner
+    // than the one drawing order gave them (CutThresholds::nearest_instances).
+    std::uint32_t repaired{};
     std::uint32_t eligible_older{};
     std::uint32_t eligible_newer{};
     std::uint32_t matched{};
@@ -116,6 +119,18 @@ struct CutThresholds {
     // pair up in drawing order, and that order can change. 0 turns the
     // guard off (MHP3RD_INTERPOLATION_NO_MOTION_GUARD).
     float max_own_motion{120.0f};
+    // Instances of one mesh (particles such as the hot spring's glints) are
+    // paired by where they are, each with the nearest of the
+    // newer frame's instances once the camera's motion is taken out, rather
+    // than in drawing order: a particle system draws its particles in an
+    // order that changes as they come and go, and pairing in order blends a
+    // particle towards another one, so it leaves its place in every frame in
+    // between. False pairs them in drawing order, as before
+    // (MHP3RD_INTERPOLATION_NO_NEAREST_INSTANCES).
+    bool nearest_instances{true};
+    // A mesh with more instances than this in either frame keeps the pairing
+    // in drawing order, which costs nothing.
+    std::uint32_t max_nearest_instances{64u};
 };
 
 class Matcher {
@@ -147,8 +162,17 @@ private:
         std::int32_t first{-1};
         std::int32_t last{-1};
         std::int32_t cursor{-1};
+        std::uint32_t newer_count{};
+        // The older frame's draws of the key, chained through older_next_.
+        std::uint32_t older_count{};
+        std::int32_t older_first{-1};
+        std::int32_t older_last{-1};
     };
     static Key key_of(const DrawSummary &draw) noexcept;
+    // Pairs the instances of each mesh drawn more than once by distance
+    // (CutThresholds::nearest_instances), once the camera's motion is known.
+    void pair_nearest_instances(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
+                                const CutThresholds &thresholds);
 
 public:
     // The identity's hash and eye-space translation of a draw, as summarize()
@@ -161,6 +185,18 @@ private:
     std::vector<Slot> slots_;
     std::vector<std::int32_t> next_;  // for each newer draw, the next with its key
     std::vector<std::uint8_t> shared_;  // for each older draw: its key had several newer draws
+    std::vector<std::int32_t> older_slot_;  // for each older draw: its key's slot, or -1
+    std::vector<std::int32_t> older_next_;  // for each older draw, the next with its key
+    // Scratch for pair_nearest_instances.
+    struct Candidate {
+        float distance;
+        std::int32_t older;
+        std::int32_t newer;
+    };
+    std::vector<Candidate> candidates_;
+    std::vector<std::int32_t> instance_older_, instance_newer_, instance_partner_;
+    std::vector<std::uint8_t> instance_taken_;
+    std::vector<std::uint8_t> done_slot_;
     Matching result_;
     // The previous pair's camera motion, when that pair was blended.
     bool previous_blended_{};

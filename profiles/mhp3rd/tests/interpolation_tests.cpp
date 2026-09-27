@@ -182,10 +182,46 @@ void guards() {
     mark_eligible(older, kShown);
     mark_eligible(newer, kShown);
     const Matching &swapped = matcher.match(older, newer, thresholds);
-    check(swapped.rejected == 2u && swapped.rejected_shared == 2u &&
-              swapped.newer_of[40] == Matching::kFollowCamera && swapped.newer_of[41] == Matching::kFollowCamera,
-          "swapped instances 600 units apart are not blended into each other");
+    check(swapped.newer_of[40] == 41 && swapped.newer_of[41] == 40 && swapped.rejected == 0u &&
+              swapped.repaired == 2u,
+          "swapped instances pair with themselves, by where they are");
     check(swapped.cut == nullptr, "the rest of the frame still blends");
+
+    CutThresholds in_order = thresholds;
+    in_order.nearest_instances = false;
+    Matcher ordered;
+    const Matching &swapped_in_order = ordered.match(older, newer, in_order);
+    check(swapped_in_order.rejected == 2u && swapped_in_order.rejected_shared == 2u &&
+              swapped_in_order.newer_of[40] == Matching::kFollowCamera &&
+              swapped_in_order.newer_of[41] == Matching::kFollowCamera && swapped_in_order.repaired == 0u,
+          "paired in drawing order, swapped instances 600 units apart are not blended into each other");
+
+    // Issue #168: the hot spring's glints are one mesh drawn once per glint,
+    // and a new glint is drawn first. In drawing order each glint would pair
+    // with the one before it, 60 units away, close enough to pass the motion
+    // guard: every frame in between drew it halfway there, away from its place.
+    std::vector<DrawSummary> glints_before = scene(40u), glints_after = scene(40u);
+    glints_before.push_back(draw(92u, 0.0f));
+    glints_before.push_back(draw(92u, 60.0f));
+    glints_after.push_back(draw(92u, -60.0f));  // the new one
+    glints_after.push_back(draw(92u, 0.0f));
+    glints_after.push_back(draw(92u, 60.0f));
+    mark_eligible(glints_before, kShown);
+    mark_eligible(glints_after, kShown);
+    Matcher sparkling;
+    const Matching &glints = sparkling.match(glints_before, glints_after, thresholds);
+    check(glints.newer_of[40] == 41 && glints.newer_of[41] == 42 && glints.rejected == 0u,
+          "a new instance drawn first does not pull the others towards it");
+    Matcher sparkling_in_order;
+    const Matching &glints_in_order = sparkling_in_order.match(glints_before, glints_after, in_order);
+    check(glints_in_order.newer_of[40] == 40 && glints_in_order.newer_of[41] == 41 && glints_in_order.rejected == 0u,
+          "in drawing order each would be blended 60 units towards another");
+
+    // Instances of a mesh drawn many times keep drawing order.
+    CutThresholds few = thresholds;
+    few.max_nearest_instances = 1u;
+    Matcher limited;
+    check(limited.match(older, newer, few).repaired == 0u, "past the instance limit drawing order is kept");
 
     // A character walking 20 units a frame while the camera turns keeps its pair.
     std::vector<DrawSummary> before = scene(40u, 0.0f), after = scene(40u, 5.0f);
