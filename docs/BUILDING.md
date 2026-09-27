@@ -85,7 +85,7 @@ For Game Mode, add a small launch script to Steam as a non-Steam game. The scrip
 | --- | --- |
 | MSVC: Visual Studio 2022 or newer, or just the free *Build Tools for Visual Studio* | The *Desktop development with C++* workload (MSVC and the Windows SDK). The IDE itself is not needed. `clang-cl` works on top of the same workload. MinGW has not been tried; the build files are written for MSVC |
 | CMake 3.20 or newer and Ninja | Visual Studio's own copies work, and so do standalone ones on `PATH` |
-| Python 3 | On `PATH` as `python3`. The `python3` that Windows ships by default only opens the Microsoft Store and does not work, so install Python and make sure its `python3` comes first on `PATH` |
+| Python 3 | On `PATH` as `python3`. The `python3` that Windows ships by default only opens the Microsoft Store and does not work, so install Python and make sure its `python3` comes first on `PATH`. The python.org installer provides only `python.exe`: copy it to `python3.exe` in the same folder (for example `C:\Program Files\Python314`), or turn off the `python3.exe` alias under *Settings → Apps → Advanced app settings → App execution aliases* |
 | Git for Windows | Git Bash runs the `.sh` scripts in `profiles/mhp3rd/scripts/` |
 | Vulkan SDK (LunarG) | The Vulkan loader and headers, plus `glslangValidator` for the shaders |
 | SDL3 | For example the official `SDL3-devel-*-VC.zip`; pass its directory in `CMAKE_PREFIX_PATH` when configuring |
@@ -109,6 +109,8 @@ Windows specifics:
 - **Symbolic links.** `prepare_game.sh` links the disc image into `profiles/mhp3rd/game`. Git Bash copies the file instead unless Windows Developer Mode is on and `MSYS=winsymlinks:nativestrict` is exported. A copy works too; it costs about 1.3 GB.
 - **Overlay DLLs.** Each overlay links against the executable's import library. The runtime (`psprecomp_core`) is an object library, so its objects belong to the executable and `WINDOWS_EXPORT_ALL_SYMBOLS` exports them to the overlays.
 - **No build lock.** Unlike macOS and Linux, the build does not lock its directory on Windows yet, so never run two builds of the same directory at once.
+- **Compiler cache on a non-English Windows.** `ccache` reads the include list MSVC prints, which is translated into the language of the installed Visual Studio language pack; with a non-English one it can fail to parse it. Install the English language pack of the Build Tools and `set VSLANG=1033` before configuring and building.
+- **Headless runs.** Redirected to a file, the program's output is block-buffered, and a process that is killed, for example at a time limit, loses what is still in the buffer. `MHP3RD_PERF=log` lines are flushed as they are written.
 - **Out of memory** while compiling a generated unit means the parallelism is too high. Rerun the same `cmake --build` with `-j 1`; it continues where it stopped.
 
 ## Build steps

@@ -16,7 +16,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Build | ✅ | ❔ [#14] | ✅ in a Debian 13 container [#14] | ✅ MSVC 19.44, all 355 overlay DLLs [#13] | ✅ NDK r28c, arm64-v8a; all 355 overlay libraries |
 | Boot, title and menus | ✅ | ❔ | ✅ | ✅ | ✅ |
 | Character creation | ✅ | ❔ | ✅ | ❔ | ✅ |
-| Village | ✅ | ❔ | ✅ | ❔ | ❔ |
+| Village | ✅ | ❔ | ✅ | ✅ reached from a loaded save | ❔ |
 | Hunts | ✅ | ❔ | ✅ | ❔ | ✅ |
 | Graphics | ✅ lighting, fog, the quest reward screen and tiled 2D screens | ❔ | ✅ lighting, fog, the quest reward screen and tiled 2D screens; ⚠️ lighting slows the busiest village spots slightly [#7] | ❔ | ❔ on a device |
 | Sound effects | ❔ re-check [#4]: the game now runs at real time | ❔ | ❔ | ❔ | ❔ |
@@ -49,6 +49,7 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `v0.3.0` | 2026-09-19 |
 | Windows 11 Pro | x64 PC | AMD Radeon RX 6500 XT | `98e2468` | 2026-09-19 |
 | Windows 11 Pro | x64 PC | AMD Radeon RX 6500 XT | `b67cd7a` (saving and loading) | 2026-09-20 |
+| Windows 11 Pro | AMD Ryzen 5 5600, 16 GB | AMD Radeon RX 5600 XT, AMD driver (Vulkan 1.4.315) | `87bc4d9` (build with MSVC 19.44, unit tests, a PSP save loaded, village at 30 game fps, 60 presented, 100% speed) | 2026-09-27 |
 | Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | Apple M1 through the emulator's gfxstream | `7b87a57` | 2026-09-23 |
 
 ## Updating this page
