@@ -7,12 +7,14 @@ import android.database.Cursor;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.view.DisplayCutout;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.WindowInsets;
+import android.view.WindowManager;
 
 import org.libsdl.app.SDLActivity;
 
@@ -32,6 +34,25 @@ public class YakumoActivity extends SDLActivity {
     private static final Object sPickLock = new Object();
     private static boolean sPickDone;
     private static String sPickResult;
+
+    /**
+     * Lets the window cover a display cutout, whichever side it is on. The
+     * theme asks for the short edges already; this makes sure of it, and
+     * from Android 11 asks for every edge. SDL asks for the same when it
+     * goes full screen, but only by changing the window's attributes without
+     * applying them, so whether it took hold depended on a later change:
+     * without it Android keeps the window beside the cutout and shows a black
+     * strip there, on the left with the phone turned one way (#170).
+     */
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        attributes.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= 30
+            ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        getWindow().setAttributes(attributes);
+    }
 
     /**
      * Keeps the game in landscape, either way up, as the manifest asks. SDL
