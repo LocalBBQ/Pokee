@@ -8079,6 +8079,31 @@ double VulkanRenderer::frame_rate_now() const noexcept {
 }
 
 bool VulkanRenderer::capture_frame(const std::string &path) {
+    std::vector<std::uint8_t> pixels;
+    std::uint32_t width = 0u;
+    std::uint32_t height = 0u;
+    if (!read_frame(pixels, width, height)) return false;
+    Impl &impl = *impl_;
+    // The capture is the game's own target, before the window blit; draw the
+    // overlay over it the same way, so captures show what the window shows.
+    if (impl.overlay_visible) {
+        const std::uint32_t scale = perf::overlay_scale(height);
+        const std::uint32_t inset = 4u * scale;
+        if (inset + perf::kOverlayWidth * scale <= width && inset + perf::kOverlayHeight * scale <= height) {
+            for (std::uint32_t y = 0; y < perf::kOverlayHeight * scale; ++y) {
+                std::uint8_t *row = pixels.data() + static_cast<std::size_t>(inset + y) * width * 4u;
+                for (std::uint32_t x = 0; x < perf::kOverlayWidth * scale; ++x) {
+                    const std::uint32_t pixel = impl.overlay_pixels[(y / scale) * perf::kOverlayWidth + x / scale];
+                    std::memcpy(row + (inset + x) * 4u, &pixel, 4u);
+                }
+            }
+        }
+    }
+    return write_bmp(path, pixels.data(), width, height, false);
+}
+
+bool VulkanRenderer::read_frame(std::vector<std::uint8_t> &pixels, std::uint32_t &width, std::uint32_t &height) {
+    if (!impl_) return false;
     Impl &impl = *impl_;
     if (!impl.ready) return false;
     vkDeviceWaitIdle(impl.device);
@@ -8086,8 +8111,8 @@ bool VulkanRenderer::capture_frame(const std::string &path) {
     auto shown = impl.targets.find(impl.presented_target);
     if (shown == impl.targets.end()) return false;
     const VkImage captured = shown->second.color;
-    const std::uint32_t width = impl.target_extent.width;
-    const std::uint32_t height = impl.target_extent.height;
+    width = impl.target_extent.width;
+    height = impl.target_extent.height;
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4u;
     VkBuffer staging{};
     VkDeviceMemory staging_memory{};
@@ -8131,28 +8156,11 @@ bool VulkanRenderer::capture_frame(const std::string &path) {
 
     void *mapped = nullptr;
     vkMapMemory(impl.device, staging_memory, 0u, bytes, 0u, &mapped);
-    std::vector<std::uint8_t> pixels(static_cast<const std::uint8_t *>(mapped),
-                                     static_cast<const std::uint8_t *>(mapped) + bytes);
+    pixels.assign(static_cast<const std::uint8_t *>(mapped), static_cast<const std::uint8_t *>(mapped) + bytes);
     vkUnmapMemory(impl.device, staging_memory);
     vkDestroyBuffer(impl.device, staging, nullptr);
     vkFreeMemory(impl.device, staging_memory, nullptr);
-
-    // The capture is the game's own target, before the window blit; draw the
-    // overlay over it the same way, so captures show what the window shows.
-    if (impl.overlay_visible) {
-        const std::uint32_t scale = perf::overlay_scale(height);
-        const std::uint32_t inset = 4u * scale;
-        if (inset + perf::kOverlayWidth * scale <= width && inset + perf::kOverlayHeight * scale <= height) {
-            for (std::uint32_t y = 0; y < perf::kOverlayHeight * scale; ++y) {
-                std::uint8_t *row = pixels.data() + static_cast<std::size_t>(inset + y) * width * 4u;
-                for (std::uint32_t x = 0; x < perf::kOverlayWidth * scale; ++x) {
-                    const std::uint32_t pixel = impl.overlay_pixels[(y / scale) * perf::kOverlayWidth + x / scale];
-                    std::memcpy(row + (inset + x) * 4u, &pixel, 4u);
-                }
-            }
-        }
-    }
-    return write_bmp(path, pixels.data(), width, height, false);
+    return true;
 }
 
 void VulkanRenderer::shutdown() {

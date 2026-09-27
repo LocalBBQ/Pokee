@@ -25,6 +25,7 @@
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
 #include "camera/free_camera.hpp"
+#include "gpu/screenshot.hpp"
 #include "gpu/vulkan_renderer.hpp"
 #include "hle/hle_common.hpp"
 #include "input/bindings.hpp"
@@ -187,6 +188,7 @@ private:
     Confirm confirm_{Confirm::None};
     bool confirm_opened_{};  // the confirmation was on screen last frame
     std::string preset_notice_;             // what the last preset change did, shown under Preset
+    std::string screenshot_path_;           // where Take a screenshot saved to
 };
 
 bool Menu::frame() {
@@ -736,6 +738,13 @@ bool address_character(char32_t c) {
            c == U':' || c == U'-' || c == U'[' || c == U']';
 }
 
+// An action's keys and pad buttons in one line, "F12 / PrintScreen; RS + D-pad
+// Left", or a hint when neither device has any.
+std::string binds_of(input::Action action) {
+    std::string text = bindings_summary(action);
+    return text.empty() ? "none: set it in Controls" : text;
+}
+
 // Characters a preset's name may hold: printable, without settings.ini's own.
 bool preset_name_character(char32_t c) { return c >= 0x20u && c != 0x7Fu && c != U'=' && c != U'#'; }
 
@@ -1145,6 +1154,7 @@ void Menu::controls() {
         info_row("Faster, slower", "Left Shift, Left Ctrl; RT, LT");
         info_row("Photo mode", "P, or Start: the game stands still");
         info_row("Back to the game's camera", "R, or Y");
+        info_row("Screenshot", binds_of(input::Action::Screenshot));
     }
 }
 
@@ -1465,6 +1475,27 @@ void Menu::system() {
     }
     section("Game");
     if (button_row("Resume", {false, {}, "Back to the game."})) close_ = true;
+    if (button_row("Take a screenshot",
+                   {false, {}, "Saves the game's picture behind the menu, at the size it is drawn at, as a PNG in "
+                               "the screenshots folder. In play: " + binds_of(input::Action::Screenshot) + "."})) {
+        const std::string where = take_screenshot();
+        screenshot_path_ = where.empty() ? "Not saved: no game picture yet" : where;
+    }
+    if (!screenshot_path_.empty()) info_row("Screenshot", screenshot_path_);
+#if !defined(MHP3RD_ANDROID_APP)
+    if (button_row("Open the screenshots folder", {false, {}, "Show the screenshots in the file manager."})) {
+        std::string folder;
+        try {
+            std::error_code ec;
+            std::filesystem::create_directories(screenshot::folder(), ec);
+            folder = install::path_to_utf8(screenshot::folder());
+        } catch (const std::exception &e) {
+            folder = e.what();
+        }
+        if (!SDL_OpenURL(file_url(folder).c_str()))
+            std::cout << "[menu] cannot open " << folder << ": " << SDL_GetError() << "\n";
+    }
+#endif
     settings::Settings &s = settings::current();
     if (toggle_row("Pause the game when the menu opens", s.menu_pause,
                    options_for("ui.menu_pause", "On: the game stops while this menu is open. Off: it keeps running "
@@ -1751,6 +1782,39 @@ void draw_fast_forward() {
     ImGui::PopStyleVar();
 }
 
+// A note over the game (show_note): the text and when it goes.
+struct Note {
+    std::string text;
+    Clock::time_point until{};
+};
+Note &note() {
+    static Note value;
+    return value;
+}
+constexpr std::chrono::milliseconds kNoteTime{3000};
+
+// The note, small, at the bottom of the window, fading out in its last half
+// second.
+void draw_note(const Note &n) {
+    const ImGuiIO &io = ImGui::GetIO();
+    const float font = Layer::get().font_size();
+    const float left = std::chrono::duration<float>(n.until - Clock::now()).count();
+    ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y - font * 0.6f}, ImGuiCond_Always,
+                            {0.5f, 1.0f});
+    ImGui::SetNextWindowBgAlpha(0.7f * std::clamp(left * 2.0f, 0.0f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.25f});
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, std::clamp(left * 2.0f, 0.0f, 1.0f));
+    ImGui::Begin("##note", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::SetWindowFontScale(0.7f);
+    ImGui::PushTextWrapPos(io.DisplaySize.x * 0.9f);
+    ImGui::TextUnformatted(n.text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
 // The menu while it is open over the running game, and a quit chosen in it.
 std::optional<Menu> &menu_over_game_state() {
     static std::optional<Menu> menu;
@@ -1788,6 +1852,36 @@ void note_menu_closed(bool quit) {
 
 bool attach(gpu::VulkanRenderer &renderer) { return Layer::get().attach(renderer); }
 
+void show_note(const std::string &text) { note() = {text, Clock::now() + kNoteTime}; }
+
+std::string take_screenshot() {
+    Layer &layer = Layer::get();
+    if (!layer.attached()) return {};
+    std::vector<std::uint8_t> pixels;
+    std::uint32_t width = 0u;
+    std::uint32_t height = 0u;
+    // The render target the game flipped to last. When the HUD is hidden
+    // (#184) its draws never reach that target, so the picture has none.
+    if (!layer.renderer().read_frame(pixels, width, height)) {
+        std::cout << "[screenshot] no game picture to save yet" << std::endl;
+        show_note("No game picture to save yet");
+        return {};
+    }
+    std::filesystem::path path;
+    try {
+        path = screenshot::free_path(screenshot::folder(), std::chrono::system_clock::now());
+    } catch (const std::exception &e) {
+        std::cout << "[screenshot] not saved: " << e.what() << std::endl;
+        show_note(std::string("Screenshot not saved: ") + e.what());
+        return {};
+    }
+    const std::string where = install::path_to_utf8(path);
+    std::cout << "[screenshot] taking " << width << "x" << height << " -> " << where << std::endl;
+    screenshot::save_png_later(path, std::move(pixels), width, height);
+    show_note("Screenshot saved to " + where);
+    return where;
+}
+
 void draw_over_game() {
     Layer &layer = Layer::get();
     if (!layer.attached()) return;
@@ -1809,8 +1903,10 @@ void draw_over_game() {
     const camera::FreeCameraStatus free_camera = camera::free_camera_status();
     const bool flying = free_camera.active && !menu && !layer.renderer().window_capture_pending();
     const bool fast = !menu && fast_forward::active();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast) return;
+    const bool noted = !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted) return;
     layer.begin_frame();
+    if (noted) draw_note(note());
     if (flying) draw_free_camera_indicator(free_camera);
     if (touch) {
         const settings::Settings &player = settings::current();

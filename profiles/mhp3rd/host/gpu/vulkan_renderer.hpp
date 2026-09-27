@@ -204,6 +204,11 @@ public:
     // Writes the last rendered frame as a BMP; returns false if it could not be
     // read back. Used for screenshots without touching the window system.
     bool capture_frame(const std::string &path);
+    // The last frame the game flipped to (or the photo mode drew again), as
+    // the game's render target holds it: `width` x `height` pixels at the
+    // size the game is drawn at, R G B A, top row first, with nothing the
+    // port draws over the window. Waits for the GPU. False if there is none.
+    bool read_frame(std::vector<std::uint8_t> &pixels, std::uint32_t &width, std::uint32_t &height);
     // Writes the next presented window image, with the interface over it, as
     // a BMP once it has been drawn.
     void capture_window(const std::string &path);

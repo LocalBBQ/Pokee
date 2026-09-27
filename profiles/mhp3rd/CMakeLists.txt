@@ -149,6 +149,7 @@ set(MHP3RD_HOST_SOURCES
     host/input/touch_controls.cpp
     host/gpu/texture_pack.cpp
     host/gpu/texture_pack_import.cpp
+    host/gpu/screenshot.cpp
     host/perf/frame_stats.cpp
     host/perf/perf_overlay.cpp
     host/overlays.cpp
@@ -432,6 +433,22 @@ target_link_libraries(mhp3rd_data_directory_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_data_directory_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_data_directory_tests COMMAND mhp3rd_data_directory_tests)
+endif()
+
+# Screenshots: their names, and the PNG files written. Works in a temporary
+# directory; no game data.
+add_executable(mhp3rd_screenshot_tests
+    tests/screenshot_tests.cpp
+    host/gpu/screenshot.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp)
+target_include_directories(mhp3rd_screenshot_tests PRIVATE
+    "${MHP3RD_PROFILE_DIR}/host"
+    "${MHP3RD_PROFILE_DIR}/third_party")
+target_link_libraries(mhp3rd_screenshot_tests PRIVATE psprecomp_core Threads::Threads)
+set_target_properties(mhp3rd_screenshot_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_screenshot_tests COMMAND mhp3rd_screenshot_tests)
 endif()
 
 # Fast loading's decision: when a load runs ahead of real time.

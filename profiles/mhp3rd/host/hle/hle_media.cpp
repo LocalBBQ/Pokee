@@ -448,6 +448,8 @@ void present_frame(Runtime &rt) {
         fly_free_camera(rt, renderer, std::chrono::duration<float>(now - previous).count());
         previous = now;
     }
+    // The screenshot bind (#187): the frame just presented, as drawn.
+    if (renderer.take_screenshot_request()) (void)ui::take_screenshot();
     if (window_open && camera::free_camera_status().paused) window_open = run_photo_mode(rt, renderer, address);
     // The fast-forward bind as the events just pumped left it; the kernel's
     // pacing follows it from the next wait on.

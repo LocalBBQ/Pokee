@@ -30,6 +30,17 @@ void draw_over_game();
 // (Esc, or L3+R3 on a gamepad).
 [[nodiscard]] bool menu_requested();
 
+// Saves the game's picture as it was last drawn, at full size, as a PNG in
+// screenshots/ in the data directory (#187), and says where for a moment
+// over the game. The picture is the game's own: the menu, notes and the
+// free camera's line are never in it. Returns the file's path, or an empty
+// string with the reason noted when nothing could be taken.
+std::string take_screenshot();
+
+// Shows a short note over the game for a few seconds, left out of window
+// captures (MHP3RD_INPUT_SCRIPT's shot) like the port's other notes.
+void show_note(const std::string &text);
+
 // Whether the menu, opened now, pauses the game. Settings decide: "Pause the
 // game when the menu opens", and during ad hoc play "Pause during
 // multiplayer", off by default because a paused game stops answering its
