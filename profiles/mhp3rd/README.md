@@ -351,6 +351,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | System | Pause the game when the menu opens | `ui.menu_pause` | `MHP3RD_MENU_PAUSE` | On (default) or off: the game keeps running behind the menu |
 | System | Pause during multiplayer | `ui.menu_pause_multiplayer` | `MHP3RD_MENU_PAUSE_MULTIPLAYER` | Off (default): during ad hoc play the game keeps running behind the menu; on: the setting above decides |
 | System | Add a timestamp to the backup name | `saves.backup_timestamp` | | On (default): each backup from *Back up saves…* is a new folder named by its time; off: plain folder names, replaced after asking |
+| System | Remind me to back up after updates | `saves.backup_reminder` | `MHP3RD_BACKUP_REMINDER` | On (default): the first start of a new release asks you to back up your saves; see [Backups](#where-saves-live-and-how-to-back-them-up). `saves.backup_reminded` records the release that last asked |
 | Network | Ad hoc play | `network.adhoc` | `MHP3RD_ADHOC` | Off (default) or on; off, the game reports the wireless switch as off |
 | Network | Server | `network.server` | `MHP3RD_ADHOC_SERVER` | Host name or address of a PSP ad hoc server, optionally `host:port`; empty by default |
 | Network | Nickname | `network.nickname` | `MHP3RD_ADHOC_NICKNAME` | The name other players see; empty uses the hunter name |
@@ -498,6 +499,28 @@ By hand, the same works with the game closed: copy the folder into `ms0/PSP/SAVE
 
 - **Export save…** copies the game data and the downloaded quests to a folder you choose, as `MHP3rd saves <date>_<time>/PSP/SAVEDATA/ULJM05800…`, the layout of a memory stick: copy its `PSP` folder to the root of a PSP's memory stick, or import it on another machine. It always makes a new folder.
 - **Back up saves…** copies every save folder of the game, the install data included, to the backups folder, `save-backups` in the [per-user data directory](#installer), or to a folder you choose. With *Add a timestamp to the backup name* (on by default; `saves.backup_timestamp` in `settings.ini`) each backup is a new folder named by its time, holding the save folders: `save-backups/2026-09-19_19-05-12/ULJM05800/`. With it off, the save folders go straight into the chosen folder (`save-backups/ULJM05800/`), and an earlier backup there is replaced only after you confirm. *Open the backups folder* shows it. To restore a backup, import it.
+- **The reminder.** The first time a new release starts and finds saves, it pauses the game for a moment and asks you to back them up. *Back up now* makes a new timestamped folder in `save-backups` (on Android, in a folder you pick), whatever the timestamp setting says, so it never replaces an earlier backup; the next screen says where the backup went and offers to open that folder. *Continue without a backup* starts the game. Either way the reminder does not come back until the next release. The import's review asks the same before it writes anything, with its own *Back up now*. Turn the reminder off with *Remind me to back up after updates*.
+
+### Where saves live and how to back them up
+
+The saves are the folders in `ms0/PSP/SAVEDATA/` of the data directory: `ULJM05800` holds all three character slots, `ULJM05800QST` the downloaded quests, and `ULJM05800DAT` the install data, which the game can rebuild.
+
+| Platform | Saves folder |
+| --- | --- |
+| Windows | `%APPDATA%\Yakumo\MHP3rd\ms0\PSP\SAVEDATA\` |
+| macOS | `~/Library/Application Support/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/` |
+| Linux and Steam Deck, release tarball | `~/.local/share/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/` (under `$XDG_DATA_HOME` when it is set) |
+| Linux and Steam Deck, Flatpak | `~/.var/app/io.github.teamgdb.Yakumo/data/Yakumo/MHP3rd/ms0/PSP/SAVEDATA/` |
+| Android | The app's private storage, which other apps and a computer cannot reach: use *Back up saves…* or *Export save…*, which copy to a folder you pick in Android's picker |
+| A developer build | `ms0/` of `MHP3RD_DATA_DIR`, `MHP3RD_GAME_DIR` or `profiles/mhp3rd/game`, whichever the game runs from; the menu's *About* shows it as *Saves folder* |
+
+To back up:
+
+- **From the game:** *System → Back up saves…*, or *Back up now* when the reminder asks. Backups go to `save-backups/` beside `ms0/` (Android: a folder you pick). *Open the backups folder* shows them.
+- **By hand:** with the game closed, copy the whole `SAVEDATA` folder somewhere else. Copying while the game runs can catch a save half written.
+- **To restore:** *Import save…* from the backup's folder: the save it replaces is itself kept in `ms0/PSP/SAVEDATA/.backup/`. By hand, with the game closed, copy the save folders back into `ms0/PSP/SAVEDATA/`.
+
+Yakumo never deletes a save: an import moves the save it replaces to `ms0/PSP/SAVEDATA/.backup/<date>_<time>/`, and a backup only adds folders. The game's own *Delete previously saved character?* question, when a new character goes into a used slot, is the game's and replaces that slot as it would on a PSP.
 
 ### Downloadable content
 
@@ -651,6 +674,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_OVERLAY_DIR` | `overlays/` next to the executable (`Contents/Frameworks/overlays` in the macOS app) | Directory of overlay libraries |
 | `MHP3RD_MODS_DIR` | `mods/` in the data directory | The [mods](#mods) folder |
 | `MHP3RD_NO_MODS` | off | `1`: no mod applies this run, whatever `mods.ini` says; the menu still lists them |
+| `MHP3RD_BACKUP_REMINDER` | unset | `0`: never ask to back up the saves this run; `1`: ask at every start, even in a scripted run or with the setting off. Unset, the reminder follows the menu setting and skips runs driven by `MHP3RD_INPUT_SCRIPT`, `MHP3RD_INPUT_LIVE` or `MHP3RD_AUTO_CONFIRM` |
 | `MHP3RD_FONT` | a system CJK font | Font to draw the game's text with: a `.ttf`, `.otf`, `.ttc` or `.otc` file, with `#N` after the path for the Nth face of a collection. Glyphs it lacks come from the default, a Japanese system font (Hiragino on macOS, Noto Sans CJK on Linux, MS Gothic or Meiryo on Windows; inside a Flatpak, the host's Noto Sans CJK under `/run/host/fonts`), and last the font a release ships in `fonts/` next to the executable |
 | `MHP3RD_UI_FONT` | a system font | TrueType font for Yakumo's menu and setup screens |
 

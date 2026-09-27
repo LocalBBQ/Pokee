@@ -135,6 +135,19 @@ To measure, run with `MHP3RD_PERF=log MHP3RD_TRACE_INTERPOLATION=1` and stand st
 
 `MHP3RD_INTERPOLATION_EXTRA_MS=16` with *Frame rate* 90 shows the step-down on a fast machine: within a few seconds `[interp] frame rate 90 -> 60: the game had no time to spare`, then 60 fps with nothing skipped.
 
+### Save data (#167)
+
+`mhp3rd_savedata_tests` (CTest) needs no game data: encryption and `PARAM.SFO` round trips, checking a save, import with the replaced save moved to `.backup`, export, backups with and without a timestamp (an earlier backup is replaced only when the player agrees), and the release a build's version belongs to, which decides when the backup reminder shows.
+
+For the manual check use a throwaway data folder (`MHP3RD_DATA_DIR`, with a copy of `settings.ini` and `EBOOT.ELF`) and only copies of saves. Never run it against your own saves folder. Hash the save files (`md5`, `sha256sum` or `certutil -hashfile`) before and after each step:
+
+- **Create and save.** From an empty `ms0`, start a new game, make a character and save it to slot 1: `[savedata] saved … (encrypted)`, and `ms0/PSP/SAVEDATA/ULJM05800` holds `PARAM.SFO`, `MHP3RD.BIN`, `ICON0.PNG` and `PIC1.PNG`.
+- **Load after a restart.** Close and start again: `[savedata] loaded … (decrypted)`, and *Continue* lists the character.
+- **Overwrite.** *New game*, make another character and pick the used slot. *Character already exists. Delete previously saved character?* answered *No* leaves `MHP3RD.BIN` unchanged; *Yes* saves the new character over it.
+- **The reminder.** With a save present, set `saves.backup_reminded=` to an older release (or empty) in `settings.ini` and start without `MHP3RD_INPUT_SCRIPT`: the game pauses on *Back up your saves*. *Back up now* makes `save-backups/<date>_<time>/ULJM05800` identical to the save, and the next screen shows where, with *Open the folder* and *Continue*. The next start with the same build does not ask; `saves.backup_reminder=0` or `MHP3RD_BACKUP_REMINDER=0` never asks; `MHP3RD_BACKUP_REMINDER=1` asks every time, and lets a scripted run drive it.
+- **Back up saves….** In *System*, a timed backup makes a new folder each time. With the timestamp off, the second backup to the same folder asks *Replace the earlier backup?*: *Cancel* keeps it, *Replace the backup* replaces it.
+- **Import.** Import a copy of a PSP save (the 100% test save, `ULJM05800/MHP3RD.BIN` encrypted), by browsing or by dropping its folder on the window: the review shows both saves, asks for a backup before anything is written, and *Back up now* reports the folder. *Replace and import* moves the old save to `ms0/PSP/SAVEDATA/.backup/<date>_<time>/`, the imported `MHP3RD.BIN` is byte for byte the source, and *Restart now* reaches character select with the imported characters.
+
 ## Reporting
 
 Open a **Test report** issue with the platform, hardware, commit and the steps you reached. If a result changes a cell in [the compatibility table](COMPATIBILITY.md), update the table in a pull request as well.
