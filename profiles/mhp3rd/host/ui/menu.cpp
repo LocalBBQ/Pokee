@@ -15,6 +15,7 @@
 #include "ui/save_screen.hpp"
 #include "ui/texture_pack_screen.hpp"
 #include "ui/text_input.hpp"
+#include "ui/touch_editor.hpp"
 #include "ui/touch_overlay.hpp"
 #include "ui/widgets.hpp"
 
@@ -168,6 +169,13 @@ bool Menu::frame() {
     font_list_was_open = font_list_was_open || (tab_ == 6 && debug_screen_open());
 #endif
     back_ = back || pad_back;
+
+    // The touch layout's editor takes the whole screen until it is done.
+    if (touch_editor_open()) {
+        touch_editor_frame(back_);
+        if (!touch_editor_open()) focus_next_row();
+        return true;
+    }
 
     begin_panel("##menu", "Yakumo", paused_ ? "Paused" : "Running", true);
     static const char *const kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System", "Debug"};
@@ -1006,7 +1014,8 @@ void Menu::controls() {
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
                    {false, {}, "Every gamepad, keyboard, mouse, touch, name and free camera setting back to how "
-                               "Yakumo ships, with the Default preset. Your own presets are kept."})) {
+                               "Yakumo ships, with the Default preset. Your own presets and the Action layout's "
+                               "arrangement are kept."})) {
         const settings::Settings &d = settings::defaults();
         const auto restore = [&](const char *key, auto &value, const auto &fallback) {
             if (settings::overridden_by(key) == nullptr) value = fallback;
@@ -1032,6 +1041,8 @@ void Menu::controls() {
         restore("input.touch_opacity", s.touch_opacity, d.touch_opacity);
         restore("input.touch_size", s.touch_size, d.touch_size);
         restore("input.touch_camera_speed", s.touch_camera_speed, d.touch_camera_speed);
+        restore("input.touch_layout", s.touch_layout, d.touch_layout);
+        restore("input.touch_haptics", s.touch_haptics, d.touch_haptics);
         restore("experimental.free_camera", s.free_camera, d.free_camera);
         restore("experimental.free_camera_speed", s.free_camera_speed, d.free_camera_speed);
         if (settings::overridden_by("input.preset") == nullptr) settings::choose_preset(s, d.control_preset);
@@ -1042,10 +1053,8 @@ void Menu::controls() {
     section("Touch screen");
     {
         RowOptions o = options_for("input.touch_controls",
-                                   "A pad drawn over the game once the screen is touched: a stick that appears "
-                                   "where the left thumb lands, the face buttons on the right, L and R at the top "
-                                   "corners. A drag on the free right half turns the camera. It hides again when a "
-                                   "gamepad or the keyboard is used.");
+                                   "Controls drawn over the game once the screen is touched, in the layout below. "
+                                   "They hide again when a gamepad or the keyboard is used.");
         if (toggle_row("On-screen controls", s.touch_controls, o)) {
             s.touch_controls = !s.touch_controls;
             settings::save();
@@ -1057,10 +1066,44 @@ void Menu::controls() {
             }
             return options;
         };
-        if (toggle_row("D-pad", s.touch_dpad,
-                       off(options_for("input.touch_dpad", "A D-pad at the left edge, for the game's menus, the item "
-                                                           "box and the camera's D-pad controls. Off gives its place "
-                                                           "to the stick.")))) {
+        const bool action = s.touch_layout == settings::TouchLayout::Action;
+        if (choice_row("Layout", action ? "Action" : "PSP buttons",
+                       off(options_for("input.touch_layout",
+                                       "PSP buttons: a stick where the left thumb lands, the face buttons on the "
+                                       "right, L and R at the top corners. Action: large buttons named for what "
+                                       "they do (attack, evade, guard, the combined attack), a fixed stick, the "
+                                       "item pouch, and swipes for the item bar; every element can be moved, "
+                                       "resized and rebound.")))) {
+            s.touch_layout = action ? settings::TouchLayout::Psp : settings::TouchLayout::Action;
+            settings::save();
+        }
+        const auto action_only = [&](RowOptions options) {
+            options = off(std::move(options));
+            if (s.touch_layout != settings::TouchLayout::Action && !options.disabled) {
+                options.disabled = true;
+                options.note = "For the Action layout";
+            }
+            return options;
+        };
+        if (button_row("Edit the action layout…",
+                       action_only({false, {}, "Move, resize, rebind and hide the Action layout's elements, over "
+                                               "the game. Kept on this device."})))
+            open_touch_editor();
+        if (toggle_row("Haptic feedback", s.touch_haptics,
+                       action_only(options_for("input.touch_haptics",
+                                               "A short vibration when an Action button is pressed or a swipe is "
+                                               "taken, where the device can.")))) {
+            s.touch_haptics = !s.touch_haptics;
+            settings::save();
+        }
+        RowOptions dpad = off(options_for("input.touch_dpad", "A D-pad at the left edge, for the game's menus, the "
+                                                              "item box and the camera's D-pad controls. Off gives "
+                                                              "its place to the stick."));
+        if (action && !dpad.disabled) {
+            dpad.disabled = true;
+            dpad.note = "For the PSP buttons layout";
+        }
+        if (toggle_row("D-pad", s.touch_dpad, dpad)) {
             s.touch_dpad = !s.touch_dpad;
             settings::save();
         }
@@ -1749,7 +1792,13 @@ void draw_over_game() {
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying) return;
     layer.begin_frame();
     if (flying) draw_free_camera_indicator(free_camera);
-    if (touch) draw_touch_controls(layer.renderer().touch_controls(), settings::current().touch_opacity);
+    if (touch) {
+        const settings::Settings &player = settings::current();
+        if (player.touch_layout == settings::TouchLayout::Action)
+            draw_action_controls(layer.renderer().action_touch_controls(), player.touch_opacity, SDL_GetTicks());
+        else
+            draw_touch_controls(layer.renderer().touch_controls(), player.touch_opacity);
+    }
     if (hint_left > 0.0) draw_hint(hint_left);
     if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);
     if (overlay) draw_network_overlay();

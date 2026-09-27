@@ -112,6 +112,7 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"},
                                         {PerfDisplay::Log, "log"}}};
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
+const Names<TouchLayout> kTouchLayouts{{{TouchLayout::Psp, "psp"}, {TouchLayout::Action, "action"}}};
 const Names<NameEntry> kNameEntries{{{NameEntry::Keyboard, "keyboard"}, {NameEntry::Fixed, "fixed"}}};
 const Names<FrameRate> kFrameRates{{{FrameRate::Fps30, "30"},
                                     {FrameRate::Fps45, "45"},
@@ -318,6 +319,13 @@ const std::vector<Field> &fields() {
              return parse_float(t, kMinTouchCameraSpeed, kMaxTouchCameraSpeed, s.touch_camera_speed);
          },
          [](const Settings &s) { return format_float(s.touch_camera_speed); }, nullptr},
+        {"input.touch_layout", "MHP3RD_TOUCH_LAYOUT",
+         [](Settings &s, const std::string &t) { return kTouchLayouts.parse(t, s.touch_layout); },
+         [](const Settings &s) { return kTouchLayouts.format(s.touch_layout); },
+         [](Settings &s, const char *t) {
+             if (!kTouchLayouts.parse(t, s.touch_layout)) std::cerr << "[settings] MHP3RD_TOUCH_LAYOUT: psp or action\n";
+         }},
+        BOOL_FIELD("input.touch_haptics", touch_haptics),
         BOOL_FIELD("input.invert_mouse_x", invert_mouse_x),
         BOOL_FIELD("input.invert_mouse_y", invert_mouse_y),
         {"input.name_entry", "MHP3RD_OSK_MODE",
@@ -425,7 +433,7 @@ const std::vector<Field> &fields() {
 const std::vector<Field> &all_fields() {
     static const std::vector<Field> table = [] {
         // Field keys are C strings; these hold them for the program's life.
-        static std::vector<std::string> keys(input::kActions * 2u);
+        static std::vector<std::string> keys(input::kActions * 2u + input::touch::kElements);
         std::vector<Field> list = fields();
         for (std::size_t i = 0; i < input::kActions; ++i) {
             keys[i] = std::string(kBindPrefix) + input::info(static_cast<input::Action>(i)).key;
@@ -439,6 +447,17 @@ const std::vector<Field> &all_fields() {
             list.push_back(Field{key.c_str(), nullptr,
                                  [i](Settings &s, const std::string &t) { return input::parse(t, s.controls.pad[i]); },
                                  [i](const Settings &s) { return input::format(s.controls.pad[i]); }, nullptr});
+        }
+        // The action layout's elements: "input.touch_action.attack=right 0.330 0.760 0.090 0x1000 1".
+        for (std::size_t i = 0; i < input::touch::kElements; ++i) {
+            std::string &key = keys[input::kActions * 2u + i];
+            key = std::string("input.touch_action.") + input::touch::info(static_cast<input::touch::Element>(i)).key;
+            list.push_back(Field{key.c_str(), nullptr,
+                                 [i](Settings &s, const std::string &t) {
+                                     return input::touch::parse(t, s.touch_action.elements[i]);
+                                 },
+                                 [i](const Settings &s) { return input::touch::format(s.touch_action.elements[i]); },
+                                 nullptr});
         }
         return list;
     }();

@@ -863,6 +863,8 @@ struct VulkanRenderer::Impl {
     MouseMotion mouse_motion{};
     // Touch screen: the on-screen controls, in window coordinates.
     input::touch::Controls touch;
+    input::touch::ActionControls action_touch;
+    input::touch::Insets touch_insets{};
     bool touch_visible{};
     bool real_mouse_seen{};
     MouseMotion touch_motion{};
@@ -877,37 +879,48 @@ struct VulkanRenderer::Impl {
         int width = 0;
         int height = 0;
         if (window == nullptr || !SDL_GetWindowSize(window, &width, &height) || width <= 0 || height <= 0) return;
-        const float size = settings::current().touch_size;
-        const bool dpad = settings::current().touch_dpad;
+        const settings::Settings &player = settings::current();
+        const float size = player.touch_size;
+        const bool dpad = player.touch_dpad;
         const TouchLayoutKey key{width, height, content_rect, size, dpad};
-        if (key.width == touch_layout_key.width && key.height == touch_layout_key.height &&
-            key.size == touch_layout_key.size && key.dpad == touch_layout_key.dpad &&
-            key.content.offset.x == touch_layout_key.content.offset.x &&
-            key.content.offset.y == touch_layout_key.content.offset.y &&
-            key.content.extent.width == touch_layout_key.content.extent.width &&
-            key.content.extent.height == touch_layout_key.content.extent.height)
-            return;
-        touch_layout_key = key;
-        // The content area (clear of a cutout) in window coordinates, plus a
-        // small margin from the rounded corners.
-        input::touch::Insets insets;
-        if (swapchain_extent.width != 0u && swapchain_extent.height != 0u) {
-            const float x_scale = static_cast<float>(width) / static_cast<float>(swapchain_extent.width);
-            const float y_scale = static_cast<float>(height) / static_cast<float>(swapchain_extent.height);
-            insets.left = static_cast<float>(content_rect.offset.x) * x_scale;
-            insets.top = static_cast<float>(content_rect.offset.y) * y_scale;
-            insets.right = static_cast<float>(swapchain_extent.width - content_rect.offset.x -
-                                              content_rect.extent.width) * x_scale;
-            insets.bottom = static_cast<float>(swapchain_extent.height - content_rect.offset.y -
-                                               content_rect.extent.height) * y_scale;
+        const bool same = key.width == touch_layout_key.width && key.height == touch_layout_key.height &&
+                          key.size == touch_layout_key.size && key.dpad == touch_layout_key.dpad &&
+                          key.content.offset.x == touch_layout_key.content.offset.x &&
+                          key.content.offset.y == touch_layout_key.content.offset.y &&
+                          key.content.extent.width == touch_layout_key.content.extent.width &&
+                          key.content.extent.height == touch_layout_key.content.extent.height;
+        if (!same) {
+            touch_layout_key = key;
+            // The content area (clear of a cutout) in window coordinates, plus
+            // a small margin from the rounded corners.
+            input::touch::Insets insets;
+            if (swapchain_extent.width != 0u && swapchain_extent.height != 0u) {
+                const float x_scale = static_cast<float>(width) / static_cast<float>(swapchain_extent.width);
+                const float y_scale = static_cast<float>(height) / static_cast<float>(swapchain_extent.height);
+                insets.left = static_cast<float>(content_rect.offset.x) * x_scale;
+                insets.top = static_cast<float>(content_rect.offset.y) * y_scale;
+                insets.right = static_cast<float>(swapchain_extent.width - content_rect.offset.x -
+                                                  content_rect.extent.width) * x_scale;
+                insets.bottom = static_cast<float>(swapchain_extent.height - content_rect.offset.y -
+                                                   content_rect.extent.height) * y_scale;
+            }
+            const float margin = static_cast<float>(std::min(width, height)) * 0.02f;
+            insets.left += margin;
+            insets.top += margin;
+            insets.right += margin;
+            insets.bottom += margin;
+            touch_insets = insets;
+            touch.set_layout(
+                input::touch::make_layout(static_cast<float>(width), static_cast<float>(height), insets, size, dpad));
         }
-        const float margin = static_cast<float>(std::min(width, height)) * 0.02f;
-        insets.left += margin;
-        insets.top += margin;
-        insets.right += margin;
-        insets.bottom += margin;
-        touch.set_layout(
-            input::touch::make_layout(static_cast<float>(width), static_cast<float>(height), insets, size, dpad));
+        // The action layout follows its editor as well; placing it is cheap.
+        action_touch.set_layout(player.touch_action,
+                                input::touch::safe_area(static_cast<float>(width), static_cast<float>(height),
+                                                        touch_insets),
+                                size);
+    }
+    [[nodiscard]] static bool action_layout() {
+        return settings::current().touch_layout == settings::TouchLayout::Action;
     }
     void handle_touch(const SDL_Event &event) {
         const bool finger = event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||
@@ -921,11 +934,13 @@ struct VulkanRenderer::Impl {
             if (other && touch_visible) {
                 touch_visible = false;
                 touch.release_all();
+                action_touch.release_all();
             }
             return;
         }
         if (!settings::current().touch_controls || !game_input) {
             touch.release_all();
+            action_touch.release_all();
             return;
         }
         int width = 0;
@@ -935,15 +950,26 @@ struct VulkanRenderer::Impl {
         const input::touch::Point at{event.tfinger.x * static_cast<float>(width),
                                      event.tfinger.y * static_cast<float>(height)};
         const std::uint64_t id = event.tfinger.fingerID;
-        if (event.type == SDL_EVENT_FINGER_DOWN) {
-            touch_visible = true;
-            touch.finger_down(id, at);
-        } else if (event.type == SDL_EVENT_FINGER_MOTION) {
-            touch.finger_move(id, at);
+        if (event.type == SDL_EVENT_FINGER_DOWN) touch_visible = true;
+        input::touch::Point drag;
+        if (action_layout()) {
+            // Event time, so a swipe's speed is the finger's, not the frame's.
+            const std::uint64_t ms = SDL_NS_TO_MS(event.tfinger.timestamp);
+            if (event.type == SDL_EVENT_FINGER_DOWN) action_touch.finger_down(id, at, ms);
+            else if (event.type == SDL_EVENT_FINGER_MOTION) action_touch.finger_move(id, at, ms);
+            else action_touch.finger_up(id, ms);
+            drag = action_touch.take_camera_drag();
+            if (action_touch.take_haptics() > 0 && settings::current().touch_haptics) {
+#if defined(MHP3RD_ANDROID_APP)
+                android::haptic_tick();
+#endif
+            }
         } else {
-            touch.finger_up(id);
+            if (event.type == SDL_EVENT_FINGER_DOWN) touch.finger_down(id, at);
+            else if (event.type == SDL_EVENT_FINGER_MOTION) touch.finger_move(id, at);
+            else touch.finger_up(id);
+            drag = touch.take_camera_drag();
         }
-        const input::touch::Point drag = touch.take_camera_drag();
         touch_motion.x += drag.x / static_cast<float>(height);
         touch_motion.y += drag.y / static_cast<float>(height);
     }
@@ -5242,8 +5268,9 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, player.controls.pad, pad, analog_x, analog_y);
     // So do the on-screen controls.
     if (impl_->touch_visible) {
-        pad.buttons |= impl_->touch.buttons();
-        const input::touch::Point stick = impl_->touch.stick();
+        const bool action = Impl::action_layout();
+        pad.buttons |= action ? impl_->action_touch.buttons(SDL_GetTicks()) : impl_->touch.buttons();
+        const input::touch::Point stick = action ? impl_->action_touch.stick() : impl_->touch.stick();
         analog_x += static_cast<int>(std::lround(stick.x * 127.0f));
         analog_y += static_cast<int>(std::lround(stick.y * 127.0f));
     }
@@ -5294,7 +5321,18 @@ MouseMotion VulkanRenderer::take_touch_motion() noexcept {
     return impl_ ? std::exchange(impl_->touch_motion, MouseMotion{}) : MouseMotion{};
 }
 
-bool VulkanRenderer::take_touch_menu() noexcept { return impl_ && impl_->touch.take_menu(); }
+bool VulkanRenderer::take_touch_menu() noexcept {
+    if (!impl_) return false;
+    // Both, so a tap on either layout's button is never left for later.
+    const bool psp = impl_->touch.take_menu();
+    const bool action = impl_->action_touch.take_menu();
+    return psp || action;
+}
+
+const input::touch::ActionControls &VulkanRenderer::action_touch_controls() const {
+    impl_->update_touch_layout();
+    return impl_->action_touch;
+}
 
 MouseMotion VulkanRenderer::take_mouse_motion() noexcept {
     return impl_ ? std::exchange(impl_->mouse_motion, MouseMotion{}) : MouseMotion{};
@@ -5322,7 +5360,10 @@ void VulkanRenderer::set_event_hook(std::function<bool(const SDL_Event &)> hook)
 void VulkanRenderer::set_game_input(bool enabled) {
     if (!impl_) return;
     if (enabled && !impl_->game_input) impl_->suppress_held = true;
-    if (!enabled) impl_->touch.release_all();
+    if (!enabled) {
+        impl_->touch.release_all();
+        impl_->action_touch.release_all();
+    }
     impl_->game_input = enabled;
 }
 

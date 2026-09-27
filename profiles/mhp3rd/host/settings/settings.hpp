@@ -2,6 +2,7 @@
 
 #include "input/bindings.hpp"
 #include "input/presets.hpp"
+#include "input/touch_action.hpp"
 
 #include <cstdint>
 #include <map>
@@ -29,6 +30,9 @@ enum class PresentMode { Fifo, Mailbox, Immediate };
 enum class Aspect { Original, Stretch, Fill };
 enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class RightStick { Camera, DPad, Off };
+// The on-screen controls' layout: the PSP's buttons (touch_controls.hpp), or
+// the action-style one (touch_action.hpp).
+enum class TouchLayout { Psp, Action };
 // What answers the game when it asks for text such as the hunter's name.
 enum class NameEntry { Keyboard, Fixed };
 // Presents per second. The game makes 30 frames a second; the faster rates
@@ -103,6 +107,11 @@ struct Settings {
     float touch_opacity{0.5f};         // 0.1-1
     float touch_size{1.0f};            // 0.6-1.6 of the default size
     float touch_camera_speed{180.0f};  // degrees the camera turns for a drag across the screen's height
+    TouchLayout touch_layout{TouchLayout::Psp};
+    // The action layout's elements, kept on this device, and a short
+    // vibration when one of its buttons is pressed.
+    input::touch::ActionLayout touch_action{input::touch::default_action_layout()};
+    bool touch_haptics{true};
     NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once
     std::string name{"Hunter"};        // the fixed name
 

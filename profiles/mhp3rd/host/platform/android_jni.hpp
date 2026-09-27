@@ -21,6 +21,11 @@ struct Insets {
 // The display cutout, in window pixels; zero where there is none.
 [[nodiscard]] Insets cutout_insets();
 
+// A short vibration for a touch control's press, as the system gives for a
+// key (the player's system setting for touch feedback applies). Returns at
+// once; the UI thread does it.
+void haptic_tick();
+
 // Ends this process and starts the app again; returns only if it cannot.
 void relaunch();
 

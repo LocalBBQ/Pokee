@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.view.DisplayCutout;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.WindowInsets;
 
@@ -67,6 +68,22 @@ public class YakumoActivity extends SDLActivity {
             result[3] = cutout.getSafeInsetBottom();
         }
         return result;
+    }
+
+    /**
+     * A short vibration for a touch control's press, as the system gives for
+     * a key, done on the UI thread. The system's touch feedback setting
+     * decides whether it is felt; no permission is needed.
+     */
+    public static void hapticTick() {
+        if (mSingleton == null) return;
+        final View view = mSingleton.getWindow().getDecorView();
+        view.post(new Runnable() {
+            @Override
+            public void run() {
+                view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            }
+        });
     }
 
     /** Asks the player for a folder; its tree URI, or null when cancelled. */

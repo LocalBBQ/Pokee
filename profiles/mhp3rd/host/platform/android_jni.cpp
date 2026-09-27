@@ -69,6 +69,15 @@ Insets cutout_insets() {
     return {values[0], values[1], values[2], values[3]};
 }
 
+void haptic_tick() {
+    Call call;
+    if (!call.ok()) return;
+    jmethodID id = call.method("hapticTick", "()V");
+    if (id == nullptr) return;
+    call.env->CallStaticVoidMethod(call.type, id);
+    call.failed();
+}
+
 void relaunch() {
     Call call;
     if (!call.ok()) return;

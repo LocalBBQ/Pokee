@@ -1,4 +1,5 @@
 // The on-screen touch controls' layout, fingers and stick, without a screen.
+#include "input/touch_action.hpp"
 #include "input/touch_controls.hpp"
 
 #include <cmath>
@@ -141,6 +142,121 @@ void test_fingers() {
     check(!controls.any_finger() && controls.buttons() == 0u, "release_all lets go of everything");
 }
 
+// The action layout (#174).
+void test_action_layout_fits(float width, float height, Insets insets, float scale, const char *what) {
+    ActionControls controls;
+    const Area area = safe_area(width, height, insets);
+    controls.set_layout(default_action_layout(), area, scale);
+    bool inside = true;
+    bool apart = true;
+    for (std::size_t i = 0; i < kElements; ++i) {
+        const Placed &p = controls.placed(static_cast<Element>(i));
+        inside = inside && p.centre.x - p.half_width >= area.left - 0.5f &&
+                 p.centre.x + p.half_width <= area.left + area.width + 0.5f &&
+                 p.centre.y - p.radius >= area.top - 0.5f && p.centre.y + p.radius <= area.top + area.height + 0.5f;
+        if (static_cast<Element>(i) == Element::Swipe) continue;
+        for (std::size_t j = i + 1; j < kElements; ++j) {
+            if (static_cast<Element>(j) == Element::Swipe) continue;
+            const Placed &q = controls.placed(static_cast<Element>(j));
+            apart = apart && std::hypot(p.centre.x - q.centre.x, p.centre.y - q.centre.y) >= p.radius + q.radius;
+        }
+    }
+    check(inside, what);
+    check(apart, "no two elements of the action layout overlap");
+}
+
+void test_action_layout() {
+    test_action_layout_fits(2400.0f, 1080.0f, {}, 1.0f, "the action layout fits 20:9");
+    test_action_layout_fits(1920.0f, 1080.0f, {}, 1.0f, "the action layout fits 16:9");
+    test_action_layout_fits(2400.0f, 1080.0f, {120.0f, 0.0f, 0.0f, 0.0f}, 1.0f, "and keeps clear of a cutout");
+    test_action_layout_fits(1600.0f, 1080.0f, {}, 1.0f, "and fits a wide tablet");
+
+    for (std::size_t i = 0; i < kElements; ++i) {
+        const Placement &p = default_action_layout().elements[i];
+        Placement back;
+        check(parse(format(p), back) && back.anchor == p.anchor && std::fabs(back.x - p.x) < 1e-3f &&
+                  std::fabs(back.y - p.y) < 1e-3f && std::fabs(back.size - p.size) < 1e-3f &&
+                  back.buttons == p.buttons && back.shown == p.shown,
+              "every placement round-trips through settings.ini");
+    }
+    Placement placement;
+    check(!parse("middle 0 0 0.1 0x1000 1", placement) && !parse("left 0 0", placement), "bad placements are refused");
+    check(default_action_layout().at(Element::Combo).buttons == 0x3000u, "the combined attack is △ and ○ together");
+
+    const Area area = safe_area(2000.0f, 1000.0f, {});
+    const Placement moved = move_to(default_action_layout().at(Element::Attack), Element::Attack, {300.0f, 500.0f}, area);
+    const Placed there = place(moved, Element::Attack, area, 1.0f);
+    check(moved.anchor == Anchor::Left && std::fabs(there.centre.x - 300.0f) < 0.01f &&
+              std::fabs(there.centre.y - 500.0f) < 0.01f,
+          "moving an element puts it where it is dropped, anchored to the nearer edge");
+}
+
+void test_action_fingers() {
+    ActionControls controls;
+    const Area area = safe_area(2000.0f, 1000.0f, {});
+    controls.set_layout(default_action_layout(), area, 1.0f);
+    const auto centre = [&](Element e) { return controls.placed(e).centre; };
+    std::uint64_t ms = 1000u;
+
+    controls.finger_down(1, centre(Element::Attack), ms);
+    check(controls.buttons(ms) == 0x1000u && controls.held(Element::Attack), "the attack presses △");
+    check(controls.take_haptics() == 1 && controls.take_haptics() == 0, "a press gives one haptic tick");
+    controls.finger_move(1, centre(Element::Evade), ms + 10u);
+    check(controls.buttons(ms) == 0x4000u, "a thumb slides from the attack to evade");
+    controls.finger_up(1, ms + 20u);
+    controls.finger_down(2, centre(Element::Combo), ms);
+    check(controls.buttons(ms) == 0x3000u, "the combined attack presses △ and ○ in the same frame");
+
+    // The stick, a button and the camera at once.
+    const Point stick = centre(Element::Stick);
+    controls.finger_down(3, {stick.x + 20.0f, stick.y}, ms);
+    controls.finger_move(3, {stick.x + controls.placed(Element::Stick).radius, stick.y}, ms);
+    controls.finger_down(4, {1000.0f, 900.0f}, ms);
+    controls.finger_move(4, {1050.0f, 880.0f}, ms + 5u);
+    check(controls.stick().x > 0.99f && std::fabs(controls.stick().y) < 1e-3f, "the stick is fixed where it is placed");
+    check(controls.buttons(ms) == 0x3000u, "while a button is held");
+    const Point drag = controls.take_camera_drag();
+    check(drag.x == 50.0f && drag.y == -20.0f, "and a free finger turns the camera");
+    controls.finger_up(3, ms);
+    check(controls.stick().x == 0.0f && !controls.stick_held(), "lifting the thumb centres the stick");
+    controls.release_all();
+
+    // A quick swipe presses D-pad Right for a moment; a slow drag there turns the camera.
+    const Point swipe = centre(Element::Swipe);
+    const float reach = ActionControls::kSwipeDistance * area.height;
+    controls.finger_down(5, swipe, ms);
+    controls.finger_move(5, {swipe.x + reach * 1.2f, swipe.y + 5.0f}, ms + 80u);
+    check(controls.buttons(ms + 80u) == 0x0020u, "a swipe right presses D-pad Right");
+    check(controls.buttons(ms + 80u + ActionControls::kSwipePressMs) == 0u, "for a moment");
+    controls.finger_move(5, {swipe.x + reach * 2.5f, swipe.y}, ms + 150u);
+    check(controls.buttons(ms + 150u) == 0x0020u, "a longer swipe presses again");
+    controls.finger_move(5, {swipe.x + reach * 1.2f, swipe.y}, ms + 200u);
+    check(controls.buttons(ms + 200u) == 0x0080u, "and swiping back presses Left, not both");
+    check(controls.take_camera_drag().x == 0.0f, "a swipe does not turn the camera");
+    controls.finger_up(5, ms + 250u);
+    controls.finger_down(6, swipe, ms + 1000u);
+    controls.finger_move(6, {swipe.x + reach * 0.3f, swipe.y}, ms + 1100u);
+    controls.finger_move(6, {swipe.x + reach * 1.5f, swipe.y}, ms + 1400u);
+    check(controls.buttons(ms + 1400u) == 0u, "a slow drag in the swipe area presses nothing");
+    check(std::fabs(controls.take_camera_drag().x - reach * 1.5f) < 0.01f, "it turns the camera, all of it");
+    controls.release_all();
+
+    controls.finger_down(7, centre(Element::Pause), ms);
+    check(controls.take_menu() && !controls.take_menu() && controls.buttons(ms) == 0u,
+          "Pause opens the menu and presses nothing");
+    controls.release_all();
+
+    // A hidden element is not there, and a rebound one presses what it is bound to.
+    ActionLayout changed = default_action_layout();
+    changed.at(Element::Secondary).shown = false;
+    changed.at(Element::Guard).buttons = 0x0200u | 0x1000u;
+    controls.set_layout(changed, area, 1.0f);
+    controls.finger_down(8, centre(Element::Secondary), ms);
+    check(controls.buttons(ms) == 0u, "a hidden button presses nothing");
+    controls.finger_down(9, centre(Element::Guard), ms);
+    check(controls.buttons(ms) == 0x1200u, "a rebound button presses its combination");
+}
+
 } // namespace
 
 int main() {
@@ -148,6 +264,8 @@ int main() {
     test_stick_maths();
     test_dpad();
     test_fingers();
+    test_action_layout();
+    test_action_fingers();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;
