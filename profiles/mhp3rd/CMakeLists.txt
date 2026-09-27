@@ -138,6 +138,7 @@ set(MHP3RD_HOST_SOURCES
     host/camera/camera_input.cpp
     host/camera/game_aspect.cpp
     host/camera/game_camera.cpp
+    host/camera/free_camera.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
@@ -363,6 +364,21 @@ target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_camera_tests COMMAND mhp3rd_camera_tests)
+endif()
+
+# The free camera's geometry, and that it hooks nothing while off.
+add_executable(mhp3rd_free_camera_tests
+    tests/free_camera_tests.cpp
+    host/camera/free_camera.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/input/bindings.cpp
+    host/app_paths.cpp)
+target_include_directories(mhp3rd_free_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_free_camera_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_free_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_free_camera_tests COMMAND mhp3rd_free_camera_tests)
 endif()
 
 # The game's view shape: what is written to guest memory, and what is left.

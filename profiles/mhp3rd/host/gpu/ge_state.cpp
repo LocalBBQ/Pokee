@@ -1092,6 +1092,7 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
 
     ++draw_count_;
     vertex_count_ += call.raw_vertices != nullptr ? call.raw_count : call.vertices.size();
+    if (view_hook_ && !call.through) view_hook_(call);
     if (draw_sink_) draw_sink_(call);
 }
 

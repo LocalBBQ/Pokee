@@ -245,6 +245,11 @@ public:
     void set_signal_sink(SignalSink sink) { signal_sink_ = std::move(sink); }
     // Block transfers are carried out by the sink, which can write guest memory.
     void set_transfer_sink(TransferSink sink) { transfer_sink_ = std::move(sink); }
+    // Sees every transformed draw before the sink and may change its view
+    // matrix, which is how the free camera (camera/free_camera.hpp) moves the
+    // scene without the game knowing. Null, the default, costs nothing.
+    using ViewHook = std::function<void(DrawCall &)>;
+    void set_view_hook(ViewHook hook) { view_hook_ = std::move(hook); }
     // On, transformed triangles, strips and fans of one morph target whose
     // vertices lie contiguously in host memory reach the sink undecoded
     // (DrawCall::raw_vertices), for the renderer to decode on the GPU.
@@ -317,6 +322,7 @@ private:
     DrawSink draw_sink_;
     SignalSink signal_sink_;
     TransferSink transfer_sink_;
+    ViewHook view_hook_;
     std::uint64_t draw_count_{};
     std::uint64_t vertex_count_{};
     std::uint64_t unhandled_commands_{};

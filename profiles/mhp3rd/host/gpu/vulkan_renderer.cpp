@@ -834,6 +834,14 @@ struct VulkanRenderer::Impl {
     ImDrawData *ui_draw_data{};
     std::function<bool(const SDL_Event &)> event_hook;
     bool game_input{true};
+    bool free_camera{};  // flying: the game reads a neutral pad
+    FreeCameraControls free_controls;
+    bool free_toggle_held{};
+    bool free_pause_held{};
+    bool free_reset_held{};
+    bool free_faster_held{};
+    bool free_slower_held{};
+    void sample_free_camera(bool focused);
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
     // Keyboard and mouse (input/bindings.hpp). Mouse buttons are followed
@@ -5085,6 +5093,10 @@ bool VulkanRenderer::pump_events() {
             impl_->mouse_buttons |= 1u << event.button.button;
         if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button < 32u)
             impl_->mouse_buttons &= ~(1u << event.button.button);
+        // The wheel changes the free camera's speed; nothing else uses it.
+        if (event.type == SDL_EVENT_MOUSE_WHEEL && impl_->mouse_captured && impl_->free_camera &&
+            event.wheel.which != SDL_TOUCH_MOUSEID && event.wheel.y != 0.0f)
+            impl_->free_controls.speed_steps += event.wheel.y > 0.0f ? 1 : -1;
         if (impl_->event_hook && impl_->event_hook(event)) continue;
         if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F3 && !event.key.repeat && impl_->overlay_ready)
             impl_->overlay_visible = !impl_->overlay_visible;
@@ -5095,7 +5107,80 @@ bool VulkanRenderer::pump_events() {
     const bool focused = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u;
     impl_->update_pointer(focused);
     impl_->sample_pad(focused);
+    impl_->sample_free_camera(focused);
     return !impl_->quit;
+}
+
+void VulkanRenderer::Impl::sample_free_camera(bool focused) {
+    // Off, nothing is read and nothing is held back from the game.
+    if (!settings::current().free_camera || !game_input) {
+        free_controls = FreeCameraControls{};
+        free_toggle_held = free_pause_held = free_reset_held = free_faster_held = free_slower_held = false;
+        return;
+    }
+    const bool *keys = SDL_GetKeyboardState(nullptr);
+    const auto key = [&](SDL_Scancode code) {
+        return (focused && keys[code]) || scripted_keys[static_cast<std::size_t>(code)];
+    };
+    const auto button = [&](SDL_GamepadButton id) { return gamepad != nullptr && SDL_GetGamepadButton(gamepad, id); };
+    const auto axis = [&](SDL_GamepadAxis id) {
+        if (gamepad == nullptr) return 0.0f;
+        return std::clamp(static_cast<float>(SDL_GetGamepadAxis(gamepad, id)) / 32767.0f, -1.0f, 1.0f);
+    };
+    // A press counts once: on the sample it goes down.
+    const auto pressed = [](bool now, bool &held) {
+        const bool edge = now && !held;
+        held = now;
+        return edge;
+    };
+    FreeCameraControls &c = free_controls;
+    if (pressed(key(SDL_SCANCODE_F6) || (button(SDL_GAMEPAD_BUTTON_BACK) && button(SDL_GAMEPAD_BUTTON_RIGHT_STICK)),
+                free_toggle_held))
+        c.toggle = true;
+    // Everything else only while flying, so none of it is taken from the game.
+    if (!free_camera) {
+        free_pause_held = free_reset_held = free_faster_held = free_slower_held = false;
+        return;
+    }
+    if (pressed(key(SDL_SCANCODE_P) || button(SDL_GAMEPAD_BUTTON_START), free_pause_held)) c.pause = true;
+    if (pressed(key(SDL_SCANCODE_R) || button(SDL_GAMEPAD_BUTTON_NORTH), free_reset_held)) c.reset = true;
+    if (pressed(key(SDL_SCANCODE_EQUALS) || key(SDL_SCANCODE_KP_PLUS) || button(SDL_GAMEPAD_BUTTON_DPAD_UP),
+                free_faster_held))
+        ++c.speed_steps;
+    if (pressed(key(SDL_SCANCODE_MINUS) || key(SDL_SCANCODE_KP_MINUS) || button(SDL_GAMEPAD_BUTTON_DPAD_DOWN),
+                free_slower_held))
+        --c.speed_steps;
+
+    const float dead_zone = settings::current().dead_zone;
+    const auto shaped = [&](float x, float y, float &out_x, float &out_y) {
+        const float length = std::sqrt(x * x + y * y);
+        if (length <= dead_zone) {
+            out_x = out_y = 0.0f;
+            return;
+        }
+        const float scale = std::min((length - dead_zone) / (1.0f - dead_zone), 1.0f) / length;
+        out_x = x * scale;
+        out_y = y * scale;
+    };
+    float stick_x = 0.0f, stick_y = 0.0f;
+    shaped(axis(SDL_GAMEPAD_AXIS_LEFTX), axis(SDL_GAMEPAD_AXIS_LEFTY), stick_x, stick_y);
+    const auto keys_axis = [&](SDL_Scancode plus, SDL_Scancode minus) {
+        return (key(plus) ? 1.0f : 0.0f) - (key(minus) ? 1.0f : 0.0f);
+    };
+    c.right = std::clamp(stick_x + keys_axis(SDL_SCANCODE_D, SDL_SCANCODE_A), -1.0f, 1.0f);
+    c.forward = std::clamp(-stick_y + keys_axis(SDL_SCANCODE_W, SDL_SCANCODE_S), -1.0f, 1.0f);
+    c.up = std::clamp(keys_axis(SDL_SCANCODE_E, SDL_SCANCODE_Q) +
+                          (button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) ? 1.0f : 0.0f) -
+                          (button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ? 1.0f : 0.0f),
+                      -1.0f, 1.0f);
+    float look_x = 0.0f, look_y = 0.0f;
+    shaped(axis(SDL_GAMEPAD_AXIS_RIGHTX), axis(SDL_GAMEPAD_AXIS_RIGHTY), look_x, look_y);
+    const settings::Settings &player = settings::current();
+    c.look_x = player.invert_camera_x ? -look_x : look_x;
+    c.look_y = player.invert_camera_y ? -look_y : look_y;
+    const float trigger = player.trigger;
+    c.fast = key(SDL_SCANCODE_LSHIFT) || axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > trigger;
+    c.slow = key(SDL_SCANCODE_LCTRL) || axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > trigger;
 }
 
 void VulkanRenderer::sample_pad() {
@@ -5109,8 +5194,9 @@ void VulkanRenderer::sample_pad() {
 
 void VulkanRenderer::Impl::sample_pad(bool focused) {
     Impl *const impl_ = this;
-    // While a menu or the on-screen keyboard is open, nothing reaches the game.
-    if (!impl_->game_input) {
+    // While a menu or the on-screen keyboard is open, or the free camera
+    // flies, nothing reaches the game.
+    if (!impl_->game_input || impl_->free_camera) {
         impl_->pad = PadState{};
         return;
     }
@@ -5229,6 +5315,23 @@ void VulkanRenderer::set_game_input(bool enabled) {
     if (!enabled) impl_->touch.release_all();
     impl_->game_input = enabled;
 }
+
+void VulkanRenderer::set_free_camera(bool flying) {
+    if (!impl_ || impl_->free_camera == flying) return;
+    if (!flying) impl_->suppress_held = true;
+    impl_->free_camera = flying;
+}
+
+FreeCameraControls VulkanRenderer::take_free_camera_controls() {
+    if (!impl_) return {};
+    FreeCameraControls taken = impl_->free_controls;
+    // Presses are counted once; what is held stays until the next sample.
+    impl_->free_controls.toggle = impl_->free_controls.pause = impl_->free_controls.reset = false;
+    impl_->free_controls.speed_steps = 0;
+    return taken;
+}
+
+bool VulkanRenderer::window_capture_pending() const noexcept { return impl_ && !impl_->capture_path.empty(); }
 
 void VulkanRenderer::request_quit() noexcept {
     if (impl_) impl_->quit = true;

@@ -122,6 +122,12 @@ struct Settings {
     bool backup_timestamp{true};       // a backup made from the menu goes to a new folder named by its time
     bool backup_reminder{true};        // remind to back up the saves the first time a new release starts
     std::string backup_reminded;       // the release that last showed the reminder (savedata::release_of)
+
+    // Experimental
+    // The free camera (camera/free_camera.hpp): off, nothing about the game
+    // or its picture changes; on, a key or a gamepad chord detaches the view.
+    bool free_camera{};
+    float free_camera_speed{400.0f};   // game units a second, before the fast and slow modifiers
 };
 
 inline constexpr std::uint32_t kMaxInternalScale = 8u;
@@ -135,6 +141,8 @@ inline constexpr float kMaxTouchSize = 1.6f;
 inline constexpr float kMinTouchCameraSpeed = 30.0f;
 inline constexpr float kMaxTouchCameraSpeed = 720.0f;
 inline constexpr float kMaxMouseSensitivity = 0.99f;
+inline constexpr float kMinFreeCameraSpeed = 10.0f;
+inline constexpr float kMaxFreeCameraSpeed = 20000.0f;
 
 // The platforms whose defaults differ. A phone plays full screen with a
 // finger or a pad, so a few settings start otherwise there (defaults_for).

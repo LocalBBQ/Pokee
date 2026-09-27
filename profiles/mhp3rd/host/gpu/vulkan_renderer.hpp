@@ -49,6 +49,23 @@ struct MouseMotion {
     float y{};
 };
 
+// What the free camera (camera/free_camera.hpp) is asked to do, read from the
+// keyboard, the mouse wheel and the gamepad while Experimental > Free camera
+// is on. Presses count once, from one take to the next; the rest is held.
+struct FreeCameraControls {
+    bool toggle{};      // F6, or Back (Select) + R3 on a gamepad
+    bool pause{};       // P, or Start: the photo mode's pause
+    bool reset{};       // R, or Y (north): back to where the game's camera is
+    int speed_steps{};  // mouse wheel, + and -, D-pad up and down
+    float right{};      // D and A, the left stick
+    float forward{};    // W and S, the left stick
+    float up{};         // E and Q, RB and LB
+    float look_x{};     // the right stick past its dead zone, -1..1, inverted as the camera settings say
+    float look_y{};
+    bool fast{};        // Left Shift, RT
+    bool slow{};        // Left Ctrl, LT
+};
+
 // The camera the game itself set, read back from the view matrix it uploads.
 // Only filled while MHP3RD_TRACE_CAMERA or MHP3RD_FIND_CAMERA is on.
 struct CameraReading {
@@ -237,6 +254,16 @@ public:
     // buttons still held until they are released, so the button that closed
     // a menu does not reach the game.
     void set_game_input(bool enabled);
+    // While on, the game reads a neutral pad and the keyboard, the mouse and
+    // the gamepad fly the free camera instead. Turning it off ignores the
+    // buttons still held until they are released, as set_game_input does.
+    void set_free_camera(bool flying);
+    // The free camera's controls since the last take; nothing unless the
+    // free camera setting is on and the game has input.
+    [[nodiscard]] FreeCameraControls take_free_camera_controls();
+    // A window capture (capture_window) waits for the next present, so the
+    // interface can leave out what does not belong in a picture.
+    [[nodiscard]] bool window_capture_pending() const noexcept;
     // An interface screen is up (host/ui), even one without the game behind
     // it such as the setup: the pointer stays free for it.
     void set_pointer_free(bool free);

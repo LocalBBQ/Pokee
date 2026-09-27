@@ -365,6 +365,18 @@ const std::vector<Field> &fields() {
              std::uint32_t value = s.adhoc_host_port;
              if (parse_uint(t, 1024u, 65534u, value)) s.adhoc_host_port = value;
          }},
+        {"experimental.free_camera", "MHP3RD_FREE_CAMERA",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.free_camera); },
+         [](const Settings &s) { return std::string(s.free_camera ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.free_camera = variable_flag(t); }},
+        {"experimental.free_camera_speed", "MHP3RD_FREE_CAMERA_SPEED",
+         [](Settings &s, const std::string &t) {
+             return parse_float(t, kMinFreeCameraSpeed, kMaxFreeCameraSpeed, s.free_camera_speed);
+         },
+         [](const Settings &s) { return format_float(s.free_camera_speed); },
+         [](Settings &s, const char *t) {
+             s.free_camera_speed = variable_float(t, 400.0f, kMinFreeCameraSpeed, kMaxFreeCameraSpeed);
+         }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
         BOOL_FIELD("saves.backup_timestamp", backup_timestamp),
         BOOL_FIELD("saves.backup_reminder", backup_reminder),

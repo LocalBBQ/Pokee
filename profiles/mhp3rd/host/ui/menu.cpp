@@ -22,6 +22,7 @@
 #include "adhoc/discovery.hpp"
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
+#include "camera/free_camera.hpp"
 #include "gpu/vulkan_renderer.hpp"
 #include "input/bindings.hpp"
 #include "install/game_identity.hpp"
@@ -836,6 +837,8 @@ void Menu::controls() {
         restore("input.touch_opacity", s.touch_opacity, d.touch_opacity);
         restore("input.touch_size", s.touch_size, d.touch_size);
         restore("input.touch_camera_speed", s.touch_camera_speed, d.touch_camera_speed);
+        restore("experimental.free_camera", s.free_camera, d.free_camera);
+        restore("experimental.free_camera_speed", s.free_camera_speed, d.free_camera_speed);
         s.bindings = d.bindings;
         settings::save();
     }
@@ -890,6 +893,38 @@ void Menu::controls() {
                                "the face buttons, Q and W are L and R."})) {
         s.bindings = input::classic_bindings();
         settings::save();
+    }
+
+    section("Experimental");
+    if (toggle_row("Free camera", s.free_camera,
+                   options_for("experimental.free_camera",
+                               "Experimental, and it may break or change. F6, or Back and R3 on a gamepad, "
+                               "detaches the view from the game's camera and flies it about; the same again gives "
+                               "the game's camera back. The game keeps running and gets no input meanwhile. "
+                               "What the game does not draw from its own camera's place is missing."))) {
+        s.free_camera = !s.free_camera;
+        settings::save();
+    }
+    {
+        RowOptions o = options_for("experimental.free_camera_speed",
+                                   "How fast the free camera flies, in the game's units a second. The mouse "
+                                   "wheel, + and -, and the D-pad change it in flight.");
+        if (!s.free_camera && !o.disabled) {
+            o.disabled = true;
+            o.note = "Free camera is off";
+        }
+        int speed = static_cast<int>(std::lround(s.free_camera_speed));
+        if (slider_row("Free camera speed", speed, 50, 5000, 50, "%d/s", o)) {
+            s.free_camera_speed = static_cast<float>(speed);
+            settings::save();
+        }
+    }
+    if (s.free_camera) {
+        info_row("Fly", "W A S D, E and Q up and down; left stick, RB and LB");
+        info_row("Look", "Mouse; right stick");
+        info_row("Faster, slower", "Left Shift, Left Ctrl; RT, LT");
+        info_row("Photo mode", "P, or Start: the game stands still");
+        info_row("Back to the game's camera", "R, or Y");
     }
 }
 
@@ -1416,6 +1451,29 @@ void draw_network_overlay() {
     ImGui::PopStyleVar();
 }
 
+// The free camera's indicator: one small line at the top while it flies.
+// Left out of window captures, which are for pictures of the game; the game
+// frame captures never have the interface in them.
+void draw_free_camera_indicator(const camera::FreeCameraStatus &status) {
+    const ImGuiIO &io = ImGui::GetIO();
+    const float font = Layer::get().font_size();
+    ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, font * 0.4f}, ImGuiCond_Always, {0.5f, 0.0f});
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.2f});
+    ImGui::Begin("##freecam", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::SetWindowFontScale(0.7f);
+    char text[160];
+    std::snprintf(text, sizeof(text), "Free camera%s  %.0f/s  %s", status.paused ? " (photo mode)" : "",
+                  static_cast<double>(status.speed),
+                  status.moved_draws == 0u && status.other_draws != 0u ? "- not the game's usual view here"
+                                                                      : "F6 or Back+R3 to leave");
+    ImGui::TextUnformatted(text);
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
 // The menu while it is open over the running game, and a quit chosen in it.
 std::optional<Menu> &menu_over_game_state() {
     static std::optional<Menu> menu;
@@ -1471,8 +1529,11 @@ void draw_over_game() {
     const bool touch = !menu && layer.renderer().touch_controls_visible();
     const std::string gpu_problem =
         menu || gpu_problem_seen() ? std::string() : layer.renderer().gpu_problem();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty()) return;
+    const camera::FreeCameraStatus free_camera = camera::free_camera_status();
+    const bool flying = free_camera.active && !menu && !layer.renderer().window_capture_pending();
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying) return;
     layer.begin_frame();
+    if (flying) draw_free_camera_indicator(free_camera);
     if (touch) draw_touch_controls(layer.renderer().touch_controls(), settings::current().touch_opacity);
     if (hint_left > 0.0) draw_hint(hint_left);
     if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);
