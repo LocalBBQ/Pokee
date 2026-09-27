@@ -810,7 +810,8 @@ void Menu::controls() {
 
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
-                   {false, {}, "Every gamepad, keyboard, mouse, touch and name setting back to how Yakumo ships."})) {
+                   {false, {}, "Every gamepad, keyboard, mouse, touch, name and free camera setting back to how "
+                               "Yakumo ships."})) {
         const settings::Settings &d = settings::defaults();
         const auto restore = [&](const char *key, auto &value, const auto &fallback) {
             if (settings::overridden_by(key) == nullptr) value = fallback;

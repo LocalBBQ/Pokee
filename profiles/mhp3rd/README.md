@@ -233,6 +233,7 @@ The game can be played with a keyboard and a mouse alone. Every control can be r
 | I / J / K / L | The second stick, fully | Camera without the mouse |
 | Esc | In-game menu | Frees the pointer |
 | F3 | Performance overlay on or off | |
+| F6 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu | |
 
 A bow aims with Left Shift held and shoots with the left button; a bowgun fires with the right one.
 
@@ -260,6 +261,7 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | Left stick | Analog stick |
 | Right stick | The HD release's second stick (camera) |
 | L3 + R3 (both sticks pressed) | In-game menu |
+| Back + R3 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu |
 
 The trigger profiles are for shooting: R, held to aim, moves onto L2, and the weapon's attack goes onto R2. They only add copies: RB, △ and ○ keep working, LB stays L, and the keyboard and Yakumo's own menu are unchanged. Choose one in the menu (*Trigger profile*) or with `MHP3RD_PAD_TRIGGERS`.
 
@@ -347,6 +349,8 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | A row per control (Move forward … Camera right) | `input.bind.<control>` | | Up to two keys or mouse buttons, see [Keyboard and mouse](#keyboard-and-mouse) |
 | Controls | When the game asks for a name | `input.name_entry` | `MHP3RD_OSK_MODE` | `keyboard` (default): the on-screen keyboard; `fixed`: the name below at once |
 | Controls | Hunter name | `input.name` | `MHP3RD_OSK_TEXT` | Default `Hunter`; up to 12 characters. Setting the variable also answers at once unless `MHP3RD_OSK_MODE` says otherwise |
+| Controls (Experimental) | Free camera | `experimental.free_camera` | `MHP3RD_FREE_CAMERA` | Off (default) or on: F6, or Back + R3, detaches the view from the game's camera. See [Free camera](#free-camera-experimental) |
+| Controls (Experimental) | Free camera speed | `experimental.free_camera_speed` | `MHP3RD_FREE_CAMERA_SPEED` | Game units a second, 50 to 5000 in the menu (the file and the variable take 10 to 20000); default 400. The speed chosen in flight is kept here |
 | Mods | Use mods | `[general] enabled` in `mods.ini` | `MHP3RD_NO_MODS` | On (default) or off: every mod off, the game's own files only. See [Mods](#mods) |
 | Mods | A row per mod: On, Priority | `[mod <folder>] enabled`, `rank` in `mods.ini` | | Off (default) or on; a higher rank wins where two mods replace the same file |
 | System | Pause the game when the menu opens | `ui.menu_pause` | `MHP3RD_MENU_PAUSE` | On (default) or off: the game keeps running behind the menu |
@@ -848,6 +852,9 @@ What is left is the game's own music fading out and its animations, which play a
 | `MHP3RD_OSK_TEXT` | `Hunter` | Fixed name given when the game asks for one, at once and without the on-screen keyboard unless `MHP3RD_OSK_MODE=keyboard` (menu: Hunter name) |
 | `MHP3RD_OSK_MODE` | `keyboard` | `keyboard` opens the on-screen keyboard; `fixed` gives the fixed name at once (menu: When the game asks for a name) |
 | `MHP3RD_AUTO_CONFIRM` | off | Press ○ every N frames, to walk through menus unattended |
+| `MHP3RD_FREE_CAMERA` | off | `1` turns the [free camera](#free-camera-experimental) on for the run: F6 or Back + R3 then detaches the view (menu: Free camera) |
+| `MHP3RD_FREE_CAMERA_SPEED` | `400` | The free camera's speed in game units a second, 10 to 20000 (menu: Free camera speed) |
+| `MHP3RD_FREE_CAMERA_POSE` | none | `x,y,z,yaw,pitch`: where the free camera starts instead of the game camera's place, so two runs look from exactly the same spot. Yaw 0 looks along +z and grows towards +x; pitch is up, in degrees |
 
 ### Network
 
@@ -872,6 +879,35 @@ The code is in two layers under `host/camera/`:
 - `game_camera` drives the game's camera from that input. The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. Each camera mode needs its own driver: only the ordinary follow camera (mode 0) has one, and every other mode keeps the stock camera and stick. Aiming stays in mode 0: each update the camera asks the weapon's code whether it aims and keeps the answer at camera `+0x91` (-1 when not), and while it is not negative the game turns the camera after the aim, so for exactly that time the driver leaves the camera alone and sizes the aim instead. The weapon's aim code (in `game_task`) reads the stick as on/off commands and, in the states where the aim may move, steps the hunter's facing (followed object `+0x188`, copied by the game into `+0x74`) by 512 or 624 and one of three vertical aims (`+0xC22` or `+0x1457`, signed bytes limited to ±100, or `+0xC24`, a halfword limited to ±8192) by a fixed amount. While aiming, the stick reaches the game stretched to full length so the aim code steps at any push, and the driver replaces each step it finds since the previous update with one in proportion to the stick, in the game's direction. No step from the game means no movement. A mouse has no stick, so while the right stick is idle and the mouse has moved, the second stick shows the game the mouse's direction at full length, and a step the game makes then is sized by the mouse's degrees instead; degrees the game has not stepped for wait up to three updates (the game may step an update after it saw the push) and are then dropped, and a step made after they are spent is taken back.
 
 Safeguards: CMake finds the generated unit that holds the rotation helper and fails the configure if none does, so a new partition of the corpus cannot call the wrong code. At start-up the driver compares twenty-two instructions and constants of the game (listed in `game_camera.cpp`) with what it expects and stays out, saying which differs, if any does. The wrapper is installed only when the option is on (from the first frame, by default): a player who turns it off before starting keeps the helper's generated unit on its direct calls, and the feature costs nothing. No shared preset table or generated code is patched, and guest RAM is never scanned.
+
+### Free camera (experimental)
+
+**Free camera** (Controls → Experimental, `experimental.free_camera`, `MHP3RD_FREE_CAMERA=1`) is off by default. It is experimental: it may break, and it may change. With it on, F6, or Back + R3 on a gamepad, detaches the view from the game's camera, and the same again gives the game's camera back exactly as it was. It is for pictures, for looking at models and levels, and for debugging the renderer.
+
+| Keyboard and mouse | Gamepad | While flying |
+| --- | --- | --- |
+| W / S, A / D | Left stick | Fly forward and back along the view, strafe |
+| E / Q | RB / LB | Straight up / down |
+| Mouse | Right stick | Look; Mouse sensitivity and Camera speed, and their invert settings, apply |
+| Left Shift / Left Ctrl, held | RT / LT, held | Four times faster / four times slower |
+| Mouse wheel, + / - | D-pad up / down | Speed times or divided by 1.25; kept as *Free camera speed* |
+| P | Start | Photo mode on or off |
+| R | Y (north) | Back to where the game's camera is |
+| F6 | Back + R3 | Leave |
+
+The game keeps running underneath, and it reads a neutral pad the whole time, so the hunter stands where it was and nothing is pressed by accident; buttons still held when the free camera ends reach the game only after they are released. A small line at the top of the window says the free camera is on, its speed, and how to leave. It is left out of window captures (`shot` in `MHP3RD_INPUT_SCRIPT`), and the game frame captures (`MHP3RD_SCREENSHOT_DIR`) never have the interface in them. Esc still opens the menu. On a gamepad, Back is the game's SELECT until the free camera is on, so the game sees SELECT for as long as Back is held before R3 completes the chord.
+
+**Photo mode** holds the game still as the paused menu does (no guest code runs, emulated time stands still, the sound stops) and draws the frame it last drew again from wherever the camera goes. It works with any frame rate; the frames it shows are not interpolated.
+
+What the picture has, and what it lacks:
+
+- **The HUD and other 2D stay put.** The interface, and anything the game places on the screen itself, such as the name over the hunter, stay where the game's camera would have them.
+- **What the game does not draw, nothing can show.** The game still decides what to draw from its own camera. In the Misty Peaks base camp the scenery behind the game's camera was all there, while the brazier's fire, an effect, was missing when the game's camera looked away from it. In the village, looking from the gate past the fence shows black: the same place looked the same with the game's camera at the gate and after the hunter had walked up into the square, so that part of the level is not there at all rather than culled.
+- **The free camera does not widen the game's culling.** Writing a wider field of view into the game's camera object changed neither the projection nor what was drawn, which suggests the game sets its own field of view again on every update; widening culling would need a hook in its culling code (`0x0882BF1C`), which is not done.
+
+How it works, as traced with `MHP3RD_TRACE_VIEWS`: in the village and in a quest area every transformed draw of a frame is made with one GE view matrix, and the game keeps that matrix in its camera object (the pointer at `0x08A2F958`) at `+0xF50`, with a copy at `+0xF90`. The GE keeps 24 bits of each float. Each display list's transformed draws pass through a hook on their way to the renderer (`GeState::set_view_hook`); while the free camera flies, the draws whose view is the camera object's matrix, truncated as the GE truncates it, get the free camera's view instead. Nothing else changes: the game's code, its camera object, culling, level of detail and the projection are as they were, and leaving simply stops replacing views. A frame whose views are not the camera object's is left alone, and the line at the top says so. For the photo mode the port keeps, while flying, the GE's state when the frame's first display list starts and every run of a display list after it, and runs them again from that state; guest memory does not change while the game stands still, so the lists hold what they held. Frame interpolation blends the free camera's motion like the game camera's.
+
+With the setting off nothing is hooked into the display lists, no input is read for it and nothing is written; the unit test `mhp3rd_free_camera_tests` checks that the hook is empty. A scripted run of main and of this code with the setting off gave the same captures, within the differences two runs of main have between them. The code is `host/camera/free_camera.{hpp,cpp}`, with the controls in the renderer and the photo mode in `hle_media.cpp`.
 
 ### Diagnostics
 
@@ -906,6 +942,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_TRACE_CAMERA_STATE=path.csv` | Trace ordinary camera updates: frame, guest camera address, enabled state, stick axes, yaw target/current, stock eye offset and target height, owned pitch, recentre/D-pad flags, adjusted offset and previous observed pitch. Does not enable memory searches or renderer tracing |
 | `MHP3RD_TRACE_CAMERA_MODES=path.csv` | Every call of the camera's rotation helper from the camera update, and one line per game flip, with the camera mode, the aim the weapon reports, the stick, the yaw fields and the whole camera structure in hex. For finding what a camera mode keeps where before it has a driver. Needs Analog camera turned on once in the session, which installs the hook the trace runs in |
 | `MHP3RD_TRACE_AIM=path.csv` | While a bow or a bowgun aims or a bowgun's scope is up: one line per camera update with the scope flag, the stick's and the mouse's degrees, the mouse degrees carried, the game's own step (yaw:pitch), the step taken off in advance and the step the driver made; and one line per frame the mouse shows the game a direction. For telling the game's steps from the driver's |
+| `MHP3RD_TRACE_VIEWS=N` | Every N game frames, one line per distinct view and projection the frame's transformed draws used: how many draws and vertices, the eye position, yaw and pitch, the matrices, the render targets, and where in the game's camera object the view matrix lies (`in-camera +0xf50 +0xf90`). While the free camera flies, how many draws it gave its view and how many it left. How the [free camera](#free-camera-experimental) was traced |
 | `MHP3RD_TRACE_CAMERA=1` | One line per frame for the camera the game itself set: the second stick's offset from centre, the yaw and pitch read out of the frame's busiest view matrix, the turn since the previous frame, and the camera's world position. Reads the game's own camera, so it tells a stepped turn from a continuous one |
 | `MHP3RD_TRACE_WHITE_TEXTURES=1` | Each texture the decoder cannot decode, once, with its address, size, format, swizzle and palette: those draws are made with a white texture instead, so this is the first thing to check when something draws white |
 | `MHP3RD_TRACE_FB_TEXTURES=1` | Each distinct texture that lies in a framebuffer the renderer drew (with both layouts), each large texture, `sceDmacMemcpy` copies into or out of VRAM, GE block transfers, new render targets, and the GE commands the renderer ignores. Add `PSPRECOMP_TRACE_VRAM_READS=1` to log game code reading VRAM with the CPU, per 64 KiB block and at most once a second |
@@ -1010,7 +1047,7 @@ host/main.cpp                    Entry point: finding the game data, executable 
 host/app_paths.{hpp,cpp}         The executable's own location, and what a release ships next to it
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/settings/                   Player settings: settings.ini, environment overrides, defaults
-host/camera/                     Camera input from every device, the driver for the game's own camera, and its view's shape
+host/camera/                     Camera input from every device, the driver for the game's own camera, its view's shape, the free camera
 host/input/                      Keyboard and mouse bindings: names, settings.ini spelling, what held keys press
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
 host/debug/                      Developer tools (not in release builds): the game's money, boxes and quest state, cheats, command file
