@@ -7,6 +7,7 @@
 #include "triangle_indices.hpp"
 #include "texture_pack.hpp"
 #include "texture_pack_import.hpp"
+#include "device_report.hpp"
 
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
@@ -748,6 +749,15 @@ struct VulkanRenderer::Impl {
                           << b.labels[id % b.labels.size()] << "\n";
         }
         std::cout << std::flush;
+#if defined(__ANDROID__)
+        // A phone has no console to read this from: say it on screen
+        // before the app disappears.
+        const std::string text = std::string("The GPU stopped responding (VK_ERROR_DEVICE_LOST) in ") + where +
+                                 ".\n\n" + facts.name + ", driver " + facts.driver_version_text() +
+                                 ".\n\nYakumo has to close. Open it again, then Menu > System > Save the log... "
+                                 "and send us the log.";
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Yakumo: graphics error", text.c_str(), nullptr);
+#endif
         std::_Exit(3);
     }
     void wait_fence(VkFence fence, const char *where) {
@@ -1174,6 +1184,46 @@ struct VulkanRenderer::Impl {
         std::array<std::array<std::uint64_t, 12>, 2> fields{};  // inexact values by kind (unskinned, skinned) and field
     } check_tally;
     VkShaderModule fragment_shader{};
+    // GPU compatibility mode (settings::GpuCompat, device_report.hpp): on for
+    // old mobile drivers, it leaves out what they have been seen to get
+    // wrong. Decided once, before the device is made.
+    DeviceFacts facts;
+    bool gpu_compat{};
+    std::string gpu_compat_reason;
+    // ge.frag without its specialization constant (kGeFragmentShaderPlain).
+    // Used for every pipeline once plain_fragment is set: by compatibility
+    // mode, by a failed self-test, or when a pipeline with the constant
+    // could not be made and one without it could.
+    VkShaderModule plain_fragment_shader{};
+    // What create_pipeline() (also on the prewarm thread) and the self-test
+    // learn about the driver; behind a pointer, as atomics and a mutex are
+    // not assignable and Impl is (shutdown()).
+    struct GpuHealth {
+        std::atomic<bool> plain_fragment{};
+        // Pipelines the driver refused and made, for the log.
+        std::atomic<std::uint32_t> pipelines_failed{};
+        std::atomic<std::uint32_t> pipelines_made{};
+        // Why the game's picture may be missing, shown over the game
+        // (empty: nothing known).
+        std::mutex lock;
+        std::string problem;
+    };
+    std::unique_ptr<GpuHealth> health{std::make_unique<GpuHealth>()};
+    void set_problem(const std::string &text) const {
+        std::lock_guard<std::mutex> guard(health->lock);
+        if (health->problem.empty()) health->problem = text;
+    }
+    // Draws with the GE's pipelines into a small image and reads it back
+    // (see the definition). False, with what came out in `detail`, when the
+    // picture is wrong.
+    bool self_test(std::string &detail);
+    // Acquires and presents that failed other than by a changed window.
+    std::uint64_t present_failures{};
+    void note_present_failure(const char *what, VkResult result) {
+        if (present_failures++ % 300u == 0u)
+            log_line(std::string("[render] ") + what + " failed: " + vk_result_name(result) + " (" +
+                     std::to_string(present_failures) + " so far); nothing reaches the screen meanwhile");
+    }
     VkPipelineLayout pipeline_layout{};
     VkDescriptorSetLayout descriptor_layout{};
     VkDescriptorPool descriptor_pool{};
@@ -2134,6 +2184,39 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         return false;
     }
 
+    // What the player's log needs about this GPU, and whether it has all the
+    // renderer takes for granted: a missing piece is named instead of
+    // leaving a black screen.
+    impl.facts = read_device_facts(impl.physical_device);
+    log_device(impl.physical_device, impl.surface, impl.facts);
+    if (const std::vector<std::string> missing =
+            missing_requirements(impl.physical_device, impl.facts, kVertexBufferTotal);
+        !missing.empty()) {
+        error = impl.facts.name + " (driver " + impl.facts.driver_version_text() + ") lacks what Yakumo needs:";
+        for (std::size_t i = 0; i < missing.size(); ++i) error += (i == 0u ? " " : "; ") + missing[i];
+        return false;
+    }
+    {
+        const settings::GpuCompat wanted = settings::current().gpu_compat;
+        const std::string reason = compat_reason(impl.facts);
+        const char *variable = settings::overridden_by("video.gpu_compat");
+        if (wanted == settings::GpuCompat::On) {
+            impl.gpu_compat = true;
+            impl.gpu_compat_reason = variable != nullptr ? std::string(variable) : "the Video setting";
+        } else if (wanted == settings::GpuCompat::Auto && !reason.empty()) {
+            impl.gpu_compat = true;
+            impl.gpu_compat_reason = reason;
+        }
+        if (impl.gpu_compat)
+            log_line("[gpu-compat] on (" + impl.gpu_compat_reason +
+                     "): no specialization constants, robust buffer access, pipeline cache, background pipelines, "
+                     "skipped loads or GPU timestamps; one frame in flight");
+        else
+            log_line(std::string("[gpu-compat] off") +
+                     (wanted == settings::GpuCompat::Off ? " (the Video setting or MHP3RD_GPU_COMPAT)"
+                                                         : " (Auto: this driver needs nothing left out)"));
+    }
+
     std::uint32_t device_extension_count = 0u;
     vkEnumerateDeviceExtensionProperties(impl.physical_device, nullptr, &device_extension_count, nullptr);
     std::vector<VkExtensionProperties> device_extensions(device_extension_count);
@@ -2175,7 +2258,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     // vertex shader reads, a uniform) return zeros or stay within the buffer
     // instead of reading whatever memory follows it, which on some GPUs can
     // fault or hang. MHP3RD_NO_ROBUST_BUFFERS leaves it off, as before.
-    if (supported_features.robustBufferAccess == VK_TRUE && std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr)
+    if (supported_features.robustBufferAccess == VK_TRUE && std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr &&
+        !impl.gpu_compat)
         enabled_features.robustBufferAccess = VK_TRUE;
     std::cout << "[render] robust buffer access " << (enabled_features.robustBufferAccess ? "on" : "off") << "\n";
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -2272,7 +2356,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (!check(vkCreateRenderPass(impl.device, &render_pass_info, nullptr, &impl.render_pass), "vkCreateRenderPass",
                error))
         return false;
-    if (std::getenv("MHP3RD_NO_CLEAR_LOAD") == nullptr) {
+    if (std::getenv("MHP3RD_NO_CLEAR_LOAD") == nullptr && !impl.gpu_compat) {
         for (std::uint32_t variant = 1u; variant < 4u; ++variant) {
             std::array<VkAttachmentDescription, 2> skipped = attachments;
             if ((variant & 1u) != 0u) skipped[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -2298,6 +2382,9 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         return false;
     }
     if (!create_shader(kGeFragmentShader, sizeof(kGeFragmentShader), impl.fragment_shader)) return false;
+    if (!create_shader(kGeFragmentShaderPlain, sizeof(kGeFragmentShaderPlain), impl.plain_fragment_shader))
+        return false;
+    impl.health->plain_fragment = impl.gpu_compat;
 
     VkDescriptorSetLayoutBinding binding{};
     binding.binding = 0u;
@@ -2406,6 +2493,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     if (const char *text = std::getenv("MHP3RD_FRAMES_IN_FLIGHT"); text != nullptr)
         impl.slot_count = std::clamp<std::uint32_t>(static_cast<std::uint32_t>(std::atoi(text)), 1u, Impl::kMaxSlots);
+    else if (impl.gpu_compat)
+        impl.slot_count = 1u;
     std::cout << "[render] " << impl.slot_count << " frame" << (impl.slot_count == 1u ? "" : "s") << " in flight\n";
     for (Impl::FrameSlot &frame : impl.slots) {
         if (!check(vkAllocateCommandBuffers(impl.device, &command_info, &frame.commands), "vkAllocateCommandBuffers",
@@ -2436,6 +2525,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         const float period = timer_properties.limits.timestampPeriod;
         const char *why = nullptr;
         if (std::getenv("MHP3RD_NO_GPU_TIMESTAMPS") != nullptr) why = "turned off (MHP3RD_NO_GPU_TIMESTAMPS)";
+        else if (impl.gpu_compat) why = "GPU compatibility mode";
         else if (valid_bits == 0u) why = "the graphics queue has no timestamps";
         else if (!(period > 0.0f)) why = "the device reports no timestamp period";
         if (why == nullptr) {
@@ -2551,6 +2641,31 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     const std::uint32_t white = 0xFFFFFFFFu;
     impl.white_texture = impl.create_texture(1u, 1u, &white);
+
+    // The GE's pipelines drawing a known picture, before the game relies on
+    // them. A wrong picture is tried again with the plain fragment shader,
+    // and if that is wrong too, the player is told over the game.
+    // MHP3RD_NO_GPU_SELFTEST skips it.
+    if (std::getenv("MHP3RD_NO_GPU_SELFTEST") == nullptr) {
+        const auto start = std::chrono::steady_clock::now();
+        std::string detail;
+        bool passed = impl.self_test(detail);
+        const char *shader = impl.health->plain_fragment ? "plain" : "specialized";
+        if (!passed && !impl.health->plain_fragment) {
+            log_line(std::string("[gpu-selftest] failed with the specialized fragment shader: ") + detail);
+            impl.health->plain_fragment = true;
+            shader = "plain";
+            passed = impl.self_test(detail);
+            if (passed)
+                log_line("[gpu-compat] the plain fragment shader passes the self-test; using it for every pipeline");
+        }
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        log_line(std::string("[gpu-selftest] ") + (passed ? "passed" : "FAILED") + " with the " + shader +
+                 " fragment shader in " + std::to_string(static_cast<int>(ms)) + " ms: " + detail);
+        if (!passed)
+            impl.set_problem("The GPU drew Yakumo's start-up test picture wrong (" + detail +
+                             "), so the game's picture may be missing or wrong.");
+    }
 
     // Texture packs are optional too: without the GPU side, none is loaded.
     std::string replacement_error;
@@ -2758,7 +2873,21 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     swapchain_info.imageArrayLayers = 1u;
     swapchain_info.imageUsage = swapchain_usage;
     swapchain_info.preTransform = transform;
-    swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    // Opaque where offered. Some Android systems offer only INHERIT (a Helio
+    // G100 phone's report on gpuinfo.org does), and asking for what a
+    // surface lacks is not allowed.
+    VkCompositeAlphaFlagBitsKHR composite = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    if ((capabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) == 0u) {
+        for (const VkCompositeAlphaFlagBitsKHR candidate :
+             {VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+              VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR}) {
+            if ((capabilities.supportedCompositeAlpha & candidate) != 0u) {
+                composite = candidate;
+                break;
+            }
+        }
+    }
+    swapchain_info.compositeAlpha = composite;
     swapchain_info.presentMode = present_mode;
     swapchain_info.clipped = VK_TRUE;
     swapchain_info.oldSwapchain = old_swapchain;
@@ -2799,7 +2928,10 @@ bool VulkanRenderer::Impl::create_swapchain(std::string &error) {
     swapchain_dirty = false;
     update_display_info();
     std::cout << "[render] swapchain " << image_extent.width << "x" << image_extent.height << ", " << count
-              << " images, " << present_mode_name(present_mode) << "\n";
+              << " images, " << present_mode_name(present_mode) << ", " << format_name(swapchain_format)
+              << (composite != VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR ? ", composite alpha " + std::to_string(composite)
+                                                                 : std::string())
+              << "\n";
     return true;
 }
 
@@ -3186,6 +3318,9 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
 #if defined(__ANDROID__)
         if (acquired == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
 #endif
+        if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR && acquired != VK_ERROR_OUT_OF_DATE_KHR &&
+            acquired != VK_ERROR_SURFACE_LOST_KHR)
+            note_present_failure("vkAcquireNextImageKHR", acquired);
     }
     const bool can_present = acquired == VK_SUCCESS || acquired == VK_SUBOPTIMAL_KHR;
     bool capture = false;
@@ -3292,6 +3427,9 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
 #if defined(__ANDROID__)
         if (presented == VK_ERROR_SURFACE_LOST_KHR) surface_returned = true;
 #endif
+        if (presented != VK_SUCCESS && presented != VK_SUBOPTIMAL_KHR && presented != VK_ERROR_OUT_OF_DATE_KHR &&
+            presented != VK_ERROR_SURFACE_LOST_KHR)
+            note_present_failure("vkQueuePresentKHR", presented);
     }
     if (main_frame) recording = false;
     if (capture) write_capture(fence);
@@ -4283,8 +4421,9 @@ VkDescriptorSet VulkanRenderer::Impl::framebuffer_descriptor(Target &target, boo
 }
 
 void VulkanRenderer::Impl::load_pipeline_cache() {
-    if (std::getenv("MHP3RD_NO_PIPELINE_CACHE") != nullptr) {
-        std::cout << "[render] pipeline cache off (MHP3RD_NO_PIPELINE_CACHE)\n";
+    if (std::getenv("MHP3RD_NO_PIPELINE_CACHE") != nullptr || gpu_compat) {
+        std::cout << "[render] pipeline cache off ("
+                  << (gpu_compat ? "GPU compatibility mode" : "MHP3RD_NO_PIPELINE_CACHE") << ")\n";
         return;
     }
     pipeline_cache_path = install::user_data_directory() / "pipeline_cache.bin";
@@ -4536,7 +4675,7 @@ VkPipeline VulkanRenderer::Impl::create_pipeline(const PipelineKey &key) const {
     stages[0].pName = "main";
     stages[1] = stages[0];
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = fragment_shader;
+    stages[1].module = health->plain_fragment ? plain_fragment_shader : fragment_shader;
 
     VkVertexInputBindingDescription binding{0u, sizeof(GpuVertex), VK_VERTEX_INPUT_RATE_VERTEX};
     std::array<VkVertexInputAttributeDescription, 4> attributes{
@@ -4602,7 +4741,9 @@ VkPipeline VulkanRenderer::Impl::create_pipeline(const PipelineKey &key) const {
     specialization.pMapEntries = &alpha_entry;
     specialization.dataSize = sizeof(alpha_test);
     specialization.pData = &alpha_test;
-    stages[1].pSpecializationInfo = &specialization;
+    // The plain shader has no constant to specialize; it is given no
+    // specialization at all rather than an entry it lacks.
+    if (stages[1].module != plain_fragment_shader) stages[1].pSpecializationInfo = &specialization;
 
     VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     info.stageCount = static_cast<std::uint32_t>(stages.size());
@@ -4618,9 +4759,287 @@ VkPipeline VulkanRenderer::Impl::create_pipeline(const PipelineKey &key) const {
     info.layout = pipeline_layout;
     info.renderPass = render_pass;
     VkPipeline pipeline{};
-    if (vkCreateGraphicsPipelines(device, pipeline_cache, 1u, &info, nullptr, &pipeline) != VK_SUCCESS)
-        return VK_NULL_HANDLE;
-    return pipeline;
+    // MHP3RD_GPU_FAIL_PIPELINES=1 refuses every pipeline with the
+    // specialization constant, as a driver that cannot build one would, so
+    // the fallback below can be seen working on any GPU.
+    static const bool fail_specialized = std::getenv("MHP3RD_GPU_FAIL_PIPELINES") != nullptr;
+    const auto create = [&](VkPipelineCache cache) {
+        if (fail_specialized && stages[1].module == fragment_shader) return VK_ERROR_INITIALIZATION_FAILED;
+        return vkCreateGraphicsPipelines(device, cache, 1u, &info, nullptr, &pipeline);
+    };
+    VkResult result = create(pipeline_cache);
+    if (result == VK_SUCCESS) {
+        health->pipelines_made.fetch_add(1u, std::memory_order_relaxed);
+        return pipeline;
+    }
+    // A refused pipeline would drop every draw that needs it without a
+    // word. Log it, then try again without the pipeline cache and with the
+    // plain fragment shader, which some drivers build when they fail the
+    // other.
+    const std::uint32_t failed = health->pipelines_failed.fetch_add(1u, std::memory_order_relaxed) + 1u;
+    const bool plain = stages[1].module == plain_fragment_shader;
+    if (failed <= 8u || failed % 256u == 0u)
+        log_line(std::string("[render] vkCreateGraphicsPipelines failed: ") + vk_result_name(result) + " (" +
+                 std::to_string(failed) + " so far; " + (plain ? "plain" : "specialized") +
+                 " fragment shader, alpha test " + (key.alpha_test ? "on" : "off") + ", blend " +
+                 (key.blend ? "on" : "off") + ", depth test " + (key.depth_test ? "on" : "off") + ")");
+    if (pipeline_cache != VK_NULL_HANDLE) {
+        result = create(VK_NULL_HANDLE);
+        if (result == VK_SUCCESS) {
+            if (failed <= 8u) log_line("[render] ...made without the pipeline cache");
+            health->pipelines_made.fetch_add(1u, std::memory_order_relaxed);
+            return pipeline;
+        }
+    }
+    if (!plain) {
+        stages[1].module = plain_fragment_shader;
+        stages[1].pSpecializationInfo = nullptr;
+        result = create(VK_NULL_HANDLE);
+        if (result == VK_SUCCESS) {
+            if (!health->plain_fragment.exchange(true))
+                log_line("[gpu-compat] the plain fragment shader works where the specialized one failed; using it "
+                         "for every pipeline from now on");
+            health->pipelines_made.fetch_add(1u, std::memory_order_relaxed);
+            return pipeline;
+        }
+    }
+    set_problem(std::string("The GPU driver could not build the game's shaders (vkCreateGraphicsPipelines: ") +
+                vk_result_name(result) + "), so parts of the picture are missing.");
+    return VK_NULL_HANDLE;
+}
+
+// The start-up self-test. It draws three rectangles through the GE's own
+// pipeline layout, shaders, descriptor sets, vertex format and render pass
+// into a 16x16 image and reads the image back:
+//   left half:  green, alpha tested (a >= 128, which passes), depth tested;
+//   right half: blue, without an alpha test, blended (source alpha);
+//   all of it:  white, alpha tested with "never", which must leave no trace.
+// A driver that builds the pipelines but draws nothing or the wrong thing
+// shows up here, named in the log, instead of as a black screen later.
+bool VulkanRenderer::Impl::self_test(std::string &detail) {
+    constexpr std::uint32_t kSize = 16u;
+    VkImage color{}, depth{};
+    VkDeviceMemory color_memory{}, depth_memory{};
+    VkImageView color_view{}, depth_view{};
+    VkFramebuffer framebuffer{};
+    VkBuffer readback{};
+    VkDeviceMemory readback_memory{};
+    VkCommandBuffer commands{};
+    VkFence fence{};
+    std::array<VkPipeline, 2> pipelines{};
+    bool keep = false;  // the GPU never finished: nothing may be destroyed
+    const auto cleanup = [&] {
+        if (keep) return;
+        for (VkPipeline pipeline : pipelines) vkDestroyPipeline(device, pipeline, nullptr);
+        if (fence != VK_NULL_HANDLE) vkDestroyFence(device, fence, nullptr);
+        if (commands != VK_NULL_HANDLE) vkFreeCommandBuffers(device, command_pool, 1u, &commands);
+        vkDestroyBuffer(device, readback, nullptr);
+        vkFreeMemory(device, readback_memory, nullptr);
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
+        vkDestroyImageView(device, color_view, nullptr);
+        vkDestroyImageView(device, depth_view, nullptr);
+        vkDestroyImage(device, color, nullptr);
+        vkDestroyImage(device, depth, nullptr);
+        vkFreeMemory(device, color_memory, nullptr);
+        vkFreeMemory(device, depth_memory, nullptr);
+    };
+    std::string error;
+    if (!create_image(kSize, kSize, VK_FORMAT_R8G8B8A8_UNORM,
+                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, color, color_memory,
+                      color_view, VK_IMAGE_ASPECT_COLOR_BIT, error) ||
+        !create_image(kSize, kSize, depth_format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depth, depth_memory,
+                      depth_view, depth_aspect(), error)) {
+        detail = "could not make its images: " + error;
+        cleanup();
+        return false;
+    }
+    const std::array<VkImageView, 2> views{color_view, depth_view};
+    VkFramebufferCreateInfo framebuffer_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+    framebuffer_info.renderPass = render_pass;
+    framebuffer_info.attachmentCount = 2u;
+    framebuffer_info.pAttachments = views.data();
+    framebuffer_info.width = kSize;
+    framebuffer_info.height = kSize;
+    framebuffer_info.layers = 1u;
+    VkResult result = vkCreateFramebuffer(device, &framebuffer_info, nullptr, &framebuffer);
+    if (result != VK_SUCCESS) {
+        detail = std::string("vkCreateFramebuffer failed: ") + vk_result_name(result);
+        cleanup();
+        return false;
+    }
+    const VkDeviceSize bytes = kSize * kSize * 4u;
+    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = bytes;
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VkMemoryRequirements requirements{};
+    if (vkCreateBuffer(device, &buffer_info, nullptr, &readback) == VK_SUCCESS) {
+        vkGetBufferMemoryRequirements(device, readback, &requirements);
+        VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        allocate.allocationSize = requirements.size;
+        allocate.memoryTypeIndex = find_memory_type(
+            requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (vkAllocateMemory(device, &allocate, nullptr, &readback_memory) == VK_SUCCESS)
+            vkBindBufferMemory(device, readback, readback_memory, 0u);
+    }
+    if (readback_memory == VK_NULL_HANDLE) {
+        detail = "could not make its readback buffer";
+        cleanup();
+        return false;
+    }
+
+    // Both keys as the game's 2D interface draws: through vertices, a
+    // texture, a depth test that passes.
+    PipelineKey tested{};
+    tested.depth_test = true;
+    tested.depth_write = true;
+    tested.depth_function = 5u;  // less or equal
+    tested.alpha_test = true;
+    PipelineKey blended = tested;
+    blended.alpha_test = false;
+    blended.blend = true;
+    blended.source_factor = 2u;       // source alpha
+    blended.destination_factor = 3u;  // one minus source alpha
+    pipelines[0] = create_pipeline(tested);
+    pipelines[1] = create_pipeline(blended);
+    if (pipelines[0] == VK_NULL_HANDLE || pipelines[1] == VK_NULL_HANDLE) {
+        detail = "the driver refused its pipelines";
+        cleanup();
+        return false;
+    }
+
+    // Vertices past the first uniform blocks, which the lighting set reads
+    // from offset 0 (only for fog and lighting, both off here).
+    constexpr VkDeviceSize kVertexStart = 4096u;
+    const auto rectangle = [](GpuVertex *out, float x0, float x1, std::uint32_t color) {
+        const float corners[6][2] = {{x0, 0.0f}, {x1, 0.0f}, {x0, 16.0f}, {x1, 0.0f}, {x1, 16.0f}, {x0, 16.0f}};
+        for (int i = 0; i < 6; ++i) {
+            GpuVertex &v = out[i];
+            v = GpuVertex{};
+            v.x = corners[i][0];
+            v.y = corners[i][1];
+            v.z = 0.0f;
+            v.u = 0.5f;
+            v.v = 0.5f;
+            v.color = color;
+            set_uv_rect(v, -kNoClamp, -kNoClamp, kNoClamp, kNoClamp);
+        }
+    };
+    auto *vertices = reinterpret_cast<GpuVertex *>(static_cast<std::uint8_t *>(vertex_mapped) + kVertexStart);
+    rectangle(vertices, 0.0f, 8.0f, 0xFF00FF00u);     // green
+    rectangle(vertices + 6, 8.0f, 16.0f, 0xFFFF0000u);  // blue
+    rectangle(vertices + 12, 0.0f, 16.0f, 0xFFFFFFFFu); // white, never passes
+    std::memset(vertex_mapped, 0, kVertexStart);
+
+    VkCommandBufferAllocateInfo command_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    command_info.commandPool = command_pool;
+    command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_info.commandBufferCount = 1u;
+    VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    if (vkAllocateCommandBuffers(device, &command_info, &commands) != VK_SUCCESS ||
+        vkCreateFence(device, &fence_info, nullptr, &fence) != VK_SUCCESS) {
+        detail = "could not make its command buffer";
+        cleanup();
+        return false;
+    }
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(commands, &begin);
+    transition(commands, color, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transition(commands, depth, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+               depth_aspect());
+    VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    pass.renderPass = render_pass;
+    pass.framebuffer = framebuffer;
+    pass.renderArea = {{0, 0}, {kSize, kSize}};
+    vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    // Magenta where nothing was drawn, and the far plane.
+    std::array<VkClearAttachment, 2> clears{};
+    clears[0].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    clears[0].colorAttachment = 0u;
+    clears[0].clearValue.color = {{1.0f, 0.0f, 1.0f, 1.0f}};
+    clears[1].aspectMask = depth_aspect();
+    clears[1].clearValue.depthStencil = {1.0f, 0u};
+    const VkClearRect clear_rect{{{0, 0}, {kSize, kSize}}, 0u, 1u};
+    vkCmdClearAttachments(commands, 2u, clears.data(), 1u, &clear_rect);
+    const VkViewport viewport{0.0f, 0.0f, static_cast<float>(kSize), static_cast<float>(kSize), 0.0f, 1.0f};
+    const VkRect2D scissor{{0, 0}, {kSize, kSize}};
+    const std::array<float, 4> blend_constants{};
+    vkCmdSetViewport(commands, 0u, 1u, &viewport);
+    vkCmdSetScissor(commands, 0u, 1u, &scissor);
+    vkCmdSetBlendConstants(commands, blend_constants.data());
+    vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0u, 1u,
+                            &white_texture.descriptor, 0u, nullptr);
+    const std::array<std::uint32_t, 3> offsets{};
+    vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1u, 1u, &lighting_descriptor,
+                            static_cast<std::uint32_t>(offsets.size()), offsets.data());
+    const VkDeviceSize vertex_offset = kVertexStart;
+    vkCmdBindVertexBuffers(commands, 0u, 1u, &vertex_buffer, &vertex_offset);
+    PushConstants push{};
+    push.transform = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    push.viewport = {static_cast<float>(kSize), static_cast<float>(kSize), 1.0f, 0.0f};
+    const auto draw = [&](VkPipeline pipeline, std::uint32_t first, float alpha_function, float reference) {
+        vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        push.texture_params = {1.0f, 0.0f, reference, alpha_function};
+        vkCmdPushConstants(commands, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u,
+                           sizeof(push), &push);
+        vkCmdDraw(commands, 6u, 1u, first, 0u);
+    };
+    draw(pipelines[0], 0u, 7.0f, 128.0f);  // alpha >= 128
+    draw(pipelines[1], 6u, 0.0f, 0.0f);
+    draw(pipelines[0], 12u, 1.0f, 0.0f);   // never
+    vkCmdEndRenderPass(commands);
+    transition(commands, color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    copy.imageExtent = {kSize, kSize, 1u};
+    vkCmdCopyImageToBuffer(commands, color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &copy);
+    vkEndCommandBuffer(commands);
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1u;
+    submit.pCommandBuffers = &commands;
+    result = vkQueueSubmit(queue, 1u, &submit, fence);
+    if (result == VK_ERROR_DEVICE_LOST) device_lost("the start-up self-test's submit");
+    if (result != VK_SUCCESS) {
+        detail = std::string("vkQueueSubmit failed: ") + vk_result_name(result);
+        cleanup();
+        return false;
+    }
+    result = vkWaitForFences(device, 1u, &fence, VK_TRUE, 5'000'000'000ull);
+    if (result == VK_ERROR_DEVICE_LOST) device_lost("the start-up self-test");
+    if (result != VK_SUCCESS) {
+        detail = std::string("the GPU did not finish it: ") + vk_result_name(result);
+        keep = true;
+        return false;
+    }
+    void *mapped = nullptr;
+    vkMapMemory(device, readback_memory, 0u, bytes, 0u, &mapped);
+    const auto *pixels = static_cast<const std::uint8_t *>(mapped);
+    const auto pixel = [&](std::uint32_t x, std::uint32_t y) {
+        const std::uint8_t *p = pixels + (static_cast<std::size_t>(y) * kSize + x) * 4u;
+        return std::array<int, 4>{p[0], p[1], p[2], p[3]};
+    };
+    const auto near = [](const std::array<int, 4> &got, int r, int g, int b) {
+        return std::abs(got[0] - r) <= 8 && std::abs(got[1] - g) <= 8 && std::abs(got[2] - b) <= 8;
+    };
+    const auto text = [](const std::array<int, 4> &p) {
+        return std::to_string(p[0]) + "," + std::to_string(p[1]) + "," + std::to_string(p[2]) + "," +
+               std::to_string(p[3]);
+    };
+    const std::array<int, 4> left = pixel(4u, 8u);
+    const std::array<int, 4> right = pixel(12u, 8u);
+    vkUnmapMemory(device, readback_memory);
+    bool passed = near(left, 0, 255, 0) && near(right, 0, 0, 255);
+    detail = "left " + text(left) + " (want 0,255,0), right " + text(right) + " (want 0,0,255)";
+    // MHP3RD_GPU_SELFTEST=fail counts the specialized shader's result as
+    // wrong, =fail-all every result, to show the fallbacks on any GPU.
+    if (const char *simulate = std::getenv("MHP3RD_GPU_SELFTEST"); simulate != nullptr) {
+        if (std::strcmp(simulate, "fail-all") == 0 || (std::strcmp(simulate, "fail") == 0 && !health->plain_fragment)) {
+            passed = false;
+            detail += "; failed on purpose (MHP3RD_GPU_SELFTEST=" + std::string(simulate) + ")";
+        }
+    }
+    cleanup();
+    return passed;
 }
 
 bool VulkanRenderer::pump_events() {
@@ -5395,6 +5814,18 @@ bool VulkanRenderer::gpu_decode() const {
         std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
     return !off && !needs_vertices && !perf::alternate_off(perf::NewPath::Direct) &&
            !perf::alternate_off(perf::NewPath::GpuDecode);
+}
+
+std::string VulkanRenderer::gpu_problem() const {
+    if (!impl_) return {};
+    std::lock_guard<std::mutex> guard(impl_->health->lock);
+    return impl_->health->problem;
+}
+
+std::string VulkanRenderer::gpu_compat_status() const {
+    if (!impl_ || !impl_->ready) return "Off";
+    if (impl_->gpu_compat) return "On (" + impl_->gpu_compat_reason + ")";
+    return impl_->health->plain_fragment ? "Off (plain shader after a failure)" : "Off";
 }
 
 bool VulkanRenderer::check_gpu_decode() const { return impl_ && impl_->check_gpu_decode; }
@@ -7608,6 +8039,7 @@ void VulkanRenderer::shutdown() {
     vkDestroyBuffer(impl.device, impl.check_buffer, nullptr);
     vkFreeMemory(impl.device, impl.check_memory, nullptr);
     vkDestroyShaderModule(impl.device, impl.fragment_shader, nullptr);
+    vkDestroyShaderModule(impl.device, impl.plain_fragment_shader, nullptr);
     for (auto &[address, target] : impl.targets) impl.destroy_target(target);
     impl.targets.clear();
     impl.destroy_target(impl.held);

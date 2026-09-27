@@ -12,7 +12,14 @@ layout(set = 0, binding = 0) uniform sampler2D guest_texture;
 // False for pipelines of draws without an alpha test (texture_params.w 0):
 // the discard below is then compiled out, so tiled GPUs keep their early
 // depth test and hidden surface removal for them.
+#ifdef GE_NO_SPECIALIZATION
+// kGeFragmentShaderPlain, for GPU compatibility mode: the same shader with no
+// specialization constant at all, for drivers that fail to build one. Every
+// draw keeps the test, which passes where nothing is tested.
+const bool kAlphaTest = true;
+#else
 layout(constant_id = 0) const bool kAlphaTest = true;
+#endif
 
 layout(push_constant) uniform Push {
     mat4 transform;

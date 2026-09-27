@@ -27,6 +27,9 @@
 #if defined(MHP3RD_HAS_RENDERER)
 #include "gpu/vulkan_renderer.hpp"
 #include "ui/ui.hpp"
+#if defined(__ANDROID__)
+#include <SDL3/SDL.h>
+#endif
 #endif
 
 #include <algorithm>
@@ -36,6 +39,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace mhp3rd {
@@ -741,8 +745,20 @@ gpu::VulkanRenderer *ensure_renderer() {
     if (const char *title = std::getenv("MHP3RD_WINDOW_TITLE"); title != nullptr && *title != '\0')
         config.title = title;
     if (!renderer->initialize(config, error)) {
+#if defined(__ANDROID__)
+        // A phone would run on with sound and a black screen, which tells
+        // the player nothing: say what failed, then close.
+        std::cerr << "Renderer: unavailable (" << error << ")\n";
+        const std::string text = "Yakumo cannot draw on this device's GPU:\n\n" + error +
+                                 "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with your phone's "
+                                 "model and Android version.";
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Yakumo: graphics error", text.c_str(), nullptr);
+        std::cout << std::flush;
+        std::_Exit(4);
+#else
         std::cerr << "Renderer: unavailable (" << error << "); running headless\n";
         return nullptr;
+#endif
     }
     media().renderer = std::move(renderer);
     ui::attach(*media().renderer);

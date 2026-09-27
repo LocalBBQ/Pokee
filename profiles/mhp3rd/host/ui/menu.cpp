@@ -414,6 +414,20 @@ void Menu::video() {
             settings::save();
         }
     }
+    {
+        static const char *const kCompat[] = {"Auto", "On", "Off"};
+        const int current = static_cast<int>(s.gpu_compat);
+        RowOptions o = options_for(
+            "video.gpu_compat",
+            "Leaves out what some older phone GPU drivers get wrong (Mali drivers before r38, PowerVR): "
+            "specialized shaders, robust buffer access, the pipeline cache and a second frame in flight. Auto "
+            "turns it on for those drivers only. Applies when Yakumo starts next. Now: " +
+                renderer().gpu_compat_status() + ".");
+        if (const int delta = choice_row("GPU compatibility", kCompat[current], o)) {
+            s.gpu_compat = static_cast<settings::GpuCompat>(cycle(current, delta, 3));
+            settings::save();
+        }
+    }
     font_rows();
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore video defaults", {false, {}, "Every setting on this page back to how Yakumo ships."})) {
@@ -428,6 +442,7 @@ void Menu::video() {
         restore("video.sharp_screen", s.sharp_screen, d.sharp_screen);
         restore("video.sharp_textures", s.sharp_textures, d.sharp_textures);
         restore("video.texture_pack", s.texture_pack, d.texture_pack);
+        restore("video.gpu_compat", s.gpu_compat, d.gpu_compat);
         restore("video.present_mode", s.present_mode, d.present_mode);
         restore("video.frame_rate", s.frame_rate, d.frame_rate);
         restore("video.frame_rate_auto", s.frame_rate_auto, d.frame_rate_auto);
@@ -1335,6 +1350,38 @@ void draw_hint(double seconds_left) {
     ImGui::PopStyleVar(2);
 }
 
+// Set once the menu has been opened with a GPU problem on screen: the
+// player has seen it, and the menu is where the log is saved.
+bool &gpu_problem_seen() {
+    static bool seen = false;
+    return seen;
+}
+
+// What the renderer found wrong with the GPU (VulkanRenderer::gpu_problem),
+// at the top of the screen until the menu is opened: without it a player
+// would see a black screen and nothing else.
+void draw_gpu_problem(const std::string &problem) {
+    const ImGuiIO &io = ImGui::GetIO();
+    const float font = Layer::get().font_size();
+    const float width = std::min(io.DisplaySize.x - font * 2.0f, font * 34.0f);
+    ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, font * 0.5f}, ImGuiCond_Always, {0.5f, 0.0f});
+    ImGui::SetNextWindowSize({width, 0.0f}, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.8f, font * 0.5f});
+    ImGui::Begin("##gpu_problem", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted("Graphics problem");
+    ImGui::TextUnformatted(problem.c_str());
+    ImGui::TextUnformatted("Please open the menu, choose System > Save the log..., and send the log to "
+                           "github.com/TeamGDB/Yakumo/issues/169. Video > GPU compatibility may help. This note "
+                           "closes when the menu opens.");
+    ImGui::PopTextWrapPos();
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
 // The network overlay: a few lines in the top-right corner.
 void draw_network_overlay() {
     const adhoc::Diagnostics d = adhoc::Client::get().diagnostics();
@@ -1384,6 +1431,7 @@ Clock::time_point &menu_opened_at() {
 }
 
 void note_menu_opened(bool paused) {
+    if (Layer::get().attached() && !Layer::get().renderer().gpu_problem().empty()) gpu_problem_seen() = true;
     settings::Settings &s = settings::current();
     if (!s.menu_hint_seen) {
         s.menu_hint_seen = true;
@@ -1421,10 +1469,13 @@ void draw_over_game() {
     const double hint_left = menu || settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
     const bool overlay = network_overlay();
     const bool touch = !menu && layer.renderer().touch_controls_visible();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch) return;
+    const std::string gpu_problem =
+        menu || gpu_problem_seen() ? std::string() : layer.renderer().gpu_problem();
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty()) return;
     layer.begin_frame();
     if (touch) draw_touch_controls(layer.renderer().touch_controls(), settings::current().touch_opacity);
     if (hint_left > 0.0) draw_hint(hint_left);
+    if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);
     if (overlay) draw_network_overlay();
     if (menu && !menu->frame()) {
         const bool quit = menu->quit() || layer.window_closed();

@@ -220,6 +220,13 @@ public:
 
     [[nodiscard]] SDL_Window *window() const noexcept;
     [[nodiscard]] std::string device_name() const;
+    // Why the game's picture may be missing or wrong (a failed start-up
+    // self-test, pipelines the driver refused), for the interface to show
+    // over the game; empty while nothing is known to be wrong.
+    [[nodiscard]] std::string gpu_problem() const;
+    // Whether GPU compatibility mode is on this run, and why, for the menu:
+    // "On (reason)" or "Off".
+    [[nodiscard]] std::string gpu_compat_status() const;
     // The pad the game reads, or null.
     [[nodiscard]] SDL_Gamepad *gamepad() const noexcept;
 
