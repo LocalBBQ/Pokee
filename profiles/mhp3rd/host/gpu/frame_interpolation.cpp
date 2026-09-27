@@ -236,6 +236,28 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     return out;
 }
 
+namespace {
+
+// How far a pair of instances may be apart, once the camera's motion is taken
+// out, and still count as standing still: a unit, squared.
+constexpr float kStillSquared = 1.0f;
+
+// The squared distance between where the camera's motion `c` takes the older
+// draw and where the newer one is, in eye space.
+float distance_squared(const Matrix &c, const DrawSummary &from, const DrawSummary &to) noexcept {
+    const std::array<float, 3> before = from.prepared ? from.eye_translation : Matcher::eye_translation_of(from);
+    const std::array<float, 3> after = to.prepared ? to.eye_translation : Matcher::eye_translation_of(to);
+    float sum = 0.0f;
+    for (std::size_t row = 0; row < 3u; ++row) {
+        const float d =
+            after[row] - (c[row] * before[0] + c[4u + row] * before[1] + c[8u + row] * before[2] + c[12u + row]);
+        sum += d * d;
+    }
+    return sum;
+}
+
+} // namespace
+
 void Matcher::pair_nearest_instances(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
                                      const CutThresholds &thresholds) {
     Matching &out = result_;
@@ -249,6 +271,19 @@ void Matcher::pair_nearest_instances(const std::vector<DrawSummary> &older, cons
         if (slot.newer_count < 2u && slot.older_count < 2u) continue;
         if (slot.newer_count > thresholds.max_nearest_instances || slot.older_count > thresholds.max_nearest_instances)
             continue;
+        // Most instances are scenery that stands still, drawn in the same
+        // order every frame: when every pair in drawing order is where the
+        // camera's motion puts it, that order is kept without a search.
+        if (slot.older_count == slot.newer_count) {
+            bool still = true;
+            for (std::int32_t k = slot.older_first; k >= 0 && still; k = older_next_[static_cast<std::size_t>(k)]) {
+                const std::int32_t partner = out.newer_of[static_cast<std::size_t>(k)];
+                still = partner >= 0 &&
+                        distance_squared(c, older[static_cast<std::size_t>(k)], newer[static_cast<std::size_t>(partner)]) <=
+                            kStillSquared;
+            }
+            if (still) continue;
+        }
         instance_older_.clear();
         instance_newer_.clear();
         for (std::int32_t k = slot.older_first; k >= 0; k = older_next_[static_cast<std::size_t>(k)])
@@ -260,20 +295,9 @@ void Matcher::pair_nearest_instances(const std::vector<DrawSummary> &older, cons
         candidates_.clear();
         for (std::size_t a = 0; a < instance_older_.size(); ++a) {
             const DrawSummary &from = older[static_cast<std::size_t>(instance_older_[a])];
-            const std::array<float, 3> before = from.prepared ? from.eye_translation : eye_translation_of(from);
-            std::array<float, 3> predicted{};
-            for (std::size_t row = 0; row < 3u; ++row)
-                predicted[row] = c[row] * before[0] + c[4u + row] * before[1] + c[8u + row] * before[2] + c[12u + row];
-            for (std::size_t b = 0; b < instance_newer_.size(); ++b) {
-                const DrawSummary &to = newer[static_cast<std::size_t>(instance_newer_[b])];
-                const std::array<float, 3> after = to.prepared ? to.eye_translation : eye_translation_of(to);
-                float distance = 0.0f;
-                for (std::size_t row = 0; row < 3u; ++row) {
-                    const float d = after[row] - predicted[row];
-                    distance += d * d;
-                }
-                candidates_.push_back({distance, static_cast<std::int32_t>(a), static_cast<std::int32_t>(b)});
-            }
+            for (std::size_t b = 0; b < instance_newer_.size(); ++b)
+                candidates_.push_back({distance_squared(c, from, newer[static_cast<std::size_t>(instance_newer_[b])]),
+                                       static_cast<std::int32_t>(a), static_cast<std::int32_t>(b)});
         }
         // Ties keep drawing order, so instances that stand still pair as before.
         std::sort(candidates_.begin(), candidates_.end(), [](const Candidate &x, const Candidate &y) {
