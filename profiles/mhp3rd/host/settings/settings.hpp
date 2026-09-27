@@ -115,6 +115,8 @@ struct Settings {
 
     // Saves
     bool backup_timestamp{true};       // a backup made from the menu goes to a new folder named by its time
+    bool backup_reminder{true};        // remind to back up the saves the first time a new release starts
+    std::string backup_reminded;       // the release that last showed the reminder (savedata::release_of)
 };
 
 inline constexpr std::uint32_t kMaxInternalScale = 8u;

@@ -307,6 +307,16 @@ void present_frame(Runtime &rt) {
         rt.stop("window closed");
     } else if (ui::take_quit_request()) {
         rt.stop("quit from the menu");
+    } else if (!ui::menu_over_game() && ui::backup_reminder_due()) {
+        // Before the game gets going: the reminder to back up the saves, with
+        // the game paused as for the menu.
+        renderer.pause_interpolation();
+        audio::AudioSink::instance().set_paused(true);
+        const bool keep_playing = ui::run_backup_reminder();
+        audio::AudioSink::instance().set_paused(false);
+        kernel().resync_real_time();
+        perf::restart_measurement();
+        if (!keep_playing) rt.stop("window closed");
     } else if (!ui::menu_over_game() && ui::menu_requested()) {
         if (ui::menu_pauses()) {
             // The menu pauses the game: guest code and emulated time stand

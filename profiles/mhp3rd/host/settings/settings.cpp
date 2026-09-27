@@ -356,6 +356,13 @@ const std::vector<Field> &fields() {
          }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
         BOOL_FIELD("saves.backup_timestamp", backup_timestamp),
+        BOOL_FIELD("saves.backup_reminder", backup_reminder),
+        {"saves.backup_reminded", nullptr,
+         [](Settings &s, const std::string &t) {
+             s.backup_reminded = t;
+             return true;
+         },
+         [](const Settings &s) { return s.backup_reminded; }, nullptr},
         {"ui.last_folder", nullptr,
          [](Settings &s, const std::string &t) {
              s.last_folder = t;

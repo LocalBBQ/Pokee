@@ -130,4 +130,10 @@ struct BackupResult {
 BackupResult back_up_saves(const std::filesystem::path &memory_stick, const std::filesystem::path &folder,
                            bool replace);
 
+// The reminder to back up saves shows once for each release a player starts.
+// The release is the build's `git describe` without the commits after the tag
+// and without "-dirty": "v0.6.0" for "v0.6.0-12-gabc1234-dirty", so a
+// developer build reminds once per tag rather than once per commit.
+[[nodiscard]] std::string release_of(std::string_view describe);
+
 } // namespace mhp3rd::savedata

@@ -321,6 +321,16 @@ void test_transfer() {
     fs::remove_all(root);
 }
 
+void test_release_of() {
+    check(release_of("v0.6.0") == "v0.6.0", "a release build's version is its tag");
+    check(release_of("v0.6.0-12-gabc1234") == "v0.6.0", "commits after a tag belong to the tag's release");
+    check(release_of("v0.6.0-12-gabc1234-dirty") == "v0.6.0", "a modified checkout belongs to the tag's release");
+    check(release_of("v0.6.0-alpha.4-2-g87bc4d9") == "v0.6.0-alpha.4", "a pre-release tag with a dash is kept whole");
+    check(release_of("v0.6.0-alpha.4") == "v0.6.0-alpha.4", "a pre-release build's version is its tag");
+    check(release_of("87bc4d9") == "87bc4d9", "a checkout without tags keeps its hash");
+    check(release_of("unknown") == "unknown", "an unknown version stays unknown");
+}
+
 } // namespace
 
 std::vector<std::uint8_t> read_all(const std::filesystem::path &path) {
@@ -375,6 +385,7 @@ int main(int argc, char **argv) {
     test_encryption();
     test_store();
     test_transfer();
+    test_release_of();
     std::printf("%d failure(s)\n", failures);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

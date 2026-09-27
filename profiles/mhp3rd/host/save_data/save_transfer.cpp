@@ -455,4 +455,24 @@ BackupResult back_up_saves(const fs::path &memory_stick, const fs::path &folder,
     return result;
 }
 
+std::string release_of(std::string_view describe) {
+    constexpr std::string_view kDirty = "-dirty";
+    if (describe.size() > kDirty.size() && describe.substr(describe.size() - kDirty.size()) == kDirty)
+        describe.remove_suffix(kDirty.size());
+    // "<tag>-<commits>-g<hash>": drop the last two parts when they look so.
+    const std::size_t hash_dash = describe.rfind('-');
+    if (hash_dash == std::string_view::npos || hash_dash == 0) return std::string(describe);
+    const std::string_view hash = describe.substr(hash_dash + 1);
+    const std::size_t count_dash = describe.rfind('-', hash_dash - 1);
+    if (count_dash == std::string_view::npos || count_dash == 0) return std::string(describe);
+    const std::string_view count = describe.substr(count_dash + 1, hash_dash - count_dash - 1);
+    const auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
+    const auto is_hex = [&](char c) { return is_digit(c) || (c >= 'a' && c <= 'f'); };
+    const bool looks_like_hash = hash.size() >= 5 && hash[0] == 'g' &&
+                                 std::all_of(hash.begin() + 1, hash.end(), is_hex);
+    const bool looks_like_count = !count.empty() && std::all_of(count.begin(), count.end(), is_digit);
+    if (!looks_like_hash || !looks_like_count) return std::string(describe);
+    return std::string(describe.substr(0, count_dash));
+}
+
 } // namespace mhp3rd::savedata

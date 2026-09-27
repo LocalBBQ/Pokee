@@ -47,6 +47,15 @@ void open_menu_over_game();
 // Once, after the player chose to quit in a menu over the running game.
 [[nodiscard]] bool take_quit_request();
 
+// The reminder to back up the saves (ui/save_screen.cpp). Due once for each
+// new release when there are saves, and once after request_backup_reminder(),
+// which code about to write or convert saves outside the game calls first
+// (with the reason in words for the player). The caller pauses the game around
+// run_backup_reminder(), as around run_menu(). False: the window was closed.
+[[nodiscard]] bool backup_reminder_due();
+bool run_backup_reminder();
+void request_backup_reminder(const std::string &reason);
+
 // The setup screens as an installer front end, or null without a window.
 std::unique_ptr<install::InstallerUi> make_setup_screens();
 
