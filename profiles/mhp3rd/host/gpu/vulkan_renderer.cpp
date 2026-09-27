@@ -404,12 +404,12 @@ bool write_bmp(const std::string &path, const std::uint8_t *pixels, std::uint32_
 struct PadTuning {
     float dead_zone{0.15f};
     float trigger{0.25f};
-    settings::TriggerProfile triggers{settings::TriggerProfile::Standard};
     float right_stick{0.5f};
     settings::RightStick right_stick_mode{settings::RightStick::Camera};
     bool invert_x{};
     bool invert_y{};
     bool confirm_south{};
+    bool swap_sticks{};
     bool trace{false};
 };
 
@@ -420,7 +420,6 @@ PadTuning pad_tuning() {
     PadTuning value{};
     value.dead_zone = player.dead_zone;
     value.trigger = player.trigger;
-    value.triggers = player.trigger_profile;
     value.right_stick = player.right_stick_zone;
     // The right stick is a real nub on this release, so driving the D-pad
     // from it as well would turn the camera twice.
@@ -430,55 +429,65 @@ PadTuning pad_tuning() {
     // A PlayStation pad already carries the PSP's own face buttons, so the
     // positional mapping puts confirm on circle where the prompts want it.
     value.confirm_south = player.confirm_south;
+    value.swap_sticks = player.controls.swap_sticks;
     value.trace = trace;
     return value;
 }
 
-// Adds one gamepad's state to the pad bits and to the analog offsets the
-// keyboard path also writes, so the two sources simply OR together.
-void read_gamepad(SDL_Gamepad *device, PadState &pad, int &analog_x, int &analog_y) {
-    const PadTuning tuning = pad_tuning();
-    std::uint32_t &buttons = pad.buttons;
-    const auto held = [&](SDL_GamepadButton button, std::uint32_t bit) {
-        if (SDL_GetGamepadButton(device, button)) buttons |= bit;
-    };
-    held(SDL_GAMEPAD_BUTTON_DPAD_UP, 0x0010u);
-    held(SDL_GAMEPAD_BUTTON_DPAD_RIGHT, 0x0020u);
-    held(SDL_GAMEPAD_BUTTON_DPAD_DOWN, 0x0040u);
-    held(SDL_GAMEPAD_BUTTON_DPAD_LEFT, 0x0080u);
-    held(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, 0x0100u);
-    held(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, 0x0200u);
-    held(SDL_GAMEPAD_BUTTON_START, 0x0008u);
-    held(SDL_GAMEPAD_BUTTON_BACK, 0x0001u);
-    held(SDL_GAMEPAD_BUTTON_NORTH, 0x1000u);
-    held(SDL_GAMEPAD_BUTTON_WEST, 0x8000u);
-    // The game prompts "circle Enter / cross Back", and on a PlayStation pad
-    // those are the same two buttons in the same two places.
-    held(SDL_GAMEPAD_BUTTON_SOUTH, tuning.confirm_south ? 0x2000u : 0x4000u);
-    held(SDL_GAMEPAD_BUTTON_EAST, tuning.confirm_south ? 0x4000u : 0x2000u);
+// The bindings name a pad's buttons by SDL's numbers.
+static_assert(static_cast<int>(input::PadInput::South) == SDL_GAMEPAD_BUTTON_SOUTH);
+static_assert(static_cast<int>(input::PadInput::East) == SDL_GAMEPAD_BUTTON_EAST);
+static_assert(static_cast<int>(input::PadInput::Start) == SDL_GAMEPAD_BUTTON_START);
+static_assert(static_cast<int>(input::PadInput::LeftShoulder) == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+static_assert(static_cast<int>(input::PadInput::DpadRight) == SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+static_assert(static_cast<int>(input::PadInput::Misc6) == SDL_GAMEPAD_BUTTON_MISC6);
+static_assert(static_cast<int>(input::PadInput::ButtonCount) == SDL_GAMEPAD_BUTTON_COUNT);
 
-    // The PSP triggers are digital, but hunters hold L for the camera all the
-    // time, so the analog triggers press the same bits as the shoulders.
+// Whether a gamepad input of the bindings is held on `device`. The confirm
+// setting swaps the bottom and right face buttons for every binding.
+bool pad_input_held(SDL_Gamepad *device, input::Binding binding, const PadTuning &tuning) {
+    int input = input::pad_input_of(binding);
+    if (input < 0) return false;
+    if (tuning.confirm_south) {
+        if (input == static_cast<int>(input::PadInput::South)) input = static_cast<int>(input::PadInput::East);
+        else if (input == static_cast<int>(input::PadInput::East)) input = static_cast<int>(input::PadInput::South);
+    }
+    if (input == static_cast<int>(input::PadInput::LeftTrigger) ||
+        input == static_cast<int>(input::PadInput::RightTrigger)) {
+        const SDL_GamepadAxis axis = input == static_cast<int>(input::PadInput::LeftTrigger)
+                                         ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER
+                                         : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
+        return static_cast<float>(SDL_GetGamepadAxis(device, axis)) / 32767.0f > tuning.trigger;
+    }
+    return input < static_cast<int>(input::PadInput::ButtonCount) &&
+           SDL_GetGamepadButton(device, static_cast<SDL_GamepadButton>(input));
+}
+
+// Adds one gamepad's state to the pad bits and to the analog offsets the
+// keyboard path also writes, so the two sources simply OR together. The
+// buttons, the triggers included, go through the chosen preset's bindings;
+// the sticks stay sticks.
+void read_gamepad(SDL_Gamepad *device, const input::Bindings &bindings, PadState &pad, int &analog_x,
+                  int &analog_y) {
+    const PadTuning tuning = pad_tuning();
+    const input::PadState mapped =
+        input::read(bindings, [&](input::Binding binding) { return pad_input_held(device, binding, tuning); });
+    std::uint32_t &buttons = pad.buttons;
+    buttons |= mapped.buttons;
+    analog_x += mapped.stick_x;
+    analog_y += mapped.stick_y;
+
     const auto axis = [&](SDL_GamepadAxis id) {
         return std::clamp(static_cast<float>(SDL_GetGamepadAxis(device, id)) / 32767.0f, -1.0f, 1.0f);
     };
-    // The trigger profiles copy other buttons for shooting: R on L2, where it
-    // is held to aim, and the weapon's attack on R2 -- triangle for a bow,
-    // circle for a bowgun. The buttons copied keep working.
-    std::uint32_t left_trigger = 0x0100u;   // L
-    std::uint32_t right_trigger = 0x0200u;  // R
-    if (tuning.triggers == settings::TriggerProfile::Bows) {
-        left_trigger = 0x0200u;
-        right_trigger = 0x1000u;  // triangle
-    } else if (tuning.triggers == settings::TriggerProfile::Bowguns) {
-        left_trigger = 0x0200u;
-        right_trigger = 0x2000u;  // circle
-    }
-    if (axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > tuning.trigger) buttons |= left_trigger;
-    if (axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > tuning.trigger) buttons |= right_trigger;
-
-    const float right_x = axis(SDL_GAMEPAD_AXIS_RIGHTX);
-    const float right_y = axis(SDL_GAMEPAD_AXIS_RIGHTY);
+    // The left-handed preset moves with the right stick and turns the camera
+    // with the left one.
+    const SDL_GamepadAxis camera_x_axis = tuning.swap_sticks ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
+    const SDL_GamepadAxis camera_y_axis = tuning.swap_sticks ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
+    const SDL_GamepadAxis move_x_axis = tuning.swap_sticks ? SDL_GAMEPAD_AXIS_RIGHTX : SDL_GAMEPAD_AXIS_LEFTX;
+    const SDL_GamepadAxis move_y_axis = tuning.swap_sticks ? SDL_GAMEPAD_AXIS_RIGHTY : SDL_GAMEPAD_AXIS_LEFTY;
+    const float right_x = std::clamp(axis(camera_x_axis) + static_cast<float>(mapped.camera_x) / 127.0f, -1.0f, 1.0f);
+    const float right_y = std::clamp(axis(camera_y_axis) + static_cast<float>(mapped.camera_y) / 127.0f, -1.0f, 1.0f);
     // The HD release has its own right-stick camera, so the stick normally goes
     // there. Pressing the D-pad bits as well would turn the camera twice, hence
     // the either/or: the claw emulation is only for builds where that path is
@@ -502,8 +511,8 @@ void read_gamepad(SDL_Gamepad *device, PadState &pad, int &analog_x, int &analog
     if (tuning.right_stick_mode == settings::RightStick::Camera)
         deflect(tuning.invert_x ? -right_x : right_x, tuning.invert_y ? -right_y : right_y, pad.right_x, pad.right_y);
 
-    const float left_x = axis(SDL_GAMEPAD_AXIS_LEFTX);
-    const float left_y = axis(SDL_GAMEPAD_AXIS_LEFTY);
+    const float left_x = axis(move_x_axis);
+    const float left_y = axis(move_y_axis);
     std::uint8_t nub_x = 0x80u;
     std::uint8_t nub_y = 0x80u;
     deflect(left_x, left_y, nub_x, nub_y);
@@ -5206,7 +5215,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     // bindings. Bits follow SceCtrlButtons; the stick is centred at 0x80.
     const settings::Settings &player = settings::current();
     const bool *keys = SDL_GetKeyboardState(nullptr);
-    const input::PadInput typed = input::read(player.bindings, [&](input::Binding binding) {
+    const input::PadState typed = input::read(player.controls.keys, [&](input::Binding binding) {
         if (const int button = input::mouse_button_of(binding))
             return impl_->mouse_captured && (impl_->mouse_buttons & (1u << button)) != 0u;
         const int position = input::key_position(binding);
@@ -5230,7 +5239,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     }
 
     // The gamepad adds to the same bits and offsets, so both sources are live.
-    if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, pad, analog_x, analog_y);
+    if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, player.controls.pad, pad, analog_x, analog_y);
     // So do the on-screen controls.
     if (impl_->touch_visible) {
         pad.buttons |= impl_->touch.buttons();

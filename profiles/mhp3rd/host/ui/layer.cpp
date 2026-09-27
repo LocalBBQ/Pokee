@@ -110,6 +110,23 @@ void load_fonts() {
     }
 }
 
+// Any button or trigger of any gamepad held.
+bool pad_input_held() {
+    int count = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&count);
+    bool held = false;
+    for (int i = 0; ids != nullptr && i < count && !held; ++i) {
+        SDL_Gamepad *pad = SDL_GetGamepadFromID(ids[i]);
+        if (pad == nullptr) continue;
+        for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button)
+            held = held || SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(button));
+        for (SDL_GamepadAxis axis : {SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER})
+            held = held || SDL_GetGamepadAxis(pad, axis) > 8000;
+    }
+    SDL_free(ids);
+    return held;
+}
+
 bool face_button_held() {
     int count = 0;
     SDL_JoystickID *ids = SDL_GetGamepads(&count);
@@ -183,6 +200,7 @@ void Layer::set_interactive(bool interactive) {
     menu_toggle_ = false;
     back_ = false;
     capturing_binding_ = false;
+    capture_held_.clear();
     captured_binding_.reset();
     escape_pending_.reset();
     gamepad_armed_ = false;
@@ -190,37 +208,110 @@ void Layer::set_interactive(bool interactive) {
 
 bool Layer::confirm_south() const { return settings::current().confirm_south; }
 
-void Layer::begin_binding_capture() {
+void Layer::begin_binding_capture(Capture device) {
     capturing_binding_ = true;
+    capture_device_ = device;
+    capture_started_ = Clock::now();
+    capture_held_.clear();
+    capture_triggers_[0] = capture_triggers_[1] = false;
     captured_binding_.reset();
     escape_pending_.reset();
+    if (device == Capture::Pad) pad_quiet_ = true;
 }
 
-std::optional<std::uint16_t> Layer::take_captured_binding() { return std::exchange(captured_binding_, std::nullopt); }
+int Layer::capture_seconds_left() const {
+    const auto left = kPadCaptureTimeout - (Clock::now() - capture_started_);
+    return std::max(0, static_cast<int>(std::chrono::ceil<std::chrono::seconds>(left).count()));
+}
+
+void Layer::finish_capture(bool cancelled) {
+    input::Chord chord;
+    if (!cancelled && !capture_held_.empty())
+        chord = capture_held_.size() > 1u ? input::chord_pressed(capture_held_.front(), capture_held_.back())
+                                          : input::single(capture_held_.front());
+    capturing_binding_ = false;
+    captured_binding_ = chord;
+    capture_held_.clear();
+}
+
+std::optional<input::Chord> Layer::take_captured_binding() { return std::exchange(captured_binding_, std::nullopt); }
 
 bool Layer::handle_event(const SDL_Event &event) {
     const Clock::time_point now = Clock::now();
-    // Presses go to the binding being captured. Releases still reach ImGui,
-    // which saw the press that started the capture.
+    // Presses go to the binding being captured. Releases of what was held
+    // before still reach ImGui, which saw the press that started the capture.
     if (capturing_binding_ && interactive_) {
-        std::optional<std::uint16_t> pressed;
-        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat)
-            pressed = event.key.key == SDLK_ESCAPE ? input::kNone
-                                                   : input::key(static_cast<std::uint16_t>(event.key.scancode));
-        else if (event.type == SDL_EVENT_KEY_DOWN)
+        const auto press = [&](input::Binding binding) {
+            if (std::find(capture_held_.begin(), capture_held_.end(), binding) == capture_held_.end() &&
+                capture_held_.size() < 2u)
+                capture_held_.push_back(binding);
+        };
+        const auto release = [&](input::Binding binding) {
+            if (std::find(capture_held_.begin(), capture_held_.end(), binding) == capture_held_.end()) return false;
+            finish_capture(false);
             return true;
-        else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button >= 1u && event.button.button <= 5u)
-            pressed = input::mouse_button(event.button.button);
-        else if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
-            pressed = input::kNone;
-        if (pressed) {
-            capturing_binding_ = false;
-            captured_binding_ = *pressed;
-            if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+        };
+        const bool escape = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                            (event.key.key == SDLK_ESCAPE
+#if defined(__ANDROID__)
+                             || event.key.key == SDLK_AC_BACK
+#endif
+                            );
+        if (escape) {
+            finish_capture(true);
+            return true;
+        }
+        if (capture_device_ == Capture::Keys) {
+            switch (event.type) {
+            case SDL_EVENT_KEY_DOWN:
+                if (!event.key.repeat) press(input::key(static_cast<std::uint16_t>(event.key.scancode)));
+                return true;
+            case SDL_EVENT_KEY_UP:
+                if (release(input::key(static_cast<std::uint16_t>(event.key.scancode)))) return true;
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                if (event.button.button >= 1u && event.button.button <= 5u) {
+                    press(input::mouse_button(event.button.button));
+                    return true;
+                }
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+                if (release(input::mouse_button(event.button.button))) return true;
+                break;
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
                 device_ = InputDevice::Gamepad;
                 last_pad_button_ = now;
+                finish_capture(true);
+                return true;
+            default: break;
             }
-            return true;
+        } else {
+            switch (event.type) {
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+                device_ = InputDevice::Gamepad;
+                last_pad_button_ = now;
+                press(input::pad(static_cast<input::PadInput>(event.gbutton.button)));
+                return true;
+            case SDL_EVENT_GAMEPAD_BUTTON_UP:
+                release(input::pad(static_cast<input::PadInput>(event.gbutton.button)));
+                return true;
+            case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+                const bool left = event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER;
+                if (!left && event.gaxis.axis != SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) return true;
+                const input::Binding trigger =
+                    input::pad(left ? input::PadInput::LeftTrigger : input::PadInput::RightTrigger);
+                const bool down = static_cast<float>(event.gaxis.value) / 32767.0f > settings::current().trigger;
+                bool &was = capture_triggers_[left ? 0 : 1];
+                if (down && !was) press(trigger);
+                if (!down && was) release(trigger);
+                was = down;
+                return true;
+            }
+            case SDL_EVENT_KEY_DOWN:
+            case SDL_EVENT_KEY_UP:
+                return true;
+            default: break;
+            }
         }
     }
     switch (event.type) {
@@ -324,7 +415,18 @@ void Layer::begin_frame() {
     ImGui_ImplSDL3_NewFrame();
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigNavSwapGamepadButtons = !confirm_south();
-    if (!gamepad_armed_) gamepad_armed_ = !face_button_held();
+    if (capturing_binding_ && capture_device_ == Capture::Pad && capture_held_.empty() &&
+        Clock::now() - capture_started_ > kPadCaptureTimeout)
+        finish_capture(true);
+    // While a gamepad binding is captured, and until the pad is let go of
+    // after it, the interface does not see the pad at all.
+    if (pad_quiet_ && !capturing_binding_ && !pad_input_held()) pad_quiet_ = false;
+    if (pad_quiet_) {
+        io.ClearEventsQueue();
+        io.ClearInputKeys();
+        gamepad_armed_ = false;
+    }
+    if (!gamepad_armed_) gamepad_armed_ = !pad_quiet_ && !face_button_held();
     if (gamepad_armed_) io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
     else io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
     apply_theme();

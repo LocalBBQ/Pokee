@@ -1,8 +1,11 @@
 #pragma once
 
 #include "input/bindings.hpp"
+#include "input/presets.hpp"
 
 #include <cstdint>
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -26,11 +29,6 @@ enum class PresentMode { Fifo, Mailbox, Immediate };
 enum class Aspect { Original, Stretch, Fill };
 enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class RightStick { Camera, DPad, Off };
-// What LT/RT (L2/R2) press past the trigger point. Standard makes them L and
-// R like the shoulders; the other two move R onto L2 and put a weapon's attack
-// on R2 for shooting: triangle for a bow, circle for a bowgun. The buttons
-// they copy keep working.
-enum class TriggerProfile { Standard, Bows, Bowguns };
 // What answers the game when it asks for text such as the hunter's name.
 enum class NameEntry { Keyboard, Fixed };
 // Presents per second. The game makes 30 frames a second; the faster rates
@@ -73,7 +71,6 @@ struct Settings {
     bool confirm_south{};              // confirm (circle) on the south face button
     float dead_zone{0.15f};
     float trigger{0.25f};
-    TriggerProfile trigger_profile{TriggerProfile::Standard};
     RightStick right_stick{RightStick::Camera};
     float right_stick_zone{0.5f};
     // Drives the ordinary quest camera's yaw and pitch from how far the stick
@@ -93,7 +90,12 @@ struct Settings {
     float mouse_sensitivity{0.10f};    // degrees of camera turn per count of mouse motion
     bool invert_mouse_x{};
     bool invert_mouse_y{};
-    input::Bindings bindings{input::default_bindings()};
+    // Control presets (input/presets.hpp): the layout in use, which preset
+    // it is, and the player's own presets. The layout is kept whole, so it
+    // stays what the player had even when a preset changes between versions.
+    input::Layout controls{input::layout(input::Preset::Default)};
+    input::PresetChoice control_preset{input::Preset::Default, {}};
+    std::vector<input::UserPreset> user_presets;
     // On-screen controls for a touch screen, shown once the screen is touched
     // and hidden again when a gamepad or the keyboard is used.
     bool touch_controls{true};
@@ -166,6 +168,28 @@ inline constexpr Platform kPlatform = Platform::Desktop;
 // Writes current() to settings.ini, leaving values set by environment
 // variables at what the file had. Failures are reported on the console.
 void save();
+
+// Control presets. The player's preset called `name`, or null.
+[[nodiscard]] input::UserPreset *find_user_preset(Settings &settings, const std::string &name);
+// Chooses a preset and puts its layout in use. False if the player's preset
+// named is not there.
+bool choose_preset(Settings &settings, const input::PresetChoice &choice);
+// Before the layout in use is changed: a shipped preset cannot be, so its
+// layout is first copied into a new preset of the player's, which is then
+// chosen. Returns that preset's name when one was made.
+std::optional<std::string> prepare_controls_edit(Settings &settings);
+// After the layout in use was changed: the chosen preset of the player's
+// keeps it.
+void controls_edited(Settings &settings);
+
+// settings.ini's keys and values, read over defaults() without the
+// environment, and written back; for the tests. Controls written by earlier
+// versions, which had keyboard bindings and a trigger profile but no
+// presets, become a preset: a shipped one if they are one, otherwise one of
+// the player's named "Custom".
+using Entries = std::map<std::string, std::string>;
+[[nodiscard]] Settings from_entries(const Entries &entries);
+[[nodiscard]] Entries to_entries(const Settings &settings);
 
 // The environment variable that decides the setting stored under `key`
 // (for example "video.internal_scale") for this run, or null.

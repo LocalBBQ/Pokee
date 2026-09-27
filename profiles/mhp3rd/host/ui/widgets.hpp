@@ -53,6 +53,7 @@ struct RowOptions {
     bool disabled{};
     std::string note;         // shown dimmed next to the value, e.g. who decides it
     std::string description;  // shown in the footer while the row is focused
+    bool warning{};           // the value clashes with something: drawn in the danger colour
 };
 
 // A setting with a few values, changed with left/right or by activating it.

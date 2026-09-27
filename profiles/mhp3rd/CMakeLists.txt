@@ -142,6 +142,7 @@ set(MHP3RD_HOST_SOURCES
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
+    host/input/presets.cpp
     host/input/touch_controls.cpp
     host/gpu/texture_pack.cpp
     host/gpu/texture_pack_import.cpp
@@ -358,7 +359,8 @@ add_executable(mhp3rd_camera_tests
     tests/analog_camera_tests.cpp
     host/camera/camera_input.cpp
     host/camera/game_camera.cpp
-    host/input/bindings.cpp)
+    host/input/bindings.cpp
+    host/input/presets.cpp)
 target_include_directories(mhp3rd_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -373,6 +375,7 @@ add_executable(mhp3rd_free_camera_tests
     host/settings/settings.cpp
     host/install/user_data.cpp
     host/input/bindings.cpp
+    host/input/presets.cpp
     host/app_paths.cpp)
 target_include_directories(mhp3rd_free_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_free_camera_tests PRIVATE psprecomp_core)
@@ -398,7 +401,8 @@ add_executable(mhp3rd_settings_tests
     host/settings/settings.cpp
     host/install/user_data.cpp
     host/app_paths.cpp
-    host/input/bindings.cpp)
+    host/input/bindings.cpp
+    host/input/presets.cpp)
 target_include_directories(mhp3rd_settings_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_settings_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_settings_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -461,7 +465,8 @@ endif()
 # assignment rules and what held keys press. No SDL or game data.
 add_executable(mhp3rd_input_tests
     tests/input_tests.cpp
-    host/input/bindings.cpp)
+    host/input/bindings.cpp
+    host/input/presets.cpp)
 target_include_directories(mhp3rd_input_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 set_target_properties(mhp3rd_input_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)

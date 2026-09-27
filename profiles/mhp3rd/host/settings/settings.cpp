@@ -9,6 +9,8 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <optional>
+#include <string_view>
 #include <string>
 #include <vector>
 
@@ -110,9 +112,6 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"},
                                         {PerfDisplay::Log, "log"}}};
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
-const Names<TriggerProfile> kTriggerProfiles{{{TriggerProfile::Standard, "standard"},
-                                              {TriggerProfile::Bows, "bows"},
-                                              {TriggerProfile::Bowguns, "bowguns"}}};
 const Names<NameEntry> kNameEntries{{{NameEntry::Keyboard, "keyboard"}, {NameEntry::Fixed, "fixed"}}};
 const Names<FrameRate> kFrameRates{{{FrameRate::Fps30, "30"},
                                     {FrameRate::Fps45, "45"},
@@ -126,6 +125,11 @@ const Names<GpuCompat> kGpuCompats{{{GpuCompat::Auto, "auto"}, {GpuCompat::On, "
 // Written by earlier versions: 1 typed the name into the window, which the
 // on-screen keyboard now covers.
 constexpr const char *kRetiredTypeNameKey = "input.type_name";
+// Written by earlier versions: the gamepad's trigger profile, which control
+// presets replaced. Read once to make the player's preset, then dropped.
+constexpr const char *kRetiredTriggerProfileKey = "input.trigger_profile";
+constexpr std::string_view kBindPrefix = "input.bind.";
+constexpr std::string_view kPadPrefix = "input.pad.";
 
 #define BOOL_FIELD(key, member)                                                                                       \
     Field {                                                                                                            \
@@ -240,12 +244,31 @@ const std::vector<Field> &fields() {
          [](Settings &s, const std::string &t) { return parse_float(t, 0.05f, 1.0f, s.trigger); },
          [](const Settings &s) { return format_float(s.trigger); },
          [](Settings &s, const char *t) { s.trigger = variable_float(t, 0.25f, 0.05f, 1.0f); }},
-        {"input.trigger_profile", "MHP3RD_PAD_TRIGGERS",
-         [](Settings &s, const std::string &t) { return kTriggerProfiles.parse(t, s.trigger_profile); },
-         [](const Settings &s) { return kTriggerProfiles.format(s.trigger_profile); },
+        {"input.preset", "MHP3RD_CONTROL_PRESET",
+         [](Settings &s, const std::string &t) {
+             const std::optional<input::PresetChoice> choice = input::parse_choice(t);
+             if (!choice) return false;
+             s.control_preset = *choice;
+             return true;
+         },
+         [](const Settings &s) { return input::format(s.control_preset); },
          [](Settings &s, const char *t) {
-             if (!kTriggerProfiles.parse(t, s.trigger_profile)) s.trigger_profile = TriggerProfile::Standard;
+             // A shipped preset's id, or the name of one of the player's.
+             if (const std::optional<input::Preset> shipped = input::preset_from_id(t))
+                 s.control_preset = {shipped, {}};
+             else if (const std::optional<input::PresetChoice> choice = input::parse_choice(t))
+                 s.control_preset = *choice;
+             else
+                 s.control_preset = {std::nullopt, t};
          }},
+        {"input.move_stick", nullptr,
+         [](Settings &s, const std::string &t) {
+             if (t == "left") s.controls.swap_sticks = false;
+             else if (t == "right") s.controls.swap_sticks = true;
+             else return false;
+             return true;
+         },
+         [](const Settings &s) { return std::string(s.controls.swap_sticks ? "right" : "left"); }, nullptr},
         {"input.right_stick", "MHP3RD_PAD_RSTICK_DPAD",
          [](Settings &s, const std::string &t) { return kRightSticks.parse(t, s.right_stick); },
          [](const Settings &s) { return kRightSticks.format(s.right_stick); },
@@ -396,22 +419,126 @@ const std::vector<Field> &fields() {
     return table;
 }
 
-// One key per bound action, "input.bind.triangle=Mouse Left", after the
-// fixed table.
+// Two keys per bound action after the fixed table, one for the keyboard and
+// the mouse and one for gamepads: "input.bind.triangle=Mouse Left",
+// "input.pad.triangle=Pad North".
 const std::vector<Field> &all_fields() {
     static const std::vector<Field> table = [] {
         // Field keys are C strings; these hold them for the program's life.
-        static std::vector<std::string> keys(input::kActions);
+        static std::vector<std::string> keys(input::kActions * 2u);
         std::vector<Field> list = fields();
         for (std::size_t i = 0; i < input::kActions; ++i) {
-            keys[i] = std::string("input.bind.") + input::info(static_cast<input::Action>(i)).key;
+            keys[i] = std::string(kBindPrefix) + input::info(static_cast<input::Action>(i)).key;
             list.push_back(Field{keys[i].c_str(), nullptr,
-                                 [i](Settings &s, const std::string &t) { return input::parse(t, s.bindings[i]); },
-                                 [i](const Settings &s) { return input::format(s.bindings[i]); }, nullptr});
+                                 [i](Settings &s, const std::string &t) { return input::parse(t, s.controls.keys[i]); },
+                                 [i](const Settings &s) { return input::format(s.controls.keys[i]); }, nullptr});
+        }
+        for (std::size_t i = 0; i < input::kActions; ++i) {
+            std::string &key = keys[input::kActions + i];
+            key = std::string(kPadPrefix) + input::info(static_cast<input::Action>(i)).key;
+            list.push_back(Field{key.c_str(), nullptr,
+                                 [i](Settings &s, const std::string &t) { return input::parse(t, s.controls.pad[i]); },
+                                 [i](const Settings &s) { return input::format(s.controls.pad[i]); }, nullptr});
         }
         return list;
     }();
     return table;
+}
+
+// The player's presets: "input.user_preset.<n>.name", ".move_stick",
+// ".bind.<action>" and ".pad.<action>", numbered from 1 in the menu's order.
+constexpr std::string_view kUserPresetPrefix = "input.user_preset.";
+
+std::vector<input::UserPreset> read_user_presets(const Entries &entries) {
+    std::map<unsigned long, input::UserPreset> found;
+    std::map<unsigned long, bool> named;
+    for (auto it = entries.lower_bound(std::string(kUserPresetPrefix));
+         it != entries.end() && it->first.starts_with(kUserPresetPrefix); ++it) {
+        const std::string rest = it->first.substr(kUserPresetPrefix.size());
+        char *end = nullptr;
+        const unsigned long number = std::strtoul(rest.c_str(), &end, 10);
+        if (end == rest.c_str() || *end != '.') continue;
+        const std::string field = end + 1;
+        input::UserPreset &preset = found[number];
+        if (field == "name") {
+            preset.name = input::clean_preset_name(it->second);
+            named[number] = !preset.name.empty();
+        } else if (field == "move_stick") {
+            preset.layout.swap_sticks = it->second == "right";
+        } else {
+            const bool keys = field.starts_with(kBindPrefix.substr(6));
+            const bool pad = field.starts_with(kPadPrefix.substr(6));
+            if (!keys && !pad) continue;
+            const std::string action = field.substr(field.find('.') + 1u);
+            for (std::size_t i = 0; i < input::kActions; ++i) {
+                if (action != input::info(static_cast<input::Action>(i)).key) continue;
+                input::Slots &slots = keys ? preset.layout.keys[i] : preset.layout.pad[i];
+                if (!input::parse(it->second, slots))
+                    std::cerr << "[settings] ignoring " << it->first << "=" << it->second << "\n";
+            }
+        }
+    }
+    std::vector<input::UserPreset> presets;
+    for (auto &[number, preset] : found) {
+        if (!named[number] || presets.size() == input::kMaxUserPresets) continue;
+        bool duplicate = false;
+        for (const input::UserPreset &other : presets) duplicate = duplicate || other.name == preset.name;
+        if (!duplicate) presets.push_back(std::move(preset));
+    }
+    return presets;
+}
+
+void write_user_presets(const std::vector<input::UserPreset> &presets, Entries &entries) {
+    for (auto it = entries.lower_bound(std::string(kUserPresetPrefix));
+         it != entries.end() && it->first.starts_with(kUserPresetPrefix);)
+        it = entries.erase(it);
+    for (std::size_t n = 0; n < presets.size(); ++n) {
+        const std::string prefix = std::string(kUserPresetPrefix) + std::to_string(n + 1u) + ".";
+        const input::UserPreset &preset = presets[n];
+        entries[prefix + "name"] = preset.name;
+        entries[prefix + "move_stick"] = preset.layout.swap_sticks ? "right" : "left";
+        for (std::size_t i = 0; i < input::kActions; ++i) {
+            const char *action = input::info(static_cast<input::Action>(i)).key;
+            entries[prefix + "bind." + action] = input::format(preset.layout.keys[i]);
+            entries[prefix + "pad." + action] = input::format(preset.layout.pad[i]);
+        }
+    }
+}
+
+// The controls once every key is read: earlier versions' become a preset,
+// and the layout in use is always one of the presets.
+void settle_controls(Settings &s, const Entries &entries) {
+    s.user_presets = read_user_presets(entries);
+    if (entries.count("input.preset") == 0u) {
+        const auto profile = entries.find(kRetiredTriggerProfileKey);
+        s.controls = input::layout_from_earlier(s.controls.keys,
+                                                profile != entries.end() ? profile->second : "standard");
+        s.control_preset = {input::Preset::Default, {}};
+    }
+    // The layout in use decides: a preset that differs from it, changed by
+    // hand or by an earlier version writing input.bind.*, gives way to it.
+    if (s.control_preset.shipped) {
+        if (input::layout(*s.control_preset.shipped) == s.controls) return;
+        if (const std::optional<input::Preset> same = input::matching_preset(s.controls)) {
+            s.control_preset = {same, {}};
+            return;
+        }
+        const std::string name = input::unique_preset_name(s.user_presets, "Custom");
+        if (s.user_presets.size() < input::kMaxUserPresets) s.user_presets.push_back({name, s.controls});
+        else s.user_presets.back() = {name, s.controls};
+        s.control_preset = {std::nullopt, name};
+        return;
+    }
+    if (input::UserPreset *preset = find_user_preset(s, s.control_preset.user)) {
+        preset->layout = s.controls;
+        return;
+    }
+    const std::string name = input::clean_preset_name(s.control_preset.user).empty()
+                                 ? input::unique_preset_name(s.user_presets, "Custom")
+                                 : input::clean_preset_name(s.control_preset.user);
+    if (s.user_presets.size() == input::kMaxUserPresets) s.user_presets.pop_back();
+    s.user_presets.push_back({name, s.controls});
+    s.control_preset = {std::nullopt, name};
 }
 
 #undef BOOL_FIELD
@@ -431,6 +558,20 @@ State &state() {
     return value;
 }
 
+void write_entries(const Settings &values, Entries &entries) {
+    for (const Field &field : all_fields()) entries[field.key] = field.format(values);
+    write_user_presets(values.user_presets, entries);
+    entries.erase(kRetiredTypeNameKey);
+    entries.erase(kRetiredTriggerProfileKey);
+}
+
+void read_entries(Settings &values, const Entries &entries) {
+    for (const Field &field : all_fields())
+        if (const auto found = entries.find(field.key); found != entries.end() && !field.parse(values, found->second))
+            std::cerr << "[settings] ignoring " << field.key << "=" << found->second << "\n";
+    settle_controls(values, entries);
+}
+
 void load(State &s) {
     s.loaded = true;
     s.values = defaults();
@@ -440,15 +581,23 @@ void load(State &s) {
     } catch (const std::exception &e) {
         std::cerr << "[settings] cannot read settings.ini: " << e.what() << "\n";
     }
+    read_entries(s.values, s.file);
     for (const Field &field : all_fields()) {
-        if (const auto found = s.file.find(field.key); found != s.file.end() && !field.parse(s.values, found->second))
-            std::cerr << "[settings] ignoring " << field.key << "=" << found->second << "\n";
         if (field.variable == nullptr) continue;
         const char *text = std::getenv(field.variable);
         if (text == nullptr) continue;
+        const input::PresetChoice before = s.values.control_preset;
         field.parse_variable(s.values, text);
         s.overrides[field.key] = field.variable;
+        // A preset chosen for the run is put in use, and not saved.
+        if (std::string_view(field.key) == "input.preset" && !choose_preset(s.values, s.values.control_preset)) {
+            std::cerr << "[settings] " << field.variable << ": no preset \"" << text << "\"\n";
+            s.values.control_preset = before;
+        }
     }
+    if (std::getenv("MHP3RD_PAD_TRIGGERS") != nullptr)
+        std::cerr << "[settings] MHP3RD_PAD_TRIGGERS is retired: choose a control preset (MHP3RD_CONTROL_PRESET, "
+                     "or Controls in the menu)\n";
     // A fixed name in the environment is meant for unattended runs, which
     // nobody is there to type in, so it also answers at once unless
     // MHP3RD_OSK_MODE says otherwise.
@@ -488,20 +637,73 @@ void save() {
     try {
         // Re-read, so a key the installer wrote since start-up survives.
         entries = install::read_settings_file(s.data_dir);
-        for (const Field &field : all_fields()) {
-            if (s.overrides.count(field.key) != 0u) {
-                const auto kept = s.file.find(field.key);
-                if (kept != s.file.end()) entries[field.key] = kept->second;
+        write_entries(s.values, entries);
+        // A preset chosen by the environment leaves the file's controls.
+        if (s.overrides.count("input.preset") != 0u) {
+            for (const Field &field : all_fields()) {
+                const std::string_view key = field.key;
+                if (key != "input.preset" && key != "input.move_stick" && !key.starts_with(kBindPrefix) &&
+                    !key.starts_with(kPadPrefix))
+                    continue;
+                if (const auto kept = s.file.find(field.key); kept != s.file.end()) entries[field.key] = kept->second;
                 else entries.erase(field.key);
-                continue;
             }
-            entries[field.key] = field.format(s.values);
         }
-        entries.erase(kRetiredTypeNameKey);
+        for (const Field &field : all_fields()) {
+            if (s.overrides.count(field.key) == 0u) continue;
+            const auto kept = s.file.find(field.key);
+            if (kept != s.file.end()) entries[field.key] = kept->second;
+            else entries.erase(field.key);
+        }
         install::write_settings_file(s.data_dir, entries);
     } catch (const std::exception &e) {
         std::cerr << "[settings] cannot write settings.ini: " << e.what() << "\n";
     }
+}
+
+input::UserPreset *find_user_preset(Settings &settings, const std::string &name) {
+    for (input::UserPreset &preset : settings.user_presets)
+        if (preset.name == name) return &preset;
+    return nullptr;
+}
+
+bool choose_preset(Settings &settings, const input::PresetChoice &choice) {
+    if (choice.shipped) {
+        settings.controls = input::layout(*choice.shipped);
+    } else {
+        const input::UserPreset *preset = find_user_preset(settings, choice.user);
+        if (preset == nullptr) return false;
+        settings.controls = preset->layout;
+    }
+    settings.control_preset = choice;
+    return true;
+}
+
+std::optional<std::string> prepare_controls_edit(Settings &settings) {
+    if (!settings.control_preset.shipped) return std::nullopt;
+    if (settings.user_presets.size() >= input::kMaxUserPresets) settings.user_presets.pop_back();
+    const std::string name = input::unique_preset_name(settings.user_presets, "Custom");
+    settings.user_presets.push_back({name, settings.controls});
+    settings.control_preset = {std::nullopt, name};
+    return name;
+}
+
+void controls_edited(Settings &settings) {
+    if (settings.control_preset.shipped) return;
+    if (input::UserPreset *preset = find_user_preset(settings, settings.control_preset.user))
+        preset->layout = settings.controls;
+}
+
+Settings from_entries(const Entries &entries) {
+    Settings values = defaults();
+    read_entries(values, entries);
+    return values;
+}
+
+Entries to_entries(const Settings &settings) {
+    Entries entries;
+    write_entries(settings, entries);
+    return entries;
 }
 
 const char *overridden_by(const char *key) {

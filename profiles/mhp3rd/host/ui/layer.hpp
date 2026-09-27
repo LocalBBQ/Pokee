@@ -1,11 +1,14 @@
 #pragma once
 
+#include "input/bindings.hpp"
+
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 union SDL_Event;
 struct ImFont;
@@ -55,13 +58,22 @@ public:
     std::optional<std::filesystem::path> take_dropped_file();
     [[nodiscard]] bool window_closed() const noexcept { return window_closed_; }
 
-    // Binding a control (the menu's keyboard and mouse rows): the next key or
-    // mouse button pressed is kept for the caller instead of reaching the
-    // interface. Esc or a gamepad button cancels.
-    void begin_binding_capture();
+    // Binding a control (the menu's binding rows): what is pressed next is
+    // kept for the caller instead of reaching the interface. One input, or
+    // two held together (a chord: the first is the modifier), ends at the
+    // first release. For Keys, keys and mouse buttons count, and Esc or a
+    // gamepad button cancels; for Pad, gamepad buttons and triggers count,
+    // and Esc or kPadCaptureTimeout without a press cancels.
+    enum class Capture { Keys, Pad };
+    static constexpr auto kPadCaptureTimeout = std::chrono::seconds(6);
+    void begin_binding_capture(Capture device = Capture::Keys);
     [[nodiscard]] bool capturing_binding() const noexcept { return capturing_binding_; }
-    // Once capture has ended: what was pressed, or input::kNone if cancelled.
-    std::optional<std::uint16_t> take_captured_binding();
+    // The inputs held so far while capturing, the modifier first.
+    [[nodiscard]] const std::vector<input::Binding> &capture_held() const noexcept { return capture_held_; }
+    // Seconds left before a gamepad capture gives up.
+    [[nodiscard]] int capture_seconds_left() const;
+    // Once capture has ended: the chord pressed, or an empty one if cancelled.
+    std::optional<input::Chord> take_captured_binding();
 
     // False while a face button held since the screen opened is still down;
     // gamepad presses count only once it is released.
@@ -103,7 +115,15 @@ private:
     bool menu_toggle_{};
     bool back_{};
     bool capturing_binding_{};
-    std::optional<std::uint16_t> captured_binding_;
+    Capture capture_device_{Capture::Keys};
+    Clock::time_point capture_started_{};
+    std::vector<input::Binding> capture_held_;
+    bool capture_triggers_[2]{};
+    // After a gamepad capture, the pad reaches the interface again only once
+    // nothing on it is held, so the chord just bound does nothing there.
+    bool pad_quiet_{};
+    std::optional<input::Chord> captured_binding_;
+    void finish_capture(bool cancelled);
     std::optional<std::filesystem::path> dropped_;
 };
 

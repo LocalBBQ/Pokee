@@ -117,11 +117,13 @@ public:
     [[nodiscard]] bool quit() const noexcept { return quit_; }
 
 private:
-    enum class Confirm { None, Quit, Setup };
+    enum class Confirm { None, Quit, Setup, DeletePreset };
 
     void video();
     void audio();
     void controls();
+    void preset_rows();
+    void binding_rows(bool pad);
     void network();
     void mods();
     void system();
@@ -138,7 +140,9 @@ private:
     bool back_{};  // the back button was pressed this frame
     Confirm confirm_{Confirm::None};
     bool confirm_opened_{};  // the confirmation was on screen last frame
-    std::optional<input::Action> binding_;  // waiting for a key for this control
+    std::optional<input::Action> binding_;  // waiting for a key or a button for this control
+    bool binding_pad_{};                    // ...on the gamepad
+    std::string preset_notice_;             // what the last preset change did, shown under Preset
 };
 
 bool Menu::frame() {
@@ -596,8 +600,219 @@ bool address_character(char32_t c) {
            c == U':' || c == U'-' || c == U'[' || c == U']';
 }
 
+// How the menu labels the gamepad's inputs: as the connected pad does.
+input::PadStyle pad_style(SDL_Gamepad *pad) {
+    if (pad == nullptr) return input::PadStyle::Xbox;
+    switch (SDL_GetGamepadType(pad)) {
+    case SDL_GAMEPAD_TYPE_PS3:
+    case SDL_GAMEPAD_TYPE_PS4:
+    case SDL_GAMEPAD_TYPE_PS5: return input::PadStyle::PlayStation;
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: return input::PadStyle::Nintendo;
+    default: return input::PadStyle::Xbox;
+    }
+}
+
+// The confirm setting swaps the pad's bottom and right buttons for every
+// binding (see the renderer): what a binding names and what is pressed for it
+// differ by that swap, both ways.
+input::Binding confirm_swap(input::Binding binding) {
+    if (!settings::current().confirm_south) return binding;
+    if (binding == input::pad(input::PadInput::South)) return input::pad(input::PadInput::East);
+    if (binding == input::pad(input::PadInput::East)) return input::pad(input::PadInput::South);
+    return binding;
+}
+input::Chord confirm_swap(input::Chord chord) {
+    return {chord.modifier != input::kNone ? confirm_swap(chord.modifier) : input::kNone, confirm_swap(chord.main)};
+}
+
+std::string bindings_text(const input::Slots &slots, bool pad, input::PadStyle style) {
+    std::string text;
+    for (const input::Chord &chord : slots) {
+        if (chord.empty()) continue;
+        if (!text.empty()) text += "  /  ";
+        text += input::label(pad ? confirm_swap(chord) : chord, style);
+    }
+    return text;
+}
+
+std::string action_name(input::Action action) {
+    std::string label = input::info(action).label;
+    // "○  (confirm)" is ○ in a list of clashes.
+    if (const auto cut = label.find("  ("); cut != std::string::npos) label.resize(cut);
+    return label;
+}
+
+// Characters a preset's name may hold: printable, without settings.ini's own.
+bool preset_name_character(char32_t c) { return c >= 0x20u && c != 0x7Fu && c != U'=' && c != U'#'; }
+
+void Menu::preset_rows() {
+    settings::Settings &s = settings::current();
+    section("Control preset");
+    const RowOptions locked = options_for("input.preset", "");
+    // The shipped presets, then the player's.
+    const int shipped = static_cast<int>(input::kPresets);
+    const int count = shipped + static_cast<int>(s.user_presets.size());
+    int current = 0;
+    if (s.control_preset.shipped) {
+        current = static_cast<int>(*s.control_preset.shipped);
+    } else {
+        for (std::size_t i = 0; i < s.user_presets.size(); ++i)
+            if (s.user_presets[i].name == s.control_preset.user) current = shipped + static_cast<int>(i);
+    }
+    const std::string current_name =
+        current < shipped ? input::info(static_cast<input::Preset>(current)).name
+                          : s.user_presets[static_cast<std::size_t>(current - shipped)].name + "  (yours)";
+    {
+        RowOptions o = locked;
+        o.description = current < shipped
+                            ? std::string(input::info(static_cast<input::Preset>(current)).description) +
+                                  "\nChanging a binding below saves the change as a preset of your own."
+                            : "Your own preset: the bindings below change it, and it is kept as you leave it.";
+        if (const int delta = choice_row("Preset", current_name, o)) {
+            const int next = cycle(current, delta, count);
+            const input::PresetChoice choice =
+                next < shipped ? input::PresetChoice{static_cast<input::Preset>(next), {}}
+                               : input::PresetChoice{std::nullopt, s.user_presets[static_cast<std::size_t>(next - shipped)].name};
+            settings::choose_preset(s, choice);
+            preset_notice_.clear();
+            settings::save();
+        }
+    }
+    if (!preset_notice_.empty()) info_row("Saved", preset_notice_);
+    if (!s.control_preset.shipped) {
+        std::string name = s.control_preset.user;
+        RowOptions o = locked;
+        o.description = "The name of this preset.";
+        if (text_row("preset_name", "Name", name, input::kMaxPresetName, false, preset_name_character, o)) {
+            const std::string cleaned = input::clean_preset_name(name);
+            bool taken = cleaned.empty();
+            for (const input::UserPreset &other : s.user_presets)
+                taken = taken || (other.name != s.control_preset.user && other.name == cleaned);
+            for (std::size_t i = 0; i < input::kPresets; ++i)
+                taken = taken || cleaned == input::info(static_cast<input::Preset>(i)).name;
+            if (input::UserPreset *preset = settings::find_user_preset(s, s.control_preset.user); preset && !taken) {
+                preset->name = cleaned;
+                s.control_preset.user = cleaned;
+                preset_notice_.clear();
+                settings::save();
+            } else if (taken && !cleaned.empty()) {
+                preset_notice_ = "Another preset is called " + cleaned + "; the name was kept.";
+            }
+        }
+    }
+    {
+        RowOptions o = locked;
+        o.description = "A new preset of your own with the bindings above, to change without losing these.";
+        if (s.user_presets.size() >= input::kMaxUserPresets && !o.disabled) {
+            o.disabled = true;
+            o.note = "At most " + std::to_string(input::kMaxUserPresets) + " presets";
+        }
+        if (button_row("Save as a new preset", o)) {
+            const std::string base = s.control_preset.shipped ? std::string("Custom") : s.control_preset.user;
+            const std::string name = input::unique_preset_name(s.user_presets, base);
+            s.user_presets.push_back({name, s.controls});
+            s.control_preset = {std::nullopt, name};
+            preset_notice_ = "The bindings are now also the preset " + name + ".";
+            settings::save();
+        }
+    }
+    if (!s.control_preset.shipped) {
+        RowOptions o = locked;
+        o.description = "Removes this preset for good and goes back to Default. Asks first.";
+        if (button_row("Delete this preset", o, colors::kDanger)) confirm_ = Confirm::DeletePreset;
+    }
+    // Clashes anywhere in the layout.
+    std::size_t clashes = 0;
+    for (const input::Bindings *table : {&s.controls.pad, &s.controls.keys})
+        for (std::size_t i = 0; i < input::kActions; ++i)
+            clashes += input::conflicts(*table, static_cast<input::Action>(i)).empty() ? 0u : 1u;
+    if (clashes != 0u)
+        info_row("Conflicts", std::to_string(clashes) + (clashes == 1u ? " binding clashes" : " bindings clash") +
+                                  " with another; marked in red below");
+}
+
+// One row per action of a device's bindings: activate it, then press what
+// it should be bound to, one input or two held together.
+void Menu::binding_rows(bool pad) {
+    settings::Settings &s = settings::current();
+    Layer &layer = Layer::get();
+    const input::PadStyle style = pad_style(renderer().gamepad());
+    input::Bindings &table = pad ? s.controls.pad : s.controls.keys;
+    const RowOptions locked = options_for("input.preset", "");
+    if (binding_ && binding_pad_ == pad) {
+        if (const auto pressed = layer.take_captured_binding()) {
+            if (!pressed->empty()) {
+                if (const std::optional<std::string> made = settings::prepare_controls_edit(s))
+                    preset_notice_ = "Your change is in a new preset of your own, " + *made +
+                                     ". The shipped presets stay as they are.";
+                input::Bindings &edited = pad ? s.controls.pad : s.controls.keys;
+                input::assign(edited, *binding_, pad ? confirm_swap(*pressed) : *pressed);
+                settings::controls_edited(s);
+                settings::save();
+            }
+            binding_.reset();
+        } else if (!layer.capturing_binding()) {
+            binding_.reset();
+        }
+    }
+    const char *suffix = pad ? "##pad" : "##keys";
+    for (std::size_t i = 0; i < input::kActions; ++i) {
+        const auto action = static_cast<input::Action>(i);
+        // The sticks are analog on a pad; buttons for them are rarely wanted
+        // but allowed, so the rows stay.
+        std::string value = bindings_text(table[i], pad, style);
+        RowOptions o = locked;
+        const std::vector<input::Conflict> clashes = input::conflicts(table, action);
+        if (binding_ == action && binding_pad_ == pad) {
+            const std::vector<input::Binding> &held = layer.capture_held();
+            if (!held.empty()) {
+                value.clear();
+                for (const input::Binding b : held)
+                    value += (value.empty() ? "" : " + ") + input::label(pad ? confirm_swap(b) : b, style);
+                value += " + …";
+            } else if (pad) {
+                value = "Press a button (" + std::to_string(layer.capture_seconds_left()) + ")";
+            } else {
+                value = "Press a key or a mouse button";
+            }
+        } else if (value.empty()) {
+            value = "None";
+        }
+        std::string description =
+            pad ? "Press a button to add it, or hold one and press another for a combination (LB + ○). Pressing "
+                  "one it has removes it; Esc or waiting cancels."
+                : "Press a key or a mouse button to add it, or hold one and press another for a combination. "
+                  "Pressing one it has removes it; Esc cancels.";
+        if (!clashes.empty()) {
+            o.warning = true;
+            std::string list;
+            for (const input::Conflict &c : clashes) {
+                list += "\n";
+                const std::string chord = input::label(pad ? confirm_swap(c.chord) : c.chord, style);
+                if (c.kind == input::Conflict::Kind::Same)
+                    list += chord + " also presses " + action_name(c.other) + ".";
+                else
+                    list += input::label(pad ? confirm_swap(c.chord.modifier) : c.chord.modifier, style) +
+                            " also presses " + action_name(c.other) + " while held for " + chord + ".";
+            }
+            description += list;
+        }
+        o.description = description;
+        const std::string label = std::string(input::info(action).label) + suffix;
+        if (value_row(label.c_str(), value, o) && !binding_ && !layer.capturing_binding()) {
+            binding_ = action;
+            binding_pad_ = pad;
+            layer.begin_binding_capture(pad ? Layer::Capture::Pad : Layer::Capture::Keys);
+        }
+    }
+}
+
 void Menu::controls() {
     settings::Settings &s = settings::current();
+    preset_rows();
     section("Gamepad");
     {
         SDL_Gamepad *pad = renderer().gamepad();
@@ -607,7 +822,8 @@ void Menu::controls() {
     }
     if (choice_row("Confirm button", s.confirm_south ? "Bottom (Western)" : "Right, ○ (Japanese)",
                    options_for("input.confirm", "Which face button confirms, in the game and in this menu. The "
-                                                "game's prompts show ○ to confirm and × to go back."))) {
+                                                "game's prompts show ○ to confirm and × to go back. It swaps the "
+                                                "bottom and right buttons in every preset."))) {
         s.confirm_south = !s.confirm_south;
         settings::save();
     }
@@ -625,24 +841,13 @@ void Menu::controls() {
         settings::save();
     }
     {
-        static const char *const kProfiles[] = {"Standard (L / R)", "Bows (R / △)", "Bowguns (R / ○)"};
-        const int current = static_cast<int>(s.trigger_profile);
-        if (const int delta = choice_row(
-                "Trigger profile", kProfiles[current],
-                options_for("input.trigger_profile",
-                            "What LT/RT (L2/R2) press. Standard: L and R, like the shoulders. Bows: R to aim and △ "
-                            "to shoot. Bowguns: R to aim and ○ to fire. R1, △ and ○ keep working."))) {
-            s.trigger_profile = static_cast<settings::TriggerProfile>(cycle(current, delta, 3));
-            settings::save();
-        }
-    }
-    {
         static const char *const kModes[] = {"Camera", "D-pad", "Off"};
         const int current = static_cast<int>(s.right_stick);
         if (const int delta = choice_row(
-                "Right stick", kModes[current],
+                "Camera stick", kModes[current],
                 options_for("input.right_stick", "Camera uses the HD release's own right-stick camera. D-pad "
-                                                 "presses the D-pad instead, like the PSP's camera controls."))) {
+                                                 "presses the D-pad instead, like the PSP's camera controls. "
+                                                 "It is the right stick unless the preset moves with it."))) {
             s.right_stick = static_cast<settings::RightStick>(cycle(current, delta, 3));
             settings::save();
         }
@@ -658,7 +863,7 @@ void Menu::controls() {
                                    "and recentre return to the game's camera. Off is the game's own camera, untouched.");
         if (!camera && !o.disabled) {
             o.disabled = true;
-            o.note = "Right stick is not the camera";
+            o.note = "Camera stick is not the camera";
         }
         if (toggle_row("Analog camera", s.analog_camera, o)) {
             s.analog_camera = !s.analog_camera;
@@ -691,7 +896,7 @@ void Menu::controls() {
         RowOptions o = options_for("input.invert_camera_x", "Turn the camera the other way left and right.");
         if (!camera && !o.disabled) {
             o.disabled = true;
-            o.note = "Right stick is not the camera";
+            o.note = "Camera stick is not the camera";
         }
         if (toggle_row("Invert camera horizontally", s.invert_camera_x, o)) {
             s.invert_camera_x = !s.invert_camera_x;
@@ -700,7 +905,7 @@ void Menu::controls() {
         o = options_for("input.invert_camera_y", "Turn the camera the other way up and down.");
         if (!camera && !o.disabled) {
             o.disabled = true;
-            o.note = "Right stick is not the camera";
+            o.note = "Camera stick is not the camera";
         }
         if (toggle_row("Invert camera vertically", s.invert_camera_y, o)) {
             s.invert_camera_y = !s.invert_camera_y;
@@ -708,18 +913,33 @@ void Menu::controls() {
         }
     }
     {
-        RowOptions o = options_for("input.right_stick_zone", "How far the right stick moves before it presses the "
+        RowOptions o = options_for("input.right_stick_zone", "How far the camera stick moves before it presses the "
                                                              "D-pad.");
         if (s.right_stick != settings::RightStick::DPad && !o.disabled) {
             o.disabled = true;
-            o.note = "Right stick is not the D-pad";
+            o.note = "Camera stick is not the D-pad";
         }
         int zone = static_cast<int>(std::lround(s.right_stick_zone * 100.0f));
-        if (slider_row("Right stick D-pad point", zone, 10, 100, 5, "%d%%", o)) {
+        if (slider_row("Camera stick D-pad point", zone, 10, 100, 5, "%d%%", o)) {
             s.right_stick_zone = static_cast<float>(zone) / 100.0f;
             settings::save();
         }
     }
+
+    section("Gamepad buttons");
+    {
+        RowOptions o = options_for("input.preset", "Which stick moves the hunter; the other one is the camera "
+                                                   "stick. Part of the preset.");
+        if (toggle_row("Move with the right stick", s.controls.swap_sticks, o)) {
+            if (const std::optional<std::string> made = settings::prepare_controls_edit(s))
+                preset_notice_ = "Your change is in a new preset of your own, " + *made +
+                                 ". The shipped presets stay as they are.";
+            s.controls.swap_sticks = !s.controls.swap_sticks;
+            settings::controls_edited(s);
+            settings::save();
+        }
+    }
+    binding_rows(true);
 
     section("Hunter name");
     {
@@ -779,39 +999,14 @@ void Menu::controls() {
             settings::save();
         }
     }
-    // One row per control: activate it, then press a key or a mouse button.
-    Layer &layer = Layer::get();
-    if (binding_) {
-        if (const auto pressed = layer.take_captured_binding()) {
-            if (*pressed != input::kNone) {
-                input::assign(s.bindings, *binding_, *pressed);
-                settings::save();
-            }
-            binding_.reset();
-        } else if (!layer.capturing_binding()) {
-            binding_.reset();
-        }
-    }
-    for (std::size_t i = 0; i < input::kActions; ++i) {
-        const auto action = static_cast<input::Action>(i);
-        std::string value = input::format(s.bindings[i]);
-        if (binding_ == action) value = "Press a key or a mouse button";
-        else if (value.empty()) value = "None";
-        const RowOptions o{false, {},
-                           "Press a key or a mouse button to add it, or one it has already to remove it; Esc "
-                           "cancels. A key taken from another control leaves that one."};
-        if (value_row(input::info(action).label, value, o) && !binding_) {
-            binding_ = action;
-            layer.begin_binding_capture();
-        }
-    }
+    binding_rows(false);
     info_row("Esc", "This menu");
     info_row("F3", "Performance overlay");
 
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
                    {false, {}, "Every gamepad, keyboard, mouse, touch, name and free camera setting back to how "
-                               "Yakumo ships."})) {
+                               "Yakumo ships, with the Default preset. Your own presets are kept."})) {
         const settings::Settings &d = settings::defaults();
         const auto restore = [&](const char *key, auto &value, const auto &fallback) {
             if (settings::overridden_by(key) == nullptr) value = fallback;
@@ -819,7 +1014,6 @@ void Menu::controls() {
         restore("input.confirm", s.confirm_south, d.confirm_south);
         restore("input.dead_zone", s.dead_zone, d.dead_zone);
         restore("input.trigger", s.trigger, d.trigger);
-        restore("input.trigger_profile", s.trigger_profile, d.trigger_profile);
         restore("input.right_stick", s.right_stick, d.right_stick);
         restore("input.right_stick_zone", s.right_stick_zone, d.right_stick_zone);
         restore("input.analog_camera", s.analog_camera, d.analog_camera);
@@ -840,7 +1034,8 @@ void Menu::controls() {
         restore("input.touch_camera_speed", s.touch_camera_speed, d.touch_camera_speed);
         restore("experimental.free_camera", s.free_camera, d.free_camera);
         restore("experimental.free_camera_speed", s.free_camera_speed, d.free_camera_speed);
-        s.bindings = d.bindings;
+        if (settings::overridden_by("input.preset") == nullptr) settings::choose_preset(s, d.control_preset);
+        preset_notice_.clear();
         settings::save();
     }
 
@@ -889,13 +1084,6 @@ void Menu::controls() {
             settings::save();
         }
     }
-    if (button_row("Use the classic keyboard layout",
-                   {false, {}, "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are "
-                               "the face buttons, Q and W are L and R."})) {
-        s.bindings = input::classic_bindings();
-        settings::save();
-    }
-
     section("Experimental");
     if (toggle_row("Free camera", s.free_camera,
                    options_for("experimental.free_camera",
@@ -1337,6 +1525,31 @@ bool Menu::confirm_dialog() {
             return true;
         }
         confirm_opened_ = true;
+        if (confirm_ == Confirm::DeletePreset) {
+            settings::Settings &s = settings::current();
+            heading("Delete the preset " + s.control_preset.user + "?");
+            paragraph("Its bindings are lost, and the Default preset is chosen.", colors::kTextDim);
+            ImGui::Dummy({0.0f, font * 0.6f});
+            const float gap = font * 0.6f;
+            const float width = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+            if (big_button("Delete", width, true)) {
+                std::erase_if(s.user_presets,
+                              [&](const input::UserPreset &p) { return p.name == s.control_preset.user; });
+                settings::choose_preset(s, {input::Preset::Default, {}});
+                preset_notice_.clear();
+                settings::save();
+                confirm_ = Confirm::None;
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (big_button("Cancel", width)) confirm_ = Confirm::None;
+            ImGui::SetItemDefaultFocus();
+            ImGui::Dummy({0.0f, font * 0.2f});
+            ImGui::Dummy({0.0f, 0.0f});
+            hints({{Control::Confirm, "Select"}, {Control::Back, "Cancel"}});
+            if (confirm_ == Confirm::None) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return true;
+        }
         const bool quit = confirm_ == Confirm::Quit;
         heading(quit ? "Quit the game?" : "Set up game data again?");
         paragraph(quit ? "Progress since your last save is lost."

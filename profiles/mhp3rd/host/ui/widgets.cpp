@@ -491,7 +491,8 @@ bool value_row(const char *label, const std::string &value, const RowOptions &op
     const float s = font() * 0.28f;
     draw->AddLine({x - s, mid_y - s * 1.6f}, {x + s * 0.6f, mid_y}, chevron, px(2.0f));
     draw->AddLine({x + s * 0.6f, mid_y}, {x - s, mid_y + s * 1.6f}, chevron, px(2.0f));
-    draw_value(r, value, options, px(16.0f) + font() * 1.1f, live ? colors::kAccentBright : colors::kText);
+    draw_value(r, value, options, px(16.0f) + font() * 1.1f,
+               options.warning ? colors::kDanger : live ? colors::kAccentBright : colors::kText);
     return r.pressed && !options.disabled;
 }
 
