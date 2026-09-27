@@ -237,6 +237,21 @@ void feed_mouse(gpu::VulkanRenderer &renderer) {
 #if defined(MHP3RD_HAS_RENDERER)
 // The free camera's controls for one step of `seconds`: the keyboard's and
 // the gamepad's from the renderer, and the mouse's motion while it flies.
+void fly_free_camera(Runtime &rt, gpu::VulkanRenderer &renderer, float seconds);
+
+// fly_free_camera for the real time since it last ran, from the game's flips
+// and the photo mode's frames alike: the photo mode's frame step goes from
+// one to the other, and the camera must not jump for the time in between.
+// At most a quarter of a second, so a pause (a menu, a load) does not throw
+// the camera across the scene for a key held through it.
+void fly_free_camera_now(Runtime &rt, gpu::VulkanRenderer &renderer) {
+    static perf::Clock::time_point previous = perf::Clock::now();
+    const perf::Clock::time_point now = perf::Clock::now();
+    const float seconds = std::min(std::chrono::duration<float>(now - previous).count(), 0.25f);
+    previous = now;
+    fly_free_camera(rt, renderer, seconds);
+}
+
 void fly_free_camera(Runtime &rt, gpu::VulkanRenderer &renderer, float seconds) {
     const gpu::FreeCameraControls controls = renderer.take_free_camera_controls();
     camera::FreeCameraRequest request;
@@ -294,33 +309,75 @@ void replay_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
     }
 }
 
+// The photo mode's frame step (#187). A step leaves the photo mode's loop
+// with the pause still on, so the game runs from the flip it stood still at
+// to its next flip, which comes back into the photo mode: exactly one game
+// frame, its logic, its vblanks and its drawing as in play. Meanwhile the
+// sound stays paused and every frame is shown at once, never interpolated.
+struct FrameStep {
+    bool running{};  // the game is running the frame of a step
+    std::uint64_t vblanks{};  // the vblank count when it began
+    camera::FrameStepRepeat repeat;
+};
+FrameStep &frame_step() {
+    static FrameStep value;
+    return value;
+}
+
+// Everything the photo mode held, let go: the game plays on as before.
+void end_photo_mode(gpu::VulkanRenderer &renderer) {
+    frame_step() = {};
+    renderer.set_still(false);
+    audio::AudioSink::instance().set_paused(false);
+    kernel().resync_real_time();
+    perf::restart_measurement();
+}
+
 // The photo mode: the game stands still, as behind the paused menu, and the
 // frame it last drew is drawn again from wherever the free camera flies,
-// until the pause is lifted or the free camera left. False: the window was
-// closed.
+// until the pause is lifted or the free camera left, or a frame step lets
+// the game run one frame. False: the window was closed.
 bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t address) {
     if (!media().last_frame.start) {
         log_once("freecam-no-frame", "[freecam] no frame to hold for the photo mode");
         camera::free_camera_leave();
         renderer.set_free_camera(false);
+        if (frame_step().running) end_photo_mode(renderer);
         return true;
     }
-    renderer.set_still(true);
-    renderer.set_fast_forward(false);
-    audio::AudioSink::instance().set_paused(true);
+    FrameStep &step = frame_step();
+    if (step.running) {
+        step.running = false;
+        std::cout << "[freecam] frame step: vblank " << step.vblanks << " to " << kernel().vblank_count() << " ("
+                  << kernel().vblank_count() - step.vblanks << ")" << std::endl;
+    } else {
+        renderer.set_still(true);
+        renderer.set_fast_forward(false);
+        audio::AudioSink::instance().set_paused(true);
+    }
     bool window_open = true;
-    perf::Clock::time_point previous = perf::Clock::now();
     while (camera::free_camera_status().paused) {
         if (!renderer.pump_events()) {
             window_open = false;
             break;
         }
         const perf::Clock::time_point now = perf::Clock::now();
-        fly_free_camera(rt, renderer, std::chrono::duration<float>(now - previous).count());
-        previous = now;
+        fly_free_camera_now(rt, renderer);
+        // The picture presented last: the frame as the free camera saw it.
+        if (renderer.take_screenshot_request()) (void)ui::take_screenshot();
         if (ui::menu_requested() && !ui::run_menu()) {
             rt.stop("quit from the menu");
             break;
+        }
+        if (step.repeat.update(renderer.frame_step_held(), perf::Clock::now()) &&
+            camera::free_camera_status().paused) {
+            step.running = true;
+            step.vblanks = kernel().vblank_count();
+            // The kernel's clock picks up from real time again, as after a
+            // pause, so the frame takes its own time and no more.
+            kernel().resync_real_time();
+            perf::restart_measurement();
+            return true;
         }
         replay_frame(rt, renderer);
         ui::draw_over_game();
@@ -331,10 +388,7 @@ bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t ad
         // would draw the same frame as fast as it can; 60 a second is plenty.
         std::this_thread::sleep_until(now + std::chrono::microseconds(16'667));
     }
-    renderer.set_still(false);
-    audio::AudioSink::instance().set_paused(false);
-    kernel().resync_real_time();
-    perf::restart_measurement();
+    end_photo_mode(renderer);
     return window_open;
 }
 #endif
@@ -442,15 +496,15 @@ void present_frame(Runtime &rt) {
     bool window_open = renderer.pump_events();
     // The free camera takes the mouse's motion first while it flies, so
     // none of it turns the game's camera.
-    {
-        static perf::Clock::time_point previous = perf::Clock::now();
-        const perf::Clock::time_point now = perf::Clock::now();
-        fly_free_camera(rt, renderer, std::chrono::duration<float>(now - previous).count());
-        previous = now;
-    }
+    fly_free_camera_now(rt, renderer);
     // The screenshot bind (#187): the frame just presented, as drawn.
     if (renderer.take_screenshot_request()) (void)ui::take_screenshot();
-    if (window_open && camera::free_camera_status().paused) window_open = run_photo_mode(rt, renderer, address);
+    if (window_open && camera::free_camera_status().paused) {
+        window_open = run_photo_mode(rt, renderer, address);
+    } else if (frame_step().running) {
+        // The pause was lifted, or the free camera left, during a step.
+        end_photo_mode(renderer);
+    }
     // The fast-forward bind as the events just pumped left it; the kernel's
     // pacing follows it from the next wait on.
     fast_forward::note_bind(renderer.pad().fast_forward);

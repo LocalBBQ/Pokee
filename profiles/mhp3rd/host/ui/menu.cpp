@@ -1153,6 +1153,7 @@ void Menu::controls() {
         info_row("Look", "Mouse; right stick");
         info_row("Faster, slower", "Left Shift, Left Ctrl; RT, LT");
         info_row("Photo mode", "P, or Start: the game stands still");
+        info_row("Step one frame (photo mode)", binds_of(input::Action::FrameStep));
         info_row("Back to the game's camera", "R, or Y");
         info_row("Screenshot", binds_of(input::Action::Screenshot));
     }

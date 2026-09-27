@@ -384,4 +384,21 @@ void free_camera_frame_end(psprecomp::Runtime &runtime) {
     ++s.frame;
 }
 
+bool FrameStepRepeat::update(bool held, Clock::time_point now) {
+    if (!held) {
+        held_ = false;
+        return false;
+    }
+    if (!held_) {
+        held_ = true;
+        next_ = now + kFrameStepDelay;
+        return true;
+    }
+    if (now < next_) return false;
+    // A step that came late does not bunch the next ones up.
+    next_ += kFrameStepRepeat;
+    if (next_ <= now) next_ = now + kFrameStepRepeat;
+    return true;
+}
+
 } // namespace mhp3rd::camera

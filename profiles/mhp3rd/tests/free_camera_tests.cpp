@@ -6,6 +6,7 @@
 #include "psprecomp/runtime.hpp"
 
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -146,9 +147,37 @@ void test_game_view_and_guard() {
         check(!free_camera_view_hook(memory), "off, nothing is hooked into the display lists");
 }
 
+// Frame step (#187): once on the press, then after a delay at a steady
+// rate while held, never more than one step per call.
+void test_frame_step_repeat() {
+    using namespace std::chrono_literals;
+    FrameStepRepeat repeat;
+    const FrameStepRepeat::Clock::time_point t0{};
+    check(!repeat.update(false, t0), "nothing while the bind is up");
+    check(repeat.update(true, t0), "a press steps at once");
+    check(!repeat.update(true, t0 + 16ms) && !repeat.update(true, t0 + kFrameStepDelay - 1ms),
+          "held, nothing more until the delay is over");
+    check(repeat.update(true, t0 + kFrameStepDelay), "then a step");
+    check(!repeat.update(true, t0 + kFrameStepDelay + 50ms), "and none until the repeat is due");
+    check(repeat.update(true, t0 + kFrameStepDelay + kFrameStepRepeat), "then the next");
+    // A frame that took long (a slow machine) does not bunch steps up.
+    const auto late = t0 + kFrameStepDelay + 10 * kFrameStepRepeat;
+    check(repeat.update(true, late) && !repeat.update(true, late + 1ms), "a late step is one step");
+    int steps = 0;
+    FrameStepRepeat held;
+    for (auto t = t0; t < t0 + 1400ms; t += 16ms) steps += held.update(true, t) ? 1 : 0;
+    check(steps == 1 + static_cast<int>((1400ms - kFrameStepDelay) / kFrameStepRepeat) ||
+              steps == static_cast<int>((1400ms - kFrameStepDelay) / kFrameStepRepeat),
+          "held for 1.4 s at 60 frames a second, about ten steps a second after the delay");
+    check(!held.update(false, t0 + 1400ms) && held.update(true, t0 + 1416ms), "released and pressed again: a step");
+    held.reset();
+    check(held.update(true, t0 + 1432ms), "reset forgets the hold");
+}
+
 } // namespace
 
 int main() {
+    test_frame_step_repeat();
     test_traced_view();
     test_round_trip();
     test_not_a_view();

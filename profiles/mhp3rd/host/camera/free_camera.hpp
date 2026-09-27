@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -112,5 +113,26 @@ void free_camera_leave();
 
 // Once per game flip, after the frame was presented: MHP3RD_TRACE_VIEWS.
 void free_camera_frame_end(psprecomp::Runtime &runtime);
+
+// --- Frame step in the photo mode (#187) -------------------------------------
+
+// When the frame step bind makes the game run on by one frame: once when it
+// goes down, and while it is held, again after kFrameStepDelay and then
+// every kFrameStepRepeat, about ten frames a second, a third of the game's
+// own pace.
+inline constexpr std::chrono::milliseconds kFrameStepDelay{400};
+inline constexpr std::chrono::milliseconds kFrameStepRepeat{100};
+class FrameStepRepeat {
+public:
+    using Clock = std::chrono::steady_clock;
+    // Whether to step now, with the bind `held` at `now`.
+    [[nodiscard]] bool update(bool held, Clock::time_point now);
+    // Forgets a hold, as the photo mode ends.
+    void reset() { held_ = false; }
+
+private:
+    bool held_{};
+    Clock::time_point next_{};
+};
 
 } // namespace mhp3rd::camera
