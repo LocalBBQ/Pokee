@@ -434,10 +434,10 @@ void Menu::video() {
         static const char *const kModes[] = {"Hold", "Toggle", "Off"};
         const int current = static_cast<int>(s.fast_forward);
         const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::FastForward)]);
-        const std::string help = "Runs the game faster than real time while its key (" +
+        // Two lines at most, so the note of a disabled row still fits under it.
+        const std::string help = "The game runs faster while its key (" +
                                  (key.empty() ? std::string("none: set it in Controls") : key) +
-                                 ") is held, or from one press to the next. The sound is muted meanwhile. "
-                                 "Single player only.";
+                                 ") is held, or from one press to the next, muted. Single player only.";
         if (const int delta = choice_row("Fast-forward", kModes[current],
                                          guarded(options_for("video.fast_forward", help)))) {
             s.fast_forward = static_cast<fast_forward::Mode>(cycle(current, delta, 3));
