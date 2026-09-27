@@ -10,6 +10,7 @@
 #include "stb_truetype.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cmath>
@@ -603,6 +604,107 @@ GlyphBitmap render(std::uint32_t code, float shift_x, float shift_y) {
     }
     return s.bitmaps.emplace(key, std::move(bitmap)).first->second;
 }
+
+namespace {
+
+struct Passes {
+    std::array<std::int32_t, 4> x64{};
+    std::array<std::int32_t, 4> y64{};
+    int count{};
+    // glyph_cell()'s result by scale, for the font generation it was made in.
+    std::array<std::vector<std::uint8_t>, 5> cells;
+    std::uint64_t generation{};
+};
+
+std::unordered_map<std::uint32_t, Passes> &glyph_passes() {
+    static std::unordered_map<std::uint32_t, Passes> passes;
+    return passes;
+}
+
+std::uint32_t &atlas_object() {
+    static std::uint32_t object = 0u;
+    return object;
+}
+
+// One pass of a glyph drawn `scale` times as large, the way blit_glyph()
+// puts render()'s bitmap into the game's buffer at scale 1: the outline's
+// origin lands at (x64 / 64 - natural box left, y64 / 64 - natural box top)
+// buffer pixels, which at scale 1 gives render()'s placement exactly.
+void draw_pass(const Layout &layout, std::int32_t x64, std::int32_t y64, int scale, std::vector<std::uint8_t> &cell) {
+    const int size = kCell * scale;
+    const double origin_x = (static_cast<double>(x64) / 64.0 - layout.natural_x0) * scale;
+    const double origin_y = (static_cast<double>(y64) / 64.0 - layout.natural_y0) * scale;
+    const int whole_x = static_cast<int>(std::floor(origin_x));
+    const int whole_y = static_cast<int>(std::floor(origin_y));
+    const float fx = static_cast<float>(origin_x - whole_x);
+    const float fy = static_cast<float>(origin_y - whole_y);
+    const float sx = layout.scale_x * static_cast<float>(scale);
+    const float sy = layout.scale_y * static_cast<float>(scale);
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    stbtt_GetGlyphBitmapBoxSubpixel(&layout.face->info, layout.glyph, sx, sy, fx, fy, &x0, &y0, &x1, &y1);
+    GlyphBitmap bitmap;
+    bitmap.width = std::max(x1 - x0, 0);
+    bitmap.height = std::max(y1 - y0, 0);
+    if (bitmap.width == 0 || bitmap.height == 0) return;
+    bitmap.pixels.assign(static_cast<std::size_t>(bitmap.width) * static_cast<std::size_t>(bitmap.height), 0u);
+    stbtt_MakeGlyphBitmapSubpixel(&layout.face->info, bitmap.pixels.data(), bitmap.width, bitmap.height, bitmap.width,
+                                  sx, sy, fx, fy, layout.glyph);
+    if (layout.bold > 0) embolden(bitmap, layout.bold * scale);
+    for (int row = 0; row < bitmap.height; ++row) {
+        const int y = whole_y + y0 + row;
+        if (y < 0 || y >= size) continue;
+        for (int column = 0; column < bitmap.width; ++column) {
+            const int x = whole_x + x0 + column;
+            if (x < 0 || x >= size) continue;
+            const std::uint8_t ink = static_cast<std::uint8_t>(
+                bitmap.pixels[static_cast<std::size_t>(row) * bitmap.width + column] >> 4u);
+            std::uint8_t &at = cell[static_cast<std::size_t>(y) * size + x];
+            at = std::max(at, ink);
+        }
+    }
+}
+
+} // namespace
+
+void note_glyph_pass(std::uint32_t code, std::int32_t x64, std::int32_t y64, bool first) {
+    Passes &passes = glyph_passes()[code];
+    if (first) {
+        passes.count = 0;
+        for (std::vector<std::uint8_t> &cell : passes.cells) cell.clear();
+    }
+    if (passes.count == static_cast<int>(passes.x64.size())) return;
+    passes.x64[static_cast<std::size_t>(passes.count)] = x64;
+    passes.y64[static_cast<std::size_t>(passes.count)] = y64;
+    ++passes.count;
+}
+
+std::vector<std::uint8_t> glyph_cell(std::uint32_t code, int scale) {
+    const auto found = glyph_passes().find(code);
+    if (found == glyph_passes().end() || found->second.count == 0 || scale < 1) return {};
+    State &s = loaded_state();
+    Passes &passes = found->second;
+    const std::uint64_t generation = s.generation.load();
+    if (passes.generation != generation) {
+        for (std::vector<std::uint8_t> &cell : passes.cells) cell.clear();
+        passes.generation = generation;
+    }
+    const bool cached = static_cast<std::size_t>(scale) < passes.cells.size();
+    if (cached && !passes.cells[static_cast<std::size_t>(scale)].empty())
+        return passes.cells[static_cast<std::size_t>(scale)];
+    const Layout &layout = layout_for(s, code);
+    const int size = kCell * scale;
+    std::vector<std::uint8_t> cell(static_cast<std::size_t>(size) * static_cast<std::size_t>(size), 0u);
+    if (layout.face == nullptr || layout.metrics.width == 0) return cell;
+    for (int i = 0; i < passes.count; ++i)
+        draw_pass(layout, passes.x64[static_cast<std::size_t>(i)], passes.y64[static_cast<std::size_t>(i)], scale,
+                  cell);
+    if (cached) passes.cells[static_cast<std::size_t>(scale)] = cell;
+    return cell;
+}
+
+void set_game_atlas(std::uint32_t object) { atlas_object() = object; }
+
+std::uint32_t game_atlas() { return atlas_object(); }
 
 static void (*reload_hook)() = nullptr;
 

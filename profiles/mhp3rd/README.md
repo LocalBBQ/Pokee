@@ -396,6 +396,8 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | GPU compatibility | `video.gpu_compat` | `MHP3RD_GPU_COMPAT` | Auto (default), on or off; applies from the next start. See [GPU compatibility mode](#gpu-compatibility-mode) |
 | Video | Font | `text.font` | `MHP3RD_FONT` | Default (a Japanese system font), or an installed font; see [Game text](#game-text) |
 | Video | Weight | `text.weight` | | Regular, bold (default) or heavy: thickens the game's text by 0–2 pixel columns |
+| Video | Sharp text | `text.crisp` | `MHP3RD_CRISP_TEXT` | On (default): above ×1 the game's text is drawn again at the internal resolution. See [Sharper text and 2D textures](#sharper-text-and-2d-textures) |
+| Video | UI textures | `video.ui_textures` | `MHP3RD_UI_TEXTURES` | Off (default), Sharp bilinear or MMPX, for the 2D interface above ×1 |
 | Audio | Volume | `audio.volume` | | 0–100% |
 | Audio | Mute | `audio.mute` | | |
 | Controls | Confirm button | `input.confirm` | `MHP3RD_PAD_FACE` | Right (○, Japanese) or bottom (Western) |
@@ -450,6 +452,29 @@ The game draws its text with the PSP's system font, which lives in the console's
 A change applies at once: Yakumo makes the game draw every character again the next time it shows it, so text already on screen changes within a frame or two.
 
 How the text is laid out, as traced with `MHP3RD_TRACE_FONT=1`: the game sizes a glyph cell in a texture atlas from the font's maximum glyph size, renders each glyph into a 20×20 buffer and copies that whole buffer into the cell, and draws text as one sprite per cell, half a character wide for Latin letters and full width for Japanese ones. Yakumo reports a 20×20 maximum so cells and buffer match, and fits every glyph inside its cell with a pixel of margin, shifting it and, when it is too large, scaling it down, so no font can spill into a neighbour or lose its edges. The size of the text is therefore fixed by the game; *Weight* is the adjustment that fits within it.
+
+### Sharper text and 2D textures
+
+Above ×1 the 3D world gets sharper with the internal resolution, but the game's own interface is made of textures sized for the PSP's 480×272 screen, so it was only magnified: blurred by bilinear filtering, or blocky with *Texture filter* on Sharp. Two settings change how it is drawn; neither changes anything the game reads, so its layout stays exactly as it was (the positions, sizes and texture coordinates of every draw are the same, checked draw by draw with `MHP3RD_TRACE_SPRITES`), and at ×1 both do nothing.
+
+- **Sharp text** (Video → Font section, `text.crisp`, `MHP3RD_CRISP_TEXT`, on by default) draws the game's text again at the internal resolution, up to 4×. The game renders each glyph into a 20×20 buffer, copies it into a cell of its glyph atlas and draws text from those cells; the renderer draws the atlas pages again, cell by cell, from the same glyphs at the same pen positions, through the page's own palette. Before a page is used, every cell is drawn again at 1× and compared with the game's: a page where more than a quarter of them differ is left as it is (`[ui] glyph page ... differ` on the console).
+- **UI textures** (Video, `video.ui_textures`, `MHP3RD_UI_TEXTURES`, `off` by default) for the rest of the 2D interface, meaning through-mode draws only; 3D is never touched:
+  - *Sharp bilinear* (`sharp`): each texel keeps its colour across the pixels it covers and blends with its neighbour only over the last pixel at its edge, at any scale, whole or not. Done in the fragment shader; it costs nothing to keep.
+  - *MMPX* (`mmpx`): each 2D texture is doubled once (×2, ×3) or twice (×4 and above) with [MMPX](https://jcgt.org/published/0010/02/04/), a pixel-art upscaler that keeps the exact palette, transparency and single pixels and rounds diagonals, curves and corners, then drawn with sharp bilinear. The copies are made on a separate CPU thread the first time a texture is drawn at that scale, and kept on the GPU (at most 48 of them and 64 MiB, the least recently drawn going first); until a copy is ready the original is drawn.
+- An [HD texture pack](#hd-texture-packs)'s image wins over both: a texture the pack has an image for is drawn from the pack, and no copy is made of it. Packs do replace the 2D interface's textures: with the community pack for this game, the loading screen, the title pictures and the small menu pieces it has images for were drawn from the pack, and the atlas of buttons and window frames is one the pack itself marks to be left alone (`ignore/buttons`).
+
+`MHP3RD_TRACE_UI=1` logs each copy made, with its size and the milliseconds it took. See [Cost](#cost-of-the-sharper-ui) for what they cost.
+
+#### Cost of the sharper UI
+
+Measured on an M1 (MoltenVK) at ×5 with the village's start menu open for 45 seconds, one run at a time (`MHP3RD_PERF=log`):
+
+| | Off (as main) | Sharp text | + Sharp bilinear | + MMPX |
+| --- | --- | --- | --- | --- |
+| GPU per frame | 8.02 ms | 8.09 ms | 8.15 ms | 8.14 ms |
+| Render (CPU) per frame | 4.60 ms | 4.06 ms | 4.20 ms | 4.00 ms |
+
+The steady cost is within the noise of the measurement: sharp bilinear adds a few instructions to the 2D interface's pixels only. What costs is making the copies, once per texture and scale: a glyph atlas page took 3.3 ms on average (8 ms at most) at ×4, and it is drawn again when the game adds glyphs to it; an MMPX copy took 6 ms on average and 16 ms at most (a 512×512 texture doubled to 1024×1024), made on a thread of its own so that no frame waits for it (the original is drawn meanwhile). The copies take at most 64 MiB of GPU memory together; a texture larger than 256 texels is only ever doubled once. Phones were not measured: expect the one-time costs to be several times higher there, and use *Sharp text* and *Sharp bilinear*, which cost next to nothing, if MMPX's copies arrive late.
 
 ## HD texture packs
 
@@ -780,6 +805,8 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHP3RD_TEXTURE_PACK_MEMORY` | `1024` | Megabytes of GPU memory for texture pack images; the least recently drawn are dropped above it |
 | `MHP3RD_TEXTURE_DUMP` | unset | Write every texture the game uploads, once, as a PNG named by its texture pack key into this folder, to start a pack from |
 | `MHP3RD_PICTURE_BESIDE_CUTOUT` | off | Put the picture beside a display cutout, moved off the cutout's side, as before [#170](https://github.com/TeamGDB/Yakumo/issues/170), instead of centring it. On Android, where the app has no environment, `adb shell setprop debug.yakumo.picture_beside_cutout 1` does the same for the next start. Nothing changes on a screen without a cutout |
+| `MHP3RD_CRISP_TEXT` | on | `0` draws the game's text as before, magnified from its 20-pixel glyphs (menu: Sharp text). See [Sharper text and 2D textures](#sharper-text-and-2d-textures) |
+| `MHP3RD_UI_TEXTURES` | `off` | `sharp` or `mmpx`: how the 2D interface's textures are drawn above ×1 (menu: UI textures) |
 | `MHP3RD_NO_SPRITE_CLAMP` | off | Let 2D tiles sample outside their own texels, as before; above ×1 this shows faint lines along the tile edges of 2D screens |
 | `MHP3RD_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHP3RD_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
@@ -1078,6 +1105,7 @@ With the setting off nothing is hooked into the display lists, no input is read 
 | `MHP3RD_NO_CULL=1`, `MHP3RD_NO_DEPTH=1` | Disable face culling or the depth test, to bisect missing geometry |
 | `MHP3RD_TRACE_AUDIO=1` | One line per second of output: frames, peak, RMS, silence and drops |
 | `MHP3RD_TRACE_ATRAC=1` | Every `sceAtrac3plus` call with its arguments, result and decode position |
+| `MHP3RD_TRACE_UI=1` | Each [sharper copy](#sharper-text-and-2d-textures) of a glyph atlas page or a 2D texture as it is made: its address, sizes and milliseconds, and how many of a page's cells were drawn again |
 | `MHP3RD_TRACE_FONT=1` | Every `sceLibFont` call with its arguments: the font the game asks for, the font info and character metrics returned, and each glyph image's buffer and 26.6 position, with the caller's return address |
 | `MHP3RD_TRACE_MPEG=1` | Every `sceMpeg` and `sceJpegCsc` call, and each call the ring buffer makes to the game's read callback |
 | `MHP3RD_SAS_NO_ENV=1` | Hold every SAS voice at full envelope, to separate an envelope bug from a decoding one |

@@ -30,6 +30,9 @@ enum class PresentMode { Fifo, Mailbox, Immediate };
 // field of view stays), and the 2D interface keeps the PSP's proportions.
 enum class Aspect { Original, Stretch, Fill };
 enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
+// How the game's 2D textures are drawn at a high internal resolution
+// (gpu/ui_textures.hpp): as they are, sharp bilinear, or doubled with MMPX.
+enum class UiTextures { Off, Sharp, Mmpx };
 enum class RightStick { Camera, DPad, Off };
 // The on-screen controls' layout: the PSP's buttons (touch_controls.hpp), or
 // the action-style one (touch_action.hpp).
@@ -70,6 +73,8 @@ struct Settings {
     // Text
     std::string font;                  // the game's text font: path, "#face" for a collection; empty: the default
     std::uint32_t font_weight{1u};     // columns the game's glyphs are thickened by, 0 to kMaxFontWeight
+    bool crisp_text{true};             // draw the game's glyph atlas again at the internal resolution
+    UiTextures ui_textures{UiTextures::Off};
 
     // Audio
     std::uint32_t volume{100u};        // percent

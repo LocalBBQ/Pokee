@@ -4,6 +4,8 @@
 #include "frame_pacing.hpp"
 #include "game_hud.hpp"
 #include "replacement_textures.hpp"
+#include "mmpx.hpp"
+#include "ui_textures.hpp"
 #include "texture_decode.hpp"
 #include "triangle_indices.hpp"
 #include "texture_pack.hpp"
@@ -621,7 +623,19 @@ struct VulkanRenderer::Impl {
         // How far down a 512-tall texture has been drawn, which decides how
         // much of it the pack's hash covers; see texture_pack.hpp.
         std::uint16_t max_seen_v{};
+        std::uint64_t key{};  // texture_key(), for the 2D copies below
     };
+    // Sharper copies of 2D textures (ui_textures.hpp), by texture key, mode
+    // and scale: the glyph atlas drawn again at the internal resolution, or a
+    // texture doubled with MMPX. A null descriptor remembers that there is
+    // none, so it is not tried again.
+    std::unordered_map<std::uint64_t, Texture> ui_copies;
+    std::unique_ptr<ui::Upscaler> upscaler;  // made the first time MMPX is on
+    std::unordered_map<std::uint64_t, std::uint64_t> ui_copy_sizes;  // bytes, of the copies made
+    std::uint64_t ui_copy_bytes{};
+    [[nodiscard]] std::uint32_t ui_scale() const;
+    [[nodiscard]] VkDescriptorSet ui_copy(const GuestMemory &memory, const DrawCall &call, const Texture &texture);
+    void drop_ui_copies();
 
     RendererConfig config;
     SDL_Window *window{};
@@ -4184,6 +4198,7 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         pending_textures.push_back({std::move(job), texture.image, state.width, state.height});
     }
     texture.max_seen_v = max_seen_v;
+    texture.key = key;
     // The pack's hash reads the whole texture, so it is taken here, once per
     // upload, and never on the per-draw path above.
     if (pack) texture.replacement = pack->find(memory, state, max_seen_v);
@@ -4203,7 +4218,111 @@ VkDescriptorSet VulkanRenderer::Impl::texture_descriptor(const GuestMemory &memo
             return replaced;
         }
     }
+    // The 2D interface, sharper (#164): only through-mode draws, never 3D,
+    // and not a texture the pack has an image for, which is still loading.
+    const bool packed = texture.replacement && pack && texture.replacement->state != Replacement::State::Failed;
+    if (call.through && texture.key != 0u && !packed)
+        if (const VkDescriptorSet sharper = ui_copy(memory, call, texture)) return sharper;
     return texture.descriptor;
+}
+
+std::uint32_t VulkanRenderer::Impl::ui_scale() const {
+    // The 2D interface covers the target's height; the copies go up to 4x.
+    const double scale = static_cast<double>(target_extent.height) / static_cast<double>(kPspHeight);
+    return static_cast<std::uint32_t>(std::clamp(std::lround(scale), 1l, 4l));
+}
+
+VkDescriptorSet VulkanRenderer::Impl::ui_copy(const GuestMemory &memory, const DrawCall &call,
+                                               const Texture &texture) {
+    const settings::Settings &player = settings::current();
+    const std::uint32_t scale = ui_scale();
+    if (scale < 2u) return VK_NULL_HANDLE;
+    const TextureState &state = call.texture;
+    const bool glyphs = player.crisp_text && ui::is_glyph_page(state);
+    const bool mmpx = !glyphs && player.ui_textures == settings::UiTextures::Mmpx && state.width <= 512u &&
+                      state.height <= 512u;
+    if (!glyphs && !mmpx) return VK_NULL_HANDLE;
+    const std::uint64_t key = texture.key ^ (static_cast<std::uint64_t>(scale) << 56u) ^
+                              (glyphs ? 0x5A00000000000000ull : 0xA500000000000000ull);
+    if (const auto found = ui_copies.find(key); found != ui_copies.end()) {
+        found->second.last_used = texture_clock;
+        return found->second.descriptor;
+    }
+    // Room for the new one: the copies drawn longest ago go, once the frames
+    // that may still draw them are done, until at most 48 copies and 64 MiB
+    // are left, which a phone can spare.
+    constexpr std::size_t kMaxUiCopies = 48u;
+    constexpr std::uint64_t kMaxUiCopyBytes = 64ull << 20u;
+    while (!ui_copies.empty() && (ui_copies.size() >= kMaxUiCopies || ui_copy_bytes > kMaxUiCopyBytes)) {
+        auto oldest = ui_copies.begin();
+        for (auto it = ui_copies.begin(); it != ui_copies.end(); ++it)
+            if (it->second.last_used < oldest->second.last_used) oldest = it;
+        if (oldest->second.descriptor != VK_NULL_HANDLE) {
+            destroyed_texture_clock = std::max(destroyed_texture_clock, oldest->second.last_used);
+            ui_copy_bytes -= std::min(ui_copy_bytes, ui_copy_sizes[oldest->first]);
+            if (async_uploads()) {
+                slots[slot].retired_textures.push_back(oldest->second);
+            } else {
+                vkQueueWaitIdle(queue);
+                destroy_texture(oldest->second);
+            }
+        }
+        ui_copy_sizes.erase(oldest->first);
+        ui_copies.erase(oldest);
+    }
+    const auto start = std::chrono::steady_clock::now();
+    std::vector<std::uint32_t> pixels;
+    std::uint32_t width = 0u, height = 0u;
+    bool made = false;
+    double milliseconds = 0.0;
+    if (glyphs) {
+        ui::GlyphPageReport report;
+        made = ui::glyph_page(memory, state, static_cast<int>(scale), pixels, report);
+        width = height = 256u * scale;
+        milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        static const bool trace = std::getenv("MHP3RD_TRACE_UI") != nullptr;
+        if (trace || (!made && report.cells != 0u))
+            std::cout << "[ui] glyph page 0x" << std::hex << state.address << std::dec << " x" << scale << ": "
+                      << report.redrawn << " of " << report.cells << " cells drawn again, " << report.mismatched
+                      << " differ" << (made ? "" : "; left as it is") << "\n";
+    } else {
+        // Made on the upscaler's thread; the original is drawn until then.
+        if (!upscaler) upscaler = std::make_unique<ui::Upscaler>();
+        if (!upscaler->pending(key)) {
+            // Twice for 4x, once for 2x and 3x, and once only for textures
+            // larger than 256 texels; sharp bilinear does the rest.
+            const std::uint32_t most = std::max(state.width, state.height) > 256u ? 2u : 4u;
+            std::uint32_t doublings = 0u;
+            for (std::uint32_t doubled = 1u; doubled * 2u <= std::min(scale, most); doubled *= 2u) ++doublings;
+            if (upscaler->submit(key, memory, state, doublings)) return VK_NULL_HANDLE;
+        } else if (!upscaler->take(key, pixels, width, height, milliseconds)) {
+            return VK_NULL_HANDLE;
+        }
+        made = !pixels.empty();
+    }
+    Texture copy{};
+    if (made) {
+        copy = create_texture(width, height, pixels.data());
+        static const bool trace = std::getenv("MHP3RD_TRACE_UI") != nullptr;
+        if (trace)
+            std::cout << "[ui] " << (glyphs ? "glyphs" : "mmpx") << " 0x" << std::hex << state.address << std::dec
+                      << " " << state.width << "x" << state.height << " -> " << width << "x" << height << " in "
+                      << milliseconds << " ms\n";
+    }
+    copy.last_used = texture_clock;
+    if (made) {
+        ui_copy_sizes[key] = static_cast<std::uint64_t>(width) * height * 4u;
+        ui_copy_bytes += ui_copy_sizes[key];
+    }
+    return ui_copies.emplace(key, copy).first->second.descriptor;
+}
+
+void VulkanRenderer::Impl::drop_ui_copies() {
+    for (auto &[key, copy] : ui_copies)
+        if (copy.descriptor != VK_NULL_HANDLE) destroy_texture(copy);
+    ui_copies.clear();
+    ui_copy_sizes.clear();
+    ui_copy_bytes = 0u;
 }
 
 void VulkanRenderer::Impl::apply_texture_pack() {
@@ -4222,6 +4341,7 @@ void VulkanRenderer::Impl::apply_texture_pack() {
     }
     for (auto &[key, texture] : textures) destroy_texture(texture);
     textures.clear();
+    drop_ui_copies();
     destroyed_texture_clock = texture_clock;
     ++textures_erased;
     list_texture_keys.clear();
@@ -6851,6 +6971,11 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                                  (uv[3] * height + static_cast<float>(source.y)) / static_cast<float>(kPspHeight)};
         } else {
             texture_descriptor = impl.texture_descriptor(memory, call);
+            // The 2D interface's textures sampled sharp bilinear (ge.frag),
+            // with either UI texture mode, above x1 (#164).
+            if (call.through && settings::current().ui_textures != settings::UiTextures::Off &&
+                impl.ui_scale() >= 2u)
+                push.texture_params[0] = 2.0f;
         }
     }
 
@@ -8379,6 +8504,7 @@ void VulkanRenderer::shutdown() {
     if (impl.ui_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, impl.ui_render_pass, nullptr);
     for (auto &[key, texture] : impl.textures) impl.destroy_texture(texture);
     impl.textures.clear();
+    impl.drop_ui_copies();
     for (Impl::FrameSlot &frame : impl.slots) {
         for (Impl::Texture &texture : frame.retired_textures) impl.destroy_texture(texture);
         frame.retired_textures.clear();

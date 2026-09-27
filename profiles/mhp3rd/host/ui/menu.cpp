@@ -395,6 +395,20 @@ void Menu::video() {
         settings::save();
     }
     {
+        static const char *const kModes[] = {"Off", "Sharp bilinear", "MMPX"};
+        const int current = static_cast<int>(s.ui_textures);
+        if (const int delta = choice_row(
+                "UI textures", kModes[current],
+                options_for("video.ui_textures",
+                            "Above x1, how the game's 2D interface (HUD, menus, icons) is drawn; the 3D world is "
+                            "not touched. Off: as before. Sharp bilinear: crisp pixels at any scale, without blur. "
+                            "MMPX: the textures doubled by a pixel-art upscaler that rounds curves and diagonals, "
+                            "then drawn sharp."))) {
+            s.ui_textures = static_cast<settings::UiTextures>(cycle(current, delta, 3));
+            settings::save();
+        }
+    }
+    {
         RowOptions o = options_for("video.texture_pack",
                                    "Draws an HD texture pack in PPSSPP's format from textures/NPJB40001 in the data "
                                    "folder instead of the game's textures.");
@@ -596,6 +610,7 @@ void Menu::video() {
         restore("video.aspect", s.aspect, d.aspect);
         restore("video.sharp_screen", s.sharp_screen, d.sharp_screen);
         restore("video.sharp_textures", s.sharp_textures, d.sharp_textures);
+        restore("video.ui_textures", s.ui_textures, d.ui_textures);
         restore("video.texture_pack", s.texture_pack, d.texture_pack);
         restore("video.gpu_compat", s.gpu_compat, d.gpu_compat);
         restore("video.present_mode", s.present_mode, d.present_mode);

@@ -221,6 +221,13 @@ void font_rows() {
             fonts::reload();
         }
     }
+    if (toggle_row("Sharp text", s.crisp_text,
+                   options_for("text.crisp", "Above x1, draws the game's text again at the internal resolution "
+                                             "instead of magnifying its 20-pixel glyphs. The game lays the text out "
+                                             "as before; only the letters are sharper."))) {
+        s.crisp_text = !s.crisp_text;
+        settings::save();
+    }
     draw_preview();
     if (button_row("Open the fonts folder",
                    {false, {}, "Fonts put in this folder (.ttf, .otf, .ttc) are listed first under Font: " +

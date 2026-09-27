@@ -158,6 +158,7 @@ void note_game_cache(psprecomp::GuestMemory &memory, const AllegrexContext &ctx)
         memory.load16(object + kCellCountOffset) != expected_cells())
         return;
     cache.object = object;
+    fonts::set_game_atlas(object);
     trace("game glyph cache at %08X", object);
 }
 
@@ -328,7 +329,13 @@ void register_font(HleRegistrar &hle) {
                   m.load16(image + 16u), m.load32(image + 20u), ctx.gpr[31]);
         }
         note_game_cache(rt.memory(), ctx);
-        if (image != 0u && fonts::ready()) blit_glyph(rt.memory(), image, arg(ctx, 1));
+        if (image != 0u && fonts::ready()) {
+            // The renderer draws the atlas again from these (fonts::glyph_cell).
+            const auto &m = rt.memory();
+            fonts::note_glyph_pass(arg(ctx, 1), static_cast<std::int32_t>(m.load32(image + 4u)),
+                                   static_cast<std::int32_t>(m.load32(image + 8u)), ctx.gpr[31] == kGlyphImageCaller);
+            blit_glyph(rt.memory(), image, arg(ctx, 1));
+        }
         kernel().finish(ctx, 0u);
     });
 }

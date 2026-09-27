@@ -125,6 +125,7 @@ const Names<FrameRate> kFrameRates{{{FrameRate::Fps30, "30"},
                                     {FrameRate::Display, "display"}}};
 
 const Names<GpuCompat> kGpuCompats{{{GpuCompat::Auto, "auto"}, {GpuCompat::On, "on"}, {GpuCompat::Off, "off"}}};
+const Names<UiTextures> kUiTextures{{{UiTextures::Off, "off"}, {UiTextures::Sharp, "sharp"}, {UiTextures::Mmpx, "mmpx"}}};
 
 // Written by earlier versions: 1 typed the name into the window, which the
 // on-screen keyboard now covers.
@@ -241,6 +242,16 @@ const std::vector<Field> &fields() {
              return true;
          },
          [](const Settings &s) { return s.font; }, [](Settings &s, const char *t) { s.font = t; }},
+        {"text.crisp", "MHP3RD_CRISP_TEXT",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.crisp_text); },
+         [](const Settings &s) { return std::string(s.crisp_text ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.crisp_text = variable_flag(t); }},
+        {"video.ui_textures", "MHP3RD_UI_TEXTURES",
+         [](Settings &s, const std::string &t) { return kUiTextures.parse(t, s.ui_textures); },
+         [](const Settings &s) { return kUiTextures.format(s.ui_textures); },
+         [](Settings &s, const char *t) {
+             if (!kUiTextures.parse(t, s.ui_textures)) s.ui_textures = UiTextures::Off;
+         }},
         {"text.weight", nullptr,
          [](Settings &s, const std::string &t) { return parse_uint(t, 0u, kMaxFontWeight, s.font_weight); },
          [](const Settings &s) { return std::to_string(s.font_weight); }, nullptr},

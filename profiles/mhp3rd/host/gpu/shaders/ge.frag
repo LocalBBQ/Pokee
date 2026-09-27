@@ -36,10 +36,26 @@ layout(set = 1, binding = 0) uniform Environment {
     vec4 fog_color;
 } lighting;
 
+// Sharp bilinear, for the 2D interface (texture_params.x 2, issue #164): a
+// texel magnified to several pixels keeps its colour across them and blends
+// with its neighbour only over the last pixel at its edge, so pixel art stays
+// crisp at any scale, whole or not, without the blur of plain bilinear. The
+// coordinate is moved towards the nearest texel centre, and the bilinear
+// sampler does the one pixel of blending that is left.
+vec2 sharp_bilinear(vec2 uv) {
+    vec2 size = vec2(textureSize(guest_texture, 0));
+    vec2 texel = uv * size - 0.5;
+    vec2 base = floor(texel);
+    vec2 pixels_per_texel = max(1.0 / max(fwidth(texel), vec2(1e-6)), vec2(1.0));
+    vec2 f = clamp((texel - base - 0.5) * pixels_per_texel + 0.5, 0.0, 1.0);
+    return (base + f + 0.5) / size;
+}
+
 void main() {
     vec4 color = frag_color;
     if (push.texture_params.x > 0.5) {
-        vec4 texel = texture(guest_texture, clamp(frag_texcoord, frag_uv_rect.xy, frag_uv_rect.zw));
+        vec2 uv = push.texture_params.x > 1.5 ? sharp_bilinear(frag_texcoord) : frag_texcoord;
+        vec4 texel = texture(guest_texture, clamp(uv, frag_uv_rect.xy, frag_uv_rect.zw));
         int function = int(push.texture_params.y + 0.5);
         if (function == 0) {          // modulate
             color *= texel;

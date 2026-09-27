@@ -103,6 +103,8 @@ if(MHP3RD_RENDERER)
             host/gpu/frame_interpolation.cpp
             host/gpu/frame_pacing.cpp
             host/gpu/replacement_textures.cpp
+            host/gpu/mmpx.cpp
+            host/gpu/ui_textures.cpp
             host/gpu/vulkan_renderer.cpp
             host/ui/bindings_editor.cpp
             host/ui/file_browser.cpp

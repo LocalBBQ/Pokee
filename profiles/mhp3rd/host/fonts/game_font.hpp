@@ -84,6 +84,24 @@ bool ready();
 // Renders `code` shifted right by shift_x and down by shift_y, both in [0, 1).
 [[nodiscard]] GlyphBitmap render(std::uint32_t code, float shift_x, float shift_y);
 
+// Sharper text at a higher internal resolution (issue #164). The game copies
+// each glyph image into a cell of its atlas and draws the text from there, so
+// the renderer draws the atlas again `scale` times as large, from the same
+// glyphs: nothing the game reads changes, and its layout stays as it is.
+//
+// The game asks for each glyph twice, into one cleared 20x20 buffer: at a
+// 26.6 pen position, then 31/64 of a pixel to the left (traced with
+// MHP3RD_TRACE_FONT). note_glyph_pass() keeps those passes per character.
+void note_glyph_pass(std::uint32_t code, std::int32_t x64, std::int32_t y64, bool first);
+// The game's 20x20 glyph buffer for `code` as the passes noted left it, drawn
+// `scale` times as large: 20*scale squared 4-bit ink values (0..15), what the
+// buffer holds at scale 1. Empty when the character's passes are unknown.
+[[nodiscard]] std::vector<std::uint8_t> glyph_cell(std::uint32_t code, int scale);
+// The object the game keeps its glyph atlas in (hle_font.cpp), 0 until the
+// game has drawn its first text.
+void set_game_atlas(std::uint32_t object);
+[[nodiscard]] std::uint32_t game_atlas();
+
 // Rereads the font settings and clears every cached glyph, so the next glyph
 // the game asks for comes from the new font, then runs the hook.
 void reload();
