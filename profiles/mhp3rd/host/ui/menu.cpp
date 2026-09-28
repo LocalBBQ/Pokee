@@ -578,9 +578,10 @@ void Menu::video() {
         const int current = static_cast<int>(s.gpu_compat);
         RowOptions o = options_for(
             "video.gpu_compat",
-            "Leaves out what some older phone GPU drivers get wrong (Mali drivers before r38, PowerVR): "
-            "specialized shaders, robust buffer access, the pipeline cache and a second frame in flight. Auto "
-            "turns it on for those drivers only. Applies when Yakumo starts next. Now: " +
+            "Leaves out what some older phone GPU drivers may get wrong: specialized shaders, robust buffer "
+            "access, the pipeline cache and a second frame in flight. It costs speed, so Auto turns it on only "
+            "when the start-up test picture comes out wrong or the driver refuses a shader. Applies when Yakumo "
+            "starts next. Now: " +
                 renderer().gpu_compat_status() + ".");
         if (const int delta = choice_row("GPU compatibility", kCompat[current], o)) {
             s.gpu_compat = static_cast<settings::GpuCompat>(cycle(current, delta, 3));

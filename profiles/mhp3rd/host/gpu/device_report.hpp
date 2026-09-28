@@ -54,10 +54,11 @@ void log_device(VkPhysicalDevice device, VkSurfaceKHR surface, const DeviceFacts
 [[nodiscard]] std::vector<std::string> missing_requirements(VkPhysicalDevice device, const DeviceFacts &facts,
                                                             VkDeviceSize vertex_buffer_bytes);
 
-// Why the renderer should start in GPU compatibility mode by itself on this
-// device (settings: video.gpu_compat Auto), or empty. On today: ARM Mali
-// drivers older than r38 and PowerVR drivers, which the budget MediaTek Helio
-// phones ship (issues #159, #169) and where the game drew nothing.
+// The drivers v0.6.5 and v0.6.6 started in GPU compatibility mode (ARM Mali
+// older than r38, PowerVR: what budget MediaTek phones ship, issues #159,
+// #169), named for the log, or empty. Auto no longer acts on it: it cost
+// those phones speed (#210, #212), and the black screen of #169 very likely
+// came from a descriptor pool running out (#209). The self-test decides.
 [[nodiscard]] std::string compat_reason(const DeviceFacts &facts);
 
 [[nodiscard]] const char *vk_result_name(VkResult result);

@@ -1395,12 +1395,21 @@ struct VulkanRenderer::Impl {
         std::array<std::array<std::uint64_t, 12>, 2> fields{};  // inexact values by kind (unskinned, skinned) and field
     } check_tally;
     VkShaderModule fragment_shader{};
-    // GPU compatibility mode (settings::GpuCompat, device_report.hpp): on for
-    // old mobile drivers, it leaves out what they have been seen to get
-    // wrong. Decided once, before the device is made.
+    // GPU compatibility mode (settings::GpuCompat): it leaves out what old
+    // mobile drivers are suspected of getting wrong. On is decided before
+    // the device is made. Auto starts without it and turns it on only when
+    // the driver shows it needs it: the start-up self-test draws wrong, or a
+    // pipeline is refused (turn_on_compat()).
     DeviceFacts facts;
     bool gpu_compat{};
+    bool gpu_compat_auto{};  // Auto: may still turn it on
+    bool robust_buffers{};   // the device was made with robust buffer access
     std::string gpu_compat_reason;
+    // What turning it on while the device runs changes; robust buffer
+    // access, a device feature, stays as the device was made.
+    void turn_on_compat(const std::string &reason);
+    // A pipeline refused in play asks for it here; the next frame turns it on.
+    void apply_compat_request();
     // ge.frag without its specialization constant (kGeFragmentShaderPlain).
     // Used for every pipeline once plain_fragment is set: by compatibility
     // mode, by a failed self-test, or when a pipeline with the constant
@@ -1414,6 +1423,11 @@ struct VulkanRenderer::Impl {
         // Pipelines the driver refused and made, for the log.
         std::atomic<std::uint32_t> pipelines_failed{};
         std::atomic<std::uint32_t> pipelines_made{};
+        // Auto's GPU compatibility mode wanted by a pipeline refused in
+        // play, and why (under lock).
+        std::atomic<bool> compat_wanted{};
+        std::string compat_why;
+        std::atomic<bool> started{};  // the start-up self-test is done
         // Why the game's picture may be missing, shown over the game
         // (empty: nothing known).
         std::mutex lock;
@@ -2481,23 +2495,26 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     }
     {
         const settings::GpuCompat wanted = settings::current().gpu_compat;
-        const std::string reason = compat_reason(impl.facts);
         const char *variable = settings::overridden_by("video.gpu_compat");
         if (wanted == settings::GpuCompat::On) {
             impl.gpu_compat = true;
             impl.gpu_compat_reason = variable != nullptr ? std::string(variable) : "the Video setting";
-        } else if (wanted == settings::GpuCompat::Auto && !reason.empty()) {
-            impl.gpu_compat = true;
-            impl.gpu_compat_reason = reason;
-        }
-        if (impl.gpu_compat)
             log_line("[gpu-compat] on (" + impl.gpu_compat_reason +
                      "): no specialization constants, robust buffer access, pipeline cache, background pipelines, "
                      "skipped loads or GPU timestamps; one frame in flight");
-        else
-            log_line(std::string("[gpu-compat] off") +
-                     (wanted == settings::GpuCompat::Off ? " (the Video setting or MHP3RD_GPU_COMPAT)"
-                                                         : " (Auto: this driver needs nothing left out)"));
+        } else if (wanted == settings::GpuCompat::Auto) {
+            // v0.6.5 and v0.6.6 turned it on from the start for the drivers
+            // below, which cost most MediaTek phones speed (#210, #212); now
+            // they start like every other GPU and the self-test decides.
+            impl.gpu_compat_auto = true;
+            const std::string watched = compat_reason(impl.facts);
+            log_line("[gpu-compat] off (Auto: on only if the start-up self-test fails or a pipeline is refused" +
+                     (watched.empty() ? std::string()
+                                     : "; " + watched + ", which v0.6.5 and v0.6.6 started in it") +
+                     ")");
+        } else {
+            log_line("[gpu-compat] off (the Video setting or MHP3RD_GPU_COMPAT)");
+        }
     }
 
     std::uint32_t device_extension_count = 0u;
@@ -2544,7 +2561,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (supported_features.robustBufferAccess == VK_TRUE && std::getenv("MHP3RD_NO_ROBUST_BUFFERS") == nullptr &&
         !impl.gpu_compat)
         enabled_features.robustBufferAccess = VK_TRUE;
-    std::cout << "[render] robust buffer access " << (enabled_features.robustBufferAccess ? "on" : "off") << "\n";
+    impl.robust_buffers = enabled_features.robustBufferAccess == VK_TRUE;
+    std::cout << "[render] robust buffer access " << (impl.robust_buffers ? "on" : "off") << "\n";
     VkDeviceCreateInfo device_info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     device_info.pEnabledFeatures = &enabled_features;
     device_info.queueCreateInfoCount = 1u;
@@ -2929,15 +2947,26 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     }
 
     // The GE's pipelines drawing a known picture, before the game relies on
-    // them. A wrong picture is tried again with the plain fragment shader,
-    // and if that is wrong too, the player is told over the game.
+    // them. Under Auto, a wrong picture or a refused pipeline turns GPU
+    // compatibility mode on and the test runs again in it; otherwise a
+    // wrong picture is tried again with the plain fragment shader. If the
+    // picture is still wrong, the player is told over the game.
     // MHP3RD_NO_GPU_SELFTEST skips it.
     if (std::getenv("MHP3RD_NO_GPU_SELFTEST") == nullptr) {
         const auto start = std::chrono::steady_clock::now();
         std::string detail;
         bool passed = impl.self_test(detail);
         const char *shader = impl.health->plain_fragment ? "plain" : "specialized";
-        if (!passed && !impl.health->plain_fragment) {
+        const std::uint32_t refused = impl.health->pipelines_failed.load();
+        if (impl.gpu_compat_auto && !impl.gpu_compat && (!passed || refused != 0u)) {
+            if (!passed)
+                log_line(std::string("[gpu-selftest] failed with the ") + shader + " fragment shader: " + detail);
+            impl.turn_on_compat(!passed ? "Auto: the start-up self-test drew wrong"
+                                        : "Auto: the driver refused " + std::to_string(refused) +
+                                              " of the start-up self-test's pipelines");
+            shader = "plain";
+            passed = impl.self_test(detail);
+        } else if (!passed && !impl.health->plain_fragment) {
             log_line(std::string("[gpu-selftest] failed with the specialized fragment shader: ") + detail);
             impl.health->plain_fragment = true;
             shader = "plain";
@@ -2950,8 +2979,14 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                  " fragment shader in " + std::to_string(static_cast<int>(ms)) + " ms: " + detail);
         if (!passed)
             impl.set_problem("The GPU drew Yakumo's start-up test picture wrong (" + detail +
-                             "), so the game's picture may be missing or wrong.");
+                             "), so the game's picture may be missing or wrong." +
+                             (impl.gpu_compat_auto
+                                  ? " Video > GPU compatibility On also leaves out robust buffer access, from the "
+                                    "next start."
+                                  : ""));
     }
+
+    impl.health->started = true;
 
     // Texture packs are optional too: without the GPU side, none is loaded.
     std::string replacement_error;
@@ -5187,7 +5222,11 @@ VkPipeline VulkanRenderer::Impl::create_pipeline(const PipelineKey &key) const {
     // MHP3RD_GPU_FAIL_PIPELINES=1 refuses every pipeline with the
     // specialization constant, as a driver that cannot build one would, so
     // the fallback below can be seen working on any GPU.
-    static const bool fail_specialized = std::getenv("MHP3RD_GPU_FAIL_PIPELINES") != nullptr;
+    // =play does so only once the start-up self-test is done, as a driver
+    // that fails on a pipeline first needed in play would.
+    static const char *const fail_text = std::getenv("MHP3RD_GPU_FAIL_PIPELINES");
+    static const bool fail_in_play = fail_text != nullptr && std::strcmp(fail_text, "play") == 0;
+    const bool fail_specialized = fail_text != nullptr && (!fail_in_play || health->started.load());
     const auto create = [&](VkPipelineCache cache) {
         if (fail_specialized && stages[1].module == fragment_shader) return VK_ERROR_INITIALIZATION_FAILED;
         return vkCreateGraphicsPipelines(device, cache, 1u, &info, nullptr, &pipeline);
@@ -5203,6 +5242,15 @@ VkPipeline VulkanRenderer::Impl::create_pipeline(const PipelineKey &key) const {
     // other.
     const std::uint32_t failed = health->pipelines_failed.fetch_add(1u, std::memory_order_relaxed) + 1u;
     const bool plain = stages[1].module == plain_fragment_shader;
+    // Under Auto a refused pipeline turns GPU compatibility mode on: at once
+    // during the start-up self-test, otherwise at the next frame.
+    if (gpu_compat_auto && failed == 1u) {
+        {
+            std::lock_guard<std::mutex> guard(health->lock);
+            health->compat_why = std::string("Auto: the driver refused a pipeline (") + vk_result_name(result) + ")";
+        }
+        health->compat_wanted = true;
+    }
     if (failed <= 8u || failed % 256u == 0u)
         log_line(std::string("[render] vkCreateGraphicsPipelines failed: ") + vk_result_name(result) + " (" +
                  std::to_string(failed) + " so far; " + (plain ? "plain" : "specialized") +
@@ -5231,6 +5279,64 @@ VkPipeline VulkanRenderer::Impl::create_pipeline(const PipelineKey &key) const {
     set_problem(std::string("The GPU driver could not build the game's shaders (vkCreateGraphicsPipelines: ") +
                 vk_result_name(result) + "), so parts of the picture are missing.");
     return VK_NULL_HANDLE;
+}
+
+// GPU compatibility mode turned on by Auto once the device runs: before the
+// first frame (the self-test) or between frames (apply_compat_request()),
+// with the GPU idle. Everything it leaves out is left out from here on,
+// except robust buffer access, which the device was made with; the Video
+// setting On leaves that out too, from the next start.
+void VulkanRenderer::Impl::turn_on_compat(const std::string &reason) {
+    if (gpu_compat) return;
+    gpu_compat = true;
+    gpu_compat_reason = reason;
+    health->plain_fragment = true;
+    // The pipeline cache, and the background pipelines that use it.
+    if (prewarm->thread.joinable()) {
+        prewarm->stop = true;
+        prewarm->thread.join();
+    }
+    if (pipeline_cache != VK_NULL_HANDLE) {
+        vkDestroyPipelineCache(device, pipeline_cache, nullptr);
+        pipeline_cache = VK_NULL_HANDLE;
+        pipeline_cache_dirty = false;
+    }
+    // Render passes that skip loading the target.
+    for (VkRenderPass &pass : discard_passes) {
+        if (pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, pass, nullptr);
+        pass = VK_NULL_HANDLE;
+    }
+    // GPU timestamps.
+    if (gpu_timer != VK_NULL_HANDLE || present_timer != VK_NULL_HANDLE) {
+        if (gpu_timer != VK_NULL_HANDLE) vkDestroyQueryPool(device, gpu_timer, nullptr);
+        if (present_timer != VK_NULL_HANDLE) vkDestroyQueryPool(device, present_timer, nullptr);
+        gpu_timer = VK_NULL_HANDLE;
+        present_timer = VK_NULL_HANDLE;
+        for (FrameSlot &frame : slots) frame.gpu_timer_pending = 0u;
+        for (bool &timed : present_timed) timed = false;
+        perf::set_gpu_time_unavailable();
+    }
+    // One frame in flight, which can change only before the first frame.
+    const bool first = frames == 0u && !recording;
+    if (first && std::getenv("MHP3RD_FRAMES_IN_FLIGHT") == nullptr) slot_count = 1u;
+    log_line("[gpu-compat] on (" + reason +
+             "): no specialization constants, pipeline cache, background pipelines, skipped loads or GPU "
+             "timestamps" +
+             (first ? "; " + std::to_string(slot_count) + " frame" + (slot_count == 1u ? "" : "s") + " in flight"
+                    : "; frames in flight as they were") +
+             "; robust buffer access as the device was made (" +
+             (robust_buffers ? "on" : "off") + ")");
+}
+
+void VulkanRenderer::Impl::apply_compat_request() {
+    if (!health->compat_wanted.exchange(false) || gpu_compat) return;
+    std::string why;
+    {
+        std::lock_guard<std::mutex> guard(health->lock);
+        why = health->compat_why;
+    }
+    vkDeviceWaitIdle(device);
+    turn_on_compat(why);
 }
 
 // The start-up self-test. It draws three rectangles through the GE's own
@@ -6379,6 +6485,7 @@ void VulkanRenderer::present_ui(bool show_game) {
 void VulkanRenderer::begin_frame() {
     Impl &impl = *impl_;
     if (!impl.ready || impl.recording) return;
+    if (impl.health->compat_wanted.load(std::memory_order_relaxed)) impl.apply_compat_request();
     // The next slot: its fence is the frame slot_count frames back.
     impl.slot = (impl.slot + 1u) % impl.slot_count;
     Impl::FrameSlot &frame = impl.slots[impl.slot];
