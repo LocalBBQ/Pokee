@@ -14,7 +14,7 @@ The game boots, loads its overlays, creates a character or loads a save, walks t
 | Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, per-vertex lighting (four directional, point or spot lights and the full material model) and fog, blending, depth and alpha test, sprites, per-framebuffer render targets, arbitrary window shapes and frame interpolation; PPSSPP-compatible HD texture packs are supported |
 | Audio | `sceSasCore` voice mixing, `sceAudio` output and ATRAC3 music through `sceAtrac3plus` |
 | Movies | PSMF playback through `sceMpeg` and `sceJpegCsc`: H.264 video and ATRAC3plus sound |
-| Input | Control presets (Default, Modern, Left-handed, Classic keyboard, and the player's own) with every keyboard, mouse and gamepad control rebindable, combinations such as LB + ○ included; SDL3 gamepads with an analog camera and proportional bow and bowgun aim on the second stick |
+| Input | Control presets (Default, Modern, Left-handed, Classic keyboard, and the player's own) with every keyboard, mouse and gamepad control rebindable to any chord of up to four inputs, such as LB + ○ or △ + ○, and actions that press any PSP buttons together, such as Item left (L + □); SDL3 gamepads with an analog camera and proportional bow and bowgun aim on the second stick |
 | Text | `sceLibFont` glyphs rasterized from a host TrueType font |
 | Saves | The save-data utility, with saves in the PSP's own format: a save copied from a PSP loads, and one made here can be copied back; the menu imports, exports and backs up saves |
 | Interface | Gamepad, keyboard and mouse driven first-run setup, file browser, in-game settings, performance statistics and on-screen keyboard |
@@ -238,12 +238,13 @@ The game can be played with a keyboard and a mouse alone. Every control can be r
 | F12, Print Screen | [Screenshot](#screenshots) | The game's picture at full size, as a PNG in `screenshots/` |
 | . | [Frame step](#frame-step) | In the free camera's photo mode: the game runs on by one frame |
 | F7 | [Hide HUD](#hiding-the-hud) on or off | Also while the free camera flies |
+| Mouse 4 / Mouse 5 (side buttons) | L + □ / L + ○ | Item bar left / right ([Item left and right](#item-left-and-right)) |
 
 A bow aims with Left Shift held and shoots with the left button; a bowgun fires with the right one.
 
 The **Classic keyboard** preset brings back the keys of earlier versions, for play without a mouse: I / J / K / L move, X ○, Z ✕, A □, S △, Q / W L / R, Enter START, Right Shift or Backspace SELECT, and the arrow keys the D-pad. **Left-handed** has the mouse in the left hand: I / J / K / L move, H ○ (and the right button), U □, O L, Right Shift R, Enter START, Backspace SELECT, the arrow keys the D-pad and keypad 8 / 4 / 5 / 6 the camera. **Modern** is Default plus △ + ○ on the side mouse button (Mouse 4) and C. *Restore control defaults* returns to Default.
 
-To rebind, see [Rebinding](#rebinding). Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`, and `fast_forward`, `screenshot`, `frame_step` and `hide_hud`, which are not PSP controls; an empty value leaves a control unbound).
+To rebind, see [Rebinding](#rebinding). Keys are bound by their place on the keyboard, so W A S D stay under the same fingers on an AZERTY or a Dvorak layout; the menu shows their US names. They are kept in `settings.ini` as `input.bind.<control>` (for example `input.bind.circle=Mouse Right / F`, or `input.bind.triangle_circle=Left Shift + F`; controls `stick_up`, `stick_left`, `stick_down`, `stick_right`, `triangle`, `circle`, `cross`, `square`, `l`, `r`, `start`, `select`, `dpad_up`, `dpad_left`, `dpad_down`, `dpad_right`, `camera_up`, `camera_left`, `camera_down`, `camera_right`, `triangle_circle`, `item_left`, `item_right`, and `fast_forward`, `screenshot`, `frame_step` and `hide_hud`, which are not PSP controls; an empty value leaves a control unbound).
 
 **The pointer.** While the game runs and the window has focus, Yakumo captures the mouse: the pointer is hidden and its motion and buttons go to the game. It is given back whenever Yakumo's menu, the on-screen keyboard or a setup screen is up, and when the window loses focus (switching to another window, Cmd+Tab or Alt+Tab, minimising). Buttons and keys still held when it is captured again reach the game only after they are released, and motion made while it was free is never replayed. *Mouse* in the menu (`input.mouse`, `MHP3RD_MOUSE=0`) turns all of this off, leaving the pointer alone.
 
@@ -268,10 +269,20 @@ Any controller SDL3 recognises works, and it can be connected before or after th
 | Back + R3 | [Free camera](#free-camera-experimental) on or off, when it is turned on in the menu |
 | R3 + D-pad left | [Screenshot](#screenshots) |
 | D-pad right, in the photo mode | [Frame step](#frame-step): the game runs on by one frame |
+| Upper back paddles, where the pad has them (P3 / P1, L4 / R4) | Item left / Item right: L + □ / L + ○ |
 
 That is the **Default** preset. Its buttons, triggers included, can be rebound like the keyboard's (Controls, [Rebinding](#rebinding)), to one button or to a combination such as LB + ○, and other presets change them: **Modern** attacks with RT (△, which also shoots a bow), does the second attack with RB (○, which also fires a bowgun) and guards and aims with LT (R), with LB as L; **Left-handed** mirrors the pad, moving with the right stick, the D-pad doing the face buttons and the face buttons the D-pad, and the shoulders and triggers changing sides. The sticks stay sticks: *Move with the right stick* swaps them, and the other one is the *Camera stick*. L3 + R3 always opens the menu.
 
 The face buttons are positional, so on a PlayStation pad circle is circle and confirms, exactly as the game's prompts say. The menu's *Confirm button* setting (or `MHP3RD_PAD_FACE=xbox`) moves confirm to the bottom button for pads labelled the other way round: it swaps the bottom and right buttons in every preset, and the menu shows the bindings as they are then pressed.
+
+### Steam Deck
+
+The Deck's controls are a gamepad to Yakumo, with the Default preset's layout. Its back buttons (L4, L5, R4, R5) are not: under Steam Input the game sees a *Steam Virtual Gamepad*, which has no back paddles. Give them keyboard keys in Steam and bind those keys in Yakumo:
+
+1. In Steam, open the game's properties, then **Controller** and its layout. Set **L4** to **Keyboard** and a key nothing else uses, such as **F5**, and **R4** to another, such as **F8** (F6 is the free camera's, F7 hides the HUD). L5 and R5 likewise, if you want them.
+2. In Yakumo, open the menu (L3 + R3), **Controls**, and add the key to a control on the *Keyboard and mouse* side: select the *+* after, say, **Item left**, and press L4. It records F5, and L4 now scrolls the item bar left. R4 on **Item right** the same way.
+
+The keyboard and the gamepad are read together, every frame, so the back buttons work beside the pad with no layout to switch, and any control takes them: Item left and right, △ + ○, fast-forward, a screenshot, or a combination of your own. Chords of face buttons and shoulders (LB + X, △ + ○) are bound on the *Gamepad* side as on any pad.
 
 ### Control presets
 
@@ -280,7 +291,7 @@ A control preset is a whole layout: every control on the keyboard and mouse and 
 | Preset | Keyboard and mouse | Gamepad |
 | --- | --- | --- |
 | Default | W A S D and the mouse, as in [Keyboard and mouse](#keyboard-and-mouse) | The PSP's buttons where the pad has them; LT / RT are L / R |
-| Modern | Default, plus △ + ○ on Mouse 4 and C | RT △ (attack, shoot a bow), RB ○ (second attack, fire a bowgun), LT R (guard, aim), LB L; the face buttons as in Default |
+| Modern | Default, plus △ + ○ on Mouse 4 and C, and no item keys on the side buttons | RT △ (attack, shoot a bow), RB ○ (second attack, fire a bowgun), LT R (guard, aim), LB L; the face buttons as in Default |
 | Left-handed | The mouse in the left hand, I J K L to move | Mirrored: the right stick moves, the D-pad is △ ○ ✕ □, the face buttons the D-pad, the shoulders and triggers change sides |
 | Classic keyboard | The keys of earlier versions, without a mouse | As in Default |
 
@@ -299,13 +310,25 @@ Under the preset, Controls lists every control in groups (movement, attacks, ite
 
 While Yakumo waits for the input, a box over the menu says what is being bound and shows what is held so far. Esc or a touch cancels it; on the gamepad, so does holding the menu's back button (B, or A with the Japanese confirm button) for a second, with a bar that fills while it is held, while a short press binds it. A gamepad capture gives up after six seconds without a press, and a keyboard capture ends at any gamepad button. Everything works with a gamepad alone, as on a Steam Deck, and with a mouse or touch.
 
-**Combinations.** A binding is one input or two held together, such as L1 + ○ on a pad or Left Shift + F on the keyboard. It presses its control while both are held, and the second input then does nothing else: with LB + B bound to △ + ○, holding LB and pressing B gives △ + ○ and not ○. The held input still does its own control, so LB also presses L. Shoulders, triggers, Back and the stick buttons on a pad, and Shift, Ctrl, Alt and GUI on a keyboard, are always taken as the held one.
+**Chords.** A binding is one input or a chord of up to four held together on one device, in any order: L1 + ○ or △ + ○ on a pad, Left Shift + F or Shift + Ctrl + F on the keyboard (the keyboard and the mouse are one device, so Q + Mouse Right is a chord too). To bind one, press everything together; the capture box shows the chord as it is built and keeps it when the last input is let go.
+
+- **The longest chord wins.** With A bound to one control and A + B to another, pressing A + B does only the second, and its inputs do nothing else while it is held. What is left over is matched again: holding W to move while pressing Q + E still moves.
+- **Letting go.** A chord let go of unevenly presses nothing left over (letting go of △ a moment before ○ does not press ○). A chord that grew from something held first goes back to it: hold LB for L, then B for LB + B, and letting go of B leaves L.
+- **The chord window.** An input that begins a longer chord waits a moment for the rest of it: *Chord window* under *Combinations* (50 ms by default, up to 200, `input.chord_window`, `MHP3RD_CHORD_WINDOW`; 0 turns it off). A tap shorter than the window still presses its control, when it is let go. Only such inputs wait, and only where acting at once could do harm: △ before ○ is no combined attack, and □ before L uses the item. Everything else acts in the same sample it goes down, with no time added: inputs in no chord, L, R and moving held first (LB in LB + X for Item left, which only adds □ to L), and a game button in a chord only the port reads (D-pad left in R3 + D-pad left for a screenshot, as before). L3 + R3 (the menu) and, with the free camera on, Back + R3 are chords of the port's own: they win like any chord, so an input bound alone to R3 does nothing when they are pressed.
 
 **△ + ○ (together)** is a control of its own: one key or button that presses △ and ○ in the same frame, for the combined attacks that two fingers do not always manage together. Default leaves it unbound.
 
-**Conflicts.** A binding that clashes is drawn in red, with a line under its control that says with what: the same input or combination on another control (one press does both), or a combination whose held input does another control on its own. The line has the fix: *Remove from …* takes the input away from the other control, *Keep both* leaves them and hides the warning until Yakumo starts again. Conflicts are allowed, and the ones not kept are counted under the preset. *Frame step* is read only in the photo mode, when the game gets no input, so it shares an input with a game control without a clash: D-pad right is both the game's → and, in the photo mode, frame step. *Screenshot* is read during play as well and clashes like any other control.
+#### Item left and right
 
-**From earlier versions.** Settings without a preset become one the first time they are read: the Default or Classic keyboard preset if the bindings are exactly one of those, otherwise a preset of your own named *Custom* with your keyboard bindings. The **trigger profiles** of earlier versions are part of it: *Bows* became LT on R and RT on △, *Bowguns* LT on R and RT on ○, over the Default pad. `input.trigger_profile` is dropped at the next save, and `MHP3RD_PAD_TRIGGERS` is no longer read (`MHP3RD_CONTROL_PRESET` chooses a preset for a run).
+**Item left** and **Item right** scroll the item bar, as L + □ and L + ○ do on a PSP, from one input or from a chord of your choice (LB + X and LB + B, a key, a back paddle). The game scrolls only once L has been held on its own for 8 of its frames, which is when the bar opens: L and □ in the same frame do nothing, and □ after fewer frames of L uses the item (traced in a quest, with the pad read once per game frame). So these actions send L alone first, for 10 of the game's reads of the pad (a third of a second), then □ or ○ with it for at least 3, even for a short tap. If L is held already, □ or ○ goes at once. Any action that presses L with other buttons, your own included, is sent the same way; R is not, since nothing was traced to need it. The presets put them on the mouse's side buttons (not in Modern, which has △ + ○ there) and on a pad's upper back paddles, which nothing else uses; binding LB + X or LB + B makes X or B wait the chord window, since □ or ○ alone must not go first.
+
+#### Your own combinations
+
+*Your combinations*, after the controls, holds actions of your own that press any PSP buttons together (△ ○ ✕ □, L, R, the D-pad, START, SELECT), such as ✕ + ○. *+ New combination* makes one and opens its buttons: select each to turn it on or off, then *Done*. Its name is its buttons; select the name to change them, and the × at the end of the row removes it. Bind it like any control, on both devices. Up to 8 are kept with the preset, in `settings.ini` as `input.combo.<n>.buttons` (`L + Square`), `.bind` and `.pad` (and `input.user_preset.<n>.combo.<m>.*` in a preset of yours). The game gets the buttons in the same frame, except L, which goes first as above.
+
+**Conflicts.** A binding that clashes is drawn in red, with a line under its control that says with what: the same input or chord on another control (one press does both); a chord that is part of another one, so it waits the chord window and does only the longer one when that is complete (shown on both controls); or a chord that takes an input doing L, R or moving on its own, which the game reads held together with other buttons, so that control lets go while the chord is held. A chord that only adds to L (LB + X for Item left) is none. The line has the fix: *Remove from …* takes the input away from the other control, *Keep both* leaves them and hides the warning until Yakumo starts again. Conflicts are allowed, and the ones not kept are counted under the preset. *Frame step* is read only in the photo mode, when the game gets no input, so it shares an input with a game control without a clash: D-pad right is both the game's → and, in the photo mode, frame step. *Screenshot* is read during play as well and clashes like any other control.
+
+**From earlier versions.** Settings written before chords and combinations read as they were: every binding is kept, and a chord of two inputs is the same chord in any order. The one difference is the longest match: before, the first input of a chord such as LB + B also kept doing its own control while the chord was held (LB still pressed L); now the chord alone acts, and a line under it says so. Item left and Item right, which those settings did not have, take the preset's inputs where they clash with nothing. Settings without a preset become one the first time they are read: the Default or Classic keyboard preset if the bindings are exactly one of those, otherwise a preset of your own named *Custom* with your keyboard bindings. The **trigger profiles** of earlier versions are part of it: *Bows* became LT on R and RT on △, *Bowguns* LT on R and RT on ○, over the Default pad. `input.trigger_profile` is dropped at the next save, and `MHP3RD_PAD_TRIGGERS` is no longer read (`MHP3RD_CONTROL_PRESET` chooses a preset for a run).
 
 ### Touch screen
 
@@ -403,6 +426,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Confirm button | `input.confirm` | `MHP3RD_PAD_FACE` | Right (○, Japanese) or bottom (Western) |
 | Controls | Stick dead zone | `input.dead_zone` | `MHP3RD_PAD_DEADZONE` | 0–50% |
 | Controls | Trigger point | `input.trigger` | `MHP3RD_PAD_TRIGGER` | 5–100% |
+| Controls | Chord window (under *Combinations*) | `input.chord_window` | `MHP3RD_CHORD_WINDOW` | Off, 10–200 ms (50 by default): how long an input that begins a longer chord waits for the rest; see [Rebinding](#rebinding) |
 | Controls | Preset | `input.preset` | `MHP3RD_CONTROL_PRESET` | `default`, `modern`, `left_handed`, `classic` or `user:<name>`; see [Control presets](#control-presets). The variable takes a shipped preset's id or the name of one of yours, for the run only |
 | Controls | Camera stick | `input.right_stick` | `MHP3RD_PAD_RSTICK_DPAD` | Camera, D-pad or off, for the stick that does not move the hunter |
 | Controls | Analog camera | `input.analog_camera` | `MHP3RD_ANALOG_CAMERA` | Proportional turn and continuous tilt in the ordinary quest camera, and proportional bow and bowgun aim; on by default |
@@ -979,6 +1003,7 @@ The renderer then leaves out the HUD packets' draws, and nothing else: their oth
 | `MHP3RD_PAD_FACE` | positional | `xbox` puts confirm (○) on the south button (menu: Confirm button) |
 | `MHP3RD_PAD_DEADZONE` | `0.15` | Left-stick dead zone, as a fraction of travel (menu: Stick dead zone) |
 | `MHP3RD_PAD_TRIGGER` | `0.25` | How far LT/RT travel before they press anything (menu: Trigger point) |
+| `MHP3RD_CHORD_WINDOW` | `50` | Milliseconds an input that begins a longer chord waits for the rest, 0 to 200; `0` or `off` acts at once (menu: Chord window) |
 | `MHP3RD_TOUCH_LAYOUT` | unset | The touch layout for this run: `psp` or `action` (menu: Layout) |
 | `MHP3RD_CONTROL_PRESET` | unset | The control preset for this run: `default`, `modern`, `left_handed`, `classic`, or the name of one of the player's (menu: Preset). `MHP3RD_PAD_TRIGGERS`, which chose a trigger profile, is retired: its profiles are presets now |
 | `MHP3RD_ANALOG_CAMERA` | on | Proportional yaw and continuous tilt in the ordinary quest camera, the tilt limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the angle. The physical D-pad and recentre return control to the game. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
@@ -1109,7 +1134,8 @@ With the setting off nothing is hooked into the display lists, no input is read 
 | `MHP3RD_TRACE_FONT=1` | Every `sceLibFont` call with its arguments: the font the game asks for, the font info and character metrics returned, and each glyph image's buffer and 26.6 position, with the caller's return address |
 | `MHP3RD_TRACE_MPEG=1` | Every `sceMpeg` and `sceJpegCsc` call, and each call the ring buffer makes to the game's read callback |
 | `MHP3RD_SAS_NO_ENV=1` | Hold every SAS voice at full envelope, to separate an envelope bug from a decoding one |
-| `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes |
+| `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes (`[pad]`), and each chord pressed, waiting, tapped and let go, with when its last input went down (`[chord] <ms> pad pressed Pad LB + Pad West (last input down 0 ms before)`) |
+| `MHP3RD_TRACE_PAD_READS=1` | Log every read the game makes of the pad, with the emulated time and the buttons (`[pad-read]`); the game reads it once a frame |
 | `MHP3RD_TRACE_OSK=1` | Every keyboard utility call with the status it returns, and the words of the parameter block, its first field and the strings they point to |
 | `MHP3RD_TRACE_ADHOC=1` | Every ad hoc, network dialog and wireless call with its arguments and result, and every packet header sent to or received from the ad hoc server (menu: Network, *Log every call and packet*) |
 | `MHP3RD_INPUT_SCRIPT` | Scripted keys, mouse motion and buttons, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu, the setup, the on-screen keyboard and the game's controls without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Its virtual gamepad also becomes the game's pad, in place of a real one that is connected; its keys reach the game through the bindings as well as the interface; with mouse steps the pointer counts as captured without taking the real one; its finger steps are a virtual touch screen, and `drag` moves the interface's pointer as a touch does. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick;400:key W 30;430:mouse 50 0` |
