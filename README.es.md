@@ -55,12 +55,18 @@ El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILI
 
 ## Jugar
 
-Una versión publicada solo necesita tu imagen de disco. Descárgala desde la [página de versiones](https://github.com/TeamGDB/Yakumo/releases), iníciala e indica tu imagen en la configuración inicial: comprueba la imagen, prepara el juego a partir de ella y lo guarda todo en un directorio del usuario.
+### ⬇️ [Descargar la última versión estable](https://github.com/TeamGDB/Yakumo/releases/latest)
 
-- **Linux y Steam Deck:** un paquete Flatpak y un archivo portátil. [`docs/LINUX.md`](docs/LINUX.md) (en inglés) explica la instalación, el primer inicio, el modo de juego, dónde están las partidas guardadas, cómo actualizar y cómo desinstalar.
-- **Windows:** un zip para x86-64 con las bibliotecas necesarias, en dos variantes: la normal guarda sus datos en `%APPDATA%`, la portátil lo guarda todo (ajustes, partidas guardadas, el juego preparado) en una carpeta `data` junto a `Yakumo.exe`, por ejemplo en una memoria USB. Más detalles en [Portable copy](profiles/mhp3rd/README.md#portable-copy).
-- **macOS (Apple Silicon, macOS 13 o posterior):** una imagen de disco con la aplicación. Apple no la ha notarizado, así que macOS pide permitirla una vez. [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explica la instalación, el primer inicio, dónde se guardan las partidas, cómo actualizar y cómo desinstalar.
-- **Android:** un APK para teléfonos y consolas portátiles de 64 bits con Android 10 o posterior y Vulkan 1.1. En el primer inicio toma tu `.iso` mediante el selector de archivos de Android y lo copia dentro de la aplicación (unos 1,3 GB además de los 0,8 GB de la aplicación). Los controles táctiles se dibujan sobre el juego; los mandos también funcionan. Por ahora solo se ha probado en el emulador ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
+Una versión publicada solo necesita tu imagen de disco. Elige el archivo para tu dispositivo en los **Assets** de la versión, inícialo e indica tu imagen en la configuración inicial: comprueba la imagen, prepara el juego a partir de ella y lo guarda todo en un directorio del usuario. Actualizar conserva tus ajustes y partidas guardadas.
+
+| Dispositivo | Archivo | Instalación |
+| --- | --- | --- |
+| **Windows** (x86-64) | `yakumo-…-windows-x86_64.zip` | Descomprímelo donde quieras y ejecuta `Yakumo.exe`. Sus datos van a `%APPDATA%`. Desde la v0.7.0 también hay un `…-portable.zip` que lo guarda todo (ajustes, partidas guardadas, el juego preparado) en una carpeta `data` junto a `Yakumo.exe`, por ejemplo en una memoria USB; más detalles en [Portable copy](profiles/mhp3rd/README.md#portable-copy). |
+| **Steam Deck y Linux** | `yakumo-…-linux-x86_64.flatpak` (o el archivo portátil `.tar.gz`) | Instala el Flatpak, inicia Yakumo y añádelo a Steam para el modo de juego. [`docs/LINUX.md`](docs/LINUX.md) (en inglés) explica la instalación, el primer inicio, el modo de juego, dónde están las partidas guardadas, cómo actualizar y cómo desinstalar. |
+| **Android** (64 bits, Android 10+, Vulkan 1.1) | `yakumo-…-android-arm64.apk` | Abre el APK en el teléfono y permite instalarlo. En el primer inicio toma tu `.iso` mediante el selector de archivos de Android y lo copia dentro de la aplicación (unos 1,3 GB además de los 0,8 GB de la aplicación). Los controles táctiles se dibujan sobre el juego; los mandos también funcionan. |
+| **macOS** (Apple Silicon, macOS 13+) | `yakumo-…-macos-arm64.dmg` | Abre la imagen de disco y arrastra Yakumo a Aplicaciones. Apple no la ha notarizado, así que macOS pide permitirla una vez. [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explica la instalación, el primer inicio, dónde se guardan las partidas, cómo actualizar y cómo desinstalar. |
+
+**Versiones de prueba.** La [página de versiones](https://github.com/TeamGDB/Yakumo/releases) también muestra versiones de prueba, marcadas *(test)* (las anteriores, *(unstable)*) y publicadas como pre-release. Traen los cambios más nuevos y pueden tener errores nuevos: instálalas solo si quieres ayudar a probar. Si solo quieres jugar, usa la última versión estable de arriba.
 
 ## Requisitos
 
