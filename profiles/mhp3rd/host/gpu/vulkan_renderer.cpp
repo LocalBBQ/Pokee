@@ -627,6 +627,10 @@ struct VulkanRenderer::Impl {
         // much of it the pack's hash covers; see texture_pack.hpp.
         std::uint16_t max_seen_v{};
         std::uint64_t key{};  // texture_key(), for the 2D copies below
+        // Without a descriptor set (none could be had), drawn white and
+        // tried again from this frame on; the image is kept, so the
+        // texture is not decoded again for every draw.
+        std::uint64_t set_retry{};
     };
     // Sharper copies of 2D textures (ui_textures.hpp), by texture key, mode
     // and scale: the glyph atlas drawn again at the internal resolution, or a
@@ -2211,6 +2215,7 @@ struct VulkanRenderer::Impl {
     Texture create_texture(std::uint32_t width, std::uint32_t height, const std::uint32_t *pixels);
     // The image, view and descriptor of a texture, with no pixels yet.
     Texture create_texture_image(std::uint32_t width, std::uint32_t height);
+    bool attach_descriptor(Texture &texture);
     // A texture set that could not be had: the draw goes on without what
     // needed it. Said in the log now and then, not once per draw.
     std::string descriptor_error;
@@ -3914,7 +3919,7 @@ void VulkanRenderer::Impl::end_pass() {
 VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t width, std::uint32_t height,
                                                                    const std::uint32_t *pixels) {
     Texture texture = create_texture_image(width, height);
-    if (texture.descriptor != VK_NULL_HANDLE && pixels != nullptr) upload_texture(texture.image, width, height, pixels);
+    if (texture.image != VK_NULL_HANDLE && pixels != nullptr) upload_texture(texture.image, width, height, pixels);
     return texture;
 }
 
@@ -3925,13 +3930,21 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture_image(std::ui
                       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, texture.image, texture.memory,
                       texture.view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return texture;
+    attach_descriptor(texture);
+    texture.last_used = ++texture_clock;
+    return texture;
+}
+
+// The texture's descriptor set. Without one, the draw falls back (white, or
+// the original instead of a sharper copy) and the set is tried for again
+// a second later.
+bool VulkanRenderer::Impl::attach_descriptor(Texture &texture) {
+    std::string error;
     texture.descriptor = texture_sets.allocate(error);
     if (texture.descriptor == VK_NULL_HANDLE) {
-        // The draw falls back (the white texture, or the original instead
-        // of a sharper copy); only the image is given back.
         report_descriptor_failure(error);
-        destroy_texture(texture);
-        return texture;
+        texture.set_retry = frames + 30u;
+        return false;
     }
     VkDescriptorImageInfo image_info{texture_sampler(), texture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -3940,8 +3953,7 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture_image(std::ui
     write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     write.pImageInfo = &image_info;
     vkUpdateDescriptorSets(device, 1u, &write, 0u, nullptr);
-    texture.last_used = ++texture_clock;
-    return texture;
+    return true;
 }
 
 void VulkanRenderer::Impl::upload_texture(VkImage image, std::uint32_t width, std::uint32_t height,
@@ -4284,7 +4296,7 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
     }
     Texture texture = job ? create_texture_image(state.width, state.height)
                           : create_texture(state.width, state.height, pixels.data());
-    if (texture.descriptor == VK_NULL_HANDLE) return white_texture;
+    if (texture.image == VK_NULL_HANDLE) return white_texture;
     if (job) {
         if (!decode_pool) {
             const std::uint32_t cores = std::max(1u, std::thread::hardware_concurrency());
@@ -4319,7 +4331,9 @@ VkDescriptorSet VulkanRenderer::Impl::texture_descriptor(const GuestMemory &memo
     const bool packed = texture.replacement && pack && texture.replacement->state != Replacement::State::Failed;
     if (call.through && texture.key != 0u && !packed)
         if (const VkDescriptorSet sharper = ui_copy(memory, call, texture)) return sharper;
-    return texture.descriptor;
+    if (texture.descriptor == VK_NULL_HANDLE && texture.image != VK_NULL_HANDLE && frames >= texture.set_retry)
+        attach_descriptor(texture);
+    return texture.descriptor != VK_NULL_HANDLE ? texture.descriptor : white_texture.descriptor;
 }
 
 std::uint32_t VulkanRenderer::Impl::ui_scale() const {
@@ -4398,7 +4412,15 @@ VkDescriptorSet VulkanRenderer::Impl::ui_copy(const GuestMemory &memory, const D
     }
     Texture copy{};
     if (made) {
-        copy = create_texture(width, height, pixels.data());
+        // Without a set for it the original is drawn, and this copy is not
+        // tried again (a null descriptor below remembers that).
+        copy = create_texture_image(width, height);
+        if (copy.descriptor == VK_NULL_HANDLE) {
+            destroy_texture(copy);
+            made = false;
+        } else {
+            upload_texture(copy.image, width, height, pixels.data());
+        }
         static const bool trace = std::getenv("MHP3RD_TRACE_UI") != nullptr;
         if (trace)
             std::cout << "[ui] " << (glyphs ? "glyphs" : "mmpx") << " 0x" << std::hex << state.address << std::dec
