@@ -194,15 +194,17 @@ void test_controls_from_the_previous_version() {
 }
 
 
-// A settings.ini written by main before any chord and combination (#198):
-// no keys for the item bar's actions, the chord window or combinations.
+// A settings.ini written by main before any chord and combination (#198)
+// and before lock-on (#163): no keys for the item bar's actions, lock-on,
+// the chord window or combinations.
 // Every binding reads as it was; the new actions take the preset's inputs
 // where they clash with nothing.
 Entries as_main_wrote(Entries entries) {
     for (auto it = entries.begin(); it != entries.end();) {
         const std::string &key = it->first;
         const bool added = key.find("item_left") != std::string::npos || key.find("item_right") != std::string::npos ||
-                           key == "input.chord_window" || key.find("combo.") != std::string::npos;
+                           key.find("lock_on") != std::string::npos || key == "input.chord_window" ||
+                           key.find("combo.") != std::string::npos;
         it = added ? entries.erase(it) : std::next(it);
     }
     return entries;
@@ -233,8 +235,8 @@ void test_controls_from_main() {
     layout.pad[action(input::Action::HideHud)] = {input::single(input::pad(input::PadInput::LeftPaddle1))};
     layout.pad[action(input::Action::Select)] = {
         input::chord(input::pad(input::PadInput::LeftShoulder), input::pad(input::PadInput::West))};
-    // Main had no item actions.
-    for (const input::Action a : {input::Action::ItemLeft, input::Action::ItemRight})
+    // Main had no item actions and no lock-on.
+    for (const input::Action a : {input::Action::ItemLeft, input::Action::ItemRight, input::Action::LockOn})
         layout.keys[action(a)] = layout.pad[action(a)] = {};
     controls_edited(mine);
     const Entries main_file = as_main_wrote(to_entries(mine));
@@ -245,7 +247,7 @@ void test_controls_from_main() {
     bool same = true;
     for (std::size_t i = 0; i < input::kActions; ++i) {
         const auto a = static_cast<input::Action>(i);
-        if (a == input::Action::ItemLeft || a == input::Action::ItemRight) continue;
+        if (a == input::Action::ItemLeft || a == input::Action::ItemRight || a == input::Action::LockOn) continue;
         same = same && read.controls.keys[i] == mine.controls.keys[i] && read.controls.pad[i] == mine.controls.pad[i];
     }
     check(same, "every binding main wrote reads unchanged");
@@ -255,11 +257,15 @@ void test_controls_from_main() {
           "Item left does not take the paddle Hide HUD has; Item right takes the free one");
     check(read.controls.keys[action(input::Action::ItemLeft)][0] == input::single(input::mouse_button(4)),
           "and the keyboard's item keys are added where free");
+    check(read.controls.pad[action(input::Action::LockOn)][0] == input::single(input::pad(input::PadInput::RightStick)) &&
+              read.controls.keys[action(input::Action::LockOn)][0] == input::single(input::mouse_button(2)),
+          "lock-on takes R3 and the middle mouse button, which nothing else there has");
     for (std::size_t i = 0; i < input::kActions; ++i)
         for (const bool pad : {false, true})
             check(input::conflicts(input::table(read.controls, pad), i).size() ==
                       input::conflicts(input::table(mine.controls, pad), i).size() ||
-                      i == action(input::Action::ItemLeft) || i == action(input::Action::ItemRight),
+                      i == action(input::Action::ItemLeft) || i == action(input::Action::ItemRight) ||
+                      i == action(input::Action::LockOn),
                   "and no new conflict");
 
     // A file with only a few keys: the rest keeps the preset's, and nothing

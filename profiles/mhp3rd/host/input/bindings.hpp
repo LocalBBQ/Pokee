@@ -61,6 +61,9 @@ enum class Action : std::uint8_t {
     // from one input or from a chord of the player's.
     ItemLeft,
     ItemRight,
+    // Not a PSP control: locks the camera onto a large monster and lets it
+    // go again (camera/lock_on.hpp).
+    LockOn,
     Count
 };
 inline constexpr std::size_t kActions = static_cast<std::size_t>(Action::Count);
@@ -194,6 +197,12 @@ enum class Context : std::uint8_t { Game, PhotoMode, Anywhere };
 [[nodiscard]] Context context_of(Action action);
 // The SceCtrlButtons an action presses; 0 for the sticks and the port's own.
 [[nodiscard]] std::uint32_t buttons_of(Action action);
+// Actions that act when their input is let go, and only if it was pressed
+// alone: nothing else on the same device held as it went down, and nothing
+// else pressed before it came up (TapDetector). Their chords may therefore be
+// part of longer chords, such as R3 for lock-on inside R3 + D-pad left for a
+// screenshot, without clashing with them.
+[[nodiscard]] bool acts_on_release(Action action);
 
 // The PSP's buttons an action of the player's may press together (#198).
 inline constexpr std::uint32_t kComboButtons = 0xF3F9u;  // △ ○ × □ L R START SELECT and the D-pad
@@ -315,6 +324,7 @@ struct PadState {
     bool screenshot{};        // the screenshot bind is held
     bool frame_step{};        // the frame step bind is held
     bool hide_hud{};          // the hide-HUD bind is held
+    bool lock_on{};           // the lock-on bind is held
 };
 // At once, with no memory of what came before (Resolver has it): among the
 // held inputs, the longest bound chord wins and its inputs do nothing else;
@@ -322,6 +332,25 @@ struct PadState {
 // another, holding both does only the first.
 [[nodiscard]] PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held);
 [[nodiscard]] PadState read(const Table &table, const std::function<bool(Binding)> &held);
+
+// A tap: an input pressed and let go on its own. `held` is whether the
+// input is held now, `others` whether any other input of the same device is.
+// True once, on the update it is let go, if nothing else was held while it
+// was down.
+class TapDetector {
+public:
+    bool update(bool held, bool others) {
+        if (held && !held_) spoiled_ = others;
+        else if (held) spoiled_ = spoiled_ || others;
+        const bool tap = !held && held_ && !spoiled_;
+        held_ = held;
+        return tap;
+    }
+
+private:
+    bool held_{};
+    bool spoiled_{};
+};
 
 // The mouse's motion as degrees for the camera: positive yaw turns right,
 // positive pitch looks down, as camera_input expects. `counts` are relative

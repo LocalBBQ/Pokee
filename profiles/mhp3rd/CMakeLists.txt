@@ -160,6 +160,7 @@ set(MHP3RD_HOST_SOURCES
     host/camera/camera_input.cpp
     host/camera/game_aspect.cpp
     host/camera/game_camera.cpp
+    host/camera/lock_on.cpp
     host/camera/free_camera.cpp
     host/gpu/game_hud.cpp
     host/gpu/ge_state.cpp
@@ -391,6 +392,7 @@ add_executable(mhp3rd_camera_tests
     tests/analog_camera_tests.cpp
     host/camera/camera_input.cpp
     host/camera/game_camera.cpp
+    host/camera/lock_on.cpp
     host/input/bindings.cpp
     host/input/chords.cpp
     host/input/presets.cpp
@@ -401,6 +403,24 @@ target_link_libraries(mhp3rd_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_camera_tests COMMAND mhp3rd_camera_tests)
+endif()
+
+# Lock-on: which monster a tap picks, and how it turns the game's camera.
+add_executable(mhp3rd_lock_on_tests
+    tests/lock_on_tests.cpp
+    host/camera/camera_input.cpp
+    host/camera/game_camera.cpp
+    host/camera/lock_on.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp)
+target_include_directories(mhp3rd_lock_on_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_lock_on_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_lock_on_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_lock_on_tests COMMAND mhp3rd_lock_on_tests)
 endif()
 
 # The free camera's geometry, and that it hooks nothing while off.

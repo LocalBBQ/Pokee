@@ -93,13 +93,14 @@ constexpr ActionInfo kInfo[kActions] = {
     {"hide_hud", "Hide HUD"},
     {"item_left", "Item left  (L + □)"},
     {"item_right", "Item right  (L + ○)"},
+    {"lock_on", "Lock on"},
 };
 
 // SceCtrlButtons for the actions that are buttons.
 constexpr std::uint32_t kButtonBits[kActions] = {
     0u,      0u,      0u,      0u,      0x1000u, 0x2000u, 0x4000u, 0x8000u, 0x0100u, 0x0200u, 0x0008u,
     0x0001u, 0x0010u, 0x0080u, 0x0040u, 0x0020u, 0u,      0u,      0u,      0u,      0x3000u, 0u,
-    0u,      0u,      0u,      0x8100u, 0x2100u,
+    0u,      0u,      0u,      0x8100u, 0x2100u, 0u,
 };
 
 // The PSP's buttons as the menu and settings.ini name them, in the order
@@ -230,7 +231,8 @@ ActionGroup group_of(Action action) {
     case Action::Up:
     case Action::Left:
     case Action::Down:
-    case Action::Right: return ActionGroup::Camera;
+    case Action::Right:
+    case Action::LockOn: return ActionGroup::Camera;
     case Action::Start:
     case Action::Select: return ActionGroup::System;
     default: return ActionGroup::Port;
@@ -287,6 +289,8 @@ bool parse_buttons(std::string_view text, std::uint32_t &buttons) {
     buttons = parsed;
     return true;
 }
+
+bool acts_on_release(Action action) { return action == Action::LockOn; }
 
 std::string name(Binding binding) {
     if (const int button = mouse_button_of(binding)) return kMouseNames[button - 1];
@@ -452,6 +456,7 @@ bool waits_for(std::uint64_t shorter, std::uint64_t longer) {
 }
 
 std::vector<Conflict> conflicts(const Table &table, std::size_t target) {
+    const auto taps = [](std::size_t t) { return t < kActions && acts_on_release(static_cast<Action>(t)); };
     std::vector<Conflict> found;
     const Context mine_when = table.context(target);
     for (const Chord &c : table.slots(target)) {
@@ -467,12 +472,16 @@ std::vector<Conflict> conflicts(const Table &table, std::size_t target) {
                     found.push_back({Conflict::Kind::Same, other, c, theirs});
                 } else if (theirs.part_of(c)) {
                     // Theirs is part of mine: it waits for mine, or is let go
-                    // while mine is held.
+                    // while mine is held. A tap acts only when its chord was
+                    // pressed alone, so holding it as part of mine never sets
+                    // it off.
+                    if (taps(other)) continue;
                     if (read_held(other) && (table.effect(other) & ~table.effect(target)) != 0u)
                         found.push_back({Conflict::Kind::Held, other, c, theirs});
                     else if (waits_for(table.effect(other), table.effect(target)))
                         found.push_back({Conflict::Kind::Part, other, c, theirs});
                 } else if (c.part_of(theirs)) {
+                    if (taps(target)) continue;  // as above, the other way round
                     if (read_held(target) && (table.effect(target) & ~table.effect(other)) != 0u)
                         continue;  // theirs reports it as Held
                     if (waits_for(table.effect(target), table.effect(other)))

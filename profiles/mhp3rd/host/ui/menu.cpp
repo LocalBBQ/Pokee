@@ -958,6 +958,31 @@ void Menu::controls() {
         }
     }
     {
+        const auto slot = static_cast<std::size_t>(input::Action::LockOn);
+        std::string bind = input::format(s.controls.keys[slot]);
+        const std::string pad = input::format(s.controls.pad[slot]);
+        if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
+        const std::string help =
+            "A tap of Lock on" + (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
+            " turns the quest camera to the nearest large monster and keeps it in view. Tap again to let go, or "
+            "to change monster when there are two in the area. The camera, the D-pad and L let go too. Off, "
+            "the bind does nothing.";
+        if (toggle_row("Lock-on", s.lock_on, options_for("input.lock_on", help.c_str()))) {
+            s.lock_on = !s.lock_on;
+            settings::save();
+        }
+        RowOptions o = options_for("input.lock_on_marker", "A small ring over the monster the camera is locked "
+                                                           "onto.");
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (toggle_row("Lock-on marker", s.lock_on_marker, o)) {
+            s.lock_on_marker = !s.lock_on_marker;
+            settings::save();
+        }
+    }
+    {
         RowOptions o = options_for("input.invert_camera_x", "Turn the camera the other way left and right.");
         if (!camera && !o.disabled) {
             o.disabled = true;
@@ -1937,6 +1962,37 @@ bool attach(gpu::VulkanRenderer &renderer) { return Layer::get().attach(renderer
 
 void show_note(const std::string &text) { note() = {text, Clock::now() + kNoteTime}; }
 
+namespace {
+std::optional<std::array<float, 2>> &lock_on_marker_at() {
+    static std::optional<std::array<float, 2>> at;
+    return at;
+}
+
+// Lock-on's marker (camera/lock_on.hpp): a small ring with four ticks over
+// the locked monster, drawn by the interface, never into the game's frames.
+void draw_lock_on_marker(const std::array<float, 2> &at) {
+    const ImGuiIO &io = ImGui::GetIO();
+    const std::array<float, 4> picture = Layer::get().renderer().game_picture();
+    const ImVec2 centre{(picture[0] + at[0] * picture[2]) * io.DisplaySize.x,
+                        (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
+    const float radius = Layer::get().font_size() * 0.55f;
+    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    const ImU32 shadow = IM_COL32(0, 0, 0, 150);
+    const ImU32 ink = IM_COL32(255, 96, 64, 230);
+    for (const auto &[colour, width] : {std::pair{shadow, 4.0f}, std::pair{ink, 2.0f}}) {
+        draw->AddCircle(centre, radius, colour, 24, width);
+        for (int i = 0; i < 4; ++i) {
+            const float dx = i == 0 ? 1.0f : i == 1 ? -1.0f : 0.0f;
+            const float dy = i == 2 ? 1.0f : i == 3 ? -1.0f : 0.0f;
+            draw->AddLine({centre.x + dx * radius * 0.55f, centre.y + dy * radius * 0.55f},
+                          {centre.x + dx * radius * 1.45f, centre.y + dy * radius * 1.45f}, colour, width);
+        }
+    }
+}
+} // namespace
+
+void set_lock_on_marker(std::optional<std::array<float, 2>> at) { lock_on_marker_at() = at; }
+
 std::string take_screenshot() {
     Layer &layer = Layer::get();
     if (!layer.attached()) return {};
@@ -1988,10 +2044,12 @@ void draw_over_game() {
     const bool fast = !menu && fast_forward::active();
     const bool noted = !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
+    const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted &&
-        hud_note <= 0.0)
+        hud_note <= 0.0 && !marker)
         return;
     layer.begin_frame();
+    if (marker) draw_lock_on_marker(*marker);
     if (noted) draw_note(note());
     if (flying) draw_free_camera_indicator(free_camera);
     if (touch) {

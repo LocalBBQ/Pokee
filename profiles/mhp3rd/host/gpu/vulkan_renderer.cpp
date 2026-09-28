@@ -984,6 +984,14 @@ struct VulkanRenderer::Impl {
     bool hide_hud_held{};
     bool hide_hud_pressed{};
     void sample_hide_hud(bool focused);
+    // The Lock on bind (camera/lock_on.hpp): read while the game has input
+    // and counted once per tap (input::TapDetector), so a chord that holds
+    // the same input, R3 + D-pad left for a screenshot or L3 + R3 for the
+    // menu, never locks on too.
+    input::TapDetector lock_on_keys_tap;
+    input::TapDetector lock_on_pad_tap;
+    bool lock_on_pressed{};
+    void sample_lock_on(bool focused);
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
     // The bindings matched over time (input/chords.hpp), one resolver for
@@ -2096,6 +2104,8 @@ struct VulkanRenderer::Impl {
 #endif
     bool create_ui_framebuffers(std::string &error);
     void record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination);
+    // Where record_game_blit puts the game's picture in the swapchain image.
+    [[nodiscard]] VkRect2D game_blit_rect() const;
     // Target size for the current settings and window.
     [[nodiscard]] VkExtent2D wanted_target_extent() const;
     // Rebuilds every target at `extent`, its picture scaled into it. Not while
@@ -3428,26 +3438,30 @@ bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
 // Scales the game frame onto the swapchain image, which is in TRANSFER_DST
 // layout: stretched over the whole window, or at the PSP's aspect ratio with
 // black bars. Fill's target already has the window's shape.
+VkRect2D VulkanRenderer::Impl::game_blit_rect() const {
+    const auto width = static_cast<std::int32_t>(picture_rect.extent.width);
+    const auto height = static_cast<std::int32_t>(picture_rect.extent.height);
+    if (aspect != settings::Aspect::Original) return picture_rect;
+    const double scale = std::min(static_cast<double>(width) / kPspWidth, static_cast<double>(height) / kPspHeight);
+    const std::int32_t shown_width = std::clamp(static_cast<std::int32_t>(std::lround(kPspWidth * scale)), 1, width);
+    const std::int32_t shown_height =
+        std::clamp(static_cast<std::int32_t>(std::lround(kPspHeight * scale)), 1, height);
+    return {{picture_rect.offset.x + (width - shown_width) / 2, picture_rect.offset.y + (height - shown_height) / 2},
+            {static_cast<std::uint32_t>(shown_width), static_cast<std::uint32_t>(shown_height)}};
+}
+
 void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination) {
     const auto width = static_cast<std::int32_t>(picture_rect.extent.width);
     const auto height = static_cast<std::int32_t>(picture_rect.extent.height);
-    const std::int32_t x0 = picture_rect.offset.x;
-    const std::int32_t y0 = picture_rect.offset.y;
-    VkOffset3D low{x0, y0, 0};
-    VkOffset3D high{x0 + width, y0 + height, 1};
+    const VkRect2D shown = game_blit_rect();
+    const VkOffset3D low{shown.offset.x, shown.offset.y, 0};
+    const VkOffset3D high{shown.offset.x + static_cast<std::int32_t>(shown.extent.width),
+                          shown.offset.y + static_cast<std::int32_t>(shown.extent.height), 1};
     const bool partial = width < static_cast<std::int32_t>(swapchain_extent.width) ||
                          height < static_cast<std::int32_t>(swapchain_extent.height);
     if (aspect == settings::Aspect::Original || partial) {
-        std::int32_t shown_width = width;
-        std::int32_t shown_height = height;
-        if (aspect == settings::Aspect::Original) {
-            const double scale =
-                std::min(static_cast<double>(width) / kPspWidth, static_cast<double>(height) / kPspHeight);
-            shown_width = std::clamp(static_cast<std::int32_t>(std::lround(kPspWidth * scale)), 1, width);
-            shown_height = std::clamp(static_cast<std::int32_t>(std::lround(kPspHeight * scale)), 1, height);
-        }
-        low = {x0 + (width - shown_width) / 2, y0 + (height - shown_height) / 2, 0};
-        high = {low.x + shown_width, low.y + shown_height, 1};
+        const auto shown_width = static_cast<std::int32_t>(shown.extent.width);
+        const auto shown_height = static_cast<std::int32_t>(shown.extent.height);
         if (partial || shown_width < width || shown_height < height) {
             const VkClearColorValue black{{0.0f, 0.0f, 0.0f, 1.0f}};
             const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u};
@@ -5417,6 +5431,7 @@ bool VulkanRenderer::pump_events() {
     impl_->sample_free_camera(focused);
     impl_->sample_host_binds(focused);
     impl_->sample_hide_hud(focused);
+    impl_->sample_lock_on(focused);
     return !impl_->quit;
 }
 
@@ -5491,6 +5506,68 @@ void VulkanRenderer::Impl::sample_hide_hud(bool focused) {
     const bool held = typed.hide_hud || (gamepad != nullptr && mapped.hide_hud);
     if (held && !hide_hud_held) hide_hud_pressed = true;
     hide_hud_held = held;
+}
+
+void VulkanRenderer::Impl::sample_lock_on(bool focused) {
+    const settings::Settings &player = settings::current();
+    // Not in a menu, nor while the free camera flies: its controls are the
+    // pad's then. Forgetting a hold means a press that spans either is none.
+    if (!game_input || free_camera || !player.lock_on) {
+        lock_on_keys_tap = {};
+        lock_on_pad_tap = {};
+        return;
+    }
+    // Whether every input of one of the bind's chords is down, whatever the
+    // resolver made of them: a longer chord that holds the same inputs, such
+    // as R3 + D-pad left or the reserved L3 + R3, must spoil the tap rather
+    // than end it, so it is followed here and not in the resolved state.
+    const auto chord_held = [](const input::Slots &slots, const auto &held) {
+        for (const input::Chord &c : slots) {
+            if (c.empty()) continue;
+            bool all = true;
+            for (const input::Binding b : c.held()) all = all && held(b);
+            if (all) return true;
+        }
+        return false;
+    };
+    const std::size_t action = static_cast<std::size_t>(input::Action::LockOn);
+    const bool *keys = SDL_GetKeyboardState(nullptr);
+    const bool typed_now = chord_held(player.controls.keys[action], [&](input::Binding binding) {
+        if (const int button = input::mouse_button_of(binding))
+            return mouse_captured && (mouse_buttons & (1u << button)) != 0u;
+        const int position = input::key_position(binding);
+        return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
+                                 scripted_keys[static_cast<std::size_t>(position)]);
+    });
+    // Keys and mouse buttons act on their own, so moving on W A S D never
+    // spoils a tap; only the pad's inputs are also parts of other chords.
+    if (lock_on_keys_tap.update(typed_now, false)) lock_on_pressed = true;
+    bool pad_now = false;
+    bool others = false;
+    if (gamepad != nullptr) {
+        const PadTuning tuning = pad_tuning();
+        const input::Slots &slots = player.controls.pad[action];
+        const auto held = [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); };
+        pad_now = chord_held(slots, held);
+        const auto part_of_lock_on = [&](input::Binding binding) {
+            for (const input::Chord &c : slots)
+                if (c.contains(binding)) return true;
+            return false;
+        };
+        for (int n = 0; n < static_cast<int>(input::PadInput::ButtonCount); ++n) {
+            const input::Binding binding = input::pad(static_cast<input::PadInput>(n));
+            if (!part_of_lock_on(binding) && held(binding)) others = true;
+        }
+        for (const input::PadInput trigger : {input::PadInput::LeftTrigger, input::PadInput::RightTrigger}) {
+            const input::Binding binding = input::pad(trigger);
+            if (!part_of_lock_on(binding) && held(binding)) others = true;
+        }
+    }
+    if (lock_on_pad_tap.update(pad_now, others)) lock_on_pressed = true;
+}
+
+bool VulkanRenderer::take_lock_on_press() noexcept {
+    return impl_ && std::exchange(impl_->lock_on_pressed, false);
 }
 
 bool VulkanRenderer::take_hide_hud_toggle() noexcept {
@@ -5971,6 +6048,15 @@ float VulkanRenderer::game_aspect() const noexcept {
     if (!impl_ || impl_->aspect != settings::Aspect::Fill || impl_->target_extent.height == 0u)
         return static_cast<float>(kPspWidth) / static_cast<float>(kPspHeight);
     return static_cast<float>(impl_->target_extent.width) / static_cast<float>(impl_->target_extent.height);
+}
+
+std::array<float, 4> VulkanRenderer::game_picture() const noexcept {
+    if (!impl_ || impl_->swapchain_extent.width == 0u || impl_->swapchain_extent.height == 0u) return {0.0f, 0.0f, 1.0f, 1.0f};
+    const VkRect2D rect = impl_->game_blit_rect();
+    const auto w = static_cast<float>(impl_->swapchain_extent.width);
+    const auto h = static_cast<float>(impl_->swapchain_extent.height);
+    return {static_cast<float>(rect.offset.x) / w, static_cast<float>(rect.offset.y) / h,
+            static_cast<float>(rect.extent.width) / w, static_cast<float>(rect.extent.height) / h};
 }
 
 std::array<std::uint32_t, 2> VulkanRenderer::target_size() const noexcept {

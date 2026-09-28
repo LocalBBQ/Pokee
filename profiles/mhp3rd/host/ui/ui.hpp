@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <array>
+#include <optional>
 #include <string>
 
 // The port's own interface, drawn with Dear ImGui over the game's window: the
@@ -40,6 +42,11 @@ std::string take_screenshot();
 // Shows a short note over the game for a few seconds, left out of window
 // captures (MHP3RD_INPUT_SCRIPT's shot) like the port's other notes.
 void show_note(const std::string &text);
+
+// Where lock-on's marker goes on the game's picture, each coordinate 0..1
+// from its top left (camera/lock_on.hpp), or nothing to draw none. Set once
+// a flip; draw_over_game() draws it while the game runs.
+void set_lock_on_marker(std::optional<std::array<float, 2>> at);
 
 // Whether the menu, opened now, pauses the game. Settings decide: "Pause the
 // game when the menu opens", and during ad hoc play "Pause during

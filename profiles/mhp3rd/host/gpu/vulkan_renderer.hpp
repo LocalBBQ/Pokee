@@ -248,6 +248,9 @@ public:
     // The shape the game's 3D view should have, width over height: the
     // target's under Fill, the PSP's 480/272 otherwise.
     [[nodiscard]] float game_aspect() const noexcept;
+    // Where the game's picture is in the window: left, top, width and
+    // height, each a fraction of the window's.
+    [[nodiscard]] std::array<float, 4> game_picture() const noexcept;
     // The size the game is drawn at, in pixels.
     [[nodiscard]] std::array<std::uint32_t, 2> target_size() const noexcept;
 
@@ -285,6 +288,8 @@ public:
     [[nodiscard]] bool frame_step_held() const noexcept;
     // A press of the Hide HUD bind since the last take (gpu/game_hud.hpp).
     [[nodiscard]] bool take_hide_hud_toggle() noexcept;
+    // A tap of the Lock on bind since the last call (camera/lock_on.hpp).
+    [[nodiscard]] bool take_lock_on_press() noexcept;
     // A window capture (capture_window) waits for the next present, so the
     // interface can leave out what does not belong in a picture.
     [[nodiscard]] bool window_capture_pending() const noexcept;

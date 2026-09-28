@@ -22,6 +22,7 @@
 #include "camera/free_camera.hpp"
 #include "camera/game_aspect.hpp"
 #include "camera/game_camera.hpp"
+#include "camera/lock_on.hpp"
 #include "input/bindings.hpp"
 #include "settings/settings.hpp"
 #include "gpu/game_hud.hpp"
@@ -281,6 +282,7 @@ void fly_free_camera(Runtime &rt, gpu::VulkanRenderer &renderer, float seconds) 
     camera::free_camera_update(rt, request, seconds);
     renderer.set_free_camera(camera::free_camera_active());
     gpu::hud::set_free_camera(camera::free_camera_active());
+    camera::lock_on_suspend(camera::free_camera_active());
     // Nothing the player does meanwhile is for the game's camera.
     if (camera::free_camera_active()) camera::discard();
 }
@@ -473,7 +475,13 @@ void present_frame(Runtime &rt) {
         previous_flip = present_start;
         camera::set_rate(camera::Source::Stick, (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f,
                          (static_cast<int>(renderer.pad().right_y) - 0x80) / 127.0f);
+        // A tap of Lock on (camera/lock_on.hpp) waits for the next update
+        // of the follow camera, which game_camera_frame makes sure to drive.
+        if (renderer.take_lock_on_press()) camera::lock_on_tap();
         camera::game_camera_frame(rt);
+        ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory())
+                                                                  : std::nullopt);
+        if (const std::string why = camera::lock_on_take_note(); !why.empty()) ui::show_note(why);
         // The view's shape follows the picture's: the game builds its next
         // projection with the aspect ratio of the target it will draw into.
         camera::game_aspect_frame(rt, renderer.game_aspect());

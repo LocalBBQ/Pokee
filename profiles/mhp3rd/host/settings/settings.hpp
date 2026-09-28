@@ -95,6 +95,11 @@ struct Settings {
     // On by default. Off writes nothing at all, so the camera is exactly as
     // the game made it.
     bool analog_camera{true};
+    // The Lock on bind turns the quest camera towards a large monster and
+    // keeps it there (camera/lock_on.hpp). Nothing happens until the bind is
+    // pressed; off, the bind does nothing at all.
+    bool lock_on{true};
+    bool lock_on_marker{true};         // a ring over the locked monster
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
     // Degrees per second at full deflection while a bow or a bowgun aims.

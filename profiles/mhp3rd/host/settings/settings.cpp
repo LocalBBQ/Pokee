@@ -319,6 +319,11 @@ const std::vector<Field> &fields() {
          [](Settings &s, const std::string &t) { return parse_bool(t, s.analog_camera); },
          [](const Settings &s) { return std::string(s.analog_camera ? "1" : "0"); },
          [](Settings &s, const char *t) { s.analog_camera = variable_flag(t); }},
+        {"input.lock_on", "MHP3RD_LOCK_ON",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.lock_on); },
+         [](const Settings &s) { return std::string(s.lock_on ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.lock_on = variable_flag(t); }},
+        BOOL_FIELD("input.lock_on_marker", lock_on_marker),
         {"input.camera_speed", "MHP3RD_CAMERA_SPEED",
          [](Settings &s, const std::string &t) { return parse_float(t, 20.0f, 720.0f, s.camera_speed); },
          [](const Settings &s) { return format_float(s.camera_speed); },
@@ -564,14 +569,15 @@ void write_combos(const std::vector<input::Combo> &combos, const std::string &pr
     }
 }
 
-// Actions added since a layout was written (the item bar's, #198), which the
-// file has no key for, take what the shipped preset `from` has for them,
+// Actions added since a layout was written (the item bar's, #198, and
+// lock-on, #163), which the file has no key for, take what the shipped preset `from` has for them,
 // each chord only if it clashes with nothing the layout has: settings from
 // before keep every binding they had. Other missing keys are left as they
 // always were.
 void fill_new_actions(input::Layout &layout, const input::Layout &from,
                       const std::function<bool(std::size_t, bool)> &written) {
-    static constexpr input::Action kAdded[] = {input::Action::ItemLeft, input::Action::ItemRight};
+    static constexpr input::Action kAdded[] = {input::Action::ItemLeft, input::Action::ItemRight,
+                                                input::Action::LockOn};
     for (const bool pad : {false, true}) {
         input::Bindings &table = pad ? layout.pad : layout.keys;
         const input::Bindings &defaults = pad ? from.pad : from.keys;

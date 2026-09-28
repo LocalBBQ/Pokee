@@ -1,6 +1,7 @@
 #include "camera/game_camera.hpp"
 
 #include "camera/camera_input.hpp"
+#include "camera/lock_on.hpp"
 #include "settings/settings.hpp"
 #include "psprecomp/runtime.hpp"
 
@@ -157,6 +158,8 @@ struct State {
     bool available{};
     float yaw_remainder{};
     bool pitch_owned{};
+    // The pitch above is lock-on's (lock_on.hpp), not the player's.
+    bool pitch_by_lock{};
     float pitch{};
     unsigned updates{};
     bool aiming{};
@@ -203,6 +206,12 @@ bool option_on() {
 }
 
 bool driving_allowed() { return state.hooked && option_on(); }
+
+bool lock_on_allowed() { return settings::current().lock_on; }
+
+// The game's camera commands in the camera's buttons (0x088E77D4), the
+// D-pad's turn and tilt, as the PSP's buttons.
+constexpr std::uint16_t kDpadCommands = 0x00F0u;
 
 float load_float(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     return std::bit_cast<float>(memory.load32(address));
@@ -273,9 +282,33 @@ void drive_follow(psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ct
     const auto buttons = memory.load16(address + kButtons);
     const bool recentre = (buttons & 0x100u) != 0u || memory.load8(address + kSnap) != 0u;
     const bool vertical_command = (buttons & 0x50u) != 0u;
-    if (!active || recentre || vertical_command) state.pitch_owned = false;
 
-    if (active && !recentre && turn.yaw_held) {
+    // Lock-on (lock_on.hpp) aims the same angles while it holds a monster.
+    std::optional<LockOnAim> lock;
+    if (lock_on_allowed() && lock_on_wanted()) {
+        LockOnCamera camera;
+        camera.address = address;
+        camera.yaw = memory.load16(address + kYawCurrent);
+        camera.look_at = {load_float(memory, address + 0x10u), load_float(memory, address + 0x14u),
+                          load_float(memory, address + 0x18u)};
+        camera.manual_yaw = turn.yaw_held ? turn.yaw_degrees : 0.0f;
+        // Recentring (L) shows as the snap; holding L for the item bar
+        // does not. The D-pad turns and tilts.
+        camera.command = memory.load8(address + kSnap) != 0u || (buttons & kDpadCommands) != 0u;
+        camera.pitch = std::atan2(y - target_height, std::fabs(z)) / kRadians;
+        if (state.pitch_owned) camera.pitch = state.pitch;
+        camera.player_pitch = (active && turn.pitch_held) || (state.pitch_owned && !state.pitch_by_lock);
+        lock = lock_on_update(memory, camera);
+    }
+    const bool lock_pitch = lock && lock->pitch;
+    if ((!active && !lock_pitch) || recentre || vertical_command) state.pitch_owned = false;
+
+    if (lock) {
+        state.yaw_remainder = 0.0f;
+        memory.store16(address + kYawTarget, lock->yaw);
+        memory.store16(address + kYawCurrent, lock->yaw);
+        memory.store32(ctx.gpr[5] + 4u, static_cast<std::uint32_t>(static_cast<std::int16_t>(lock->yaw)));
+    } else if (active && !recentre && turn.yaw_held) {
         state.yaw_remainder -= turn.yaw_degrees * kAngleUnits;
         const int step = static_cast<int>(state.yaw_remainder);
         state.yaw_remainder -= static_cast<float>(step);
@@ -289,14 +322,20 @@ void drive_follow(psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ct
         state.yaw_remainder = 0.0f;
     }
 
-    if (active && !recentre && !vertical_command) {
+    if (lock_pitch || (active && !recentre && !vertical_command)) {
         float previous_pitch = state.pitch;
-        if (turn.pitch_held) {
+        if (lock_pitch) {
+            if (!state.pitch_owned) previous_pitch = std::atan2(y - target_height, std::fabs(z)) / kRadians;
+            state.pitch = *lock->pitch;
+            state.pitch_owned = true;
+            state.pitch_by_lock = true;
+        } else if (turn.pitch_held) {
             if (!state.pitch_owned) {
                 state.pitch = std::atan2(y - target_height, std::fabs(z)) / kRadians;
                 previous_pitch = state.pitch;
                 state.pitch_owned = true;
             }
+            state.pitch_by_lock = false;
             state.pitch = std::clamp(state.pitch + turn.pitch_degrees, -60.0f, 70.0f);
         }
         if (state.pitch_owned) {
@@ -664,6 +703,7 @@ std::span<const CodeWord> game_code_signature() { return kSignature; }
 bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original) {
     state = State{};
     reset();
+    lock_on_reset();
     if (!original || !runtime.has_function(kRotationHelper)) {
         std::cerr << "[camera] the rotation helper is not in the generated code; analog camera unavailable\n";
         return false;
@@ -688,7 +728,11 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
     // A step taken off in advance that no aim update has put back: the aim
     // code and the camera did not run, so it goes back now.
     settle_anticipation(runtime.memory());
-    if (state.prepared && !state.hooked && option_on()) {
+    // A lock that is on, or a tap waiting, needs the hook as well; a player
+    // who never taps pays nothing for lock-on either.
+    if (!lock_on_allowed()) lock_on_release("");
+    lock_on_frame(runtime.memory());
+    if (state.prepared && !state.hooked && (option_on() || (lock_on_allowed() && lock_on_wanted()))) {
         // Only ever at the game's flip, from an import: no generated frame is
         // live on the host stack, so the dispatch tables can change here.
         // A host registration disables this unit's direct-call shortcut, so the
@@ -699,7 +743,7 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
         state.hooked = true;
     }
     if (state.frame - state.last_update > 1u) release();
-    if (!driving_allowed()) {
+    if (!driving_allowed() && !(state.pitch_by_lock && lock_on_status().locked)) {
         state.pitch_owned = false;
         state.yaw_remainder = 0.0f;
     }
@@ -707,7 +751,9 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
     if (!game_camera_driving()) discard();
 }
 
-bool game_camera_driving() { return driving_allowed() && state.available; }
+bool game_camera_driving() {
+    return (driving_allowed() || (state.hooked && lock_on_status().locked)) && state.available;
+}
 
 bool game_camera_aim_boost() {
     return driving_allowed() && state.aiming && state.frame - state.last_update <= 1u;

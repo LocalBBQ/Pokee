@@ -10,7 +10,7 @@ namespace {
 // Key positions by USB HID usage, the values SDL's scancodes have.
 namespace hid {
 constexpr std::uint16_t A = 4, C = 6, D = 7, E = 8, F = 9, H = 11, I = 12, J = 13, K = 14, L = 15, O = 18;
-constexpr std::uint16_t Q = 20, S = 22, U = 24, W = 26, X = 27, Z = 29;
+constexpr std::uint16_t Q = 20, S = 22, T = 23, U = 24, W = 26, X = 27, Z = 29;
 constexpr std::uint16_t Return = 40, Backspace = 42, Tab = 43, Space = 44, Grave = 53, Period = 55;
 constexpr std::uint16_t F7 = 64, F12 = 69, PrintScreen = 70;
 constexpr std::uint16_t Right = 79, Left = 80, Down = 81, Up = 82;
@@ -38,13 +38,26 @@ public:
         // As in video players: . steps one frame.
         set(Action::FrameStep, key(hid::Period));
         // Beside F6, the free camera's key: nothing else uses it.
-        return set(Action::HideHud, key(hid::F7));
+        set(Action::HideHud, key(hid::F7));
+        // T for target, which no preset gives the game.
+        return set(Action::LockOn, key(hid::T));
+    }
+    // With the mouse in hand, its middle button locks on as well, as in many
+    // PC action games; the presets that use the mouse leave it free.
+    Builder &mouse_lock_on() {
+        return set(Action::LockOn, single(mouse_button(2)), single(key(hid::T)));
     }
     // The pad's: a screenshot on a chord of the camera stick's button, which
     // the game does not use, and the D-pad button the free camera leaves
     // free for frame step. `mirrored` puts both on the other side, as the
     // left-handed layout does.
+    //
+    // Lock-on goes on the camera stick's button itself. The game never reads
+    // it, and a lock-on acts only on a press of that button alone (see
+    // acts_on_release), so the screenshot chord, L3 + R3 for the menu and
+    // Back + R3 for the free camera, which all hold it, never lock on.
     Builder &host_pad(bool mirrored = false) {
+        set(Action::LockOn, pad(mirrored ? PadInput::LeftStick : PadInput::RightStick));
         if (mirrored)
             set(Action::Screenshot, chord(pad(PadInput::LeftStick), pad(PadInput::West)));
         else
@@ -92,7 +105,8 @@ Bindings default_keys() {
         .set(Action::CameraDown, key(hid::K))
         .set(Action::CameraRight, key(hid::L))
         .items(true)
-        .host_keys();
+        .host_keys()
+        .mouse_lock_on();
     return b.done();
 }
 
@@ -146,7 +160,8 @@ Bindings left_handed_keys() {
         .set(Action::CameraDown, key(hid::Keypad5))
         .set(Action::CameraRight, key(hid::Keypad6))
         .items(true)
-        .host_keys();
+        .host_keys()
+        .mouse_lock_on();
     return b.done();
 }
 
