@@ -2,6 +2,7 @@
 
 #include "debug/debug_tools.hpp"
 #include "debug/game_state.hpp"
+#include "debug/quest_start.hpp"
 #include "game/guest_ram.hpp"
 #include "platform/utf8_path.hpp"
 
@@ -183,6 +184,30 @@ std::vector<std::string> run_command(Ram &ram, const std::string &line) {
             bytes.push_back(static_cast<char>(ram.load8(a)));
         file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
         out.push_back("dumped " + std::to_string(bytes.size()) + " bytes from " + hex(start) + " to " + path);
+    } else if (command == "quest" && !args.empty() && args[0] == "list") {
+        // quest list [STARS]: the village quests, or those of one star level.
+        const std::uint32_t stars = args.size() > 1u ? arg(1) : 0u;
+        std::size_t shown = 0u;
+        for (const quests::Quest &q : village_quests()) {
+            if (stars != 0u && q.stars != stars) continue;
+            out.push_back("  " + std::to_string(q.id) + "  " + std::to_string(q.stars) + " star  " + q.name + "  (" +
+                          quests::monster_list(q) + "; fee " + std::to_string(q.fee) + "z)");
+            ++shown;
+        }
+        out.push_back(std::to_string(shown) + " village quests" + (village_quests().empty()
+                                                                      ? std::string(" (the game's quest lists could not be read)")
+                                                                      : std::string()));
+    } else if (command == "quest" && !args.empty() && args[0] == "start") {
+        // quest start ID: leave the village for that quest, as its gate does.
+        if (args.size() < 2u) {
+            out.push_back("usage: quest start ID (see quest list)");
+        } else if (!blocked_reason().empty()) {
+            out.push_back("refused (" + blocked_reason() + "): " + line);
+        } else if (const quests::Quest *q = find_village_quest(static_cast<std::uint16_t>(arg(1))); q == nullptr) {
+            out.push_back("not started: " + args[1] + " is not a village quest the game's lists hold");
+        } else {
+            out.push_back(quests::start(ram, *q));
+        }
     } else if (command != "state" && command != "item" && command != "table" && command != "quest" &&
                !blocked_reason().empty()) {
         out.push_back("refused (" + blocked_reason() + "): " + line);

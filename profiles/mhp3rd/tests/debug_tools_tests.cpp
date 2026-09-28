@@ -4,11 +4,14 @@
 // names here are made up.
 #include "debug/debug_tools.hpp"
 #include "debug/game_state.hpp"
+#include "debug/quest_start.hpp"
 #include "game/guest_ram.hpp"
 
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -207,6 +210,137 @@ void test_quest() {
     check(r.load32(game::kQuestTimeLeft) == 89'970u, "unfrozen, the clock runs");
 }
 
+// A quest list laid out the way the game's are: offsets to the records, a
+// zero, then each record: a 0x48-byte header and its strings.
+struct FakeQuest {
+    std::uint16_t id;
+    std::uint8_t stars;
+    std::uint32_t fee;
+    std::vector<std::string> text;
+};
+
+std::vector<std::uint8_t> quest_list(const std::vector<FakeQuest> &quests) {
+    std::vector<std::uint8_t> file((quests.size() + 1u) * 4u, 0u);
+    const auto put32 = [&](std::size_t at, std::uint32_t value) {
+        for (std::size_t b = 0; b < 4u; ++b) file[at + b] = static_cast<std::uint8_t>(value >> (8u * b));
+    };
+    for (std::size_t i = 0; i < quests.size(); ++i) {
+        const std::size_t at = file.size();
+        put32(i * 4u, static_cast<std::uint32_t>(at));
+        file.resize(at + 0x48u, 0u);
+        put32(at + 0x04u, quests[i].fee);
+        put32(at + 0x08u, 500u);
+        put32(at + 0x10u, 90'000u);
+        put32(at + 0x1Cu, quests[i].id | static_cast<std::uint32_t>(quests[i].stars) << 16u);
+        for (const std::string &text : quests[i].text) {
+            file.insert(file.end(), text.begin(), text.end());
+            file.push_back(0u);
+            while (file.size() % 4u != 0u) file.push_back(0u);  // the game pads some strings
+        }
+        // Binary data after the strings, which is not text.
+        file.push_back(0x90u);
+        file.push_back(0x01u);
+        file.push_back(0u);
+        file.push_back(0u);
+    }
+    return file;
+}
+
+void test_quest_lists() {
+    const std::vector<std::uint8_t> level3 = quest_list({
+        {301, 3, 0u, {"Tour", "Survive", "Reward Zero", "Look around.", "Jaggi\nAptonoth", "Chief"}},
+        {304, 3, 150u, {"Carnival", "Slay 10", "Time Over", "Run!", "Bulldrome\nBullfango", "Seeker"}},
+        {10301, 3, 0u, {"Hall Tour", "Survive", "Reward Zero", "Look around.", "Ludroth", "Chief"}},
+    });
+    const std::vector<quests::Quest> parsed = quests::parse_quest_list(level3);
+    check(parsed.size() == 3u, "every record of a list is read");
+    check(parsed.size() == 3u && parsed[1].id == 304u && parsed[1].stars == 3u && parsed[1].fee == 150u &&
+              parsed[1].reward == 500u && parsed[1].time_limit == 90'000u,
+          "a record's id, stars, fee, reward and time");
+    check(parsed.size() == 3u && parsed[1].name == "Carnival" && parsed[1].objective == "Slay 10" &&
+              parsed[1].monsters == "Bulldrome\nBullfango" && parsed[1].client == "Seeker",
+          "a record's strings, past the padding and not into the data after them");
+    quests::Quest spaced;
+    spaced.monsters = "Deviljho\n Tigrex\n\nNargacuga";
+    check(quests::monster_list(spaced) == "Deviljho, Tigrex, Nargacuga", "monsters on one line, empty lines left out");
+    check(quests::parse_quest_list(std::vector<std::uint8_t>{8u, 0u, 0u, 0u, 1u, 0u, 0u, 0u}).empty(),
+          "bytes that are not a list give no quests");
+    check(quests::parse_quest_list(std::vector<std::uint8_t>{}).empty(), "nothing gives no quests");
+
+    check(quests::village_quest(101u) && quests::village_quest(699u), "village ids");
+    check(!quests::village_quest(10301u) && !quests::village_quest(100u) && !quests::village_quest(0u),
+          "Hall ids and non-ids are not village quests");
+
+    std::map<std::uint32_t, std::vector<std::uint8_t>> archive;
+    archive[quests::kFirstQuestList + 2u] = level3;
+    archive[quests::kFirstQuestList] = quest_list({{101, 1, 0u, {"First", "Deliver"}}});
+    const std::vector<quests::Quest> village = quests::village_quests(
+        [&](std::uint32_t entry) -> std::optional<std::vector<std::uint8_t>> {
+            const auto found = archive.find(entry);
+            if (found == archive.end()) return std::nullopt;
+            return found->second;
+        });
+    check(village.size() == 3u && village[0].id == 101u && village[1].id == 301u && village[2].id == 304u,
+          "the village quests of every level, by level, without the Hall's");
+}
+
+void test_quest_start() {
+    BufferRam ram(kBase, kSize);
+    const quests::Quest carnival{304u, 3u, 150u, 500u, 90'000u, "Carnival", "Slay 10", "Bulldrome", "Seeker"};
+    check(!quests::start_blocked(ram).empty(), "nothing loaded: no start");
+
+    // The village as the game has it once the character is in: the name, the
+    // village overlay, the pointers the departure goes through.
+    ram.store16(game::kHunterName, u'A');
+    load_overlay(ram, "lobby_task.ovl");
+    const std::uint32_t character = 0x09F4F450u;
+    const std::uint32_t next = 0x0A25DD2Cu;
+    const std::uint32_t scene = 0x08B2B0E0u;
+    const std::uint32_t state = 0x08ABAE40u;
+    ram.store32(quests::kCharacterPointer, character);
+    ram.store32(quests::kNextScenePointer, next);
+    ram.store32(quests::kScenePointer, scene);
+    ram.store32(quests::kStatePointer, state);
+    ram.store32(state + quests::kGateFlagSource, 0x11u);
+    ram.store16(character + quests::kQuestIdOffset, 1u);
+    ram.store8(character + quests::kGateOffset, 0xFFu);
+    ram.store32(scene + quests::kSceneFlags, 0x100u);
+    game::set_money(ram, 1'000u);
+    check(quests::start_blocked(ram).empty(), "walking in the village: a quest can start");
+
+    ram.store32(next, 0x2Bu);  // a menu is open
+    check(!quests::start_blocked(ram).empty(), "not with a menu open");
+    ram.store32(next, 0x3Eu);  // the Gathering Hall
+    std::string line = quests::start(ram, carnival);
+    check(line.rfind("not started", 0) == 0u && game::money(ram) == 1'000u &&
+              ram.load16(character + quests::kQuestIdOffset) == 1u,
+          "refused in the Hall, and nothing written");
+    ram.store32(next, 0u);
+
+    game::set_money(ram, 100u);
+    line = quests::start(ram, carnival);
+    check(line.rfind("not started", 0) == 0u && game::money(ram) == 100u, "refused when the fee cannot be paid");
+    game::set_money(ram, 1'000u);
+
+    const quests::Quest hall{10301u, 3u, 0u, 0u, 90'000u, "Hall Tour", {}, {}, {}};
+    check(quests::start(ram, hall).rfind("not started", 0) == 0u, "Hall quests are refused");
+
+    line = quests::start(ram, carnival);
+    check(line.rfind("started", 0) == 0u, "a village quest starts");
+    check(game::money(ram) == 850u, "the counter's fee is paid");
+    check(ram.load16(character + quests::kQuestIdOffset) == 304u, "the quest's id is the accepted one");
+    check(ram.load8(character + quests::kGateOffset) == quests::kVillageGate &&
+              ram.load8(character + quests::kGateFlagOffset) == 1u,
+          "the village gate and its flag");
+    check(ram.load32(next) == quests::kSceneQuest && ram.load32(next + 0x28u) == 0xFFFFFFFFu,
+          "the next scene is the quest");
+    check(ram.load32(scene + quests::kSceneFlags) == (0x100u | quests::kSceneEnd), "the village is asked to end");
+    check(!quests::start_blocked(ram).empty(), "and cannot be asked twice");
+
+    load_overlay(ram, "game_task.ovl");
+    check(quests::start_blocked(ram) == "a quest is already running", "no start during a quest");
+}
+
 } // namespace
 
 int main() {
@@ -215,6 +349,8 @@ int main() {
     test_equipment();
     test_money_and_name();
     test_quest();
+    test_quest_lists();
+    test_quest_start();
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;

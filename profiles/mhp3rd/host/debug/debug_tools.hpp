@@ -27,6 +27,10 @@ class Ram;
 
 namespace mhp3rd::debug {
 
+namespace quests {
+struct Quest;
+}
+
 using game::Ram;
 
 // Compiled in and switched on for this run (MHP3RD_DEBUG_MENU=1).
@@ -65,6 +69,13 @@ void set_held_cheats(const HeldCheats &cheats);
 // Lines about the quest in progress (the monsters' health, the clock), read
 // at the last flip. Empty outside a quest.
 [[nodiscard]] std::vector<std::string> quest_status();
+
+// The village quests from the game's own quest lists in DATA.BIN, read once,
+// as the game shows them (a mod's lists included). Empty without a disc.
+[[nodiscard]] const std::vector<quests::Quest> &village_quests();
+[[nodiscard]] const quests::Quest *find_village_quest(std::uint16_t id);
+// Queues a start of the quest (quest_start.hpp); logs what happened.
+void request_quest_start(std::uint16_t id);
 
 // Logs a "[debug] ..." line.
 void log(const std::string &line);

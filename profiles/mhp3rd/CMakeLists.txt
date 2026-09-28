@@ -384,7 +384,8 @@ if(MHP3RD_DEBUG_MENU AND NOT MHP3RD_RELEASE)
     target_sources(Yakumo PRIVATE
         host/debug/debug_console.cpp
         host/debug/debug_tools.cpp
-        host/debug/game_state.cpp)
+        host/debug/game_state.cpp
+        host/debug/quest_start.cpp)
     if(MHP3RD_RENDERER)
         target_sources(Yakumo PRIVATE host/ui/debug_screen.cpp)
     endif()
@@ -395,6 +396,7 @@ if(MHP3RD_DEBUG_MENU AND NOT MHP3RD_RELEASE)
     add_executable(mhp3rd_debug_tools_tests
         tests/debug_tools_tests.cpp
         host/debug/game_state.cpp
+        host/debug/quest_start.cpp
         host/game/game_data.cpp)
     target_include_directories(mhp3rd_debug_tools_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
     set_target_properties(mhp3rd_debug_tools_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

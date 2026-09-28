@@ -2,7 +2,10 @@
 
 #include "debug/debug_console.hpp"
 #include "debug/game_state.hpp"
+#include "debug/quest_start.hpp"
 #include "game/guest_ram.hpp"
+#include "mods/mhp3rd_data_bin.hpp"
+#include "mods/mhp3rd_mods.hpp"
 
 #include "adhoc/session.hpp"
 #include "hle/hle_common.hpp"
@@ -14,6 +17,7 @@
 #include <cstring>
 #include <deque>
 #include <iostream>
+#include <optional>
 #include <utility>
 
 namespace mhp3rd::debug {
@@ -57,6 +61,30 @@ void run_pending(Ram &ram) {
         }
         log(r.change(ram));
     }
+}
+
+// A DATA.BIN entry's plain bytes, as the game reads the archive (with a mod's
+// files in it when mods are on). The directory is read again each time: mods
+// can move entries while the game runs.
+std::optional<std::vector<std::uint8_t>> read_entry(std::uint32_t entry) {
+    namespace db = mods::p3rd;
+    const std::uint64_t archive = mods::data_bin_size();
+    std::vector<std::uint8_t> head(db::kBlock);
+    head.resize(mods::read_data_bin(0u, head));
+    if (head.size() < 4u) return std::nullopt;
+    std::vector<std::uint8_t> first(head.begin(), head.begin() + 4);
+    db::decrypt(first, 0u, 0u);
+    const std::uint32_t blocks = first[0] | first[1] << 8u | first[2] << 16u | static_cast<std::uint32_t>(first[3]) << 24u;
+    if (blocks == 0u || blocks >= 512u) return std::nullopt;
+    std::vector<std::uint8_t> encrypted(static_cast<std::size_t>(blocks) * db::kBlock);
+    encrypted.resize(mods::read_data_bin(0u, encrypted));
+    const std::optional<db::Directory> directory = db::Directory::parse(encrypted, archive);
+    if (!directory || entry >= directory->entries()) return std::nullopt;
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(directory->size(entry)));
+    const std::uint32_t block = directory->blocks[entry];
+    bytes.resize(mods::read_data_bin(static_cast<std::uint64_t>(block) * db::kBlock, bytes));
+    if (!db::verbatim_magic(bytes)) db::decrypt(bytes, block, 0u);
+    return bytes;
 }
 
 } // namespace
@@ -121,6 +149,33 @@ void set_held_cheats(const HeldCheats &cheats) {
 }
 
 std::vector<std::string> quest_status() { return state().quest; }
+
+const std::vector<quests::Quest> &village_quests() {
+    static std::vector<quests::Quest> list;
+    static bool read = false;
+    if (!read) {
+        read = true;
+        list = quests::village_quests(&read_entry);
+        log("read " + std::to_string(list.size()) + " village quests from the game's quest lists");
+    }
+    return list;
+}
+
+const quests::Quest *find_village_quest(std::uint16_t id) {
+    for (const quests::Quest &q : village_quests())
+        if (q.id == id) return &q;
+    return nullptr;
+}
+
+void request_quest_start(std::uint16_t id) {
+    const quests::Quest *quest = find_village_quest(id);
+    if (quest == nullptr) {
+        log("not started: " + std::to_string(id) + " is not a village quest the game's lists hold");
+        return;
+    }
+    const quests::Quest copy = *quest;
+    request("start quest " + std::to_string(id), [copy](Ram &ram) { return quests::start(ram, copy); });
+}
 
 void log(const std::string &line) {
     std::cout << "[debug] " << line << std::endl;
