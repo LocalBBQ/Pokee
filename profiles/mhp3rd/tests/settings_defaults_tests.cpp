@@ -319,7 +319,29 @@ void test_layered_armor() {
     check(again.layered_pieces == read.layered_pieces && again.layered_armor, "the choices survive a round trip");
 }
 
+// Sharp text is off by default. v0.6.5 and v0.6.6 wrote text.crisp=1 into
+// every settings.ini they saved, so a file without settings.version gets the
+// new default; from version 2 on, the file's value is the player's.
+void test_crisp_text() {
+    check(!defaults_for(Platform::Desktop).crisp_text && !defaults_for(Platform::Android).crisp_text,
+          "Sharp text is off by default on every platform");
+    Entries earlier = to_entries(from_entries({}));
+    earlier.erase("settings.version");
+    earlier["text.crisp"] = "1";
+    check(!from_entries(earlier).crisp_text, "text.crisp=1 from an earlier version is its default, not a choice");
+    Settings chosen = from_entries({});
+    chosen.crisp_text = true;
+    const Entries written = to_entries(chosen);
+    check(written.count("settings.version") == 1u && written.at("settings.version") == "2",
+          "every file written says its version");
+    check(from_entries(written).crisp_text, "Sharp text turned on now stays on");
+    Entries off = written;
+    off["text.crisp"] = "0";
+    check(!from_entries(off).crisp_text, "and off stays off");
+}
+
 int main() {
+    test_crisp_text();
     test_layered_armor();
     test_desktop_is_the_declared_defaults();
     test_android();

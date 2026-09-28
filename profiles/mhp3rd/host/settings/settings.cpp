@@ -134,6 +134,15 @@ constexpr const char *kRetiredTypeNameKey = "input.type_name";
 // Written by earlier versions: the gamepad's trigger profile, which control
 // presets replaced. Read once to make the player's preset, then dropped.
 constexpr const char *kRetiredTriggerProfileKey = "input.trigger_profile";
+// settings.ini's format. Every save writes every key, defaults included, so
+// once a default changes, a file must say which version wrote it for the
+// player's choices to be told from the old defaults:
+//   (none) up to v0.6.6;
+//   2      Sharp text (text.crisp) off by default. v0.6.5 and v0.6.6 wrote
+//          text.crisp=1 into every file they saved, chosen or not, so a file
+//          without a version gets the new default.
+constexpr const char *kVersionKey = "settings.version";
+constexpr int kVersion = 2;
 constexpr std::string_view kBindPrefix = "input.bind.";
 constexpr std::string_view kPadPrefix = "input.pad.";
 
@@ -761,10 +770,21 @@ State &state() {
 
 void write_entries(const Settings &values, Entries &entries) {
     for (const Field &field : all_fields()) entries[field.key] = field.format(values);
+    entries[kVersionKey] = std::to_string(kVersion);
     write_combos(values.controls.combos, std::string(kComboPrefix), entries);
     write_user_presets(values.user_presets, entries);
     entries.erase(kRetiredTypeNameKey);
     entries.erase(kRetiredTriggerProfileKey);
+}
+
+// Drops what a file an earlier version wrote holds only because that
+// version wrote its defaults (kVersion). True when something was dropped.
+bool upgrade(Entries &entries) {
+    std::uint32_t version = 1u;
+    if (const auto found = entries.find(kVersionKey); found != entries.end())
+        (void)parse_uint(found->second, 1u, 1000u, version);
+    if (version >= 2u) return false;
+    return entries.erase("text.crisp") != 0u;
 }
 
 void read_entries(Settings &values, const Entries &entries) {
@@ -783,6 +803,11 @@ void load(State &s) {
     } catch (const std::exception &e) {
         std::cerr << "[settings] cannot read settings.ini: " << e.what() << "\n";
     }
+    // Dropped from what the file held too, so a run whose environment
+    // decides Sharp text does not write the old default back as chosen.
+    if (upgrade(s.file))
+        std::cout << "[settings] text.crisp from an earlier version dropped: Sharp text is off by default now; "
+                     "turn it on in Video if you want it\n";
     read_entries(s.values, s.file);
     for (const Field &field : all_fields()) {
         if (field.variable == nullptr) continue;
@@ -906,7 +931,9 @@ void controls_edited(Settings &settings) {
 
 Settings from_entries(const Entries &entries) {
     Settings values = defaults();
-    read_entries(values, entries);
+    Entries upgraded = entries;
+    (void)upgrade(upgraded);
+    read_entries(values, upgraded);
     return values;
 }
 

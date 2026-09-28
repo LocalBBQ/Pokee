@@ -75,7 +75,9 @@ struct Settings {
     // Text
     std::string font;                  // the game's text font: path, "#face" for a collection; empty: the default
     std::uint32_t font_weight{1u};     // columns the game's glyphs are thickened by, 0 to kMaxFontWeight
-    bool crisp_text{true};             // draw the game's glyph atlas again at the internal resolution
+    // Draw the game's glyph atlas again at the internal resolution. Off by
+    // default on every platform since settings.version 2 (#210, #212).
+    bool crisp_text{};
     UiTextures ui_textures{UiTextures::Off};
 
     // Audio
@@ -232,6 +234,8 @@ void controls_edited(Settings &settings);
 // versions, which had keyboard bindings and a trigger profile but no
 // presets, become a preset: a shipped one if they are one, otherwise one of
 // the player's named "Custom".
+// A file from before settings.version 2 has its text.crisp dropped, since
+// those versions wrote it whether or not the player chose it (kVersion).
 using Entries = std::map<std::string, std::string>;
 [[nodiscard]] Settings from_entries(const Entries &entries);
 [[nodiscard]] Entries to_entries(const Settings &settings);
