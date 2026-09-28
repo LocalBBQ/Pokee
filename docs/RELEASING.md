@@ -4,6 +4,41 @@ A release gives players the program ready to run: the executable with the recomp
 
 Releases are built by maintainers, not by CI: the recompiled code is generated from the game's executable, so a build needs a copy of the game. The game data stays on the maintainer's machine. Every artifact is checked for it before it is published.
 
+## Stable releases and test builds
+
+There are two kinds of release, and players must be able to tell them apart at a glance.
+
+| | Stable | Test build |
+| --- | --- | --- |
+| Tag | `vX.Y.Z`, e.g. `v0.7.0`, `v0.7.1` | `vX.Y.Z-test.N`, e.g. `v0.7.0-test.1` |
+| GitHub | a normal release, marked **Latest** | always a **pre-release**, never Latest |
+| Title | `Yakumo vX.Y.Z` | `(test) Yakumo vX.Y.Z-test.N` |
+| Notes | what changed | start with the notice below, then what changed |
+| Platforms | all of them | any subset (e.g. Android only), said in the notes |
+
+Every test build's notes start with this notice, with the link pointing at the latest stable release:
+
+```markdown
+> ⚠️ **This is a test build, not a stable release.** The latest stable release is [Yakumo vX.Y.Z](…). If you just want to play, stay on (or go back to) that one. Install this build only if you want to help test.
+```
+
+A test build becomes stable without being built again: when it has passed the checks below, the same commit is tagged `vX.Y.Z` and published with the same files (renamed to the stable version where the file name carries it, and re-checked against `SHA256SUMS`). So what was tested is exactly what players get.
+
+A version is released as stable only when:
+
+- [TESTING.md](TESTING.md) passes on Windows, the Steam Deck (Linux), macOS and **a real Android phone**, recorded in [COMPATIBILITY.md](COMPATIBILITY.md) with the commit;
+- no issue reports a regression against the previous stable release (performance included) that is still open.
+
+The pre-releases published before this policy (`v0.6.0-alpha.5`, shown as "v0.6.5", and `v0.6.6`) are test builds under the old naming; they are titled "(unstable)" and point players back to `v0.6.0-alpha.4`, the last stable release.
+
+## Branches
+
+All development happens on `main`, through pull requests merged by rebase.
+
+- **Release branch.** When a version is being stabilised, cut `release/X.Y` from `main` and build its test builds from it. Only fixes go there: every fix is merged into `main` first and then brought to `release/X.Y` with `git cherry-pick`, so `main` always has everything and the release branch gets no new features.
+- **No merging back.** A release branch is never merged into `main` (it has nothing `main` lacks). It stays for the patch releases of that version (`vX.Y.1`, …).
+- **Tags** go on the release branch's commits. New features keep landing on `main` meanwhile and go out in the next `release/X.Y`.
+
 There are Linux, macOS and [Windows](#windows) builds. Android is described [below](#android); it has been tested on the emulator only so far ([#127](https://github.com/TeamGDB/Yakumo/issues/127)).
 
 ## Linux
