@@ -56,8 +56,15 @@ constexpr float kPitchDown = 20.0f;
 constexpr float kPitchShare = 0.12f;
 constexpr float kPitchLowest = -30.0f;
 constexpr float kPitchHighest = 60.0f;
-// A tap that no camera update took in this many flips is dropped.
-constexpr unsigned kTapFrames = 3u;
+// Nearer than kNear to the camera's look-at point, horizontally, the
+// monster is on top of the hunter and its direction means little: the yaw
+// holds. Beyond, the turn comes in over kNearBlend.
+constexpr float kNear = 300.0f;
+constexpr float kNearBlend = 400.0f;
+// Past this much of a turn to go, the turn keeps the way it was going.
+constexpr int kHalfTurnBand = 28672;  // 157.5 degrees
+// A first tap that no camera update took in this many flips is dropped.
+constexpr unsigned kTapFrames = 6u;
 
 struct State {
     bool suspended{};
@@ -67,6 +74,7 @@ struct State {
     std::uint32_t target{};
     std::vector<std::uint32_t> visited;
     float manual{};
+    int turning{};  // the way the last step went: +1, -1 or 0
     bool pitch_known{};
     float base_pitch{};
     float pitch{};
@@ -112,6 +120,7 @@ void lock(std::uint32_t target, const char *how) {
     state.locked = true;
     state.target = target;
     state.manual = 0.0f;
+    state.turning = 0;
     state.visited.push_back(target);
     std::cout << "[lockon] " << how << " the monster at 0x" << std::hex << target << std::dec << std::endl;
 }
@@ -181,13 +190,18 @@ std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monste
     return std::nullopt;
 }
 
-std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted) {
-    const int rest = yaw_difference(current, wanted);
+std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, float weight, int sign) {
+    weight = std::clamp(weight, 0.0f, 1.0f);
+    if (weight <= 0.0f) return current;
+    int rest = yaw_difference(current, wanted);
     if (std::abs(rest) <= kSmallestStep) return wanted;
-    int step = static_cast<int>(std::lround(static_cast<float>(rest) * kYawShare));
-    const int sign = rest > 0 ? 1 : -1;
-    step = sign * std::clamp(std::abs(step), kSmallestStep, kLargestStep);
-    return static_cast<std::uint16_t>(current + step);
+    if (std::abs(rest) > kHalfTurnBand && sign != 0 && (rest > 0) != (sign > 0))
+        rest += sign > 0 ? 65536 : -65536;  // the long way, as before
+    const int way = rest > 0 ? 1 : -1;
+    const float share = static_cast<float>(std::abs(rest)) * kYawShare * weight;
+    const int step = std::clamp(static_cast<int>(std::lround(share)), kSmallestStep,
+                                std::max(kSmallestStep, static_cast<int>(static_cast<float>(kLargestStep) * weight)));
+    return static_cast<std::uint16_t>(current + way * std::min(step, std::abs(rest)));
 }
 
 void lock_on_tap() {
@@ -243,7 +257,10 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     }
     const Vec3 aim{target->position.x, target->position.y + kAimHeight, target->position.z};
     const std::uint16_t wanted = yaw_towards(camera.look_at, aim);
-    LockOnAim out{lock_on_ease_yaw(camera.yaw, wanted), std::nullopt};
+    const float near = (horizontal(camera.look_at, aim) - kNear) / kNearBlend;
+    LockOnAim out{lock_on_ease_yaw(camera.yaw, wanted, near, state.turning), std::nullopt};
+    const int step = yaw_difference(camera.yaw, out.yaw);
+    state.turning = step > 0 ? 1 : (step < 0 ? -1 : 0);
     if (!camera.player_pitch && state.pitch_known) {
         const float distance = std::max(horizontal(camera.look_at, aim), 1.0f);
         const float elevation = std::atan2(aim.y - camera.look_at.y, distance) * kDegrees;
@@ -267,6 +284,17 @@ void lock_on_suspend(bool suspended) { state.suspended = suspended; }
 
 void lock_on_frame(const psprecomp::GuestMemory &memory) {
     if (state.suspended) state.tap_age = 0u;
+    // A tap while locked moves on or lets go, which needs no camera: done
+    // here, so it counts even while the follow camera does not run (a
+    // grab, an aim).
+    if (state.tap && state.locked && !state.suspended) {
+        state.tap = false;
+        const std::vector<LockMonster> monsters = lock_on_monsters(memory);
+        const std::optional<std::uint32_t> next =
+            lock_on_pick(monsters, {}, 0u, std::optional(state.target), state.visited);
+        if (next) lock(*next, "moved to");
+        else lock_on_release("");
+    }
     if (state.tap && ++state.tap_age > kTapFrames) {
         // No follow camera took it: the village, a cutscene, aiming.
         state.tap = false;
@@ -317,6 +345,7 @@ void lock_on_release(const char *why) {
     state.locked = false;
     state.target = 0u;
     state.manual = 0.0f;
+    state.turning = 0;
     state.pitch_known = false;
 }
 

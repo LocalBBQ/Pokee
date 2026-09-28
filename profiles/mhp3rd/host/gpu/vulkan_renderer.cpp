@@ -3435,9 +3435,6 @@ bool VulkanRenderer::Impl::create_ui_framebuffers(std::string &error) {
     return true;
 }
 
-// Scales the game frame onto the swapchain image, which is in TRANSFER_DST
-// layout: stretched over the whole window, or at the PSP's aspect ratio with
-// black bars. Fill's target already has the window's shape.
 VkRect2D VulkanRenderer::Impl::game_blit_rect() const {
     const auto width = static_cast<std::int32_t>(picture_rect.extent.width);
     const auto height = static_cast<std::int32_t>(picture_rect.extent.height);
@@ -3450,6 +3447,9 @@ VkRect2D VulkanRenderer::Impl::game_blit_rect() const {
             {static_cast<std::uint32_t>(shown_width), static_cast<std::uint32_t>(shown_height)}};
 }
 
+// Scales the game frame onto the swapchain image, which is in TRANSFER_DST
+// layout: stretched over the whole window, or at the PSP's aspect ratio with
+// black bars. Fill's target already has the window's shape.
 void VulkanRenderer::Impl::record_game_blit(VkCommandBuffer commands, VkImage source, VkImage destination) {
     const auto width = static_cast<std::int32_t>(picture_rect.extent.width);
     const auto height = static_cast<std::int32_t>(picture_rect.extent.height);

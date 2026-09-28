@@ -84,8 +84,12 @@ inline constexpr float kInView = 60.0f;  // degrees either side of where the cam
                                                         const std::vector<std::uint32_t> &visited);
 
 // One step of the camera's yaw towards `wanted`: a share of what is left,
-// neither too small to finish nor so large that the turn jumps.
-[[nodiscard]] std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted);
+// neither too small to finish nor so large that the turn jumps. `weight`
+// (0..1) scales the step, down to none; `sign` (+1, -1, 0 for none) is the
+// way the previous step went, kept while the rest is near half a turn, where
+// the short way round flips from one update to the next.
+[[nodiscard]] std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, float weight = 1.0f,
+                                             int sign = 0);
 
 // --- The running lock -------------------------------------------------------
 

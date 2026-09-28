@@ -964,9 +964,9 @@ void Menu::controls() {
         if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
         const std::string help =
             "A tap of Lock on" + (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
-            " turns the quest camera to the nearest large monster and keeps it in view. Tap again to let go, or "
-            "to change monster when there are two in the area. The camera, the D-pad and L let go too. Off, "
-            "the bind does nothing.";
+            " turns the quest camera to the nearest large monster and keeps it in view. Tap again for the next "
+            "large monster in the area; after the last one, a tap lets go. Turning the camera by hand, the D-pad's "
+            "camera and L let go too. Off, the bind does nothing.";
         if (toggle_row("Lock-on", s.lock_on, options_for("input.lock_on", help.c_str()))) {
             s.lock_on = !s.lock_on;
             settings::save();

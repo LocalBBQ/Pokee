@@ -132,6 +132,10 @@ void test_geometry() {
     check(yaw == 30000u, "easing reaches the wanted yaw");
     check(largest <= 2048, "and never turns more than 11.25 degrees in one update");
     check(lock_on_ease_yaw(100u, 120u) == 120u, "a small rest is closed at once");
+    check(lock_on_ease_yaw(1000u, 20000u, 0.0f) == 1000u, "with the monster on top of the hunter the yaw holds");
+    check(yaw_difference(0u, lock_on_ease_yaw(0u, 32868u, 1.0f, 1)) > 0,
+          "near half a turn, the turn keeps the way it was going");
+    check(yaw_difference(0u, lock_on_ease_yaw(0u, 32868u)) < 0, "and otherwise takes the short way");
 }
 
 void test_monsters_and_pick() {
