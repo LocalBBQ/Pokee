@@ -1,6 +1,8 @@
 package io.github.teamgdb.yakumo;
 
+import android.app.AlertDialog;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.database.Cursor;
@@ -10,11 +12,21 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
+import android.util.DisplayMetrics;
+import android.util.TypedValue;
+import android.view.ContextThemeWrapper;
 import android.view.DisplayCutout;
+import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
 
 import org.libsdl.app.SDLActivity;
 
@@ -64,6 +76,128 @@ public class YakumoActivity extends SDLActivity {
     @Override
     public void setOrientationBis(int w, int h, boolean resizable, String hint) {
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
+
+    /**
+     * Shows an SDL message box (the fatal error dialog, the setup dialogs)
+     * with its text scrolling above buttons that always stay on screen.
+     * SDL's own dialog puts the text and a row of buttons in one view that
+     * does not scroll: on a landscape phone a long error pushed the buttons
+     * to the bottom edge, squashed until their labels could not be read.
+     * Here the text scrolls in whatever height is left, the buttons keep
+     * their full size, and they stack when they do not fit side by side.
+     * SDL calls this on the UI thread; the button pressed goes into
+     * messageboxSelection before the dialog is dismissed, and SDL's dismiss
+     * listener wakes the waiting thread, as in SDL's version. The box's
+     * colors (SDL_MessageBoxColorScheme) are not used; no caller sets them.
+     */
+    @Override
+    protected void messageboxCreateAndShow(Bundle args) {
+        final Context themed = new ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
+        final DisplayMetrics metrics = getResources().getDisplayMetrics();
+        final int[] buttonFlags = args.getIntArray("buttonFlags");
+        final int[] buttonIds = args.getIntArray("buttonIds");
+        final String[] buttonTexts = args.getStringArray("buttonTexts");
+
+        final AlertDialog dialog = new AlertDialog.Builder(themed).create();
+        dialog.setTitle(args.getString("title"));
+        dialog.setCancelable(false);
+        dialog.setOnDismissListener(unused -> {
+            synchronized (messageboxSelection) {
+                messageboxSelection.notify();
+            }
+        });
+
+        TextView message = new TextView(themed);
+        message.setText(args.getString("message"));
+        message.setTextAppearance(android.R.style.TextAppearance_Material_Subhead);
+        message.setPadding(dp(24), dp(8), dp(24), dp(8));
+        ScrollView scroll = new ScrollView(themed);
+        scroll.addView(message);
+
+        // SDL has put the buttons in the order they are shown.
+        ButtonBar bar = new ButtonBar(themed);
+        bar.setPadding(dp(12), dp(4), dp(12), dp(8));
+        Button enter = null;
+        Button escape = null;
+        for (int i = 0; i < buttonTexts.length; ++i) {
+            Button button = new Button(themed, null, android.R.attr.buttonBarButtonStyle);
+            button.setText(buttonTexts[i]);
+            button.setAllCaps(false);
+            button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            button.setMinHeight(dp(48));
+            final int id = buttonIds[i];
+            button.setOnClickListener(v -> {
+                messageboxSelection[0] = id;
+                dialog.dismiss();
+            });
+            // SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT and _ESCAPEKEY_DEFAULT.
+            if ((buttonFlags[i] & 0x1) != 0) enter = button;
+            if ((buttonFlags[i] & 0x2) != 0) escape = button;
+            bar.addView(button);
+        }
+
+        LinearLayout content = new LinearLayout(themed);
+        content.setOrientation(LinearLayout.VERTICAL);
+        // The text takes what height the title and the buttons leave, and
+        // scrolls in it.
+        content.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
+        content.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT));
+        dialog.setView(content);
+
+        final Button enterButton = enter;
+        final Button escapeButton = escape;
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            Button button = null;
+            if (keyCode == KeyEvent.KEYCODE_ENTER) button = enterButton;
+            // Back is the phone's Escape.
+            if (keyCode == KeyEvent.KEYCODE_ESCAPE || keyCode == KeyEvent.KEYCODE_BACK) button = escapeButton;
+            if (button == null) return false;
+            if (event.getAction() == KeyEvent.ACTION_UP) button.performClick();
+            return true;
+        });
+
+        dialog.show();
+        // Wide enough in landscape that the text needs few lines, but not
+        // across the whole of a wide phone.
+        int width = Math.min(metrics.widthPixels - dp(32), dp(640));
+        dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * A row of buttons, right-aligned, that turns into a column of
+     * full-width buttons when the row would not fit, so no label is cut.
+     */
+    private static final class ButtonBar extends LinearLayout {
+        ButtonBar(Context context) {
+            super(context);
+            setOrientation(HORIZONTAL);
+            setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int available = MeasureSpec.getSize(widthMeasureSpec) - getPaddingLeft() - getPaddingRight();
+            int wanted = 0;
+            int unspecified = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+            for (int i = 0; i < getChildCount(); ++i) {
+                View child = getChildAt(i);
+                child.measure(unspecified, unspecified);
+                wanted += child.getMeasuredWidth();
+            }
+            boolean stack = MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED && wanted > available;
+            setOrientation(stack ? VERTICAL : HORIZONTAL);
+            for (int i = 0; i < getChildCount(); ++i) {
+                LayoutParams params = (LayoutParams) getChildAt(i).getLayoutParams();
+                params.width = stack ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT;
+            }
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        }
     }
 
     /** Left, top, right, bottom of the display cutout in window pixels, or all 0. */
