@@ -11,6 +11,7 @@
 // Windows these names are outside the ANSI code page of most systems, which is
 // what broke path::string() and path(std::string) there.
 #include "fonts/game_font.hpp"
+#include "gpu/screenshot.hpp"
 #include "gpu/texture_pack.hpp"
 #include "gpu/texture_pack_import.hpp"
 #include "install/user_data.hpp"
@@ -357,6 +358,27 @@ void test_disc_image_and_executable(const fs::path &root) {
     }
 }
 
+// The data folder chosen through MHP3RD_DATA_DIR, a portable data\ folder
+// beside the executable, and screenshots written into the data folder.
+void test_data_folders(const fs::path &root, const fs::path &data_dir) {
+    check(mhp3rd::install::data_directory().path == data_dir &&
+              mhp3rd::install::data_directory().source == mhp3rd::install::DataSource::Environment,
+          "MHP3RD_DATA_DIR names the data folder");
+    const fs::path program = root / kGames / "Yakumo";
+    fs::create_directories(program);
+    check(mhp3rd::install::portable_data_directory(program, false, false).empty(), "no portable folder by itself");
+    { std::ofstream(program / mhp3rd::install::kPortableMarkerFile) << "\n"; }
+    const fs::path portable = mhp3rd::install::portable_data_directory(program, false, false);
+    check(portable == program / mhp3rd::install::kPortableDataFolder, "portable.txt keeps the data in data/ beside it");
+    check(mhp3rd::install::check_writable(portable).empty(), "and that folder can be written");
+    check(mhp3rd::screenshot::folder() == data_dir / "screenshots", "screenshots go into the data folder");
+    const std::vector<std::uint8_t> rgba(2u * 2u * 4u, 0x80u);
+    std::string error;
+    const fs::path shot = mhp3rd::screenshot::free_path(mhp3rd::screenshot::folder(), std::chrono::system_clock::now());
+    check(mhp3rd::screenshot::write_png(shot, rgba, 2u, 2u, error) && fs::is_regular_file(shot),
+          "a screenshot is written there: " + error);
+}
+
 } // namespace
 
 int main() {
@@ -382,6 +404,7 @@ int main() {
         test_texture_pack(data_dir, pack);
         test_font(font);
         test_disc_image_and_executable(scratch.root);
+        test_data_folders(scratch.root, data_dir);
     } catch (const std::exception &e) {
         std::printf("FAIL unexpected exception: %s\n", e.what());
         ++failures;

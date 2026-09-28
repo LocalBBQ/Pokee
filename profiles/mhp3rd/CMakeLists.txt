@@ -450,7 +450,8 @@ add_executable(mhp3rd_lock_on_tests
     host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
-    host/input/touch_controls.cpp)
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
 target_include_directories(mhp3rd_lock_on_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_lock_on_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_lock_on_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -469,7 +470,8 @@ add_executable(mhp3rd_free_camera_tests
     host/input/presets.cpp
     host/input/touch_action.cpp
     host/input/touch_controls.cpp
-    host/app_paths.cpp)
+    host/app_paths.cpp
+    host/platform/utf8_path.cpp)
 target_include_directories(mhp3rd_free_camera_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_free_camera_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_free_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -498,7 +500,8 @@ add_executable(mhp3rd_settings_tests
     host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
-    host/input/touch_controls.cpp)
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
 target_include_directories(mhp3rd_settings_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_settings_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_settings_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -511,7 +514,8 @@ endif()
 add_executable(mhp3rd_data_directory_tests
     tests/data_directory_tests.cpp
     host/install/user_data.cpp
-    host/app_paths.cpp)
+    host/app_paths.cpp
+    host/platform/utf8_path.cpp)
 target_include_directories(mhp3rd_data_directory_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 target_link_libraries(mhp3rd_data_directory_tests PRIVATE psprecomp_core)
 set_target_properties(mhp3rd_data_directory_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -525,7 +529,8 @@ add_executable(mhp3rd_screenshot_tests
     tests/screenshot_tests.cpp
     host/gpu/screenshot.cpp
     host/install/user_data.cpp
-    host/app_paths.cpp)
+    host/app_paths.cpp
+    host/platform/utf8_path.cpp)
 target_include_directories(mhp3rd_screenshot_tests PRIVATE
     "${MHP3RD_PROFILE_DIR}/host"
     "${MHP3RD_PROFILE_DIR}/third_party")
@@ -694,9 +699,14 @@ add_executable(mhp3rd_path_tests
     tests/path_tests.cpp
     host/app_paths.cpp
     host/fonts/game_font.cpp
+    host/gpu/screenshot.cpp
     host/gpu/texture_pack.cpp
     host/gpu/texture_pack_import.cpp
     host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
     host/install/user_data.cpp
     host/kernel/iso_image.cpp
     host/platform/utf8_path.cpp
@@ -725,10 +735,11 @@ endif()
 # otherwise reads sources in the system's ANSI code page. The recompiled code
 # is ASCII and keeps its own flags.
 if(MSVC)
-    foreach(target Yakumo mhp3rd_savedata_tests mhp3rd_camera_tests mhp3rd_aspect_tests mhp3rd_texture_pack_tests
-                   mhp3rd_input_tests mhp3rd_render_tests mhp3rd_interpolation_tests mhp3rd_adhoc_tests
-                   mhp3rd_path_tests)
-        target_compile_options(${target} PRIVATE /utf-8)
+    get_property(mhp3rd_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(target IN LISTS mhp3rd_targets)
+        if(target STREQUAL "Yakumo" OR target MATCHES "^mhp3rd_.*_tests$")
+            target_compile_options(${target} PRIVATE /utf-8)
+        endif()
     endforeach()
 endif()
 

@@ -438,8 +438,8 @@ bool scoped(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
 // game stepped and what the driver made of it, and one per direction the
 // mouse showed the game. For telling the game's steps from the driver's.
 std::ofstream *aim_trace() {
-    static const char *path = std::getenv("MHP3RD_TRACE_AIM");
-    if (path == nullptr) return nullptr;
+    static const std::filesystem::path path = environment_path("MHP3RD_TRACE_AIM");
+    if (path.empty()) return nullptr;
     static std::ofstream out(path);
     return &out;
 }

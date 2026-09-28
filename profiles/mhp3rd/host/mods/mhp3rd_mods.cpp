@@ -189,8 +189,7 @@ void note_problems(FileId file) {
 } // namespace
 
 fs::path mods_directory() {
-    if (const char *dir = std::getenv("MHP3RD_MODS_DIR"); dir != nullptr && *dir != '\0')
-        return install::path_from_utf8(dir);
+    if (fs::path dir = environment_path("MHP3RD_MODS_DIR"); !dir.empty()) return dir;
     try {
         return install::user_data_directory() / "mods";
     } catch (const std::exception &) {

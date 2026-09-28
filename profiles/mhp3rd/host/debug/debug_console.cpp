@@ -3,6 +3,7 @@
 #include "debug/debug_tools.hpp"
 #include "debug/game_state.hpp"
 #include "game/guest_ram.hpp"
+#include "platform/utf8_path.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -192,11 +193,11 @@ std::vector<std::string> run_command(Ram &ram, const std::string &line) {
 }
 
 void console_frame(Ram &ram) {
-    static const char *path = std::getenv("MHP3RD_DEBUG_COMMANDS");
-    if (path == nullptr || *path == '\0') return;
+    static const std::filesystem::path path = environment_path("MHP3RD_DEBUG_COMMANDS");
+    if (path.empty()) return;
     static std::streamoff offset = [] {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
-        log(std::string("reading commands from ") + path);
+        log("reading commands from " + path_to_utf8(path));
         return file ? static_cast<std::streamoff>(file.tellg()) : std::streamoff{0};
     }();
     std::ifstream file(path, std::ios::binary);

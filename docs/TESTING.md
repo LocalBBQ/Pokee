@@ -120,7 +120,7 @@ For the manual check, never use downloaded mods for a regression you cannot undo
 
 ### Folder names outside ASCII (#129)
 
-`mhp3rd_path_tests` (CTest) needs no game data. It works in a temporary folder named `Юникод_テスト` and checks the UTF-8 conversions and environment variables, `settings.ini` with UTF-8 paths in it, writing a save there (and that no `.tmp` file is left), exporting and importing it, finding, checking, copying and installing a texture pack whose image has a Cyrillic name, opening a font copied there (skipped when the system has none of the fonts it looks for), and opening a disc image and an executable there.
+`mhp3rd_path_tests` (CTest) needs no game data. It works in a temporary folder named `Юникод_テスト` and checks the UTF-8 conversions and environment variables, `settings.ini` with UTF-8 paths in it, writing a save there (and that no `.tmp` file is left), exporting and importing it, finding, checking, copying and installing a texture pack whose image has a Cyrillic name, opening a font copied there (skipped when the system has none of the fonts it looks for), opening a disc image and an executable there, the data folder named by `MHP3RD_DATA_DIR`, a portable `data` folder beside a `portable.txt`, and writing a screenshot into the data folder.
 
 The manual check matters most on Windows, where the standard library's narrow paths use the ANSI code page. Use a user folder, or a data folder, whose name that code page cannot hold: Cyrillic on a Western system, Japanese on a Russian one.
 
@@ -134,6 +134,9 @@ The manual check matters most on Windows, where the standard library's narrow pa
 - *Set up game data again…* in the menu restarts Yakumo into the setup.
 - *Save network log* under **Network** writes a file into `logs` in the data folder.
 - `MHP3RD_SCREENSHOT_DIR` set to a folder with such a name gets the screenshots.
+- F12 in the game writes a screenshot into `screenshots` in the data folder, and *Open the screenshots folder* opens it.
+- A portable copy: Yakumo unpacked into a folder with such a name, with `portable.txt` beside `Yakumo.exe`, keeps settings and saves in its `data` folder.
+- **Controls → Controllers**: set up a controller; `gamecontrollerdb.txt` is written into the data folder and read again at the next start (the log's `[pad] … mapping(s) … from` line).
 
 ### Renderer performance paths (#92)
 

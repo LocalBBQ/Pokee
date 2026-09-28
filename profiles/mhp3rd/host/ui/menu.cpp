@@ -1560,16 +1560,15 @@ void Menu::system() {
     if (!screenshot_path_.empty()) info_row("Screenshot", screenshot_path_);
 #if !defined(MHP3RD_ANDROID_APP)
     if (button_row("Open the screenshots folder", {false, {}, "Show the screenshots in the file manager."})) {
-        std::string folder;
         try {
             std::error_code ec;
-            std::filesystem::create_directories(screenshot::folder(), ec);
-            folder = install::path_to_utf8(screenshot::folder());
+            const std::filesystem::path folder = screenshot::folder();
+            std::filesystem::create_directories(folder, ec);
+            if (!SDL_OpenURL(folder_url(folder).c_str()))
+                std::cout << "[menu] cannot open " << path_to_utf8(folder) << ": " << SDL_GetError() << "\n";
         } catch (const std::exception &e) {
-            folder = e.what();
+            std::cout << "[menu] cannot open the screenshots folder: " << e.what() << "\n";
         }
-        if (!SDL_OpenURL(file_url(folder).c_str()))
-            std::cout << "[menu] cannot open " << folder << ": " << SDL_GetError() << "\n";
     }
 #endif
     settings::Settings &s = settings::current();

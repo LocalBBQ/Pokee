@@ -1163,7 +1163,7 @@ struct VulkanRenderer::Impl {
     bool capture_recorded{};
     // MHP3RD_CAPTURE_PRESENTS=N: a window capture goes on for N presents in
     // a row (NAME_1.bmp and so on), frames in between the game's included.
-    std::string capture_burst_base;
+    std::filesystem::path capture_burst_base;
     int capture_burst_left{};
     int capture_burst_index{};
 
@@ -3723,7 +3723,8 @@ void VulkanRenderer::Impl::write_capture(VkFence fence) {
     capture_path.clear();
     if (capture_burst_left > 0) {
         --capture_burst_left;
-        capture_path = capture_burst_base + "_" + std::to_string(++capture_burst_index) + ".bmp";
+        capture_path = capture_burst_base;
+        capture_path += "_" + std::to_string(++capture_burst_index) + ".bmp";
     }
 }
 
@@ -6209,8 +6210,9 @@ void VulkanRenderer::capture_window(const std::filesystem::path &path) {
         return text != nullptr ? std::atoi(text) : 0;
     }();
     if (burst > 1) {
-        const std::size_t dot = path.rfind(".bmp");
-        impl_->capture_burst_base = dot == std::string::npos ? path : path.substr(0u, dot);
+        std::filesystem::path base = path;
+        if (base.extension() == ".bmp") base.replace_extension();
+        impl_->capture_burst_base = std::move(base);
         impl_->capture_burst_left = burst - 1;
         impl_->capture_burst_index = 0;
     }
