@@ -160,12 +160,16 @@ bool parse_chord(std::string_view text, Chord &out) {
     return true;
 }
 
-// The effect bits of the port's own features: one each above the buttons.
+// The effect bits of the port's own features, whatever group the menu shows
+// them in: every action that is neither a PSP button nor a stick.
 std::uint64_t port_bits() {
     static const std::uint64_t bits = [] {
         std::uint64_t mask = 1ull << 63;  // the port's reserved chords (chords.cpp)
         for (std::size_t i = 0; i < kActions; ++i)
-            if (group_of(static_cast<Action>(i)) == ActionGroup::Port && kButtonBits[i] == 0u) mask |= 1ull << (32u + i);
+            if (kButtonBits[i] == 0u && !(i >= static_cast<std::size_t>(Action::StickUp) &&
+                                          i <= static_cast<std::size_t>(Action::StickRight)) &&
+                !(i >= static_cast<std::size_t>(Action::CameraUp) && i <= static_cast<std::size_t>(Action::CameraRight)))
+                mask |= 1ull << (32u + i);
         return mask;
     }();
     return bits;
