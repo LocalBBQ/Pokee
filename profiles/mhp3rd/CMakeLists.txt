@@ -165,6 +165,7 @@ set(MHP3RD_HOST_SOURCES
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
+    host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
     host/input/touch_controls.cpp
@@ -391,6 +392,7 @@ add_executable(mhp3rd_camera_tests
     host/camera/camera_input.cpp
     host/camera/game_camera.cpp
     host/input/bindings.cpp
+    host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
     host/input/touch_controls.cpp)
@@ -408,6 +410,7 @@ add_executable(mhp3rd_free_camera_tests
     host/settings/settings.cpp
     host/install/user_data.cpp
     host/input/bindings.cpp
+    host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
     host/input/touch_controls.cpp
@@ -437,6 +440,7 @@ add_executable(mhp3rd_settings_tests
     host/install/user_data.cpp
     host/app_paths.cpp
     host/input/bindings.cpp
+    host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
     host/input/touch_controls.cpp)
@@ -530,6 +534,7 @@ endif()
 add_executable(mhp3rd_input_tests
     tests/input_tests.cpp
     host/input/bindings.cpp
+    host/input/chords.cpp
     host/input/presets.cpp)
 target_include_directories(mhp3rd_input_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 set_target_properties(mhp3rd_input_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

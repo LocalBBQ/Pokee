@@ -56,7 +56,9 @@ input::Binding confirm_swap(input::Binding binding) {
     return binding;
 }
 input::Chord confirm_swap(input::Chord chord) {
-    return {chord.modifier != input::kNone ? confirm_swap(chord.modifier) : input::kNone, confirm_swap(chord.main)};
+    for (input::Binding &b : chord.inputs)
+        if (b != input::kNone) b = confirm_swap(b);
+    return chord;
 }
 
 // A chord as the player presses it.
@@ -74,6 +76,20 @@ std::string action_name(Action action) {
     return label;
 }
 
+// A target of the layout (input::Table): an action, or one of the player's
+// combinations, named by its buttons.
+using Target = std::size_t;
+constexpr Target target_of(Action action) { return static_cast<Target>(action); }
+bool is_combo(Target target) { return target >= input::kActions; }
+std::string target_name(Target target) {
+    if (!is_combo(target)) return action_name(static_cast<Action>(target));
+    const std::vector<input::Combo> &combos = settings::current().controls.combos;
+    const std::size_t n = target - input::kActions;
+    if (n >= combos.size()) return {};
+    const std::string buttons = input::buttons_label(combos[n].buttons);
+    return buttons.empty() ? std::string("New combination") : buttons;
+}
+
 // What an action does in the game, next to its name.
 const char *role(Action action) {
     switch (action) {
@@ -84,6 +100,8 @@ const char *role(Action action) {
     case Action::Cross: return "Evade, back";
     case Action::Square: return "Use item, sheathe";
     case Action::L: return "Item bar with □ ○";
+    case Action::ItemLeft: return "L + □ in one press";
+    case Action::ItemRight: return "L + ○ in one press";
     case Action::Start: return "Pause";
     default: return "";
     }
@@ -92,7 +110,7 @@ const char *role(Action action) {
 const char *device_name(bool pad) { return pad ? "gamepad" : "keyboard"; }
 
 struct Capture {
-    Action action{};
+    Target action{};
     bool pad{};
     std::size_t slot{};
     bool adding{};
@@ -103,19 +121,21 @@ struct State {
     // Conflicts the player chose to keep, for this session.
     std::set<std::string> kept;
     // A word about the last capture, under its action's row.
-    std::optional<Action> note_action;
+    std::optional<Target> note_action;
     std::string note;
     // What had the focus, this frame and the last.
     BindingsFocus focus{BindingsFocus::None};
     bool focus_resettable{};
-    std::optional<Action> focus_action;
-    std::optional<Action> last_focus_action;
+    std::optional<Target> focus_action;
+    std::optional<Target> last_focus_action;
+    // The combination whose buttons are being chosen, if any.
+    std::optional<std::size_t> picking;
     // After an edit, which can move rows about: scroll the focused action's
     // row back into view.
     int reveal{};  // frames left
     // After a conflict's line goes away with its buttons: the focus moves to
     // the action's first chip on that device.
-    std::optional<std::pair<Action, bool>> focus_request;
+    std::optional<std::pair<Target, bool>> focus_request;
 };
 
 State &state() {
@@ -123,7 +143,6 @@ State &state() {
     return value;
 }
 
-input::Bindings &table(input::Layout &layout, bool pad) { return pad ? layout.pad : layout.keys; }
 
 // Changes the layout in use, if `change` does: a shipped preset first
 // becomes a preset of the player's, which then keeps the change.
@@ -155,22 +174,28 @@ void finish_capture(std::string &notice) {
     st.reveal = 3;
     if (pressed->empty()) return;
     const input::Chord chord = c.pad ? confirm_swap(*pressed) : *pressed;
-    const input::Slots &slots = table(settings::current().controls, c.pad)[static_cast<std::size_t>(c.action)];
+    if (is_combo(c.action) && c.action - input::kActions >= settings::current().controls.combos.size()) return;
+    const input::Slots &slots = input::slots(settings::current().controls, c.pad, c.action);
     const auto same = std::find(slots.begin(), slots.end(), chord);
     if (same != slots.end() && (c.adding || static_cast<std::size_t>(same - slots.begin()) != c.slot)) {
         st.note_action = c.action;
-        st.note = chord_label(chord, c.pad, pad_style()) + " is bound to " + action_name(c.action) +
+        st.note = chord_label(chord, c.pad, pad_style()) + " is bound to " + target_name(c.action) +
                   " already; nothing changed.";
+        return;
+    }
+    if (!input::valid(chord)) {
+        st.note_action = c.action;
+        st.note = "A combination is up to four inputs on one device; nothing changed.";
         return;
     }
     st.note_action.reset();
     edit(notice, [&](input::Layout &layout) {
-        input::Bindings &b = table(layout, c.pad);
-        return c.adding ? input::add(b, c.action, chord) : input::replace(b, c.action, c.slot, chord);
+        input::Slots &b = input::slots(layout, c.pad, c.action);
+        return c.adding ? input::add(b, chord) : input::replace(b, c.slot, chord);
     });
 }
 
-void start_capture(Action action, bool pad, std::size_t slot, bool adding) {
+void start_capture(Target action, bool pad, std::size_t slot, bool adding) {
     Layer &layer = Layer::get();
     if (layer.capturing_binding()) return;
     state().capture = Capture{action, pad, slot, adding};
@@ -354,15 +379,17 @@ std::vector<Placed> place(const input::Slots &slots, bool pad, float left, float
     return placed;
 }
 
-std::string conflict_key(bool pad, Action action, const input::Conflict &c) {
+std::string conflict_key(bool pad, Target action, const input::Conflict &c) {
     std::string mine = std::to_string(static_cast<int>(action)) + ":" + input::format(c.chord);
     std::string theirs = std::to_string(static_cast<int>(c.other)) + ":" + input::format(c.theirs);
     if (theirs < mine) std::swap(mine, theirs);
     return std::string(pad ? "pad " : "keys ") + mine + " | " + theirs;
 }
 
-// What an action has on both devices differs from its preset's default.
-bool differs(const settings::Settings &s, Action action) {
+// What an action has on both devices differs from its preset's default. A
+// combination of the player's has no default.
+bool differs(const settings::Settings &s, Target action) {
+    if (is_combo(action)) return false;
     const input::Layout &base = input::layout(settings::base_preset(s));
     const auto i = static_cast<std::size_t>(action);
     return s.controls.keys[i] != base.keys[i] || s.controls.pad[i] != base.pad[i];
@@ -375,7 +402,7 @@ std::string slots_text(const input::Slots &slots, bool pad, input::PadStyle styl
     return text.empty() ? std::string("nothing") : text;
 }
 
-void reset_action(Action action, std::string &notice) {
+void reset_action(Target action, std::string &notice) {
     const input::Preset base = settings::base_preset(settings::current());
     edit(notice, [&](input::Layout &layout) {
         const auto i = static_cast<std::size_t>(action);
@@ -389,7 +416,7 @@ void reset_action(Action action, std::string &notice) {
 }
 
 // The lines under an action for its conflicts, each with its fix.
-void conflict_lines(Action action, const Columns &c, bool locked, input::PadStyle style, std::string &notice) {
+void conflict_lines(Target action, const Columns &c, bool locked, input::PadStyle style, std::string &notice) {
     State &st = state();
     settings::Settings &s = settings::current();
     ImDrawList *draw = ImGui::GetWindowDrawList();
@@ -397,21 +424,35 @@ void conflict_lines(Action action, const Columns &c, bool locked, input::PadStyl
     ImFont *f = ImGui::GetFont();
     int index = 0;
     for (const bool pad : {false, true}) {
-        for (const input::Conflict &conflict : input::conflicts(table(s.controls, pad), action)) {
+        for (const input::Conflict &conflict : input::conflicts(input::table(s.controls, pad), action)) {
             const std::string key = conflict_key(pad, action, conflict);
             if (st.kept.count(key) != 0u) continue;
             ImGui::PushID(index++);
-            const std::string other = action_name(conflict.other);
+            const std::string other = target_name(conflict.other);
+            const std::string mine = chord_label(conflict.chord, pad, style);
+            const std::string theirs = chord_label(conflict.theirs, pad, style);
+            const std::string window = s.chord_window != 0u
+                                           ? " waits up to " + std::to_string(s.chord_window) + " ms for the rest, then"
+                                           : "";
             std::string text;
-            std::string fix;
-            if (conflict.kind == input::Conflict::Kind::Same) {
-                text = chord_label(conflict.chord, pad, style) + " also presses " + other + ".";
+            std::string fix = "Remove " + theirs + " from " + other;
+            switch (conflict.kind) {
+            case input::Conflict::Kind::Same:
+                text = mine + " also presses " + other + ".";
                 fix = "Remove from " + other;
-            } else {
-                const std::string modifier = binding_label(conflict.chord.modifier, pad, style);
-                text = modifier + ", held for " + chord_label(conflict.chord, pad, style) + ", also presses " + other +
-                       " on its own.";
-                fix = "Remove " + modifier + " from " + other;
+                break;
+            case input::Conflict::Kind::Part:
+                text = theirs + " (" + other + ") is part of " + mine + ": pressed alone it" + window +
+                       " does " + other + "; with the rest, only " + target_name(action) + ".";
+                break;
+            case input::Conflict::Kind::Contains:
+                text = mine + " is part of " + theirs + " (" + other + "): pressed alone it" + window + " does " +
+                       target_name(action) + "; with the rest, only " + other + ".";
+                break;
+            case input::Conflict::Kind::Held:
+                text = theirs + " holds " + other + ", which the game reads together with other buttons; while " +
+                       mine + " is held it does only " + target_name(action) + ", and " + other + " lets go.";
+                break;
             }
             text = std::string(pad ? "Gamepad: " : "Keyboard: ") + text;
             const float keep_width = chip_width("Keep both", ChipKind::Fix);
@@ -447,13 +488,13 @@ void conflict_lines(Action action, const Columns &c, bool locked, input::PadStyl
             if (remove.focused || remove.hovered)
                 Layer::get().set_description("Takes " + chord_label(conflict.theirs, pad, style) + " away from " +
                                              other + " on the " + device_name(pad) + ", so it does only " +
-                                             action_name(action) + ".");
+                                             target_name(action) + ".");
             if (keep.pressed || remove.pressed) st.focus_request = std::make_pair(action, pad);
             if (keep.pressed) st.kept.insert(key);
             if (remove.pressed) {
                 const input::Conflict fixed = conflict;
                 edit(notice, [&](input::Layout &layout) {
-                    return input::remove(table(layout, pad), fixed.other, fixed.theirs);
+                    return input::remove(input::slots(layout, pad, fixed.other), fixed.theirs);
                 });
             }
             ImGui::SetCursorScreenPos({at.x, at.y + height});
@@ -463,19 +504,97 @@ void conflict_lines(Action action, const Columns &c, bool locked, input::PadStyl
     }
 }
 
-void action_row(Action action, const Columns &c, bool locked, input::PadStyle style, std::string &notice) {
+// The chip in a combination's name column: its buttons, which it opens
+// for choosing.
+bool combo_name_chip(Target action, const Columns &c, float y, bool locked, const std::string &name) {
+    const float width = std::min(chip_width(name, ChipKind::Fix), c.keys - c.left - px(24.0f));
+    const bool open = state().picking == action - input::kActions;
+    const ChipResult r = chip("name", {c.left + px(16.0f), y}, width, name, ChipKind::Fix, false, open, locked);
+    if (r.focused) {
+        state().focus = BindingsFocus::Fix;
+        state().focus_action = action;
+    }
+    if (r.focused || r.hovered)
+        Layer::get().set_description("The PSP buttons this combination presses together. Select it to choose them.");
+    return r.pressed;
+}
+
+// A combination's PSP buttons, each a chip that turns on and off, under its
+// row while it is open.
+void button_picker(Target action, const Columns &c, bool locked, std::string &notice) {
+    State &st = state();
+    const std::size_t n = action - input::kActions;
+    const std::uint32_t buttons = settings::current().controls.combos[n].buttons;
+    static constexpr std::uint32_t kOrder[] = {0x1000u, 0x2000u, 0x4000u, 0x8000u, 0x0100u, 0x0200u,
+                                               0x0010u, 0x0040u, 0x0080u, 0x0020u, 0x0008u, 0x0001u};
+    const float gap = px(8.0f);
+    const float line = chip_height() + px(6.0f);
+    const float left = c.keys;
+    const float right = c.left + c.width - gap;
+    ImVec2 at = ImGui::GetCursorScreenPos();
+    const float top = at.y;
+    float x = left;
+    float y = top;
+    ImGui::PushID("picker");
+    for (const std::uint32_t bit : kOrder) {
+        const std::string text = input::buttons_label(bit);
+        const float width = std::max(chip_width(text, ChipKind::Fix), chip_height() * 1.4f);
+        if (x > left && x + width > right) {
+            x = left;
+            y += line;
+        }
+        ImGui::PushID(static_cast<int>(bit));
+        const ChipResult r = chip("button", {x, y}, width, text, ChipKind::Fix, false, (buttons & bit) != 0u, locked);
+        if (r.focused) {
+            st.focus = BindingsFocus::Fix;
+            st.focus_action = action;
+        }
+        if (r.focused || r.hovered)
+            Layer::get().set_description("Presses " + text + " with the others that are on. The game sees them "
+                                         "all in the same frame, L and R one frame ahead, as a player holds them.");
+        if (r.pressed)
+            edit(notice, [&](input::Layout &layout) {
+                if (n >= layout.combos.size()) return false;
+                layout.combos[n].buttons ^= bit;
+                return true;
+            });
+        ImGui::PopID();
+        x += width + gap;
+    }
+    {
+        const std::string text = "Done";
+        const float width = chip_width(text, ChipKind::Fix);
+        if (x > left && x + width > right) {
+            x = left;
+            y += line;
+        }
+        const ChipResult r = chip("done", {x, y}, width, text, ChipKind::Fix, false, false, false);
+        if (r.focused) {
+            st.focus = BindingsFocus::Fix;
+            st.focus_action = action;
+        }
+        if (r.pressed) st.picking.reset();
+    }
+    ImGui::PopID();
+    ImGui::SetCursorScreenPos({at.x, y + line});
+    ImGui::Dummy({0.0f, 0.0f});
+}
+
+void action_row(Target action, const Columns &c, bool locked, input::PadStyle style, std::string &notice) {
     State &st = state();
     Layer &layer = Layer::get();
     settings::Settings &s = settings::current();
     const auto i = static_cast<std::size_t>(action);
+    const bool combo = is_combo(action);
     ImGui::PushID(static_cast<int>(i));
     const ImVec2 top = ImGui::GetCursorScreenPos();
     const float pad_y = px(3.0f);
     int key_lines = 1;
     int pad_lines = 1;
     const std::vector<Placed> keys =
-        place(s.controls.keys[i], false, c.keys, c.column, top.y + pad_y, style, key_lines);
-    const std::vector<Placed> pads = place(s.controls.pad[i], true, c.pad, c.column, top.y + pad_y, style, pad_lines);
+        place(input::slots(s.controls, false, action), false, c.keys, c.column, top.y + pad_y, style, key_lines);
+    const std::vector<Placed> pads =
+        place(input::slots(s.controls, true, action), true, c.pad, c.column, top.y + pad_y, style, pad_lines);
     const int lines = std::max(key_lines, pad_lines);
     const float height = chip_height() * static_cast<float>(lines) + px(6.0f) * static_cast<float>(lines - 1) +
                          pad_y * 2.0f;
@@ -488,30 +607,39 @@ void action_row(Action action, const Columns &c, bool locked, input::PadStyle st
         draw->AddRectFilled(top, bottom, IM_COL32(217, 166, 75, 26), px(6.0f));
         draw->AddRectFilled(top, {top.x + px(4.0f), bottom.y}, colors::kAccent, px(6.0f), ImDrawFlags_RoundCornersLeft);
     }
-    const std::vector<input::Conflict> key_clashes = input::conflicts(s.controls.keys, action);
-    const std::vector<input::Conflict> pad_clashes = input::conflicts(s.controls.pad, action);
+    const std::vector<input::Conflict> key_clashes = input::conflicts(input::table(s.controls, false), action);
+    const std::vector<input::Conflict> pad_clashes = input::conflicts(input::table(s.controls, true), action);
     const auto clashes = [&](bool pad, const input::Chord &chord) {
         for (const input::Conflict &conflict : pad ? pad_clashes : key_clashes)
             if (conflict.chord == chord && st.kept.count(conflict_key(pad, action, conflict)) == 0u) return true;
         return false;
     };
 
-    // The name, and what it does.
+    // The name, and what it does; a combination's name is its buttons, a
+    // chip that opens them.
     const float text_y = top.y + pad_y + (chip_height() - font()) * 0.5f;
-    const std::string name = action_name(action);
-    draw->PushClipRect(top, {c.keys - px(8.0f), bottom.y}, true);
-    draw->AddText({top.x + px(16.0f), text_y}, row_focused ? colors::kAccentBright : colors::kText, name.c_str());
-    if (const char *what = role(action); *what != '\0') {
-        const float size = ImGui::GetStyle().FontSizeBase * 0.78f;
-        const float x = top.x + px(16.0f) + ImGui::CalcTextSize(name.c_str()).x + font() * 0.6f;
-        draw->AddText(ImGui::GetFont(), size, {x, text_y + font() * 0.14f}, colors::kTextDim, what);
+    const std::string name = target_name(action);
+    if (combo) {
+        if (combo_name_chip(action, c, top.y + pad_y, locked, name)) {
+            const std::size_t n = action - input::kActions;
+            if (st.picking == n) st.picking.reset();
+            else st.picking = n;
+        }
+    } else {
+        draw->PushClipRect(top, {c.keys - px(8.0f), bottom.y}, true);
+        draw->AddText({top.x + px(16.0f), text_y}, row_focused ? colors::kAccentBright : colors::kText, name.c_str());
+        if (const char *what = role(static_cast<Action>(action)); *what != '\0') {
+            const float size = ImGui::GetStyle().FontSizeBase * 0.78f;
+            const float x = top.x + px(16.0f) + ImGui::CalcTextSize(name.c_str()).x + font() * 0.6f;
+            draw->AddText(ImGui::GetFont(), size, {x, text_y + font() * 0.14f}, colors::kTextDim, what);
+        }
+        draw->PopClipRect();
     }
-    draw->PopClipRect();
 
     const bool capturing = st.capture && st.capture->action == action;
     for (const bool pad : {false, true}) {
         ImGui::PushID(pad ? "pad" : "keys");
-        const input::Slots &slots = pad ? s.controls.pad[i] : s.controls.keys[i];
+        const input::Slots &slots = input::slots(s.controls, pad, action);
         for (const Placed &p : pad ? pads : keys) {
             ImGui::PushID(static_cast<int>(p.slot));
             const bool live = capturing && st.capture->pad == pad && st.capture->slot == p.slot;
@@ -534,7 +662,7 @@ void action_row(Action action, const Columns &c, bool locked, input::PadStyle st
                 else
                     description = std::string("Add a binding on the ") + device_name(pad) + ": press " +
                                   (pad ? "a button" : "a key or a mouse button") +
-                                  ", or hold one and press another for a combination.";
+                                  ", or up to four together in any order for a combination.";
                 if (locked)
                     description += std::string("\nSet by ") + settings::overridden_by("input.preset");
                 layer.set_description(description);
@@ -542,7 +670,9 @@ void action_row(Action action, const Columns &c, bool locked, input::PadStyle st
             if (!locked) {
                 if (r.clear) {
                     const std::size_t slot = p.slot;
-                    edit(notice, [&](input::Layout &layout) { return input::clear(table(layout, pad), action, slot); });
+                    edit(notice, [&](input::Layout &layout) {
+                        return input::clear(input::slots(layout, pad, action), slot);
+                    });
                     st.note_action.reset();
                 } else if (r.pressed) {
                     start_capture(action, pad, p.slot, p.kind == ChipKind::Add);
@@ -553,10 +683,29 @@ void action_row(Action action, const Columns &c, bool locked, input::PadStyle st
         ImGui::PopID();
     }
 
-    // Reset, when there is something to reset.
+    // Reset, when there is something to reset; a combination of the
+    // player's is removed there instead.
     const bool resettable = differs(s, action);
     if (st.focus_action == action) st.focus_resettable = resettable;
-    if (resettable) {
+    if (combo) {
+        const float width = chip_width("", ChipKind::Reset);
+        const ChipResult r = chip("remove", {c.reset, top.y + pad_y}, width, "×", ChipKind::Fix, true, false, locked);
+        if (r.focused) {
+            st.focus = BindingsFocus::Fix;
+            st.focus_action = action;
+        }
+        if (r.focused || r.hovered) layer.set_description("Removes this combination and its bindings.");
+        if (r.pressed) {
+            const std::size_t n = action - input::kActions;
+            edit(notice, [&](input::Layout &layout) {
+                if (n >= layout.combos.size()) return false;
+                layout.combos.erase(layout.combos.begin() + static_cast<std::ptrdiff_t>(n));
+                return true;
+            });
+            st.picking.reset();
+            st.kept.clear();
+        }
+    } else if (resettable) {
         const float width = chip_width("", ChipKind::Reset);
         const ChipResult r = chip("reset", {c.reset, top.y + pad_y}, width, "", ChipKind::Reset, false, false, locked);
         if (r.focused) {
@@ -581,6 +730,7 @@ void action_row(Action action, const Columns &c, bool locked, input::PadStyle st
     ImGui::SetCursorScreenPos({top.x, bottom.y});
     ImGui::Dummy({0.0f, 0.0f});
 
+    if (combo && st.picking == action - input::kActions) button_picker(action, c, locked, notice);
     if (st.note_action == action && !st.note.empty()) {
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const float size = ImGui::GetStyle().FontSizeBase * 0.85f;
@@ -593,6 +743,50 @@ void action_row(Action action, const Columns &c, bool locked, input::PadStyle st
         const ImRect row(top, {bottom.x, ImGui::GetCursorScreenPos().y});
         ImGui::ScrollToRect(ImGui::GetCurrentWindow(), row, ImGuiScrollFlags_KeepVisibleEdgeY);
     }
+    ImGui::PopID();
+}
+
+// The player's own combinations (#198), after the actions, and a chip that
+// makes a new one.
+void combo_rows(const Columns &c, bool locked, input::PadStyle style, std::string &notice) {
+    State &st = state();
+    settings::Settings &s = settings::current();
+    ImGui::Dummy({0.0f, px(14.0f)});
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    const float size = ImGui::GetStyle().FontSizeBase * 0.8f;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    draw->AddText(ImGui::GetFont(), size, {at.x + px(16.0f), at.y}, colors::kAccent, "Your combinations");
+    if (!s.controls.combos.empty()) {
+        draw->AddText(ImGui::GetFont(), size, {c.keys + px(4.0f), at.y}, colors::kTextDim, "Keyboard and mouse");
+        draw->AddText(ImGui::GetFont(), size, {c.pad + px(4.0f), at.y}, colors::kTextDim, "Gamepad");
+    }
+    ImGui::Dummy({0.0f, size + px(4.0f)});
+    ImGui::PushID("combos");
+    for (std::size_t n = 0; n < s.controls.combos.size(); ++n) action_row(input::kActions + n, c, locked, style, notice);
+    if (st.picking && *st.picking >= s.controls.combos.size()) st.picking.reset();
+    const std::string text = "+  New combination";
+    const float width = chip_width(text, ChipKind::Add);
+    const ImVec2 top = ImGui::GetCursorScreenPos();
+    const bool full = s.controls.combos.size() >= input::kMaxCombos;
+    const ChipResult r = chip("new", {c.left + px(16.0f), top.y + px(3.0f)}, width, text, ChipKind::Add, false, false,
+                              locked || full);
+    if (r.focused) {
+        st.focus = BindingsFocus::Add;
+        st.focus_action.reset();
+    }
+    if (r.focused || r.hovered)
+        Layer::get().set_description(full ? "At most " + std::to_string(input::kMaxCombos) + " combinations."
+                                          : std::string("An action of your own that presses any PSP buttons "
+                                                        "together, such as × + ○. Choose its buttons, then bind it "
+                                                        "like any action."));
+    if (r.pressed && !full)
+        edit(notice, [&](input::Layout &layout) {
+            layout.combos.push_back({});
+            st.picking = layout.combos.size() - 1u;
+            return true;
+        });
+    ImGui::SetCursorScreenPos({top.x, top.y + chip_height() + px(6.0f)});
+    ImGui::Dummy({0.0f, 0.0f});
     ImGui::PopID();
 }
 
@@ -622,7 +816,7 @@ void bindings_editor(std::string &notice) {
         if (actions.empty()) continue;
         group_header(group, c, first);
         first = false;
-        for (const Action action : actions) action_row(action, c, locked, style, notice);
+        for (const Action action : actions) action_row(target_of(action), c, locked, style, notice);
         if (group == input::ActionGroup::Movement) {
             RowOptions o;
             o.description = "Which stick moves the hunter; the other one is the camera stick. Part of the preset.";
@@ -637,6 +831,7 @@ void bindings_editor(std::string &notice) {
                 });
         }
     }
+    combo_rows(c, locked, style, notice);
     ImGui::PopID();
     const float size = ImGui::GetStyle().FontSizeBase * 0.8f;
     ImGui::Dummy({0.0f, px(4.0f)});
@@ -670,10 +865,9 @@ std::size_t bindings_conflicts() {
     const settings::Settings &s = settings::current();
     std::size_t count = 0;
     for (const bool pad : {false, true})
-        for (std::size_t i = 0; i < input::kActions; ++i) {
-            const auto action = static_cast<Action>(i);
-            for (const input::Conflict &c : input::conflicts(pad ? s.controls.pad : s.controls.keys, action))
-                if (state().kept.count(conflict_key(pad, action, c)) == 0u) {
+        for (std::size_t i = 0; i < input::kActions + s.controls.combos.size(); ++i) {
+            for (const input::Conflict &c : input::conflicts(input::table(s.controls, pad), i))
+                if (state().kept.count(conflict_key(pad, i, c)) == 0u) {
                     ++count;
                     break;
                 }
@@ -697,21 +891,25 @@ void bindings_capture_prompt() {
 
     const bool pad = c.pad;
     const settings::Settings &s = settings::current();
-    const input::Slots &slots = pad ? s.controls.pad[static_cast<std::size_t>(c.action)]
-                                    : s.controls.keys[static_cast<std::size_t>(c.action)];
+    if (is_combo(c.action) && c.action - input::kActions >= s.controls.combos.size()) return;
+    const input::Slots &slots = input::slots(s.controls, pad, c.action);
     std::string held;
     for (const input::Binding b : layer.capture_held())
         held += (held.empty() ? "" : " + ") + input::label(b, style);
-    const std::string title = std::string(pad ? "Gamepad" : "Keyboard and mouse") + "   ·   " + action_name(c.action);
+    const std::string title = std::string(pad ? "Gamepad" : "Keyboard and mouse") + "   ·   " + target_name(c.action);
     const std::string what = c.adding ? (input::count(slots) == 0u ? "New binding" : "Another binding")
                                       : "In place of " + chord_label(slots[c.slot], pad, style);
-    const std::string big = !held.empty() ? held + (layer.capture_held().size() < 2u ? "  + …" : "")
+    const std::string big = !held.empty() ? held + (layer.capture_held().size() < input::kChordInputs ? "  + …" : "")
                                           : (pad ? "Press a button" : "Press a key or a mouse button");
     const std::string example =
         pad ? input::label(input::chord(input::pad(input::PadInput::LeftShoulder), input::pad(input::PadInput::East)),
-                           style)
+                           style) +
+                  " or " +
+                  input::label(input::chord(input::pad(input::PadInput::North), input::pad(input::PadInput::East)),
+                               style)
             : std::string("Left Shift + F");
-    const std::string combination = "Hold one and press another for a combination, such as " + example + ".";
+    const std::string combination = "Up to four together, in any order, for a combination, such as " + example +
+                                    ". It is kept when you let go of all of them.";
     std::string cancel;
     if (pad) {
         cancel = "Hold " + input::label(layer.pad_back_button(), style) + " to cancel   ·   Esc or a touch cancels";

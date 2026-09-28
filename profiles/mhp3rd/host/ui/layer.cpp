@@ -213,6 +213,7 @@ void Layer::begin_binding_capture(Capture device) {
     capture_device_ = device;
     capture_started_ = Clock::now();
     capture_held_.clear();
+    capture_down_.clear();
     capture_triggers_[0] = capture_triggers_[1] = false;
     captured_binding_.reset();
     escape_pending_.reset();
@@ -221,7 +222,7 @@ void Layer::begin_binding_capture(Capture device) {
 
 float Layer::capture_cancel_progress() const {
     if (!capturing_binding_ || capture_device_ != Capture::Pad || capture_held_.size() != 1u ||
-        capture_held_.front() != pad_back_button())
+        capture_held_.front() != pad_back_button() || capture_down_.empty())
         return 0.0f;
     const auto held = std::chrono::duration<float>(Clock::now() - capture_first_press_);
     return std::clamp(held / std::chrono::duration<float>(kHoldToCancel), 0.0f, 1.0f);
@@ -238,12 +239,13 @@ int Layer::capture_seconds_left() const {
 
 void Layer::finish_capture(bool cancelled) {
     input::Chord chord;
-    if (!cancelled && !capture_held_.empty())
-        chord = capture_held_.size() > 1u ? input::chord_pressed(capture_held_.front(), capture_held_.back())
-                                          : input::single(capture_held_.front());
+    if (!cancelled)
+        for (std::size_t i = 0; i < capture_held_.size() && i < input::kChordInputs; ++i)
+            chord.inputs[i] = capture_held_[i];
     capturing_binding_ = false;
     captured_binding_ = chord;
     capture_held_.clear();
+    capture_down_.clear();
 }
 
 std::optional<input::Chord> Layer::take_captured_binding() { return std::exchange(captured_binding_, std::nullopt); }
@@ -254,15 +256,18 @@ bool Layer::handle_event(const SDL_Event &event) {
     // before still reach ImGui, which saw the press that started the capture.
     if (capturing_binding_ && interactive_) {
         const auto press = [&](input::Binding binding) {
-            if (std::find(capture_held_.begin(), capture_held_.end(), binding) == capture_held_.end() &&
-                capture_held_.size() < 2u) {
-                if (capture_held_.empty()) capture_first_press_ = now;
-                capture_held_.push_back(binding);
-            }
+            if (std::find(capture_held_.begin(), capture_held_.end(), binding) != capture_held_.end()) return;
+            if (capture_held_.size() == input::kChordInputs) return;
+            if (capture_held_.empty()) capture_first_press_ = now;
+            capture_held_.push_back(binding);
+            capture_down_.push_back(binding);
         };
+        // The chord is everything pressed until the last of it is let go.
         const auto release = [&](input::Binding binding) {
-            if (std::find(capture_held_.begin(), capture_held_.end(), binding) == capture_held_.end()) return false;
-            finish_capture(false);
+            const auto down = std::find(capture_down_.begin(), capture_down_.end(), binding);
+            if (down == capture_down_.end()) return false;
+            capture_down_.erase(down);
+            if (capture_down_.empty()) finish_capture(false);
             return true;
         };
         const bool escape = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&

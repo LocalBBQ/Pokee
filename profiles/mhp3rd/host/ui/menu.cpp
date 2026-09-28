@@ -864,6 +864,20 @@ void Menu::controls() {
     settings::Settings &s = settings::current();
     preset_rows();
     bindings_editor(preset_notice_);
+    section("Combinations");
+    {
+        int window = static_cast<int>(s.chord_window);
+        if (slider_row("Chord window", window, 0, static_cast<int>(input::kMaxChordWindowMs), 10,
+                       window == 0 ? "Off" : "%d ms",
+                       options_for("input.chord_window",
+                                   "How long a button that begins a combination waits for the rest of it, such as "
+                                   "△ in △ + ○. Only those wait, and only where acting at once would press "
+                                   "something else first; every other button acts at once. Off: they act at "
+                                   "once, and a combination takes over when it is complete."))) {
+            s.chord_window = static_cast<std::uint32_t>(window);
+            settings::save();
+        }
+    }
     section("Gamepad");
     {
         SDL_Gamepad *pad = renderer().gamepad();

@@ -59,9 +59,9 @@ public:
     [[nodiscard]] bool window_closed() const noexcept { return window_closed_; }
 
     // Binding a control (the menu's bindings): what is pressed next is kept
-    // for the caller instead of reaching the interface. One input, or two
-    // held together (a chord: the first is the modifier), ends at the first
-    // release. For Keys, keys and mouse buttons count, and Esc, a gamepad
+    // for the caller instead of reaching the interface: one input, or up to
+    // input::kChordInputs held together in any order (a chord), recorded
+    // until the last of them is released. For Keys, keys and mouse buttons count, and Esc, a gamepad
     // button or a touch cancels; for Pad, gamepad buttons and triggers
     // count, and Esc, a touch, holding the menu's back button for
     // kHoldToCancel, or kPadCaptureTimeout without a press cancels. A short
@@ -72,7 +72,7 @@ public:
     void begin_binding_capture(Capture device = Capture::Keys);
     [[nodiscard]] bool capturing_binding() const noexcept { return capturing_binding_; }
     [[nodiscard]] Capture capture_device() const noexcept { return capture_device_; }
-    // The inputs held so far while capturing, the modifier first.
+    // The inputs pressed so far while capturing, in the order pressed.
     [[nodiscard]] const std::vector<input::Binding> &capture_held() const noexcept { return capture_held_; }
     // Seconds left before a gamepad capture gives up.
     [[nodiscard]] int capture_seconds_left() const;
@@ -131,6 +131,7 @@ private:
     // nothing until it lifts, so the tap does not also press a row.
     bool swallow_touch_{};
     std::vector<input::Binding> capture_held_;
+    std::vector<input::Binding> capture_down_;  // of those, the ones still down
     bool capture_triggers_[2]{};
     // After a gamepad capture, the pad reaches the interface again only once
     // nothing on it is held, so the chord just bound does nothing there.

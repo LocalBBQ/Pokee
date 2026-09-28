@@ -91,13 +91,28 @@ constexpr ActionInfo kInfo[kActions] = {
     {"screenshot", "Screenshot"},
     {"frame_step", "Frame step (photo mode)"},
     {"hide_hud", "Hide HUD"},
+    {"item_left", "Item left  (L + □)"},
+    {"item_right", "Item right  (L + ○)"},
 };
 
 // SceCtrlButtons for the actions that are buttons.
 constexpr std::uint32_t kButtonBits[kActions] = {
     0u,      0u,      0u,      0u,      0x1000u, 0x2000u, 0x4000u, 0x8000u, 0x0100u, 0x0200u, 0x0008u,
     0x0001u, 0x0010u, 0x0080u, 0x0040u, 0x0020u, 0u,      0u,      0u,      0u,      0x3000u, 0u,
-    0u,      0u,      0u,
+    0u,      0u,      0u,      0x8100u, 0x2100u,
+};
+
+// The PSP's buttons as the menu and settings.ini name them, in the order
+// they are listed.
+struct ButtonName {
+    std::uint32_t bit;
+    const char *symbol;  // the menu
+    const char *name;    // settings.ini
+};
+constexpr ButtonName kButtonNames[] = {
+    {0x1000u, "△", "Triangle"}, {0x2000u, "○", "Circle"}, {0x4000u, "×", "Cross"},   {0x8000u, "□", "Square"},
+    {0x0100u, "L", "L"},        {0x0200u, "R", "R"},      {0x0010u, "↑", "Up"},      {0x0040u, "↓", "Down"},
+    {0x0080u, "←", "Left"},     {0x0020u, "→", "Right"},  {0x0008u, "START", "Start"}, {0x0001u, "SELECT", "Select"},
 };
 
 bool equal_ignoring_case(std::string_view a, std::string_view b) {
@@ -134,36 +149,57 @@ std::vector<std::string_view> split(std::string_view text, std::string_view sepa
 
 bool parse_chord(std::string_view text, Chord &out) {
     const std::vector<std::string_view> parts = split(trim(text), kJoin);
-    if (parts.empty() || parts.size() > 2u) return false;
-    Binding bindings[2]{};
+    if (parts.empty() || parts.size() > kChordInputs) return false;
+    Chord parsed{};
     for (std::size_t i = 0; i < parts.size(); ++i) {
-        bindings[i] = from_name(parts[i]);
-        if (bindings[i] == kNone) return false;
+        parsed.inputs[i] = from_name(parts[i]);
+        if (parsed.inputs[i] == kNone) return false;
     }
-    out = parts.size() == 1u ? single(bindings[0]) : chord(bindings[0], bindings[1]);
-    return out.modifier != out.main;
+    if (!valid(parsed)) return false;
+    out = parsed;
+    return true;
 }
 
-} // namespace
+// The effect bits of the port's own features: one each above the buttons.
+std::uint64_t port_bits() {
+    static const std::uint64_t bits = [] {
+        std::uint64_t mask = 1ull << 63;  // the port's reserved chords (chords.cpp)
+        for (std::size_t i = 0; i < kActions; ++i)
+            if (group_of(static_cast<Action>(i)) == ActionGroup::Port && kButtonBits[i] == 0u) mask |= 1ull << (32u + i);
+        return mask;
+    }();
+    return bits;
+}
 
-bool modifier_like(Binding binding) {
-    const int position = key_position(binding);
-    if (position >= 224 && position <= 231) return true;  // Ctrl, Shift, Alt, GUI
-    switch (static_cast<PadInput>(pad_input_of(binding) < 0 ? 0xFF : pad_input_of(binding))) {
-    case PadInput::LeftShoulder:
-    case PadInput::RightShoulder:
-    case PadInput::LeftTrigger:
-    case PadInput::RightTrigger:
-    case PadInput::Back:
-    case PadInput::LeftStick:
-    case PadInput::RightStick: return true;
+// Actions the game reads held while other buttons are pressed: moving, L
+// (the item bar) and R (guarding, aiming).
+bool read_held(std::size_t target) {
+    if (target >= kActions) return false;
+    switch (static_cast<Action>(target)) {
+    case Action::StickUp:
+    case Action::StickLeft:
+    case Action::StickDown:
+    case Action::StickRight:
+    case Action::L:
+    case Action::R: return true;
     default: return false;
     }
 }
 
-Chord chord_pressed(Binding first, Binding second) {
-    if (!modifier_like(first) && modifier_like(second)) return chord(second, first);
-    return chord(first, second);
+} // namespace
+
+bool valid(const Chord &c) {
+    const std::size_t n = c.size();
+    if (n == 0u) return false;
+    for (std::size_t i = n; i < kChordInputs; ++i)
+        if (c.inputs[i] != kNone) return false;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (key_position(c.inputs[i]) < 0 && mouse_button_of(c.inputs[i]) == 0 && !is_pad(c.inputs[i])) return false;
+        if (!same_device(c.inputs[i], c.inputs[0])) return false;
+        for (std::size_t j = i + 1u; j < n; ++j)
+            if (c.inputs[i] == c.inputs[j]) return false;
+    }
+    return true;
 }
 
 const ActionInfo &info(Action action) { return kInfo[static_cast<std::size_t>(action)]; }
@@ -180,7 +216,9 @@ ActionGroup group_of(Action action) {
     case Action::TriangleCircle:
     case Action::R: return ActionGroup::Attacks;
     case Action::Square:
-    case Action::L: return ActionGroup::Items;
+    case Action::L:
+    case Action::ItemLeft:
+    case Action::ItemRight: return ActionGroup::Items;
     case Action::CameraUp:
     case Action::CameraLeft:
     case Action::CameraDown:
@@ -215,6 +253,36 @@ Context context_of(Action action) {
 }
 
 std::uint32_t buttons_of(Action action) { return kButtonBits[static_cast<std::size_t>(action)]; }
+
+std::string buttons_label(std::uint32_t buttons) {
+    std::string text;
+    for (const ButtonName &b : kButtonNames)
+        if ((buttons & b.bit) != 0u) text += (text.empty() ? "" : kJoin) + std::string(b.symbol);
+    return text;
+}
+
+std::string format_buttons(std::uint32_t buttons) {
+    std::string text;
+    for (const ButtonName &b : kButtonNames)
+        if ((buttons & b.bit) != 0u) text += (text.empty() ? "" : kJoin) + std::string(b.name);
+    return text;
+}
+
+bool parse_buttons(std::string_view text, std::uint32_t &buttons) {
+    std::uint32_t parsed = 0u;
+    for (const std::string_view part : split(trim(text), kJoin)) {
+        bool known = false;
+        for (const ButtonName &b : kButtonNames)
+            if (equal_ignoring_case(trim(part), b.name)) {
+                parsed |= b.bit;
+                known = true;
+            }
+        if (!known) return false;
+    }
+    if (parsed == 0u) return false;
+    buttons = parsed;
+    return true;
+}
 
 std::string name(Binding binding) {
     if (const int button = mouse_button_of(binding)) return kMouseNames[button - 1];
@@ -265,15 +333,15 @@ std::string label(Binding binding, PadStyle style) {
 }
 
 std::string label(const Chord &c, PadStyle style) {
-    if (c.empty()) return {};
-    if (!c.combined()) return label(c.main, style);
-    return label(c.modifier, style) + kJoin + label(c.main, style);
+    std::string text;
+    for (const Binding b : c.held()) text += (text.empty() ? "" : kJoin) + label(b, style);
+    return text;
 }
 
 std::string format(const Chord &c) {
-    if (c.empty()) return {};
-    if (!c.combined()) return name(c.main);
-    return name(c.modifier) + kJoin + name(c.main);
+    std::string text;
+    for (const Binding b : c.held()) text += (text.empty() ? "" : kJoin) + name(b);
+    return text;
 }
 
 std::string format(const Slots &slots) {
@@ -301,10 +369,8 @@ std::size_t count(const Slots &slots) {
     return static_cast<std::size_t>(std::count_if(slots.begin(), slots.end(), [](const Chord &c) { return !c.empty(); }));
 }
 
-bool add(Bindings &bindings, Action action, Chord c) {
-    if (c.empty() || c.modifier == c.main) return false;
-    Slots &slots = bindings[static_cast<std::size_t>(action)];
-    if (std::find(slots.begin(), slots.end(), c) != slots.end()) return false;
+bool add(Slots &slots, const Chord &c) {
+    if (!valid(c) || std::find(slots.begin(), slots.end(), c) != slots.end()) return false;
     for (Chord &slot : slots) {
         if (!slot.empty()) continue;
         slot = c;
@@ -313,18 +379,19 @@ bool add(Bindings &bindings, Action action, Chord c) {
     return false;
 }
 
-bool replace(Bindings &bindings, Action action, std::size_t slot, Chord c) {
-    Slots &slots = bindings[static_cast<std::size_t>(action)];
-    if (slot >= kSlots || slots[slot].empty() || c.empty() || c.modifier == c.main) return false;
-    if (slots[slot] == c) return true;
+bool replace(Slots &slots, std::size_t slot, const Chord &c) {
+    if (slot >= kSlots || slots[slot].empty() || !valid(c)) return false;
+    if (slots[slot] == c) {
+        slots[slot] = c;  // the same inputs, perhaps in another order
+        return true;
+    }
     const auto same = std::find(slots.begin(), slots.end(), c);
     slots[slot] = c;
-    if (same != slots.end()) clear(bindings, action, static_cast<std::size_t>(same - slots.begin()));
+    if (same != slots.end()) clear(slots, static_cast<std::size_t>(same - slots.begin()));
     return true;
 }
 
-bool clear(Bindings &bindings, Action action, std::size_t slot) {
-    Slots &slots = bindings[static_cast<std::size_t>(action)];
+bool clear(Slots &slots, std::size_t slot) {
     if (slot >= kSlots || slots[slot].empty()) return false;
     std::move(slots.begin() + static_cast<std::ptrdiff_t>(slot) + 1, slots.end(),
               slots.begin() + static_cast<std::ptrdiff_t>(slot));
@@ -335,66 +402,86 @@ bool clear(Bindings &bindings, Action action, std::size_t slot) {
     return true;
 }
 
-bool remove(Bindings &bindings, Action action, Chord c) {
-    const Slots &slots = bindings[static_cast<std::size_t>(action)];
+bool remove(Slots &slots, const Chord &c) {
     const auto found = std::find(slots.begin(), slots.end(), c);
     if (c.empty() || found == slots.end()) return false;
-    return clear(bindings, action, static_cast<std::size_t>(found - slots.begin()));
+    return clear(slots, static_cast<std::size_t>(found - slots.begin()));
 }
 
-std::vector<Conflict> conflicts(const Bindings &bindings, Action action) {
+bool add(Bindings &bindings, Action action, const Chord &c) {
+    return add(bindings[static_cast<std::size_t>(action)], c);
+}
+bool replace(Bindings &bindings, Action action, std::size_t slot, const Chord &c) {
+    return replace(bindings[static_cast<std::size_t>(action)], slot, c);
+}
+bool clear(Bindings &bindings, Action action, std::size_t slot) {
+    return clear(bindings[static_cast<std::size_t>(action)], slot);
+}
+bool remove(Bindings &bindings, Action action, const Chord &c) {
+    return remove(bindings[static_cast<std::size_t>(action)], c);
+}
+
+const Slots &Table::slots(std::size_t target) const {
+    if (target < kActions) return actions[target];
+    const Combo &c = combos[target - kActions];
+    return pad ? c.pad : c.keys;
+}
+
+Context Table::context(std::size_t target) const {
+    return target < kActions ? context_of(static_cast<Action>(target)) : Context::Game;
+}
+
+std::uint64_t Table::effect(std::size_t target) const {
+    if (target >= kActions) return combos[target - kActions].buttons & kComboButtons;
+    return kButtonBits[target] != 0u ? kButtonBits[target] : 1ull << (32u + target);
+}
+
+bool port_effect(std::uint64_t effect) { return (effect & port_bits()) != 0u; }
+
+bool waits_for(std::uint64_t shorter, std::uint64_t longer) {
+    // L, R and moving held first are what a player does anyway: the longer
+    // chord only adds to them.
+    constexpr std::uint64_t kHeldFirst = 0x0300u | (0xFull << 32u);
+    if ((shorter & ~longer) == 0u && (shorter & ~kHeldFirst) == 0u) return false;
+    const bool longer_reaches_game = (longer & ~port_bits()) != 0u;
+    return port_effect(shorter) || longer_reaches_game;
+}
+
+std::vector<Conflict> conflicts(const Table &table, std::size_t target) {
     std::vector<Conflict> found;
-    const Slots &mine = bindings[static_cast<std::size_t>(action)];
-    for (const Chord &c : mine) {
+    const Context mine_when = table.context(target);
+    for (const Chord &c : table.slots(target)) {
         if (c.empty()) continue;
-        for (std::size_t i = 0; i < kActions; ++i) {
-            const auto other = static_cast<Action>(i);
-            if (other == action) continue;
-            const Context mine_when = context_of(action);
-            const Context their_when = context_of(other);
+        for (std::size_t other = 0; other < table.size(); ++other) {
+            if (other == target) continue;
+            const Context their_when = table.context(other);
             if (mine_when != their_when && mine_when != Context::Anywhere && their_when != Context::Anywhere)
                 continue;
-            for (const Chord &theirs : bindings[i]) {
+            for (const Chord &theirs : table.slots(other)) {
                 if (theirs.empty()) continue;
-                if (theirs == c) found.push_back({Conflict::Kind::Same, other, c, theirs});
-                else if (c.combined() && !theirs.combined() && theirs.main == c.modifier)
-                    found.push_back({Conflict::Kind::Modifier, other, c, theirs});
+                if (theirs == c) {
+                    found.push_back({Conflict::Kind::Same, other, c, theirs});
+                } else if (theirs.part_of(c)) {
+                    // Theirs is part of mine: it waits for mine, or is let go
+                    // while mine is held.
+                    if (read_held(other) && (table.effect(other) & ~table.effect(target)) != 0u)
+                        found.push_back({Conflict::Kind::Held, other, c, theirs});
+                    else if (waits_for(table.effect(other), table.effect(target)))
+                        found.push_back({Conflict::Kind::Part, other, c, theirs});
+                } else if (c.part_of(theirs)) {
+                    if (read_held(target) && (table.effect(target) & ~table.effect(other)) != 0u)
+                        continue;  // theirs reports it as Held
+                    if (waits_for(table.effect(target), table.effect(other)))
+                        found.push_back({Conflict::Kind::Contains, other, c, theirs});
+                }
             }
         }
     }
     return found;
 }
 
-PadState read(const Bindings &bindings, const std::function<bool(Binding)> &held) {
-    PadState pad;
-    bool on[kActions]{};
-    // Chords first: their main inputs then do nothing on their own.
-    Binding taken[kActions * kSlots]{};
-    std::size_t taken_count = 0;
-    for (std::size_t i = 0; i < kActions; ++i)
-        for (const Chord &c : bindings[i])
-            if (c.combined() && held(c.modifier) && held(c.main)) {
-                on[i] = true;
-                taken[taken_count++] = c.main;
-            }
-    const auto is_taken = [&](Binding b) { return std::find(taken, taken + taken_count, b) != taken + taken_count; };
-    for (std::size_t i = 0; i < kActions; ++i) {
-        for (const Chord &c : bindings[i])
-            if (!c.empty() && !c.combined() && !is_taken(c.main) && held(c.main)) on[i] = true;
-        if (on[i]) pad.buttons |= kButtonBits[i];
-    }
-    const auto axis = [&](Action negative, Action positive) {
-        return (on[static_cast<std::size_t>(positive)] ? 127 : 0) - (on[static_cast<std::size_t>(negative)] ? 127 : 0);
-    };
-    pad.stick_x = axis(Action::StickLeft, Action::StickRight);
-    pad.stick_y = axis(Action::StickUp, Action::StickDown);
-    pad.camera_x = axis(Action::CameraLeft, Action::CameraRight);
-    pad.camera_y = axis(Action::CameraUp, Action::CameraDown);
-    pad.fast_forward = on[static_cast<std::size_t>(Action::FastForward)];
-    pad.screenshot = on[static_cast<std::size_t>(Action::Screenshot)];
-    pad.frame_step = on[static_cast<std::size_t>(Action::FrameStep)];
-    pad.hide_hud = on[static_cast<std::size_t>(Action::HideHud)];
-    return pad;
+std::vector<Conflict> conflicts(const Bindings &bindings, Action action) {
+    return conflicts(Table{bindings, {}, false}, static_cast<std::size_t>(action));
 }
 
 MouseTurn mouse_turn(float counts_x, float counts_y, float degrees_per_count, bool invert_x, bool invert_y,

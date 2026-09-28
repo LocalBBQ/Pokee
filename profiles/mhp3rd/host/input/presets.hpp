@@ -20,8 +20,20 @@ struct Layout {
     Bindings pad{};   // gamepads
     // The right stick moves the hunter and the left one turns the camera.
     bool swap_sticks{};
+    // The player's own actions (#198): any PSP buttons together. No shipped
+    // preset has one.
+    std::vector<Combo> combos;
     friend bool operator==(const Layout &, const Layout &) = default;
 };
+
+// A layout's bindings on one device, as chords are matched (bindings.hpp):
+// the actions, then the player's combos. The layout must outlive it.
+[[nodiscard]] inline Table table(const Layout &layout, bool pad) {
+    return Table{pad ? layout.pad : layout.keys, layout.combos, pad};
+}
+// The slots of a target (an Action, or kActions + a combo's number).
+[[nodiscard]] Slots &slots(Layout &layout, bool pad, std::size_t target);
+[[nodiscard]] const Slots &slots(const Layout &layout, bool pad, std::size_t target);
 
 enum class Preset : std::uint8_t { Default, Modern, LeftHanded, Classic, Count };
 inline constexpr std::size_t kPresets = static_cast<std::size_t>(Preset::Count);

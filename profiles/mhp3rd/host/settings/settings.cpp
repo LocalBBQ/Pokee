@@ -276,6 +276,12 @@ const std::vector<Field> &fields() {
          [](Settings &s, const std::string &t) { return parse_float(t, 0.05f, 1.0f, s.trigger); },
          [](const Settings &s) { return format_float(s.trigger); },
          [](Settings &s, const char *t) { s.trigger = variable_float(t, 0.25f, 0.05f, 1.0f); }},
+        {"input.chord_window", "MHP3RD_CHORD_WINDOW",
+         [](Settings &s, const std::string &t) { return parse_uint(t, 0u, input::kMaxChordWindowMs, s.chord_window); },
+         [](const Settings &s) { return std::to_string(s.chord_window); },
+         [](Settings &s, const char *t) {
+             if (!parse_uint(t, 0u, input::kMaxChordWindowMs, s.chord_window)) s.chord_window = variable_flag(t) ? input::kDefaultChordWindowMs : 0u;
+         }},
         {"input.preset", "MHP3RD_CONTROL_PRESET",
          [](Settings &s, const std::string &t) {
              const std::optional<input::PresetChoice> choice = input::parse_choice(t);
@@ -508,10 +514,78 @@ const std::vector<Field> &all_fields() {
 // The player's presets: "input.user_preset.<n>.name", ".move_stick",
 // ".bind.<action>" and ".pad.<action>", numbered from 1 in the menu's order.
 constexpr std::string_view kUserPresetPrefix = "input.user_preset.";
+// The player's own actions (#198): "input.combo.<n>.buttons=L + Square",
+// ".bind" and ".pad", numbered from 1; a preset's under its prefix.
+constexpr std::string_view kComboPrefix = "input.combo.";
+
+// Reads one combo's field into `combos`, numbered from 1: `field` is
+// "<n>.buttons", "<n>.bind" or "<n>.pad".
+void read_combo_field(std::map<unsigned long, input::Combo> &combos, const std::string &field, const std::string &value,
+                      const std::string &key) {
+    char *end = nullptr;
+    const unsigned long number = std::strtoul(field.c_str(), &end, 10);
+    if (end == field.c_str() || *end != '.' || number == 0u) return;
+    const std::string part = end + 1;
+    input::Combo &combo = combos[number];
+    bool ok = true;
+    if (part == "buttons") ok = input::parse_buttons(value, combo.buttons);
+    else if (part == "bind") ok = input::parse(value, combo.keys);
+    else if (part == "pad") ok = input::parse(value, combo.pad);
+    if (!ok) std::cerr << "[settings] ignoring " << key << "=" << value << "\n";
+}
+
+// The combos read, in their numbers' order, without any that press nothing.
+std::vector<input::Combo> settle_combos(const std::map<unsigned long, input::Combo> &found) {
+    std::vector<input::Combo> combos;
+    for (const auto &[number, combo] : found)
+        if ((combo.buttons & input::kComboButtons) != 0u && combos.size() < input::kMaxCombos) combos.push_back(combo);
+    return combos;
+}
+
+std::vector<input::Combo> read_combos(const Entries &entries) {
+    std::map<unsigned long, input::Combo> found;
+    for (auto it = entries.lower_bound(std::string(kComboPrefix));
+         it != entries.end() && it->first.starts_with(kComboPrefix); ++it)
+        read_combo_field(found, it->first.substr(kComboPrefix.size()), it->second, it->first);
+    return settle_combos(found);
+}
+
+void write_combos(const std::vector<input::Combo> &combos, const std::string &prefix, Entries &entries) {
+    for (auto it = entries.lower_bound(prefix); it != entries.end() && it->first.starts_with(prefix);)
+        it = entries.erase(it);
+    for (std::size_t n = 0; n < combos.size(); ++n) {
+        const std::string at = prefix + std::to_string(n + 1u) + ".";
+        entries[at + "buttons"] = input::format_buttons(combos[n].buttons);
+        entries[at + "bind"] = input::format(combos[n].keys);
+        entries[at + "pad"] = input::format(combos[n].pad);
+    }
+}
+
+// Actions added since a layout was written, which the file has no key for,
+// take what the shipped preset `from` has for them, each chord only if it
+// clashes with nothing the layout has: settings from before the item bar's
+// actions (#198) keep every binding they had.
+void fill_new_actions(input::Layout &layout, const input::Layout &from,
+                      const std::function<bool(std::size_t, bool)> &written) {
+    for (const bool pad : {false, true}) {
+        input::Bindings &table = pad ? layout.pad : layout.keys;
+        const input::Bindings &defaults = pad ? from.pad : from.keys;
+        for (std::size_t i = 0; i < input::kActions; ++i) {
+            if (written(i, pad)) continue;
+            table[i] = {};
+            for (const input::Chord &c : defaults[i]) {
+                if (c.empty() || !input::add(table[i], c)) continue;
+                const input::Table view{table, layout.combos, pad};
+                if (!input::conflicts(view, i).empty()) input::remove(table[i], c);
+            }
+        }
+    }
+}
 
 std::vector<input::UserPreset> read_user_presets(const Entries &entries) {
     std::map<unsigned long, input::UserPreset> found;
     std::map<unsigned long, bool> named;
+    std::map<unsigned long, std::map<unsigned long, input::Combo>> combos;
     for (auto it = entries.lower_bound(std::string(kUserPresetPrefix));
          it != entries.end() && it->first.starts_with(kUserPresetPrefix); ++it) {
         const std::string rest = it->first.substr(kUserPresetPrefix.size());
@@ -527,6 +601,8 @@ std::vector<input::UserPreset> read_user_presets(const Entries &entries) {
             preset.layout.swap_sticks = it->second == "right";
         } else if (field == "base") {
             if (const std::optional<input::Preset> base = input::preset_from_id(it->second)) preset.base = *base;
+        } else if (field.starts_with("combo.")) {
+            read_combo_field(combos[number], field.substr(6), it->second, it->first);
         } else {
             const bool keys = field.starts_with(kBindPrefix.substr(6));
             const bool pad = field.starts_with(kPadPrefix.substr(6));
@@ -543,6 +619,11 @@ std::vector<input::UserPreset> read_user_presets(const Entries &entries) {
     std::vector<input::UserPreset> presets;
     for (auto &[number, preset] : found) {
         if (!named[number] || presets.size() == input::kMaxUserPresets) continue;
+        preset.layout.combos = settle_combos(combos[number]);
+        const std::string prefix = std::string(kUserPresetPrefix) + std::to_string(number) + ".";
+        fill_new_actions(preset.layout, input::layout(preset.base), [&](std::size_t i, bool pad) {
+            return entries.count(prefix + (pad ? "pad." : "bind.") + input::info(static_cast<input::Action>(i)).key) != 0u;
+        });
         bool duplicate = false;
         for (const input::UserPreset &other : presets) duplicate = duplicate || other.name == preset.name;
         if (!duplicate) presets.push_back(std::move(preset));
@@ -565,6 +646,7 @@ void write_user_presets(const std::vector<input::UserPreset> &presets, Entries &
             entries[prefix + "bind." + action] = input::format(preset.layout.keys[i]);
             entries[prefix + "pad." + action] = input::format(preset.layout.pad[i]);
         }
+        write_combos(preset.layout.combos, prefix + "combo.", entries);
     }
 }
 
@@ -572,6 +654,17 @@ void write_user_presets(const std::vector<input::UserPreset> &presets, Entries &
 // and the layout in use is always one of the presets.
 void settle_controls(Settings &s, const Entries &entries) {
     s.user_presets = read_user_presets(entries);
+    s.controls.combos = read_combos(entries);
+    if (entries.count("input.preset") != 0u) {
+        // The shipped preset the layout in use is based on.
+        input::Preset base = s.control_preset.shipped.value_or(input::Preset::Default);
+        if (!s.control_preset.shipped)
+            if (const input::UserPreset *preset = find_user_preset(s, s.control_preset.user)) base = preset->base;
+        fill_new_actions(s.controls, input::layout(base), [&](std::size_t i, bool pad) {
+            return entries.count(std::string(pad ? kPadPrefix : kBindPrefix) +
+                                 input::info(static_cast<input::Action>(i)).key) != 0u;
+        });
+    }
     if (entries.count("input.preset") == 0u) {
         const auto profile = entries.find(kRetiredTriggerProfileKey);
         s.controls = input::layout_from_earlier(s.controls.keys,
@@ -624,6 +717,7 @@ State &state() {
 
 void write_entries(const Settings &values, Entries &entries) {
     for (const Field &field : all_fields()) entries[field.key] = field.format(values);
+    write_combos(values.controls.combos, std::string(kComboPrefix), entries);
     write_user_presets(values.user_presets, entries);
     entries.erase(kRetiredTypeNameKey);
     entries.erase(kRetiredTriggerProfileKey);

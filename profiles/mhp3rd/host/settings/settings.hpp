@@ -1,6 +1,7 @@
 #pragma once
 
 #include "input/bindings.hpp"
+#include "input/chords.hpp"
 #include "input/presets.hpp"
 #include "input/touch_action.hpp"
 #include "kernel/fast_forward.hpp"
@@ -84,6 +85,9 @@ struct Settings {
     bool confirm_south{};              // confirm (circle) on the south face button
     float dead_zone{0.15f};
     float trigger{0.25f};
+    // How long an input that begins a chord waits for the rest of it, in
+    // milliseconds (input/chords.hpp); 0 acts at once.
+    std::uint32_t chord_window{input::kDefaultChordWindowMs};
     RightStick right_stick{RightStick::Camera};
     float right_stick_zone{0.5f};
     // Drives the ordinary quest camera's yaw and pitch from how far the stick

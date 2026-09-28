@@ -193,6 +193,96 @@ void test_controls_from_the_previous_version() {
           "a changed shipped preset becomes Custom, based on it");
 }
 
+
+// A settings.ini written by main before any chord and combination (#198):
+// no keys for the item bar's actions, the chord window or combinations.
+// Every binding reads as it was; the new actions take the preset's inputs
+// where they clash with nothing.
+Entries as_main_wrote(Entries entries) {
+    for (auto it = entries.begin(); it != entries.end();) {
+        const std::string &key = it->first;
+        const bool added = key.find("item_left") != std::string::npos || key.find("item_right") != std::string::npos ||
+                           key == "input.chord_window" || key.find("combo.") != std::string::npos;
+        it = added ? entries.erase(it) : std::next(it);
+    }
+    return entries;
+}
+
+void test_controls_from_main() {
+    using namespace mhp3rd;
+    const auto action = [](input::Action a) { return static_cast<std::size_t>(a); };
+    for (std::size_t p = 0; p < input::kPresets; ++p) {
+        const auto preset = static_cast<input::Preset>(p);
+        Settings chosen = from_entries({});
+        choose_preset(chosen, {preset, {}});
+        const Entries main_file = as_main_wrote(to_entries(chosen));
+        check(main_file.count("input.pad.item_left") == 0u && main_file.count("input.bind.circle") == 1u,
+              "the file is as main wrote it");
+        const Settings read = from_entries(main_file);
+        check(read.control_preset.shipped == preset && read.controls == input::layout(preset) &&
+                  read.user_presets.empty() && read.chord_window == input::kDefaultChordWindowMs,
+              "a shipped preset from main is still that preset, whole");
+    }
+
+    // The player's preset from main, with a paddle on Hide HUD and LB + X
+    // on SELECT: those stay, and Item left, which main did not have, does not
+    // take the paddle.
+    Settings mine = from_entries({});
+    prepare_controls_edit(mine);
+    input::Layout &layout = mine.controls;
+    layout.pad[action(input::Action::HideHud)] = {input::single(input::pad(input::PadInput::LeftPaddle1))};
+    layout.pad[action(input::Action::Select)] = {
+        input::chord(input::pad(input::PadInput::LeftShoulder), input::pad(input::PadInput::West))};
+    // Main had no item actions.
+    for (const input::Action a : {input::Action::ItemLeft, input::Action::ItemRight})
+        layout.keys[action(a)] = layout.pad[action(a)] = {};
+    controls_edited(mine);
+    const Entries main_file = as_main_wrote(to_entries(mine));
+    const Settings read = from_entries(main_file);
+    check(!read.control_preset.shipped && read.user_presets.size() == 1u &&
+              read.user_presets[0].layout == read.controls,
+          "the player's preset from main is read and in use");
+    bool same = true;
+    for (std::size_t i = 0; i < input::kActions; ++i) {
+        const auto a = static_cast<input::Action>(i);
+        if (a == input::Action::ItemLeft || a == input::Action::ItemRight) continue;
+        same = same && read.controls.keys[i] == mine.controls.keys[i] && read.controls.pad[i] == mine.controls.pad[i];
+    }
+    check(same, "every binding main wrote reads unchanged");
+    check(input::count(read.controls.pad[action(input::Action::ItemLeft)]) == 0u &&
+              read.controls.pad[action(input::Action::ItemRight)][0] ==
+                  input::single(input::pad(input::PadInput::RightPaddle1)),
+          "Item left does not take the paddle Hide HUD has; Item right takes the free one");
+    check(read.controls.keys[action(input::Action::ItemLeft)][0] == input::single(input::mouse_button(4)),
+          "and the keyboard's item keys are added where free");
+    for (std::size_t i = 0; i < input::kActions; ++i)
+        for (const bool pad : {false, true})
+            check(input::conflicts(input::table(read.controls, pad), i).size() ==
+                      input::conflicts(input::table(mine.controls, pad), i).size() ||
+                      i == action(input::Action::ItemLeft) || i == action(input::Action::ItemRight),
+                  "and no new conflict");
+
+    // What this version writes reads back: combinations, the chord window,
+    // and an item action cleared on purpose.
+    Settings next = read;
+    next.chord_window = 0u;
+    next.controls.combos.push_back({0x4000u | 0x2000u, {input::single(input::from_name("V"))},
+                                    {input::chord(input::pad(input::PadInput::North), input::pad(input::PadInput::East))}});
+    next.controls.pad[action(input::Action::ItemRight)] = {};
+    controls_edited(next);
+    const Entries written = to_entries(next);
+    check(written.at("input.combo.1.buttons") == "Circle + Cross" && written.at("input.combo.1.pad") == "Pad North + Pad East",
+          "a combination is written with its buttons and chords");
+    const Settings again = from_entries(written);
+    check(again.controls == next.controls && again.user_presets[0].layout.combos == next.controls.combos &&
+              again.chord_window == 0u,
+          "and read back, in the preset too");
+    check(input::count(again.controls.pad[action(input::Action::ItemRight)]) == 0u, "a cleared item action stays cleared");
+    Entries broken = written;
+    broken["input.combo.1.buttons"] = "Nonsense";
+    check(from_entries(broken).controls.combos.empty(), "a combination with no buttons it knows is dropped");
+}
+
 } // namespace
 
 int main() {
@@ -201,6 +291,7 @@ int main() {
     test_this_build();
     test_control_presets();
     test_controls_from_the_previous_version();
+    test_controls_from_main();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;

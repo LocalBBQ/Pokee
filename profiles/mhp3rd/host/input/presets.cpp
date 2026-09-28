@@ -20,8 +20,8 @@ constexpr std::uint16_t LeftShift = 225, RightShift = 229;
 
 class Builder {
 public:
-    Builder &set(Action action, Chord first, Chord second = {}) {
-        bindings_[static_cast<std::size_t>(action)] = {first, second};
+    Builder &set(Action action, Chord first, Chord second = {}, Chord third = {}, Chord fourth = {}) {
+        bindings_[static_cast<std::size_t>(action)] = {first, second, third, fourth};
         return *this;
     }
     Builder &set(Action action, Binding first, Binding second = kNone) {
@@ -50,6 +50,13 @@ public:
         else
             set(Action::Screenshot, chord(pad(PadInput::RightStick), pad(PadInput::DpadLeft)));
         return set(Action::FrameStep, pad(mirrored ? PadInput::East : PadInput::DpadRight));
+    }
+    // The item bar (#198): L + □ and L + ○ on inputs nothing else in the
+    // layout uses, so no other input waits for them: the mouse's side
+    // buttons, or a pad's upper back paddles where it has them.
+    Builder &items(bool mouse) {
+        set(Action::ItemLeft, mouse ? mouse_button(4) : pad(PadInput::LeftPaddle1));
+        return set(Action::ItemRight, mouse ? mouse_button(5) : pad(PadInput::RightPaddle1));
     }
     [[nodiscard]] const Bindings &done() const { return bindings_; }
 
@@ -84,6 +91,7 @@ Bindings default_keys() {
         .set(Action::CameraLeft, key(hid::J))
         .set(Action::CameraDown, key(hid::K))
         .set(Action::CameraRight, key(hid::L))
+        .items(true)
         .host_keys();
     return b.done();
 }
@@ -108,6 +116,7 @@ Bindings classic_keys() {
         .set(Action::Left, key(hid::Left))
         .set(Action::Down, key(hid::Down))
         .set(Action::Right, key(hid::Right))
+        .items(true)
         .host_keys();
     return b.done();
 }
@@ -136,6 +145,7 @@ Bindings left_handed_keys() {
         .set(Action::CameraLeft, key(hid::Keypad4))
         .set(Action::CameraDown, key(hid::Keypad5))
         .set(Action::CameraRight, key(hid::Keypad6))
+        .items(true)
         .host_keys();
     return b.done();
 }
@@ -156,6 +166,7 @@ Bindings default_pad() {
         .set(Action::Left, pad(PadInput::DpadLeft))
         .set(Action::Down, pad(PadInput::DpadDown))
         .set(Action::Right, pad(PadInput::DpadRight))
+        .items(false)
         .host_pad();
     return b.done();
 }
@@ -177,6 +188,7 @@ Bindings modern_pad() {
         .set(Action::Left, pad(PadInput::DpadLeft))
         .set(Action::Down, pad(PadInput::DpadDown))
         .set(Action::Right, pad(PadInput::DpadRight))
+        .items(false)
         .host_pad();
     return b.done();
 }
@@ -184,6 +196,10 @@ Bindings modern_pad() {
 Bindings modern_keys() {
     Bindings keys = default_keys();
     keys[static_cast<std::size_t>(Action::TriangleCircle)] = {single(mouse_button(4)), single(key(hid::C))};
+    // The side button that scrolls the items left does △ + ○ here, so the
+    // other one is left free too.
+    keys[static_cast<std::size_t>(Action::ItemLeft)] = {};
+    keys[static_cast<std::size_t>(Action::ItemRight)] = {};
     return keys;
 }
 
@@ -203,6 +219,7 @@ Bindings left_handed_pad() {
         .set(Action::Left, pad(PadInput::West))
         .set(Action::Down, pad(PadInput::South))
         .set(Action::Right, pad(PadInput::East))
+        .items(false)
         .host_pad(true);
     return b.done();
 }
@@ -239,6 +256,16 @@ bool equal_ignoring_case(std::string_view a, std::string_view b) {
 }
 
 } // namespace
+
+Slots &slots(Layout &layout, bool pad, std::size_t target) {
+    if (target < kActions) return (pad ? layout.pad : layout.keys)[target];
+    Combo &c = layout.combos[target - kActions];
+    return pad ? c.pad : c.keys;
+}
+
+const Slots &slots(const Layout &layout, bool pad, std::size_t target) {
+    return slots(const_cast<Layout &>(layout), pad, target);
+}
 
 const PresetInfo &info(Preset preset) { return kInfo[static_cast<std::size_t>(preset)]; }
 

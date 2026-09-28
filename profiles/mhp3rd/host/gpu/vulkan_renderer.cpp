@@ -18,6 +18,7 @@
 #include "perf/frame_stats.hpp"
 #include "perf/perf_overlay.hpp"
 #include "input/bindings.hpp"
+#include "input/chords.hpp"
 #include "settings/settings.hpp"
 
 #if defined(MHP3RD_ANDROID_APP)
@@ -473,11 +474,9 @@ bool pad_input_held(SDL_Gamepad *device, input::Binding binding, const PadTuning
 // keyboard path also writes, so the two sources simply OR together. The
 // buttons, the triggers included, go through the chosen preset's bindings;
 // the sticks stay sticks.
-void read_gamepad(SDL_Gamepad *device, const input::Bindings &bindings, PadState &pad, int &analog_x,
+void read_gamepad(SDL_Gamepad *device, const input::PadState &mapped, PadState &pad, int &analog_x,
                   int &analog_y) {
     const PadTuning tuning = pad_tuning();
-    const input::PadState mapped =
-        input::read(bindings, [&](input::Binding binding) { return pad_input_held(device, binding, tuning); });
     std::uint32_t &buttons = pad.buttons;
     buttons |= mapped.buttons;
     // No shipped preset puts fast-forward on a gamepad, but a player may.
@@ -987,6 +986,14 @@ struct VulkanRenderer::Impl {
     void sample_hide_hud(bool focused);
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
+    // The bindings matched over time (input/chords.hpp), one resolver for
+    // the keyboard and the mouse and one for the gamepad, updated on every
+    // sample; what they press, for the game and for the port's own binds.
+    input::Resolver keys_resolver;
+    input::Resolver pad_resolver;
+    input::PadState typed{};
+    input::PadState mapped{};
+    void resolve_bindings(bool focused);
     // Keyboard and mouse (input/bindings.hpp). Mouse buttons are followed
     // through their events, so a scripted click counts like a real one.
     bool pointer_free{};
@@ -5408,21 +5415,56 @@ bool VulkanRenderer::pump_events() {
     return !impl_->quit;
 }
 
-void VulkanRenderer::Impl::sample_host_binds(bool focused) {
+void VulkanRenderer::Impl::resolve_bindings(bool focused) {
     const settings::Settings &player = settings::current();
+    const std::uint64_t now = SDL_GetTicks();
+    const unsigned window = player.chord_window;
+    static const bool trace = std::getenv("MHP3RD_TRACE_PAD") != nullptr;
+    const auto log = [&](const char *device, const input::Resolver &resolver) {
+        if (!trace) return;
+        for (const input::Resolver::Event &e : resolver.events()) {
+            static const char *const kKinds[] = {"pressed", "waiting", "tapped", "released"};
+            std::cout << "[chord] " << e.at_ms << " ms " << device << " " << kKinds[static_cast<int>(e.kind)] << " "
+                      << input::format(e.chord);
+            if (e.kind == input::Resolver::Event::Kind::Pressed || e.kind == input::Resolver::Event::Kind::Waiting)
+                std::cout << " (last input down " << e.waited_ms << " ms before)";
+            std::cout << std::endl;
+        }
+    };
     const bool *keys = SDL_GetKeyboardState(nullptr);
-    const input::PadState typed = input::read(player.controls.keys, [&](input::Binding binding) {
-        if (const int button = input::mouse_button_of(binding))
-            return mouse_captured && (mouse_buttons & (1u << button)) != 0u;
-        const int position = input::key_position(binding);
-        return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
-                                 scripted_keys[static_cast<std::size_t>(position)]);
-    });
+    typed = keys_resolver.update(
+        input::Table{player.controls.keys, player.controls.combos, false},
+        [&](input::Binding binding) {
+            if (const int button = input::mouse_button_of(binding))
+                return mouse_captured && (mouse_buttons & (1u << button)) != 0u;
+            const int position = input::key_position(binding);
+            return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
+                                     scripted_keys[static_cast<std::size_t>(position)]);
+        },
+        now, window);
+    log("keys", keys_resolver);
+    if (gamepad == nullptr) {
+        pad_resolver.reset();
+        mapped = {};
+        return;
+    }
+    // The pad's chords the port reads by itself win like any bound chord,
+    // so R3 bound alone does nothing while L3 + R3 opens the menu.
+    static const input::Chord kMenu = input::chord(input::pad(input::PadInput::LeftStick), input::pad(input::PadInput::RightStick));
+    static const input::Chord kFreeCamera = input::chord(input::pad(input::PadInput::Back), input::pad(input::PadInput::RightStick));
+    const input::Chord reserved[] = {kMenu, kFreeCamera};
+    const PadTuning tuning = pad_tuning();
+    mapped = pad_resolver.update(
+        input::Table{player.controls.pad, player.controls.combos, true},
+        [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); }, now, window,
+        std::span<const input::Chord>(reserved, player.free_camera ? 2u : 1u));
+    log("pad", pad_resolver);
+}
+
+void VulkanRenderer::Impl::sample_host_binds(bool focused) {
+    (void)focused;
     input::PadState pressed = typed;
     if (gamepad != nullptr) {
-        const PadTuning tuning = pad_tuning();
-        const input::PadState mapped = input::read(
-            player.controls.pad, [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); });
         pressed.screenshot = pressed.screenshot || mapped.screenshot;
         pressed.frame_step = pressed.frame_step || mapped.frame_step;
     }
@@ -5438,21 +5480,8 @@ void VulkanRenderer::Impl::sample_hide_hud(bool focused) {
         hide_hud_held = false;
         return;
     }
-    const settings::Settings &player = settings::current();
-    const bool *keys = SDL_GetKeyboardState(nullptr);
-    bool held = input::read(player.controls.keys, [&](input::Binding binding) {
-                    if (const int button = input::mouse_button_of(binding))
-                        return mouse_captured && (mouse_buttons & (1u << button)) != 0u;
-                    const int position = input::key_position(binding);
-                    return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
-                                             scripted_keys[static_cast<std::size_t>(position)]);
-                }).hide_hud;
-    if (gamepad != nullptr) {
-        const PadTuning tuning = pad_tuning();
-        held = held || input::read(player.controls.pad, [&](input::Binding binding) {
-                           return pad_input_held(gamepad, binding, tuning);
-                       }).hide_hud;
-    }
+    (void)focused;
+    const bool held = typed.hide_hud || (gamepad != nullptr && mapped.hide_hud);
     if (held && !hide_hud_held) hide_hud_pressed = true;
     hide_hud_held = held;
 }
@@ -5544,6 +5573,9 @@ void VulkanRenderer::sample_pad() {
 
 void VulkanRenderer::Impl::sample_pad(bool focused) {
     Impl *const impl_ = this;
+    // The bindings are matched on every sample, the menu's time included,
+    // so a chord's timing is its own and the port's binds work anywhere.
+    resolve_bindings(focused);
     // While a menu or the on-screen keyboard is open, or the free camera
     // flies, nothing reaches the game.
     if (!impl_->game_input || impl_->free_camera) {
@@ -5554,14 +5586,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     // Keyboard and mouse buttons to the PSP pad, through the player's
     // bindings. Bits follow SceCtrlButtons; the stick is centred at 0x80.
     const settings::Settings &player = settings::current();
-    const bool *keys = SDL_GetKeyboardState(nullptr);
-    const input::PadState typed = input::read(player.controls.keys, [&](input::Binding binding) {
-        if (const int button = input::mouse_button_of(binding))
-            return impl_->mouse_captured && (impl_->mouse_buttons & (1u << button)) != 0u;
-        const int position = input::key_position(binding);
-        return position >= 0 && ((focused && position < SDL_SCANCODE_COUNT && keys[position]) ||
-                                 impl_->scripted_keys[static_cast<std::size_t>(position)]);
-    });
+    const input::PadState &typed = impl_->typed;
     PadState pad{};
     pad.buttons = typed.buttons;
     pad.fast_forward = typed.fast_forward;
@@ -5580,7 +5605,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     }
 
     // The gamepad adds to the same bits and offsets, so both sources are live.
-    if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, player.controls.pad, pad, analog_x, analog_y);
+    if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, impl_->mapped, pad, analog_x, analog_y);
     // So do the on-screen controls.
     if (impl_->touch_visible) {
         const bool action = Impl::action_layout();
