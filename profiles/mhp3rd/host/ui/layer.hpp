@@ -88,6 +88,10 @@ public:
     // gamepad presses count only once it is released.
     [[nodiscard]] bool gamepad_armed() const noexcept { return gamepad_armed_; }
 
+    // While blocked, no gamepad reaches the interface, and after it only
+    // once nothing on the pads is held: the controller setup reads the pad
+    // itself (#147).
+    void set_pad_blocked(bool blocked) noexcept { pad_blocked_ = blocked; }
     // What the player last used, for the button hints.
     [[nodiscard]] InputDevice input_device() const noexcept { return device_; }
     // Whether confirm is the south face button (the pad setting); the menu
@@ -136,6 +140,8 @@ private:
     // After a gamepad capture, the pad reaches the interface again only once
     // nothing on it is held, so the chord just bound does nothing there.
     bool pad_quiet_{};
+    bool pad_blocked_{};
+    bool pads_detached_{};
     std::optional<input::Chord> captured_binding_;
     void finish_capture(bool cancelled);
     std::optional<std::filesystem::path> dropped_;

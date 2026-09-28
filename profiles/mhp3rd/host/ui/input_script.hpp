@@ -20,6 +20,14 @@
 //                     dpdown, dpleft, dpright, ...)
 //   axis NAME VALUE   hold an axis of the virtual gamepad at VALUE, -1 to 1
 //                     (leftx, lefty, rightx, righty, lefttrigger, righttrigger)
+//   joy K attach [NAME]
+//                     a test joystick numbered K that SDL has no mapping for,
+//                     like a controller it does not know: 12 buttons, 4 axes
+//                     and a hat, USB ids 0810:0001
+//   joy K button N [F] press its button N for F frames, 4 by default
+//   joy K hat MASK [F] push its hat (1 up, 2 right, 4 down, 8 left) for F frames
+//   joy K axis N VALUE hold its axis N at VALUE, -1 to 1
+//   joy K detach      unplug it
 //   finger ID down|move|up X Y
 //                     a finger of a virtual touch screen, X and Y from 0 to 1
 //                     across the window (up needs no position)

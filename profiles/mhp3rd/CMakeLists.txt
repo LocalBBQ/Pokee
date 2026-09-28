@@ -108,6 +108,7 @@ if(MHP3RD_RENDERER)
             host/gpu/vulkan_renderer.cpp
             host/input/gamepad_devices.cpp
             host/ui/bindings_editor.cpp
+            host/ui/controllers_screen.cpp
             host/ui/file_browser.cpp
             host/ui/font_menu.cpp
             host/ui/input_script.cpp

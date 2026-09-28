@@ -12,6 +12,7 @@
 #include <deque>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -40,7 +41,13 @@ struct State {
         SDL_Keycode key{};
         std::vector<SDL_GamepadButton> buttons;
         std::uint8_t mouse_button{};
+        // A test joystick's button (joy_button) or hat (joy_hat) to let go.
+        SDL_Joystick *joystick{};
+        int joy_button{-1};
+        bool joy_hat{};
     };
+    // Test joysticks without a mapping (`joy`), by the script's number.
+    std::map<int, SDL_Joystick *> joysticks;
     std::vector<Release> releases;
     // Strings handed to SDL events must outlive them.
     std::deque<std::string> strings;
@@ -156,6 +163,80 @@ std::vector<float> numbers(const std::string &text) {
 
 void add_step(std::uint64_t frame, std::string action, std::string argument);
 
+// `joy K attach [NAME]`, `joy K button N [F]`, `joy K hat MASK [F]`,
+// `joy K axis N VALUE`, `joy K detach`: a joystick SDL has no mapping for,
+// like a controller it does not know (#147).
+void run_joystick(const std::string &argument) {
+    State &s = state();
+    std::stringstream in(argument);
+    int number = 0;
+    std::string what;
+    in >> number >> what;
+    const auto found = s.joysticks.find(number);
+    SDL_Joystick *joystick = found != s.joysticks.end() ? found->second : nullptr;
+    if (what == "attach") {
+        if (joystick != nullptr) return;
+        std::string name;
+        std::getline(in, name);
+        name = trim(name);
+        if (name.empty()) name = "Yakumo test joystick " + std::to_string(number);
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+        SDL_VirtualJoystickDesc desc;
+        SDL_INIT_INTERFACE(&desc);
+        // No gamepad type: SDL then gives it no mapping of its own. A PS2 pad
+        // on a USB adapter: 12 buttons, a hat, two sticks.
+        desc.type = SDL_JOYSTICK_TYPE_UNKNOWN;
+        desc.vendor_id = 0x0810u;
+        desc.product_id = 0x0001u;
+        desc.nbuttons = 12u;
+        desc.naxes = 4u;
+        desc.nhats = 1u;
+        s.strings.push_back(name);
+        desc.name = s.strings.back().c_str();
+        const SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
+        if (id == 0) {
+            std::cout << "[script] cannot attach a test joystick: " << SDL_GetError() << std::endl;
+            return;
+        }
+        s.joysticks[number] = SDL_OpenJoystick(id);
+        return;
+    }
+    if (joystick == nullptr) {
+        std::cout << "[script] no test joystick " << number << std::endl;
+        return;
+    }
+    if (what == "detach") {
+        const SDL_JoystickID id = SDL_GetJoystickID(joystick);
+        SDL_CloseJoystick(joystick);
+        SDL_DetachVirtualJoystick(id);
+        s.joysticks.erase(number);
+        return;
+    }
+    int value = 0;
+    in >> value;
+    if (what == "axis") {
+        float position = 0.0f;
+        in >> position;
+        SDL_SetJoystickVirtualAxis(joystick, value, static_cast<Sint16>(std::clamp(position, -1.0f, 1.0f) * 32767.0f));
+        return;
+    }
+    std::uint64_t frames = kHoldFrames;
+    if (std::uint64_t given = 0; in >> given) frames = std::max<std::uint64_t>(1u, given);
+    State::Release release{s.frame + frames, SDLK_UNKNOWN, {}};
+    release.joystick = joystick;
+    if (what == "button") {
+        SDL_SetJoystickVirtualButton(joystick, value, true);
+        release.joy_button = value;
+    } else if (what == "hat") {
+        SDL_SetJoystickVirtualHat(joystick, 0, static_cast<Uint8>(value));
+        release.joy_hat = true;
+    } else {
+        std::cout << "[script] unknown joystick action " << what << std::endl;
+        return;
+    }
+    s.releases.push_back(release);
+}
+
 void run(const Step &due) {
     // A copy: the steps some actions add reorder the list `due` is in.
     const Step step = due;
@@ -222,6 +303,8 @@ void run(const Step &due) {
             return;
         }
         SDL_SetJoystickVirtualAxis(s.pad, axis, static_cast<Sint16>(std::clamp(value, -1.0f, 1.0f) * 32767.0f));
+    } else if (step.action == "joy") {
+        run_joystick(step.argument);
     } else if (step.action == "finger") {
         std::stringstream in(step.argument);
         std::uint64_t id = 0;
@@ -420,6 +503,8 @@ void tick() {
         if (it->key != SDLK_UNKNOWN) push_key(it->key, false);
         if (it->mouse_button != 0u) push_mouse_button(it->mouse_button, false);
         for (SDL_GamepadButton button : it->buttons) SDL_SetJoystickVirtualButton(s.pad, button, false);
+        if (it->joystick != nullptr && it->joy_button >= 0) SDL_SetJoystickVirtualButton(it->joystick, it->joy_button, false);
+        if (it->joystick != nullptr && it->joy_hat) SDL_SetJoystickVirtualHat(it->joystick, 0, SDL_HAT_CENTERED);
         it = s.releases.erase(it);
     }
     while (!s.steps.empty() && s.steps.front().frame <= s.frame) {

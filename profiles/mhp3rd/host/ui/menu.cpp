@@ -5,6 +5,7 @@
 #include "ui/ui.hpp"
 
 #include "ui/bindings_editor.hpp"
+#include "ui/controllers_screen.hpp"
 #include "ui/font_menu.hpp"
 #if defined(MHP3RD_DEBUG_MENU)
 #include "debug/debug_tools.hpp"
@@ -210,7 +211,8 @@ bool Menu::frame() {
     // Back closes the font list, or the save import and export, before it
     // closes the menu.
     bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
-                              (tab_ == 4 && mods_screen_open()) || (tab_ == 5 && save_screen_open());
+                              (tab_ == 2 && controllers_screen_open()) || (tab_ == 4 && mods_screen_open()) ||
+                              (tab_ == 5 && save_screen_open());
 #if defined(MHP3RD_DEBUG_MENU)
     font_list_was_open = font_list_was_open || (tab_ == 6 && debug_screen_open());
 #endif
@@ -861,7 +863,9 @@ void Menu::preset_rows() {
 }
 
 void Menu::controls() {
+    if (controllers_screen(back_)) return;
     settings::Settings &s = settings::current();
+    controllers_rows();
     preset_rows();
     bindings_editor(preset_notice_);
     section("Combinations");

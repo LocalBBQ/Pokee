@@ -2,6 +2,7 @@
 
 #include "app_paths.hpp"
 
+#include "ui/controllers_screen.hpp"
 #include "ui/input_script.hpp"
 #include "ui/widgets.hpp"
 
@@ -181,6 +182,7 @@ bool Layer::attach(gpu::VulkanRenderer &renderer) {
     // the overlays drawn then must not show it again.
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     if (renderer.gamepad() != nullptr) device_ = InputDevice::Gamepad;
+    note_unknown_controllers();
     script::attach();
     return true;
 }
@@ -204,6 +206,7 @@ void Layer::set_interactive(bool interactive) {
     captured_binding_.reset();
     escape_pending_.reset();
     gamepad_armed_ = false;
+    pad_blocked_ = false;
 }
 
 bool Layer::confirm_south() const { return settings::current().confirm_south; }
@@ -382,13 +385,18 @@ bool Layer::handle_event(const SDL_Event &event) {
             SDL_Gamepad *pad = SDL_GetGamepadFromID(event.gbutton.which);
             const SDL_GamepadButton other = button == SDL_GAMEPAD_BUTTON_LEFT_STICK ? SDL_GAMEPAD_BUTTON_RIGHT_STICK
                                                                                      : SDL_GAMEPAD_BUTTON_LEFT_STICK;
-            if (pad != nullptr && SDL_GetGamepadButton(pad, other)) menu_toggle_ = true;
+            if (pad != nullptr && SDL_GetGamepadButton(pad, other) && !pad_blocked_) menu_toggle_ = true;
         }
         break;
     }
     case SDL_EVENT_GAMEPAD_AXIS_MOTION:
         if (std::abs(static_cast<int>(event.gaxis.value)) > 16000) device_ = InputDevice::Gamepad;
         break;
+    case SDL_EVENT_JOYSTICK_ADDED:
+    case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+        // A controller nothing reads yet says so (#147).
+        note_unknown_controller(event);
+        return false;
     case SDL_EVENT_GAMEPAD_ADDED:
     case SDL_EVENT_GAMEPAD_REMOVED:
         // ImGui refreshes its list of pads only when it sees one of these. A
@@ -448,6 +456,19 @@ void Layer::apply_theme() {
 
 void Layer::begin_frame() {
     renderer_->begin_ui_frame();
+    // Blocked, the interface reads no gamepad at all, while the keyboard,
+    // the mouse and touches still work. Afterwards the pads count again once
+    // nothing on them is held.
+    if (pad_blocked_ != pads_detached_) {
+        pads_detached_ = pad_blocked_;
+        if (pad_blocked_) {
+            ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, nullptr, 0);
+        } else {
+            ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
+            pad_quiet_ = true;
+        }
+        ImGui::GetIO().ClearInputKeys();
+    }
     ImGui_ImplSDL3_NewFrame();
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigNavSwapGamepadButtons = !confirm_south();
