@@ -256,6 +256,10 @@ public:
 
     [[nodiscard]] SDL_Window *window() const noexcept;
     [[nodiscard]] std::string device_name() const;
+    // The GPU and its driver as far as initialize() got before it failed
+    // ("Mali-G57 MC2, driver r32p1, Vulkan 1.1.177"), for an error a player
+    // can report from a screenshot; empty when no GPU was chosen yet.
+    [[nodiscard]] std::string device_summary() const;
     // Why the game's picture may be missing or wrong (a failed start-up
     // self-test, pipelines the driver refused), for the interface to show
     // over the game; empty while nothing is known to be wrong.

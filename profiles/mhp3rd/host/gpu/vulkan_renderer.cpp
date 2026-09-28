@@ -10,6 +10,7 @@
 #include "triangle_indices.hpp"
 #include "texture_pack.hpp"
 #include "texture_pack_import.hpp"
+#include "descriptor_pools.hpp"
 #include "device_report.hpp"
 
 #include "install/game_identity.hpp"
@@ -948,7 +949,7 @@ struct VulkanRenderer::Impl {
     std::uint32_t swapchain_builds{};
     VkRenderPass rotate_render_pass{};
     VkDescriptorSetLayout rotate_set_layout{};
-    VkDescriptorPool rotate_pool{};
+    DescriptorPools upright_sets;  // one per swapchain image, however many the system makes
     VkPipelineLayout rotate_layout{};
     VkPipeline rotate_pipeline{};
     VkSampler rotate_sampler{};
@@ -1430,7 +1431,11 @@ struct VulkanRenderer::Impl {
     }
     VkPipelineLayout pipeline_layout{};
     VkDescriptorSetLayout descriptor_layout{};
-    VkDescriptorPool descriptor_pool{};
+    // Every texture, 2D copy and render-target copy the GE's draws sample
+    // (descriptor_layout), and the lighting set (lighting_layout), from
+    // pools that grow instead of failing (descriptor_pools.hpp).
+    DescriptorPools texture_sets;
+    DescriptorPools lighting_sets;
     VkDescriptorSetLayout lighting_layout{};
     VkDescriptorSet lighting_descriptor{};  // binding 0: environment, binding 1: object
     VkDeviceSize uniform_alignment{256u};
@@ -2204,6 +2209,16 @@ struct VulkanRenderer::Impl {
     Texture create_texture(std::uint32_t width, std::uint32_t height, const std::uint32_t *pixels);
     // The image, view and descriptor of a texture, with no pixels yet.
     Texture create_texture_image(std::uint32_t width, std::uint32_t height);
+    // A texture set that could not be had: the draw goes on without what
+    // needed it. Said in the log now and then, not once per draw.
+    std::string descriptor_error;
+    std::uint64_t descriptor_failures{};
+    void report_descriptor_failure(const std::string &error) {
+        descriptor_error = error;
+        if (descriptor_failures++ % 600u == 0u)
+            log_line("[render] " + error + "; drawn without it (" + std::to_string(descriptor_failures) +
+                     " so far)");
+    }
     // Copies pixels into a texture's image: ahead of the frame's commands
     // while one is recorded, else at once (waiting for the queue).
     void upload_texture(VkImage image, std::uint32_t width, std::uint32_t height, const std::uint32_t *pixels);
@@ -2686,21 +2701,24 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                "vkCreateDescriptorSetLayout", error))
         return false;
 
-    // Evicted textures keep their sets until their frame has finished, so
-    // the pool has room for a second cache's worth.
-    const std::array<VkDescriptorPoolSize, 3> pool_sizes{
-        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                             static_cast<std::uint32_t>(2u * kMaxCachedTextures + 1u + kMaxFramebufferTextureSets)},
-        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 3u},
-        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2u},
-    };
-    VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_info.maxSets = static_cast<std::uint32_t>(2u * kMaxCachedTextures + 2u + kMaxFramebufferTextureSets);
-    pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
-    pool_info.pPoolSizes = pool_sizes.data();
-    if (!check(vkCreateDescriptorPool(impl.device, &pool_info, nullptr, &impl.descriptor_pool),
-               "vkCreateDescriptorPool", error))
+    // The textures' sets: the cache (kMaxCachedTextures), the evicted ones
+    // until their frame has finished, the 2D interface's sharper copies,
+    // two per sampled render target (kMaxFramebufferTextureSets) and the
+    // white texture. Pools of 512 are added as they fill.
+    if (!impl.texture_sets.create(DescriptorPools::vulkan(impl.device, impl.descriptor_layout),
+                                  DescriptorPools::from_environment(
+                                      {"texture sets", {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1u}}, 512u, 32u}),
+                                  error))
+        return false;
+    // The lighting set is one, but a pool made for exactly one has been seen
+    // to be too small for a phone's driver: four sets' room.
+    if (!impl.lighting_sets.create(DescriptorPools::vulkan(impl.device, impl.lighting_layout),
+                                   DescriptorPools::from_environment({"lighting set",
+                                                                      {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 3u},
+                                                                       {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2u}},
+                                                                      4u,
+                                                                      4u}),
+                                   error))
         return false;
 
     VkPushConstantRange push_range{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u,
@@ -2849,13 +2867,8 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         VkPhysicalDeviceProperties device_properties{};
         vkGetPhysicalDeviceProperties(impl.physical_device, &device_properties);
         impl.uniform_alignment = std::max<VkDeviceSize>(device_properties.limits.minUniformBufferOffsetAlignment, 16u);
-        VkDescriptorSetAllocateInfo lighting_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        lighting_info.descriptorPool = impl.descriptor_pool;
-        lighting_info.descriptorSetCount = 1u;
-        lighting_info.pSetLayouts = &impl.lighting_layout;
-        if (!check(vkAllocateDescriptorSets(impl.device, &lighting_info, &impl.lighting_descriptor),
-                   "vkAllocateDescriptorSets", error))
-            return false;
+        impl.lighting_descriptor = impl.lighting_sets.allocate(error);
+        if (impl.lighting_descriptor == VK_NULL_HANDLE) return false;
         // The vertex buffer read as words must fit the storage range every
         // device offers at least (2^27 bytes); GPU vertex decode needs it.
         impl.gpu_decode_available = kVertexBufferTotal <= device_properties.limits.maxStorageBufferRange;
@@ -2902,6 +2915,11 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
 
     const std::uint32_t white = 0xFFFFFFFFu;
     impl.white_texture = impl.create_texture(1u, 1u, &white);
+    if (impl.white_texture.descriptor == VK_NULL_HANDLE) {
+        error = "the white texture: " +
+                (impl.descriptor_error.empty() ? std::string("its image could not be made") : impl.descriptor_error);
+        return false;
+    }
 
     // The GE's pipelines drawing a known picture, before the game relies on
     // them. A wrong picture is tried again with the plain fragment shader,
@@ -3295,14 +3313,12 @@ bool VulkanRenderer::Impl::create_rotation_pipeline(std::string &error) {
     if (!check(vkCreateDescriptorSetLayout(device, &set_info, nullptr, &rotate_set_layout),
                "vkCreateDescriptorSetLayout", error))
         return false;
-    constexpr std::uint32_t kMaxImages = 8u;
-    VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxImages};
-    VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_info.maxSets = kMaxImages;
-    pool_info.poolSizeCount = 1u;
-    pool_info.pPoolSizes = &pool_size;
-    if (!check(vkCreateDescriptorPool(device, &pool_info, nullptr, &rotate_pool), "vkCreateDescriptorPool", error))
+    // A set per swapchain image. Android decides how many images a
+    // swapchain has, so the pools grow with it.
+    if (!upright_sets.create(DescriptorPools::vulkan(device, rotate_set_layout),
+                             DescriptorPools::from_environment(
+                                 {"pre-rotation sets", {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1u}}, 8u, 8u}),
+                             error))
         return false;
 
     VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0u, sizeof(std::int32_t)};
@@ -3380,12 +3396,8 @@ bool VulkanRenderer::Impl::create_upright_images(std::string &error) {
                               VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                           upright.image, upright.memory, upright.view, VK_IMAGE_ASPECT_COLOR_BIT, error))
             return false;
-        VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        allocate.descriptorPool = rotate_pool;
-        allocate.descriptorSetCount = 1u;
-        allocate.pSetLayouts = &rotate_set_layout;
-        if (!check(vkAllocateDescriptorSets(device, &allocate, &upright.set), "vkAllocateDescriptorSets", error))
-            return false;
+        upright.set = upright_sets.allocate(error);
+        if (upright.set == VK_NULL_HANDLE) return false;
         VkDescriptorImageInfo image_info{rotate_sampler, upright.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         write.dstSet = upright.set;
@@ -3412,7 +3424,7 @@ bool VulkanRenderer::Impl::create_upright_images(std::string &error) {
 void VulkanRenderer::Impl::destroy_upright_images() {
     for (UprightImage &upright : upright_images) {
         if (upright.rotate_framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, upright.rotate_framebuffer, nullptr);
-        if (upright.set != VK_NULL_HANDLE) vkFreeDescriptorSets(device, rotate_pool, 1u, &upright.set);
+        upright_sets.free(upright.set);
         if (upright.view != VK_NULL_HANDLE) vkDestroyImageView(device, upright.view, nullptr);
         if (upright.image != VK_NULL_HANDLE) vkDestroyImage(device, upright.image, nullptr);
         if (upright.memory != VK_NULL_HANDLE) vkFreeMemory(device, upright.memory, nullptr);
@@ -3424,7 +3436,7 @@ void VulkanRenderer::Impl::destroy_rotation_pipeline() {
     destroy_upright_images();
     if (rotate_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, rotate_pipeline, nullptr);
     if (rotate_layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, rotate_layout, nullptr);
-    if (rotate_pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, rotate_pool, nullptr);
+    upright_sets.destroy();
     if (rotate_set_layout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, rotate_set_layout, nullptr);
     if (rotate_sampler != VK_NULL_HANDLE) vkDestroySampler(device, rotate_sampler, nullptr);
     if (rotate_vertex != VK_NULL_HANDLE) vkDestroyShaderModule(device, rotate_vertex, nullptr);
@@ -3432,7 +3444,6 @@ void VulkanRenderer::Impl::destroy_rotation_pipeline() {
     if (rotate_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, rotate_render_pass, nullptr);
     rotate_pipeline = VK_NULL_HANDLE;
     rotate_layout = VK_NULL_HANDLE;
-    rotate_pool = VK_NULL_HANDLE;
     rotate_set_layout = VK_NULL_HANDLE;
     rotate_sampler = VK_NULL_HANDLE;
     rotate_vertex = VK_NULL_HANDLE;
@@ -3729,8 +3740,7 @@ void VulkanRenderer::Impl::write_capture(VkFence fence) {
 }
 
 void VulkanRenderer::Impl::destroy_target(Target &target) {
-    for (VkDescriptorSet &descriptor : target.copy_descriptors)
-        if (descriptor != VK_NULL_HANDLE) vkFreeDescriptorSets(device, descriptor_pool, 1u, &descriptor);
+    for (VkDescriptorSet &descriptor : target.copy_descriptors) texture_sets.free(descriptor);
     vkDestroyImageView(device, target.copy_opaque_view, nullptr);
     vkDestroyImageView(device, target.copy_view, nullptr);
     vkDestroyImage(device, target.copy, nullptr);
@@ -3913,11 +3923,14 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture_image(std::ui
                       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, texture.image, texture.memory,
                       texture.view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return texture;
-    VkDescriptorSetAllocateInfo descriptor_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    descriptor_info.descriptorPool = descriptor_pool;
-    descriptor_info.descriptorSetCount = 1u;
-    descriptor_info.pSetLayouts = &descriptor_layout;
-    vkAllocateDescriptorSets(device, &descriptor_info, &texture.descriptor);
+    texture.descriptor = texture_sets.allocate(error);
+    if (texture.descriptor == VK_NULL_HANDLE) {
+        // The draw falls back (the white texture, or the original instead
+        // of a sharper copy); only the image is given back.
+        report_descriptor_failure(error);
+        destroy_texture(texture);
+        return texture;
+    }
     VkDescriptorImageInfo image_info{texture_sampler(), texture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     write.dstSet = texture.descriptor;
@@ -4138,7 +4151,7 @@ void VulkanRenderer::Impl::release_frame_uploads(std::uint32_t from) {
 }
 
 void VulkanRenderer::Impl::destroy_texture(Texture &texture) {
-    if (texture.descriptor != VK_NULL_HANDLE) vkFreeDescriptorSets(device, descriptor_pool, 1u, &texture.descriptor);
+    texture_sets.free(texture.descriptor);
     if (texture.view != VK_NULL_HANDLE) vkDestroyImageView(device, texture.view, nullptr);
     if (texture.image != VK_NULL_HANDLE) vkDestroyImage(device, texture.image, nullptr);
     if (texture.memory != VK_NULL_HANDLE) vkFreeMemory(device, texture.memory, nullptr);
@@ -4756,12 +4769,21 @@ VkDescriptorSet VulkanRenderer::Impl::framebuffer_descriptor(Target &target, boo
         if (vkCreateImageView(device, &view_info, nullptr, &target.copy_opaque_view) != VK_SUCCESS)
             return VK_NULL_HANDLE;
         for (std::size_t i = 0; i < target.copy_descriptors.size(); ++i) {
-            VkDescriptorSetAllocateInfo descriptor_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-            descriptor_info.descriptorPool = descriptor_pool;
-            descriptor_info.descriptorSetCount = 1u;
-            descriptor_info.pSetLayouts = &descriptor_layout;
-            if (vkAllocateDescriptorSets(device, &descriptor_info, &target.copy_descriptors[i]) != VK_SUCCESS) {
-                target.copy_descriptors[i] = VK_NULL_HANDLE;
+            std::string error;
+            target.copy_descriptors[i] = texture_sets.allocate(error);
+            if (target.copy_descriptors[i] == VK_NULL_HANDLE) {
+                // Drawn from the texture cache instead; tried again with
+                // the next draw that samples this target.
+                report_descriptor_failure(error);
+                for (VkDescriptorSet &descriptor : target.copy_descriptors) texture_sets.free(descriptor);
+                vkDestroyImageView(device, target.copy_opaque_view, nullptr);
+                vkDestroyImageView(device, target.copy_view, nullptr);
+                vkDestroyImage(device, target.copy, nullptr);
+                vkFreeMemory(device, target.copy_memory, nullptr);
+                target.copy_opaque_view = VK_NULL_HANDLE;
+                target.copy_view = VK_NULL_HANDLE;
+                target.copy = VK_NULL_HANDLE;
+                target.copy_memory = VK_NULL_HANDLE;
                 return VK_NULL_HANDLE;
             }
             VkDescriptorImageInfo image_info{framebuffer_sampler(), i == 0u ? target.copy_view : target.copy_opaque_view,
@@ -5932,6 +5954,14 @@ void VulkanRenderer::hold_frame(bool hold) {
 
 SDL_Window *VulkanRenderer::window() const noexcept { return impl_ ? impl_->window : nullptr; }
 std::string VulkanRenderer::device_name() const { return impl_ ? impl_->device_name : std::string{}; }
+std::string VulkanRenderer::device_summary() const {
+    if (!impl_ || impl_->facts.name.empty()) return {};
+    const DeviceFacts &facts = impl_->facts;
+    return facts.name + ", driver " + facts.driver_version_text() + ", Vulkan " +
+           std::to_string(VK_API_VERSION_MAJOR(facts.api_version)) + "." +
+           std::to_string(VK_API_VERSION_MINOR(facts.api_version)) + "." +
+           std::to_string(VK_API_VERSION_PATCH(facts.api_version));
+}
 SDL_Gamepad *VulkanRenderer::gamepad() const noexcept { return impl_ ? impl_->gamepad : nullptr; }
 
 VkExtent2D VulkanRenderer::Impl::wanted_target_extent() const {
@@ -6258,7 +6288,18 @@ bool VulkanRenderer::initialize_ui(std::string &error) {
     info.Device = impl.device;
     info.QueueFamily = impl.queue_family;
     info.Queue = impl.queue;
-    info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
+    // One set per interface texture: the font atlas (which ImGui may make
+    // again, the old one kept until its frames are done), the font menu's
+    // preview and one preview per mod. Eight, ImGui's least, is too few for
+    // a player with several mods, and a phone's driver keeps to the number.
+    info.DescriptorPoolSize = 256u;
+    // ImGui draws on without a set it could not have; the log says so.
+    info.CheckVkResultFn = [](VkResult result) {
+        static std::uint64_t failures = 0;
+        if (result != VK_SUCCESS && failures++ % 600u == 0u)
+            log_line("[ui] a Vulkan call of the interface failed with " + describe_result(result) + " (" +
+                     std::to_string(failures) + " so far)");
+    };
     info.MinImageCount = impl.swapchain_min_images;
     // ImGui keeps this many vertex and index buffers and writes the next one
     // for each draw of the interface. Two frames in flight and two presents
@@ -8742,7 +8783,9 @@ void VulkanRenderer::shutdown() {
     vkDestroySampler(impl.device, impl.sharp_sampler, nullptr);
     vkDestroySampler(impl.device, impl.clamp_sampler, nullptr);
     vkDestroySampler(impl.device, impl.clamp_sharp_sampler, nullptr);
-    vkDestroyDescriptorPool(impl.device, impl.descriptor_pool, nullptr);
+    std::cout << "[render] " << impl.texture_sets.summary() << "\n";
+    impl.texture_sets.destroy();
+    impl.lighting_sets.destroy();
     vkDestroyDescriptorSetLayout(impl.device, impl.descriptor_layout, nullptr);
     vkDestroyDescriptorSetLayout(impl.device, impl.lighting_layout, nullptr);
     vkDestroyPipelineLayout(impl.device, impl.pipeline_layout, nullptr);
