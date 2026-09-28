@@ -168,6 +168,7 @@ set(MHP3RD_HOST_SOURCES
     host/input/bindings.cpp
     host/input/chords.cpp
     host/input/presets.cpp
+    host/input/gamepad_mapping.cpp
     host/input/touch_action.cpp
     host/input/touch_controls.cpp
     host/gpu/texture_pack.cpp
@@ -560,6 +561,17 @@ target_include_directories(mhp3rd_input_tests PRIVATE "${MHP3RD_PROFILE_DIR}/hos
 set_target_properties(mhp3rd_input_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_input_tests COMMAND mhp3rd_input_tests)
+endif()
+
+# Mappings for gamepads SDL does not know (#147): the setup's detection and
+# the mapping lines and file it writes. No SDL.
+add_executable(mhp3rd_gamepad_mapping_tests
+    tests/gamepad_mapping_tests.cpp
+    host/input/gamepad_mapping.cpp)
+target_include_directories(mhp3rd_gamepad_mapping_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+set_target_properties(mhp3rd_gamepad_mapping_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_gamepad_mapping_tests COMMAND mhp3rd_gamepad_mapping_tests)
 endif()
 
 # Mods: the community's mod folders, choices, conflicts and import, the
