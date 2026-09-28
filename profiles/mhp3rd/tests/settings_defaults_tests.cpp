@@ -262,6 +262,13 @@ void test_controls_from_main() {
                       i == action(input::Action::ItemLeft) || i == action(input::Action::ItemRight),
                   "and no new conflict");
 
+    // A file with only a few keys: the rest keeps the preset's, and nothing
+    // is taken away for a clash with the chords it adds.
+    const Settings partial = from_entries({{"input.preset", "default"},
+                                           {"input.pad.item_right", "Pad LB + Pad East"}});
+    check(partial.controls.pad[action(input::Action::Circle)] == input::layout(input::Preset::Default).pad[action(input::Action::Circle)],
+          "a key the file does not have keeps the preset's binding");
+
     // What this version writes reads back: combinations, the chord window,
     // and an item action cleared on purpose.
     Settings next = read;

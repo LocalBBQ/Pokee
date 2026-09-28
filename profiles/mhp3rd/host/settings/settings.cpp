@@ -561,16 +561,19 @@ void write_combos(const std::vector<input::Combo> &combos, const std::string &pr
     }
 }
 
-// Actions added since a layout was written, which the file has no key for,
-// take what the shipped preset `from` has for them, each chord only if it
-// clashes with nothing the layout has: settings from before the item bar's
-// actions (#198) keep every binding they had.
+// Actions added since a layout was written (the item bar's, #198), which the
+// file has no key for, take what the shipped preset `from` has for them,
+// each chord only if it clashes with nothing the layout has: settings from
+// before keep every binding they had. Other missing keys are left as they
+// always were.
 void fill_new_actions(input::Layout &layout, const input::Layout &from,
                       const std::function<bool(std::size_t, bool)> &written) {
+    static constexpr input::Action kAdded[] = {input::Action::ItemLeft, input::Action::ItemRight};
     for (const bool pad : {false, true}) {
         input::Bindings &table = pad ? layout.pad : layout.keys;
         const input::Bindings &defaults = pad ? from.pad : from.keys;
-        for (std::size_t i = 0; i < input::kActions; ++i) {
+        for (const input::Action added : kAdded) {
+            const auto i = static_cast<std::size_t>(added);
             if (written(i, pad)) continue;
             table[i] = {};
             for (const input::Chord &c : defaults[i]) {
