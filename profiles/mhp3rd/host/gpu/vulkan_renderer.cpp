@@ -6156,7 +6156,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // MHP3RD_TRACE_SPRITES=N/K traces frame N and every Kth frame after it.
     static const std::pair<std::uint64_t, std::uint64_t> trace_sprites_frames = [] {
         const char *text = std::getenv("MHP3RD_TRACE_SPRITES");
-        if (text == nullptr) return std::pair{~0ull, 0ull};
+        if (text == nullptr) return std::pair<std::uint64_t, std::uint64_t>{~0ull, 0ull};
         char *end = nullptr;
         const std::uint64_t first = std::strtoull(text, &end, 10);
         const std::uint64_t every = end != nullptr && *end == '/' ? std::strtoull(end + 1, nullptr, 10) : 0ull;
