@@ -92,6 +92,7 @@ PadState Resolver::update(const Table &table, const std::function<bool(Binding)>
             taps_.push_back({w, now_ms + kMinTapMs});
             events_.push_back({Event::Kind::Tapped, w, now_ms, 0u});
         }
+    const std::vector<Chord> was_waiting = std::move(waiting_);
     waiting_.clear();
 
     // Chords let go. What they grew from acts again if it is still held;
@@ -179,7 +180,8 @@ PadState Resolver::update(const Table &table, const std::function<bool(Binding)>
         for (const Binding b : e->chord.held()) taken.push_back(b);
         if (wait) {
             waiting_.push_back(e->chord);
-            events_.push_back({Event::Kind::Waiting, e->chord, now_ms, age});
+            if (std::find(was_waiting.begin(), was_waiting.end(), e->chord) == was_waiting.end())
+                events_.push_back({Event::Kind::Waiting, e->chord, now_ms, age});
         } else {
             active_.push_back({e->chord, {}});
             events_.push_back({Event::Kind::Pressed, e->chord, now_ms, age});
