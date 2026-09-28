@@ -10,6 +10,7 @@
 #include <SDL3/SDL_main.h>
 
 #include <pthread.h>
+#include <unistd.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -44,8 +45,12 @@ void redirect_output() {
     const std::string log = std::string(storage) + "/yakumo.log";
     // The previous run's log survives one start, for reporting a crash.
     std::rename(log.c_str(), (std::string(storage) + "/yakumo-previous.log").c_str());
-    if (std::freopen(log.c_str(), "w", stdout) != nullptr) std::setvbuf(stdout, nullptr, _IOLBF, 0);
-    if (std::freopen(log.c_str(), "a", stderr) != nullptr) std::setvbuf(stderr, nullptr, _IONBF, 0);
+    if (std::freopen(log.c_str(), "w", stdout) == nullptr) return;
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    // stderr shares stdout's file and its position. Opened on its own, each
+    // wrote at its own offset and stdout wrote over what stderr had added,
+    // which garbled the end of the log, where an error is.
+    if (dup2(fileno(stdout), STDERR_FILENO) >= 0) std::setvbuf(stderr, nullptr, _IONBF, 0);
 }
 
 // The APK carries the fallback font a release ships in fonts/, as an asset.

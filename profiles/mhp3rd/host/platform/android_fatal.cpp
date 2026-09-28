@@ -87,7 +87,9 @@ void fatal_error(const std::string &title, const std::string &text, int exit_cod
     };
     std::string note;
     for (;;) {
-        const std::string message = note.empty() ? text : text + "\n\n" + note;
+        // After a save only the outcome is shown: the whole text and the
+        // note together push the buttons off a phone's screen.
+        const std::string message = note.empty() ? text : note;
         SDL_MessageBoxData box{};
         box.flags = SDL_MESSAGEBOX_ERROR;
         box.title = title.c_str();
@@ -98,9 +100,9 @@ void fatal_error(const std::string &title, const std::string &text, int exit_cod
         if (!SDL_ShowMessageBox(&box, &pressed)) break;
         if (pressed != kSave) break;
         const std::optional<SavedLogs> saved = save_logs(storage, log_folder_name());
-        if (!saved) note = "The log was not saved (no folder chosen).";
+        if (!saved) note = "The log was not saved: no folder was chosen.";
         else if (!saved->error.empty()) note = "The log was not saved: " + saved->error + ".";
-        else note = "The log was saved to " + saved->where + ".";
+        else note = "The log was saved to " + saved->where + ".\n\nPlease attach it to your report.";
         std::cout << "[fatal] " << note << "\n" << std::flush;
     }
     std::fflush(stdout);

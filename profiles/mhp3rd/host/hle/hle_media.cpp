@@ -995,8 +995,8 @@ gpu::VulkanRenderer *ensure_renderer() {
         const std::string text = "Yakumo cannot draw on this device's GPU:\n\n" + error + "\n\n" +
                                  (device.empty() ? std::string("No GPU chosen yet") : device) + "\n" +
                                  android::system_summary() + "\n" + std::string(kYakumoVersion) +
-                                 "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with a screenshot of "
-                                 "this and the log (Save the log…).";
+                                 "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with a screenshot and "
+                                 "the log.";
         android::fatal_error("Yakumo: graphics error", text, 4);
 #else
         std::cerr << "Renderer: unavailable (" << error << "); running headless\n";
