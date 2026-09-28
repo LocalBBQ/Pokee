@@ -8,6 +8,7 @@
 
 #include "debug/debug_tools.hpp"
 #include "debug/game_state.hpp"
+#include "debug/quest_start.hpp"
 #include "game/guest_ram.hpp"
 #include "ui/text_input.hpp"
 #include "ui/widgets.hpp"
@@ -28,7 +29,7 @@ namespace {
 
 namespace game = debug::p3rd;
 
-enum class Screen { Page, Items, Equipment };
+enum class Screen { Page, Items, Equipment, Quests };
 
 // What the page shows, read from guest memory once a frame.
 struct Snapshot {
@@ -42,12 +43,14 @@ struct Snapshot {
     std::map<std::uint16_t, std::uint32_t> in_box;  // item id -> count
     std::map<std::pair<std::uint8_t, std::uint16_t>, std::uint32_t> equipment_owned;
     debug::HeldCheats held;
+    std::string quest_note;  // why a quest cannot be started now; "" when it can
 };
 
 struct State {
     Screen screen{Screen::Page};
     bool focus{};
     std::string search;
+    bool resume{};     // close the menu: a quest was started
     int group{};       // 0: all, then the item groups
     int amount{3};     // index into kAmounts
     bool remove{};
@@ -97,6 +100,7 @@ void read_snapshot() {
             for (const game::EquipmentKind &k : game::equipment_kinds())
                 s.equipment_names[k.kind] = game::equipment_names(ram, k.kind);
         n.held = debug::held_cheats();
+        n.quest_note = debug::quests::start_blocked(ram);
         if (!n.loaded) return;
         n.money = game::money(ram);
         n.points1 = ram.load32(game::kPoints1);
@@ -204,6 +208,17 @@ void page() {
                             "level 1. Equip it from the item box in the hunter's house."))) {
         s.screen = Screen::Equipment;
         s.focus = true;
+    }
+
+    section("Start a quest");
+    {
+        RowOptions o = write_row("Any village quest by name, straight from the village: the hunter leaves by the "
+                                 "village gate as if the quest had been accepted at the counter.");
+        if (o.note.empty() && !n.quest_note.empty()) o.note = "Only in the village";
+        if (value_row("Start a village quest", "", o)) {
+            s.screen = Screen::Quests;
+            s.focus = true;
+        }
     }
 
     section("On a quest");
@@ -334,6 +349,49 @@ void equipment_screen(bool back) {
     if (!note.empty()) paragraph(note, colors::kDanger);
 }
 
+void quests_screen(bool back) {
+    State &s = state();
+    if (back) {
+        s.screen = Screen::Page;
+        s.focus = true;
+        return;
+    }
+    section("Start a village quest");
+    focus_once();
+    if (button_row(("Search: " + (s.search.empty() ? std::string("everything") : s.search) + "###search").c_str(),
+                   {false, {}, "Type part of a quest's name, a monster or an id."}))
+        open_search();
+    std::string note = write_note();
+    if (note.empty() && !s.snap.quest_note.empty()) note = "Not now: " + s.snap.quest_note;
+    const std::vector<debug::quests::Quest> &quests = debug::village_quests();
+    int stars = -1;
+    std::size_t shown = 0u;
+    for (const debug::quests::Quest &q : quests) {
+        const std::string id = std::to_string(q.id);
+        if (!matches(q.name, s.search) && !matches(q.monsters, s.search) && !matches(q.objective, s.search) &&
+            id != s.search)
+            continue;
+        if (q.stars != stars) {
+            stars = q.stars;
+            section(("Village, " + std::to_string(stars) + (stars == 1 ? " star" : " stars")).c_str());
+        }
+        ++shown;
+        const std::string monsters = debug::quests::monster_list(q);
+        const std::string detail = (monsters.empty() ? std::string() : monsters + "   ") + "#" + id +
+                                   (q.fee != 0u ? "   fee " + thousands(q.fee) + "z" : std::string());
+        if (list_row(("##quest" + id).c_str(), q.name, detail, ListIcon::None, false) && note.empty()) {
+            debug::request_quest_start(q.id);
+            s.screen = Screen::Page;
+            s.focus = true;
+            s.resume = true;
+        }
+    }
+    if (quests.empty()) paragraph("The game's quest lists could not be read.", colors::kDanger);
+    else if (shown == 0u) paragraph("No quest matches.", colors::kTextDim);
+    paragraph("Gathering Hall and event quests are not listed yet.", colors::kTextDim);
+    if (!note.empty()) paragraph(note, colors::kDanger);
+}
+
 } // namespace
 
 void debug_page(bool back) {
@@ -341,10 +399,13 @@ void debug_page(bool back) {
     switch (state().screen) {
     case Screen::Items: items_screen(back); break;
     case Screen::Equipment: equipment_screen(back); break;
+    case Screen::Quests: quests_screen(back); break;
     default: page(); break;
     }
 }
 
 bool debug_screen_open() { return state().screen != Screen::Page; }
+
+bool debug_page_resume() { return std::exchange(state().resume, false); }
 
 } // namespace mhp3rd::ui

@@ -13,4 +13,8 @@ void debug_page(bool back);
 // closes before it closes the menu.
 [[nodiscard]] bool debug_screen_open();
 
+// Once, after the page started something the game has to run for (a quest):
+// the menu closes so the game goes on.
+[[nodiscard]] bool debug_page_resume();
+
 } // namespace mhp3rd::ui

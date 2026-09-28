@@ -249,7 +249,10 @@ bool Menu::frame() {
     case 3: network(); break;
     case 4: mods(); break;
 #if defined(MHP3RD_DEBUG_MENU)
-    case 6: debug_page(back_); break;
+    case 6:
+        debug_page(back_);
+        if (debug_page_resume()) close_ = true;
+        break;
 #endif
     default: system(); break;
     }
