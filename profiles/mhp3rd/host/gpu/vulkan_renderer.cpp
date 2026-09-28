@@ -17,6 +17,7 @@
 
 #include "perf/frame_stats.hpp"
 #include "perf/perf_overlay.hpp"
+#include "input/gamepad_devices.hpp"
 #include "input/bindings.hpp"
 #include "input/chords.hpp"
 #include "settings/settings.hpp"
@@ -1886,25 +1887,57 @@ struct VulkanRenderer::Impl {
     std::uint64_t direct_checked{};
     std::uint64_t direct_mismatched{};
     PadState pad{};
+    // The pad the game reads: the one used last (#147). Every gamepad is
+    // open, as the menu reads them all; the game follows a button press on
+    // another one. Two pads on one adapter, which SDL may show as two
+    // devices, both work that way, whichever port the pad is in.
     SDL_Gamepad *gamepad{};
     SDL_JoystickID gamepad_id{};
+    std::vector<std::pair<SDL_JoystickID, SDL_Gamepad *>> pads;
     bool recording{};
     bool quit{};
     bool ready{};
     std::uint64_t frames{};
     std::uint64_t draws{};
 
-    // Only the first pad is used; a second one arriving is ignored rather than
-    // stealing the stick from whoever is already playing.
-    void open_gamepad(SDL_JoystickID id) {
-        if (gamepad != nullptr) {
-            // The virtual pad of MHP3RD_INPUT_SCRIPT takes over from a real
-            // one, so a controller within reach does not steal a scripted run.
-            const char *name = SDL_GetGamepadNameForID(id);
-            if (name == nullptr || std::strcmp(name, "Yakumo input script") != 0) return;
-            SDL_CloseGamepad(gamepad);
-            gamepad = nullptr;
+    // MHP3RD_PAD_FOLLOW=0: the game keeps the first pad, as before #147, and
+    // a second one drives only the menu.
+    static bool follow_pads() {
+        static const bool follow = [] {
+            const char *text = std::getenv("MHP3RD_PAD_FOLLOW");
+            return text == nullptr || std::strcmp(text, "0") != 0;
+        }();
+        return follow;
+    }
+
+    static bool scripted_pad(SDL_Gamepad *device) {
+        const char *name = device != nullptr ? SDL_GetGamepadName(device) : nullptr;
+        return name != nullptr && std::strcmp(name, "Yakumo input script") == 0;
+    }
+
+    void use_gamepad(SDL_JoystickID id, SDL_Gamepad *device, const char *why) {
+        gamepad = device;
+        gamepad_id = id;
+        const char *name = SDL_GetGamepadName(device);
+        if (why != nullptr) {
+            std::cout << "[pad] " << (name != nullptr ? name : "gamepad") << " " << why << "\n";
+            return;
         }
+        const PadTuning tuning = pad_tuning();
+        std::cout << "[pad] " << (name != nullptr ? name : "gamepad") << " connected; confirm on "
+                  << (tuning.confirm_south ? "the south button" : "circle") << ", right stick "
+                  << (tuning.right_stick_mode == settings::RightStick::DPad     ? "as D-pad"
+                      : tuning.right_stick_mode == settings::RightStick::Camera ? "as camera"
+                                                                                : "off")
+                  << "\n";
+    }
+
+    // The first pad becomes the game's; a later one waits for a button
+    // press (follow_gamepad), rather than stealing the stick from whoever is
+    // already playing.
+    void open_gamepad(SDL_JoystickID id) {
+        for (const auto &[open_id, device] : pads)
+            if (open_id == id) return;
         SDL_Gamepad *device = SDL_OpenGamepad(id);
         if (device == nullptr) {
             std::cout << "[pad] SDL_OpenGamepad failed: " << SDL_GetError() << "\n";
@@ -1924,16 +1957,25 @@ struct VulkanRenderer::Impl {
             return;
         }
 #endif
-        gamepad = device;
-        gamepad_id = id;
+        pads.emplace_back(id, device);
+        // The virtual pad of MHP3RD_INPUT_SCRIPT takes over from a real one,
+        // so a controller within reach does not steal a scripted run.
+        if (gamepad == nullptr || (scripted_pad(device) && !scripted_pad(gamepad))) {
+            use_gamepad(id, device, nullptr);
+            return;
+        }
         const char *name = SDL_GetGamepadName(device);
-        const PadTuning tuning = pad_tuning();
-        std::cout << "[pad] " << (name != nullptr ? name : "gamepad") << " connected; confirm on "
-                  << (tuning.confirm_south ? "the south button" : "circle") << ", right stick "
-                  << (tuning.right_stick_mode == settings::RightStick::DPad     ? "as D-pad"
-                      : tuning.right_stick_mode == settings::RightStick::Camera ? "as camera"
-                                                                                : "off")
+        std::cout << "[pad] " << (name != nullptr ? name : "gamepad") << " connected as well; "
+                  << (follow_pads() ? "it drives the game once a button on it is pressed" : "it drives the menu only")
                   << "\n";
+    }
+
+    // A button pressed on a pad other than the game's makes it the game's.
+    // The scripted pad keeps a run to itself.
+    void follow_gamepad(SDL_JoystickID id) {
+        if (id == gamepad_id || !follow_pads() || scripted_pad(gamepad)) return;
+        for (const auto &[open_id, device] : pads)
+            if (open_id == id) use_gamepad(id, device, "now drives the game");
     }
 
     // Picks up a pad that was already plugged in before the window existed, and
@@ -1942,9 +1984,10 @@ struct VulkanRenderer::Impl {
         int count = 0;
         SDL_JoystickID *ids = SDL_GetGamepads(&count);
         if (ids != nullptr) {
-            for (int i = 0; i < count && gamepad == nullptr; ++i) open_gamepad(ids[i]);
+            for (int i = 0; i < count; ++i) open_gamepad(ids[i]);
             SDL_free(ids);
         }
+        if (gamepad == nullptr && !pads.empty()) use_gamepad(pads.front().first, pads.front().second, nullptr);
         if (gamepad != nullptr) return;
         // Say why there is no pad rather than staying silent: a stick with no
         // entry in SDL's mapping database enumerates as a joystick only, which
@@ -1956,7 +1999,7 @@ struct VulkanRenderer::Impl {
                 if (SDL_IsGamepad(sticks[i])) continue;
                 const char *name = SDL_GetJoystickNameForID(sticks[i]);
                 std::cout << "[pad] " << (name != nullptr ? name : "joystick")
-                          << " has no gamepad mapping, ignored\n";
+                          << " has no gamepad mapping, ignored until it is set up in Controls > Controllers\n";
             }
             SDL_free(sticks);
         }
@@ -1964,8 +2007,11 @@ struct VulkanRenderer::Impl {
     }
 
     void close_gamepad(SDL_JoystickID id) {
-        if (gamepad == nullptr || id != gamepad_id) return;
-        SDL_CloseGamepad(gamepad);
+        const auto it = std::find_if(pads.begin(), pads.end(), [&](const auto &p) { return p.first == id; });
+        if (it == pads.end()) return;
+        SDL_CloseGamepad(it->second);
+        pads.erase(it);
+        if (id != gamepad_id) return;
         gamepad = nullptr;
         gamepad_id = 0;
         std::cout << "[pad] gamepad disconnected\n";
@@ -2301,8 +2347,15 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         return false;
     }
     // A missing gamepad subsystem is not fatal; the keyboard still drives the pad.
-    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) std::cout << "[pad] no gamepad support: " << SDL_GetError() << "\n";
-    else impl.scan_gamepads();
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        std::cout << "[pad] no gamepad support: " << SDL_GetError() << "\n";
+    } else {
+        // The player's own mappings first, so a controller they set up is a
+        // gamepad from the start; then every joystick, logged once.
+        input::devices::load_mappings();
+        (void)input::devices::list();
+        impl.scan_gamepads();
+    }
     SDL_WindowFlags window_flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
     if (player.fullscreen) window_flags |= SDL_WINDOW_FULLSCREEN;
 #if defined(__ANDROID__)
@@ -5377,8 +5430,11 @@ bool VulkanRenderer::pump_events() {
         if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) impl_->quit = true;
         // Hot-plug is handled before the text-input branch below, which skips
         // every other event while the on-screen keyboard is up.
+        if (event.type == SDL_EVENT_JOYSTICK_ADDED) input::devices::added(event.jdevice.which);
+        if (event.type == SDL_EVENT_JOYSTICK_REMOVED) input::devices::removed(event.jdevice.which);
         if (event.type == SDL_EVENT_GAMEPAD_ADDED) impl_->open_gamepad(event.gdevice.which);
         if (event.type == SDL_EVENT_GAMEPAD_REMOVED) impl_->close_gamepad(event.gdevice.which);
+        if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) impl_->follow_gamepad(event.gbutton.which);
         // F3 toggles the performance overlay. No pad combination: L3+R3 is
         // reserved for the in-game menu.
         if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) impl_->update_display_info();
@@ -8606,8 +8662,9 @@ bool VulkanRenderer::read_frame(std::vector<std::uint8_t> &pixels, std::uint32_t
 }
 
 void VulkanRenderer::shutdown() {
-    if (impl_ && impl_->gamepad != nullptr) {
-        SDL_CloseGamepad(impl_->gamepad);
+    if (impl_) {
+        for (const auto &[id, device] : impl_->pads) SDL_CloseGamepad(device);
+        impl_->pads.clear();
         impl_->gamepad = nullptr;
     }
     if (!impl_ || impl_->device == VK_NULL_HANDLE) {

@@ -106,6 +106,7 @@ if(MHP3RD_RENDERER)
             host/gpu/mmpx.cpp
             host/gpu/ui_textures.cpp
             host/gpu/vulkan_renderer.cpp
+            host/input/gamepad_devices.cpp
             host/ui/bindings_editor.cpp
             host/ui/file_browser.cpp
             host/ui/font_menu.cpp

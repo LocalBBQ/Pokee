@@ -255,7 +255,7 @@ The keyboard and a gamepad can be used together or in turns: both are read every
 
 ### Gamepad
 
-Any controller SDL3 recognises works, and it can be connected before or after the game starts.
+Any controller SDL3 recognises works, and it can be connected before or after the game starts. With several connected, the menu reads them all and the game reads the one used last: pressing a button on another pad hands the game to it (`MHP3RD_PAD_FOLLOW=0` keeps the first one, as before). That covers the two-port PS2-to-USB adapters too, which SDL may show as two controllers, one per port.
 
 | Gamepad | PSP |
 | --- | --- |
@@ -1133,6 +1133,7 @@ With the setting off nothing is hooked into the display lists, no input is read 
 | `MHP3RD_TRACE_STALLS=1` | Where the render thread waits, once a second and for every slow frame; `MHP3RD_TRACE_STALLS_MS` sets what is slow (default 40). See [Where the render thread waits](#where-the-render-thread-waits) |
 | `MHP3RD_TRACE_INTERPOLATION=1` | With a frame rate above 30, an `[interp]` line a second: the rate running and the one chosen, how many draws matched, the camera's largest turn and the eye's largest move, cuts by reason, presents, the time of a blended present and of recording its draw calls, the draw calls and GPU time of one in-between frame, the plain presents, skipped ones, the latest one, and the delay from a frame's moment to its present. A second line says why presents showed a frame as it is (`at the newest frame`: one per game frame at 60, 90 and 120, as it should be; `at the older`, `not blended (cut)`, `textures dropped`) and which were not made (`display busy`: no swapchain image within 3 ms; `over budget`: presents during the game's code had taken half a frame). It also says when the rate steps down or up, and why. `frames` adds a line per game frame, `presents` a line per present with its blend factor |
 | `MHP3RD_PAD_AT_FLIP=1` | Read the pad at each flip, as before issue #8, instead of when the game reads it |
+| `MHP3RD_PAD_FOLLOW=0` | The game keeps the first gamepad connected, as before issue #147, instead of the one a button was last pressed on; other pads then drive only the menu |
 | `MHP3RD_INTERPOLATION_NO_MOTION_GUARD=1` | Blend every matched pair however far it moves, and leave 3D draws without a partner where the older frame drew them, as before the guard. The `[interp] guards:` line counts what the guard does: pairs given up and how many had the same mesh drawn more than once, the largest own motion kept, draw calls moved with the camera only |
 | `MHP3RD_INTERPOLATION_NO_NEAREST_INSTANCES=1` | Pair the instances of a mesh drawn more than once in drawing order, as before, instead of each with the nearest instance of the newer frame; the `[interp] guards:` line counts the instances given a nearer partner than drawing order's |
 | `MHP3RD_INTERPOLATION_NO_FLIPBOOK_GUARD=1` | Blend texture offsets that jump up to half the texture, as before, instead of holding a flipbook's step; `[interp] guards:` counts the offsets held |
