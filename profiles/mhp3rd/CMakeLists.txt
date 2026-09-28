@@ -116,6 +116,7 @@ if(MHP3RD_RENDERER)
         # Dear ImGui (third_party/imgui, unmodified) draws the port's own
         # interface over the game.
         set(MHP3RD_RENDERER_SOURCES
+            host/gpu/descriptor_pools.cpp
             host/gpu/device_report.cpp
             host/gpu/frame_interpolation.cpp
             host/gpu/frame_pacing.cpp
@@ -651,6 +652,20 @@ target_include_directories(mhp3rd_mmpx_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host
 set_target_properties(mhp3rd_mmpx_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_mmpx_tests COMMAND mhp3rd_mmpx_tests)
+endif()
+
+# Descriptor pools counted the way a phone's driver counts them: growth,
+# freeing, a driver that refuses early, the pool limit. No GPU is used.
+if(Vulkan_FOUND)
+    add_executable(mhp3rd_descriptor_pool_tests tests/descriptor_pool_tests.cpp host/gpu/descriptor_pools.cpp)
+    target_include_directories(mhp3rd_descriptor_pool_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host"
+                                                                     ${Vulkan_INCLUDE_DIRS})
+    target_link_libraries(mhp3rd_descriptor_pool_tests PRIVATE Vulkan::Vulkan)
+    set_target_properties(mhp3rd_descriptor_pool_tests PROPERTIES
+                          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    if(PSPRECOMP_BUILD_TESTS)
+        add_test(NAME mhp3rd_descriptor_pool_tests COMMAND mhp3rd_descriptor_pool_tests)
+    endif()
 endif()
 
 add_executable(mhp3rd_render_tests tests/render_tests.cpp)
