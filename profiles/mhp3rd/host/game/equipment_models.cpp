@@ -15,17 +15,6 @@ namespace {
 constexpr std::uint32_t kMostModels = 512u;
 constexpr std::uint32_t kMostPieces = 1024u;
 
-std::uint32_t armor_data(std::uint8_t kind) {
-    switch (kind) {
-    case 0: return kChestData;
-    case 1: return kArmsData;
-    case 2: return kWaistData;
-    case 3: return kLegsData;
-    case 4: return kHeadData;
-    default: return 0u;
-    }
-}
-
 std::uint32_t inner_wear_table(std::uint8_t kind) {
     switch (kind) {
     case 0: return kChestInnerWear;
@@ -79,14 +68,6 @@ std::optional<std::pair<std::uint32_t, std::uint32_t>> weapon_files(const Ram &r
     return std::make_pair(first, count);
 }
 
-// The model number of an armor piece for a sex, as its record gives it.
-std::optional<std::uint16_t> armor_model(const Ram &ram, std::uint8_t kind, std::uint16_t id, Sex sex) {
-    const std::uint32_t data = armor_data(kind);
-    const std::uint32_t at = data + static_cast<std::uint32_t>(id) * kArmorRecord;
-    if (data == 0u || !ram.contains(at, kArmorRecord)) return std::nullopt;
-    return ram.load16(at + (sex == Sex::Female ? 2u : 0u));
-}
-
 std::optional<std::uint16_t> inner_wear_model(const Ram &ram, std::uint8_t kind, const Look &look) {
     const std::uint32_t table = inner_wear_table(kind);
     if (table == 0u) return std::uint16_t{0};
@@ -117,9 +98,7 @@ std::string pieces_with_model(const Ram &ram, std::uint8_t kind, std::optional<S
         std::optional<std::uint16_t> m;
         if (sex) {
             // Pieces for the other sex only have model 0 on this side.
-            const std::uint32_t at = armor_data(kind) + id * kArmorRecord;
-            if (!ram.contains(at, kArmorRecord) || (ram.load8(at + 4u) & (1u << static_cast<unsigned>(*sex))) == 0u)
-                continue;
+            if (!wearable_by(ram, kind, static_cast<std::uint16_t>(id), *sex)) continue;
             m = armor_model(ram, kind, static_cast<std::uint16_t>(id), *sex);
         } else {
             m = weapon_model(ram, kind, static_cast<std::uint16_t>(id));
@@ -139,6 +118,31 @@ std::string pieces_with_model(const Ram &ram, std::uint8_t kind, std::optional<S
 } // namespace
 
 const char *sex_name(Sex sex) { return sex == Sex::Female ? "female" : "male"; }
+
+std::uint32_t armor_data(std::uint8_t kind) {
+    switch (kind) {
+    case 0: return kChestData;
+    case 1: return kArmsData;
+    case 2: return kWaistData;
+    case 3: return kLegsData;
+    case 4: return kHeadData;
+    default: return 0u;
+    }
+}
+
+std::optional<std::uint16_t> armor_model(const Ram &ram, std::uint8_t kind, std::uint16_t id, Sex sex) {
+    const std::uint32_t data = armor_data(kind);
+    const std::uint32_t at = data + static_cast<std::uint32_t>(id) * kArmorRecord;
+    if (data == 0u || !ram.contains(at, kArmorRecord)) return std::nullopt;
+    return ram.load16(at + (sex == Sex::Female ? 2u : 0u));
+}
+
+bool wearable_by(const Ram &ram, std::uint8_t kind, std::uint16_t id, Sex sex) {
+    const std::uint32_t data = armor_data(kind);
+    const std::uint32_t at = data + static_cast<std::uint32_t>(id) * kArmorRecord;
+    if (data == 0u || !ram.contains(at, kArmorRecord)) return false;
+    return (ram.load8(at + 4u) & (1u << static_cast<unsigned>(sex))) != 0u;
+}
 
 std::optional<Look> hunter_look(const Ram &ram) {
     if (!character_loaded(ram) || !ram.contains(character(kCharacterSex), 4u)) return std::nullopt;

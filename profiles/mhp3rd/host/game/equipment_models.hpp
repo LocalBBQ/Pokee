@@ -68,6 +68,15 @@ inline constexpr std::uint32_t kWeaponClasses = 13u;
 enum class Sex : std::uint8_t { Male = 0, Female = 1 };
 [[nodiscard]] const char *sex_name(Sex sex);
 
+// The table of an armor part (kind 0 to 4), or 0 for other kinds.
+[[nodiscard]] std::uint32_t armor_data(std::uint8_t kind);
+// The model number of an armor piece for a hunter of this sex, as its record
+// gives it; nothing when the record is not in memory.
+[[nodiscard]] std::optional<std::uint16_t> armor_model(const Ram &ram, std::uint8_t kind, std::uint16_t id, Sex sex);
+// Whether a hunter of this sex can wear the piece (its record's byte at +4).
+// Pieces for the other sex have model 0 on this side.
+[[nodiscard]] bool wearable_by(const Ram &ram, std::uint8_t kind, std::uint16_t id, Sex sex);
+
 // What the hunter's own look adds to the armor: the sex and the inner wear.
 struct Look {
     Sex sex{Sex::Male};

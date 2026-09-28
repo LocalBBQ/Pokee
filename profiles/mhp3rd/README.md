@@ -469,6 +469,9 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls (Experimental) | Free camera | `experimental.free_camera` | `MHP3RD_FREE_CAMERA` | Off (default) or on: F6, or Back + R3, detaches the view from the game's camera. See [Free camera](#free-camera-experimental) |
 | Controls (Experimental) | Hide the HUD while flying | `experimental.free_camera_hide_hud` | `MHP3RD_FREE_CAMERA_HIDE_HUD` | On (default) or off: the [HUD is hidden](#hiding-the-hud) while the free camera flies or holds a photo |
 | Controls (Experimental) | Free camera speed | `experimental.free_camera_speed` | `MHP3RD_FREE_CAMERA_SPEED` | Game units a second, 50 to 5000 in the menu (the file and the variable take 10 to 20000); default 400. The speed chosen in flight is kept here |
+| Mods (Layered armor) | Layered armor | `look.layered_armor` | `MHP3RD_LAYERED_ARMOR` | Off (default) or on: the hunter is drawn in the pieces chosen below; stats, skills and the save keep the real armor. See [Layered armor](#layered-armor) |
+| Mods (Layered armor) | Head, Chest, Arms, Waist, Legs | `look.layered_head`, `look.layered_chest`, `look.layered_arms`, `look.layered_waist`, `look.layered_legs` | | `real` (default): the piece worn; `0`: nothing; otherwise the id of the armor piece to show |
+| Mods (Layered armor) | List all armor | `look.layered_all` | | Off (default): the lists offer the pieces the hunter wears or keeps in the equipment box; on: every piece its sex can wear |
 | Mods | Use mods | `[general] enabled` in `mods.ini` | `MHP3RD_NO_MODS` | On (default) or off: every mod off, the game's own files only. See [Mods](#mods) |
 | Mods | A row per mod: On, Priority | `[mod <folder>] enabled`, `rank` in `mods.ini` | | Off (default) or on; a higher rank wins where two mods replace the same file |
 | System | Pause the game when the menu opens | `ui.menu_pause` | `MHP3RD_MENU_PAUSE` | On (default) or off: the game keeps running behind the menu |
@@ -609,6 +612,16 @@ The choices are kept in `mods.ini` next to `settings.ini`: `[general] enabled`, 
 How it works: every file of the game comes from `DATA.BIN`, and the file I/O reads it for the game. The game reads its directory once, a table of where each file starts and a table of exact sizes, and then reads each file from its first block to exactly the size given, trusting the tables alone. With mods on, the file I/O serves an archive with the mods' files in it: a mod's file is encrypted for its place in the archive (the obfuscation is keyed by the block a file starts at), a file that no longer fits its blocks grows, every file after it moves up and is re-keyed on the way, and the directory says the same. With no mod on, not a byte changes. `host/mods/` holds the machinery, which knows no game (the mods folder, `mod.ini`, choices, conflicts, import, a file's bytes with mods), and the `mhp3rd_*` files this game's archive and format.
 
 `MHP3RD_TRACE_MODS=1` logs what the mods change, each read they serve (`[mods] read 0FEE +0 131072 of 628736 bytes: replaced by …`) and each write made after an overlay loads; problems with a mod are logged whether it is set or not. `MHP3RD_TRACE_DATA_BIN=1` logs the id of every file the game reads while a mod is on: change the equipment on screen and the new ids are the files to target.
+
+### Layered armor
+
+**Layered armor** (Mods → Layered armor, `look.layered_armor`) draws your hunter in other armor than it wears, part by part, while everything else keeps the real armor: defense, resistances, skills, the Equipment screen, the save and what the game sends to other players. It is off by default, and off it changes nothing at all.
+
+The page has the switch and a row per part (head, chest, arms, waist, legs). Each row opens a list: *Real equipment*, *Nothing* (the bare part, or the inner wear where the game shows it), then the pieces your hunter wears or keeps in the equipment box, with the game's own names; *List all armor* offers every piece a hunter of that sex can wear. A piece the hunter's sex cannot wear shows the real one. The choices are kept in `settings.ini`, not in the game's save, so the save stays exactly what a PSP or another emulator expects. They apply to whichever character is loaded.
+
+A change shows the next time the game loads the hunter: entering another area, starting or leaving a quest, or changing equipment at the item box. Only the parts that changed are read again.
+
+**Other players** see your real armor: layered armor only changes what your own game draws for your own hunter, and other hunters are drawn from what their games sent. [LAYERED_ARMOR.md](../../docs/LAYERED_ARMOR.md) says what was traced and how. `MHP3RD_TRACE_LAYERED_ARMOR=1` logs each part it draws differently.
 
 ## Saving and loading
 
@@ -1137,6 +1150,7 @@ With the setting off nothing is hooked into the display lists, no input is read 
 | `MHP3RD_TRACE_LOAD=1` | Four `[loadtrace]` lines a second: real and emulated time, flips, disc and memory stick reads, the loudest audio sample, time spent holding the game to real time, and which guest threads had the CPU. What [Fast loading](#fast-loading) was measured with |
 | `MHP3RD_TRACE_MODS=1` | What the [mods](#mods) change at start and after each change, every `DATA.BIN` read they serve, and each write made after an overlay loads |
 | `MHP3RD_TRACE_DATA_BIN=1` | While a mod is on, the id of every `DATA.BIN` file the game reads (`[mods] data 034B (32768 bytes)`): how to find the file behind a model on screen |
+| `MHP3RD_TRACE_LAYERED_ARMOR=1` | Each armor part [layered armor](#layered-armor) draws differently (`[layered] Chest: model 22 instead of the worn piece's`), and each time a changed look makes the hunter load its models again |
 | `MHP3RD_TRACE_SAVEDATA=1` | Log every field of each save-data request and each status poll |
 | `MHP3RD_TRACE_SYNC=1` | Trace semaphores, event flags and mutexes; `MHP3RD_TRACE_SYNC_LIMIT` caps the lines (default 4000) |
 | `MHP3RD_STARVATION_INTERVAL` | Dispatches between virtual-clock advances in code that never calls an import |
@@ -1277,7 +1291,7 @@ host/settings/                   Player settings: settings.ini, environment over
 host/camera/                     Camera input from every device, the driver for the game's own camera, its view's shape, the free camera
 host/input/                      Bindings and control presets: names, settings.ini spelling, combinations, what held inputs press; the touch controls' logic
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
-host/game/                       What the host reads from the running game: its memory, the character, the game's text, which file holds a piece of equipment's model
+host/game/                       What the host reads from the running game: its memory, the character, the game's text, which file holds a piece of equipment's model; layered armor
 host/debug/                      Developer tools (not in release builds): the game's money, boxes and quest state, cheats, command file
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
 host/kernel/kernel.{hpp,cpp}     Scheduler, waits, virtual clock, interrupts, memory

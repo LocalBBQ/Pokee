@@ -9,6 +9,7 @@
 
 #include "overlays.hpp"
 #include "game/guest_ram.hpp"
+#include "game/layered_armor.hpp"
 
 #include "audio/audio_sink.hpp"
 #include "audio/sas_core.hpp"
@@ -427,6 +428,8 @@ void present_frame(Runtime &rt) {
     revalidate_overlays(rt);
     // The menu, drawn below, reads the game's memory between frames.
     game::attach(rt);
+    // Layered armor puts its wrappers in place here, between two frames.
+    game::layered::frame(rt);
 #if defined(MHP3RD_DEBUG_MENU)
     // Between two game frames: the developer tools' queued writes and held
     // cheats land here, never while guest code runs.

@@ -298,7 +298,29 @@ void test_controls_from_main() {
 
 } // namespace
 
+// Layered armor: off by default with every part real, and the choices kept
+// by part: "real" or a piece id.
+void test_layered_armor() {
+    const Settings fresh = from_entries({});
+    check(!fresh.layered_armor && !fresh.layered_all, "layered armor starts off, listing owned pieces");
+    for (const std::int32_t choice : fresh.layered_pieces) check(choice == kLayeredReal, "every part starts real");
+    Entries entries = to_entries(fresh);
+    check(entries["look.layered_head"] == "real", "a real part is written as real");
+    entries["look.layered_armor"] = "1";
+    entries["look.layered_chest"] = "12";
+    entries["look.layered_head"] = "0";
+    entries["look.layered_legs"] = "70000";  // not a piece id: stays real
+    const Settings read = from_entries(entries);
+    check(read.layered_armor, "layered armor read on");
+    check(read.layered_pieces[0] == 12, "the chest's piece read");
+    check(read.layered_pieces[4] == 0, "nothing for the head read");
+    check(read.layered_pieces[3] == kLayeredReal, "a number past the ids is not a piece");
+    const Settings again = from_entries(to_entries(read));
+    check(again.layered_pieces == read.layered_pieces && again.layered_armor, "the choices survive a round trip");
+}
+
 int main() {
+    test_layered_armor();
     test_desktop_is_the_declared_defaults();
     test_android();
     test_this_build();

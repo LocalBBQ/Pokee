@@ -142,6 +142,27 @@ constexpr std::string_view kPadPrefix = "input.pad.";
             [](const Settings &s) { return std::string(s.member ? "1" : "0"); }, nullptr                               \
     }
 
+// A layered armor part: "real" for the piece worn, or an armor piece's id.
+bool parse_layered_piece(const std::string &text, std::int32_t &out) {
+    if (text == "real") {
+        out = kLayeredReal;
+        return true;
+    }
+    // Not clamped: a number past the ids names no piece.
+    std::uint32_t id = 0u;
+    if (!parse_uint(text, 0u, 0xFFFFFFFFu, id) || id > static_cast<std::uint32_t>(kMaxLayeredPiece)) return false;
+    out = static_cast<std::int32_t>(id);
+    return true;
+}
+std::string format_layered_piece(std::int32_t id) { return id < 0 ? std::string("real") : std::to_string(id); }
+
+#define LAYERED_PIECE_FIELD(key, part)                                                                                \
+    Field {                                                                                                            \
+        key, nullptr,                                                                                                  \
+            [](Settings &s, const std::string &t) { return parse_layered_piece(t, s.layered_pieces[part]); },          \
+            [](const Settings &s) { return format_layered_piece(s.layered_pieces[part]); }, nullptr                    \
+    }
+
 const std::vector<Field> &fields() {
     static const std::vector<Field> table = {
         {"video.internal_scale", "MHP3RD_INTERNAL_SCALE",
@@ -438,6 +459,16 @@ const std::vector<Field> &fields() {
              std::uint32_t value = s.adhoc_host_port;
              if (parse_uint(t, 1024u, 65534u, value)) s.adhoc_host_port = value;
          }},
+        {"look.layered_armor", "MHP3RD_LAYERED_ARMOR",
+         [](Settings &s, const std::string &t) { return parse_bool(t, s.layered_armor); },
+         [](const Settings &s) { return std::string(s.layered_armor ? "1" : "0"); },
+         [](Settings &s, const char *t) { s.layered_armor = variable_flag(t); }},
+        BOOL_FIELD("look.layered_all", layered_all),
+        LAYERED_PIECE_FIELD("look.layered_chest", 0),
+        LAYERED_PIECE_FIELD("look.layered_arms", 1),
+        LAYERED_PIECE_FIELD("look.layered_waist", 2),
+        LAYERED_PIECE_FIELD("look.layered_legs", 3),
+        LAYERED_PIECE_FIELD("look.layered_head", 4),
         {"experimental.free_camera", "MHP3RD_FREE_CAMERA",
          [](Settings &s, const std::string &t) { return parse_bool(t, s.free_camera); },
          [](const Settings &s) { return std::string(s.free_camera ? "1" : "0"); },

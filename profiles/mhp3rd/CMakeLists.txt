@@ -55,6 +55,23 @@ if(MHP3RD_GENERATED)
     endforeach()
     set(MHP3RD_HUD_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_hooks/hud_functions.inc")
     file(CONFIGURE OUTPUT "${MHP3RD_HUD_INC}" CONTENT "${hud_lines}" @ONLY)
+
+    # Layered armor (host/game/layered_armor_hook.cpp) stands in for the game's
+    # lookup of an armor part's model and wraps the hunter's load step, so
+    # their units are read from the corpus too.
+    set(MHP3RD_LAYERED_FUNCTIONS 08869778 088A5564)
+    list(JOIN MHP3RD_LAYERED_FUNCTIONS "|" layered_pattern)
+    set(layered_lines "")
+    foreach(unit IN LISTS MHP3RD_GENERATED)
+        file(STRINGS "${unit}" hits REGEX "register_function\\(0x(${layered_pattern})u, &recomp_unit_[0-9]+,")
+        foreach(hit IN LISTS hits)
+            string(REGEX MATCH "0x[0-9A-F]+u, &recomp_unit_[0-9]+" pair "${hit}")
+            string(REPLACE ", &" ", " pair "${pair}")
+            string(APPEND layered_lines "MHP3RD_LAYERED_FUNCTION(${pair})\n")
+        endforeach()
+    endforeach()
+    set(MHP3RD_LAYERED_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_hooks/layered_armor_functions.inc")
+    file(CONFIGURE OUTPUT "${MHP3RD_LAYERED_INC}" CONTENT "${layered_lines}" @ONLY)
     # A regenerated corpus with the same file names must be read again.
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${MHP3RD_GENERATED})
 else()
@@ -114,6 +131,7 @@ if(MHP3RD_RENDERER)
             host/ui/input_script.cpp
             host/ui/layer.cpp
             host/ui/menu.cpp
+            host/ui/layered_armor_screen.cpp
             host/ui/mods_screen.cpp
             host/ui/save_screen.cpp
             host/ui/setup_screens.cpp
@@ -226,6 +244,8 @@ set(MHP3RD_HOST_SOURCES
     host/game/guest_ram.cpp
     host/game/game_data.cpp
     host/game/equipment_models.cpp
+    host/game/layered_armor.cpp
+    host/game/layered_armor_hook.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -306,6 +326,10 @@ endif()
 if(MHP3RD_HUD_INC)
     set_property(SOURCE host/gpu/game_hud.cpp APPEND PROPERTY COMPILE_DEFINITIONS
         "MHP3RD_HUD_FUNCTIONS_INC=\"${MHP3RD_HUD_INC}\"")
+endif()
+if(MHP3RD_LAYERED_INC)
+    set_property(SOURCE host/game/layered_armor_hook.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+        "MHP3RD_LAYERED_FUNCTIONS_INC=\"${MHP3RD_LAYERED_INC}\"")
 endif()
 # The NID table is compiled in, so the program reads nothing from the checkout
 # it was built in.
@@ -602,7 +626,8 @@ endif()
 add_executable(mhp3rd_equipment_models_tests
     tests/equipment_models_tests.cpp
     host/game/game_data.cpp
-    host/game/equipment_models.cpp)
+    host/game/equipment_models.cpp
+    host/game/layered_armor.cpp)
 target_include_directories(mhp3rd_equipment_models_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
 set_target_properties(mhp3rd_equipment_models_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)

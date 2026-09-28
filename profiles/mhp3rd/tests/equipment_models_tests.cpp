@@ -6,6 +6,7 @@
 #include "game/equipment_models.hpp"
 #include "game/game_data.hpp"
 #include "game/guest_ram.hpp"
+#include "game/layered_armor.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -151,9 +152,76 @@ void test_mod_parts() {
     check(!kind_of_mod_part("CATHELM"), "Felyne gear is not the hunter's");
 }
 
+// Layered armor (game/layered_armor.hpp): the model it gives the game's lookup
+// for the hunter played here, and what it leaves to the game.
+void test_layered_armor() {
+    namespace layered = mhp3rd::game::layered;
+    BufferRam ram(kBase, kSize);
+    write_text(ram);
+    write_tables(ram);
+    write_character(ram, 1, 2);
+    // The block with the hunter records, and two hunters: this one (female)
+    // and another player (male).
+    const std::uint32_t block = 0x09000000u;
+    ram.store32(layered::kGameBlockPointer, block);
+    const std::uint32_t own = block + layered::kHunterRecords;
+    const std::uint32_t other = own + layered::kHunterRecordBytes;
+    ram.store32(own + layered::kRecordFlags, 1u);
+    ram.store32(other + layered::kRecordFlags, 0u);
+
+    layered::Pieces pieces{layered::kReal, layered::kReal, layered::kReal, layered::kReal, layered::kReal};
+    check(!layered::replacement_model(ram, block, 0, 0, pieces), "a real part is left to the game");
+    pieces[0] = 1;  // chest: Plain Mail, models 3 and 4
+    check(layered::replacement_model(ram, block, 0, 0, pieces) == std::optional<std::uint16_t>{4},
+          "the chosen chest's model for her");
+    check(!layered::replacement_model(ram, block, 1, 0, pieces), "another player's hunter is left to the game");
+    check(!layered::replacement_model(ram, block + 4u, 0, 0, pieces), "a block not the game's is left alone");
+    check(!layered::replacement_model(ram, block, 0, 5, pieces), "hair and face are left to the game");
+    ram.store32(own + layered::kRecordFlags, 0u);
+    check(layered::replacement_model(ram, block, 0, 0, pieces) == std::optional<std::uint16_t>{3},
+          "the record's sex picks the model");
+    ram.store32(own + layered::kRecordFlags, 1u);
+    pieces[0] = 2;  // for men only
+    check(!layered::replacement_model(ram, block, 0, 0, pieces), "a piece she cannot wear shows the real one");
+    pieces[0] = 0;
+    check(layered::replacement_model(ram, block, 0, 0, pieces) == std::optional<std::uint16_t>{0},
+          "nothing: the model of an empty part");
+
+    // Offers: the pieces owned, or all she can wear.
+    ram.store8(kEquipmentBox, 1u);
+    ram.store8(kEquipmentBox + 1u, 0u);
+    ram.store16(kEquipmentBox + 2u, 3u);
+    const std::vector<layered::Offer> owned = layered::offers(ram, 0, false);
+    check(owned.size() == 2u && owned[0].id == 1 && owned[0].worn && owned[1].id == 3 && !owned[1].worn,
+          "owned chests: the one worn and the one in the box");
+    const std::vector<layered::Offer> all = layered::offers(ram, 0, true);
+    check(all.size() == 2u, "all chests she can wear, not the one for men");
+    check(!all.empty() && all[0].name == "Plain Mail", "offers carry the game's names");
+    check(layered::choice_name(&ram, 4, 1) == "Cap", "a choice named by the game");
+    check(layered::choice_name(nullptr, 4, 1) == "Piece 1", "a choice by id without the game");
+    check(layered::choice_name(&ram, 4, layered::kReal) == "Real equipment", "the real piece");
+
+    // The hunter's load: only the hunter played here, drawn from its record.
+    const std::uint32_t hunter = 0x09100000u;
+    const std::uint32_t vtable = 0x09200000u;
+    ram.store32(hunter, vtable);
+    ram.store32(vtable + layered::kFileFunctionSlot, layered::kRecordFileFunction);
+    ram.store16(hunter + layered::kObjectIndex, 0u);
+    ram.store32(hunter + layered::kLoadState, 4u);
+    ram.store32(hunter + layered::kLoadPart, 9u);
+    check(layered::own_hunter(ram, hunter) && layered::load_done(ram, hunter), "the hunter played here, loaded");
+    layered::restart_load(ram, hunter);
+    check(ram.load32(hunter + layered::kLoadState) == 0u && ram.load32(hunter + layered::kLoadPart) == 0u,
+          "a restarted load begins at the first part");
+    check(!layered::load_done(ram, hunter), "and is running");
+    ram.store16(hunter + layered::kObjectIndex, 1u);
+    check(!layered::own_hunter(ram, hunter), "another player's hunter is not ours");
+}
+
 } // namespace
 
 int main() {
+    test_layered_armor();
     test_nothing_loaded();
     test_files();
     test_mod_parts();

@@ -13,6 +13,7 @@
 #endif
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
+#include "ui/layered_armor_screen.hpp"
 #include "ui/mods_screen.hpp"
 #include "ui/save_screen.hpp"
 #include "ui/texture_pack_screen.hpp"
@@ -211,7 +212,8 @@ bool Menu::frame() {
     // Back closes the font list, or the save import and export, before it
     // closes the menu.
     bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
-                              (tab_ == 2 && controllers_screen_open()) || (tab_ == 4 && mods_screen_open()) ||
+                              (tab_ == 2 && controllers_screen_open()) ||
+                              (tab_ == 4 && (mods_screen_open() || layered_armor_screen_open())) ||
                               (tab_ == 5 && save_screen_open());
 #if defined(MHP3RD_DEBUG_MENU)
     font_list_was_open = font_list_was_open || (tab_ == 6 && debug_screen_open());
@@ -1536,6 +1538,8 @@ void Menu::network() {
 }
 
 void Menu::mods() {
+    if (layered_armor_screen(back_)) return;
+    if (!mods_screen_open()) layered_armor_row();
     mods_page(back_);
     if (take_mods_restart_request()) {
         install::request_restart_on_exit();

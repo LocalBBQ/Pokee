@@ -6,6 +6,7 @@
 #include "input/touch_action.hpp"
 #include "kernel/fast_forward.hpp"
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -153,6 +154,16 @@ struct Settings {
     bool backup_reminder{true};        // remind to back up the saves the first time a new release starts
     std::string backup_reminded;       // the release that last showed the reminder (savedata::release_of)
 
+    // Layered armor (game/layered_armor.hpp): the hunter drawn in other armor
+    // than it wears. Off, nothing of the game is touched. On, each armor part
+    // with a piece chosen here is drawn as that piece, while the game keeps the
+    // real one for everything else. The choices are the port's, never the save's.
+    bool layered_armor{};
+    bool layered_all{};                // the choice lists all armor, not only the pieces owned
+    // By part, in the game's order (chest, arms, waist, legs, head): the armor
+    // piece's id, 0 for none (the bare part), or kLayeredReal for the piece worn.
+    std::array<std::int32_t, 5> layered_pieces{-1, -1, -1, -1, -1};
+
     // Experimental
     // The free camera (camera/free_camera.hpp): off, nothing about the game
     // or its picture changes; on, a key or a gamepad chord detaches the view.
@@ -161,6 +172,8 @@ struct Settings {
     bool free_camera_hide_hud{true};   // hide the game's HUD while it flies (gpu/game_hud.hpp)
 };
 
+inline constexpr std::int32_t kLayeredReal = -1;
+inline constexpr std::int32_t kMaxLayeredPiece = 0xFFFF;
 inline constexpr std::uint32_t kMaxInternalScale = 8u;
 inline constexpr std::uint32_t kMaxWindowScale = 4u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
