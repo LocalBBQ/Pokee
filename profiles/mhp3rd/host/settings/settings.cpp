@@ -553,8 +553,11 @@ std::vector<input::Combo> read_combos(const Entries &entries) {
 void write_combos(const std::vector<input::Combo> &combos, const std::string &prefix, Entries &entries) {
     for (auto it = entries.lower_bound(prefix); it != entries.end() && it->first.starts_with(prefix);)
         it = entries.erase(it);
+    std::size_t number = 0;
     for (std::size_t n = 0; n < combos.size(); ++n) {
-        const std::string at = prefix + std::to_string(n + 1u) + ".";
+        // One whose buttons are still being chosen is not kept yet.
+        if ((combos[n].buttons & input::kComboButtons) == 0u) continue;
+        const std::string at = prefix + std::to_string(++number) + ".";
         entries[at + "buttons"] = input::format_buttons(combos[n].buttons);
         entries[at + "bind"] = input::format(combos[n].keys);
         entries[at + "pad"] = input::format(combos[n].pad);
