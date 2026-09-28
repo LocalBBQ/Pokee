@@ -42,7 +42,7 @@
 #include "settings/settings.hpp"
 #include "yakumo_version.hpp"
 #if defined(MHP3RD_ANDROID_APP)
-#include "platform/android_documents.hpp"
+#include "platform/android_fatal.hpp"
 #endif
 
 #include "imgui.h"
@@ -1591,25 +1591,13 @@ void Menu::system() {
     // An Android app's data folder is out of the file manager's reach; its
     // log goes where the player picks instead, to send with a report.
     (void)data_dir;
-    if (button_row("Save the log…", {false, {}, "Copies Yakumo's logs (this run's, the previous run's and the logs "
-                                                "folder) to a folder you pick, to send with a problem report."})) {
-        std::fflush(stdout);
-        std::fflush(stderr);
-        std::error_code ec;
-        const std::filesystem::path storage = install::user_data_directory();
-        const std::filesystem::path local = storage / "transfer" /
-                                            ("Yakumo log " + savedata::timestamp_for_path(std::chrono::system_clock::now()));
-        std::filesystem::remove_all(local.parent_path(), ec);
-        std::filesystem::create_directories(local, ec);
-        std::filesystem::copy_file(storage / "yakumo.log", local / "yakumo.log", ec);
-        std::filesystem::copy_file(storage / "yakumo-previous.log", local / "yakumo-previous.log", ec);
-        if (std::filesystem::is_directory(storage / "logs", ec))
-            std::filesystem::copy(storage / "logs", local / "logs", std::filesystem::copy_options::recursive, ec);
-        const auto copied = android::pick_folder_and_copy(local);
-        std::filesystem::remove_all(local.parent_path(), ec);
-        if (copied)
-            saved_log_path() = copied->error.empty() ? copied->where + "/" + install::path_to_utf8(local.filename())
-                                                     : "Not saved: " + copied->error;
+    if (button_row("Save the log…", {false, {}, "Copies Yakumo's logs (this run's, the previous run's, the last "
+                                                "error's and the logs folder) to a folder you pick, to send with a "
+                                                "problem report."})) {
+        const auto saved = android::save_logs(
+            install::user_data_directory(),
+            "Yakumo log " + savedata::timestamp_for_path(std::chrono::system_clock::now()));
+        if (saved) saved_log_path() = saved->error.empty() ? saved->where : "Not saved: " + saved->error;
     }
     if (!saved_log_path().empty()) info_row("Log", saved_log_path());
 #else

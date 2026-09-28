@@ -34,8 +34,9 @@
 #if defined(MHP3RD_HAS_RENDERER)
 #include "gpu/vulkan_renderer.hpp"
 #include "ui/ui.hpp"
-#if defined(__ANDROID__)
-#include <SDL3/SDL.h>
+#if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_fatal.hpp"
+#include "yakumo_version.hpp"
 #endif
 #endif
 
@@ -984,16 +985,19 @@ gpu::VulkanRenderer *ensure_renderer() {
     if (const std::optional<std::string> title = environment_utf8("MHP3RD_WINDOW_TITLE"); title && !title->empty())
         config.title = *title;
     if (!renderer->initialize(config, error)) {
-#if defined(__ANDROID__)
+#if defined(MHP3RD_ANDROID_APP)
         // A phone would run on with sound and a black screen, which tells
-        // the player nothing: say what failed, then close.
+        // the player nothing: say what failed, on which GPU, driver and
+        // phone, so a screenshot of the dialog is a report, and offer the
+        // log; then close.
         std::cerr << "Renderer: unavailable (" << error << ")\n";
-        const std::string text = "Yakumo cannot draw on this device's GPU:\n\n" + error +
-                                 "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with your phone's "
-                                 "model and Android version.";
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Yakumo: graphics error", text.c_str(), nullptr);
-        std::cout << std::flush;
-        std::_Exit(4);
+        const std::string device = renderer->device_summary();
+        const std::string text = "Yakumo cannot draw on this device's GPU:\n\n" + error + "\n\n" +
+                                 (device.empty() ? std::string("No GPU chosen yet") : device) + "\n" +
+                                 android::system_summary() + "\n" + std::string(kYakumoVersion) +
+                                 "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with a screenshot of "
+                                 "this and the log (Save the log…).";
+        android::fatal_error("Yakumo: graphics error", text, 4);
 #else
         std::cerr << "Renderer: unavailable (" << error << "); running headless\n";
         return nullptr;

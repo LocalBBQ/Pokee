@@ -25,6 +25,7 @@
 #include "settings/settings.hpp"
 
 #if defined(MHP3RD_ANDROID_APP)
+#include "platform/android_fatal.hpp"
 #include "platform/android_jni.hpp"
 #endif
 #if defined(__ANDROID__)
@@ -881,16 +882,17 @@ struct VulkanRenderer::Impl {
                           << b.labels[id % b.labels.size()] << "\n";
         }
         std::cout << std::flush;
-#if defined(__ANDROID__)
-        // A phone has no console to read this from: say it on screen
-        // before the app disappears.
+#if defined(MHP3RD_ANDROID_APP)
+        // A phone has no console to read this from: say it on screen, with
+        // the GPU and the phone, and offer the log before the app closes.
         const std::string text = std::string("The GPU stopped responding (VK_ERROR_DEVICE_LOST) in ") + where +
-                                 ".\n\n" + facts.name + ", driver " + facts.driver_version_text() +
-                                 ".\n\nYakumo has to close. Open it again, then Menu > System > Save the log... "
-                                 "and send us the log.";
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Yakumo: graphics error", text.c_str(), nullptr);
-#endif
+                                 ".\n\n" + facts.name + ", driver " + facts.driver_version_text() + "\n" +
+                                 android::system_summary() +
+                                 "\n\nYakumo has to close. Please send us the log (Save the log…).";
+        android::fatal_error("Yakumo: graphics error", text, 3);
+#else
         std::_Exit(3);
+#endif
     }
     void wait_fence(VkFence fence, const char *where) {
         const VkResult result = vkWaitForFences(device, 1u, &fence, VK_TRUE, UINT64_MAX);
