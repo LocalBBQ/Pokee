@@ -542,6 +542,34 @@ void test_combos_and_conflicts() {
           "L waits for nothing that adds to it; □ and △ wait");
 }
 
+void test_lead_in() {
+    // A tap of Item left: one read of request, then nothing.
+    LeadIn lead;
+    std::vector<std::uint32_t> seen;
+    for (unsigned read = 0; read < 20u; ++read) {
+        const std::uint32_t requested = read == 0u ? 0x8100u : 0u;
+        seen.push_back(lead.apply(requested, requested, true));
+    }
+    bool l_first = true;
+    for (unsigned read = 0; read < kLeadReads; ++read) l_first = l_first && seen[read] == 0x0100u;
+    check(l_first, "L goes alone first, for kLeadReads reads");
+    check(seen[kLeadReads] == 0x8100u && seen[kLeadReads + kMinReads - 1u] == 0x8100u &&
+              seen[kLeadReads + kMinReads] == 0u,
+          "then □ with it for kMinReads, even for a tap, then nothing");
+    // L held already: the rest goes at once.
+    lead.reset();
+    for (unsigned read = 0; read < kLeadReads; ++read) lead.apply(0x0100u, 0u, true);
+    check(lead.apply(0x8100u, 0x8100u, true) == 0x8100u, "with L held long enough, □ goes at once");
+    // Samples the game does not read do not count.
+    lead.reset();
+    for (unsigned n = 0; n < 50u; ++n) lead.apply(0x2100u, 0x2100u, false);
+    check(lead.apply(0x2100u, 0x2100u, true) == 0x0100u, "only the game's reads count");
+    // Nothing requested: everything passes, △ + ○ included.
+    lead.reset();
+    check(lead.apply(0x3000u | 0x8000u, 0u, true) == 0xB000u && lead.apply(0x8100u, 0u, true) == 0x8100u,
+          "buttons from single inputs, L + □ held by hand included, pass unchanged");
+}
+
 void test_mouse_turn() {
     MouseTurn t = mouse_turn(10.0f, -20.0f, 0.1f, false, false, 1.0f);
     check(std::fabs(t.yaw - 1.0f) < 1e-5f && std::fabs(t.pitch + 2.0f) < 1e-5f,
@@ -564,6 +592,7 @@ int main() {
     test_read();
     test_chords();
     test_combos_and_conflicts();
+    test_lead_in();
     test_mouse_turn();
     std::cout << (failures ? "FAIL" : "PASS") << ": input bindings (" << failures << " failures)\n";
     return failures ? 1 : 0;

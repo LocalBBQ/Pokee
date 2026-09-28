@@ -71,6 +71,32 @@ private:
     std::vector<std::size_t> targets_;
 };
 
+// L before the rest (#198). Traced in a quest: the game scrolls the item
+// bar with □ or ○ only once L has been held on its own for 8 of its frames
+// (the bar opens while L is held); L and □ in the same frame do nothing, and
+// □ after fewer frames of L uses the item. So an action that presses L with
+// other buttons, such as Item left, sends L alone for kLeadReads reads of
+// the pad first, then the rest for at least kMinReads, even for a tap.
+// Anything else passes through unchanged, and L held already counts.
+inline constexpr unsigned kLeadReads = 10u;
+inline constexpr unsigned kMinReads = 3u;
+inline constexpr std::uint32_t kLeadButton = 0x0100u;  // L
+class LeadIn {
+public:
+    // `buttons`: what the bindings and everything else press now.
+    // `requested`: of those, the buttons of actions that press L with
+    // others. `advance`: this is a read the game sees, which counts.
+    std::uint32_t apply(std::uint32_t buttons, std::uint32_t requested, bool advance);
+    void reset() { *this = LeadIn{}; }
+
+private:
+    unsigned held_reads_{};     // reads in a row the game has seen L
+    std::uint32_t pending_{};   // the others, waiting for L or being shown
+    unsigned shown_reads_{};    // reads the others have been shown
+};
+// Of the targets pressing, the buttons of those that press L with others.
+[[nodiscard]] std::uint32_t lead_requested(const Table &table, std::span<const std::size_t> targets);
+
 // The PSP state of the targets pressing, as read() gives it.
 [[nodiscard]] PadState state_of(const Table &table, std::span<const std::size_t> targets);
 

@@ -200,6 +200,39 @@ PadState Resolver::update(const Table &table, const std::function<bool(Binding)>
     return state_of(table, targets_);
 }
 
+std::uint32_t lead_requested(const Table &table, std::span<const std::size_t> targets) {
+    std::uint32_t buttons = 0u;
+    for (const std::size_t t : targets) {
+        if (t >= table.size()) continue;
+        const auto effect = static_cast<std::uint32_t>(table.effect(t) & 0xFFFFu);
+        if ((effect & kLeadButton) != 0u && (effect & ~kLeadButton) != 0u) buttons |= effect;
+    }
+    return buttons;
+}
+
+std::uint32_t LeadIn::apply(std::uint32_t buttons, std::uint32_t requested, bool advance) {
+    const std::uint32_t others = requested & ~kLeadButton;
+    // A new request starts the sequence; one playing keeps its buttons.
+    if (others != 0u && pending_ == 0u) shown_reads_ = 0u;
+    pending_ |= others;
+    std::uint32_t out = buttons;
+    if (pending_ != 0u) {
+        out |= kLeadButton;
+        if (held_reads_ < kLeadReads) out &= ~pending_;
+        else out |= pending_;
+    }
+    if (advance) {
+        held_reads_ = (out & kLeadButton) != 0u ? held_reads_ + 1u : 0u;
+        if (pending_ != 0u && (out & pending_) == pending_) ++shown_reads_;
+        // Done once shown long enough and no longer asked for.
+        if (pending_ != 0u && shown_reads_ >= kMinReads && (requested & pending_) == 0u) {
+            pending_ = 0u;
+            shown_reads_ = 0u;
+        }
+    }
+    return out;
+}
+
 PadState state_of(const Table &table, std::span<const std::size_t> targets) {
     PadState pad;
     bool on[kActions]{};

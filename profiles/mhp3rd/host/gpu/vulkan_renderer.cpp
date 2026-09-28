@@ -994,6 +994,11 @@ struct VulkanRenderer::Impl {
     input::PadState typed{};
     input::PadState mapped{};
     void resolve_bindings(bool focused);
+    // L sent ahead of the rest for actions such as Item left, counted in
+    // the game's reads of the pad (input::LeadIn).
+    input::LeadIn lead_in;
+    std::uint32_t lead_request{};
+    bool game_read{};  // this sample is one the game reads
     // Keyboard and mouse (input/bindings.hpp). Mouse buttons are followed
     // through their events, so a scripted click counts like a real one.
     bool pointer_free{};
@@ -5443,6 +5448,7 @@ void VulkanRenderer::Impl::resolve_bindings(bool focused) {
         },
         now, window);
     log("keys", keys_resolver);
+    lead_request = input::lead_requested(input::table(player.controls, false), keys_resolver.targets());
     if (gamepad == nullptr) {
         pad_resolver.reset();
         mapped = {};
@@ -5459,6 +5465,7 @@ void VulkanRenderer::Impl::resolve_bindings(bool focused) {
         [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); }, now, window,
         std::span<const input::Chord>(reserved, player.free_camera ? 2u : 1u));
     log("pad", pad_resolver);
+    lead_request |= input::lead_requested(input::table(player.controls, true), pad_resolver.targets());
 }
 
 void VulkanRenderer::Impl::sample_host_binds(bool focused) {
@@ -5568,7 +5575,9 @@ void VulkanRenderer::sample_pad() {
     // and the interface's, wait for the next pump_events(). The keyboard's
     // and the gamepads' state follow what was pumped.
     SDL_PumpEvents();
+    impl_->game_read = true;
     impl_->sample_pad((SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u);
+    impl_->game_read = false;
 }
 
 void VulkanRenderer::Impl::sample_pad(bool focused) {
@@ -5580,6 +5589,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     // flies, nothing reaches the game.
     if (!impl_->game_input || impl_->free_camera) {
         impl_->pad = PadState{};
+        impl_->lead_in.reset();
         return;
     }
 
@@ -5614,6 +5624,10 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
         analog_x += static_cast<int>(std::lround(stick.x * 127.0f));
         analog_y += static_cast<int>(std::lround(stick.y * 127.0f));
     }
+
+    // With MHP3RD_PAD_AT_FLIP the game reads what the last pump sampled.
+    static const bool at_flip = std::getenv("MHP3RD_PAD_AT_FLIP") != nullptr;
+    pad.buttons = impl_->lead_in.apply(pad.buttons, impl_->lead_request, impl_->game_read || at_flip);
 
     pad.analog_x = static_cast<std::uint8_t>(std::clamp(0x80 + analog_x, 0, 255));
     pad.analog_y = static_cast<std::uint8_t>(std::clamp(0x80 + analog_y, 0, 255));

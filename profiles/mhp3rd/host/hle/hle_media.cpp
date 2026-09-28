@@ -649,6 +649,12 @@ void register_display_ctrl(HleRegistrar &hle) {
             analog_x = analog_y = right_x = right_y = 0x80u;
         }
 #endif
+        {
+            static const bool trace_reads = std::getenv("MHP3RD_TRACE_PAD_READS") != nullptr;
+            if (trace_reads)
+                std::cout << "[pad-read] " << kernel().now_us() << " count " << count << " buttons 0x" << std::hex
+                          << buttons << std::dec << std::endl;
+        }
         auto &memory = rt.memory();
         for (std::uint32_t i = 0; i < count; ++i) {
             const std::uint32_t entry = address + i * 16u;
