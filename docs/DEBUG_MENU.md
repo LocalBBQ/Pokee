@@ -309,14 +309,20 @@ Thunderous Roars* (8 stars, two Zinogre). After abandoning 10510 and 10304
 the hunter came back to the Hall. The page lists both boards (searched for
 "Rathalos": village and Guild Hall sections).
 
+The maintainer then started 10510 from the village on the page, hunted the
+Rathalos (4,446 health) with *Monsters at 1 health*, and the quest ended as
+usual; the hunter came back to the Guild Hall, with 10,880z more. From the
+Hall the maintainer started the village quest 101, and after it the hunter
+came back to the village. Hunter rank points were not checked.
+
 ## Not verified, and not done
 
 - Starting a quest: event and downloaded quests are not offered and were
   not traced. Starting from the house, the farm or the hot spring is
   refused, not tried. Quests are started whether or not the save has
-  unlocked them or the hunter's rank allows them. A village quest started
-  from the Hall comes back to the village by the gate byte; that return was
-  not watched.
+  unlocked them or the hunter's rank allows them. Whether a Hall quest
+  started this way awards hunter rank points as the counter's would was not
+  checked.
 - *Unlock all quests*, village progress flags and hunter rank are not on the
   page. The hint list has a quest-flag area, and a byte beside the points
   that looked like the rank (`0x09FAC8C5`: 6 on a rank 6 hunter, but 0 on a
