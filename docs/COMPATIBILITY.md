@@ -19,6 +19,7 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Village | ✅ | ❔ | ✅ | ✅ reached from a loaded save | ✅ reached from a loaded save |
 | Hunts | ✅ | ❔ | ✅ | ❔ | ✅ |
 | Graphics | ✅ lighting, fog, the quest reward screen and tiled 2D screens | ❔ | ✅ lighting, fog, the quest reward screen and tiled 2D screens; ⚠️ lighting slows the busiest village spots slightly [#7] | ❔ | ❔ on a device |
+| GPU compatibility Auto [#210] [#212] | ✅ `f2416df`: off at start; on after a self-test made to fail (`MHP3RD_GPU_SELFTEST=fail`), a refused pipeline at start and in play (`MHP3RD_GPU_FAIL_PIPELINES=1`, `=play`); the intro draws in each | ❔ | ❔ | ❔ | ❔ on a MediaTek phone: speed with Auto, and whether the self-test passes there |
 | Sound effects | ❔ re-check [#4]: the game now runs at real time | ❔ | ❔ | ❔ | ❔ |
 | Music | ✅ with FFmpeg | ❔ | ❔ | ❔ | ❔ |
 | Picture beside a display cutout [#170] | ✅ unchanged (no cutout) | ❔ | ❔ | ❔ | ✅ centred and full screen with hole, corner and tall cutouts, in both landscapes, after turns, the home screen and the notification shade; ❔ on a device |
@@ -84,3 +85,5 @@ To report a result without editing the page, open a **Test report** issue.
 [#167]: https://github.com/TeamGDB/Yakumo/issues/167
 [#168]: https://github.com/TeamGDB/Yakumo/issues/168
 [#170]: https://github.com/TeamGDB/Yakumo/issues/170
+[#210]: https://github.com/TeamGDB/Yakumo/issues/210
+[#212]: https://github.com/TeamGDB/Yakumo/issues/212
