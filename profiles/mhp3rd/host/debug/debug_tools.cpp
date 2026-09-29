@@ -150,27 +150,30 @@ void set_held_cheats(const HeldCheats &cheats) {
 
 std::vector<std::string> quest_status() { return state().quest; }
 
-const std::vector<quests::Quest> &village_quests() {
+const std::vector<quests::Quest> &board_quests() {
     static std::vector<quests::Quest> list;
     static bool read = false;
     if (!read) {
         read = true;
-        list = quests::village_quests(&read_entry);
-        log("read " + std::to_string(list.size()) + " village quests from the game's quest lists");
+        list = quests::board_quests(&read_entry);
+        std::size_t hall = 0u;
+        for (const quests::Quest &q : list) hall += q.board() == quests::Board::Hall ? 1u : 0u;
+        log("read " + std::to_string(list.size() - hall) + " village and " + std::to_string(hall) +
+            " Guild Hall quests from the game's quest lists");
     }
     return list;
 }
 
-const quests::Quest *find_village_quest(std::uint16_t id) {
-    for (const quests::Quest &q : village_quests())
+const quests::Quest *find_quest(std::uint16_t id) {
+    for (const quests::Quest &q : board_quests())
         if (q.id == id) return &q;
     return nullptr;
 }
 
 void request_quest_start(std::uint16_t id) {
-    const quests::Quest *quest = find_village_quest(id);
+    const quests::Quest *quest = find_quest(id);
     if (quest == nullptr) {
-        log("not started: " + std::to_string(id) + " is not a village quest the game's lists hold");
+        log("not started: " + std::to_string(id) + " is not a village or Hall quest the game's lists hold");
         return;
     }
     const quests::Quest copy = *quest;

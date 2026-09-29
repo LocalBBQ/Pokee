@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 
 namespace mhp3rd::debug::quests {
 namespace {
@@ -108,31 +109,41 @@ std::string monster_list(const Quest &quest) {
 
 bool village_quest(std::uint16_t id) { return id >= 101u && id <= 699u && id % 100u != 0u; }
 
-std::vector<Quest> village_quests(
+bool hall_quest(std::uint16_t id) {
+    return id >= 10101u && id <= 10899u && (id / 100u) % 100u != 0u && id % 100u != 0u;
+}
+
+Board Quest::board() const { return hall_quest(id) ? Board::Hall : Board::Village; }
+
+std::vector<Quest> board_quests(
     const std::function<std::optional<std::vector<std::uint8_t>>(std::uint32_t entry)> &read_entry) {
-    std::vector<Quest> out;
-    for (std::uint32_t level = 1; level <= kVillageLevels; ++level) {
+    std::vector<Quest> village;
+    std::vector<Quest> hall;
+    for (std::uint32_t level = 1; level <= kQuestLists; ++level) {
         const std::optional<std::vector<std::uint8_t>> file = read_entry(kFirstQuestList + level - 1u);
         if (!file) continue;
-        for (Quest &q : parse_quest_list(*file))
-            if (village_quest(q.id) && q.id / 100u == level) out.push_back(std::move(q));
+        for (Quest &q : parse_quest_list(*file)) {
+            if (village_quest(q.id) && q.id / 100u == level) village.push_back(std::move(q));
+            else if (hall_quest(q.id) && (q.id / 100u) % 100u == level) hall.push_back(std::move(q));
+        }
     }
-    return out;
+    village.insert(village.end(), std::make_move_iterator(hall.begin()), std::make_move_iterator(hall.end()));
+    return village;
 }
 
 std::string start_blocked(const Ram &ram) {
     if (!game::character_loaded(ram)) return "no character loaded";
     if (p3rd::on_quest(ram)) return "a quest is already running";
     if (game::read_text(ram, p3rd::kTaskSlot + 32u) != "lobby_task.ovl") return "not in the village";
+    const std::string map = game::read_text(ram, kMapSlot + 32u);
+    if (map.rfind("P_v00a00", 0) != 0u && map.rfind("P_v00a01", 0) != 0u)
+        return "only in the village or the Guild Hall (not in the house, on the farm or at the hot spring)";
     const std::optional<std::uint32_t> next = pointer(ram, kNextScenePointer, 0x2Cu);
     const std::optional<std::uint32_t> scene = pointer(ram, kScenePointer, kSceneFlags + 4u);
     const std::uint32_t c = character(ram);
     if (!next || !scene || c < 0x08800000u || !ram.contains(c + kQuestIdOffset, 8u))
         return "the village is not ready";
-    const std::uint32_t mode = ram.load32(*next);
-    if (mode != kSceneWalking)
-        return "only while the hunter walks around the village, with no menu or dialog open "
-               "(not in the Gathering Hall)";
+    if (ram.load32(*next) != kSceneWalking) return "only while the hunter walks around, with no menu or dialog open";
     if ((ram.load32(*scene + kSceneFlags) & kSceneEnd) != 0u) return "the village is already being left";
     return {};
 }
@@ -140,7 +151,9 @@ std::string start_blocked(const Ram &ram) {
 std::string start(Ram &ram, const Quest &quest) {
     const std::string label = "quest " + std::to_string(quest.id) + " (" + quest.name + ")";
     if (const std::string why = start_blocked(ram); !why.empty()) return "not started, " + why + ": " + label;
-    if (!village_quest(quest.id)) return "not started, only village quests can be started: " + label;
+    if (!village_quest(quest.id) && !hall_quest(quest.id))
+        return "not started, only village and Guild Hall quests can be started: " + label;
+    const bool hall = quest.board() == Board::Hall;
     const std::uint32_t zenny = p3rd::money(ram);
     if (zenny < quest.fee)
         return "not started, the fee is " + money_text(quest.fee) + " and the hunter has " + money_text(zenny) +
@@ -151,13 +164,13 @@ std::string start(Ram &ram, const Quest &quest) {
     const std::uint32_t c = character(ram);
     ram.store16(c + kQuestIdOffset, quest.id);
 
-    // What the village does when the hunter leaves by its gate, in the game's
-    // order: the gate, the next scene, the flag beside the gate, then the
-    // request that ends the village scene.
+    // What the village or the Hall does when the hunter leaves by its gate, in
+    // the game's order: the gate, the next scene, the flag beside the gate,
+    // then the request that ends the scene.
     const std::uint32_t next = ram.load32(kNextScenePointer);
     const std::uint32_t scene = ram.load32(kScenePointer);
     ram.store32(next + 0x28u, 0xFFFFFFFFu);
-    ram.store8(c + kGateOffset, kVillageGate);
+    ram.store8(c + kGateOffset, hall ? kHallGate : kVillageGate);
     std::uint8_t flag = 0u;
     if (const std::uint32_t state = ram.load32(kStatePointer); state != 0u && ram.contains(state + kGateFlagSource, 4u))
         flag = static_cast<std::uint8_t>(ram.load32(state + kGateFlagSource) & 1u);
@@ -167,8 +180,9 @@ std::string start(Ram &ram, const Quest &quest) {
 
     char minutes[16];
     std::snprintf(minutes, sizeof(minutes), "%u min", quest.time_limit / 1800u);
-    return "started " + label + ", village " + std::to_string(quest.stars) + " star, " + minutes + ", fee " +
-           money_text(quest.fee) + " paid (zenny now " + std::to_string(p3rd::money(ram)) + ")";
+    return "started " + label + ", " + (hall ? "Guild Hall " : "village ") + std::to_string(quest.stars) +
+           " star, " + minutes + ", fee " + money_text(quest.fee) + " paid (zenny now " +
+           std::to_string(p3rd::money(ram)) + ")";
 }
 
 } // namespace mhp3rd::debug::quests

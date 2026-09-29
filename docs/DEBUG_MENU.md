@@ -1,8 +1,8 @@
 # Developer tools: the Debug page
 
 A page of cheats in the in-game menu, for testing without grinding: money,
-any item or equipment piece put straight into the boxes, any village quest
-started straight from the village, and on a quest infinite health and
+any item or equipment piece put straight into the boxes, any village or
+Guild Hall quest started straight from the village or the Hall, and on a quest infinite health and
 stamina, a frozen clock and monsters at 1 health. The same tools can be
 driven from a script through a command file.
 
@@ -45,18 +45,23 @@ page shows the last few.
   armor parts and the twelve weapon classes), layered and collaboration sets
   included, and puts the chosen piece, new and at level 1, into the first free
   slot. Equip it from the item box in the hunter's house as usual.
-- **Start a quest**: *Start a village quest* lists every village quest the
-  game has, one to six stars, with the names, main monsters and fees the
+- **Start a quest**: *Start a quest* lists every village quest (one to six
+  stars) and every Guild Hall quest (one to eight stars) the game has, in
+  sections by board and stars, with the names, main monsters and fees the
   game's own quest lists give (so a translation mod's names appear as the
-  game shows them). Search by part of a name, a monster or an id; choosing a
-  quest closes the menu and the hunter leaves by the village gate for it, as
-  if it had been accepted at the Yukumo Chief's counter: the counter's fee
-  is paid, and the quest's map, monsters, clock and rewards are the game's
-  own. It works while the hunter walks around the village, with no menu or
-  dialog of the game open; in the Gathering Hall, on a quest, during ad hoc
-  play or with a menu open it is refused and the page says why. The tool
-  does not check whether the save has unlocked the quest. Gathering Hall and
-  event quests are not listed yet.
+  game shows them). Search by part of a name, a monster, the objective or an
+  id; choosing a quest closes the menu and the hunter leaves for it as if it
+  had been accepted at its counter (the Yukumo Chief's, or the Hall's) and
+  left by its gate: the counter's fee is paid, and the quest's map,
+  monsters, clock and rewards are the game's own. Either kind starts from
+  the village or from the Hall; after the quest the hunter comes back where
+  the quest belongs: to the village after a village quest, to the Hall after
+  a Hall quest. It works while the hunter walks around the village or the
+  offline Hall, with no menu or dialog of the game open; in the house, on
+  the farm, at the hot spring, on a quest, during ad hoc play or with a menu
+  open it is refused and the page says why. The tool does not check whether
+  the save has unlocked the quest or whether the hunter's rank allows it.
+  Event and downloaded quests are not listed.
 - **On a quest**: *Infinite health*, *Infinite stamina*, *Freeze the quest
   timer* and *Monsters at 1 health* are held: applied at every flip while
   they are on and a quest is running. The page also shows the time left, the
@@ -100,7 +105,8 @@ at the next flip, and its answer is printed as `[debug]` lines. Together with
 ```bash
 echo "state" >> cmd.txt              # the character, zenny, free slots
 echo "give 9 20" >> cmd.txt          # 20 of item 9
-echo "quest start 505" >> cmd.txt    # from the village: a 5-star village quest
+echo "quest start 505" >> cmd.txt    # a 5-star village quest
+echo "quest list hall 8" >> cmd.txt  # the Guild Hall's 8-star quests
 ```
 
 | Command | What it does |
@@ -114,8 +120,8 @@ echo "quest start 505" >> cmd.txt    # from the village: a 5-star village quest
 | `item ID` | An item's name, group, rarity, pouch limit and how many the box holds |
 | `table T [FIRST] [N]` | Entries of the game's text table T |
 | `quest` | Time left, the hunter's health, each large monster's health |
-| `quest list [STARS]` | The village quests (id, stars, name, main monsters, fee), or those of one star level |
-| `quest start ID` | Leave the village for village quest ID, as its gate does after the counter (see *Starting a quest* below) |
+| `quest list [village\|hall] [STARS]` | The village and Guild Hall quests (id, board, stars, name, main monsters, fee), or those of one board or star level |
+| `quest start ID` | Leave for quest ID (village or Hall) as its gate does after its counter (see *Starting a quest* below) |
 | `monsterhp N` | Every large monster's health to N (at least 1) |
 | `find8`/`find16`/`find32 V [LO HI]` | Every place in user memory holding V; narrowed with `next V`, `changed`, `unchanged`, `delta D`; `list` shows them |
 | `findbytes HEX` | Every place holding that byte string |
@@ -245,12 +251,13 @@ step), then read in the code the traces pointed at.
 
 | What | Where | How it was found |
 | --- | --- | --- |
-| The quest lists | DATA.BIN entries 4059 to 4066, one per star level | `MHP3RD_TRACE_IO` showed the entry the game reads when a star level is chosen at the counter; the file is the list the counter shows, found again in memory. Levels 1 to 6 hold that level's village quests (ids 101 to 699, the level in the hundreds) and the Gathering Hall's (ids 10101 and up); 7 and 8 only Hall quests. A list is 32-bit offsets to the records, ended by 0; a record has the fee at `+4`, the reward at `+8`, the time limit at `+0x10`, the id (u16) at `+0x1C`, the stars at `+0x1E`, and from `+0x48` the name, objective, failure conditions, description, main monsters and client. Checked against the counter's screen: *Harvest 'Shroom*, reward 300z, fee 0z, 50 minutes |
+| The quest lists | DATA.BIN entries 4059 to 4066, one per star level | `MHP3RD_TRACE_IO` showed the entry the game reads when a star level is chosen at the counter; the file is the list the counter shows, found again in memory. Levels 1 to 6 hold that level's village quests (ids 101 to 699, the level in the hundreds) and the Guild Hall's (ids 1SSNN, 10101 to 10622, stars in SS); 7 and 8 only Hall quests (10701 to 10840): 92 village and 184 Hall quests in all. A list is 32-bit offsets to the records, ended by 0; a record has the fee at `+4`, the reward at `+8`, the time limit at `+0x10`, the id (u16) at `+0x1C`, the stars at `+0x1E`, and from `+0x48` the name, objective, failure conditions, description, main monsters and client. Checked against the counter's screen: *Harvest 'Shroom*, reward 300z, fee 0z, 50 minutes |
 | The quest itself | One DATA.BIN entry per quest, loaded by the quest overlay by id | After departing on quest 501 the quest overlay read entry 3098, on 10503 entry 3484; the entries are encrypted and are not read by the tools |
 | Accepted quest id (u16) | `0x09FAF8C2` (character pointer at `0x08AB3640`, `+0x60472`) | A write watch on it: accepting at the counter wrote the quest's id (101, 302, 501, 10503, ...), and the village writes 1 when it loads. Cancelling at the counter does not write it. Changing it after accepting and before leaving made the other quest start, with its own map and monster |
-| The gate left by (u8) and a flag (u8) | `0x09FAF8C8`, `0x09FAF8C9` (`+0x60478`, `+0x60479`) | Read in the departure code; 2 after leaving by the village gate, 3 by the Hall's |
-| The next scene | Word pointed to by `0x0A25DD28` (`0x0A25DD2C`) | 0 while the hunter walks around the village, other values while a menu or dialog is open (12 with the game's menu) and in the Hall (0x3E); 30 at departure in the dumps after pressing □ at the gate |
-| The departure | Village code at `0x0A09CE6C` (in `lobby_task.ovl`), called from the □ handler at the gate (`0x0A0ECC90`) | Found from the village's teardown, which the write watch caught at departure: it runs once bit 4 of the scene flags is set, and turns into a quest when the scene word is 30. The functions that set that bit also set the scene word; this is the one that sets 30. It sets the word at `+0x28` to -1, the gate byte, the scene to 30, the flag byte (bit 0 of the word at `*(0x09FC8BE8) + 0x01500000 - 0x57DC`), and ends the village scene: bit 4 of the flags at `+0x20` of the scene object at `*(0x08ABAE14)`. The village then tears itself down and the quest overlay loads |
+| The gate left by (u8) and a flag (u8) | `0x09FAF8C8`, `0x09FAF8C9` (`+0x60478`, `+0x60479`) | Written by the departure code: 2 after leaving by the village gate, 3 by the Hall's (traced in both); -1 after a save is loaded. When the village loads after a quest, `lobby_task.ovl` (`0x0A08F4E8`) reads the byte as an index into its table of places (`0x0A184068`, 20 bytes each) and puts the hunter there: a quest left by the Hall's gate comes back to the Hall. The flag is set only when a bit of the network state is (online play); offline it is 0 |
+| Where the hunter is | The map overlay in slot `0x0A055E80` | `P_v00a00d.ovl` in the village, `P_v00a01d.ovl` in the Guild Hall (`MHP3RD_TRACE_IO` and the `[overlay] installed` lines on walking in); `P_v00a02d` to `a04d` are the other village areas |
+| The next scene | Word pointed to by `0x0A25DD28` (`0x0A25DD2C`) | 0 while the hunter walks around the village or the Hall, other values while a menu or dialog is open (12 with the game's menu, 0x3E seen while the hunter stood at the Hall's gate before pressing □); 30 at departure in the dumps after pressing □ at the gate |
+| The departure | Village code at `0x0A09CE6C` (in `lobby_task.ovl`), called from the □ handler at the gate (`0x0A0ECC90`), the only caller; the Hall's gate is the same handler, with gate 3 | Found from the village's teardown, which the write watch caught at departure: it runs once bit 4 of the scene flags is set, and turns into a quest when the scene word is 30. The functions that set that bit also set the scene word; this is the one that sets 30. It sets the word at `+0x28` to -1, the gate byte, the scene to 30, the flag byte (bit 0 of the word at `*(0x09FC8BE8) + 0x01500000 - 0x57DC`), and ends the village scene: bit 4 of the flags at `+0x20` of the scene object at `*(0x08ABAE14)`. The village then tears itself down and the quest overlay loads |
 
 The tool does what the counter and the gate do, in the game's order: takes
 the fee from the hunter's zenny (the counter took 150z for a 150z quest),
@@ -274,13 +281,42 @@ hunted the Arzuros and the Rathalos with one hit each, and the quests ended
 as usual: the monster's health reached 0, the clock stopped and the hunter
 was back in the village, with more zenny after 204 (by 2,850z).
 
+**Guild Hall quests from the village.** What the Hall's departure sets
+beyond the id was checked in the traces and the code:
+
+- The same departure function, with gate 3 (the byte the game wrote on the
+  maintainer's Hall departures), and the same online flag, 0 offline.
+- The character's quest state around the id differs between the village and
+  the offline Hall only in that gate byte (dumps in both, compared).
+- There is no separate Hall or party state to set offline: the Status
+  screen shows *Yukumo Village (Offline)* in both; *Guild Hall* is the
+  online hall, which the tools refuse.
+- The quest's own data, rank included, comes from its encrypted DATA.BIN
+  entry, which the quest overlay loads by id: a Hall quest's monsters are
+  the Hall's. The Rathalos of *Hunt the King of the Skies!* (10510) had
+  4,256 health, the village's *King of the Sky!* 2,280; the Great Wroggi of
+  10614 2,750, the village's 309 1,125.
+- The counter checks the hunter's rank before it offers a quest; the tool
+  does not.
+
+Started by `quest start` from the village, each with the right map,
+monsters, clock and *Current Quest Details*: 10304 *Field Trip* (3 stars,
+Great Jaggi, reward 2,400z), 10510 *Hunt the King of the Skies!* (5 stars,
+Rathalos, 6,000z), 10614 *Purple Mist in the Forest* (6 stars, two Great
+Wroggi), 10735 *Clobbering Time!* (7 stars, Volcano, Steel Uragaan then
+two Great Wroggi and a Rathalos, 15,900z). From the Hall: 10801 *Pair of
+Thunderous Roars* (8 stars, two Zinogre). After abandoning 10510 and 10304
+the hunter came back to the Hall. The page lists both boards (searched for
+"Rathalos": village and Guild Hall sections).
+
 ## Not verified, and not done
 
-- Starting a quest: Gathering Hall and event quests are not offered. The
-  Hall's gate writes 3 to the same gate byte, but starting from the Hall was
-  not tried. Event and downloaded quests were not traced. Leaving from the
-  hunter's house or the farm was not tried. Quests are started whether or
-  not the save has unlocked them.
+- Starting a quest: event and downloaded quests are not offered and were
+  not traced. Starting from the house, the farm or the hot spring is
+  refused, not tried. Quests are started whether or not the save has
+  unlocked them or the hunter's rank allows them. A village quest started
+  from the Hall comes back to the village by the gate byte; that return was
+  not watched.
 - *Unlock all quests*, village progress flags and hunter rank are not on the
   page. The hint list has a quest-flag area, and a byte beside the points
   that looked like the rank (`0x09FAC8C5`: 6 on a rank 6 hunter, but 0 on a

@@ -70,10 +70,11 @@ void set_held_cheats(const HeldCheats &cheats);
 // at the last flip. Empty outside a quest.
 [[nodiscard]] std::vector<std::string> quest_status();
 
-// The village quests from the game's own quest lists in DATA.BIN, read once,
-// as the game shows them (a mod's lists included). Empty without a disc.
-[[nodiscard]] const std::vector<quests::Quest> &village_quests();
-[[nodiscard]] const quests::Quest *find_village_quest(std::uint16_t id);
+// The village and Guild Hall quests from the game's own quest lists in
+// DATA.BIN, read once, as the game shows them (a mod's lists included). Empty
+// without a disc.
+[[nodiscard]] const std::vector<quests::Quest> &board_quests();
+[[nodiscard]] const quests::Quest *find_quest(std::uint16_t id);
 // Queues a start of the quest (quest_start.hpp); logs what happened.
 void request_quest_start(std::uint16_t id);
 

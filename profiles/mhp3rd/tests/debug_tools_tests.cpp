@@ -270,18 +270,26 @@ void test_quest_lists() {
     check(quests::village_quest(101u) && quests::village_quest(699u), "village ids");
     check(!quests::village_quest(10301u) && !quests::village_quest(100u) && !quests::village_quest(0u),
           "Hall ids and non-ids are not village quests");
+    check(quests::hall_quest(10101u) && quests::hall_quest(10840u) && !quests::hall_quest(301u) &&
+              !quests::hall_quest(20101u) && !quests::hall_quest(40101u) && !quests::hall_quest(10900u),
+          "Hall ids; training and event ids are neither");
 
     std::map<std::uint32_t, std::vector<std::uint8_t>> archive;
     archive[quests::kFirstQuestList + 2u] = level3;
-    archive[quests::kFirstQuestList] = quest_list({{101, 1, 0u, {"First", "Deliver"}}});
-    const std::vector<quests::Quest> village = quests::village_quests(
+    archive[quests::kFirstQuestList] = quest_list({{101, 1, 0u, {"First", "Deliver"}}, {10101, 1, 0u, {"Hall One"}}});
+    archive[quests::kFirstQuestList + 7u] = quest_list({{10801, 8, 0u, {"Hall Eight"}}});
+    const std::vector<quests::Quest> village = quests::board_quests(
         [&](std::uint32_t entry) -> std::optional<std::vector<std::uint8_t>> {
             const auto found = archive.find(entry);
             if (found == archive.end()) return std::nullopt;
             return found->second;
         });
-    check(village.size() == 3u && village[0].id == 101u && village[1].id == 301u && village[2].id == 304u,
-          "the village quests of every level, by level, without the Hall's");
+    check(village.size() == 6u && village[0].id == 101u && village[1].id == 301u && village[2].id == 304u &&
+              village[3].id == 10101u && village[4].id == 10301u && village[5].id == 10801u,
+          "the village's quests by level, then the Hall's by level");
+    check(village.size() == 6u && village[2].board() == quests::Board::Village &&
+              village[3].board() == quests::Board::Hall,
+          "each quest's board");
 }
 
 void test_quest_start() {
@@ -293,6 +301,12 @@ void test_quest_start() {
     // village overlay, the pointers the departure goes through.
     ram.store16(game::kHunterName, u'A');
     load_overlay(ram, "lobby_task.ovl");
+    const auto map = [&](const char *name) {
+        for (std::size_t i = 0; i < 32u; ++i)
+            ram.store8(quests::kMapSlot + 32u + static_cast<std::uint32_t>(i),
+                       i < std::strlen(name) ? static_cast<std::uint8_t>(name[i]) : 0u);
+    };
+    map("P_v00a00d.ovl");
     const std::uint32_t character = 0x09F4F450u;
     const std::uint32_t next = 0x0A25DD2Cu;
     const std::uint32_t scene = 0x08B2B0E0u;
@@ -310,20 +324,24 @@ void test_quest_start() {
 
     ram.store32(next, 0x2Bu);  // a menu is open
     check(!quests::start_blocked(ram).empty(), "not with a menu open");
-    ram.store32(next, 0x3Eu);  // the Gathering Hall
     std::string line = quests::start(ram, carnival);
     check(line.rfind("not started", 0) == 0u && game::money(ram) == 1'000u &&
               ram.load16(character + quests::kQuestIdOffset) == 1u,
-          "refused in the Hall, and nothing written");
+          "refused with a menu open, and nothing written");
     ram.store32(next, 0u);
+    map("P_v00a02d.ovl");  // the hunter's house
+    check(!quests::start_blocked(ram).empty(), "not from the other village areas");
+    map("P_v00a01d.ovl");  // the Guild Hall
+    check(quests::start_blocked(ram).empty(), "from the Guild Hall");
+    map("P_v00a00d.ovl");
 
     game::set_money(ram, 100u);
     line = quests::start(ram, carnival);
     check(line.rfind("not started", 0) == 0u && game::money(ram) == 100u, "refused when the fee cannot be paid");
     game::set_money(ram, 1'000u);
 
-    const quests::Quest hall{10301u, 3u, 0u, 0u, 90'000u, "Hall Tour", {}, {}, {}};
-    check(quests::start(ram, hall).rfind("not started", 0) == 0u, "Hall quests are refused");
+    const quests::Quest event{40101u, 1u, 0u, 0u, 90'000u, "Event", {}, {}, {}};
+    check(quests::start(ram, event).rfind("not started", 0) == 0u, "event quests are refused");
 
     line = quests::start(ram, carnival);
     check(line.rfind("started", 0) == 0u, "a village quest starts");
@@ -336,6 +354,16 @@ void test_quest_start() {
           "the next scene is the quest");
     check(ram.load32(scene + quests::kSceneFlags) == (0x100u | quests::kSceneEnd), "the village is asked to end");
     check(!quests::start_blocked(ram).empty(), "and cannot be asked twice");
+
+    // A Hall quest from the village leaves by the Hall's gate, so the hunter
+    // comes back to the Hall.
+    ram.store32(next, 0u);
+    ram.store32(scene + quests::kSceneFlags, 0x100u);
+    const quests::Quest hall{10304u, 3u, 200u, 2'400u, 90'000u, "Field Trip", {}, "Great Jaggi", {}};
+    line = quests::start(ram, hall);
+    check(line.rfind("started", 0) == 0u && ram.load16(character + quests::kQuestIdOffset) == 10304u &&
+              ram.load8(character + quests::kGateOffset) == quests::kHallGate && game::money(ram) == 650u,
+          "a Hall quest starts by the Hall's gate");
 
     load_overlay(ram, "game_task.ovl");
     check(quests::start_blocked(ram) == "a quest is already running", "no start during a quest");

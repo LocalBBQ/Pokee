@@ -212,10 +212,10 @@ void page() {
 
     section("Start a quest");
     {
-        RowOptions o = write_row("Any village quest by name, straight from the village: the hunter leaves by the "
-                                 "village gate as if the quest had been accepted at the counter.");
-        if (o.note.empty() && !n.quest_note.empty()) o.note = "Only in the village";
-        if (value_row("Start a village quest", "", o)) {
+        RowOptions o = write_row("Any village or Guild Hall quest by name, from the village or the Hall: the "
+                                 "hunter leaves by that quest's gate as if it had been accepted at its counter.");
+        if (o.note.empty() && !n.quest_note.empty()) o.note = "Only in the village or the Hall";
+        if (value_row("Start a quest", "", o)) {
             s.screen = Screen::Quests;
             s.focus = true;
         }
@@ -356,24 +356,29 @@ void quests_screen(bool back) {
         s.focus = true;
         return;
     }
-    section("Start a village quest");
+    section("Start a quest");
     focus_once();
     if (button_row(("Search: " + (s.search.empty() ? std::string("everything") : s.search) + "###search").c_str(),
                    {false, {}, "Type part of a quest's name, a monster or an id."}))
         open_search();
     std::string note = write_note();
     if (note.empty() && !s.snap.quest_note.empty()) note = "Not now: " + s.snap.quest_note;
-    const std::vector<debug::quests::Quest> &quests = debug::village_quests();
+    const std::vector<debug::quests::Quest> &quests = debug::board_quests();
     int stars = -1;
+    int board = -1;
     std::size_t shown = 0u;
     for (const debug::quests::Quest &q : quests) {
         const std::string id = std::to_string(q.id);
         if (!matches(q.name, s.search) && !matches(q.monsters, s.search) && !matches(q.objective, s.search) &&
             id != s.search)
             continue;
-        if (q.stars != stars) {
+        const bool hall = q.board() == debug::quests::Board::Hall;
+        if (q.stars != stars || static_cast<int>(hall) != board) {
             stars = q.stars;
-            section(("Village, " + std::to_string(stars) + (stars == 1 ? " star" : " stars")).c_str());
+            board = static_cast<int>(hall);
+            section(((hall ? "Guild Hall, " : "Village, ") + std::to_string(stars) +
+                     (stars == 1 ? " star" : " stars"))
+                        .c_str());
         }
         ++shown;
         const std::string monsters = debug::quests::monster_list(q);
@@ -388,7 +393,7 @@ void quests_screen(bool back) {
     }
     if (quests.empty()) paragraph("The game's quest lists could not be read.", colors::kDanger);
     else if (shown == 0u) paragraph("No quest matches.", colors::kTextDim);
-    paragraph("Gathering Hall and event quests are not listed yet.", colors::kTextDim);
+    paragraph("A Hall quest brings the hunter back to the Hall. Event quests are not listed.", colors::kTextDim);
     if (!note.empty()) paragraph(note, colors::kDanger);
 }
 
