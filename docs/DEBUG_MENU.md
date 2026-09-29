@@ -268,7 +268,11 @@ Details*: 204 *Blue Bear: Arzuros* (2 stars, Misty Peaks, Arzuros), 304
 (Flooded Forest, Great Wroggi), 403 *Rockslide* (Sandy Plains, Volvidon),
 505 *King of the Sky!* (Deserted Island, Rathalos), 606 *Roar of the Tundra*
 (Tundra, Tigrex; also from the page, where the search found it by
-"Tigrex"). Refused with the game's menu open and during a quest.
+"Tigrex"). Refused with the game's menu open and during a quest. The
+maintainer started 204 and 505 from the page, set *Monsters at 1 health*,
+hunted the Arzuros and the Rathalos with one hit each, and the quests ended
+as usual: the monster's health reached 0, the clock stopped and the hunter
+was back in the village, with more zenny after 204 (by 2,850z).
 
 ## Not verified, and not done
 
