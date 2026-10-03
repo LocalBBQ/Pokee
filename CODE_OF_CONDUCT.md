@@ -24,6 +24,14 @@ Disagreement with a maintainer, reporting a bug or questioning a technical decis
 - Repeatedly targeting or provoking a participant, or continuing unwanted contact after being asked to stop.
 - Spam or deliberate disruption of discussions.
 
+## Piracy and game content
+
+Do not use the project's spaces to promote or facilitate piracy. Requests for pirated copies, download links and instructions for obtaining unauthorized copies of games are prohibited.
+
+Do not upload, attach, link to or distribute copyrighted game content here, including disc images (ISO files), game executables or extracted game assets. This also applies to unofficial or repackaged Yakumo builds that bundle game content, whether as separate files, an embedded ISO or content included in an installer or archive.
+
+Keep game data local. Share code, logs and minimal synthetic examples when reporting problems, following the repository's [contribution rules](AGENTS.md).
+
 ## Maintainer responsibilities
 
 The project maintainers are responsible for applying this code; there is no separate moderation team. They may edit or remove messages, close or lock discussions, and temporarily or permanently restrict participation when necessary.
