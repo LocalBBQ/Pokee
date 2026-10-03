@@ -11,7 +11,9 @@
   <a href="https://github.com/TeamGDB/Yakumo/releases"><img src="https://img.shields.io/github/downloads/TeamGDB/Yakumo/total?style=flat-square&amp;label=downloads&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub release asset downloads across all releases"></a>
 </p>
 
-<p align="center"><a href="https://discord.gg/XbQSE3b4m">Discord</a></p>
+<p align="center">
+  <a href="https://discord.gg/XbQSE3b4m"><img src="https://img.shields.io/badge/Discord-Join%20community-b98335?style=flat-square&amp;logo=discord&amp;logoColor=white&amp;labelColor=2a1a22" alt="Join the TeamGDB Discord community"></a>
+</p>
 
 # Yakumo
 
