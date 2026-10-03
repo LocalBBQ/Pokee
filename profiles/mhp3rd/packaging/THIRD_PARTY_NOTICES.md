@@ -24,7 +24,7 @@ Rasterizes the game's text. Copyright (c) 2017 Sean Barrett. Used under the publ
 
 ### stb_image 2.30 and stb_image_write 1.16
 
-Read and write the PNG images of HD texture packs. Copyright (c) 2017 Sean Barrett. Used under the same public-domain dedication as stb_truetype above. <https://github.com/nothings/stb>
+Read and write the PNG images of HD texture packs. Yakumo adds a checked-allocation guard to stb_image's 16-bit channel conversion. Copyright (c) 2017 Sean Barrett. Used under the same public-domain dedication as stb_truetype above. <https://github.com/nothings/stb>
 
 ### xxHash 0.8.3
 
