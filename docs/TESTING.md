@@ -3,10 +3,13 @@
 ## Automated
 
 - **Framework tests** run with `ctest --test-dir out/framework` and need no game data.
+- **CodeQL security analysis** uses GitHub's default setup for C/C++, Java/Kotlin and Python, with the extended query suite, local and remote input sources, and standard GitHub-hosted runners. C/C++ analysis uses no-build extraction, so it needs no game data, generated corpus or overlay rebuild. Configuration is managed under the repository's security settings, not a committed workflow. Review results under *Security and quality → Code scanning*; a successful scan does not replace builds or gameplay tests. GitHub Code Quality is a separate paid product and is left disabled.
 - **Builds on every platform** in CI — planned in [#15](https://github.com/TeamGDB/Yakumo/issues/15).
 - **Regression tests on your own copy of the game**, replaying recorded input and comparing frames against reference images — planned in [#16](https://github.com/TeamGDB/Yakumo/issues/16).
 
 Until those exist, changes are checked by playing, with the smoke test below.
+
+For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report privately. Dependabot alerts and security updates cover supported dependency manifests; libraries downloaded by CMake or vendored in the profile still need separate version and advisory checks. Secret scanning and push protection are enabled for this public repository.
 
 ## Smoke test
 

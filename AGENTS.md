@@ -27,6 +27,8 @@ Read the documents relevant to the task before changing code, testing, packaging
 
 The [profile README](profiles/mhp3rd/README.md) covers player settings, environment variables, controls, saves, mods and networking. For device-specific testing in a developer's environment, also read [LOCAL_TESTING.md](LOCAL_TESTING.md) when present, as described below.
 
+[SECURITY.md](SECURITY.md) describes private vulnerability reporting and security fixes. Read it when investigating a suspected vulnerability.
+
 ## Rules
 
 - **English only** in everything committed: code, comments, docs, commit messages, pull requests. The only exceptions are the translations `README.ru.md` and `README.es.md`, and they change in the same pull request as `README.md`.
