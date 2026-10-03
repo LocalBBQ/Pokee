@@ -29,6 +29,8 @@ The [profile README](profiles/mhp3rd/README.md) covers player settings, environm
 
 [SECURITY.md](SECURITY.md) describes private vulnerability reporting and security fixes. Read it when investigating a suspected vulnerability.
 
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) describes expected community behavior and maintainer responsibilities in repository discussions.
+
 ## Rules
 
 - **English only** in everything committed: code, comments, docs, commit messages, pull requests. The only exceptions are the translations `README.ru.md` and `README.es.md`, and they change in the same pull request as `README.md`.
