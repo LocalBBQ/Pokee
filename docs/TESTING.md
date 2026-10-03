@@ -228,3 +228,56 @@ Useful settings while testing — all described in [the profile README](../profi
 - `MHP3RD_TRACE_PAD=1` shows whether input is reaching the game.
 - `MHP3RD_TRACE_AUDIO=1` shows audio levels and dropped frames.
 - `PSPRECOMP_HLE_HISTOGRAM=1` prints which system calls the game made.
+
+## Focused clang-tidy analysis
+
+Stage 3 (#252) uses LLVM clang-tidy **22.1.8**, with hash-checked standalone
+wheels for Linux x86_64 and macOS arm64. The explicit checks in `.clang-tidy`
+cover suspicious `sizeof`/`memset`, implicit pointer-to-bool conversion,
+dangling handles, null string views and use after move. Selected findings and
+compilation errors fail the check; style and modernization rules are excluded.
+See the [LLVM 22.1.8 documentation](https://clang.llvm.org/extra/clang-tidy/index.html).
+
+From a clean public checkout without generated game code:
+
+```sh
+python3 -m venv out/tidy-tools
+out/tidy-tools/bin/pip install --require-hashes -r scripts/ci/clang-tidy-requirements.txt
+cmake -S . -B out/tidy -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON \
+  -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF
+python3 scripts/ci/clang_tidy.py
+```
+
+The runner selects first-party `src/`, framework tests, profile host and profile
+C++ test translation units present in the real compilation database. It does
+not invent include paths or feature definitions. Required vendor headers are
+parsed; vendor/generated translation units and their header diagnostics are
+excluded from first-party enforcement. Each source's target configurations
+remain in the database. First-party header findings are reported when included
+by an analyzed translation unit. No AOT, overlay or application build is needed.
+
+The Linux hosted job has a 25-minute deadline and each translation unit has a
+120-second limit. It uploads per-source logs, elapsed time and a coverage
+manifest even on failures. This configuration does not cover renderer-enabled
+SDL/Vulkan code, FFmpeg, Windows/macOS-only branches, Android JNI, shaders,
+or game-generated code. macOS local runs cover the available native branches;
+they are not a substitute for the Linux job or existing platform builds.
+
+When using Apple's compiler with standalone LLVM on macOS, make its implicit
+SDK and libc++ directories explicit in the CMake database before analysis:
+
+```sh
+cmake -S . -B out/tidy \
+  -DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)" \
+  -DCMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES="$(xcrun --show-sdk-path)/usr/include/c++/v1"
+```
+
+The pinned LLVM 22 frontend supports the current Apple SDK headers; older
+standalone LLVM 18 could not parse their newer builtin type traits. Do not
+remove those headers or suppress parser failures to make analysis pass.
+
+The runner prepares public headers with the existing CMake generators directly.
+It runs only version and NID-table generation from
+tracked metadata; it does not compile the game stub, AOT or overlays.
