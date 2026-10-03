@@ -43,9 +43,9 @@ Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`).
 
 ## Local test setup
 
-If [LOCAL_TESTING.md](LOCAL_TESTING.md) exists at the repository root, read it before testing on the maintainer's devices. It describes the local macOS and Android emulator setup, SSH access to Windows and Steam Deck, developer launchers, and the available prebuilt overlays. The file is intentionally ignored by Git: keep device addresses, personal paths and machine-specific notes there, never in committed documentation. Its absence is normal in a fresh checkout; use the public build and testing guides instead.
+Each developer can keep their own [LOCAL_TESTING.md](LOCAL_TESTING.md) at the repository root to describe available test devices, access methods, build paths, launchers and prebuilt overlays. If it exists, read it before testing in that environment. The file is intentionally ignored by Git: keep device addresses, personal paths and machine-specific notes there, never in committed documentation. Its absence is normal in a fresh checkout; use the public build and testing guides instead.
 
-Reuse compatible prebuilt overlays for development and release packaging. Rebuild them only when a change requires it; check the runtime headers and overlay compatibility first. On the maintainer's Steam Deck, use the developer installation for tests and leave the release installation and Steam shortcuts alone unless asked to change them.
+Reuse compatible prebuilt overlays for development and release packaging. Rebuild them only when a change requires it; check the runtime headers and overlay compatibility first. Where separate developer and release installations exist, use the developer installation for tests. Follow the local guide for device-specific workflows and leave release installations and personal launcher configuration alone unless asked to change them.
 
 ## Lessons that cost real time
 
