@@ -17,6 +17,7 @@ import re
 import struct
 import subprocess
 import sys
+from pathlib import Path
 
 PROFILE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OVERLAY_DIR = os.path.join(PROFILE_DIR, "overlays")
@@ -51,9 +52,18 @@ def main(argv):
     parser.add_argument("dump_path")
     parser.add_argument("base_text")
     options = parser.parse_args(argv[1:])
-    build_dir, dump_path, base_text = options.build_dir, options.dump_path, options.base_text
-    base = int(base_text, 0)
-    data = open(dump_path, "rb").read()
+    build_dir = Path(options.build_dir).resolve(strict=True)
+    dump_path = Path(options.dump_path).resolve(strict=True)
+    base = int(options.base_text, 0)
+    if base < 0 or base > 0xFFFFFFFF or base % 4:
+        parser.error("base address must be an aligned 32-bit unsigned address")
+    if options.jobs < 1:
+        parser.error("jobs must be positive")
+    base_text = f"0x{base:08X}"
+    recompiler = (build_dir / ("psp_recomp.exe" if os.name == "nt" else "psp_recomp")).resolve(strict=True)
+    if not recompiler.is_file():
+        parser.error("build directory must contain the psp_recomp executable")
+    data = dump_path.read_bytes()
     name, image_size, code_size = parse_header(data, base)
     # Only the header and the code identify the image: the game writes into the
     # data section of a loaded overlay.
@@ -65,7 +75,7 @@ def main(argv):
     elf_path = os.path.join(target, "overlay.elf")
     subprocess.run([sys.executable, os.path.join(PROFILE_DIR, "tools", "wrap_overlay.py"),
                     dump_path, base_text, elf_path], check=True)
-    subprocess.run([os.path.join(build_dir, "psp_recomp"), elf_path, "--auto", target,
+    subprocess.run([str(recompiler), elf_path, "--auto", target,
                     base_text, "--prefix", prefix], check=True)
     # The metadata the host identifies the corpus by. CMake reads it to configure
     # the library entry point. The build does not need an explicit reconfigure:

@@ -26,6 +26,8 @@ import os
 import struct
 import sys
 
+from extraction_paths import archive_component, extraction_path
+
 BLOCK = 2048
 
 # XOR keystream: two independent 16-bit Lehmer generators, one per halfword.
@@ -268,8 +270,8 @@ def write_entry(archive, index, directory, name=None):
     data = archive.read(index)
     if name is None:
         overlay = archive.overlay(index)
-        name = "%05d_%s" % (index, overlay["name"]) if overlay else "%05d.bin" % index
-    path = os.path.join(directory, name)
+        name = "%05d_%s" % (index, archive_component(overlay["name"])) if overlay else "%05d.bin" % index
+    path = extraction_path(directory, [name])
     with open(path, "wb") as out:
         out.write(data)
     return path, len(data)
@@ -290,7 +292,7 @@ def command_extract_overlays(archive, args):
         overlay = archive.overlay(index)
         if not overlay:
             continue
-        name = "overlay_%08X_%s.bin" % (overlay["load"], overlay["name"].rsplit(".", 1)[0])
+        name = "overlay_%08X_%s.bin" % (overlay["load"], archive_component(overlay["name"]).rsplit(".", 1)[0])
         path, length = write_entry(archive, index, args.output, name)
         print("%9d  %s" % (length, path))
         count += 1

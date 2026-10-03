@@ -13,6 +13,8 @@ import os
 import struct
 import sys
 
+from extraction_paths import archive_component, extraction_path
+
 SECTOR = 2048
 
 
@@ -21,9 +23,11 @@ def read_sectors(image, lba, size):
     return image.read(size)
 
 
-def walk(image, record, parent, visit):
+def walk(image, record, parent, visit, ancestors=()):
     lba = struct.unpack_from("<I", record, 2)[0]
     size = struct.unpack_from("<I", record, 10)[0]
+    if lba in ancestors or len(ancestors) >= 64:
+        raise ValueError("cyclic or excessively nested ISO directory")
     data = read_sectors(image, lba, size)
     offset = 0
     while offset < len(data):
@@ -33,14 +37,18 @@ def walk(image, record, parent, visit):
             continue
         entry = data[offset:offset + length]
         offset += length
+        if len(entry) != length or length < 34:
+            raise ValueError("truncated ISO directory record")
         name_length = entry[32]
+        if not name_length or 33 + name_length > length:
+            raise ValueError("invalid ISO directory filename length")
         raw_name = entry[33:33 + name_length]
         if raw_name in (b"\0", b"\1"):
             continue
-        name = raw_name.decode("ascii", errors="replace").split(";")[0]
+        name = archive_component(raw_name.decode("ascii", errors="strict").split(";")[0])
         path = f"{parent}/{name}"
         if entry[25] & 2:
-            walk(image, entry, path, visit)
+            walk(image, entry, path, visit, ancestors + (lba,))
         else:
             visit(path, struct.unpack_from("<I", entry, 2)[0], struct.unpack_from("<I", entry, 10)[0])
 
@@ -65,7 +73,7 @@ def main(argv):
         def extract(path, lba, size):
             if prefixes and not any(path.startswith(prefix) for prefix in prefixes):
                 return
-            destination = os.path.join(output_dir, path.lstrip("/"))
+            destination = extraction_path(output_dir, path.lstrip("/").split("/"))
             os.makedirs(os.path.dirname(destination), exist_ok=True)
             image.seek(lba * SECTOR)
             remaining = size
