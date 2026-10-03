@@ -1,0 +1,42 @@
+name: Native coverage
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'release/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Native C++ coverage (Linux Clang 18)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install versioned coverage toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends clang-18 llvm-18 libclang-rt-18-dev ninja-build
+      - name: Measure coverage
+        run: make coverage
+      - name: Upload coverage reports and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-coverage
+          path: |
+            out/coverage/coverage-results/
+            out/coverage/Testing/Temporary/*.log
+            out/coverage/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: error
+          retention-days: 7

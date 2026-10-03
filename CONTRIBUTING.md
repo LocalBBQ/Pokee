@@ -61,6 +61,11 @@ Apple SDK flags for clang-tidy. These targets use their existing separate
 only after that directory has been configured following the build guide; reuse
 compatible generated objects and overlays as usual.
 
+`make coverage` runs native tests with Clang coverage in its own build directory
+and produces percentages and an HTML report for the compiled first-party
+headless subset. See [the coverage scope and limitations](docs/TESTING.md#native-c-coverage)
+before interpreting the result as project coverage.
+
 Make is optional. Windows users can use the direct CMake/Python commands below
 and in the testing guide; the convenience recipes require a POSIX shell and
 Unix-style virtual environment paths. Hosted CI retains its existing commands.

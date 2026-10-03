@@ -15,9 +15,14 @@ TOOL_BIN := $(TOOL_DIR)/bin
 TOOL_PYTHON := $(TOOL_BIN)/python
 SANITIZER_CXX ?= clang++-18
 SANITIZER_SYMBOLIZER ?= llvm-symbolizer-18
+ifeq ($(shell uname -s),Darwin)
+COVERAGE_CXX ?= clang++
+else
+COVERAGE_CXX ?= clang++-18
+endif
 HEADLESS_ARGS := -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF
 
-.PHONY: help configure build test python-test check tools lint format-check format tidy-tools tidy cppcheck-tools cppcheck sanitizers app
+.PHONY: help configure build test python-test check tools lint format-check format tidy-tools tidy cppcheck-tools cppcheck sanitizers coverage app
 
 help:
 	@printf '%s\n' \
@@ -35,6 +40,7 @@ help:
 	  'make cppcheck-tools  Build the pinned Cppcheck analyzer' \
 	  'make cppcheck        Configure out/cppcheck and analyze (requires cppcheck-tools)' \
 	  'make sanitizers      Configure, verify and run ASan/UBSan on native Linux' \
+	  'make coverage        Build/test with LLVM coverage and write an HTML report' \
 	  'make app             Build Yakumo in an already configured APP_BUILD_DIR' \
 	  'Overrides: JOBS=2 BUILD_DIR=out/tests CMAKE_ARGS="..." CTEST_ARGS="..."'
 
@@ -94,6 +100,12 @@ sanitizers:
 	UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1:abort_on_error=0:exitcode=98 \
 	ASAN_SYMBOLIZER_PATH="$$(command -v $(SANITIZER_SYMBOLIZER))" \
 	$(CTEST) --test-dir out/sanitizers --output-on-failure --no-tests=error --timeout 120 $(CTEST_ARGS)
+
+coverage:
+	$(PYTHON) -m unittest discover -s scripts/ci -p test_native_coverage.py
+	$(CMAKE) -S . -B out/coverage -G "$(GENERATOR)" -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=$(COVERAGE_CXX) -DPSPRECOMP_COVERAGE=ON $(HEADLESS_ARGS) $(CMAKE_ARGS)
+	$(CMAKE) --build out/coverage --target psprecomp_test_binaries --parallel $(JOBS)
+	$(PYTHON) scripts/ci/native_coverage.py
 
 app:
 	@test -n "$(APP_BUILD_DIR)" || { printf '%s\n' 'Set APP_BUILD_DIR to an existing game build; see docs/BUILDING.md.' >&2; exit 1; }

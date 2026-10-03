@@ -26,6 +26,45 @@ ctest --test-dir out/ci -C Debug --output-on-failure --no-tests=error --timeout 
 
 For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report privately. Dependabot alerts and security updates cover supported dependency manifests; libraries downloaded by CMake or vendored in the profile still need separate version and advisory checks. Secret scanning and push protection are enabled for this public repository.
 
+### Native C++ coverage
+
+`make coverage` configures a separate Debug/headless build in `out/coverage`,
+builds only the native test executables, runs the full registered suite and
+merges fresh Clang source-based profiles. No game data, application build or
+overlay build is required. Normal builds keep `PSPRECOMP_COVERAGE=OFF`; coverage
+and sanitizers use separate build directories.
+
+On Ubuntu 24.04 install `clang-18`, `llvm-18`, `libclang-rt-18-dev`, Ninja and
+CMake. On macOS use the Xcode Clang compiler and its matching `xcrun llvm-cov`
+and `xcrun llvm-profdata`. `COVERAGE_CXX` selects the compiler, but the report
+tools must match its profile format. Windows/cross-compilation are not supported
+by this optional coverage target.
+
+The `.github/workflows/coverage.yml` job uses Linux Clang 18. Its summary shows
+weighted percentages for executable lines, functions and branches. The
+`native-coverage` artifact contains `coverage-results/summary.json`,
+`summary.md`, `report.txt`, merged profiles and the browsable `html/index.html`.
+Locally these are under `out/coverage/coverage-results/`. The runner removes its
+previous report/profile directory before each test run to prevent stale hits.
+Missing instrumentation, test failures and report failures fail the job; no
+coverage-percentage threshold is imposed until a baseline has been reviewed.
+LLVM can report zero-hash unused inline stub mappings when another translation
+unit emits that function. The runner accepts only zero-hash stubs whose emitted
+function mapping is also present in the export, retaining the diagnostics and
+names in the report. Other mismatches or missing emitted mappings fail reporting.
+
+The denominator includes only Git-tracked first-party production C/C++ files
+under `include/psprecomp/`, `src/` and `profiles/mhp3rd/host/` represented in the
+test binaries. Test code, vendor sources, generated/game code and Python are
+excluded. Tracked production files absent from the coverage mapping are listed
+in `unrepresented_first_party_files`; their executable-line counts are unknown,
+so they are not silently counted as fully covered or assigned invented counts.
+This measures the compiled headless subset, not the whole project. Renderer,
+audio and platform paths absent from these binaries remain unmeasured; child
+processes that abort before flushing their profiles can also lose hits.
+See [Clang's coverage guide](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html)
+for what each metric measures and how source-based profiles work.
+
 ### Native ASan and UBSan
 
 The separate `.github/workflows/sanitizers.yml` job uses Ubuntu 24.04 and the versioned Clang 18 toolchain packages (including compiler-rt and llvm-symbolizer). Distribution security updates remain available; the job prints the effective compiler version. Normal builds keep `PSPRECOMP_SANITIZERS=OFF`. The opt-in configuration instruments compilation and linking of the framework, profile test sources and dependency implementations with `-fsanitize=address,undefined`, debug information, frame pointers and `-O1`. UBSan recovery is disabled; ASan/UBSan reports and detected leaks fail the check. Sanitizer failures use direct nonzero exits instead of SIGABRT, so the existing negative tests cannot mistake a report for an expected assertion abort. No suppressions or test exclusions are configured.
