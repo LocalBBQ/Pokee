@@ -34,6 +34,37 @@ If you have a device-specific setup, keep its paths, addresses and launch instru
 
 Choose checks that exercise the behavior you changed. [TESTING.md](docs/TESTING.md) describes automated checks and manual smoke tests; [COMPATIBILITY.md](docs/COMPATIBILITY.md) records verified platform results.
 
+On macOS/Linux with Make, the root `Makefile` provides shortcuts to the existing
+CMake and Python commands. `make` lists the available targets. Start with:
+
+```sh
+make configure
+make test
+make python-test
+make tools
+make check
+```
+
+The default build directory is `out/tests`, with headless profile tests and no
+game data. `make build` builds only test binaries; `make test` builds them before
+running CTest. Configure once before using either command. `make check` runs Ruff,
+the complete C++ formatting check, native tests and Python tests sequentially;
+tool installation is explicit through `make tools`. Builds default to two jobs.
+Override `BUILD_DIR`, `JOBS`, `CMAKE_ARGS` or `CTEST_ARGS` as needed.
+
+`make format` changes scoped first-party source files. The heavier analyses are
+separate: `make tidy-tools` then `make tidy`, `make cppcheck-tools` then
+`make cppcheck`, and `make sanitizers` with the documented native Linux Clang
+toolchain. See [TESTING.md](docs/TESTING.md) for prerequisites, including the
+Apple SDK flags for clang-tidy. These targets use their existing separate
+`out/` directories. `make app APP_BUILD_DIR=out/mhp3rd` builds the application
+only after that directory has been configured following the build guide; reuse
+compatible generated objects and overlays as usual.
+
+Make is optional. Windows users can use the direct CMake/Python commands below
+and in the testing guide; the convenience recipes require a POSIX shell and
+Unix-style virtual environment paths. Hosted CI retains its existing commands.
+
 For the unit-test targets:
 
 ```sh
