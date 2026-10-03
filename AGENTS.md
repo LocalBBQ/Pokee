@@ -4,6 +4,29 @@ Working notes for anyone changing this repository: people and coding agents alik
 
 Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`). It recompiles the game's PSP (MIPS) code to C++ ahead of time and supplies the PSP system around it: the kernel, HLE modules, a Vulkan GE renderer, audio, input, save data, ad hoc networking and an ImGui interface. The C++ lives in `profiles/mhp3rd/host/` (the port) and `include/psprecomp/` plus `src/` (the reusable runtime and recompiler).
 
+## Documentation map
+
+Read the documents relevant to the task before changing code, testing, packaging or managing release branches. The Markdown guides in `docs/` are listed below; keep this map current when adding or renaming one.
+
+| Document | Read it for |
+| --- | --- |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Framework/profile boundaries, generated execution, interpreter fallback, overlays and native fast paths |
+| [BUILDING.md](docs/BUILDING.md) | Platform prerequisites, build steps, incremental work and reuse across checkouts |
+| [BUILD_SYSTEM.md](docs/BUILD_SYSTEM.md) | Build locks, Ninja dependency logs, compiler caching and expensive rebuilds |
+| [TESTING.md](docs/TESTING.md) | Automated checks, manual smoke tests and subsystem regression checks |
+| [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Verified behavior and remaining problems by platform, with tested commits |
+| [RELEASING.md](docs/RELEASING.md) | Release branches, stable/test policy, packaging, artifact checks and publishing; `release/X.Y` branches are retained for patch releases |
+| [MACOS.md](docs/MACOS.md) | macOS installation, player data, updates and troubleshooting |
+| [LINUX.md](docs/LINUX.md) | Linux and Steam Deck installation, Flatpak, portable releases and Game Mode |
+| [PROFILE_GUIDE.md](docs/PROFILE_GUIDE.md) | Adding a title profile and keeping game-specific behavior outside the framework |
+| [SOURCE_PROVENANCE.md](docs/SOURCE_PROVENANCE.md) | License boundaries, independently written implementations and third-party notices |
+| [DATA_BIN.md](docs/DATA_BIN.md) | Archive layout, obfuscation, overlay entries, file IDs and mod I/O |
+| [EQUIPMENT_MODS.md](docs/EQUIPMENT_MODS.md) | Equipment model/file lookup, traced tables and mod targets |
+| [LAYERED_ARMOR.md](docs/LAYERED_ARMOR.md) | Appearance overrides, model hooks, reload behavior and multiplayer visibility |
+| [DEBUG_MENU.md](docs/DEBUG_MENU.md) | Developer tools, command-file automation, guest state and quest testing |
+
+The [profile README](profiles/mhp3rd/README.md) covers player settings, environment variables, controls, saves, mods and networking. For device-specific testing in a developer's environment, also read [LOCAL_TESTING.md](LOCAL_TESTING.md) when present, as described below.
+
 ## Rules
 
 - **English only** in everything committed: code, comments, docs, commit messages, pull requests. The only exceptions are the translations `README.ru.md` and `README.es.md`, and they change in the same pull request as `README.md`.
