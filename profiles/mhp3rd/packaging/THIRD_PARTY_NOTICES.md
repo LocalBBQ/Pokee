@@ -16,7 +16,7 @@ AES for preparing the executable from the disc image and for save data. Commit `
 
 ### stb_truetype 1.26
 
-Yakumo adds independently written bitmap dimension, stride and coordinate checks, SDF padding and allocation-failure handling, and baked-glyph bounds checks to this header and Dear ImGui's `imstb_truetype.h` copy. The original licenses and the distinct upstream ImGui changes are preserved.
+Yakumo adds independently written bitmap dimension, stride and coordinate checks, SDF padding and SDF/rasterizer allocation-failure handling, and baked-glyph bounds checks to this header and Dear ImGui's `imstb_truetype.h` copy. The original licenses and the distinct upstream ImGui changes are preserved.
 
 Rasterizes the game's text. Copyright (c) 2017 Sean Barrett. Used under the public-domain dedication it offers as an alternative to the MIT License:
 

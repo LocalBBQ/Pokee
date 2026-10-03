@@ -27,7 +27,7 @@ For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report p
 
 ### Font bitmap allocation guards
 
-`mhp3rd_font_bitmap_tests` and `mhp3rd_imgui_font_bitmap_tests` exercise both vendored stb_truetype copies with the same independently authored synthetic square font. They check oversized and invalid bitmap/atlas dimensions, row strides, non-finite scales, SDF padding and allocation failures, a glyph too wide for the baking atlas, and unchanged small bitmap/SDF output. The allocator and clear hooks bound synthetic requests; no external font, game data or GPU is required. These checks do not establish that stb_truetype can safely parse arbitrary untrusted fonts.
+`mhp3rd_font_bitmap_tests` and `mhp3rd_imgui_font_bitmap_tests` exercise both vendored stb_truetype copies with the same independently authored synthetic square font. They check oversized and invalid bitmap/atlas dimensions, row strides, non-finite scales, SDF padding and allocation failures, oversized or failed rasterizer scratch allocations, a glyph too wide for the baking atlas, and unchanged small bitmap/SDF output. The allocator and clear hooks bound synthetic requests; no external font, game data or GPU is required. These checks do not establish that stb_truetype can safely parse arbitrary untrusted fonts.
 
 ## Smoke test
 

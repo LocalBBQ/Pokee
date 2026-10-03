@@ -99,6 +99,18 @@ int main(int argc, char** argv) {
             std::printf("10000 small glyphs: %.3f ms\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
             return 0;
         }
+        if (mode == "all" || mode == "scanline-overflow") {
+            reset_allocator();
+            unsigned char pixel = 0x7b;
+            stbtt__bitmap bitmap{INT_MAX, 1, INT_MAX, &pixel};
+            stbtt__edge sentinel{};
+            stbtt__rasterize_sorted_edges(&bitmap, &sentinel, 0, 1, 0, 0, nullptr);
+            require(pixel == 0x7b && live_allocations == 0, "failed wide scanline touched pixels or leaked");
+            reset_allocator(1);
+            bitmap.w = bitmap.stride = 65;
+            stbtt__rasterize_sorted_edges(&bitmap, &sentinel, 0, 1, 0, 0, nullptr);
+            require(pixel == 0x7b && live_allocations == 0, "failed scanline allocation touched pixels or leaked");
+        }
         if (mode == "all" || mode == "bake-wide") {
             std::array<unsigned char, 2 * 24> pixels{};
             stbtt_bakedchar character{}; character.x0 = 999;
