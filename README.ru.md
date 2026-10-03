@@ -11,6 +11,8 @@
   <a href="https://github.com/TeamGDB/Yakumo/releases"><img src="https://img.shields.io/github/downloads/TeamGDB/Yakumo/total?style=flat-square&amp;label=downloads&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub release asset downloads across all releases"></a>
 </p>
 
+<p align="center"><a href="https://discord.gg/XbQSE3b4m">Discord</a></p>
+
 # Yakumo
 
 Нативный порт **Monster Hunter Portable 3rd HD Ver.**, сделанный статической рекомпиляцией: код игры для PSP заранее переводится в C++ и компилируется под ваш компьютер, а затем работает поверх заново написанной системной среды PSP. Это не эмулятор — в его основе нет ни интерпретатора, ни JIT, — и не декомпиляция.
