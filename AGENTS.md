@@ -15,6 +15,7 @@ Read the documents relevant to the task before changing code, testing, packaging
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Framework/profile boundaries, generated execution, interpreter fallback, overlays and native fast paths |
 | [BUILDING.md](docs/BUILDING.md) | Platform prerequisites, build steps, incremental work and reuse across checkouts |
 | [BUILD_SYSTEM.md](docs/BUILD_SYSTEM.md) | Build locks, Ninja dependency logs, compiler caching and expensive rebuilds |
+| [FORMATTING.md](docs/FORMATTING.md) | C++ style, pinned formatter, scoped commands and enforcement |
 | [TESTING.md](docs/TESTING.md) | Automated checks, manual smoke tests and subsystem regression checks |
 | [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Verified behavior and remaining problems by platform, with tested commits |
 | [RELEASING.md](docs/RELEASING.md) | Release branches, stable/test policy, packaging, artifact checks and publishing; `release/X.Y` branches are retained for patch releases |

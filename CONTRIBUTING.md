@@ -59,6 +59,14 @@ Ruff checks first-party Python under `scripts/`, `profiles/mhp3rd/tools/` and `p
 
 The `Python lint (Ruff)` job runs the same configuration on public GitHub-hosted CI for pull requests and pushes to main or release branches. Findings fail the job; review and fix them before requesting a merge. The check needs no game data or build. Changes to branch protection and checks for C++ formatting, clang-tidy, Cppcheck and sanitizers are separate stages in [#249](https://github.com/TeamGDB/Yakumo/issues/249).
 
+## C++ formatting
+
+[FORMATTING.md](docs/FORMATTING.md) describes the pinned clang-format 21.1.8
+commands and first-party scope. Run `python3 scripts/format_cpp.py check` with
+the pinned formatter on PATH before submitting C++ changes; CI checks the full
+scoped baseline. Keep mechanical formatting in dedicated commits, separate from
+behavior changes. Review style/version changes before reformatting the baseline.
+
 ## Submitting a pull request
 
 1. Work on a branch or fork and open a pull request against `main`. Never push directly to `main`.
