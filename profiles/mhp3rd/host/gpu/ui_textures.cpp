@@ -89,7 +89,7 @@ bool glyph_page(const GuestMemory &memory, const TextureState &texture, int scal
         for (std::uint32_t x = 0; x < 256u; ++x) {
             const std::uint32_t colour = palette[index_at(x, y)];
             for (std::uint32_t dy = 0; dy < size; ++dy)
-                std::fill_n(out.begin() + static_cast<std::ptrdiff_t>((y * size + dy) * side + x * size), size,
+                std::fill_n(out.begin() + static_cast<std::ptrdiff_t>((static_cast<std::size_t>(y) * size + dy) * side + static_cast<std::size_t>(x) * size), size,
                             colour);
         }
     for (std::uint32_t cell = 0; cell < kCellsPerPage; ++cell) {
@@ -114,7 +114,7 @@ bool glyph_page(const GuestMemory &memory, const TextureState &texture, int scal
         const std::uint32_t cell_side = kCellWidth * size;
         for (std::uint32_t y = 0; y < cell_side; ++y)
             for (std::uint32_t x = 0; x < cell_side; ++x)
-                out[static_cast<std::size_t>(top * size + y) * side + left * size + x] = palette[ink[static_cast<std::size_t>(y) * cell_side + x]];
+                out[(static_cast<std::size_t>(top) * size + y) * side + static_cast<std::size_t>(left) * size + x] = palette[ink[static_cast<std::size_t>(y) * cell_side + x]];
         ++report.redrawn;
     }
     // A page that is not what it was traced to be is left alone.
