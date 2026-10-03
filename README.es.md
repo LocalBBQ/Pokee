@@ -7,6 +7,7 @@
   <a href="https://github.com/TeamGDB/Yakumo/actions/workflows/tests.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/TeamGDB/Yakumo/tests.yml?branch=main&amp;event=push&amp;style=flat-square&amp;label=tests&amp;labelColor=252238" alt="Unit tests on main"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8b5cf6?style=flat-square&amp;labelColor=252238" alt="License: MIT"></a>
   <a href="docs/COMPATIBILITY.md"><img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS%20%C2%B7%20Android-8b5cf6?style=flat-square&amp;labelColor=252238" alt="Platforms: Windows, Linux, macOS and Android"></a>
+  <a href="https://github.com/TeamGDB/Yakumo/stargazers"><img src="https://img.shields.io/github/stars/TeamGDB/Yakumo?style=flat-square&amp;label=stars&amp;labelColor=252238&amp;color=8b5cf6" alt="GitHub stars"></a>
 </p>
 
 # Yakumo
