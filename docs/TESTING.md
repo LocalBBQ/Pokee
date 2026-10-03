@@ -9,7 +9,7 @@
 - **Archive-tool security regressions** run with `python3 profiles/mhp3rd/tests/tool_security_tests.py` and in the desktop CI jobs. Synthetic ISO records and overlay names exercise traversal rejection, existing symlink escapes, malformed directory records and cycles, and overlay command argument handling; they use no game data.
 - **Framework tests** run with `ctest --test-dir out/framework` and need no game data.
 - **Unit-test CI** runs the framework and headless profile tests on standard GitHub-hosted Linux, macOS and Windows runners for pull requests, pushes to `main` and release branches, and manual dispatch. The workflow in `.github/workflows/tests.yml` builds only `psprecomp_test_binaries` in Debug mode, then runs CTest with failure output and a per-test timeout. Failed jobs upload test logs and JUnit results when available. It uses no game data, generated game corpus, overlays or GPU. FFmpeg is disabled to avoid downloading and building application-only audio/video dependencies. The Vulkan descriptor-pool test is excluded from this renderer-disabled configuration. Android CI also cross-compiles the same targets with NDK 28.2 for `arm64-v8a` and `x86_64` at API 29 (Android 10). The x86_64 binaries run through ADB on a hardware-accelerated Android emulator, including the framework's synthetic code-generation checks. The runner deploys the shared C++ runtime, records each test's exit status and logs, applies a per-test timeout, and uploads diagnostics on failure. ARM64 is a compile check only. APK packaging, Java/JNI integration, Vulkan, gameplay and real Android devices still require separate testing, as does Steam Deck gameplay.
-- **CodeQL security analysis** uses GitHub's default setup for C/C++, Java/Kotlin and Python, with the extended query suite, local and remote input sources, and standard GitHub-hosted runners. C/C++ analysis uses no-build extraction, so it needs no game data, generated corpus or overlay rebuild. Configuration is managed under the repository's security settings, not a committed workflow. Review results under *Security and quality → Code scanning*; a successful scan does not replace builds or gameplay tests. GitHub Code Quality is a separate paid product and is left disabled.
+- **CodeQL security analysis** is defined by `.github/workflows/codeql.yml` using advanced setup for Actions, C/C++, Java/Kotlin and Python, with the extended query suite and local as well as default remote input sources on standard GitHub-hosted runners. C/C++ uses no-build extraction, so it needs no game data, generated corpus or overlay rebuild. Java uses a manual `javac --release 11` compilation of Yakumo's Android wrapper with Android API 35 and the release-pinned SDL3 dependency. SDL Java classes are prepared before CodeQL initialization; the traced app compilation resolves them through its classpath. No native code, emulator, APK, game data or overlays are needed for Java analysis. Review results under *Security and quality → Code scanning*; a successful scan does not replace builds or gameplay tests. GitHub Code Quality is a separate product and remains disabled.
 - **Full application builds on every platform** — further work tracked in [#15](https://github.com/TeamGDB/Yakumo/issues/15). Unit-test CI does not build playable releases; release packaging remains a separate process.
 - **Regression tests on your own copy of the game**, replaying recorded input and comparing frames against reference images — planned in [#16](https://github.com/TeamGDB/Yakumo/issues/16).
 
@@ -24,6 +24,19 @@ ctest --test-dir out/ci -C Debug --output-on-failure --no-tests=error --timeout 
 ```
 
 For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report privately. Dependabot alerts and security updates cover supported dependency manifests; libraries downloaded by CMake or vendored in the profile still need separate version and advisory checks. Secret scanning and push protection are enabled for this public repository.
+
+### Switching CodeQL from default to advanced setup
+
+GitHub default setup blocks result uploads from advanced workflows. When deploying the committed CodeQL workflow, disable default setup under the repository's security settings, then dispatch the `CodeQL` workflow on `main`. Confirm that all four language analyses complete and Java resolves the Android/SDL calls before retiring the previous default configuration. Keep default setup active while reviewing this migration; local Java compilation alone does not verify CodeQL database quality or SARIF uploads. The language categories remain `/language:actions`, `/language:c-cpp`, `/language:java-kotlin` and `/language:python`; existing alert history must be checked after the first advanced scan.
+
+To reproduce only the Java compilation with a local Android SDK and the release-pinned SDL source:
+
+```sh
+python3 scripts/ci/android_java.py "$ANDROID_HOME/platforms/android-35/android.jar" /path/to/SDL3-source out/java-check --stage sdl
+python3 scripts/ci/android_java.py "$ANDROID_HOME/platforms/android-35/android.jar" /path/to/SDL3-source out/java-check --stage app
+```
+
+These checks compile SDL first, then Yakumo. In the CodeQL workflow initialization runs between those stages so the app is analyzed with its actual dependencies. Android API 35 is the compilation API, not a change to the application's Android 10 minimum requirement.
 
 ### Font bitmap allocation guards
 
