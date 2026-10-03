@@ -843,6 +843,7 @@ static void *stbiw__sbgrowf(void **arr, int increment, int itemsize)
    old_bytes = *arr ? (size_t) capacity * (size_t) itemsize + sizeof(int)*2 : 0;
    new_bytes = (size_t) m * (size_t) itemsize + sizeof(int)*2;
    p = STBIW_REALLOC_SIZED(*arr ? stbiw__sbraw(*arr) : 0, old_bytes, new_bytes);
+   (void) old_bytes; // The default realloc macro does not consume the old size.
    if (!p) return NULL;
    if (p) {
       if (!*arr) ((int *) p)[1] = 0;
