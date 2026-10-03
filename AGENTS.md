@@ -6,6 +6,8 @@ Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`).
 
 ## Documentation map
 
+[CONTRIBUTING.md](CONTRIBUTING.md) is the contributor guide for bug reports, contribution rules, building, testing and submitting pull requests. Read it before preparing a contribution.
+
 Read the documents relevant to the task before changing code, testing, packaging or managing release branches. The Markdown guides in `docs/` are listed below; keep this map current when adding or renaming one.
 
 | Document | Read it for |

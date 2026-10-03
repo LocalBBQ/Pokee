@@ -30,7 +30,7 @@ Do not use the project's spaces to promote or facilitate piracy. Requests for pi
 
 Do not upload, attach, link to or distribute copyrighted game content here, including disc images (ISO files), game executables or extracted game assets. This also applies to unofficial or repackaged Yakumo builds that bundle game content, whether as separate files, an embedded ISO or content included in an installer or archive.
 
-Keep game data local. Share code, logs and minimal synthetic examples when reporting problems, following the repository's [contribution rules](AGENTS.md).
+Keep game data local. Share code, logs and minimal synthetic examples when reporting problems, following the repository's [contribution rules](CONTRIBUTING.md).
 
 ## Maintainer responsibilities
 
@@ -44,4 +44,4 @@ A maintainer directly involved in a dispute should leave the decision to another
 
 Content that violates GitHub's own rules can also be reported through GitHub's reporting tools. Avoid posting personal information or sensitive details in public discussions about an incident.
 
-For repository contribution rules, see [AGENTS.md](AGENTS.md). For security vulnerability reports, see [SECURITY.md](SECURITY.md).
+For repository contribution rules, see [CONTRIBUTING.md](CONTRIBUTING.md). For security vulnerability reports, see [SECURITY.md](SECURITY.md).
