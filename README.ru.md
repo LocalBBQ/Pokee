@@ -2,6 +2,13 @@
 
 <p align="center"><a href="README.md">English</a> · <b>Русский</b> · <a href="README.es.md">Español</a></p>
 
+<p align="center">
+  <a href="https://github.com/TeamGDB/Yakumo/releases/latest"><img src="https://img.shields.io/github/v/release/TeamGDB/Yakumo?style=flat-square&amp;label=release&amp;labelColor=252238&amp;color=8b5cf6" alt="Latest stable release"></a>
+  <a href="https://github.com/TeamGDB/Yakumo/actions/workflows/tests.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/TeamGDB/Yakumo/tests.yml?branch=main&amp;event=push&amp;style=flat-square&amp;label=tests&amp;labelColor=252238" alt="Unit tests on main"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8b5cf6?style=flat-square&amp;labelColor=252238" alt="License: MIT"></a>
+  <a href="docs/COMPATIBILITY.md"><img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS%20%C2%B7%20Android-8b5cf6?style=flat-square&amp;labelColor=252238" alt="Platforms: Windows, Linux, macOS and Android"></a>
+</p>
+
 # Yakumo
 
 Нативный порт **Monster Hunter Portable 3rd HD Ver.**, сделанный статической рекомпиляцией: код игры для PSP заранее переводится в C++ и компилируется под ваш компьютер, а затем работает поверх заново написанной системной среды PSP. Это не эмулятор — в его основе нет ни интерпретатора, ни JIT, — и не декомпиляция.
