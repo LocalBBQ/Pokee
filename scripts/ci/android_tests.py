@@ -3,14 +3,11 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import time
 import xml.etree.ElementTree as ET
-
-
-def run(*args, **kwargs):
-    return subprocess.run(args, check=True, timeout=120, **kwargs)
 
 
 def main():
@@ -18,24 +15,41 @@ def main():
     parser.add_argument("build_dir", type=Path)
     parser.add_argument("stl", type=Path)
     args = parser.parse_args()
-    build = args.build_dir.resolve()
-    tests = json.loads(run("ctest", "--test-dir", str(build), "--show-only=json-v1",
-                           capture_output=True, text=True).stdout)["tests"]
+    build = args.build_dir.resolve(strict=True)
+    stl = args.stl.resolve(strict=True)
+    if not build.is_dir() or not stl.is_file() or stl.name != "libc++_shared.so":
+        raise ValueError("Expected a build directory and the NDK libc++_shared.so file")
+    # Keep executables fixed and filesystem arguments absolute: a caller's path
+    # cannot select a program or become an adb command-line option.
+    tests = json.loads(subprocess.run(
+        ["ctest", "--test-dir", str(build), "--show-only=json-v1"],
+        check=True, timeout=120, capture_output=True, text=True).stdout)["tests"]
     if not tests:
         raise RuntimeError("No CTest tests registered")
+    binaries = {build / "psp_recomp"}
+    names = set()
+    for test in tests:
+        name = test["name"]
+        binary = Path(test["command"][0]).resolve(strict=True)
+        if not re.fullmatch(r"[A-Za-z0-9_]+", name) or name in names:
+            raise ValueError("CTest names must be unique identifiers")
+        if not binary.is_relative_to(build) or not binary.is_file() or binary.name != name:
+            raise ValueError("CTest executables must match their names and belong to the build directory")
+        names.add(name)
+        binaries.add(binary)
     remote = "/data/local/tmp/yakumo-unit-tests"
     diagnostics = build / "android-results"
     diagnostics.mkdir(exist_ok=True)
     suite = ET.Element("testsuite", name="Android native tests", tests=str(len(tests)))
     failed = 0
     try:
-        run("adb", "shell", f"rm -rf {remote} && mkdir -p {remote}/tmp {remote}/home")
-        binaries = {Path(test["command"][0]) for test in tests}
-        binaries.add(build / "psp_recomp")
+        subprocess.run(["adb", "shell", f"rm -rf {remote} && mkdir -p {remote}/tmp {remote}/home"],
+                       check=True, timeout=120)
         for binary in sorted(binaries):
-            run("adb", "push", str(binary), remote + "/")
-        run("adb", "push", str(args.stl), remote + "/libc++_shared.so")
-        run("adb", "shell", f"chmod 755 {remote}/*tests {remote}/psp_recomp")
+            subprocess.run(["adb", "push", str(binary), remote + "/"], check=True, timeout=120)
+        subprocess.run(["adb", "push", str(stl), remote + "/libc++_shared.so"], check=True, timeout=120)
+        subprocess.run(["adb", "shell", f"chmod 755 {remote}/*tests {remote}/psp_recomp"],
+                       check=True, timeout=120)
         for test in tests:
             name = test["name"]
             command = [remote + "/" + Path(test["command"][0]).name, *test["command"][1:]]
@@ -63,7 +77,7 @@ def main():
     finally:
         suite.set("failures", str(failed))
         ET.ElementTree(suite).write(diagnostics / "test-results.xml", encoding="utf-8", xml_declaration=True)
-        run("adb", "shell", f"rm -rf {remote}")
+        subprocess.run(["adb", "shell", f"rm -rf {remote}"], check=True, timeout=120)
     return 1 if failed else 0
 
 
