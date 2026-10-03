@@ -7,6 +7,7 @@
 #include "debug/quest_start.hpp"
 #include "game/guest_ram.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -157,9 +158,11 @@ void test_money_and_name() {
 void load_overlay(Ram &ram, const char *name) {
     ram.store32(game::kTaskSlot, 0x336F574Du);  // "MWo3"
     ram.store32(game::kTaskSlot + 8u, game::kTaskSlot);
-    for (std::size_t i = 0; i < 32u; ++i)
-        ram.store8(game::kTaskSlot + 32u + static_cast<std::uint32_t>(i),
-                   i < std::strlen(name) ? static_cast<std::uint8_t>(name[i]) : 0u);
+    const std::size_t copied = std::min<std::size_t>(32u, std::strlen(name));
+    for (std::size_t i = 0; i < copied; ++i)
+        ram.store8(game::kTaskSlot + 32u + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(name[i]));
+    for (std::size_t i = copied; i < 32u; ++i)
+        ram.store8(game::kTaskSlot + 32u + static_cast<std::uint32_t>(i), 0u);
 }
 
 void test_quest() {

@@ -301,3 +301,82 @@ remove those headers or suppress parser failures to make analysis pass.
 The runner prepares public headers with the existing CMake generators directly.
 It runs only version and NID-table generation from
 tracked metadata; it does not compile the game stub, AOT or overlays.
+
+## Complementary Cppcheck analysis
+
+Stage 4 (#253) pins **Cppcheck 2.22.0** by release source SHA-256. Its independent
+parser/dataflow analysis complements clang-tidy's focused AST checks with array
+bounds, uninitialized variables, null dereferences and resource lifetime
+errors. The initial policy blocks first-party `error` diagnostics; `warning`
+diagnostics are uploaded for review without blocking. Style, portability,
+performance, inconclusive and `--enable=all` checks are not enabled.
+See the [official manual](https://cppcheck.sourceforge.io/manual.html).
+
+From a clean public checkout without game-generated code:
+
+```sh
+python3 scripts/ci/install_cppcheck.py
+cmake -S . -B out/cppcheck -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON \
+  -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF
+python3 scripts/ci/cppcheck.py
+```
+
+The filtered database retains actual compile commands for first-party runtime,
+profile host and tests, including each target's include paths and definitions.
+The analysis declares C++20 and the Unix 64-bit platform explicitly. Required
+vendor headers remain available to the parser, while diagnostics whose primary
+location is vendor/generated code do not block first-party changes. No source
+suppression or synthetic compile flags hide first-party errors. Reports include
+raw XML, progress and a structured first-party summary. The Linux hosted job
+is bounded to 25 minutes, with a 15-minute analysis deadline and `-j2`.
+
+This headless configuration excludes Vulkan/SDL renderer branches, FFmpeg,
+Android JNI, Windows-specific branches, shaders and game-generated code. It
+does not replace compiler warnings, runtime sanitizer tests, clang-tidy or
+device validation. Local macOS runs use the Unix model and native compile
+commands, rather than claiming Windows/Android analysis coverage.
+
+The runner prepares public headers with the existing CMake generators directly.
+It runs only version and NID-table generation from
+tracked metadata; it does not compile the game stub, AOT or overlays.
+
+### Cppcheck baseline review
+
+The initial 2.17.1 evaluation analyzed 224 target commands in 52.83 seconds on
+Linux and 75.56 seconds on macOS. The final pin uses the current **2.22.0**
+release (September 19, 2026), which removed the old false `constStatement`
+warning on VIIM's necessary signed-immediate cast. The selected clang-tidy
+checks found no first-party issues in the same headless source set. Cppcheck
+provides additional bounds/dataflow diagnostics and is tested with a synthetic
+out-of-bounds access that must fail the runner.
+
+The current baseline review covers:
+
+- `invalidContainer`, `host/kernel/kernel.cpp:805`: a reviewed false positive.
+  `free_block` erases `position + 1`; `position` is before that element and
+  remains valid under the [C++ vector erase rules](https://eel.is/c++draft/vector.modifiers#4).
+  The runner waives only this diagnostic, file, line and a SHA-256 fingerprint
+  of the complete reviewed `free_block` function. The finding remains in raw
+  XML and `reviewed_exceptions`. A moved or changed function fails for review.
+  A mutation probe changing the erased position verifies that a real invalid
+  iterator cannot inherit the exception. Kernel behavior remains unchanged.
+- The signal-handler child test's watched texture has static storage to express
+  its lifetime explicitly; both expected abort and unexpected success call
+  `_Exit`. This is a synthetic harness change, not an application fix.
+- The debug test's bounded overlay-name writer now copies the checked prefix
+  and pads the remaining bytes in separate loops. The previous strlen-guarded
+  ternary was safe but triggered a false bounds error in 2.22.0. It writes the
+  same 32-byte field and does not change runtime/game code.
+- Advisory `uninitMemberVarNoCtor` warnings concern aggregate records populated
+  through explicit initializers (the bindings reference, pack locations,
+  user-data items, settings metadata and synthetic test records). They remain
+  visible and nonblocking; the adoption does not add constructors or defaults
+  across unrelated application code merely to silence the analyzer.
+
+Cppcheck's normal level bounds branch exploration, and `--max-configs=1` bounds
+speculative preprocessing per recorded command. Informational limits remain in
+reports: a clean result does not mean exhaustive path/configuration coverage.
+System C++ APIs use Cppcheck's shipped library models rather than treating its
+parser as a replacement compiler frontend.

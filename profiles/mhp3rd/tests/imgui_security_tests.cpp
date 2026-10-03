@@ -45,7 +45,8 @@ void rejected_abort(int) { std::_Exit(unpublished() && allocation_calls == (fail
 #endif
     std::signal(SIGABRT, rejected_abort);
     ImGui::SetAllocatorFunctions(bounded_allocate, bounded_free);
-    ImTextureData tex;
+    // The signal handler watches this object until the child calls _Exit.
+    static ImTextureData tex;
     watched_texture = &tex;
     forbid_allocation = mode < 6;
     fail_allocation = mode >= 6;
