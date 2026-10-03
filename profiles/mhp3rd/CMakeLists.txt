@@ -894,3 +894,15 @@ set_target_properties(mhp3rd_imgui_security_tests PROPERTIES RUNTIME_OUTPUT_DIRE
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_imgui_security_tests COMMAND mhp3rd_imgui_security_tests)
 endif()
+
+# Both independently maintained stb_truetype copies use the same synthetic font cases.
+foreach(font_test IN ITEMS mhp3rd_font_bitmap_tests mhp3rd_imgui_font_bitmap_tests)
+    add_executable(${font_test} tests/font_bitmap_security_tests.cpp)
+    target_include_directories(${font_test} PRIVATE
+        "${MHP3RD_PROFILE_DIR}/third_party" "${MHP3RD_PROFILE_DIR}/third_party/imgui")
+    set_target_properties(${font_test} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    if(PSPRECOMP_BUILD_TESTS)
+        add_test(NAME ${font_test} COMMAND ${font_test})
+    endif()
+endforeach()
+target_compile_definitions(mhp3rd_imgui_font_bitmap_tests PRIVATE TEST_IMGUI_STB)

@@ -25,6 +25,10 @@ ctest --test-dir out/ci -C Debug --output-on-failure --no-tests=error --timeout 
 
 For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report privately. Dependabot alerts and security updates cover supported dependency manifests; libraries downloaded by CMake or vendored in the profile still need separate version and advisory checks. Secret scanning and push protection are enabled for this public repository.
 
+### Font bitmap allocation guards
+
+`mhp3rd_font_bitmap_tests` and `mhp3rd_imgui_font_bitmap_tests` exercise both vendored stb_truetype copies with the same independently authored synthetic square font. They check oversized and invalid bitmap/atlas dimensions, row strides, non-finite scales, SDF padding and allocation failures, a glyph too wide for the baking atlas, and unchanged small bitmap/SDF output. The allocator and clear hooks bound synthetic requests; no external font, game data or GPU is required. These checks do not establish that stb_truetype can safely parse arbitrary untrusted fonts.
+
 ## Smoke test
 
 About fifteen minutes. It walks through every part of the game that currently works, so a regression anywhere shows up. Start from a fresh profile — rename `profiles/mhp3rd/game/ms0` aside — so earlier state cannot hide a problem.

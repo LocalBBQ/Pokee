@@ -8,13 +8,15 @@ Yakumo does not include any game assets or original game files: no disc image, n
 
 ### Dear ImGui 1.92.9b
 
-Yakumo's menu and setup screens. Yakumo adds a local 64-bit debug texture-ID formatting fix. Copyright (c) 2014-2026 Omar Cornut. MIT License: `DearImGui-LICENSE.txt`. <https://github.com/ocornut/imgui>
+Yakumo's menu and setup screens. Yakumo adds local 64-bit debug texture-ID formatting and font bitmap validation fixes. Copyright (c) 2014-2026 Omar Cornut. MIT License: `DearImGui-LICENSE.txt`. <https://github.com/ocornut/imgui>
 
 ### tiny-AES-c
 
 AES for preparing the executable from the disc image and for save data. Commit `23856752fbd139da0b8ca6e471a13d5bcc99a08d`, released into the public domain under the Unlicense: `tiny-AES-c-UNLICENSE.txt`. <https://github.com/kokke/tiny-AES-c>
 
 ### stb_truetype 1.26
+
+Yakumo adds independently written bitmap dimension, stride and coordinate checks, SDF padding and allocation-failure handling, and baked-glyph bounds checks to this header and Dear ImGui's `imstb_truetype.h` copy. The original licenses and the distinct upstream ImGui changes are preserved.
 
 Rasterizes the game's text. Copyright (c) 2017 Sean Barrett. Used under the public-domain dedication it offers as an alternative to the MIT License:
 
