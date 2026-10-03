@@ -22,7 +22,7 @@ Use minimal synthetic examples where possible. Keep game files and saves local; 
 
 ## Getting started
 
-Read [AGENTS.md](AGENTS.md) for repository working notes and the documentation map. It applies to people and coding agents alike. [ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the runtime and game-profile boundaries.
+Start with [ARCHITECTURE.md](docs/ARCHITECTURE.md) to understand the runtime and game-profile boundaries.
 
 Follow [BUILDING.md](docs/BUILDING.md) for your platform. Full builds are expensive: reuse local generated code, compatible prebuilt overlays and game data as the guide describes. Runtime-header changes can require rebuilding all overlays.
 
@@ -41,7 +41,7 @@ cmake --build out/mhp3rd --target psprecomp_tests mhp3rd_savedata_tests -j2
 ctest --test-dir out/mhp3rd
 ```
 
-Bound game runs with a timeout and inspect logs and captures. For regressions, compare a known-good build and your change with the same scripted input and game state. Measure performance changes before and after rather than relying on impressions. See [AGENTS.md](AGENTS.md#running-and-testing) for launch, capture and tracing notes.
+Bound game runs with a timeout and inspect logs and captures. For regressions, compare a known-good build and your change with the same scripted input and game state. Measure performance changes before and after rather than relying on impressions. See [TESTING.md](docs/TESTING.md) for testing workflows and the profile README's [Diagnostics](profiles/mhp3rd/README.md#diagnostics) section for tracing options.
 
 ## Submitting a pull request
 

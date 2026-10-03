@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Working notes for anyone changing this repository: people and coding agents alike. Read this first. It is short on purpose and links to the longer documents instead of repeating them.
+Working instructions for coding agents changing this repository. Read this first, then follow the shared contribution rules in [CONTRIBUTING.md](CONTRIBUTING.md). This document is short on purpose and links to the longer guides instead of repeating them.
 
 Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`). It recompiles the game's PSP (MIPS) code to C++ ahead of time and supplies the PSP system around it: the kernel, HLE modules, a Vulkan GE renderer, audio, input, save data, ad hoc networking and an ImGui interface. The C++ lives in `profiles/mhp3rd/host/` (the port) and `include/psprecomp/` plus `src/` (the reusable runtime and recompiler).
 
