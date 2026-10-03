@@ -93,8 +93,8 @@ def main():
     # preserves those before the erased element. Bound this reviewed exception
     # to the diagnostic, location and the entire reviewed free_block function;
     # a changed erase operation must never inherit this exception.
-    exception = ('invalidContainer', 'profiles/mhp3rd/host/kernel/kernel.cpp', '805')
-    context_sha256 = '739ca78e1ae11f8f64bfd3fd3a8df12e7f0d034e3de30125ef80fbef4bae5926'
+    exception = ('invalidContainer', 'profiles/mhp3rd/host/kernel/kernel.cpp', '832')
+    context_sha256 = 'd3a5ee13614f241aebff59bbb76c834299f4a8cb545e09d6216a00f8c641c89b'
     waived = []
     failures = []
     for diagnostic in diagnostics:
@@ -104,7 +104,7 @@ def main():
         context_matches = False
         if key == exception:
             lines = (ROOT / key[1]).read_text().splitlines()
-            context_matches = hashlib.sha256('\n'.join(lines[791:810]).encode()).hexdigest() == context_sha256
+            context_matches = hashlib.sha256('\n'.join(lines[818:837]).encode()).hexdigest() == context_sha256
         if context_matches:
             waived.append(diagnostic)
         else:
