@@ -4,7 +4,7 @@ Bug reports, documentation improvements, compatibility testing and code contribu
 
 ## Reporting problems
 
-Check existing issues before opening a new one. Include:
+Check existing issues before opening a new one. Use the Bug report form for problems, Feature request for proposed improvements, or Test report for smoke-test results. Include the following when reporting a problem:
 
 - The release version or exact commit you tested.
 - Your platform and relevant hardware.
