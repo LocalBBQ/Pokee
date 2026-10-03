@@ -867,6 +867,14 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_guest_pcm_tests COMMAND mhp3rd_guest_pcm_tests)
 endif()
 
+# PNG size bounds, stride handling and allocation failure recovery.
+add_executable(mhp3rd_png_size_tests tests/png_size_tests.cpp)
+target_include_directories(mhp3rd_png_size_tests PRIVATE "${MHP3RD_PROFILE_DIR}/third_party")
+set_target_properties(mhp3rd_png_size_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_png_size_tests COMMAND mhp3rd_png_size_tests)
+endif()
+
 # Synthetic 16-bit PNG conversion and checked allocation bounds.
 add_executable(mhp3rd_image_conversion_tests tests/image_conversion_tests.cpp)
 target_include_directories(mhp3rd_image_conversion_tests PRIVATE "${MHP3RD_PROFILE_DIR}/third_party")

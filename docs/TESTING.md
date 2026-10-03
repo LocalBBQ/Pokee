@@ -2,6 +2,7 @@
 
 ## Automated
 
+- **PNG sizes and allocation failures** (`mhp3rd_png_size_tests`) checks rejection before allocation of invalid dimensions, overflowing filtered images and buffer capacities, padded and negative strides, every PNG filter, grayscale/RGB/RGBA round trips, and cleanup when each writer allocation fails. Tests use small synthetic pixels and a one-MiB allocator limit, with no game data.
 - **ImGui debug formatting** (`mhp3rd_imgui_security_tests`) exercises the vendor formatter with texture IDs above `UINT32_MAX`, ordinary IDs and a truncated output buffer.
 - **Image conversion** (`mhp3rd_image_conversion_tests`) checks oversized 16-bit PNG conversion requests before allocation, freeing rejected input, and exact grayscale-to-RGBA output. Its allocator hook keeps synthetic oversized tests below one MiB.
 - **Guest PCM staging** (`mhp3rd_guest_pcm_tests`) checks stereo/mono decoding, signed sample extrema, exact-end mapped buffers and rejection of overflowing or unmapped requests before allocation. It needs no audio device or game data.
