@@ -79,7 +79,7 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned Android NDK
-        run: sdkmanager "ndk;$NDK_VERSION"
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION"'
 
       - name: Configure Android headless tests
         run: >-
