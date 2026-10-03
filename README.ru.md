@@ -8,6 +8,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-b98335?style=flat-square&amp;labelColor=2a1a22" alt="License: MIT"></a>
   <a href="docs/COMPATIBILITY.md"><img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS%20%C2%B7%20Android-b98335?style=flat-square&amp;labelColor=2a1a22" alt="Platforms: Windows, Linux, macOS and Android"></a>
   <a href="https://github.com/TeamGDB/Yakumo/stargazers"><img src="https://img.shields.io/github/stars/TeamGDB/Yakumo?style=flat-square&amp;label=stars&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub stars"></a>
+  <a href="https://github.com/TeamGDB/Yakumo/releases"><img src="https://img.shields.io/github/downloads/TeamGDB/Yakumo/total?style=flat-square&amp;label=downloads&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub release asset downloads across all releases"></a>
 </p>
 
 # Yakumo
