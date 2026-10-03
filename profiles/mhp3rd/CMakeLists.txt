@@ -874,3 +874,15 @@ set_target_properties(mhp3rd_image_conversion_tests PROPERTIES RUNTIME_OUTPUT_DI
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_image_conversion_tests COMMAND mhp3rd_image_conversion_tests)
 endif()
+
+# Exercise the actual vendor debug formatter, including 64-bit texture IDs.
+add_executable(mhp3rd_imgui_security_tests
+    tests/imgui_security_tests.cpp
+    third_party/imgui/imgui_draw.cpp
+    third_party/imgui/imgui_widgets.cpp
+    third_party/imgui/imgui_tables.cpp)
+target_include_directories(mhp3rd_imgui_security_tests PRIVATE "${MHP3RD_PROFILE_DIR}/third_party/imgui")
+set_target_properties(mhp3rd_imgui_security_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_imgui_security_tests COMMAND mhp3rd_imgui_security_tests)
+endif()

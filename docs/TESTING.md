@@ -2,6 +2,7 @@
 
 ## Automated
 
+- **ImGui debug formatting** (`mhp3rd_imgui_security_tests`) exercises the vendor formatter with texture IDs above `UINT32_MAX`, ordinary IDs and a truncated output buffer.
 - **Image conversion** (`mhp3rd_image_conversion_tests`) checks oversized 16-bit PNG conversion requests before allocation, freeing rejected input, and exact grayscale-to-RGBA output. Its allocator hook keeps synthetic oversized tests below one MiB.
 - **Guest PCM staging** (`mhp3rd_guest_pcm_tests`) checks stereo/mono decoding, signed sample extrema, exact-end mapped buffers and rejection of overflowing or unmapped requests before allocation. It needs no audio device or game data.
 - **Archive-tool security regressions** run with `python3 profiles/mhp3rd/tests/tool_security_tests.py` and in the desktop CI jobs. Synthetic ISO records and overlay names exercise traversal rejection, existing symlink escapes, malformed directory records and cycles, and overlay command argument handling; they use no game data.

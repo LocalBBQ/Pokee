@@ -8,7 +8,7 @@ Yakumo does not include any game assets or original game files: no disc image, n
 
 ### Dear ImGui 1.92.9b
 
-Yakumo's menu and setup screens. Copyright (c) 2014-2026 Omar Cornut. MIT License: `DearImGui-LICENSE.txt`. <https://github.com/ocornut/imgui>
+Yakumo's menu and setup screens. Yakumo adds a local 64-bit debug texture-ID formatting fix. Copyright (c) 2014-2026 Omar Cornut. MIT License: `DearImGui-LICENSE.txt`. <https://github.com/ocornut/imgui>
 
 ### tiny-AES-c
 
