@@ -61,7 +61,7 @@ def main(argv):
     if options.jobs < 1:
         parser.error("jobs must be positive")
     base_text = f"0x{base:08X}"
-    recompiler = "psp_recomp.exe" if os.name == "nt" else "./psp_recomp"
+    recompiler = os.path.join(build_dir, "psp_recomp.exe" if os.name == "nt" else "psp_recomp")
     with options.dump_path as handle:
         data = handle.read()
     name, image_size, code_size = parse_header(data, base)

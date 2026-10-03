@@ -153,7 +153,8 @@ class ArchiveSecurityTests(unittest.TestCase):
                 add_overlay.main(["add_overlay", "--no-build", str(build), str(dump), "0x08800000"])
                 commands = [call.args[0] for call in run.call_args_list]
                 self.assertTrue(Path(commands[0][2]).is_absolute())
-                self.assertIn(commands[1][0], ("./psp_recomp", "psp_recomp.exe"))
+                self.assertEqual(Path(commands[1][0]), build / ("psp_recomp.exe" if sys.platform == "win32" else "psp_recomp"))
+                self.assertTrue(Path(commands[1][0]).is_absolute())
                 self.assertEqual(run.call_args_list[1].kwargs["cwd"], str(build))
                 self.assertEqual(commands[1][4], "0x08800000")
 
