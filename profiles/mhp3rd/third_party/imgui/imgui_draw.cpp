@@ -3009,8 +3009,9 @@ void ImFontAtlasTextureBlockCopy(ImTextureData* src_tex, int src_x, int src_y, I
     IM_ASSERT(src_y >= 0 && src_y + h <= src_tex->Height);
     IM_ASSERT(dst_x >= 0 && dst_x + w <= dst_tex->Width);
     IM_ASSERT(dst_y >= 0 && dst_y + h <= dst_tex->Height);
+    const size_t row_bytes = (size_t)w * (size_t)dst_tex->BytesPerPixel;
     for (int y = 0; y < h; y++)
-        memcpy(dst_tex->GetPixelsAt(dst_x, dst_y + y), src_tex->GetPixelsAt(src_x, src_y + y), w * dst_tex->BytesPerPixel);
+        memcpy(dst_tex->GetPixelsAt(dst_x, dst_y + y), src_tex->GetPixelsAt(src_x, src_y + y), row_bytes);
 }
 
 void ImFontAtlasTextureBlockQueueUpload(ImFontAtlas* atlas, ImTextureData* tex, int x, int y, int w, int h)
@@ -4832,6 +4833,10 @@ static bool ImGui_ImplStbTrueType_FontBakedLoadGlyph(ImFontAtlas* atlas, ImFontC
             return false;
         const int w = (int)bitmap_w;
         const int h = (int)bitmap_h;
+        // ImVector uses int sizes; check the widened byte count before packing or narrowing.
+        const size_t bitmap_bytes = (size_t)w * (size_t)h;
+        if (bitmap_bytes > (size_t)INT_MAX)
+            return false;
         ImFontAtlasRectId pack_id = ImFontAtlasPackAddRect(atlas, w, h);
         if (pack_id == ImFontAtlasRectId_Invalid)
         {
@@ -4844,9 +4849,9 @@ static bool ImGui_ImplStbTrueType_FontBakedLoadGlyph(ImFontAtlas* atlas, ImFontC
         // Render
         stbtt_GetGlyphBitmapBox(&bd_font_data->FontInfo, glyph_index, scale_for_raster_x, scale_for_raster_y, &x0, &y0, &x1, &y1);
         ImFontAtlasBuilder* builder = atlas->Builder;
-        builder->TempBuffer.resize(w * h * 1);
+        builder->TempBuffer.resize((int)bitmap_bytes);
         unsigned char* bitmap_pixels = builder->TempBuffer.Data;
-        memset(bitmap_pixels, 0, w * h * 1);
+        memset(bitmap_pixels, 0, bitmap_bytes);
 
         // Render with oversampling
         // (those functions conveniently assert if pixels are not cleared, which is another safety layer)
