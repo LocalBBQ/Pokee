@@ -114,7 +114,7 @@ bool glyph_page(const GuestMemory &memory, const TextureState &texture, int scal
         const std::uint32_t cell_side = kCellWidth * size;
         for (std::uint32_t y = 0; y < cell_side; ++y)
             for (std::uint32_t x = 0; x < cell_side; ++x)
-                out[static_cast<std::size_t>(top * size + y) * side + left * size + x] = palette[ink[y * cell_side + x]];
+                out[static_cast<std::size_t>(top * size + y) * side + left * size + x] = palette[ink[static_cast<std::size_t>(y) * cell_side + x]];
         ++report.redrawn;
     }
     // A page that is not what it was traced to be is left alone.
