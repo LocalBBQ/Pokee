@@ -44,15 +44,15 @@ enum class ReplacementFilter : std::uint8_t { Auto, Nearest, Linear };
 // shares one of these, and so one GPU image.
 struct Replacement {
     enum class State : std::uint8_t {
-        Unloaded,  // nothing in memory; the renderer may request it
-        Queued,    // waiting for a loader thread
-        Decoded,   // pixels below are ready for the renderer to upload
-        Resident,  // uploaded; the pixels have been freed
-        Failed,    // missing or unreadable; never tried again
+        Unloaded, // nothing in memory; the renderer may request it
+        Queued,   // waiting for a loader thread
+        Decoded,  // pixels below are ready for the renderer to upload
+        Resident, // uploaded; the pixels have been freed
+        Failed,   // missing or unreadable; never tried again
     };
 
-    std::filesystem::path file;  // absolute
-    std::string name;            // as the pack names it, for messages
+    std::filesystem::path file; // absolute
+    std::string name;           // as the pack names it, for messages
     ReplacementFilter filter{ReplacementFilter::Auto};
     // [hashranges] let a pack replace only the top-left covered_width x
     // covered_height texels of a texture_width x texture_height texture; the
@@ -67,7 +67,7 @@ struct Replacement {
     // freed by the renderer's thread.
     std::uint32_t width{};
     std::uint32_t height{};
-    std::vector<std::uint8_t> pixels;  // RGBA8, rows packed
+    std::vector<std::uint8_t> pixels; // RGBA8, rows packed
 
     // Owned by the renderer's thread: its GPU copy, or null.
     void *gpu{};
@@ -110,15 +110,15 @@ struct TexturePackOptions {
 // the texture cannot be hashed. Sets `covered_width` and `covered_height` to
 // the part of the texture a [hashranges] entry names, or its full size.
 bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &texture, std::uint16_t max_seen_v,
-                              const TexturePackOptions &options, TexturePackKey &key, std::uint32_t &covered_width,
-                              std::uint32_t &covered_height);
+    const TexturePackOptions &options, TexturePackKey &key, std::uint32_t &covered_width,
+    std::uint32_t &covered_height);
 
 // What a pack holds, for checking one before it is installed.
 struct TexturePackInfo {
     TexturePackOptions options;
-    std::size_t keys{};               // texture keys, from textures.ini and hash-named images
-    std::vector<std::string> files;   // image files the keys name, relative to the pack, each once
-    std::vector<std::string> games;   // the game IDs textures.ini's [games] lists
+    std::size_t keys{};             // texture keys, from textures.ini and hash-named images
+    std::vector<std::string> files; // image files the keys name, relative to the pack, each once
+    std::vector<std::string> games; // the game IDs textures.ini's [games] lists
 };
 
 // The game IDs a textures.ini's [games] section lists; empty when it has none
@@ -129,12 +129,12 @@ class TexturePack {
 public:
     // Reads textures.ini (and the hash-named images in the folder itself) from
     // `directory`. Returns null with `error` set when there is no usable pack.
-    static std::unique_ptr<TexturePack> open(const std::filesystem::path &directory, const std::string &game_id,
-                                             std::string &error);
+    static std::unique_ptr<TexturePack> open(
+        const std::filesystem::path &directory, const std::string &game_id, std::string &error);
     // Reads a pack as open() does, without starting anything. False with
     // `error` set when open() would refuse it.
-    static bool inspect(const std::filesystem::path &directory, const std::string &game_id, TexturePackInfo &info,
-                        std::string &error);
+    static bool inspect(
+        const std::filesystem::path &directory, const std::string &game_id, TexturePackInfo &info, std::string &error);
     ~TexturePack();
     TexturePack(const TexturePack &) = delete;
     TexturePack &operator=(const TexturePack &) = delete;
@@ -142,8 +142,7 @@ public:
     // Hashes `texture` and finds its replacement: null when the pack has none
     // or says to leave the texture alone. Hashing reads the whole texture, so
     // call it once per texture upload, never per draw.
-    std::shared_ptr<Replacement> find(const GuestMemory &memory, const TextureState &texture,
-                                      std::uint16_t max_seen_v);
+    std::shared_ptr<Replacement> find(const GuestMemory &memory, const TextureState &texture, std::uint16_t max_seen_v);
 
     // Starts decoding an Unloaded replacement on a loader thread. Only the
     // renderer's thread calls this and consumed().
@@ -159,8 +158,8 @@ public:
 private:
     TexturePack() = default;
     // open() without the loader threads.
-    static std::unique_ptr<TexturePack> parse(const std::filesystem::path &directory, const std::string &game_id,
-                                              std::string &error);
+    static std::unique_ptr<TexturePack> parse(
+        const std::filesystem::path &directory, const std::string &game_id, std::string &error);
     struct KeyHash {
         std::size_t operator()(const TexturePackKey &key) const noexcept {
             return static_cast<std::size_t>(key.cache_key * 0x9E3779B97F4A7C15ull ^ key.data_hash);
@@ -178,7 +177,7 @@ private:
 
     std::filesystem::path directory_;
     TexturePackOptions options_;
-    std::vector<std::string> games_;  // [games]
+    std::vector<std::string> games_; // [games]
     // Key -> file name relative to the pack; an empty name means "keep the
     // original texture".
     std::unordered_map<TexturePackKey, std::string, KeyHash> entries_;
@@ -214,7 +213,7 @@ public:
     TextureDumper &operator=(const TextureDumper &) = delete;
     // `pixels` is width x height RGBA8 (red in the low byte).
     void dump(const GuestMemory &memory, const TextureState &texture, std::uint16_t max_seen_v,
-              const TexturePackOptions &options, const std::uint32_t *pixels);
+        const TexturePackOptions &options, const std::uint32_t *pixels);
 
 private:
     struct Job {

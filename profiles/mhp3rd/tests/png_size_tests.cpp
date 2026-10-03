@@ -30,8 +30,10 @@ void *resize(void *p, std::size_t size) {
     if (reject(size)) return nullptr;
     if (p != nullptr) live.erase(p);
     void *result = std::realloc(p, size);
-    if (result != nullptr) live.insert(result);
-    else if (p != nullptr) live.insert(p);
+    if (result != nullptr)
+        live.insert(result);
+    else if (p != nullptr)
+        live.insert(p);
     return result;
 }
 void release(void *p) {
@@ -84,40 +86,41 @@ void oversized() {
 void invalid_inputs() {
     unsigned char pixel = 0;
     int length = 0;
-    for (const auto &sizes : std::vector<std::vector<int>>{{0, 1, 1}, {1, 0, 1}, {-1, 1, 1}, {1, -1, 1},
-                                                        {1, 1, 0}, {1, 1, 5}}) {
+    for (const auto &sizes :
+        std::vector<std::vector<int>>{{0, 1, 1}, {1, 0, 1}, {-1, 1, 1}, {1, -1, 1}, {1, 1, 0}, {1, 1, 5}}) {
         reset();
         check(stbi_write_png_to_mem(&pixel, 0, sizes[0], sizes[1], sizes[2], &length) == nullptr && requests == 0,
-              "invalid dimensions or component count rejected before allocation");
+            "invalid dimensions or component count rejected before allocation");
     }
     reset();
     check(stbi_write_png_to_mem(nullptr, 0, 1, 1, 1, &length) == nullptr && requests == 0, "null pixels rejected");
-    check(stbi_write_png_to_mem(&pixel, 0, 1, 1, 1, nullptr) == nullptr && requests == 0, "null output length rejected");
+    check(
+        stbi_write_png_to_mem(&pixel, 0, 1, 1, 1, nullptr) == nullptr && requests == 0, "null output length rejected");
     check(stbi_write_png_to_mem(&pixel, INT_MIN, 1, 2, 1, &length) == nullptr && requests == 0,
-          "unrepresentable negated stride rejected");
+        "unrepresentable negated stride rejected");
     check(stbi_zlib_compress(&pixel, INT_MAX, &length, 8) == nullptr && requests == 0,
-          "unrepresentable stored deflate size rejected before allocation");
+        "unrepresentable stored deflate size rejected before allocation");
     check(stbi_zlib_compress(&pixel, 1, &length, INT_MAX) == nullptr && requests == 0,
-          "overflowing compression quality rejected before allocation");
+        "overflowing compression quality rejected before allocation");
     check(stbi_zlib_compress(&pixel, -1, &length, 8) == nullptr && requests == 0,
-          "negative deflate input length rejected");
+        "negative deflate input length rejected");
 }
 void buffer_bounds() {
     reset();
     void *p = nullptr;
     check(stbiw__sbgrowf(&p, INT_MAX, 1) == nullptr && p == nullptr && requests == 0,
-          "overflowing initial buffer growth rejected");
+        "overflowing initial buffer growth rejected");
     int header[] = {INT_MAX, INT_MAX, 0};
     p = header + 2;
     void *before = p;
     check(stbiw__sbgrowf(&p, 1, 1) == nullptr && p == before && requests == 0,
-          "overflowing existing capacity rejected without losing old buffer");
+        "overflowing existing capacity rejected without losing old buffer");
     p = nullptr;
     check(stbiw__sbgrowf(&p, 1, sizeof(unsigned char *)) != nullptr, "small buffer grows");
     before = p;
     fail_at = requests + 1;
     check(stbiw__sbgrowf(&p, 20, sizeof(unsigned char *)) == nullptr && p == before,
-          "failed resize leaves old buffer owned by caller");
+        "failed resize leaves old buffer owned by caller");
     release(stbiw__sbraw(p));
 }
 void round_trip(int components, int filter, bool flip, bool negative_stride) {
@@ -132,7 +135,7 @@ void round_trip(int components, int filter, bool flip, bool negative_stride) {
     reset();
     int length = 0;
     unsigned char *png = stbi_write_png_to_mem(source.data() + (negative_stride ? (height - 1) * stride : 0),
-                                              negative_stride ? -stride : stride, width, height, components, &length);
+        negative_stride ? -stride : stride, width, height, components, &length);
     check(png != nullptr && length > 0, "small PNG with explicit stride is written");
     int x = 0, y = 0, n = 0;
     unsigned char *decoded = png != nullptr ? stbi_load_from_memory(png, length, &x, &y, &n, components) : nullptr;
@@ -140,8 +143,9 @@ void round_trip(int components, int filter, bool flip, bool negative_stride) {
     if (decoded != nullptr)
         for (int row = 0; row < height; ++row) {
             const int source_row = flip != negative_stride ? height - 1 - row : row;
-            check(std::memcmp(decoded + row * width * components, source.data() + source_row * stride,
-                              width * components) == 0, "PNG preserves pixels and orientation");
+            check(std::memcmp(
+                      decoded + row * width * components, source.data() + source_row * stride, width * components) == 0,
+                "PNG preserves pixels and orientation");
         }
     stbi_image_free(decoded);
     release(png);
@@ -154,7 +158,9 @@ void allocation_failures() {
     std::vector<unsigned char> pixels(width * height * 4);
     unsigned state = 123456789;
     for (auto &pixel : pixels) {
-        state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
         pixel = static_cast<unsigned char>(state);
     }
     reset();

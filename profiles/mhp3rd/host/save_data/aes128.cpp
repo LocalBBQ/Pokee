@@ -2,7 +2,9 @@
 
 namespace mhp3rd::savedata {
 
-Aes128::Aes128(const Block &key) { AES_init_ctx(&context_, key.data()); }
+Aes128::Aes128(const Block &key) {
+    AES_init_ctx(&context_, key.data());
+}
 
 Block Aes128::encrypt(const Block &input) const {
     Block block = input;

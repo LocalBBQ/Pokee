@@ -6,12 +6,18 @@ namespace mhp3rd::fast_forward {
 
 const char *reason_name(Reason reason) {
     switch (reason) {
-    case Reason::None: return "none";
-    case Reason::Released: return "released";
-    case Reason::Off: return "off";
-    case Reason::Unavailable: return "unavailable";
-    case Reason::Online: return "ad hoc";
-    case Reason::Menu: return "menu";
+    case Reason::None:
+        return "none";
+    case Reason::Released:
+        return "released";
+    case Reason::Off:
+        return "off";
+    case Reason::Unavailable:
+        return "unavailable";
+    case Reason::Online:
+        return "ad hoc";
+    case Reason::Menu:
+        return "menu";
     }
     return "?";
 }

@@ -8,9 +8,27 @@ namespace mhp3rd::input::mapping {
 namespace {
 
 constexpr const char *kFields[kTargets] = {
-    "a",        "b",         "x",         "y",           "dpup",         "dpdown",        "dpleft",
-    "dpright",  "leftshoulder", "rightshoulder", "lefttrigger", "righttrigger", "back",       "start",
-    "leftstick", "rightstick", "guide",   "leftx",       "lefty",        "rightx",        "righty",
+    "a",
+    "b",
+    "x",
+    "y",
+    "dpup",
+    "dpdown",
+    "dpleft",
+    "dpright",
+    "leftshoulder",
+    "rightshoulder",
+    "lefttrigger",
+    "righttrigger",
+    "back",
+    "start",
+    "leftstick",
+    "rightstick",
+    "guide",
+    "leftx",
+    "lefty",
+    "rightx",
+    "righty",
 };
 
 constexpr std::string_view kPlatformField = "platform:";
@@ -45,8 +63,8 @@ std::vector<std::string_view> split_lines(std::string_view text) {
 
 bool equal_ignoring_case(std::string_view a, std::string_view b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-               return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
-           });
+        return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+    });
 }
 
 bool line_matches(std::string_view line, std::string_view guid, std::string_view platform) {
@@ -75,30 +93,32 @@ bool Element::same_input(const Element &other) const {
 
 std::string text(const Element &e) {
     switch (e.kind) {
-    case Element::Kind::Button: return "b" + std::to_string(e.index);
-    case Element::Kind::Hat: return "h" + std::to_string(e.index) + "." + std::to_string(e.hat_mask);
+    case Element::Kind::Button:
+        return "b" + std::to_string(e.index);
+    case Element::Kind::Hat:
+        return "h" + std::to_string(e.index) + "." + std::to_string(e.hat_mask);
     case Element::Kind::Axis: {
-        std::string out = e.range == Element::Range::Positive   ? "+"
-                          : e.range == Element::Range::Negative ? "-"
-                                                                : "";
+        std::string out = e.range == Element::Range::Positive ? "+" : e.range == Element::Range::Negative ? "-" : "";
         out += "a" + std::to_string(e.index);
         if (e.inverted) out += "~";
         return out;
     }
-    case Element::Kind::None: break;
+    case Element::Kind::None:
+        break;
     }
     return {};
 }
 
 std::string describe(const Element &e) {
     switch (e.kind) {
-    case Element::Kind::Button: return "Button " + std::to_string(e.index);
+    case Element::Kind::Button:
+        return "Button " + std::to_string(e.index);
     case Element::Kind::Hat: {
-        const char *direction = e.hat_mask == 1   ? "up"
-                                : e.hat_mask == 2 ? "right"
-                                : e.hat_mask == 4 ? "down"
-                                : e.hat_mask == 8 ? "left"
-                                                  : "?";
+        const char *direction = e.hat_mask == 1 ? "up"
+            : e.hat_mask == 2                   ? "right"
+            : e.hat_mask == 4                   ? "down"
+            : e.hat_mask == 8                   ? "left"
+                                                : "?";
         return "Hat " + std::to_string(e.index) + " " + direction;
     }
     case Element::Kind::Axis: {
@@ -108,7 +128,8 @@ std::string describe(const Element &e) {
         if (e.inverted) out += " (inverted)";
         return out;
     }
-    case Element::Kind::None: break;
+    case Element::Kind::None:
+        break;
     }
     return "—";
 }
@@ -142,7 +163,9 @@ Element parse_element(std::string_view t) {
     return Element{};
 }
 
-const char *field(Target target) { return kFields[static_cast<std::size_t>(target)]; }
+const char *field(Target target) {
+    return kFields[static_cast<std::size_t>(target)];
+}
 
 bool is_axis(Target target) {
     return target == Target::LeftX || target == Target::LeftY || target == Target::RightX || target == Target::RightY;
@@ -276,7 +299,7 @@ std::optional<Element> detect(const Snapshot &rest, const Snapshot &now, bool ax
     int best_distance = kAxisPress;
     for (std::size_t i = 0; i < now.axes.size(); ++i) {
         const int was = i < rest.axes.size() ? rest.axes[i] : 0;
-        if (axis_only && std::abs(was) > kAxisRelease) continue;  // a trigger resting at an end
+        if (axis_only && std::abs(was) > kAxisRelease) continue; // a trigger resting at an end
         const int distance = std::abs(static_cast<int>(now.axes[i]) - was);
         if (distance > best_distance) {
             best = static_cast<int>(i);

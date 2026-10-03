@@ -22,23 +22,23 @@
 namespace mhp3rd::adhoc {
 
 struct Identity {
-    std::string server;    // host name or address, optionally host:port for adhocctl
+    std::string server; // host name or address, optionally host:port for adhocctl
     std::string nickname;
     Mac mac{};
-    std::string product;   // the game's product code, for example ULJM05800
+    std::string product; // the game's product code, for example ULJM05800
 };
 
 // What the game sees of the matchmaking service.
 enum class ServerState {
-    Off,         // not started, or no server configured
-    Connecting,  // resolving, connecting, or waiting to retry
-    Online,      // logged in
+    Off,        // not started, or no server configured
+    Connecting, // resolving, connecting, or waiting to retry
+    Online,     // logged in
 };
 
 struct Peer {
     Mac mac{};
     std::string nickname;
-    std::uint64_t joined_ms{};  // host steady clock
+    std::uint64_t joined_ms{}; // host steady clock
 };
 
 struct GroupInfo {
@@ -48,10 +48,10 @@ struct GroupInfo {
 
 // Things the adhocctl handler reports to the game.
 enum class CtlEvent {
-    Connected,     // the group join finished
-    Disconnected,  // left the group, or lost it for good
+    Connected,    // the group join finished
+    Disconnected, // left the group, or lost it for good
     ScanComplete,
-    Error,         // a join or scan could not be done: the server is unreachable
+    Error, // a join or scan could not be done: the server is unreachable
 };
 
 struct Datagram {
@@ -63,7 +63,7 @@ struct Datagram {
 enum class StreamState {
     Closed,
     Listening,
-    Opening,      // connecting, waiting for the other side to accept
+    Opening, // connecting, waiting for the other side to accept
     Established,
     Failed,       // refused or timed out while opening
     Disconnected, // established once, now gone
@@ -90,7 +90,7 @@ struct PeerSummary {
 };
 
 struct SocketSummary {
-    std::string kind;   // "PDP", "PTP listen", "PTP open", "PTP accepted"
+    std::string kind; // "PDP", "PTP listen", "PTP open", "PTP accepted"
     int handle{};
     std::uint16_t port{};
     std::string state;
@@ -110,8 +110,8 @@ struct Traffic {
 // network thread a few times a second.
 struct Diagnostics {
     bool active{};
-    std::string server;          // as configured
-    std::string server_address;  // what it resolved to, when connected
+    std::string server;         // as configured
+    std::string server_address; // what it resolved to, when connected
     std::string nickname;
     Mac mac{};
     std::string product;
@@ -119,19 +119,19 @@ struct Diagnostics {
     std::uint32_t failed_attempts{};
     std::uint64_t reconnects{};
     std::string last_error;
-    std::optional<std::uint64_t> online_ms;  // time since the login
-    std::optional<double> rtt_ms;            // the server connection's TCP round trip, where the OS reports it
+    std::optional<std::uint64_t> online_ms; // time since the login
+    std::optional<double> rtt_ms;           // the server connection's TCP round trip, where the OS reports it
     std::optional<std::string> group;
-    std::optional<std::string> joining;      // a join the server has not confirmed yet
-    std::optional<std::uint64_t> rejoin_ms;  // time since the group was lost, while rejoining
+    std::optional<std::string> joining;     // a join the server has not confirmed yet
+    std::optional<std::uint64_t> rejoin_ms; // time since the group was lost, while rejoining
     std::vector<PeerSummary> peers;
     std::vector<SocketSummary> sockets;
     std::size_t relay_links_up{};
     std::size_t relay_links_wanted{};
     Traffic total;
     Traffic per_second;
-    std::uint64_t dropped{};   // datagrams dropped: no link, full buffers, oversized
-    std::uint64_t timeouts{};  // blocking ad hoc calls that ended in a PSP timeout
+    std::uint64_t dropped{};  // datagrams dropped: no link, full buffers, oversized
+    std::uint64_t timeouts{}; // blocking ad hoc calls that ended in a PSP timeout
 };
 
 class Client {
@@ -179,8 +179,8 @@ public:
     [[nodiscard]] int ptp_listen(std::uint16_t port, std::size_t capacity, std::size_t backlog);
     // Starts connecting at once and keeps retrying, `retry_us` apart, up to
     // `retries` more times while refused. Returns a handle, or 0.
-    [[nodiscard]] int ptp_open(std::uint16_t local_port, const Mac &peer, std::uint16_t peer_port,
-                               std::size_t capacity, std::uint64_t retry_us, std::uint32_t retries);
+    [[nodiscard]] int ptp_open(std::uint16_t local_port, const Mac &peer, std::uint16_t peer_port, std::size_t capacity,
+        std::uint64_t retry_us, std::uint32_t retries);
     // Takes the oldest pending connection of a listening socket.
     [[nodiscard]] int ptp_accept(int listener);
     [[nodiscard]] StreamInfo ptp_info(int handle) const;

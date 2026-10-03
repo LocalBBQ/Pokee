@@ -42,7 +42,8 @@ bool &portable_requested() {
 std::filesystem::path per_user_data_directory() {
 #if defined(MHP3RD_HAS_SDL)
     char *pref = SDL_GetPrefPath(kOrganization, kApplication);
-    if (pref == nullptr) throw psprecomp::Error(std::string("Cannot determine the user data directory: ") + SDL_GetError());
+    if (pref == nullptr)
+        throw psprecomp::Error(std::string("Cannot determine the user data directory: ") + SDL_GetError());
     std::filesystem::path result = path_from_utf8(pref);
     SDL_free(pref);
     return result;
@@ -68,8 +69,8 @@ std::filesystem::path expected_per_user_data_directory() {
     return base / kOrganization / kApplication;
 }
 
-std::filesystem::path portable_data_directory(const std::filesystem::path &executable_dir, bool portable,
-                                              bool no_portable) {
+std::filesystem::path portable_data_directory(
+    const std::filesystem::path &executable_dir, bool portable, bool no_portable) {
     if (executable_dir.empty() || no_portable) return {};
     const std::filesystem::path data = executable_dir / kPortableDataFolder;
     std::error_code ec;
@@ -83,7 +84,9 @@ void set_data_directory_override(std::filesystem::path directory) {
     command_line_directory() = std::move(directory);
 }
 
-void set_portable_requested() { portable_requested() = true; }
+void set_portable_requested() {
+    portable_requested() = true;
+}
 
 const DataDirectory &data_directory() {
     static const DataDirectory resolved = [] {
@@ -117,7 +120,9 @@ const DataDirectory &data_directory() {
     return resolved;
 }
 
-std::filesystem::path user_data_directory() { return data_directory().path; }
+std::filesystem::path user_data_directory() {
+    return data_directory().path;
+}
 
 std::string check_writable(const std::filesystem::path &directory) {
     std::error_code ec;
@@ -131,8 +136,8 @@ std::string check_writable(const std::filesystem::path &directory) {
         if (!out) {
             std::filesystem::remove(probe, ec);
             return "Yakumo cannot write to its data folder:\n" + path_to_utf8(directory) +
-                   "\n\nIt keeps its settings and saves there. Move Yakumo to a folder you can write to, or give "
-                   "your user write access to this one.";
+                "\n\nIt keeps its settings and saves there. Move Yakumo to a folder you can write to, or give "
+                "your user write access to this one.";
         }
     }
     std::filesystem::remove(probe, ec);
@@ -142,12 +147,12 @@ std::string check_writable(const std::filesystem::path &directory) {
 bool has_user_data(const std::filesystem::path &directory) {
     std::error_code ec;
     return std::filesystem::is_regular_file(directory / kSettingsFile, ec) ||
-           std::filesystem::is_regular_file(directory / kExecutableFile, ec) ||
-           std::filesystem::is_directory(directory / "ms0", ec);
+        std::filesystem::is_regular_file(directory / kExecutableFile, ec) ||
+        std::filesystem::is_directory(directory / "ms0", ec);
 }
 
-std::uint64_t copy_user_data(const std::filesystem::path &from, const std::filesystem::path &to,
-                             const CopyProgressFn &progress) {
+std::uint64_t copy_user_data(
+    const std::filesystem::path &from, const std::filesystem::path &to, const CopyProgressFn &progress) {
     namespace fs = std::filesystem;
     struct Item {
         fs::path source;
@@ -190,8 +195,8 @@ std::uint64_t copy_user_data(const std::filesystem::path &from, const std::files
             std::ifstream in(item.source, std::ios::binary);
             std::ofstream out(partial, std::ios::binary | std::ios::trunc);
             if (!in || !out)
-                throw fs::filesystem_error("cannot copy", item.source, item.target,
-                                           std::make_error_code(std::errc::io_error));
+                throw fs::filesystem_error(
+                    "cannot copy", item.source, item.target, std::make_error_code(std::errc::io_error));
             while (in) {
                 in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
                 const std::streamsize got = in.gcount();

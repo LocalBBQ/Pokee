@@ -13,9 +13,9 @@ namespace mhp3rd::savedata {
 class ParamSfo {
 public:
     struct Entry {
-        std::uint16_t format{};  // 0x0004 binary, 0x0204 UTF-8 string, 0x0404 integer
+        std::uint16_t format{}; // 0x0004 binary, 0x0204 UTF-8 string, 0x0404 integer
         std::uint32_t max_length{};
-        std::vector<std::uint8_t> data;  // exactly the used bytes (strings include their NUL)
+        std::vector<std::uint8_t> data; // exactly the used bytes (strings include their NUL)
     };
 
     static constexpr std::uint16_t kBinary = 0x0004u;
@@ -38,7 +38,7 @@ public:
     [[nodiscard]] std::optional<std::size_t> data_offset(const std::string &key) const;
 
 private:
-    std::map<std::string, Entry> entries_;  // PSP files keep keys sorted
+    std::map<std::string, Entry> entries_; // PSP files keep keys sorted
 };
 
 } // namespace mhp3rd::savedata

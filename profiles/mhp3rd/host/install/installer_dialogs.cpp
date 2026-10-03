@@ -63,24 +63,24 @@ public:
         // renderer failed), so these dialogs stand in for them.
         (void)data_dir;
         const std::string text = std::string("Yakumo needs your own copy of ") + kGameTitle + " (" + kDiscIdDisplay +
-                                 ") as a disc image (.iso).\n\n"
-                                 "Choose the image next, in Android's file picker. Yakumo copies it into its own "
-                                 "storage (about 1.3 GB), checks it and prepares the game from it.";
+            ") as a disc image (.iso).\n\n"
+            "Choose the image next, in Android's file picker. Yakumo copies it into its own "
+            "storage (about 1.3 GB), checks it and prepares the game from it.";
 #else
         std::string text = std::string("Yakumo needs your own copy of ") + kGameTitle + " (" + kDiscIdDisplay +
-                           ") as a disc image (.iso).\n\n"
-                           "Choose the image next. Yakumo checks it, prepares the game's executable from it and "
-                           "copies it into its data folder, so the game keeps working if you move or delete the "
-                           "original. You can also choose to use the image where it is.\n\n"
-                           "Data folder:\n" +
-                           path_to_utf8(data_dir);
+            ") as a disc image (.iso).\n\n"
+            "Choose the image next. Yakumo checks it, prepares the game's executable from it and "
+            "copies it into its data folder, so the game keeps working if you move or delete the "
+            "original. You can also choose to use the image where it is.\n\n"
+            "Data folder:\n" +
+            path_to_utf8(data_dir);
 #if defined(__linux__)
         text += "\n\nOn a Steam Deck, the file dialog may need Desktop Mode the first time.";
 #endif
 #endif
         return ask(SDL_MESSAGEBOX_INFORMATION, kTitle, text,
                    {{1, "Choose image...", SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
-                    {0, "Quit", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}}) == 1;
+                       {0, "Quit", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}}) == 1;
     }
 
     std::optional<std::filesystem::path> choose_image() override {
@@ -93,7 +93,9 @@ public:
         ask(SDL_MESSAGEBOX_INFORMATION, kTitle,
             "Yakumo copies the disc image into its own storage now. This takes a minute or two, and nothing moves "
             "on the screen until it is done.",
-            {{0, "OK", SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}});
+            {{ 0,
+                "OK",
+                SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT }});
         return path_from_utf8(*uri);
 #endif
         struct Pick {
@@ -107,8 +109,10 @@ public:
             auto &state = *static_cast<Pick *>(userdata);
             {
                 std::lock_guard lock(state.mutex);
-                if (files == nullptr) state.error = SDL_GetError();
-                else if (files[0] != nullptr) state.path = path_from_utf8(files[0]);
+                if (files == nullptr)
+                    state.error = SDL_GetError();
+                else if (files[0] != nullptr)
+                    state.path = path_from_utf8(files[0]);
             }
             state.done = true;
         };
@@ -128,8 +132,8 @@ public:
         return pick.path;
     }
 
-    std::optional<ImageStorage> choose_storage(const std::filesystem::path &image, const ImageInfo &info,
-                                               const std::filesystem::path &data_dir) override {
+    std::optional<ImageStorage> choose_storage(
+        const std::filesystem::path &image, const ImageInfo &info, const std::filesystem::path &data_dir) override {
 #if defined(MHP3RD_ANDROID_APP)
         // Already copied into the data folder; an app cannot keep reading a
         // file elsewhere.
@@ -141,19 +145,22 @@ public:
         const std::uint64_t tenths = (info.size_bytes + 50'000'000u) / 100'000'000u;
         const std::string size = std::to_string(tenths / 10u) + "." + std::to_string(tenths % 10u) + " GB";
         const std::string text = "The image is " + std::string(kGameTitle) + " (" + kDiscIdDisplay +
-                                 ") and passed its checks.\n\n"
-                                 "Copy it into Yakumo's data folder (recommended, " +
-                                 size +
-                                 "), so the game keeps working if the original is moved or deleted?\n\n"
-                                 "Or use it where it is, to save space. The image must then stay at:\n" +
-                                 path_to_utf8(image) + "\n\nData folder:\n" + path_to_utf8(data_dir);
+            ") and passed its checks.\n\n"
+            "Copy it into Yakumo's data folder (recommended, " +
+            size +
+            "), so the game keeps working if the original is moved or deleted?\n\n"
+            "Or use it where it is, to save space. The image must then stay at:\n" +
+            path_to_utf8(image) + "\n\nData folder:\n" + path_to_utf8(data_dir);
         switch (ask(SDL_MESSAGEBOX_INFORMATION, kTitle, text,
-                    {{1, "Copy (recommended)", SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
-                     {2, "Use it where it is", SDL_MessageBoxButtonFlags{0}},
-                     {0, "Cancel", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}})) {
-        case 1: return ImageStorage::Copy;
-        case 2: return ImageStorage::InPlace;
-        default: return std::nullopt;
+            {{1, "Copy (recommended)", SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
+                {2, "Use it where it is", SDL_MessageBoxButtonFlags{0}},
+                {0, "Cancel", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}})) {
+        case 1:
+            return ImageStorage::Copy;
+        case 2:
+            return ImageStorage::InPlace;
+        default:
+            return std::nullopt;
         }
     }
 
@@ -166,7 +173,7 @@ public:
     bool offer_retry(const std::string &message) override {
         return ask(SDL_MESSAGEBOX_ERROR, kTitle, message,
                    {{1, "Choose another image...", SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
-                    {0, "Quit", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}}) == 1;
+                       {0, "Quit", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}}) == 1;
     }
 
     void finished(const std::filesystem::path &) override {
@@ -211,27 +218,31 @@ bool report_problem_in_dialog(const std::string &title, const std::string &messa
     }
     return ask(SDL_MESSAGEBOX_ERROR, title.c_str(), message,
                {{1, "Set up again...", SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
-                {0, "Quit", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}}) == 1;
+                   {0, "Quit", SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}}) == 1;
 }
 
-int ask_choice_in_dialog(const std::string &title, const std::string &message, const std::string &first,
-                         const std::string &second) {
+int ask_choice_in_dialog(
+    const std::string &title, const std::string &message, const std::string &first, const std::string &second) {
     if (!dialogs_available()) return -1;
     const int pressed = ask(SDL_MESSAGEBOX_INFORMATION, title.c_str(), message,
-                            {{1, first.c_str(), SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
-                             {2, second.c_str(), SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}});
+        {{1, first.c_str(), SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT},
+            {2, second.c_str(), SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT}});
     return pressed < 0 ? 0 : pressed;
 }
 
 #else
 
-std::unique_ptr<InstallerUi> make_dialog_ui() { return nullptr; }
+std::unique_ptr<InstallerUi> make_dialog_ui() {
+    return nullptr;
+}
 
 int ask_choice_in_dialog(const std::string &, const std::string &, const std::string &, const std::string &) {
     return -1;
 }
 
-bool report_problem_in_dialog(const std::string &, const std::string &, bool) { return false; }
+bool report_problem_in_dialog(const std::string &, const std::string &, bool) {
+    return false;
+}
 
 #endif
 

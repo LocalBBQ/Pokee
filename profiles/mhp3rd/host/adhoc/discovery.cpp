@@ -46,13 +46,15 @@ constexpr auto kHostLife = milliseconds(5000);
 constexpr auto kInterfaceRefresh = milliseconds(10000);
 constexpr int kPollIntervalMs = 100;
 
-void log_detail(const std::string &line) { Client::log("[adhoc-discovery] " + line, false); }
+void log_detail(const std::string &line) {
+    Client::log("[adhoc-discovery] " + line, false);
+}
 
 std::string classify(const std::string &interface, std::uint32_t host_order) {
     std::string name = interface;
     std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::tolower(c); });
     const auto has = [&](const char *part) { return name.find(part) != std::string::npos; };
-    if ((host_order >> 22u) == ((100u << 2u) | 1u) || has("tailscale")) return "Tailscale";  // 100.64.0.0/10
+    if ((host_order >> 22u) == ((100u << 2u) | 1u) || has("tailscale")) return "Tailscale"; // 100.64.0.0/10
     if (name.rfind("zt", 0) == 0 || has("zerotier")) return "ZeroTier";
     if (name.rfind("ham", 0) == 0 || has("hamachi")) return "Hamachi";
     if (name.rfind("utun", 0) == 0 || name.rfind("tun", 0) == 0 || name.rfind("tap", 0) == 0 ||
@@ -73,8 +75,8 @@ std::string ipv4_text(std::uint32_t network_order) {
 
 struct Interface {
     LocalAddress address;
-    std::uint32_t ipv4{};        // network order
-    std::uint32_t broadcast{};   // network order, 0 without one
+    std::uint32_t ipv4{};      // network order
+    std::uint32_t broadcast{}; // network order, 0 without one
     bool multicast{};
 };
 
@@ -86,12 +88,13 @@ std::vector<Interface> interfaces() {
     ULONG status = ERROR_BUFFER_OVERFLOW;
     for (int attempt = 0; attempt < 3 && status == ERROR_BUFFER_OVERFLOW; ++attempt) {
         buffer.resize(size);
-        status = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
-                                      nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data()), &size);
+        status =
+            GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+                nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data()), &size);
     }
     if (status != NO_ERROR) return result;
     for (auto *adapter = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data()); adapter != nullptr;
-         adapter = adapter->Next) {
+        adapter = adapter->Next) {
         if (adapter->OperStatus != IfOperStatusUp || adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
         std::string name;
         if (adapter->FriendlyName != nullptr) {
@@ -152,8 +155,7 @@ std::string encode_announcement(const Announcement &info) {
     wire::put_fixed(out, info.product.substr(0, kProductField - 1u), kProductField);
     // Cut on a character boundary so the name stays valid UTF-8.
     std::size_t length = std::min(info.name.size(), kNameField - 1u);
-    while (length > 0u && length < info.name.size() &&
-           (static_cast<unsigned char>(info.name[length]) & 0xC0u) == 0x80u)
+    while (length > 0u && length < info.name.size() && (static_cast<unsigned char>(info.name[length]) & 0xC0u) == 0x80u)
         --length;
     wire::put_fixed(out, info.name.substr(0, length), kNameField);
     return out;
@@ -210,7 +212,7 @@ Socket open_udp(std::uint32_t bind_address, std::uint16_t port, bool shared) {
 void send_to(Socket s, const std::string &packet, std::uint32_t ipv4, std::uint16_t port) {
     const Address address = Address::ipv4_address(ipv4, port);
     ::sendto(s, packet.data(), static_cast<int>(packet.size()), 0, reinterpret_cast<const sockaddr *>(&address.storage),
-             address.length);
+        address.length);
 }
 
 // "host" or "host:port" to an IPv4 address and port; a lookup, so only on the
@@ -258,8 +260,8 @@ std::string local_host_name() {
 
 std::string FoundHost::join_address() const {
     return info.adhocctl_port == kAdhocctlPort || info.adhocctl_port == 0u
-               ? address
-               : address + ":" + std::to_string(info.adhocctl_port);
+        ? address
+        : address + ":" + std::to_string(info.adhocctl_port);
 }
 
 struct Discovery::Impl {
@@ -274,20 +276,20 @@ struct Discovery::Impl {
     std::function<Announcement()> announce_info;
     std::uint32_t session{};
     bool listening{};
-    std::map<std::string, Clock::time_point> queries;  // address -> asked until
+    std::map<std::string, Clock::time_point> queries; // address -> asked until
     struct Heard {
         FoundHost host;
         Clock::time_point at{};
     };
-    std::map<std::uint32_t, Heard> heard;  // by session
+    std::map<std::uint32_t, Heard> heard; // by session
     DiscoveryStatus stats;
 
     // The thread's own.
-    Socket announce_socket{kNoSocket};   // bound to the adhocctl port for queries, or any port
+    Socket announce_socket{kNoSocket}; // bound to the adhocctl port for queries, or any port
     std::uint16_t announce_socket_port{};
     Socket listen_socket{kNoSocket};
     std::vector<Interface> known_interfaces;
-    std::vector<std::uint32_t> joined_groups;  // interfaces the listen socket joined the group on
+    std::vector<std::uint32_t> joined_groups; // interfaces the listen socket joined the group on
     Clock::time_point interfaces_at{};
     Clock::time_point announced_at{};
     Clock::time_point queried_at{};
@@ -318,7 +320,7 @@ struct Discovery::Impl {
             request.imr_multiaddr.s_addr = htonl(kMulticastGroup);
             request.imr_interface.s_addr = entry.ipv4;
             if (setsockopt(listen_socket, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char *>(&request),
-                           sizeof(request)) == 0)
+                    sizeof(request)) == 0)
                 joined_groups.push_back(entry.ipv4);
         }
     }
@@ -341,8 +343,8 @@ struct Discovery::Impl {
             announce_socket_port = port;
             if (announce_socket != kNoSocket) {
                 const unsigned char ttl = 4;
-                setsockopt(announce_socket, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char *>(&ttl),
-                           sizeof(ttl));
+                setsockopt(
+                    announce_socket, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char *>(&ttl), sizeof(ttl));
             } else {
                 note = "cannot make a UDP socket";
             }
@@ -375,7 +377,7 @@ struct Discovery::Impl {
                 in_addr interface_address{};
                 interface_address.s_addr = entry.ipv4;
                 setsockopt(announce_socket, IPPROTO_IP, IP_MULTICAST_IF,
-                           reinterpret_cast<const char *>(&interface_address), sizeof(interface_address));
+                    reinterpret_cast<const char *>(&interface_address), sizeof(interface_address));
                 send_to(announce_socket, packet, htonl(kMulticastGroup), kDiscoveryPort);
             }
             ++networks;
@@ -392,12 +394,12 @@ struct Discovery::Impl {
             Address from;
             from.length = sizeof(from.storage);
             const auto count = ::recvfrom(s, buffer, static_cast<int>(sizeof(buffer)), 0,
-                                          reinterpret_cast<sockaddr *>(&from.storage), &from.length);
+                reinterpret_cast<sockaddr *>(&from.storage), &from.length);
             if (count <= 0) return;
             const std::uint8_t kind = packet_kind(buffer, static_cast<std::size_t>(count));
             if (kind == kKindQuery && answer_queries && !announcement.empty()) {
                 ::sendto(s, announcement.data(), static_cast<int>(announcement.size()), 0,
-                         reinterpret_cast<const sockaddr *>(&from.storage), from.length);
+                    reinterpret_cast<const sockaddr *>(&from.storage), from.length);
                 std::lock_guard lock(mutex);
                 ++stats.queries_answered;
             } else if (kind == kKindAnnouncement) {
@@ -409,8 +411,7 @@ struct Discovery::Impl {
                 // The first address a host is heard at stays, unless it is gone
                 // quiet there; a host on several networks is one entry.
                 const auto now = Clock::now();
-                if (added || now - entry->second.at > milliseconds(3000) ||
-                    entry->second.host.address == from.host())
+                if (added || now - entry->second.at > milliseconds(3000) || entry->second.host.address == from.host())
                     entry->second.host.address = from.host();
                 entry->second.host.info = info;
                 entry->second.at = now;
@@ -553,8 +554,8 @@ std::vector<FoundHost> Discovery::hosts() const {
         host.heard_ms = static_cast<std::uint64_t>(std::chrono::duration_cast<milliseconds>(now - entry.at).count());
         result.push_back(std::move(host));
     }
-    std::sort(result.begin(), result.end(),
-              [](const FoundHost &a, const FoundHost &b) { return a.info.name < b.info.name; });
+    std::sort(
+        result.begin(), result.end(), [](const FoundHost &a, const FoundHost &b) { return a.info.name < b.info.name; });
     return result;
 }
 

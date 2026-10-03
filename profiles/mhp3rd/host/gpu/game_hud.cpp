@@ -57,14 +57,25 @@ constexpr std::uint32_t kFilePacket = 0x08876874u;
 // reach the four that add to a text queue (0x088E8C4C, 0x088EBF0C,
 // 0x088EC3E0, 0x088EC51C) and is called from outside the text code.
 constexpr std::array<std::uint32_t, 13> kTextFunctions = {
-    0x088EB07Cu, 0x088EBF0Cu, 0x088EC060u, 0x088EC0F8u, 0x088EC1F0u, 0x088EC2ECu, 0x088EC3E0u,
-    0x088EC63Cu, 0x088ECB74u, 0x088ECC38u, 0x088ECCE4u, 0x088ECD9Cu, 0x088ECE58u,
+    0x088EB07Cu,
+    0x088EBF0Cu,
+    0x088EC060u,
+    0x088EC0F8u,
+    0x088EC1F0u,
+    0x088EC2ECu,
+    0x088EC3E0u,
+    0x088EC63Cu,
+    0x088ECB74u,
+    0x088ECC38u,
+    0x088ECCE4u,
+    0x088ECD9Cu,
+    0x088ECE58u,
 };
 // Called by the queue's drawing (0x088EE17C) after each character, with the
 // entry still in s3: the moment button icons the character added to the
 // layer's icon list can be told to belong to that entry.
 constexpr std::uint32_t kCharacterDrawn = 0x088EA9B0u;
-constexpr std::uint32_t kCharacterDrawnFromQueue = 0x088EE2CCu;  // its ra there
+constexpr std::uint32_t kCharacterDrawnFromQueue = 0x088EE2CCu; // its ra there
 constexpr std::size_t kWrapped = 2u + kTextFunctions.size();
 
 constexpr std::uint32_t wrapped_address(std::size_t index) {
@@ -93,19 +104,19 @@ constexpr std::uint32_t kIconCounts = 315u;
 constexpr std::uint32_t kIconLists = 0x263F8u;
 constexpr std::uint32_t kIconListStride = 80u;
 constexpr std::uint32_t kIconBytes = 8u;
-constexpr std::uint32_t kIconFiled = 0x08900784u;        // ra of 0x08900658's filing call
-constexpr std::uint32_t kIconEmitterSavedRa = 36u;       // 0x08900658: sw ra, 36(sp); 48-byte frame
+constexpr std::uint32_t kIconFiled = 0x08900784u;  // ra of 0x08900658's filing call
+constexpr std::uint32_t kIconEmitterSavedRa = 36u; // 0x08900658: sw ra, 36(sp); 48-byte frame
 constexpr std::uint32_t kIconEmitterFrame = 48u;
 constexpr std::uint32_t kIconEmitterFromIcon = 0x08900A24u;
-constexpr std::uint32_t kIconDrawSavedRa = 40u;          // 0x08900970: sw ra, 40(sp); sw s0, 32(sp)
+constexpr std::uint32_t kIconDrawSavedRa = 40u; // 0x08900970: sw ra, 40(sp); sw s0, 32(sp)
 constexpr std::uint32_t kIconDrawSavedEntry = 32u;
 constexpr std::uint32_t kIconDrawFromList = 0x088ED43Cu;
 
 // Drawing a queued glyph: 0x088EE17C calls 0x088ED984 for it at 0x088EE2AC,
 // with the entry in s3, which 0x088ED984 saves at sp+28 (and ra at sp+52);
 // 0x088ED984 files the glyph's packet from 0x088EDB10.
-constexpr std::uint32_t kGlyphFiled = 0x088EDB18u;      // ra of the filing call
-constexpr std::uint32_t kGlyphFromQueue = 0x088EE2B4u;  // 0x088ED984's ra when drawing a queue
+constexpr std::uint32_t kGlyphFiled = 0x088EDB18u;     // ra of the filing call
+constexpr std::uint32_t kGlyphFromQueue = 0x088EE2B4u; // 0x088ED984's ra when drawing a queue
 constexpr std::uint32_t kGlyphSavedRa = 52u;
 constexpr std::uint32_t kGlyphSavedEntry = 28u;
 
@@ -115,41 +126,41 @@ struct CodeWord {
 };
 // What the addresses above were read off; the switch stays off if any differs.
 constexpr CodeWord kSignature[] = {
-    {0x08876874u, 0x00073880u},  // sll a3, a3, 2: the ordering table insert
-    {0x088768B8u, 0xACE20144u},  // sw v0, 0x144(a3)
-    {0x08945D78u, 0x27BDFFE0u},  // addiu sp, sp, -32: the hub HUD
-    {0x08945D9Cu, 0xAFBF0010u},  // sw ra, 16(sp)
-    {0x088ED984u, 0x27BDFFC0u},  // addiu sp, sp, -64: drawing a glyph
-    {0x088ED9ACu, 0xAFBF0034u},  // sw ra, 52(sp)
-    {0x088ED9C4u, 0xAFB3001Cu},  // sw s3, 28(sp)
-    {0x088EDB10u, 0x0E21DA1Du},  // jal 0x08876874
-    {0x088EE2ACu, 0x0E23B661u},  // jal 0x088ED984, drawing a queue
-    {0x088E8818u, 0x8E440C28u},  // lw a0, 0xC28(s2): the text context
-    {0x088EE2C4u, 0x0E23AA6Cu},  // jal 0x088EA9B0 after each character
-    {0x088EE370u, 0x344263F0u},  // ori v0, v0, 0x63F0: the icon lists
-    {0x088EE32Cu, 0x92B1013Bu},  // lbu s1, 315(s5): the icon count
-    {0x088ED434u, 0x0E24025Cu},  // jal 0x08900970, drawing an icon
-    {0x0890097Cu, 0x27BDFFD0u},  // addiu sp, sp, -48
-    {0x08900988u, 0xAFBF0028u},  // sw ra, 40(sp)
-    {0x089009A0u, 0xAFB00020u},  // sw s0, 32(sp)
-    {0x08900A1Cu, 0x0E240196u},  // jal 0x08900658
-    {0x08900658u, 0x27BDFFD0u},  // addiu sp, sp, -48
-    {0x08900674u, 0xAFBF0024u},  // sw ra, 36(sp)
-    {0x0890077Cu, 0x0E21DA1Du},  // jal 0x08876874
+    {0x08876874u, 0x00073880u}, // sll a3, a3, 2: the ordering table insert
+    {0x088768B8u, 0xACE20144u}, // sw v0, 0x144(a3)
+    {0x08945D78u, 0x27BDFFE0u}, // addiu sp, sp, -32: the hub HUD
+    {0x08945D9Cu, 0xAFBF0010u}, // sw ra, 16(sp)
+    {0x088ED984u, 0x27BDFFC0u}, // addiu sp, sp, -64: drawing a glyph
+    {0x088ED9ACu, 0xAFBF0034u}, // sw ra, 52(sp)
+    {0x088ED9C4u, 0xAFB3001Cu}, // sw s3, 28(sp)
+    {0x088EDB10u, 0x0E21DA1Du}, // jal 0x08876874
+    {0x088EE2ACu, 0x0E23B661u}, // jal 0x088ED984, drawing a queue
+    {0x088E8818u, 0x8E440C28u}, // lw a0, 0xC28(s2): the text context
+    {0x088EE2C4u, 0x0E23AA6Cu}, // jal 0x088EA9B0 after each character
+    {0x088EE370u, 0x344263F0u}, // ori v0, v0, 0x63F0: the icon lists
+    {0x088EE32Cu, 0x92B1013Bu}, // lbu s1, 315(s5): the icon count
+    {0x088ED434u, 0x0E24025Cu}, // jal 0x08900970, drawing an icon
+    {0x0890097Cu, 0x27BDFFD0u}, // addiu sp, sp, -48
+    {0x08900988u, 0xAFBF0028u}, // sw ra, 40(sp)
+    {0x089009A0u, 0xAFB00020u}, // sw s0, 32(sp)
+    {0x08900A1Cu, 0x0E240196u}, // jal 0x08900658
+    {0x08900658u, 0x27BDFFD0u}, // addiu sp, sp, -48
+    {0x08900674u, 0xAFBF0024u}, // sw ra, 36(sp)
+    {0x0890077Cu, 0x0E21DA1Du}, // jal 0x08876874
 };
 
 // Where a function starts, found from a return address into it.
 struct Frame {
     std::uint32_t start;
     std::uint32_t size;
-    std::uint32_t ra_offset;  // ~0u: the function does not save ra
+    std::uint32_t ra_offset; // ~0u: the function does not save ra
     std::uint32_t start_word;
 };
 
 struct State {
     bool hidden{};
     bool free_camera{};
-    bool shown_in_flight{};  // the player showed the HUD while the free camera hid it
+    bool shown_in_flight{}; // the player showed the HUD while the free camera hid it
     bool installed{};
     bool checked{};
     bool available{};
@@ -209,14 +220,13 @@ const Frame *frame_of(State &s, const psprecomp::GuestMemory &memory, std::uint3
         }
     }
     frame.ra_offset = ~0u;
-    for (std::uint32_t pc = frame.start + 4u, steps = 0u; steps < 64u && memory.contains(pc, 4u);
-         pc += 4u, ++steps) {
+    for (std::uint32_t pc = frame.start + 4u, steps = 0u; steps < 64u && memory.contains(pc, 4u); pc += 4u, ++steps) {
         const std::uint32_t word = memory.load32(pc);
         if ((word >> 16u) == 0xAFBFu) {
             frame.ra_offset = word & 0xFFFFu;
             break;
         }
-        if (word == 0x03E00008u) break;  // jr ra: returns without saving it
+        if (word == 0x03E00008u) break; // jr ra: returns without saving it
     }
     if (s.frames.size() > 4096u) s.frames.clear();
     return &s.frames.emplace(ra, frame).first->second;
@@ -227,8 +237,8 @@ bool quest_hud_here(State &s, const psprecomp::GuestMemory &memory) {
         const std::uint32_t word = memory.load32(kQuestHud + i * 4u);
         if (word == kQuestHudWords[i]) continue;
         if (s.quest_hud_mismatches++ == 0u)
-            std::cout << "[hud] unexpected code at 0x" << std::hex << kQuestHud + i * 4u << ": 0x" << word
-                      << std::dec << "; not counted as the quest HUD\n";
+            std::cout << "[hud] unexpected code at 0x" << std::hex << kQuestHud + i * 4u << ": 0x" << word << std::dec
+                      << "; not counted as the quest HUD\n";
         return false;
     }
     return true;
@@ -236,8 +246,8 @@ bool quest_hud_here(State &s, const psprecomp::GuestMemory &memory) {
 
 // Whether a HUD function is on the guest's call stack; the chain of return
 // addresses and function starts goes to `line` when one is given.
-bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx,
-              std::string *line) {
+bool from_hud(
+    State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::string *line) {
     std::uint32_t ra = ctx.gpr[31];
     std::uint32_t sp = ctx.gpr[29];
     bool hud = false;
@@ -289,7 +299,7 @@ void note_packet(State &s, std::uint32_t packet, std::uint32_t words, bool hud) 
     if (it != s.packets.begin() && std::prev(it)->second > packet) --it;
     while (it != s.packets.end() && it->first < end) it = s.packets.erase(it);
     if (hud) s.packets.emplace(packet, end);
-    if (s.packets.size() > 65536u) s.packets.clear();  // never expected; bounds a runaway
+    if (s.packets.size() > 65536u) s.packets.clear(); // never expected; bounds a runaway
 }
 
 void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext &ctx) {
@@ -309,8 +319,7 @@ void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContex
         entry = memory.load32(sp + kGlyphSavedEntry);
         hud = std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end();
     }
-    if (!hud && ctx.gpr[31] == kIconFiled &&
-        memory.contains(sp + kIconEmitterFrame + kIconDrawSavedRa, 4u) &&
+    if (!hud && ctx.gpr[31] == kIconFiled && memory.contains(sp + kIconEmitterFrame + kIconDrawSavedRa, 4u) &&
         memory.load32(sp + kIconEmitterSavedRa) == kIconEmitterFromIcon &&
         memory.load32(sp + kIconEmitterFrame + kIconDrawSavedRa) == kIconDrawFromList) {
         entry = memory.load32(sp + kIconEmitterFrame + kIconDrawSavedEntry);
@@ -320,8 +329,8 @@ void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContex
     if (trace) {
         char head[160];
         std::snprintf(head, sizeof(head), "[hud] f=%llu packet=%08X words=%u bucket=%u list=%08X %s |",
-                      static_cast<unsigned long long>(s.frame), ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[4],
-                      hud ? "HUD" : "-");
+            static_cast<unsigned long long>(s.frame), ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[4],
+            hud ? "HUD" : "-");
         std::cout << head << chain;
         if (entry != 0u) {
             char text[40];
@@ -377,17 +386,18 @@ void on_text_call(std::size_t which, psprecomp::Runtime &runtime, const psprecom
                   << (s.last_call_hud ? " HUD" : " -") << " |" << chain << "\n";
 }
 
-template <std::size_t I>
-void wrapper(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    if constexpr (I == 0u) on_file_packet(runtime, ctx);
-    else if constexpr (I == 1u) on_character_drawn(runtime, ctx);
-    else on_text_call(I, runtime, ctx);
+template <std::size_t I> void wrapper(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    if constexpr (I == 0u)
+        on_file_packet(runtime, ctx);
+    else if constexpr (I == 1u)
+        on_character_drawn(runtime, ctx);
+    else
+        on_text_call(I, runtime, ctx);
     // The original, with the same context and return address.
     state().originals[I](runtime, ctx);
 }
 
-template <std::size_t... I>
-bool install_all(psprecomp::Runtime &runtime, std::index_sequence<I...>) {
+template <std::size_t... I> bool install_all(psprecomp::Runtime &runtime, std::index_sequence<I...>) {
     State &s = state();
     ((s.originals[I] = compiled(wrapped_address(I))), ...);
     for (const auto original : s.originals)
@@ -407,7 +417,9 @@ bool check_code(const psprecomp::Runtime &runtime) {
     return true;
 }
 
-bool free_camera_hides() { return settings::current().free_camera_hide_hud; }
+bool free_camera_hides() {
+    return settings::current().free_camera_hide_hud;
+}
 
 } // namespace
 
@@ -467,9 +479,13 @@ void set_hidden(bool hidden) {
 
 // Turns what is on screen around: while the free camera hides the HUD,
 // the key shows it for the rest of the flight.
-void toggle() { set_hidden(!hidden_now(state())); }
+void toggle() {
+    set_hidden(!hidden_now(state()));
+}
 
-bool hidden() { return hidden_now(state()); }
+bool hidden() {
+    return hidden_now(state());
+}
 
 void set_free_camera(bool active) {
     State &s = state();
@@ -493,7 +509,9 @@ double note_seconds_left() {
     return std::chrono::duration<double>(s.note_until - Clock::now()).count();
 }
 
-std::string note_text() { return state().note; }
+std::string note_text() {
+    return state().note;
+}
 
 bool hides(std::uint32_t command_address, std::uint32_t call_return) {
     if (!active()) return false;

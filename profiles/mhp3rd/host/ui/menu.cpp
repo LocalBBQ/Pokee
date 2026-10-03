@@ -98,11 +98,17 @@ RowOptions options_for(const char *key, std::string description) {
     return options;
 }
 
-float font_gap() { return Layer::get().font_size() * 0.5f; }
+float font_gap() {
+    return Layer::get().font_size() * 0.5f;
+}
 
-int cycle(int value, int delta, int count) { return ((value + delta) % count + count) % count; }
+int cycle(int value, int delta, int count) {
+    return ((value + delta) % count + count) % count;
+}
 
-float gain(const settings::Settings &s) { return s.mute ? 0.0f : static_cast<float>(s.volume) / 100.0f; }
+float gain(const settings::Settings &s) {
+    return s.mute ? 0.0f : static_cast<float>(s.volume) / 100.0f;
+}
 
 constexpr const char *kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System", "Debug"};
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
@@ -122,11 +128,10 @@ MenuPlace &menu_place() {
         MenuPlace p;
         const std::string &saved = settings::current().menu_tab;
         for (int i = 0; i < kTabCount; ++i)
-            if (!saved.empty() && std::equal(saved.begin(), saved.end(), kTabs[i], kTabs[i] + std::strlen(kTabs[i]),
-                                             [](char a, char b) {
-                                                 return std::tolower(static_cast<unsigned char>(a)) ==
-                                                        std::tolower(static_cast<unsigned char>(b));
-                                             }))
+            if (!saved.empty() &&
+                std::equal(saved.begin(), saved.end(), kTabs[i], kTabs[i] + std::strlen(kTabs[i]), [](char a, char b) {
+                    return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+                }))
                 p.tab = i;
         return p;
     }();
@@ -139,8 +144,8 @@ public:
     ~Menu() {
         // The page for the next start, in settings.ini, when it changed.
         std::string name = kTabs[menu_place().tab];
-        std::transform(name.begin(), name.end(), name.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::transform(
+            name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         settings::Settings &s = settings::current();
         if (s.menu_tab != name) {
             s.menu_tab = name;
@@ -167,17 +172,17 @@ private:
 
     gpu::VulkanRenderer &renderer() { return Layer::get().renderer(); }
 
-    bool paused_{};  // the game is paused behind the menu, rather than running
+    bool paused_{}; // the game is paused behind the menu, rather than running
     int tab_{};
     bool first_frame_{true};
     bool close_{};
     bool quit_{};
     bool was_editing_{};
-    bool back_{};  // the back button was pressed this frame
+    bool back_{}; // the back button was pressed this frame
     Confirm confirm_{Confirm::None};
-    bool confirm_opened_{};  // the confirmation was on screen last frame
-    std::string preset_notice_;             // what the last preset change did, shown under Preset
-    std::string screenshot_path_;           // where Take a screenshot saved to
+    bool confirm_opened_{};       // the confirmation was on screen last frame
+    std::string preset_notice_;   // what the last preset change did, shown under Preset
+    std::string screenshot_path_; // where Take a screenshot saved to
 };
 
 bool Menu::frame() {
@@ -198,9 +203,8 @@ bool Menu::frame() {
     // Back closes the font list, or the save import and export, before it
     // closes the menu.
     bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
-                              (tab_ == 2 && controllers_screen_open()) ||
-                              (tab_ == 4 && (mods_screen_open() || layered_armor_screen_open())) ||
-                              (tab_ == 5 && save_screen_open());
+        (tab_ == 2 && controllers_screen_open()) ||
+        (tab_ == 4 && (mods_screen_open() || layered_armor_screen_open())) || (tab_ == 5 && save_screen_open());
 #if defined(MHP3RD_DEBUG_MENU)
     font_list_was_open = font_list_was_open || (tab_ == 6 && debug_screen_open());
 #endif
@@ -243,18 +247,30 @@ bool Menu::frame() {
         ImGui::SetScrollY(0.0f);
     }
     switch (tab_) {
-    case 0: video(); break;
-    case 1: audio(); break;
-    case 2: controls(); break;
-    case 3: network(); break;
-    case 4: mods(); break;
+    case 0:
+        video();
+        break;
+    case 1:
+        audio();
+        break;
+    case 2:
+        controls();
+        break;
+    case 3:
+        network();
+        break;
+    case 4:
+        mods();
+        break;
 #if defined(MHP3RD_DEBUG_MENU)
     case 6:
         debug_page(back_);
         if (debug_page_resume()) close_ = true;
         break;
 #endif
-    default: system(); break;
+    default:
+        system();
+        break;
     }
     // The row that had the focus is gone (a row this platform or this state
     // does not have): the top of the page, as when the page is opened.
@@ -268,32 +284,31 @@ bool Menu::frame() {
         place.known = true;
         place.tab = tab_;
         place.scroll = ImGui::GetScrollY();
-        if (g.NavWindow == ImGui::GetCurrentWindow() && g.NavId != 0u) place.focus = g.NavId;
-        else if (switched) place.focus = 0u;
+        if (g.NavWindow == ImGui::GetCurrentWindow() && g.NavId != 0u)
+            place.focus = g.NavId;
+        else if (switched)
+            place.focus = 0u;
     }
     begin_footer();
     const BindingsFocus binding = tab_ == 2 ? bindings_focus() : BindingsFocus::None;
     if (binding == BindingsFocus::Binding && bindings_focus_resettable())
         hints({{Control::Confirm, "Rebind"}, {Control::Clear, "Clear"}, {Control::Reset, "Reset action"},
-               {Control::Back, "Back"}, {Control::Tabs, "Section"}});
+            {Control::Back, "Back"}, {Control::Tabs, "Section"}});
     else if (binding == BindingsFocus::Binding)
         hints({{Control::Confirm, "Rebind"}, {Control::Clear, "Clear"}, {Control::Back, "Back"},
-               {Control::Tabs, "Section"}, {Control::Menu, "Resume"}});
+            {Control::Tabs, "Section"}, {Control::Menu, "Resume"}});
     else if (binding == BindingsFocus::Add)
         hints({{Control::Confirm, "Add"}, {Control::Back, "Back"}, {Control::Tabs, "Section"},
-               {Control::Menu, "Resume"}});
+            {Control::Menu, "Resume"}});
     else if (binding == BindingsFocus::Reset)
         hints({{Control::Confirm, "Reset action"}, {Control::Back, "Back"}, {Control::Tabs, "Section"},
-               {Control::Menu, "Resume"}});
+            {Control::Menu, "Resume"}});
     else if (tab_ >= 4 || binding == BindingsFocus::Fix)
         hints({{Control::Confirm, "Select"}, {Control::Back, "Back"}, {Control::Tabs, "Section"},
-               {Control::Menu, "Resume"}});
+            {Control::Menu, "Resume"}});
     else
-        hints({{Control::Confirm, "Select"},
-               {Control::Change, "Change"},
-               {Control::Back, "Back"},
-               {Control::Tabs, "Section"},
-               {Control::Menu, "Resume"}});
+        hints({{Control::Confirm, "Select"}, {Control::Change, "Change"}, {Control::Back, "Back"},
+            {Control::Tabs, "Section"}, {Control::Menu, "Resume"}});
     end_panel();
     bindings_capture_prompt();
 
@@ -315,9 +330,9 @@ void Menu::video() {
     section("Picture");
     {
         RowOptions o = options_for("video.internal_scale",
-                                   "Auto draws the game at the window's own size and follows it (at most 1632 "
-                                   "lines). ×1 to ×6 draw 272 lines per step, 480×272 times the step unless the "
-                                   "aspect ratio is Fill. Higher is sharper and needs more from the GPU.");
+            "Auto draws the game at the window's own size and follows it (at most 1632 "
+            "lines). ×1 to ×6 draw 272 lines per step, 480×272 times the step unless the "
+            "aspect ratio is Fill. Higher is sharper and needs more from the GPU.");
         const std::array<std::uint32_t, 2> size = renderer().target_size();
         const std::string drawn = std::to_string(size[0]) + "×" + std::to_string(size[1]);
         const std::string value =
@@ -326,8 +341,7 @@ void Menu::video() {
             // Auto, then ×1 up to the menu's largest (or a larger one a
             // variable once chose).
             const int limit = std::max<int>(kMenuMaxInternalScale, static_cast<int>(s.internal_scale));
-            s.internal_scale =
-                static_cast<std::uint32_t>(cycle(static_cast<int>(s.internal_scale), delta, limit + 1));
+            s.internal_scale = static_cast<std::uint32_t>(cycle(static_cast<int>(s.internal_scale), delta, limit + 1));
             renderer().set_internal_scale(s.internal_scale);
             settings::save();
         }
@@ -335,9 +349,8 @@ void Menu::video() {
 #if !defined(__ANDROID__)
     // A phone is always full screen: no window to size.
     {
-        const int delta =
-            choice_row("Display", s.fullscreen ? "Fullscreen" : "Window",
-                       options_for("video.fullscreen", "Fill the screen, or play in a window you can resize."));
+        const int delta = choice_row("Display", s.fullscreen ? "Fullscreen" : "Window",
+            options_for("video.fullscreen", "Fill the screen, or play in a window you can resize."));
         if (delta != 0) {
             s.fullscreen = !s.fullscreen;
             renderer().set_fullscreen(s.fullscreen);
@@ -362,27 +375,29 @@ void Menu::video() {
     {
         static const char *const kAspects[] = {"Original", "Stretch", "Fill"};
         const int current = static_cast<int>(s.aspect);
-        if (const int delta = choice_row(
-                "Aspect ratio", kAspects[current],
-                options_for("video.aspect", "Original keeps the PSP's shape with black bars at the sides or top. "
-                                            "Stretch fills the window by stretching the picture. Fill widens (or "
-                                            "narrows) the game's view to the window's shape, keeping its height, "
-                                            "and keeps the interface in the PSP's proportions."))) {
+        if (const int delta = choice_row("Aspect ratio", kAspects[current],
+                options_for("video.aspect",
+                    "Original keeps the PSP's shape with black bars at the sides or top. "
+                    "Stretch fills the window by stretching the picture. Fill widens (or "
+                    "narrows) the game's view to the window's shape, keeping its height, "
+                    "and keeps the interface in the PSP's proportions."))) {
             s.aspect = static_cast<settings::Aspect>(cycle(current, delta, 3));
             renderer().set_aspect(s.aspect);
             settings::save();
         }
     }
     if (choice_row("Scaling filter", s.sharp_screen ? "Sharp" : "Smooth",
-                   options_for("video.sharp_screen", "How the finished picture is scaled to the window: smooth "
-                                                     "(bilinear) or sharp (nearest pixel)."))) {
+            options_for("video.sharp_screen",
+                "How the finished picture is scaled to the window: smooth "
+                "(bilinear) or sharp (nearest pixel)."))) {
         s.sharp_screen = !s.sharp_screen;
         renderer().set_sharp_screen(s.sharp_screen);
         settings::save();
     }
     if (choice_row("Texture filter", s.sharp_textures ? "Sharp" : "Smooth",
-                   options_for("video.sharp_textures", "How the game's textures are sampled: smooth (bilinear) or "
-                                                       "sharp (nearest texel)."))) {
+            options_for("video.sharp_textures",
+                "How the game's textures are sampled: smooth (bilinear) or "
+                "sharp (nearest texel)."))) {
         s.sharp_textures = !s.sharp_textures;
         renderer().set_sharp_textures(s.sharp_textures);
         settings::save();
@@ -390,21 +405,20 @@ void Menu::video() {
     {
         static const char *const kModes[] = {"Off", "Sharp bilinear", "MMPX"};
         const int current = static_cast<int>(s.ui_textures);
-        if (const int delta = choice_row(
-                "UI textures", kModes[current],
+        if (const int delta = choice_row("UI textures", kModes[current],
                 options_for("video.ui_textures",
-                            "Above x1, how the game's 2D interface (HUD, menus, icons) is drawn; the 3D world is "
-                            "not touched. Off: as before. Sharp bilinear: crisp pixels at any scale, without blur. "
-                            "MMPX: the textures doubled by a pixel-art upscaler that rounds curves and diagonals, "
-                            "then drawn sharp."))) {
+                    "Above x1, how the game's 2D interface (HUD, menus, icons) is drawn; the 3D world is "
+                    "not touched. Off: as before. Sharp bilinear: crisp pixels at any scale, without blur. "
+                    "MMPX: the textures doubled by a pixel-art upscaler that rounds curves and diagonals, "
+                    "then drawn sharp."))) {
             s.ui_textures = static_cast<settings::UiTextures>(cycle(current, delta, 3));
             settings::save();
         }
     }
     {
         RowOptions o = options_for("video.texture_pack",
-                                   "Draws an HD texture pack in PPSSPP's format from textures/NPJB40001 in the data "
-                                   "folder instead of the game's textures.");
+            "Draws an HD texture pack in PPSSPP's format from textures/NPJB40001 in the data "
+            "folder instead of the game's textures.");
         // The footer shows the note under the description: what is loaded,
         // or where the pack was looked for.
         if (o.note.empty()) {
@@ -414,7 +428,7 @@ void Menu::video() {
             // used from" row below; the footer has room for its name only.
             if (status.rfind("Folder missing: ", 0) == 0)
                 o.note = "Pack folder missing: " +
-                         install::path_to_utf8(install::path_from_utf8(status.substr(16)).filename());
+                    install::path_to_utf8(install::path_from_utf8(status.substr(16)).filename());
         }
         if (choice_row("Texture pack", s.texture_pack ? "On" : "Off", o)) {
             s.texture_pack = !s.texture_pack;
@@ -437,11 +451,12 @@ void Menu::video() {
         int current = 0;
         for (std::size_t i = 0; i < modes.size(); ++i)
             if (modes[i].mode == s.present_mode) current = static_cast<int>(i);
-        if (const int delta = choice_row(
-                "Vsync", modes[static_cast<std::size_t>(current)].name,
-                options_for("video.present_mode", "On waits for the display's refresh and never tears. Off shows "
-                                                  "each frame at once; the game's speed is the same either way."))) {
-            s.present_mode = modes[static_cast<std::size_t>(cycle(current, delta, static_cast<int>(modes.size())))].mode;
+        if (const int delta = choice_row("Vsync", modes[static_cast<std::size_t>(current)].name,
+                options_for("video.present_mode",
+                    "On waits for the display's refresh and never tears. Off shows "
+                    "each frame at once; the game's speed is the same either way."))) {
+            s.present_mode =
+                modes[static_cast<std::size_t>(cycle(current, delta, static_cast<int>(modes.size())))].mode;
             renderer().set_present_mode(s.present_mode);
             settings::save();
         }
@@ -449,8 +464,8 @@ void Menu::video() {
     {
         static const char *const kRates[] = {"30", "45", "60", "90", "120", "Match display"};
         RowOptions o = options_for("video.frame_rate",
-                                   "Frames between the game's 30 a second, blending its movement. Steps down by "
-                                   "itself rather than slow the game.");
+            "Frames between the game's 30 a second, blending its movement. Steps down by "
+            "itself rather than slow the game.");
         if (s.unthrottled && !o.disabled) {
             o.disabled = true;
             o.note = "Game speed is Unlimited";
@@ -464,14 +479,14 @@ void Menu::video() {
             // down rather than slow the game.
             const double now = renderer().frame_rate_now();
             const double chosen = s.frame_rate == settings::FrameRate::Display
-                                      ? static_cast<double>(renderer().display_refresh())
-                                      : std::stod(kRates[current]);
+                ? static_cast<double>(renderer().display_refresh())
+                : std::stod(kRates[current]);
             if (now + 0.5 < chosen) {
                 value += " (running at " + std::to_string(static_cast<int>(std::lround(now))) + ")";
                 o.description = s.present_mode == settings::PresentMode::Fifo && renderer().display_refresh() > 0.0f &&
-                                        now + 0.5 >= static_cast<double>(renderer().display_refresh())
-                                    ? "With Vsync on, no faster than the display refreshes."
-                                    : "Lowered to keep the game at full speed; it tries the chosen rate again later.";
+                        now + 0.5 >= static_cast<double>(renderer().display_refresh())
+                    ? "With Vsync on, no faster than the display refreshes."
+                    : "Lowered to keep the game at full speed; it tries the chosen rate again later.";
             }
         }
         if (const int delta = choice_row("Frame rate", value, o)) {
@@ -482,8 +497,8 @@ void Menu::video() {
     }
     {
         RowOptions o = options_for("video.frame_rate_auto",
-                                   "On lowers the frame rate by itself when presenting that often would slow the "
-                                   "game. Off keeps the chosen rate, and the game may then run below full speed.");
+            "On lowers the frame rate by itself when presenting that often would slow the "
+            "game. Off keeps the chosen rate, and the game may then run below full speed.");
         if (s.unthrottled || s.frame_rate == settings::FrameRate::Fps30) o.disabled = true;
         if (choice_row("Lower when behind", s.frame_rate_auto ? "On" : "Off", o)) {
             s.frame_rate_auto = !s.frame_rate_auto;
@@ -492,16 +507,17 @@ void Menu::video() {
         }
     }
     if (choice_row("Game speed", s.unthrottled ? "Unlimited" : "Normal",
-                   options_for("video.unthrottled", "Normal holds the game to real time. Unlimited lets it run as "
-                                                    "fast as frames can be drawn, which also speeds up the game."))) {
+            options_for("video.unthrottled",
+                "Normal holds the game to real time. Unlimited lets it run as "
+                "fast as frames can be drawn, which also speeds up the game."))) {
         s.unthrottled = !s.unthrottled;
         settings::save();
     }
     {
         RowOptions o = options_for("video.fast_loading",
-                                   "Lets the game run ahead of real time while it loads and is silent, so loads "
-                                   "take as long as the computer needs. Never during play, sound, movies or "
-                                   "ad hoc play.");
+            "Lets the game run ahead of real time while it loads and is silent, so loads "
+            "take as long as the computer needs. Never during play, sound, movies or "
+            "ad hoc play.");
         if (s.unthrottled && !o.disabled) {
             o.disabled = true;
             o.note = "Game speed is Unlimited";
@@ -530,34 +546,33 @@ void Menu::video() {
         const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::FastForward)]);
         // Two lines at most, so the note of a disabled row still fits under it.
         const std::string help = "The game runs faster while its key (" +
-                                 (key.empty() ? std::string("none: set it in Controls") : key) +
-                                 ") is held, or from one press to the next, muted. Single player only.";
-        if (const int delta = choice_row("Fast-forward", kModes[current],
-                                         guarded(options_for("video.fast_forward", help)))) {
+            (key.empty() ? std::string("none: set it in Controls") : key) +
+            ") is held, or from one press to the next, muted. Single player only.";
+        if (const int delta =
+                choice_row("Fast-forward", kModes[current], guarded(options_for("video.fast_forward", help)))) {
             s.fast_forward = static_cast<fast_forward::Mode>(cycle(current, delta, 3));
             settings::save();
         }
         RowOptions o = guarded(options_for("video.fast_forward_speed",
-                                           "How many times faster than real time the game runs while it "
-                                           "fast-forwards, if the computer keeps up."));
+            "How many times faster than real time the game runs while it "
+            "fast-forwards, if the computer keeps up."));
         if (s.fast_forward == fast_forward::Mode::Off && !o.disabled) {
             o.disabled = true;
             o.note = "Fast-forward is off";
         }
         int speed = static_cast<int>(s.fast_forward_speed);
         if (slider_row("Fast-forward speed", speed, static_cast<int>(fast_forward::kMinSpeed),
-                       static_cast<int>(fast_forward::kMaxSpeed), 1, "%dx", o)) {
+                static_cast<int>(fast_forward::kMaxSpeed), 1, "%dx", o)) {
             s.fast_forward_speed = static_cast<std::uint32_t>(speed);
             settings::save();
         }
     }
     {
-        const std::string key =
-            input::format(s.controls.keys[static_cast<std::size_t>(input::Action::HideHud)]);
+        const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::HideHud)]);
         RowOptions o;
         o.description = "Hides the game's HUD for pictures and videos: health, stamina, sharpness, the clock, the "
                         "item bar, the map, name tags and prompts. Menus and dialogs stay. Its key (" +
-                        (key.empty() ? std::string("none: set it in Controls") : key) + ") does the same.";
+            (key.empty() ? std::string("none: set it in Controls") : key) + ") does the same.";
         if (!gpu::hud::available()) {
             o.disabled = true;
             o.note = "Not with this game's code";
@@ -567,10 +582,10 @@ void Menu::video() {
     {
         static const char *const kPerf[] = {"Off", "Overlay", "Overlay and log", "Log only"};
         const int current = static_cast<int>(s.perf);
-        if (const int delta = choice_row(
-                "Performance", kPerf[current],
-                options_for("video.performance", "Frame times and speed in the top-left corner, and a [perf] line "
-                                                 "per second on the console. F3 shows or hides the overlay."))) {
+        if (const int delta = choice_row("Performance", kPerf[current],
+                options_for("video.performance",
+                    "Frame times and speed in the top-left corner, and a [perf] line "
+                    "per second on the console. F3 shows or hides the overlay."))) {
             s.perf = static_cast<settings::PerfDisplay>(cycle(current, delta, 4));
             renderer().set_perf_overlay(perf::options().overlay);
             settings::save();
@@ -579,8 +594,7 @@ void Menu::video() {
     {
         static const char *const kCompat[] = {"Auto", "On", "Off"};
         const int current = static_cast<int>(s.gpu_compat);
-        RowOptions o = options_for(
-            "video.gpu_compat",
+        RowOptions o = options_for("video.gpu_compat",
             "Leaves out what some older phone GPU drivers may get wrong: specialized shaders, robust buffer "
             "access, the pipeline cache and a second frame in flight. It costs speed, so Auto turns it on only "
             "when the start-up test picture comes out wrong or the driver refuses a shader. Applies when Yakumo "
@@ -644,8 +658,8 @@ void Menu::audio() {
     };
     section("Output");
     int volume = static_cast<int>(s.volume);
-    if (slider_row("Volume", volume, 0, 100, 5, "%d%%",
-                   locked("audio.volume", "Loudness of everything the game plays."))) {
+    if (slider_row(
+            "Volume", volume, 0, 100, 5, "%d%%", locked("audio.volume", "Loudness of everything the game plays."))) {
         s.volume = static_cast<std::uint32_t>(volume);
         sink.set_volume(gain(s));
         settings::save();
@@ -655,8 +669,8 @@ void Menu::audio() {
         sink.set_volume(gain(s));
         settings::save();
     }
-    info_row("Device", device ? (paused_ ? "44100 Hz stereo, paused while this menu is open" : "44100 Hz stereo")
-                              : "None");
+    info_row(
+        "Device", device ? (paused_ ? "44100 Hz stereo, paused while this menu is open" : "44100 Hz stereo") : "None");
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore audio defaults", {!device, {}, "Full volume, not muted."})) {
         s.volume = settings::defaults().volume;
@@ -673,12 +687,12 @@ void Menu::audio() {
 struct TextField {
     std::array<char, 132> buffer{};
     bool focused{};
-    std::optional<std::string> entered;  // from the on-screen keyboard
-    bool refocus{};                      // the keyboard closed; focus the row again
+    std::optional<std::string> entered; // from the on-screen keyboard
+    bool refocus{};                     // the keyboard closed; focus the row again
 };
 
 bool text_row(const char *id, const char *label, std::string &value, std::size_t max_length, bool allow_empty,
-              const std::function<bool(char32_t)> &allowed, const RowOptions &o) {
+    const std::function<bool(char32_t)> &allowed, const RowOptions &o) {
     static std::map<std::string, TextField> fields;
     TextField &field = fields[id];
     bool committed = false;
@@ -698,14 +712,14 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
     // Highlighted like the other rows; the field reports its focus only after
     // it is drawn, so last frame's state is used.
     if (field.focused)
-        draw->AddRectFilled(start, {start.x + width, start.y + row_height}, colors::kRowFocus,
-                            std::round(6.0f * Layer::get().scale()));
-    draw->AddText({start.x + std::round(16.0f * Layer::get().scale()),
-                   start.y + (row_height - Layer::get().font_size()) * 0.5f},
-                  o.disabled ? colors::kTextDisabled : colors::kText, label);
+        draw->AddRectFilled(
+            start, {start.x + width, start.y + row_height}, colors::kRowFocus, std::round(6.0f * Layer::get().scale()));
+    draw->AddText(
+        {start.x + std::round(16.0f * Layer::get().scale()), start.y + (row_height - Layer::get().font_size()) * 0.5f},
+        o.disabled ? colors::kTextDisabled : colors::kText, label);
     const float field_width = std::min(width * 0.45f, Layer::get().font_size() * 12.0f);
     ImGui::SetCursorScreenPos({start.x + width - field_width - std::round(16.0f * Layer::get().scale()),
-                               start.y + (row_height - ImGui::GetFrameHeight()) * 0.5f});
+        start.y + (row_height - ImGui::GetFrameHeight()) * 0.5f});
     ImGui::SetNextItemWidth(field_width);
     if (o.disabled) ImGui::BeginDisabled();
     const auto filter = [](ImGuiInputTextCallbackData *data) {
@@ -714,8 +728,7 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
     };
     const std::string widget_id = std::string("##") + id;
     ImGui::InputText(widget_id.c_str(), field.buffer.data(), std::min(max_length + 1u, field.buffer.size()),
-                     ImGuiInputTextFlags_CallbackCharFilter, filter,
-                     const_cast<std::function<bool(char32_t)> *>(&allowed));
+        ImGuiInputTextFlags_CallbackCharFilter, filter, const_cast<std::function<bool(char32_t)> *>(&allowed));
     if (ImGui::IsItemActivated() && Layer::get().input_device() == InputDevice::Gamepad) {
         ImGui::ClearActiveID();
         TextInputRequest request;
@@ -752,13 +765,15 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
 }
 
 // Host names: printable ASCII without spaces.
-bool host_character(char32_t c) { return c > 0x20u && c < 0x7Fu; }
+bool host_character(char32_t c) {
+    return c > 0x20u && c < 0x7Fu;
+}
 
 // What an address to join may hold: a host name or IPv4 address, a colon and
 // a port, or an IPv6 address in brackets.
 bool address_character(char32_t c) {
-    return (c >= U'0' && c <= U'9') || (c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z') || c == U'.' ||
-           c == U':' || c == U'-' || c == U'[' || c == U']';
+    return (c >= U'0' && c <= U'9') || (c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z') || c == U'.' || c == U':' ||
+        c == U'-' || c == U'[' || c == U']';
 }
 
 // An action's keys and pad buttons in one line, "F12 / PrintScreen; RS + D-pad
@@ -769,7 +784,9 @@ std::string binds_of(input::Action action) {
 }
 
 // Characters a preset's name may hold: printable, without settings.ini's own.
-bool preset_name_character(char32_t c) { return c >= 0x20u && c != 0x7Fu && c != U'=' && c != U'#'; }
+bool preset_name_character(char32_t c) {
+    return c >= 0x20u && c != 0x7Fu && c != U'=' && c != U'#';
+}
 
 void Menu::preset_rows() {
     settings::Settings &s = settings::current();
@@ -785,20 +802,20 @@ void Menu::preset_rows() {
         for (std::size_t i = 0; i < s.user_presets.size(); ++i)
             if (s.user_presets[i].name == s.control_preset.user) current = shipped + static_cast<int>(i);
     }
-    const std::string current_name =
-        current < shipped ? input::info(static_cast<input::Preset>(current)).name
-                          : s.user_presets[static_cast<std::size_t>(current - shipped)].name + "  (yours)";
+    const std::string current_name = current < shipped
+        ? input::info(static_cast<input::Preset>(current)).name
+        : s.user_presets[static_cast<std::size_t>(current - shipped)].name + "  (yours)";
     {
         RowOptions o = locked;
         o.description = current < shipped
-                            ? std::string(input::info(static_cast<input::Preset>(current)).description) +
-                                  "\nChanging a binding below saves the change as a preset of your own."
-                            : "Your own preset: the bindings below change it, and it is kept as you leave it.";
+            ? std::string(input::info(static_cast<input::Preset>(current)).description) +
+                "\nChanging a binding below saves the change as a preset of your own."
+            : "Your own preset: the bindings below change it, and it is kept as you leave it.";
         if (const int delta = choice_row("Preset", current_name, o)) {
             const int next = cycle(current, delta, count);
-            const input::PresetChoice choice =
-                next < shipped ? input::PresetChoice{static_cast<input::Preset>(next), {}}
-                               : input::PresetChoice{std::nullopt, s.user_presets[static_cast<std::size_t>(next - shipped)].name};
+            const input::PresetChoice choice = next < shipped
+                ? input::PresetChoice{static_cast<input::Preset>(next), {}}
+                : input::PresetChoice{std::nullopt, s.user_presets[static_cast<std::size_t>(next - shipped)].name};
             settings::choose_preset(s, choice);
             preset_notice_.clear();
             settings::save();
@@ -850,8 +867,9 @@ void Menu::preset_rows() {
     // Clashes anywhere in the layout.
     const std::size_t clashes = bindings_conflicts();
     if (clashes != 0u)
-        info_row("Conflicts", std::to_string(clashes) + (clashes == 1u ? " binding clashes" : " bindings clash") +
-                                  " with another; each is marked in red below, with a fix");
+        info_row("Conflicts",
+            std::to_string(clashes) + (clashes == 1u ? " binding clashes" : " bindings clash") +
+                " with another; each is marked in red below, with a fix");
 }
 
 void Menu::controls() {
@@ -864,12 +882,12 @@ void Menu::controls() {
     {
         int window = static_cast<int>(s.chord_window);
         if (slider_row("Chord window", window, 0, static_cast<int>(input::kMaxChordWindowMs), 10,
-                       window == 0 ? "Off" : "%d ms",
-                       options_for("input.chord_window",
-                                   "How long a button that begins a combination waits for the rest of it, such as "
-                                   "△ in △ + ○. Only those wait, and only where acting at once would press "
-                                   "something else first; every other button acts at once. Off: they act at "
-                                   "once, and a combination takes over when it is complete."))) {
+                window == 0 ? "Off" : "%d ms",
+                options_for("input.chord_window",
+                    "How long a button that begins a combination waits for the rest of it, such as "
+                    "△ in △ + ○. Only those wait, and only where acting at once would press "
+                    "something else first; every other button acts at once. Off: they act at "
+                    "once, and a combination takes over when it is complete."))) {
             s.chord_window = static_cast<std::uint32_t>(window);
             settings::save();
         }
@@ -878,50 +896,53 @@ void Menu::controls() {
     {
         SDL_Gamepad *pad = renderer().gamepad();
         const char *name = pad != nullptr ? SDL_GetGamepadName(pad) : nullptr;
-        info_row("Connected", pad == nullptr ? "No gamepad; the keyboard and mouse drive the game"
-                                             : (name != nullptr ? name : "Gamepad"));
+        info_row("Connected",
+            pad == nullptr ? "No gamepad; the keyboard and mouse drive the game"
+                           : (name != nullptr ? name : "Gamepad"));
     }
     if (choice_row("Confirm button", s.confirm_south ? "Bottom (Western)" : "Right, ○ (Japanese)",
-                   options_for("input.confirm", "Which face button confirms, in the game and in this menu. The "
-                                                "game's prompts show ○ to confirm and × to go back. It swaps the "
-                                                "bottom and right buttons in every preset."))) {
+            options_for("input.confirm",
+                "Which face button confirms, in the game and in this menu. The "
+                "game's prompts show ○ to confirm and × to go back. It swaps the "
+                "bottom and right buttons in every preset."))) {
         s.confirm_south = !s.confirm_south;
         settings::save();
     }
     int dead_zone = static_cast<int>(std::lround(s.dead_zone * 100.0f));
     if (slider_row("Stick dead zone", dead_zone, 0, 50, 1, "%d%%",
-                   options_for("input.dead_zone", "How far the left stick moves before the hunter does. Raise it if "
-                                                  "the hunter drifts."))) {
+            options_for("input.dead_zone",
+                "How far the left stick moves before the hunter does. Raise it if "
+                "the hunter drifts."))) {
         s.dead_zone = static_cast<float>(dead_zone) / 100.0f;
         settings::save();
     }
     int trigger = static_cast<int>(std::lround(s.trigger * 100.0f));
     if (slider_row("Trigger point", trigger, 5, 100, 5, "%d%%",
-                   options_for("input.trigger", "How far LT/RT (L2/R2) travel before they press anything."))) {
+            options_for("input.trigger", "How far LT/RT (L2/R2) travel before they press anything."))) {
         s.trigger = static_cast<float>(trigger) / 100.0f;
         settings::save();
     }
     {
         static const char *const kModes[] = {"Camera", "D-pad", "Off"};
         const int current = static_cast<int>(s.right_stick);
-        if (const int delta = choice_row(
-                "Camera stick", kModes[current],
-                options_for("input.right_stick", "Camera uses the HD release's own right-stick camera. D-pad "
-                                                 "presses the D-pad instead, like the PSP's camera controls. "
-                                                 "It is the right stick unless the preset moves with it."))) {
+        if (const int delta = choice_row("Camera stick", kModes[current],
+                options_for("input.right_stick",
+                    "Camera uses the HD release's own right-stick camera. D-pad "
+                    "presses the D-pad instead, like the PSP's camera controls. "
+                    "It is the right stick unless the preset moves with it."))) {
             s.right_stick = static_cast<settings::RightStick>(cycle(current, delta, 3));
             settings::save();
         }
     }
     // On Android a finger drag drives the analog camera whatever the right
     // stick does, so the row stays open there.
-    const bool camera = s.right_stick == settings::RightStick::Camera ||
-                        settings::kPlatform == settings::Platform::Android;
+    const bool camera =
+        s.right_stick == settings::RightStick::Camera || settings::kPlatform == settings::Platform::Android;
     {
         RowOptions o = options_for("input.analog_camera",
-                                   "Turn and tilt the quest camera as far as the stick is pushed, instead of the "
-                                   "game's fixed-speed turn and vertical presets. Release holds the angle; the D-pad "
-                                   "and recentre return to the game's camera. Off is the game's own camera, untouched.");
+            "Turn and tilt the quest camera as far as the stick is pushed, instead of the "
+            "game's fixed-speed turn and vertical presets. Release holds the angle; the D-pad "
+            "and recentre return to the game's camera. Off is the game's own camera, untouched.");
         if (!camera && !o.disabled) {
             o.disabled = true;
             o.note = "Camera stick is not the camera";
@@ -940,9 +961,10 @@ void Menu::controls() {
             s.camera_speed = static_cast<float>(speed);
             settings::save();
         }
-        o = options_for("input.aim_speed", "How fast a bow or a bowgun aims at full deflection, in degrees a "
-                                           "second. The game's own aim moves at about 100 and only past half "
-                                           "the stick's travel.");
+        o = options_for("input.aim_speed",
+            "How fast a bow or a bowgun aims at full deflection, in degrees a "
+            "second. The game's own aim moves at about 100 and only past half "
+            "the stick's travel.");
         if (!s.analog_camera && !o.disabled) {
             o.disabled = true;
             o.note = "Analog camera is off";
@@ -958,8 +980,8 @@ void Menu::controls() {
         std::string bind = input::format(s.controls.keys[slot]);
         const std::string pad = input::format(s.controls.pad[slot]);
         if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
-        const std::string help =
-            "A tap of Lock on" + (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
+        const std::string help = "A tap of Lock on" +
+            (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
             " turns the quest camera to the nearest large monster and keeps it in view. Tap again for the next "
             "large monster in the area; after the last one, a tap lets go. Turning the camera by hand, the D-pad's "
             "camera and L let go too. Off, the bind does nothing.";
@@ -967,8 +989,9 @@ void Menu::controls() {
             s.lock_on = !s.lock_on;
             settings::save();
         }
-        RowOptions o = options_for("input.lock_on_marker", "A small ring over the monster the camera is locked "
-                                                           "onto.");
+        RowOptions o = options_for("input.lock_on_marker",
+            "A small ring over the monster the camera is locked "
+            "onto.");
         if (!s.lock_on && !o.disabled) {
             o.disabled = true;
             o.note = "Lock-on is off";
@@ -999,8 +1022,9 @@ void Menu::controls() {
         }
     }
     {
-        RowOptions o = options_for("input.right_stick_zone", "How far the camera stick moves before it presses the "
-                                                             "D-pad.");
+        RowOptions o = options_for("input.right_stick_zone",
+            "How far the camera stick moves before it presses the "
+            "D-pad.");
         if (s.right_stick != settings::RightStick::DPad && !o.disabled) {
             o.disabled = true;
             o.note = "Camera stick is not the D-pad";
@@ -1016,32 +1040,33 @@ void Menu::controls() {
     {
         const bool keyboard = s.name_entry == settings::NameEntry::Keyboard;
         if (choice_row("When the game asks for a name", keyboard ? "On-screen keyboard" : "Use the name below",
-                       options_for("input.name_entry",
-                                   "On-screen keyboard: type the name with the gamepad or the keyboard while the "
-                                   "game waits. Otherwise the name below is given at once."))) {
+                options_for("input.name_entry",
+                    "On-screen keyboard: type the name with the gamepad or the keyboard while the "
+                    "game waits. Otherwise the name below is given at once."))) {
             s.name_entry = keyboard ? settings::NameEntry::Fixed : settings::NameEntry::Keyboard;
             settings::save();
         }
     }
     if (text_row("name", "Hunter name", s.name, kHunterNameLength, false, hunter_name_character,
-                 options_for("input.name", "Given when the game asks for a name and the on-screen keyboard is "
-                                           "off, and to other players when the network nickname is empty. "
-                                           "Letters, digits, spaces and simple punctuation.")))
+            options_for("input.name",
+                "Given when the game asks for a name and the on-screen keyboard is "
+                "off, and to other players when the network nickname is empty. "
+                "Letters, digits, spaces and simple punctuation.")))
         settings::save();
 
     section("Keyboard and mouse");
     {
         RowOptions o = options_for("input.mouse",
-                                   "While the game runs, the window takes the pointer: moving the mouse turns the "
-                                   "camera and its buttons press what they are bound to. Esc opens this menu and "
-                                   "gives the pointer back.");
+            "While the game runs, the window takes the pointer: moving the mouse turns the "
+            "camera and its buttons press what they are bound to. Esc opens this menu and "
+            "gives the pointer back.");
         if (toggle_row("Mouse", s.mouse, o)) {
             s.mouse = !s.mouse;
             settings::save();
         }
         o = options_for("input.mouse_sensitivity",
-                        "Degrees the camera turns for each count of mouse motion. While a bow or a bowgun aims, "
-                        "the mouse is slowed as Aim speed is to Camera speed.");
+            "Degrees the camera turns for each count of mouse motion. While a bow or a bowgun aims, "
+            "the mouse is slowed as Aim speed is to Camera speed.");
         if (!s.mouse && !o.disabled) {
             o.disabled = true;
             o.note = "Mouse is off";
@@ -1073,9 +1098,10 @@ void Menu::controls() {
 
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
-                   {false, {}, "Every gamepad, keyboard, mouse, touch, name and free camera setting back to how "
-                               "Yakumo ships, with the Default preset. Your own presets and the Action layout's "
-                               "arrangement are kept."})) {
+            {false, {},
+                "Every gamepad, keyboard, mouse, touch, name and free camera setting back to how "
+                "Yakumo ships, with the Default preset. Your own presets and the Action layout's "
+                "arrangement are kept."})) {
         const settings::Settings &d = settings::defaults();
         const auto restore = [&](const char *key, auto &value, const auto &fallback) {
             if (settings::overridden_by(key) == nullptr) value = fallback;
@@ -1113,8 +1139,8 @@ void Menu::controls() {
     section("Touch screen");
     {
         RowOptions o = options_for("input.touch_controls",
-                                   "Controls drawn over the game once the screen is touched, in the layout below. "
-                                   "They hide again when a gamepad or the keyboard is used.");
+            "Controls drawn over the game once the screen is touched, in the layout below. "
+            "They hide again when a gamepad or the keyboard is used.");
         if (toggle_row("On-screen controls", s.touch_controls, o)) {
             s.touch_controls = !s.touch_controls;
             settings::save();
@@ -1128,12 +1154,12 @@ void Menu::controls() {
         };
         const bool action = s.touch_layout == settings::TouchLayout::Action;
         if (choice_row("Layout", action ? "Action" : "PSP buttons",
-                       off(options_for("input.touch_layout",
-                                       "PSP buttons: a stick where the left thumb lands, the face buttons on the "
-                                       "right, L and R at the top corners. Action: large buttons named for what "
-                                       "they do (attack, evade, guard, the combined attack), a fixed stick, the "
-                                       "item pouch, and swipes for the item bar; every element can be moved, "
-                                       "resized and rebound.")))) {
+                off(options_for("input.touch_layout",
+                    "PSP buttons: a stick where the left thumb lands, the face buttons on the "
+                    "right, L and R at the top corners. Action: large buttons named for what "
+                    "they do (attack, evade, guard, the combined attack), a fixed stick, the "
+                    "item pouch, and swipes for the item bar; every element can be moved, "
+                    "resized and rebound.")))) {
             s.touch_layout = action ? settings::TouchLayout::Psp : settings::TouchLayout::Action;
             settings::save();
         }
@@ -1146,19 +1172,21 @@ void Menu::controls() {
             return options;
         };
         if (button_row("Edit the action layout…",
-                       action_only({false, {}, "Move, resize, rebind and hide the Action layout's elements, over "
-                                               "the game. Kept on this device."})))
+                action_only({false, {},
+                    "Move, resize, rebind and hide the Action layout's elements, over "
+                    "the game. Kept on this device."})))
             open_touch_editor();
         if (toggle_row("Haptic feedback", s.touch_haptics,
-                       action_only(options_for("input.touch_haptics",
-                                               "A short vibration when an Action button is pressed or a swipe is "
-                                               "taken, where the device can.")))) {
+                action_only(options_for("input.touch_haptics",
+                    "A short vibration when an Action button is pressed or a swipe is "
+                    "taken, where the device can.")))) {
             s.touch_haptics = !s.touch_haptics;
             settings::save();
         }
-        RowOptions dpad = off(options_for("input.touch_dpad", "A D-pad at the left edge, for the game's menus, the "
-                                                              "item box and the camera's D-pad controls. Off gives "
-                                                              "its place to the stick."));
+        RowOptions dpad = off(options_for("input.touch_dpad",
+            "A D-pad at the left edge, for the game's menus, the "
+            "item box and the camera's D-pad controls. Off gives "
+            "its place to the stick."));
         if (action && !dpad.disabled) {
             dpad.disabled = true;
             dpad.note = "For the PSP buttons layout";
@@ -1169,38 +1197,38 @@ void Menu::controls() {
         }
         int opacity = static_cast<int>(std::lround(s.touch_opacity * 100.0f));
         if (slider_row("Controls opacity", opacity, 10, 100, 5, "%d%%",
-                       off(options_for("input.touch_opacity", "How strongly the on-screen controls are drawn.")))) {
+                off(options_for("input.touch_opacity", "How strongly the on-screen controls are drawn.")))) {
             s.touch_opacity = static_cast<float>(opacity) / 100.0f;
             settings::save();
         }
         int size = static_cast<int>(std::lround(s.touch_size * 100.0f));
         if (slider_row("Controls size", size, 60, 160, 5, "%d%%",
-                       off(options_for("input.touch_size", "The size of the on-screen controls.")))) {
+                off(options_for("input.touch_size", "The size of the on-screen controls.")))) {
             s.touch_size = static_cast<float>(size) / 100.0f;
             settings::save();
         }
         int speed = static_cast<int>(std::lround(s.touch_camera_speed));
         if (slider_row("Touch camera speed", speed, 30, 720, 10, "%d deg",
-                       off(options_for("input.touch_camera_speed",
-                                       "Degrees the camera turns for a drag across the height of the screen.")))) {
+                off(options_for("input.touch_camera_speed",
+                    "Degrees the camera turns for a drag across the height of the screen.")))) {
             s.touch_camera_speed = static_cast<float>(speed);
             settings::save();
         }
     }
     section("Experimental");
     if (toggle_row("Free camera", s.free_camera,
-                   options_for("experimental.free_camera",
-                               "Experimental, and it may break or change. F6, or Back and R3 on a gamepad, "
-                               "detaches the view from the game's camera and flies it about; the same again gives "
-                               "the game's camera back. The game keeps running and gets no input meanwhile. "
-                               "What the game does not draw from its own camera's place is missing."))) {
+            options_for("experimental.free_camera",
+                "Experimental, and it may break or change. F6, or Back and R3 on a gamepad, "
+                "detaches the view from the game's camera and flies it about; the same again gives "
+                "the game's camera back. The game keeps running and gets no input meanwhile. "
+                "What the game does not draw from its own camera's place is missing."))) {
         s.free_camera = !s.free_camera;
         settings::save();
     }
     {
         RowOptions o = options_for("experimental.free_camera_speed",
-                                   "How fast the free camera flies, in the game's units a second. The mouse "
-                                   "wheel, + and -, and the D-pad change it in flight.");
+            "How fast the free camera flies, in the game's units a second. The mouse "
+            "wheel, + and -, and the D-pad change it in flight.");
         if (!s.free_camera && !o.disabled) {
             o.disabled = true;
             o.note = "Free camera is off";
@@ -1213,8 +1241,8 @@ void Menu::controls() {
     }
     {
         RowOptions o = options_for("experimental.free_camera_hide_hud",
-                                   "Hides the game's HUD and name tags while the free camera flies or holds a "
-                                   "picture: they belong to the game's own view.");
+            "Hides the game's HUD and name tags while the free camera flies or holds a "
+            "picture: they belong to the game's own view.");
         if (!s.free_camera && !o.disabled) {
             o.disabled = true;
             o.note = "Free camera is off";
@@ -1245,9 +1273,12 @@ std::string format_duration(std::uint64_t ms) {
 
 std::string format_bytes(std::uint64_t bytes) {
     char text[32];
-    if (bytes < 10'000u) std::snprintf(text, sizeof(text), "%llu B", static_cast<unsigned long long>(bytes));
-    else if (bytes < 10'000'000u) std::snprintf(text, sizeof(text), "%.1f KB", static_cast<double>(bytes) / 1024.0);
-    else std::snprintf(text, sizeof(text), "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    if (bytes < 10'000u)
+        std::snprintf(text, sizeof(text), "%llu B", static_cast<unsigned long long>(bytes));
+    else if (bytes < 10'000'000u)
+        std::snprintf(text, sizeof(text), "%.1f KB", static_cast<double>(bytes) / 1024.0);
+    else
+        std::snprintf(text, sizeof(text), "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
     return text;
 }
 
@@ -1259,8 +1290,9 @@ std::string connection_text(const adhoc::Diagnostics &d) {
     case adhoc::ServerState::Connecting:
         if (d.failed_attempts == 0u) return "Connecting…";
         return "Reconnecting, attempt " + std::to_string(d.failed_attempts + 1u) +
-               (d.last_error.empty() ? "" : " (" + d.last_error + ")");
-    case adhoc::ServerState::Online: break;
+            (d.last_error.empty() ? "" : " (" + d.last_error + ")");
+    case adhoc::ServerState::Online:
+        break;
     }
     std::string text = "On line";
     if (d.online_ms) text += " for " + format_duration(*d.online_ms);
@@ -1284,7 +1316,7 @@ std::string group_text(const adhoc::Diagnostics &d) {
 
 std::string traffic_text(const adhoc::Traffic &t) {
     return "in " + std::to_string(t.packets_in) + " (" + format_bytes(t.bytes_in) + "), out " +
-           std::to_string(t.packets_out) + " (" + format_bytes(t.bytes_out) + ")";
+        std::to_string(t.packets_out) + " (" + format_bytes(t.bytes_out) + ")";
 }
 
 // The on-screen network overlay (menu: Network, or MHP3RD_ADHOC_OVERLAY).
@@ -1326,8 +1358,10 @@ void play_together() {
         const adhoc::ServerStatus status = adhoc_host_status();
         const std::string suffix =
             status.adhocctl_port == adhoc::kAdhocctlPort ? std::string() : ":" + std::to_string(status.adhocctl_port);
-        info_row("Hosting", players_text(status.players.size()) + " connected. Everyone now enters the Online Guild "
-                                                                  "Hall and picks the same hall.");
+        info_row("Hosting",
+            players_text(status.players.size()) +
+                " connected. Everyone now enters the Online Guild "
+                "Hall and picks the same hall.");
         const std::vector<adhoc::LocalAddress> addresses = adhoc::local_addresses();
         if (addresses.empty()) info_row("Your addresses", "No network is connected");
         for (const adhoc::LocalAddress &address : addresses) {
@@ -1335,9 +1369,9 @@ void play_together() {
             const std::string label =
                 text + "   " + address.network + " (" + address.interface + ")###address " + address.address;
             if (button_row(label.c_str(),
-                           {false, {},
-                            "Copies this address. Players on the same network find you under Join; over a VPN "
-                            "without broadcast, such as Tailscale, they type your VPN address there."})) {
+                    {false, {},
+                        "Copies this address. Players on the same network find you under Join; over a VPN "
+                        "without broadcast, such as Tailscale, they type your VPN address there."})) {
                 SDL_SetClipboardText(text.c_str());
                 copied = text;
             }
@@ -1348,23 +1382,22 @@ void play_together() {
             const adhoc::ServerPlayer &player = status.players[i];
             ImGui::PushID(static_cast<int>(i));
             info_row(player.nickname.c_str(),
-                     player.address + "   " + (player.group ? group_name(*player.group) : std::string("not in a hall")));
+                player.address + "   " + (player.group ? group_name(*player.group) : std::string("not in a hall")));
             ImGui::PopID();
         }
         ImGui::PopID();
         // One ID for Host and Stop, so the focus stays on the row.
         if (button_row("Stop hosting###hosting",
-                       {false, {},
-                        "Stops the server. Everyone in the session is disconnected, as when a connection drops."},
-                       colors::kDanger)) {
+                {false, {}, "Stops the server. Everyone in the session is disconnected, as when a connection drops."},
+                colors::kDanger)) {
             adhoc_host_stop();
             copied.clear();
         }
     } else {
         if (button_row("Host a session###hosting",
-                       {false, {},
-                        "Runs a server in this game for the others to join: no other program, no port forwarding "
-                        "on a local network or a VPN. Then everyone enters the Online Guild Hall."}))
+                {false, {},
+                    "Runs a server in this game for the others to join: no other program, no port forwarding "
+                    "on a local network or a VPN. Then everyone enters the Online Guild Hall."}))
             adhoc_host_start();
         if (const std::string error = adhoc_host_error(); !error.empty()) info_row("Cannot host", error);
     }
@@ -1375,22 +1408,22 @@ void play_together() {
     discovery.query(s.adhoc_recent);
     const std::vector<adhoc::FoundHost> hosts = discovery.hosts();
     const bool hosting = adhoc_hosting();
-    const auto joined = [&](const std::string &address) {
-        return !hosting && s.adhoc && s.adhoc_server == address;
-    };
+    const auto joined = [&](const std::string &address) { return !hosting && s.adhoc && s.adhoc_server == address; };
     for (const adhoc::FoundHost &host : hosts) {
         const std::string address = host.join_address();
         const std::string label = (joined(address) ? "Joined " : "Join ") + host.info.name + "   " + address + ", " +
-                                  players_text(host.info.players) + "###found " + std::to_string(host.info.session);
-        if (button_row(label.c_str(), {false, {}, "A session hosted on this network. Joining it takes you out of any "
-                                                  "other; then enter the Online Guild Hall."}))
+            players_text(host.info.players) + "###found " + std::to_string(host.info.session);
+        if (button_row(label.c_str(),
+                {false, {},
+                    "A session hosted on this network. Joining it takes you out of any "
+                    "other; then enter the Online Guild Hall."}))
             adhoc_join(address);
     }
     if (hosts.empty()) info_row("On this network", "Looking for hosted sessions…");
     if (text_row("join_address", "Address", typed_address, 100u, true, address_character,
-                 {false, {},
-                  "The host's address, for a VPN without broadcast such as Tailscale: the host's screen lists it. "
-                  "Confirming it joins."}) &&
+            {false, {},
+                "The host's address, for a VPN without broadcast such as Tailscale: the host's screen lists it. "
+                "Confirming it joins."}) &&
         !typed_address.empty()) {
         adhoc_join(typed_address);
         typed_address.clear();
@@ -1398,7 +1431,7 @@ void play_together() {
     for (const std::string &address : s.adhoc_recent) {
         // A recent session that is announcing is listed above already.
         if (std::any_of(hosts.begin(), hosts.end(),
-                        [&](const adhoc::FoundHost &host) { return host.join_address() == address; }))
+                [&](const adhoc::FoundHost &host) { return host.join_address() == address; }))
             continue;
         const std::string label = (joined(address) ? "Joined " : "Join ") + address + "   recent###recent " + address;
         if (button_row(label.c_str(), {false, {}, "A session you joined before."})) adhoc_join(address);
@@ -1412,23 +1445,26 @@ void Menu::network() {
     play_together();
     section("Ad hoc play");
     if (toggle_row("Ad hoc play", s.adhoc,
-                   options_for("network.adhoc", "Multiplayer with other players. Off, the game says the wireless "
-                                                "switch is off. Turning it off in a gathering hall leaves it."))) {
+            options_for("network.adhoc",
+                "Multiplayer with other players. Off, the game says the wireless "
+                "switch is off. Turning it off in a gathering hall leaves it."))) {
         s.adhoc = !s.adhoc;
         settings::save();
         adhoc_apply_settings();
     }
     if (text_row("server", "Server", s.adhoc_server, 100u, true, host_character,
-                 options_for("network.server", "The session or PSP ad hoc server the game goes on line with: host "
-                                               "name or address, host:port if it is not on 27312. Joining fills "
-                                               "it in; for a public server, type its name. Applies the next time "
-                                               "the game goes on line."))) {
+            options_for("network.server",
+                "The session or PSP ad hoc server the game goes on line with: host "
+                "name or address, host:port if it is not on 27312. Joining fills "
+                "it in; for a public server, type its name. Applies the next time "
+                "the game goes on line."))) {
         settings::save();
         adhoc_apply_settings();
     }
     if (text_row("nickname", "Nickname", s.adhoc_nickname, 32u, true, printable_ascii,
-                 options_for("network.nickname", "The name other players and the server see. Empty: the hunter name. "
-                                                 "Applies the next time the game goes on line."))) {
+            options_for("network.nickname",
+                "The name other players and the server see. Empty: the hunter name. "
+                "Applies the next time the game goes on line."))) {
         settings::save();
         adhoc_apply_settings();
     }
@@ -1437,60 +1473,67 @@ void Menu::network() {
     info_row("Connection", connection_text(d));
     if (adhoc_hosting()) {
         const adhoc::ServerStatus st = adhoc_host_status();
-        info_row("Server", "TCP " + std::to_string(st.adhocctl_port) + " and " + std::to_string(st.relay_port) +
-                               ", up " + format_duration(st.uptime_ms) + ", " + players_text(st.players.size()) +
-                               ", " + std::to_string(st.groups) + " halls, " + std::to_string(st.relay_sessions) +
-                               " relay connections, " + std::to_string(st.streams) + " streams");
-        info_row("Relayed", std::to_string(st.relayed_packets) + " packets (" + format_bytes(st.relayed_bytes) +
-                                "), " + std::to_string(st.dropped) + " datagrams dropped");
+        info_row("Server",
+            "TCP " + std::to_string(st.adhocctl_port) + " and " + std::to_string(st.relay_port) + ", up " +
+                format_duration(st.uptime_ms) + ", " + players_text(st.players.size()) + ", " +
+                std::to_string(st.groups) + " halls, " + std::to_string(st.relay_sessions) + " relay connections, " +
+                std::to_string(st.streams) + " streams");
+        info_row("Relayed",
+            std::to_string(st.relayed_packets) + " packets (" + format_bytes(st.relayed_bytes) + "), " +
+                std::to_string(st.dropped) + " datagrams dropped");
     }
     {
         const adhoc::DiscoveryStatus ds = adhoc::Discovery::get().status();
         std::string text = ds.listening ? "Listening on UDP " + std::to_string(adhoc::kDiscoveryPort) + ", " +
-                                              std::to_string(ds.hosts) + " hosts heard"
+                std::to_string(ds.hosts) + " hosts heard"
                                         : (ds.listen_error.empty() ? "Not listening" : ds.listen_error);
         if (ds.announcing)
             text += "; announcing " + ds.announce_note + ", " + std::to_string(ds.announcements_sent) + " sent, " +
-                    std::to_string(ds.queries_answered) + " queries answered";
+                std::to_string(ds.queries_answered) + " queries answered";
         info_row("Discovery", text);
         for (const adhoc::FoundHost &host : adhoc::Discovery::get().hosts())
             info_row(("Host " + host.info.name).c_str(),
-                     host.join_address() + ", " + players_text(host.info.players) + ", " + host.info.product +
-                         ", heard " + format_duration(host.heard_ms) + " ago");
+                host.join_address() + ", " + players_text(host.info.players) + ", " + host.info.product + ", heard " +
+                    format_duration(host.heard_ms) + " ago");
     }
     if (!d.server_address.empty()) info_row("Server address", d.server_address);
-    info_row("You", (s.adhoc_mac.empty() ? std::string("address made up on first use") : s.adhoc_mac) +
-                        (d.nickname.empty() ? "" : "   " + d.nickname));
+    info_row("You",
+        (s.adhoc_mac.empty() ? std::string("address made up on first use") : s.adhoc_mac) +
+            (d.nickname.empty() ? "" : "   " + d.nickname));
     info_row("Group", group_text(d));
     for (const adhoc::PeerSummary &peer : d.peers)
         info_row(peer.nickname.empty() ? "Player" : peer.nickname.c_str(),
-                 adhoc::format_mac(peer.mac) + "   " +
-                     (peer.last_heard_ms ? "heard " + format_duration(*peer.last_heard_ms) + " ago" : "not heard yet"));
+            adhoc::format_mac(peer.mac) + "   " +
+                (peer.last_heard_ms ? "heard " + format_duration(*peer.last_heard_ms) + " ago" : "not heard yet"));
     for (const adhoc::SocketSummary &socket : d.sockets) {
         const std::string label = socket.kind + " " + std::to_string(socket.port);
-        info_row(label.c_str(), socket.state + (socket.peer ? "   " + adhoc::format_mac(*socket.peer) + " port " +
-                                                                  std::to_string(socket.peer_port)
-                                                            : std::string{}));
+        info_row(label.c_str(),
+            socket.state +
+                (socket.peer ? "   " + adhoc::format_mac(*socket.peer) + " port " + std::to_string(socket.peer_port)
+                             : std::string{}));
     }
     if (d.relay_links_wanted != 0u)
-        info_row("Relay links", std::to_string(d.relay_links_up) + " of " + std::to_string(d.relay_links_wanted) +
-                                    " up");
+        info_row(
+            "Relay links", std::to_string(d.relay_links_up) + " of " + std::to_string(d.relay_links_wanted) + " up");
     info_row("Per second", traffic_text(d.per_second));
     info_row("Since start", traffic_text(d.total));
-    info_row("Problems", std::to_string(d.dropped) + " datagrams dropped, " + std::to_string(d.timeouts) +
-                             " calls timed out, " + std::to_string(d.reconnects) + " reconnections");
+    info_row("Problems",
+        std::to_string(d.dropped) + " datagrams dropped, " + std::to_string(d.timeouts) + " calls timed out, " +
+            std::to_string(d.reconnects) + " reconnections");
 
     section("Troubleshooting");
     if (toggle_row("Network overlay", network_overlay(),
-                   {false, {}, "A small panel over the game with the connection, the group and the traffic."}))
+            {false, {}, "A small panel over the game with the connection, the group and the traffic."}))
         network_overlay() = !network_overlay();
     if (toggle_row("Log every call and packet", adhoc::Client::tracing(),
-                   {false, {}, "The same as MHP3RD_TRACE_ADHOC=1: every ad hoc call and packet header goes to the "
-                               "console and to the network log. Busy; for finding a problem."}))
+            {false, {},
+                "The same as MHP3RD_TRACE_ADHOC=1: every ad hoc call and packet header goes to the "
+                "console and to the network log. Busy; for finding a problem."}))
         adhoc::Client::set_tracing(!adhoc::Client::tracing());
     if (button_row("Save network log",
-                   {false, {}, "Writes the recent network log and this page's state to a file in the data folder's "
-                               "logs folder, to send with a problem report."})) {
+            {false, {},
+                "Writes the recent network log and this page's state to a file in the data folder's "
+                "logs folder, to send with a problem report."})) {
         std::filesystem::path directory;
         try {
             directory = install::user_data_directory() / "logs";
@@ -1498,19 +1541,21 @@ void Menu::network() {
             directory = "logs";
         }
         const std::filesystem::path path = client.save_log(directory);
-        saved_log_path() = path.empty() ? "Could not write to " + install::path_to_utf8(directory)
-                                        : install::path_to_utf8(path);
+        saved_log_path() =
+            path.empty() ? "Could not write to " + install::path_to_utf8(directory) : install::path_to_utf8(path);
         std::cout << "[adhoc] network log: " << saved_log_path() << std::endl;
     }
     if (!saved_log_path().empty()) info_row("Saved", saved_log_path());
-    if (button_row("Reconnect now", {d.state == adhoc::ServerState::Off, {},
-                                     "Drop the server connection and connect again at once. The group is joined "
-                                     "again; a quest in progress may end, as when a connection drops."}))
+    if (button_row("Reconnect now",
+            {d.state == adhoc::ServerState::Off, {},
+                "Drop the server connection and connect again at once. The group is joined "
+                "again; a quest in progress may end, as when a connection drops."}))
         client.reconnect_now();
-    if (button_row("Disconnect", {!d.group && !d.joining, {},
-                                  "Leave the group as if the other players were lost. The game shows its own "
-                                  "disconnection message."},
-                   colors::kDanger))
+    if (button_row("Disconnect",
+            {!d.group && !d.joining, {},
+                "Leave the group as if the other players were lost. The game shows its own "
+                "disconnection message."},
+            colors::kDanger))
         client.disconnect_now();
 
     ImGui::Dummy({0.0f, font_gap()});
@@ -1556,8 +1601,10 @@ void Menu::system() {
     section("Game");
     if (button_row("Resume", {false, {}, "Back to the game."})) close_ = true;
     if (button_row("Take a screenshot",
-                   {false, {}, "Saves the game's picture behind the menu, at the size it is drawn at, as a PNG in "
-                               "the screenshots folder. In play: " + binds_of(input::Action::Screenshot) + "."})) {
+            {false, {},
+                "Saves the game's picture behind the menu, at the size it is drawn at, as a PNG in "
+                "the screenshots folder. In play: " +
+                    binds_of(input::Action::Screenshot) + "."})) {
         const std::string where = take_screenshot();
         screenshot_path_ = where.empty() ? "Not saved: no game picture yet" : where;
     }
@@ -1577,17 +1624,18 @@ void Menu::system() {
 #endif
     settings::Settings &s = settings::current();
     if (toggle_row("Pause the game when the menu opens", s.menu_pause,
-                   options_for("ui.menu_pause", "On: the game stops while this menu is open. Off: it keeps running "
-                                                "and playing sound behind the menu, which takes all input. Applies "
-                                                "the next time the menu opens."))) {
+            options_for("ui.menu_pause",
+                "On: the game stops while this menu is open. Off: it keeps running "
+                "and playing sound behind the menu, which takes all input. Applies "
+                "the next time the menu opens."))) {
         s.menu_pause = !s.menu_pause;
         settings::save();
     }
     if (toggle_row("Pause during multiplayer", s.menu_pause_multiplayer,
-                   options_for("ui.menu_pause_multiplayer",
-                               "In ad hoc play the game keeps running behind the menu unless this is on: a paused "
-                               "game stops answering the other players and can drop a quest. Applies the next time "
-                               "the menu opens."))) {
+            options_for("ui.menu_pause_multiplayer",
+                "In ad hoc play the game keeps running behind the menu unless this is on: a paused "
+                "game stops answering the other players and can drop a quest. Applies the next time "
+                "the menu opens."))) {
         s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
         settings::save();
     }
@@ -1595,11 +1643,12 @@ void Menu::system() {
     // An Android app's data folder is out of the file manager's reach; its
     // log goes where the player picks instead, to send with a report.
     (void)data_dir;
-    if (button_row("Save the log…", {false, {}, "Copies Yakumo's logs (this run's, the previous run's, the last "
-                                                "error's and the logs folder) to a folder you pick, to send with a "
-                                                "problem report."})) {
-        const auto saved = android::save_logs(
-            install::user_data_directory(),
+    if (button_row("Save the log…",
+            {false, {},
+                "Copies Yakumo's logs (this run's, the previous run's, the last "
+                "error's and the logs folder) to a folder you pick, to send with a "
+                "problem report."})) {
+        const auto saved = android::save_logs(install::user_data_directory(),
             "Yakumo log " + savedata::timestamp_for_path(std::chrono::system_clock::now()));
         if (saved) saved_log_path() = saved->error.empty() ? saved->where : "Not saved: " + saved->error;
     }
@@ -1611,10 +1660,9 @@ void Menu::system() {
     }
 #endif
     if (button_row("Set up game data again…",
-                   {false, {}, "Choose the disc image again, for example after moving it. The game closes first."}))
+            {false, {}, "Choose the disc image again, for example after moving it. The game closes first."}))
         confirm_ = Confirm::Setup;
-    if (button_row("Quit game", {false, {}, "Close Yakumo. Progress since your last save is lost."},
-                   colors::kDanger))
+    if (button_row("Quit game", {false, {}, "Close Yakumo. Progress since your last save is lost."}, colors::kDanger))
         confirm_ = Confirm::Quit;
 
     section("Saves");
@@ -1646,7 +1694,8 @@ bool Menu::confirm_dialog() {
     ImGui::SetNextWindowSize({std::min(io.DisplaySize.x * 0.9f, font * 26.0f), 0.0f}, ImGuiCond_Always);
     bool keep_open = true;
     confirm_opened_ = false;
-    if (ImGui::BeginPopupModal("##confirm", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings)) {
+    if (ImGui::BeginPopupModal(
+            "##confirm", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings)) {
         if (confirm_ == Confirm::None) {
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
@@ -1661,8 +1710,8 @@ bool Menu::confirm_dialog() {
             const float gap = font * 0.6f;
             const float width = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
             if (big_button("Delete", width, true)) {
-                std::erase_if(s.user_presets,
-                              [&](const input::UserPreset &p) { return p.name == s.control_preset.user; });
+                std::erase_if(
+                    s.user_presets, [&](const input::UserPreset &p) { return p.name == s.control_preset.user; });
                 settings::choose_preset(s, {input::Preset::Default, {}});
                 preset_notice_.clear();
                 settings::save();
@@ -1683,7 +1732,7 @@ bool Menu::confirm_dialog() {
         paragraph(quit ? "Progress since your last save is lost."
                        : "Yakumo closes the game and opens the setup, where you choose the disc image again. "
                          "Progress since your last save is lost.",
-                  colors::kTextDim);
+            colors::kTextDim);
         ImGui::Dummy({0.0f, font * 0.6f});
         const float gap = font * 0.6f;
         const float width = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
@@ -1721,8 +1770,8 @@ void draw_hint(double seconds_left) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.8f, font * 0.5f});
     ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y - font}, ImGuiCond_Always, {0.5f, 1.0f});
     ImGui::Begin("##hint", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     hints({{Control::Menu, "Settings and pause"}});
     ImGui::End();
     ImGui::PopStyleVar(2);
@@ -1747,8 +1796,8 @@ void draw_gpu_problem(const std::string &problem) {
     ImGui::SetNextWindowBgAlpha(0.85f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.8f, font * 0.5f});
     ImGui::Begin("##gpu_problem", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted("Graphics problem");
     ImGui::TextUnformatted(problem.c_str());
@@ -1769,23 +1818,23 @@ void draw_network_overlay() {
     ImGui::SetNextWindowBgAlpha(0.7f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.3f});
     ImGui::Begin("##network", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::SetWindowFontScale(0.75f);
     ImGui::TextUnformatted(connection_text(d).c_str());
     if (adhoc_hosting())
         ImGui::TextUnformatted(("Hosting: " + players_text(adhoc_host_status().players.size())).c_str());
     ImGui::TextUnformatted(("Group: " + group_text(d)).c_str());
     for (const adhoc::PeerSummary &peer : d.peers)
-        ImGui::TextUnformatted(("  " + peer.nickname + (peer.last_heard_ms ? "  " + format_duration(*peer.last_heard_ms)
-                                                                           : std::string("  -")))
-                                   .c_str());
+        ImGui::TextUnformatted(("  " + peer.nickname +
+            (peer.last_heard_ms ? "  " + format_duration(*peer.last_heard_ms) : std::string("  -")))
+                .c_str());
     std::size_t streams = 0;
     for (const adhoc::SocketSummary &socket : d.sockets)
         if (socket.kind != "PDP" && socket.state == "established") ++streams;
     ImGui::TextUnformatted(("Links " + std::to_string(d.relay_links_up) + "/" + std::to_string(d.relay_links_wanted) +
-                            ", streams " + std::to_string(streams))
-                               .c_str());
+        ", streams " + std::to_string(streams))
+            .c_str());
     ImGui::TextUnformatted(("/s " + traffic_text(d.per_second)).c_str());
     if (d.dropped != 0u || d.timeouts != 0u)
         ImGui::TextUnformatted(
@@ -1804,14 +1853,14 @@ void draw_free_camera_indicator(const camera::FreeCameraStatus &status) {
     ImGui::SetNextWindowBgAlpha(0.6f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.2f});
     ImGui::Begin("##freecam", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::SetWindowFontScale(0.7f);
     char text[160];
     std::snprintf(text, sizeof(text), "Free camera%s  %.0f/s  %s", status.paused ? " (photo mode)" : "",
-                  static_cast<double>(status.speed),
-                  status.moved_draws == 0u && status.other_draws != 0u ? "- not the game's usual view here"
-                                                                      : "F6 or Back+R3 to leave");
+        static_cast<double>(status.speed),
+        status.moved_draws == 0u && status.other_draws != 0u ? "- not the game's usual view here"
+                                                             : "F6 or Back+R3 to leave");
     ImGui::TextUnformatted(text);
     ImGui::End();
     ImGui::PopStyleVar();
@@ -1827,8 +1876,8 @@ void draw_fast_forward() {
     ImGui::SetNextWindowBgAlpha(0.5f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.4f, font * 0.2f});
     ImGui::Begin("##fast_forward", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::SetWindowFontScale(0.75f);
     const float height = ImGui::GetTextLineHeight();
     const float size = height * 0.6f;
@@ -1866,14 +1915,13 @@ void draw_note(const Note &n) {
     const ImGuiIO &io = ImGui::GetIO();
     const float font = Layer::get().font_size();
     const float left = std::chrono::duration<float>(n.until - Clock::now()).count();
-    ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y - font * 0.6f}, ImGuiCond_Always,
-                            {0.5f, 1.0f});
+    ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y - font * 0.6f}, ImGuiCond_Always, {0.5f, 1.0f});
     ImGui::SetNextWindowBgAlpha(0.7f * std::clamp(left * 2.0f, 0.0f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.25f});
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, std::clamp(left * 2.0f, 0.0f, 1.0f));
     ImGui::Begin("##note", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::SetWindowFontScale(0.7f);
     ImGui::PushTextWrapPos(io.DisplaySize.x * 0.9f);
     ImGui::TextUnformatted(n.text.c_str());
@@ -1896,8 +1944,8 @@ void draw_hud_note(double seconds_left, bool below_free_camera) {
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.25f});
     ImGui::Begin("##hud_note", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImGui::SetWindowFontScale(0.75f);
     const std::string key =
         input::format(settings::current().controls.keys[static_cast<std::size_t>(input::Action::HideHud)]);
@@ -1929,8 +1977,7 @@ void note_menu_opened(bool paused) {
         s.menu_hint_seen = true;
         settings::save();
     }
-    std::cout << (paused ? "[menu] opened; the game is paused" : "[menu] opened; the game keeps running")
-              << std::endl;
+    std::cout << (paused ? "[menu] opened; the game is paused" : "[menu] opened; the game keeps running") << std::endl;
     menu_opened_at() = Clock::now();
 }
 
@@ -1943,9 +1990,13 @@ void note_menu_closed(bool quit) {
 
 } // namespace
 
-bool attach(gpu::VulkanRenderer &renderer) { return Layer::get().attach(renderer); }
+bool attach(gpu::VulkanRenderer &renderer) {
+    return Layer::get().attach(renderer);
+}
 
-void show_note(const std::string &text) { note() = {text, Clock::now() + kNoteTime}; }
+void show_note(const std::string &text) {
+    note() = {text, Clock::now() + kNoteTime};
+}
 
 namespace {
 std::optional<std::array<float, 2>> &lock_on_marker_at() {
@@ -1958,8 +2009,8 @@ std::optional<std::array<float, 2>> &lock_on_marker_at() {
 void draw_lock_on_marker(const std::array<float, 2> &at) {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
-    const ImVec2 centre{(picture[0] + at[0] * picture[2]) * io.DisplaySize.x,
-                        (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
+    const ImVec2 centre{
+        (picture[0] + at[0] * picture[2]) * io.DisplaySize.x, (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
     const float radius = Layer::get().font_size() * 0.55f;
     ImDrawList *draw = ImGui::GetForegroundDrawList();
     const ImU32 shadow = IM_COL32(0, 0, 0, 150);
@@ -1970,13 +2021,15 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
             const float dx = i == 0 ? 1.0f : i == 1 ? -1.0f : 0.0f;
             const float dy = i == 2 ? 1.0f : i == 3 ? -1.0f : 0.0f;
             draw->AddLine({centre.x + dx * radius * 0.55f, centre.y + dy * radius * 0.55f},
-                          {centre.x + dx * radius * 1.45f, centre.y + dy * radius * 1.45f}, colour, width);
+                {centre.x + dx * radius * 1.45f, centre.y + dy * radius * 1.45f}, colour, width);
         }
     }
 }
 } // namespace
 
-void set_lock_on_marker(std::optional<std::array<float, 2>> at) { lock_on_marker_at() = at; }
+void set_lock_on_marker(std::optional<std::array<float, 2>> at) {
+    lock_on_marker_at() = at;
+}
 
 std::string take_screenshot() {
     Layer &layer = Layer::get();
@@ -2022,12 +2075,12 @@ void draw_over_game() {
     const double hint_left = menu || settings::current().menu_hint_seen ? -1.0 : hint_seconds_left();
     const bool overlay = network_overlay();
     const bool touch = !menu && layer.renderer().touch_controls_visible();
-    const std::string gpu_problem =
-        menu || gpu_problem_seen() ? std::string() : layer.renderer().gpu_problem();
+    const std::string gpu_problem = menu || gpu_problem_seen() ? std::string() : layer.renderer().gpu_problem();
     const camera::FreeCameraStatus free_camera = camera::free_camera_status();
     const bool flying = free_camera.active && !menu && !layer.renderer().window_capture_pending();
     const bool fast = !menu && fast_forward::active();
-    const bool noted = !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
+    const bool noted =
+        !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted &&
@@ -2075,9 +2128,13 @@ void open_menu_over_game() {
     menu.emplace(false);
 }
 
-bool menu_over_game() { return menu_over_game_state().has_value(); }
+bool menu_over_game() {
+    return menu_over_game_state().has_value();
+}
 
-bool take_quit_request() { return std::exchange(quit_requested(), false); }
+bool take_quit_request() {
+    return std::exchange(quit_requested(), false);
+}
 
 bool menu_requested() {
     Layer &layer = Layer::get();

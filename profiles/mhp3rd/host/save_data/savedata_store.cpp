@@ -64,7 +64,8 @@ std::optional<Block> listed_hash(const ParamSfo &sfo, const std::string &name) {
 
 Block random_block() {
     std::random_device device;
-    std::mt19937_64 engine(device() ^ static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::mt19937_64 engine(
+        device() ^ static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
     Block block{};
     for (auto &b : block) b = static_cast<std::uint8_t>(engine());
     return block;
@@ -93,7 +94,7 @@ LoadResult load_save(const std::filesystem::path &memory_stick, const SaveFiles 
     const auto sfo_bytes = read_file(folder / kParamSfo);
     const auto sfo = sfo_bytes ? ParamSfo::parse(*sfo_bytes) : std::nullopt;
     const auto file = read_file(folder / files.file_name);
-    if (!file) return result;  // the folder exists but the game's file does not
+    if (!file) return result; // the folder exists but the game's file does not
     result.status = LoadStatus::Broken;
     if (!sfo) {
         result.reason = "PARAM.SFO is unreadable";
@@ -136,7 +137,7 @@ LoadResult load_save(const std::filesystem::path &memory_stick, const SaveFiles 
 }
 
 bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &files, const SaveContents &contents,
-                std::string &error) {
+    std::string &error) {
     const auto folder = save_folder(memory_stick, files);
     std::error_code ec;
     std::filesystem::create_directories(folder, ec);
@@ -162,7 +163,7 @@ bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &file
         std::size_t slot = file_list.size();
         for (std::size_t offset = 0; offset < file_list.size(); offset += kFileListEntrySize) {
             const std::string name(reinterpret_cast<const char *>(&file_list[offset]),
-                                   strnlen(reinterpret_cast<const char *>(&file_list[offset]), kFileListNameSize));
+                strnlen(reinterpret_cast<const char *>(&file_list[offset]), kFileListNameSize));
             if (name == files.file_name) {
                 slot = offset;
                 break;
@@ -175,7 +176,7 @@ bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &file
         }
         std::fill_n(file_list.begin() + static_cast<std::ptrdiff_t>(slot), kFileListEntrySize, 0u);
         std::copy_n(files.file_name.begin(), std::min(files.file_name.size(), kFileListNameSize - 1u),
-                    file_list.begin() + static_cast<std::ptrdiff_t>(slot));
+            file_list.begin() + static_cast<std::ptrdiff_t>(slot));
         std::copy(hash.begin(), hash.end(), file_list.begin() + static_cast<std::ptrdiff_t>(slot + kFileListNameSize));
     } else {
         stored = contents.data;
@@ -193,9 +194,8 @@ bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &file
     std::vector<std::uint8_t> sfo_bytes = sfo.serialize();
     if (files.key) sign_param_sfo(sfo_bytes, *sfo.data_offset("SAVEDATA_PARAMS"), kSaveMode);
 
-    const std::pair<const char *, const std::vector<std::uint8_t> *> media[] = {
-        {"ICON0.PNG", &contents.icon0}, {"ICON1.PMF", &contents.icon1},
-        {"PIC1.PNG", &contents.pic1}, {"SND0.AT3", &contents.snd0}};
+    const std::pair<const char *, const std::vector<std::uint8_t> *> media[] = {{"ICON0.PNG", &contents.icon0},
+        {"ICON1.PMF", &contents.icon1}, {"PIC1.PNG", &contents.pic1}, {"SND0.AT3", &contents.snd0}};
     for (const auto &[name, bytes] : media) {
         if (bytes->empty()) continue;
         if (!write_file(folder / name, *bytes)) {

@@ -30,32 +30,31 @@ using Block = std::array<std::uint8_t, 16>;
 constexpr std::size_t kHeaderSize = 0x150u;
 
 // Header fields used here.
-constexpr std::size_t kMagicOffset = 0x00u;           // "~PSP"
-constexpr std::size_t kAttributesOffset = 0x06u;      // bit 0 set: compressed
-constexpr std::size_t kImageSizeOffset = 0x28u;       // size of the decrypted image
-constexpr std::size_t kFileTypeOffset = 0x7Cu;        // 9: UMD game executable
-constexpr std::size_t kPayloadSizeOffset = 0xB0u;     // size of the encrypted payload
+constexpr std::size_t kMagicOffset = 0x00u;       // "~PSP"
+constexpr std::size_t kAttributesOffset = 0x06u;  // bit 0 set: compressed
+constexpr std::size_t kImageSizeOffset = 0x28u;   // size of the decrypted image
+constexpr std::size_t kFileTypeOffset = 0x7Cu;    // 9: UMD game executable
+constexpr std::size_t kPayloadSizeOffset = 0xB0u; // size of the encrypted payload
 constexpr std::size_t kTagOffset = 0xD0u;
 
 constexpr std::uint32_t kSupportedTag = 0xD9160BF0u;
 constexpr std::uint8_t kUmdGameExecutable = 9u;
 
 // Key selected by kSupportedTag, from the public PSP key tables.
-constexpr Block kTagKey = {0x83, 0x83, 0xF1, 0x37, 0x53, 0xD0, 0xBE, 0xFC,
-                           0x8D, 0xA7, 0x32, 0x52, 0x46, 0x0A, 0xC2, 0xC2};
+constexpr Block kTagKey = {
+    0x83, 0x83, 0xF1, 0x37, 0x53, 0xD0, 0xBE, 0xFC, 0x8D, 0xA7, 0x32, 0x52, 0x46, 0x0A, 0xC2, 0xC2};
 // Crypto-engine key slot 0x5D (plain AES decryption, command 7), which this tag
 // uses for the header.
-constexpr Block kHeaderKey = {0x11, 0x5A, 0x5D, 0x20, 0xD5, 0x3A, 0x8D, 0xD3,
-                              0x9C, 0xC5, 0xAF, 0x41, 0x0F, 0x0F, 0x18, 0x6F};
+constexpr Block kHeaderKey = {
+    0x11, 0x5A, 0x5D, 0x20, 0xD5, 0x3A, 0x8D, 0xD3, 0x9C, 0xC5, 0xAF, 0x41, 0x0F, 0x0F, 0x18, 0x6F};
 // The engine's fixed key for signed and encrypted blocks (command 1), which
 // wraps the payload key.
-constexpr Block kPayloadWrappingKey = {0x98, 0xC9, 0x40, 0x97, 0x5C, 0x1D, 0x10, 0xE8,
-                                       0x7F, 0xE6, 0x0E, 0xA3, 0xFD, 0x03, 0xA8, 0xBA};
+constexpr Block kPayloadWrappingKey = {
+    0x98, 0xC9, 0x40, 0x97, 0x5C, 0x1D, 0x10, 0xE8, 0x7F, 0xE6, 0x0E, 0xA3, 0xFD, 0x03, 0xA8, 0xBA};
 
 std::uint32_t read_le32(std::span<const std::uint8_t> data, std::size_t offset) {
     return static_cast<std::uint32_t>(data[offset]) | (static_cast<std::uint32_t>(data[offset + 1u]) << 8u) |
-           (static_cast<std::uint32_t>(data[offset + 2u]) << 16u) |
-           (static_cast<std::uint32_t>(data[offset + 3u]) << 24u);
+        (static_cast<std::uint32_t>(data[offset + 2u]) << 16u) | (static_cast<std::uint32_t>(data[offset + 3u]) << 24u);
 }
 
 // AES-128-CBC decryption with a zero IV, in place. The length must be a
@@ -77,10 +76,10 @@ void xor_into(Block &target, std::span<const std::uint8_t> mask) {
     for (std::size_t i = 0; i < target.size(); ++i) target[i] ^= mask[i];
 }
 
-void append(std::vector<std::uint8_t> &out, std::span<const std::uint8_t> header, std::size_t offset,
-            std::size_t size) {
+void append(
+    std::vector<std::uint8_t> &out, std::span<const std::uint8_t> header, std::size_t offset, std::size_t size) {
     out.insert(out.end(), header.begin() + static_cast<std::ptrdiff_t>(offset),
-               header.begin() + static_cast<std::ptrdiff_t>(offset + size));
+        header.begin() + static_cast<std::ptrdiff_t>(offset + size));
 }
 
 // The tag key, repeated over nine blocks that each carry their own index in
@@ -119,11 +118,11 @@ Block unwrap_payload_key(std::span<const std::uint8_t> header) {
 
 } // namespace
 
-std::vector<std::uint8_t> prepare_executable(std::span<const std::uint8_t> eboot_bin,
-                                             const std::function<void(std::uint64_t, std::uint64_t)> &progress) {
+std::vector<std::uint8_t> prepare_executable(
+    std::span<const std::uint8_t> eboot_bin, const std::function<void(std::uint64_t, std::uint64_t)> &progress) {
     if (psprecomp::sha256_bytes(eboot_bin) != kEncryptedExecutableSha256)
-        throw psprecomp::Error("EBOOT.BIN is not the supported executable of " + std::string(kGameTitle) + " (" +
-                               kDiscIdDisplay + ")");
+        throw psprecomp::Error(
+            "EBOOT.BIN is not the supported executable of " + std::string(kGameTitle) + " (" + kDiscIdDisplay + ")");
 
     // The hash already pins the file; these checks document the one layout
     // handled here.
@@ -137,8 +136,8 @@ std::vector<std::uint8_t> prepare_executable(std::span<const std::uint8_t> eboot
         throw psprecomp::Error("EBOOT.BIN has an unexpected payload size");
 
     const Block key = unwrap_payload_key(eboot_bin.first(kHeaderSize));
-    std::vector<std::uint8_t> executable(eboot_bin.begin() + kHeaderSize,
-                                         eboot_bin.begin() + static_cast<std::ptrdiff_t>(kHeaderSize + padded_size));
+    std::vector<std::uint8_t> executable(
+        eboot_bin.begin() + kHeaderSize, eboot_bin.begin() + static_cast<std::ptrdiff_t>(kHeaderSize + padded_size));
     // CBC carries its chaining value in the context, so the payload decrypts
     // in slices that report progress in between.
     constexpr std::size_t kSlice = 1024u * 1024u;

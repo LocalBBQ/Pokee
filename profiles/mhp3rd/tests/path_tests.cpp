@@ -119,7 +119,7 @@ void test_conversions(const fs::path &root) {
     set_environment("MHP3RD_PATH_TESTS_VALUE", path_to_utf8(root));
     check(mhp3rd::environment_path("MHP3RD_PATH_TESTS_VALUE") == root, "an environment variable gives the path back");
     check(mhp3rd::environment_utf8("MHP3RD_PATH_TESTS_VALUE").value_or("") == path_to_utf8(root),
-          "an environment variable reads as UTF-8");
+        "an environment variable reads as UTF-8");
     check(!mhp3rd::environment_utf8("MHP3RD_PATH_TESTS_UNSET"), "an unset variable has no value");
     check(mhp3rd::environment_path("MHP3RD_PATH_TESTS_UNSET").empty(), "an unset variable names no path");
 
@@ -128,7 +128,7 @@ void test_conversions(const fs::path &root) {
     check(path_from_utf8(url) == fs::path(root).make_preferred(), "the folder opens by its own path on Windows");
 #else
     check(url.rfind("file://", 0) == 0 && url.find("%D0%AE") != std::string::npos,
-          "the folder URL percent-encodes UTF-8");
+        "the folder URL percent-encodes UTF-8");
 #endif
 }
 
@@ -143,7 +143,7 @@ void test_settings(const fs::path &data_dir, const fs::path &pack_folder, const 
     recorded.disc_image = image;
     install::save_settings(data_dir, recorded);
     check(contains(read(data_dir / install::kSettingsFile), "disc_image=" + path_to_utf8(image)),
-          "settings.ini holds the disc image's path in UTF-8");
+        "settings.ini holds the disc image's path in UTF-8");
     check(install::load_settings(data_dir).disc_image == image, "the disc image's path reads back");
 
     // The player's settings, next to the installer's key.
@@ -156,16 +156,16 @@ void test_settings(const fs::path &data_dir, const fs::path &pack_folder, const 
     settings::save();
     const std::string saved = read(data_dir / install::kSettingsFile);
     check(contains(saved, "video.texture_pack_folder=" + path_to_utf8(pack_folder)),
-          "a folder set in the menu is saved in UTF-8");
+        "a folder set in the menu is saved in UTF-8");
     check(contains(saved, "text.font=" + path_to_utf8(font)), "the font's path is saved as it was read");
     check(contains(saved, "disc_image=" + path_to_utf8(image)), "saving keeps the installer's key");
     check(!fs::exists(data_dir / (std::string(install::kSettingsFile) + ".part")), "no partial settings file is left");
 
     const auto installed = install::find_installation(data_dir);
     check(installed && installed->disc_image == image && installed->executable == data_dir / "EBOOT.ELF",
-          "the installation is found in the data directory");
-    const auto location = mhp3rd::gpu::texture_pack_location(data_dir / "textures", "NPJB40001",
-                                                             settings::current().texture_pack_folder);
+        "the installation is found in the data directory");
+    const auto location =
+        mhp3rd::gpu::texture_pack_location(data_dir / "textures", "NPJB40001", settings::current().texture_pack_folder);
     check(location.folder == pack_folder, "a pack used in place is found from its setting");
 }
 
@@ -184,7 +184,7 @@ void test_saves(const fs::path &root) {
     check(sd::write_save(stick, files, contents, error), "a save is written under the folder (" + error + ")");
     const fs::path folder = sd::save_folder(stick, files);
     check(fs::is_regular_file(folder / "MHP3RD.BIN") && fs::is_regular_file(folder / "PARAM.SFO"),
-          "the save's files are there");
+        "the save's files are there");
     bool leftover = false;
     for (const auto &entry : fs::directory_iterator(folder)) leftover = leftover || entry.path().extension() == ".tmp";
     check(!leftover, "no .tmp file is left beside the save");
@@ -213,8 +213,10 @@ void test_saves(const fs::path &root) {
 void test_texture_pack(const fs::path &root, const fs::path &chosen) {
     namespace gpu = mhp3rd::gpu;
     const std::string image = text(kImage) + ".png";
-    write(chosen / "textures.ini", "[options]\nversion = 1\nhash = xxh64\nignoreAddress = true\n\n[hashes]\n"
-                                   "0000000022585cbda625131a = ui/" + image + "\n");
+    write(chosen / "textures.ini",
+        "[options]\nversion = 1\nhash = xxh64\nignoreAddress = true\n\n[hashes]\n"
+        "0000000022585cbda625131a = ui/" +
+            image + "\n");
     write(chosen / "ui" / path_from_utf8(image), "png");
     write(chosen / "000000001111111122222222.png", "hash-named");
 
@@ -222,7 +224,7 @@ void test_texture_pack(const fs::path &root, const fs::path &chosen) {
     std::string error;
     check(gpu::TexturePack::inspect(chosen, "NPJB40001", info, error), "the pack reads (" + error + ")");
     check(std::find(info.files.begin(), info.files.end(), "ui/" + image) != info.files.end(),
-          "the image textures.ini names keeps its name");
+        "the image textures.ini names keeps its name");
 
     const gpu::TexturePackCheck checked = gpu::check_texture_pack(chosen, "NPJB40001");
     check(checked.ok() && checked.missing == 0u, "the pack passes the import's checks (" + checked.problem + ")");
@@ -233,10 +235,8 @@ void test_texture_pack(const fs::path &root, const fs::path &chosen) {
     check(copy.state() == gpu::TexturePackCopy::State::Done, "the pack is copied (" + copy.error() + ")");
     fs::path backup;
     const bool installed = copy.state() == gpu::TexturePackCopy::State::Done &&
-                           gpu::install_staged_texture_pack(copy.staging(), textures, "NPJB40001",
-                                                            gpu::texture_pack_backup_directory(
-                                                                textures, std::chrono::system_clock::now()),
-                                                            backup, error);
+        gpu::install_staged_texture_pack(copy.staging(), textures, "NPJB40001",
+            gpu::texture_pack_backup_directory(textures, std::chrono::system_clock::now()), backup, error);
     check(installed, "the copy is put in place (" + error + ")");
     check(read(textures / "NPJB40001" / "ui" / path_from_utf8(image)) == "png", "the image arrives with its name");
     const gpu::InstalledTexturePack summary = gpu::summarize_texture_pack(textures / "NPJB40001", "NPJB40001");
@@ -302,8 +302,8 @@ std::string tiny_iso() {
     const std::size_t pvd = 16u * kSector;
     image[pvd] = 1;
     image.replace(pvd + 1u, 5u, "CD001");
-    le32(pvd + 156u + 2u, 18u);            // root directory's sector
-    le32(pvd + 156u + 10u, kSector);       // and size
+    le32(pvd + 156u + 2u, 18u);      // root directory's sector
+    le32(pvd + 156u + 10u, kSector); // and size
     const std::size_t record = 18u * kSector;
     const std::string name = "README.TXT;1";
     image[record] = static_cast<char>(34u + name.size());
@@ -322,7 +322,7 @@ void test_disc_image_and_executable(const fs::path &root) {
     try {
         mhp3rd::IsoImage image(iso);
         check(image.find("README.TXT").has_value() && image.size_bytes() == 20u * 2048u,
-              "a disc image in the folder opens and reads");
+            "a disc image in the folder opens and reads");
     } catch (const std::exception &e) {
         check(false, std::string("a disc image in the folder opens: ") + e.what());
     }
@@ -362,12 +362,14 @@ void test_disc_image_and_executable(const fs::path &root) {
 // beside the executable, and screenshots written into the data folder.
 void test_data_folders(const fs::path &root, const fs::path &data_dir) {
     check(mhp3rd::install::data_directory().path == data_dir &&
-              mhp3rd::install::data_directory().source == mhp3rd::install::DataSource::Environment,
-          "MHP3RD_DATA_DIR names the data folder");
+            mhp3rd::install::data_directory().source == mhp3rd::install::DataSource::Environment,
+        "MHP3RD_DATA_DIR names the data folder");
     const fs::path program = root / kGames / "Yakumo";
     fs::create_directories(program);
     check(mhp3rd::install::portable_data_directory(program, false, false).empty(), "no portable folder by itself");
-    { std::ofstream(program / mhp3rd::install::kPortableMarkerFile) << "\n"; }
+    {
+        std::ofstream(program / mhp3rd::install::kPortableMarkerFile) << "\n";
+    }
     const fs::path portable = mhp3rd::install::portable_data_directory(program, false, false);
     check(portable == program / mhp3rd::install::kPortableDataFolder, "portable.txt keeps the data in data/ beside it");
     check(mhp3rd::install::check_writable(portable).empty(), "and that folder can be written");
@@ -376,7 +378,7 @@ void test_data_folders(const fs::path &root, const fs::path &data_dir) {
     std::string error;
     const fs::path shot = mhp3rd::screenshot::free_path(mhp3rd::screenshot::folder(), std::chrono::system_clock::now());
     check(mhp3rd::screenshot::write_png(shot, rgba, 2u, 2u, error) && fs::is_regular_file(shot),
-          "a screenshot is written there: " + error);
+        "a screenshot is written there: " + error);
 }
 
 } // namespace

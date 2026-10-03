@@ -86,8 +86,8 @@ ProblemAnswer show_problem(const std::string &title, const std::string &message,
 // is no window to ask it in; Closed when the player closed the window or
 // went back.
 enum class ChoiceAnswer { Unavailable, First, Second, Closed };
-ChoiceAnswer ask_choice(const std::string &title, const std::string &message, const std::string &first,
-                        const std::string &second);
+ChoiceAnswer ask_choice(
+    const std::string &title, const std::string &message, const std::string &first, const std::string &second);
 
 // Runs work on another thread under the setup's progress screen, with a
 // Cancel button. work reports through the function it is given, which throws

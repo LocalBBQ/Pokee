@@ -15,8 +15,8 @@ std::string lower(std::string_view text) {
 
 bool iequals(std::string_view a, std::string_view b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](unsigned char x, unsigned char y) {
-               return std::tolower(x) == std::tolower(y);
-           });
+        return std::tolower(x) == std::tolower(y);
+    });
 }
 
 std::string trim(std::string_view text) {
@@ -31,14 +31,17 @@ std::string to_utf8(const std::filesystem::path &path) {
     return {text.begin(), text.end()};
 }
 
-std::filesystem::path from_utf8(std::string_view text) { return std::u8string(text.begin(), text.end()); }
+std::filesystem::path from_utf8(std::string_view text) {
+    return std::u8string(text.begin(), text.end());
+}
 
 std::vector<std::string> split_list(std::string_view value, char separator) {
     std::vector<std::string> parts;
     std::size_t start = 0u;
     while (start <= value.size()) {
         const auto end = value.find(separator, start);
-        std::string part = trim(value.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
+        std::string part =
+            trim(value.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
         if (!part.empty()) parts.push_back(std::move(part));
         if (end == std::string_view::npos) break;
         start = end + 1u;
@@ -79,16 +82,15 @@ IniFile IniFile::parse(std::string_view text) {
         if (line.empty() || line.front() == ';' || line.front() == '#') continue;
         if (line.front() == '[') {
             const auto close = line.find(']');
-            current = open_section(trim(std::string_view(line).substr(1u, close == std::string::npos
-                                                                               ? std::string::npos
-                                                                               : close - 1u)));
+            current = open_section(
+                trim(std::string_view(line).substr(1u, close == std::string::npos ? std::string::npos : close - 1u)));
             continue;
         }
         const auto equals = line.find('=');
         if (equals == std::string::npos) continue;
         if (current == nullptr) current = open_section({});
-        current->entries.emplace_back(trim(std::string_view(line).substr(0u, equals)),
-                                      unquote(std::string_view(line).substr(equals + 1u)));
+        current->entries.emplace_back(
+            trim(std::string_view(line).substr(0u, equals)), unquote(std::string_view(line).substr(equals + 1u)));
     }
     return file;
 }
@@ -107,7 +109,9 @@ const IniFile::Section *IniFile::section(std::string_view name) const {
     return nullptr;
 }
 
-bool IniFile::has_section(std::string_view name) const { return section(name) != nullptr; }
+bool IniFile::has_section(std::string_view name) const {
+    return section(name) != nullptr;
+}
 
 const std::string *IniFile::find(std::string_view section_name, std::string_view key) const {
     const Section *s = section(section_name);

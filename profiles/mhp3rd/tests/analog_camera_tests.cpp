@@ -66,7 +66,7 @@ struct Fixture {
         memory.store32(camera_address + 0x70u, preset_address);
         memory.store16(camera_address + 0x80u, 32000u);
         memory.store16(camera_address + 0x82u, 32000u);
-        memory.store8(camera_address + 0x91u, 0xFFu);  // not aiming
+        memory.store8(camera_address + 0x91u, 0xFFu); // not aiming
         write_float(memory, preset_address + 0x10u, 190.0f);
         write_float(memory, camera_address + 4u, 150.0f);
         ctx.gpr[17] = camera_address;
@@ -106,8 +106,8 @@ struct Fixture {
     }
     float pitch() {
         auto &m = runtime.memory();
-        return std::atan2(read_float(m, stack_address + 0x34u) - 190.0f,
-                          read_float(m, stack_address + 0x38u)) * 180.0f / 3.14159265358979323846f;
+        return std::atan2(read_float(m, stack_address + 0x34u) - 190.0f, read_float(m, stack_address + 0x38u)) *
+            180.0f / 3.14159265358979323846f;
     }
 };
 
@@ -154,13 +154,13 @@ void test_ownership() {
     f.frame(0.0f, 1.0f);
     const auto baseline = [&] {
         return read_float(f.runtime.memory(), stack_address + 0x34u) == 150.0f &&
-               read_float(f.runtime.memory(), stack_address + 0x38u) == 490.0f;
+            read_float(f.runtime.memory(), stack_address + 0x38u) == 490.0f;
     };
     f.runtime.memory().store16(camera_address + 0x84u, 0x100u);
     const auto yaw = f.runtime.memory().load16(camera_address + 0x80u);
     f.frame(1.0f, 1.0f);
     check(baseline() && f.runtime.memory().load16(camera_address + 0x80u) == yaw,
-          "recentre takes priority over both axes");
+        "recentre takes priority over both axes");
     f.runtime.memory().store16(camera_address + 0x84u, 0x10u);
     f.frame(0.0f, 1.0f);
     check(baseline(), "physical D-pad vertical command takes priority");
@@ -182,7 +182,7 @@ void test_ownership() {
         add_motion(Source::Touch, 10.0f, 0.0f);
         f.frame(0.0f, 0.0f);
         check(before != f.snapshot() && game_camera_driving(),
-              "D-pad mapping preserves Android touch camera integration");
+            "D-pad mapping preserves Android touch camera integration");
     } else {
         f.frame(1.0f, 1.0f);
         check(before == f.snapshot() && !game_camera_driving(), "D-pad mapping disables analog integration");
@@ -195,13 +195,13 @@ void test_dispatch_and_write_extent() {
     const auto before = f.snapshot();
     f.flip(0.5f, 0.5f);
     check(!f.runtime.invoke_chained_direct<&original, 29u, 1u, helper>(f.ctx),
-          "generated direct calls unwind to the registered camera hook");
+        "generated direct calls unwind to the registered camera hook");
     check(f.ctx.pc == helper, "dispatch fallback preserves the helper address");
     check(f.runtime.invoke_isolated_aot(helper, f.ctx), "outer dispatch reaches the hook");
     const auto after = f.snapshot();
     for (std::size_t i = 0; i < before.size(); ++i) {
         const bool allowed = (i >= 4u && i < 8u) || (i >= 0x80u && i < 0x84u) || (i >= 0x1034u && i < 0x103Cu) ||
-                             (i >= 0x1054u && i < 0x1058u);
+            (i >= 0x1054u && i < 0x1058u);
         if (!allowed) check(before[i] == after[i], "writes stay inside the identified angles and stack arguments");
     }
 }
@@ -238,11 +238,11 @@ void test_hook_waits_for_the_option() {
     Fixture f;
     f.flip(0.0f, 0.0f);
     check(f.runtime.invoke_chained_direct<&original, 29u, 1u, helper>(f.ctx),
-          "with the option off the helper's unit keeps its direct calls");
+        "with the option off the helper's unit keeps its direct calls");
     f.enable();
     f.flip(0.0f, 0.0f);
-    check(!f.runtime.invoke_chained_direct<&original, 29u, 1u, helper>(f.ctx),
-          "turning the option on installs the hook");
+    check(
+        !f.runtime.invoke_chained_direct<&original, 29u, 1u, helper>(f.ctx), "turning the option on installs the hook");
 }
 
 void test_frame_rate_independence() {
@@ -273,14 +273,14 @@ void test_motion_source() {
     check(std::abs(turned - 1820) <= 1, "motion turns by its degrees once");
     f.frame(0.0f, 0.0f);
     check(static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u)) == turned,
-          "motion is not repeated on the next update");
+        "motion is not repeated on the next update");
     add_motion(Source::Mouse, 10.0f, 0.0f);
     mhp3rd::settings::current().analog_camera = false;
     f.frame(0.0f, 0.0f);
     mhp3rd::settings::current().analog_camera = true;
     f.frame(0.0f, 0.0f);
     check(static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u)) == turned,
-          "motion made while the camera is not driven is dropped");
+        "motion made while the camera is not driven is dropped");
 }
 
 // The weapon's aim code, as far as the driver sees it: while its commands are
@@ -288,15 +288,16 @@ void test_motion_source() {
 // states it does not step at all.
 struct GameAim {
     std::uint32_t hunter;
-    int yaw_step{};    // +-624 while a horizontal command is on
-    int pitch_step{};  // +-8 while a vertical command is on
+    int yaw_step{};   // +-624 while a horizontal command is on
+    int pitch_step{}; // +-8 while a vertical command is on
     std::uint32_t pitch_offset{0xC22u};
     void step(psprecomp::GuestMemory &m) const {
         const auto heading = static_cast<std::uint16_t>(m.load16(hunter + 0x188u) + yaw_step);
         m.store16(hunter + 0x188u, heading);
         m.store16(hunter + 0x74u, heading);
         if (pitch_offset == 0xC24u) {
-            const int v = std::clamp(static_cast<std::int16_t>(m.load16(hunter + 0xC24u)) + pitch_step * 64, -8192, 8192);
+            const int v =
+                std::clamp(static_cast<std::int16_t>(m.load16(hunter + 0xC24u)) + pitch_step * 64, -8192, 8192);
             m.store16(hunter + 0xC24u, static_cast<std::uint16_t>(static_cast<std::int16_t>(v)));
         } else {
             const int v = std::clamp(static_cast<std::int8_t>(m.load8(hunter + pitch_offset)) + pitch_step, -100, 100);
@@ -320,11 +321,11 @@ void test_aiming_sizes_the_games_steps() {
         f.update();
     };
     f.frame(0.0f, 0.0f);
-    m.store8(camera_address + 0x91u, 0u);  // the weapon reports an aim
+    m.store8(camera_address + 0x91u, 0u); // the weapon reports an aim
     f.reset_offset();
     const auto camera_before = f.snapshot();
     mhp3rd::settings::current().aim_speed = 60.0f;
-    aim_frame(0.0f, 0.0f);  // learns where the aim starts; picks up Aim speed
+    aim_frame(0.0f, 0.0f); // learns where the aim starts; picks up Aim speed
     check(game_camera_aim_boost() && !game_camera_driving(), "aiming sends the stretched stick to the game");
 
     // The game steps left by 624 each frame; the push is half: 30 degrees in a second.
@@ -372,7 +373,7 @@ void test_aiming_sizes_the_games_steps() {
     const auto before_off = m.load16(hunter + 0x188u);
     aim_frame(0.2f, 0.0f);
     check(!game_camera_aim_boost() && m.load16(hunter + 0x188u) == static_cast<std::uint16_t>(before_off + 624),
-          "with the option off the game's aim is untouched");
+        "with the option off the game's aim is untouched");
     mhp3rd::settings::current().analog_camera = true;
     m.store8(camera_address + 0x91u, 0xFFu);
     f.frame(0.0f, 0.0f);
@@ -407,15 +408,17 @@ void test_mouse_aim() {
         pending_step = shown.has_value();
         if (step_now && game_steps) {
             const auto &d = shown ? *shown : StickDirection{1.0f, 0.0f};
-            if (std::fabs(d.x) >= std::fabs(d.y)) game.yaw_step = d.x > 0.0f ? 624 : -624;
-            else game.pitch_step = d.y > 0.0f ? -8 : 8;
+            if (std::fabs(d.x) >= std::fabs(d.y))
+                game.yaw_step = d.x > 0.0f ? 624 : -624;
+            else
+                game.pitch_step = d.y > 0.0f ? -8 : 8;
         }
         game.step(m);
         f.update();
     };
     f.frame(0.0f, 0.0f);
     m.store8(camera_address + 0x91u, 0u);
-    mouse_frame(0.0f, 0.0f);  // learns where the aim starts
+    mouse_frame(0.0f, 0.0f); // learns where the aim starts
     check(game_camera_aim_boost() && !game_camera_mouse_aim(), "an idle mouse shows the game nothing");
 
     for (int i = 0; i < 10; ++i) mouse_frame(3.0f, 0.0f);
@@ -479,8 +482,8 @@ void test_mouse_aim_view_is_steady() {
     m.store16(hunter + 0x188u, 20000u);
     m.store16(hunter + 0x74u, 20000u);
     GameAim game{hunter};
-    std::vector<int> seen;     // what the camera reads, after the game's step
-    std::vector<int> settled;  // the aim after the driver
+    std::vector<int> seen;    // what the camera reads, after the game's step
+    std::vector<int> settled; // the aim after the driver
     std::vector<int> seen_pitch;
     std::vector<int> settled_pitch;
     const auto mouse_frame = [&](float yaw, float pitch) {
@@ -508,17 +511,17 @@ void test_mouse_aim_view_is_steady() {
     mouse_frame(0.0f, 0.0f);
     // The first step teaches the driver the game's; after that, a hand that
     // speeds up, stops, reverses and goes diagonal.
-    const std::vector<std::pair<float, float>> motion{
-        {0.5f, 0.0f}, {0.2f, 0.0f}, {0.0f, 0.0f}, {0.3f, 0.0f}, {-0.4f, 0.0f}, {-1.5f, 0.0f}, {0.0f, 0.0f},
-        {0.0f, 0.0f}, {0.8f, -0.9f}, {0.8f, 0.0f}, {-0.2f, -1.4f}, {0.1f, 0.0f}, {0.0f, 1.2f}, {0.0f, -3.0f},
-        {-2.0f, 0.1f}};
+    const std::vector<std::pair<float, float>> motion{{0.5f, 0.0f}, {0.2f, 0.0f}, {0.0f, 0.0f}, {0.3f, 0.0f},
+        {-0.4f, 0.0f}, {-1.5f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {0.8f, -0.9f}, {0.8f, 0.0f}, {-0.2f, -1.4f},
+        {0.1f, 0.0f}, {0.0f, 1.2f}, {0.0f, -3.0f}, {-2.0f, 0.1f}};
     for (const auto &[yaw, pitch] : motion) mouse_frame(yaw, pitch);
     // From the second step on, each frame the camera reads the previous
     // settled aim (nothing of the game's own step shows).
     int worst = 0;
     int worst_pitch = 0;
     for (std::size_t i = 3; i < seen.size(); ++i) {
-        worst = std::max(worst, std::abs(static_cast<std::int16_t>(static_cast<std::uint16_t>(seen[i] - settled[i - 1]))));
+        worst =
+            std::max(worst, std::abs(static_cast<std::int16_t>(static_cast<std::uint16_t>(seen[i] - settled[i - 1]))));
         // The first vertical step only teaches the driver the game's.
         if (i > 9u) worst_pitch = std::max(worst_pitch, std::abs(seen_pitch[i] - settled_pitch[i - 1]));
     }
@@ -552,7 +555,7 @@ void test_mouse_aim_view_is_steady() {
     m.store8(camera_address + 0x91u, 0xFFu);
     f.flip(0.0f, 0.0f);
     check(m.load16(hunter + 0x188u) == before_roll && m.load16(hunter + 0x74u) == before_roll,
-          "an anticipation no update used is undone at the next flip");
+        "an anticipation no update used is undone at the next flip");
 }
 
 // A bowgun's scope: the camera stays in its ordinary mode and the weapon
@@ -569,7 +572,7 @@ void test_scope_is_an_aim() {
     GameAim game{hunter};
     f.frame(0.0f, 0.0f);
     check(game_camera_driving(), "the ordinary camera is driven");
-    m.store32(hunter + 0xBB0u, 0x1000u);  // the scope is up; +0x91 stays -1
+    m.store32(hunter + 0xBB0u, 0x1000u); // the scope is up; +0x91 stays -1
     f.frame(0.0f, 0.0f);
     check(!game_camera_driving() && game_camera_aim_boost(), "in the scope the stick goes to the game");
     const auto yaw_before = m.load16(camera_address + 0x80u);
@@ -579,7 +582,7 @@ void test_scope_is_an_aim() {
         game_camera_anticipate_aim(f.runtime);
         const auto shown = game_camera_mouse_aim();
         check(shown.has_value(), "the mouse shows the scope a direction");
-        game.yaw_step = shown && shown->x > 0.0f ? 400 : 0;  // the scope's own step
+        game.yaw_step = shown && shown->x > 0.0f ? 400 : 0; // the scope's own step
         game.step(m);
         f.update();
     }

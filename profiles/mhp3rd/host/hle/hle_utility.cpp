@@ -37,10 +37,10 @@ constexpr std::uint32_t kInputType = 0x10u;
 constexpr std::uint32_t kLines = 0x14u;
 constexpr std::uint32_t kDescription = 0x1Cu;
 constexpr std::uint32_t kInitialText = 0x20u;
-constexpr std::uint32_t kOutputLength = 0x24u;  // UTF-16 units, the terminator included
+constexpr std::uint32_t kOutputLength = 0x24u; // UTF-16 units, the terminator included
 constexpr std::uint32_t kOutputText = 0x28u;
 constexpr std::uint32_t kResult = 0x2Cu;
-constexpr std::uint32_t kOutputLimit = 0x30u;   // characters; 0: the buffer decides
+constexpr std::uint32_t kOutputLimit = 0x30u; // characters; 0: the buffer decides
 
 constexpr std::uint32_t kResultCancelled = 1u;
 constexpr std::uint32_t kResultChanged = 2u;
@@ -58,7 +58,7 @@ constexpr std::uint32_t kDialogCancelled = 1u;
 // keyboard otherwise.
 struct OskAnswer {
     bool cancelled{};
-    std::string text;  // UTF-8
+    std::string text; // UTF-8
 };
 
 struct OskState {
@@ -151,8 +151,8 @@ std::string read_utf16(const psprecomp::GuestMemory &memory, std::uint32_t addre
 
 // Writes UTF-8 text as UTF-16 with a terminator, in at most `capacity`
 // units; characters that do not fit are dropped.
-void write_utf16(psprecomp::GuestMemory &memory, std::uint32_t address, const std::string &text,
-                 std::uint32_t capacity) {
+void write_utf16(
+    psprecomp::GuestMemory &memory, std::uint32_t address, const std::string &text, std::uint32_t capacity) {
     if (address == 0u || capacity == 0u) return;
     std::vector<std::uint16_t> units;
     for (std::size_t i = 0; i < text.size();) {
@@ -160,7 +160,8 @@ void write_utf16(psprecomp::GuestMemory &memory, std::uint32_t address, const st
         int extra = byte >= 0xF0u ? 3 : byte >= 0xE0u ? 2 : byte >= 0xC0u ? 1 : 0;
         char32_t c = extra == 3 ? byte & 0x07u : extra == 2 ? byte & 0x0Fu : extra == 1 ? byte & 0x1Fu : byte;
         ++i;
-        for (; extra > 0 && i < text.size(); --extra, ++i) c = (c << 6u) | (static_cast<unsigned char>(text[i]) & 0x3Fu);
+        for (; extra > 0 && i < text.size(); --extra, ++i)
+            c = (c << 6u) | (static_cast<unsigned char>(text[i]) & 0x3Fu);
         const std::size_t needed = c >= 0x10000u ? 2u : 1u;
         if (units.size() + needed > capacity - 1u) break;
         if (c >= 0x10000u) {
@@ -218,7 +219,9 @@ std::uint32_t poll(psprecomp::GuestMemory &memory) {
     OskState &state = osk_state();
     const std::uint32_t reported = state.status;
     switch (state.status) {
-    case dialog_status::kInit: set_status(memory, dialog_status::kVisible); break;
+    case dialog_status::kInit:
+        set_status(memory, dialog_status::kVisible);
+        break;
     case dialog_status::kVisible:
         if (state.answer) deliver(memory);
         break;
@@ -226,7 +229,8 @@ std::uint32_t poll(psprecomp::GuestMemory &memory) {
         set_status(memory, dialog_status::kNone);
         state.params = 0u;
         break;
-    default: break;
+    default:
+        break;
     }
     return reported;
 }
@@ -283,7 +287,8 @@ void register_osk(HleRegistrar &hle) {
     });
 
     hle.add("sceUtility", "sceUtilityOskUpdate", [](Runtime &rt, AllegrexContext &ctx) {
-        if (trace_osk()) std::cout << "[osk-trace] Update(" << arg(ctx, 0) << "), status " << osk_state().status << "\n";
+        if (trace_osk())
+            std::cout << "[osk-trace] Update(" << arg(ctx, 0) << "), status " << osk_state().status << "\n";
         if (osk_state().status == dialog_status::kVisible && osk_state().answer) deliver(rt.memory());
         kernel().finish(ctx, 0u);
     });
@@ -312,9 +317,9 @@ void register_osk(HleRegistrar &hle) {
 
 // SceUtilityMsgDialogParams, after the common dialog header.
 namespace msg {
-constexpr std::uint32_t kMode = 0x34u;         // 0: error code, 1: text
+constexpr std::uint32_t kMode = 0x34u; // 0: error code, 1: text
 constexpr std::uint32_t kErrorValue = 0x38u;
-constexpr std::uint32_t kMessage = 0x3Cu;      // char[512], UTF-8
+constexpr std::uint32_t kMessage = 0x3Cu; // char[512], UTF-8
 constexpr std::uint32_t kOptions = 0x23Cu;
 constexpr std::uint32_t kButtonPressed = 0x240u;
 constexpr std::uint32_t kMinimumSize = 0x244u;
@@ -359,9 +364,8 @@ void register_msg_dialog(HleRegistrar &hle) {
         kernel().finish(ctx, 0u);
     });
 
-    hle.add("sceUtility", "sceUtilityMsgDialogGetStatus", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, msg_dialog().poll());
-    });
+    hle.add("sceUtility", "sceUtilityMsgDialogGetStatus",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, msg_dialog().poll()); });
 
     hle.add("sceUtility", "sceUtilityMsgDialogShutdownStart", [](Runtime &, AllegrexContext &ctx) {
         if (!msg_dialog().active()) {

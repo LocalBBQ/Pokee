@@ -37,10 +37,10 @@ namespace {
 namespace param {
 constexpr std::uint32_t kMode = 0x30u;
 constexpr std::uint32_t kOverwrite = 0x38u;
-constexpr std::uint32_t kGameName = 0x3Cu;      // char[13]
-constexpr std::uint32_t kSaveName = 0x4Cu;      // char[20]
-constexpr std::uint32_t kSaveNameList = 0x60u;  // pointer to char[20] entries, "" terminated
-constexpr std::uint32_t kFileName = 0x64u;      // char[13]
+constexpr std::uint32_t kGameName = 0x3Cu;     // char[13]
+constexpr std::uint32_t kSaveName = 0x4Cu;     // char[20]
+constexpr std::uint32_t kSaveNameList = 0x60u; // pointer to char[20] entries, "" terminated
+constexpr std::uint32_t kFileName = 0x64u;     // char[13]
 constexpr std::uint32_t kDataBuf = 0x74u;
 constexpr std::uint32_t kDataBufSize = 0x78u;
 constexpr std::uint32_t kDataSize = 0x7Cu;
@@ -48,7 +48,7 @@ constexpr std::uint32_t kTitle = 0x80u;          // char[128]
 constexpr std::uint32_t kSavedataTitle = 0x100u; // char[128]
 constexpr std::uint32_t kDetail = 0x180u;        // char[1024]
 constexpr std::uint32_t kParentalLevel = 0x580u;
-constexpr std::uint32_t kIcon0 = 0x584u;  // {buf, bufSize, size, unknown}
+constexpr std::uint32_t kIcon0 = 0x584u; // {buf, bufSize, size, unknown}
 constexpr std::uint32_t kIcon1 = 0x594u;
 constexpr std::uint32_t kPic1 = 0x5A4u;
 constexpr std::uint32_t kSnd0 = 0x5B4u;
@@ -56,7 +56,7 @@ constexpr std::uint32_t kFocus = 0x5C8u;
 constexpr std::uint32_t kMsFree = 0x5D0u;
 constexpr std::uint32_t kMsData = 0x5D4u;
 constexpr std::uint32_t kUtilityData = 0x5D8u;
-constexpr std::uint32_t kKey = 0x5DCu;  // char[16], firmware 2.00 and later
+constexpr std::uint32_t kKey = 0x5DCu; // char[16], firmware 2.00 and later
 constexpr std::uint32_t kSecureVersion = 0x5ECu;
 constexpr std::uint32_t kMinimumSizeWithKey = 0x5ECu;
 } // namespace param
@@ -76,11 +76,9 @@ enum Mode : std::uint32_t {
 };
 
 const char *mode_name(std::uint32_t mode) {
-    static const char *const names[] = {"AUTOLOAD", "AUTOSAVE", "LOAD", "SAVE", "LISTLOAD", "LISTSAVE",
-                                        "LISTDELETE", "DELETE", "SIZES", "AUTODELETE", "SINGLEDELETE", "LIST",
-                                        "FILES", "MAKEDATASECURE", "MAKEDATA", "READDATASECURE", "READDATA",
-                                        "WRITEDATASECURE", "WRITEDATA", "ERASESECURE", "ERASE", "DELETEDATA",
-                                        "GETSIZE"};
+    static const char *const names[] = {"AUTOLOAD", "AUTOSAVE", "LOAD", "SAVE", "LISTLOAD", "LISTSAVE", "LISTDELETE",
+        "DELETE", "SIZES", "AUTODELETE", "SINGLEDELETE", "LIST", "FILES", "MAKEDATASECURE", "MAKEDATA",
+        "READDATASECURE", "READDATA", "WRITEDATASECURE", "WRITEDATA", "ERASESECURE", "ERASE", "DELETEDATA", "GETSIZE"};
     return mode < std::size(names) ? names[mode] : "UNKNOWN";
 }
 
@@ -97,7 +95,7 @@ constexpr std::uint32_t kSizesNoData = 0x801103C7u;
 } // namespace result
 
 constexpr std::uint32_t kClusterSize = 0x8000u;
-constexpr std::uint32_t kFreeClusters = 0x8000u;  // 1 GiB
+constexpr std::uint32_t kFreeClusters = 0x8000u; // 1 GiB
 
 struct SavedataState {
     std::filesystem::path memory_stick;
@@ -155,7 +153,8 @@ std::vector<std::uint8_t> read_file_data(const psprecomp::GuestMemory &memory, s
     return read_guest(memory, buffer, size);
 }
 
-savedata::SaveFiles files_for(const psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
+savedata::SaveFiles files_for(
+    const psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
     savedata::SaveFiles files;
     files.game_name = read_cstring(memory, params + param::kGameName, 13u);
     files.save_name = save_name;
@@ -214,7 +213,8 @@ std::uint32_t do_load(psprecomp::GuestMemory &memory, std::uint32_t params, cons
 
     const auto loaded = savedata::load_save(state().memory_stick, files);
     if (loaded.status == savedata::LoadStatus::NoData) {
-        std::cerr << "[savedata] no save data in " << path_to_utf8(savedata::save_folder(state().memory_stick, files)) << "\n";
+        std::cerr << "[savedata] no save data in " << path_to_utf8(savedata::save_folder(state().memory_stick, files))
+                  << "\n";
         return result::kLoadNoData;
     }
     if (loaded.status == savedata::LoadStatus::Broken) {
@@ -230,8 +230,8 @@ std::uint32_t do_load(psprecomp::GuestMemory &memory, std::uint32_t params, cons
     write_cstring(memory, params + param::kSavedataTitle, loaded.contents.savedata_title, 128u);
     write_cstring(memory, params + param::kDetail, loaded.contents.detail, 1024u);
     std::cerr << "[savedata] loaded " << count << " bytes from "
-              << path_to_utf8(savedata::save_folder(state().memory_stick, files))
-              << (files.key ? " (decrypted)" : "") << "\n";
+              << path_to_utf8(savedata::save_folder(state().memory_stick, files)) << (files.key ? " (decrypted)" : "")
+              << "\n";
     if (data.size() > capacity)
         std::cerr << "[savedata] " << files.file_name << " holds " << data.size() << " bytes; the buffer takes "
                   << capacity << "\n";
@@ -260,8 +260,9 @@ std::uint32_t do_save(psprecomp::GuestMemory &memory, std::uint32_t params, cons
         std::cerr << "[savedata] save failed: " << error << "\n";
         return result::kSaveAccessError;
     }
-    std::cerr << "[savedata] saved " << size << " bytes to " << path_to_utf8(savedata::save_folder(state().memory_stick, files))
-              << (files.key ? " (encrypted)" : "") << "\n";
+    std::cerr << "[savedata] saved " << size << " bytes to "
+              << path_to_utf8(savedata::save_folder(state().memory_stick, files)) << (files.key ? " (encrypted)" : "")
+              << "\n";
     return result::kOk;
 }
 
@@ -274,8 +275,8 @@ std::uint32_t do_delete(psprecomp::GuestMemory &memory, std::uint32_t params, co
 
 void write_size_string(psprecomp::GuestMemory &memory, std::uint32_t address, std::uint64_t kilobytes) {
     const std::string text = kilobytes >= 1024u * 1024u ? std::to_string(kilobytes / (1024u * 1024u)) + " GB"
-                             : kilobytes >= 1024u     ? std::to_string(kilobytes / 1024u) + " MB"
-                                                      : std::to_string(kilobytes) + " KB";
+        : kilobytes >= 1024u                            ? std::to_string(kilobytes / 1024u) + " MB"
+                                                        : std::to_string(kilobytes) + " KB";
     write_cstring(memory, address, text, 8u);
 }
 
@@ -308,7 +309,7 @@ std::uint32_t do_sizes(psprecomp::GuestMemory &memory, std::uint32_t params) {
         std::uint64_t bytes = memory.load32(params + param::kDataSize) + 16u;
         for (const std::uint32_t field : {param::kIcon0, param::kIcon1, param::kPic1, param::kSnd0})
             bytes += memory.load32(params + field + 8u);
-        bytes += 0x2000u;  // PARAM.SFO and directory entries
+        bytes += 0x2000u; // PARAM.SFO and directory entries
         const auto clusters = static_cast<std::uint32_t>((bytes + kClusterSize - 1u) / kClusterSize);
         const std::uint64_t kb = static_cast<std::uint64_t>(clusters) * kClusterSize / 1024u;
         memory.store32(needed, clusters);
@@ -411,8 +412,7 @@ void register_savedata(HleRegistrar &hle, const std::filesystem::path &memory_st
             kernel().finish(ctx, kErrorUtilityInvalidStatus);
             return;
         }
-        if (!state().dialog.shutdown())
-            std::cerr << "[savedata] ShutdownStart before the dialog finished\n";
+        if (!state().dialog.shutdown()) std::cerr << "[savedata] ShutdownStart before the dialog finished\n";
         kernel().finish(ctx, 0u);
     });
 }

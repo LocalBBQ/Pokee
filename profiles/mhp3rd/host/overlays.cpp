@@ -55,10 +55,11 @@ std::uint64_t fnv1a64(const std::uint8_t *data, std::size_t size) {
     return hash;
 }
 
-std::uint64_t fnv1a64(const std::vector<std::uint8_t> &data) { return fnv1a64(data.data(), data.size()); }
+std::uint64_t fnv1a64(const std::vector<std::uint8_t> &data) {
+    return fnv1a64(data.data(), data.size());
+}
 
-std::vector<std::uint8_t> read_guest(const psprecomp::GuestMemory &memory, std::uint32_t address,
-                                     std::uint32_t size) {
+std::vector<std::uint8_t> read_guest(const psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t size) {
     std::vector<std::uint8_t> data(size);
     for (std::uint32_t i = 0; i < size; ++i) data[i] = memory.load8(address + i);
     return data;
@@ -76,8 +77,7 @@ std::optional<OverlayHeader> read_overlay_header(const psprecomp::GuestMemory &m
     if (head[0] != 'M' || head[1] != 'W' || head[2] != 'o' || head[3] != '3') return std::nullopt;
     const auto word = [&head](std::size_t offset) {
         return static_cast<std::uint32_t>(head[offset]) | static_cast<std::uint32_t>(head[offset + 1u]) << 8u |
-               static_cast<std::uint32_t>(head[offset + 2u]) << 16u |
-               static_cast<std::uint32_t>(head[offset + 3u]) << 24u;
+            static_cast<std::uint32_t>(head[offset + 2u]) << 16u | static_cast<std::uint32_t>(head[offset + 3u]) << 24u;
     };
     if (word(8u) != base) return std::nullopt;
     OverlayHeader header;
@@ -194,10 +194,10 @@ void load_overlay_library(const std::filesystem::path &path) {
         std::cerr << "[overlay] cannot load " << path_to_utf8(path.filename()) << ": " << library_error() << "\n";
         return;
     }
-    const auto info_of = reinterpret_cast<decltype(&mhp3rd_overlay_info)>(
-        library_symbol(handle, "mhp3rd_overlay_info"));
-    const auto install = reinterpret_cast<decltype(&mhp3rd_register_overlay)>(
-        library_symbol(handle, "mhp3rd_register_overlay"));
+    const auto info_of =
+        reinterpret_cast<decltype(&mhp3rd_overlay_info)>(library_symbol(handle, "mhp3rd_overlay_info"));
+    const auto install =
+        reinterpret_cast<decltype(&mhp3rd_register_overlay)>(library_symbol(handle, "mhp3rd_register_overlay"));
     if (info_of == nullptr || install == nullptr) {
         std::cerr << "[overlay] " << path_to_utf8(path.filename()) << " is not an overlay library\n";
         return;
@@ -233,7 +233,7 @@ void dump_slot(const psprecomp::GuestMemory &memory, std::uint32_t slot_start, s
     const std::optional<std::string> directory_text = environment_utf8("MHP3RD_DUMP_OVERLAYS");
     if (!directory_text) {
         log_once("overlay-dump-hint",
-                 "[overlay] set MHP3RD_DUMP_OVERLAYS=<dir> to dump the loaded overlay for recompilation");
+            "[overlay] set MHP3RD_DUMP_OVERLAYS=<dir> to dump the loaded overlay for recompilation");
         return;
     }
     std::vector<std::uint8_t> image;
@@ -253,14 +253,13 @@ void dump_slot(const psprecomp::GuestMemory &memory, std::uint32_t slot_start, s
     std::error_code ec;
     const std::filesystem::path directory = path_from_utf8(*directory_text);
     std::filesystem::create_directories(directory, ec);
-    const std::filesystem::path path =
-        directory / ("overlay_" + psprecomp::hex32(slot_start).substr(2) + ".bin");
+    const std::filesystem::path path = directory / ("overlay_" + psprecomp::hex32(slot_start).substr(2) + ".bin");
     std::ofstream out(path, std::ios::binary);
     if (!out) throw psprecomp::Error("Cannot write overlay dump: " + path_to_utf8(path));
     out.write(reinterpret_cast<const char *>(image.data()), static_cast<std::streamsize>(image.size()));
     std::cout << "[overlay] dumped " << image.size() / 1024u << " KiB to " << path_to_utf8(path) << "\n"
-              << "[overlay] recompile it with: profiles/mhp3rd/tools/add_overlay.py <build_dir> "
-              << path_to_utf8(path) << " " << psprecomp::hex32(slot_start) << "\n";
+              << "[overlay] recompile it with: profiles/mhp3rd/tools/add_overlay.py <build_dir> " << path_to_utf8(path)
+              << " " << psprecomp::hex32(slot_start) << "\n";
 }
 
 bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
@@ -277,7 +276,7 @@ bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
         if (corpus.base != slot_start) continue;
         if (identity_hash(runtime.memory(), corpus) != corpus.hash) continue;
         auto &installed = installed_overlays();
-        if (installed[slot_start] == corpus.hash) return false;  // already installed: a real miss
+        if (installed[slot_start] == corpus.hash) return false; // already installed: a real miss
         runtime.unregister_functions(slot_start, slot_start + corpus.size);
         corpus.install(runtime);
         installed[slot_start] = corpus.hash;
@@ -289,8 +288,8 @@ bool install_overlay_for(Runtime &runtime, std::uint32_t pc) {
 
     const std::optional<OverlayHeader> header = read_overlay_header(runtime.memory(), slot_start);
     log_once("overlay-miss:" + psprecomp::hex32(slot_start),
-             "[overlay] no recompiled corpus for " + (header.has_value() ? header->name : std::string("the overlay")) +
-                 " loaded at " + psprecomp::hex32(slot_start));
+        "[overlay] no recompiled corpus for " + (header.has_value() ? header->name : std::string("the overlay")) +
+            " loaded at " + psprecomp::hex32(slot_start));
     dump_slot(runtime.memory(), slot_start, slot_end);
     unmatched_slots()[slot_start] = header_hash(runtime.memory(), slot_start);
     return false;
@@ -308,7 +307,7 @@ bool unsupported_instruction_hook(Runtime &runtime, AllegrexContext &, std::uint
     if (slot_start == 0u) return false;
     (void)slot_end;
     revalidate_overlays(runtime);
-    if (installed_overlays().contains(slot_start)) return false;  // corpus still matches: a real problem
+    if (installed_overlays().contains(slot_start)) return false; // corpus still matches: a real problem
     return install_overlay_for(runtime, pc);
 }
 
@@ -348,7 +347,9 @@ void revalidate_overlays(Runtime &runtime) {
     }
 }
 
-void forget_unmatched_overlays() { unmatched_slots().clear(); }
+void forget_unmatched_overlays() {
+    unmatched_slots().clear();
+}
 
 void install_overlay_support(Runtime &runtime) {
     (void)runtime;

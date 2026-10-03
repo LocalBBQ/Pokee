@@ -37,8 +37,12 @@ constexpr std::size_t kReadChunk = 16u * 1024u;
 constexpr std::size_t kMaxAdhocctlConnections = 256u;
 constexpr std::size_t kMaxRelayConnections = 2048u;
 
-void log_event(const std::string &line, bool print) { Client::log("[adhoc-server] " + line, print); }
-void log_detail(const std::string &line) { Client::log("[adhoc-server] " + line, false); }
+void log_event(const std::string &line, bool print) {
+    Client::log("[adhoc-server] " + line, print);
+}
+void log_detail(const std::string &line) {
+    Client::log("[adhoc-server] " + line, false);
+}
 
 bool address_in_use(int error) {
 #if defined(_WIN32)
@@ -117,9 +121,9 @@ struct Connection {
     std::string out;
     Clock::time_point created{};
     Clock::time_point last_seen{};
-    bool eof{};      // the peer closed its side; what it sent is still parsed
-    bool closing{};  // close once `out` is written
-    bool dead{};     // close now
+    bool eof{};     // the peer closed its side; what it sent is still parsed
+    bool closing{}; // close once `out` is written
+    bool dead{};    // close now
 
     // Reads what is waiting, up to `limit` buffered bytes.
     void read(std::size_t limit) {
@@ -172,18 +176,20 @@ struct RelaySession {
     std::uint16_t port{};
     Mac peer_mac{};
     std::uint16_t peer_port{};
-    int partner{};                          // the paired stream connection, once paired
-    bool announced{};                       // a connecting stream was reported to the listener
+    int partner{};    // the paired stream connection, once paired
+    bool announced{}; // a connecting stream was reported to the listener
     Clock::time_point announced_at{};
 };
 
-std::string group_key(const std::string &product, const std::string &group) { return product + '\n' + group; }
+std::string group_key(const std::string &product, const std::string &group) {
+    return product + '\n' + group;
+}
 
 } // namespace
 
 struct Server::Impl {
     WinsockSession winsock;
-    mutable std::mutex mutex;  // guards `running_flag`, `status_snapshot` and start/stop
+    mutable std::mutex mutex; // guards `running_flag`, `status_snapshot` and start/stop
     std::thread thread;
     std::atomic<bool> quit{false};
     bool running_flag{};
@@ -197,7 +203,7 @@ struct Server::Impl {
     int next_id{1};
     std::map<int, Player> players;
     std::map<int, RelaySession> sessions;
-    std::map<std::string, Mac> group_hosts;  // group_key -> the MAC that created it
+    std::map<std::string, Mac> group_hosts; // group_key -> the MAC that created it
     std::uint32_t next_player_id{1};
     std::uint64_t relayed_packets{};
     std::uint64_t relayed_bytes{};
@@ -276,13 +282,12 @@ struct Server::Impl {
         std::string nickname = wire::get_fixed(packet + 7, ctl::kNicknameLength);
         const std::string product = wire::get_fixed(packet + 7 + ctl::kNicknameLength, ctl::kProductCodeLength);
         const bool mac_ok = std::any_of(mac.begin() + 1, mac.end(), [](std::uint8_t b) { return b != 0u; });
-        const bool product_ok =
-            product.size() == ctl::kProductCodeLength && std::all_of(product.begin(), product.end(), [](char c) {
-                return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
-            });
+        const bool product_ok = product.size() == ctl::kProductCodeLength &&
+            std::all_of(product.begin(), product.end(),
+                [](char c) { return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); });
         if (!mac_ok || !product_ok) {
             log_event("refused a login from " + player.link.peer.host() + ": bad address or product code",
-                      config.print_events);
+                config.print_events);
             return false;
         }
         // The same MAC again is the same player reconnecting.
@@ -297,16 +302,17 @@ struct Server::Impl {
         player.product = product;
         player.id = make_player_id(player.link.peer);
         player.login_time = Clock::now();
-        log_event(player.nickname + " (" + format_mac(mac) + ", " + product + ") logged in from " +
-                      player.link.peer.host(),
-                  config.print_events);
+        log_event(
+            player.nickname + " (" + format_mac(mac) + ", " + product + ") logged in from " + player.link.peer.host(),
+            config.print_events);
         return true;
     }
 
     void scan(Player &player) {
         const std::string prefix = player.product + '\n';
         for (const auto &[key, host] : group_hosts)
-            if (key.compare(0, prefix.size(), prefix) == 0) send(player, ctl::scan_result(key.substr(prefix.size()), host));
+            if (key.compare(0, prefix.size(), prefix) == 0)
+                send(player, ctl::scan_result(key.substr(prefix.size()), host));
         send(player, ctl::opcode_only(ctl::kScanComplete));
     }
 
@@ -325,8 +331,8 @@ struct Server::Impl {
             const std::size_t size = ctl::client_packet_size(opcode);
             if (size == 0u || (!player.logged_in && opcode != ctl::kLogin && opcode != ctl::kPing)) {
                 log_event("closing a connection from " + player.link.peer.host() + ": unexpected opcode " +
-                              std::to_string(opcode),
-                          config.print_events);
+                        std::to_string(opcode),
+                    config.print_events);
                 drop_player(player);
                 break;
             }
@@ -337,11 +343,20 @@ struct Server::Impl {
             case ctl::kLogin:
                 if (!player.logged_in && !login(player, packet)) drop_player(player);
                 break;
-            case ctl::kConnect: join_group(player, wire::get_fixed(packet + 1, ctl::kGroupNameLength)); break;
-            case ctl::kDisconnect: leave_group(player); break;
-            case ctl::kScan: scan(player); break;
-            case ctl::kChat: chat(player, packet); break;
-            default: break;  // ping
+            case ctl::kConnect:
+                join_group(player, wire::get_fixed(packet + 1, ctl::kGroupNameLength));
+                break;
+            case ctl::kDisconnect:
+                leave_group(player);
+                break;
+            case ctl::kScan:
+                scan(player);
+                break;
+            case ctl::kChat:
+                chat(player, packet);
+                break;
+            default:
+                break; // ping
             }
         }
         in.erase(0, std::min(offset, in.size()));
@@ -366,7 +381,7 @@ struct Server::Impl {
             if (player.mac == b) second = &player;
         }
         return first != nullptr && second != nullptr && first->group && first->group == second->group &&
-               first->product == second->product;
+            first->product == second->product;
     }
 
     void deliver_datagram(const RelaySession &from, RelaySession &to, const char *data, std::size_t size) {
@@ -389,7 +404,7 @@ struct Server::Impl {
             const std::uint32_t size = wire::get32(in.data() + offset + 10);
             if (size > relay::kPdpBlockMax * 2u) {
                 log_detail("closing datagram socket " + format_mac(session.mac) + " port " +
-                           std::to_string(session.port) + ": oversized datagram");
+                    std::to_string(session.port) + ": oversized datagram");
                 session.link.dead = true;
                 return;
             }
@@ -436,21 +451,21 @@ struct Server::Impl {
     void accept_stream(int key, RelaySession &session) {
         for (auto &[other_key, other] : sessions) {
             if (other_key == key || other.link.dead || other.kind != RelayKind::Connect || other.partner != 0 ||
-                other.mac != session.peer_mac || other.port != session.peer_port ||
-                other.peer_mac != session.mac || other.peer_port != session.port)
+                other.mac != session.peer_mac || other.port != session.peer_port || other.peer_mac != session.mac ||
+                other.peer_port != session.port)
                 continue;
             other.partner = key;
             session.partner = other_key;
             other.link.out += relay::ptp_notice(session.mac, session.port);
             session.link.out += relay::ptp_notice(other.mac, other.port);
             log_detail("stream " + format_mac(other.mac) + " port " + std::to_string(other.port) + " <-> " +
-                       format_mac(session.mac) + " port " + std::to_string(session.port) + " established");
+                format_mac(session.mac) + " port " + std::to_string(session.port) + " established");
             // Data the connecting side sent before it was accepted.
             handle_stream(other);
             return;
         }
         log_detail("refusing an accept from " + format_mac(session.mac) + " port " + std::to_string(session.port) +
-                   ": no such connection is waiting");
+            ": no such connection is waiting");
         session.link.dead = true;
     }
 
@@ -463,7 +478,7 @@ struct Server::Impl {
         session.announced = true;
         session.announced_at = now;
         log_detail("stream request " + format_mac(session.mac) + " port " + std::to_string(session.port) + " -> " +
-                   format_mac(session.peer_mac) + " port " + std::to_string(session.peer_port));
+            format_mac(session.peer_mac) + " port " + std::to_string(session.peer_port));
     }
 
     void handle_init(int key, RelaySession &session, Clock::time_point now) {
@@ -506,13 +521,18 @@ struct Server::Impl {
     void handle_relay(int key, RelaySession &session, Clock::time_point now) {
         if (session.kind == RelayKind::Pending) handle_init(key, session, now);
         switch (session.kind) {
-        case RelayKind::Datagram: handle_datagrams(key, session); break;
-        case RelayKind::Listen: session.link.in.clear(); break;
+        case RelayKind::Datagram:
+            handle_datagrams(key, session);
+            break;
+        case RelayKind::Listen:
+            session.link.in.clear();
+            break;
         case RelayKind::Connect:
         case RelayKind::Accept:
             if (session.partner != 0) handle_stream(session);
             break;
-        case RelayKind::Pending: break;
+        case RelayKind::Pending:
+            break;
         }
     }
 
@@ -523,7 +543,7 @@ struct Server::Impl {
             if (session.partner == 0) return session.link.in.size() < kQueueLimit;
             const auto found = sessions.find(session.partner);
             return found != sessions.end() && found->second.link.out.size() <= kQueueLimit &&
-                   session.link.in.size() < kQueueLimit;
+                session.link.in.size() < kQueueLimit;
         }
         return true;
     }
@@ -548,8 +568,10 @@ struct Server::Impl {
             link.created = now;
             link.last_seen = now;
             const int key = next_id++;
-            if (relay) sessions[key].link = std::move(link);
-            else players[key].link = std::move(link);
+            if (relay)
+                sessions[key].link = std::move(link);
+            else
+                players[key].link = std::move(link);
         }
     }
 
@@ -573,7 +595,7 @@ struct Server::Impl {
                                                        : now - session.link.created > kStreamWait;
                 if (expired) {
                     log_detail("stream request " + format_mac(session.mac) + " port " + std::to_string(session.port) +
-                               (session.announced ? " was not accepted" : " found no listening socket"));
+                        (session.announced ? " was not accepted" : " found no listening socket"));
                     session.link.dead = true;
                 }
             }
@@ -751,8 +773,8 @@ bool Server::start(const ServerConfig &config) {
     }
     s.thread = std::thread([&s] { s.run(); });
     log_event("listening on TCP " + std::to_string(config.adhocctl_port) + " (matchmaking) and " +
-                  std::to_string(relay_port) + " (relay)",
-              true);
+            std::to_string(relay_port) + " (relay)",
+        true);
     return true;
 }
 

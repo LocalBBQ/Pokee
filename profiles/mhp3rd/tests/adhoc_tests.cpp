@@ -66,9 +66,12 @@ struct Raw {
         while (pending.size() < size && Clock::now() < until) {
             char buffer[4096];
             const auto count = ::recv(s, buffer, static_cast<int>(sizeof(buffer)), 0);
-            if (count > 0) pending.append(buffer, static_cast<std::size_t>(count));
-            else if (count == 0) break;
-            else std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            if (count > 0)
+                pending.append(buffer, static_cast<std::size_t>(count));
+            else if (count == 0)
+                break;
+            else
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         if (pending.size() < size) return std::nullopt;
         std::string out = pending.substr(0, size);
@@ -82,8 +85,10 @@ struct Raw {
             char buffer[256];
             const auto count = ::recv(s, buffer, static_cast<int>(sizeof(buffer)), 0);
             if (count == 0) return true;
-            if (count > 0) pending.append(buffer, static_cast<std::size_t>(count));
-            else if (!would_block(socket_error())) return true;
+            if (count > 0)
+                pending.append(buffer, static_cast<std::size_t>(count));
+            else if (!would_block(socket_error()))
+                return true;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         return false;
@@ -136,55 +141,55 @@ void server_and_client() {
     b.send(ctl::connect(kGroup));
     const auto notice = b.read(ctl::server_packet_size(ctl::kConnect));
     check(notice && static_cast<std::uint8_t>((*notice)[0]) == ctl::kConnect &&
-              wire::get_fixed(notice->data() + 1, ctl::kNicknameLength) == "HunterA" &&
-              wire::get_mac(notice->data() + 1 + ctl::kNicknameLength) == kMacA,
-          "B is told A is in the group");
+            wire::get_fixed(notice->data() + 1, ctl::kNicknameLength) == "HunterA" &&
+            wire::get_mac(notice->data() + 1 + ctl::kNicknameLength) == kMacA,
+        "B is told A is in the group");
     const auto bssid = b.read(ctl::server_packet_size(ctl::kConnectBssid));
     check(bssid && static_cast<std::uint8_t>((*bssid)[0]) == ctl::kConnectBssid &&
-              wire::get_mac(bssid->data() + 1) == kMacA,
-          "B's join is confirmed with A as the host");
+            wire::get_mac(bssid->data() + 1) == kMacA,
+        "B's join is confirmed with A as the host");
     check(wait_until([&] { return a.peers().size() == 1u && a.peers()[0].mac == kMacB; }), "A sees B join");
 
     b.send(ctl::opcode_only(ctl::kScan));
     const auto scan = b.read(ctl::server_packet_size(ctl::kScan));
     const auto complete = b.read(1u);
     check(scan && wire::get_fixed(scan->data() + 1, ctl::kGroupNameLength) == kGroup &&
-              wire::get_mac(scan->data() + 1 + ctl::kGroupNameLength) == kMacA && complete &&
-              static_cast<std::uint8_t>((*complete)[0]) == ctl::kScanComplete,
-          "a scan lists the group and completes");
+            wire::get_mac(scan->data() + 1 + ctl::kGroupNameLength) == kMacA && complete &&
+            static_cast<std::uint8_t>((*complete)[0]) == ctl::kScanComplete,
+        "a scan lists the group and completes");
 
     // Datagrams.
     const int pdp = a.pdp_open(10000, 8192);
     Raw b_pdp(relay_port);
     b_pdp.send(relay::init(relay::kInitPdp, kMacB, 10000, Mac{}, 0));
     check(wait_until([&] {
-              const Diagnostics d = a.diagnostics();
-              return d.relay_links_wanted == 1u && d.relay_links_up == 1u;
-          }),
-          "A's datagram socket links to the relay");
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // the server reads B's init
+        const Diagnostics d = a.diagnostics();
+        return d.relay_links_wanted == 1u && d.relay_links_up == 1u;
+    }),
+        "A's datagram socket links to the relay");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // the server reads B's init
     const std::string hello = "hello from A";
     a.pdp_send(pdp, kBroadcastMac, 10000, hello.data(), hello.size());
     const auto header = b_pdp.read(relay::kPdpHeaderSize);
     const auto body = header ? b_pdp.read(wire::get32(header->data() + 10)) : std::nullopt;
     check(header && wire::get_mac(header->data()) == kMacA && wire::get16(header->data() + 8) == 10000 && body &&
-              *body == hello,
-          "A's broadcast datagram reaches B with A as the sender");
+            *body == hello,
+        "A's broadcast datagram reaches B with A as the sender");
     const std::string reply = "hello from B";
     b_pdp.send(relay::pdp_header(kMacA, 10000, static_cast<std::uint32_t>(reply.size())) + reply);
     std::optional<Datagram> got;
     check(wait_until([&] { return (got = a.pdp_receive(pdp)).has_value(); }) && got->source == kMacB &&
-              got->port == 10000 && got->data == reply,
-          "B's datagram reaches A");
+            got->port == 10000 && got->data == reply,
+        "B's datagram reaches A");
     b_pdp.send(relay::pdp_header(Mac{0x02, 9, 9, 9, 9, 9}, 10000, 3) + "xyz");
 
     // A stream from B to A's listening socket.
     const int listener = a.ptp_listen(20001, 8192, 1);
     check(wait_until([&] {
-              const Diagnostics d = a.diagnostics();
-              return d.relay_links_up == 2u;
-          }),
-          "A's listening socket links to the relay");
+        const Diagnostics d = a.diagnostics();
+        return d.relay_links_up == 2u;
+    }),
+        "A's listening socket links to the relay");
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     Raw b_stream(relay_port);
     b_stream.send(relay::init(relay::kInitPtpConnect, kMacB, 30000, kMacA, 20001));
@@ -192,7 +197,7 @@ void server_and_client() {
     check(wait_until([&] { return (accepted = a.ptp_accept(listener)) != 0; }), "A gets B's connection request");
     const auto established = b_stream.read(relay::kPtpNoticeSize);
     check(established && wire::get_mac(established->data()) == kMacA && wire::get16(established->data() + 8) == 20001,
-          "B is told the stream is established");
+        "B is told the stream is established");
     const std::string ping = "quest start";
     check(a.ptp_send(accepted, ping.data(), ping.size()) == ping.size(), "A queues stream data");
     const auto block = b_stream.read(relay::kPtpHeaderSize + ping.size());
@@ -204,11 +209,11 @@ void server_and_client() {
     char buffer[64] = {};
     std::size_t received = 0;
     check(wait_until([&] { return (received = a.ptp_receive(accepted, buffer, sizeof(buffer))) != 0u; }) &&
-              std::string(buffer, received) == pong,
-          "A receives B's stream data");
+            std::string(buffer, received) == pong,
+        "A receives B's stream data");
     b_stream.close();
     check(wait_until([&] { return a.ptp_info(accepted).state == StreamState::Disconnected; }),
-          "B closing the stream reaches A as a disconnect");
+        "B closing the stream reaches A as a disconnect");
 
     // A stream from A to B's listening socket.
     Raw b_listen(relay_port);
@@ -223,10 +228,10 @@ void server_and_client() {
         b_accept.send(relay::init(relay::kInitPtpAccept, kMacB, 20002, kMacA, a_port));
         const auto accept_notice = b_accept.read(relay::kPtpNoticeSize);
         check(accept_notice && wire::get_mac(accept_notice->data()) == kMacA &&
-                  wire::get16(accept_notice->data() + 8) == a_port,
-              "B's accepting connection is paired");
+                wire::get16(accept_notice->data() + 8) == a_port,
+            "B's accepting connection is paired");
         check(wait_until([&] { return a.ptp_info(opened).state == StreamState::Established; }),
-              "A's stream is established");
+            "A's stream is established");
     }
     Raw stray(relay_port);
     stray.send(relay::init(relay::kInitPtpAccept, kMacB, 20003, kMacA, 1234));
@@ -248,7 +253,7 @@ void server_and_client() {
 
     server.stop();
     check(wait_until([&] { return a.server_state() == ServerState::Connecting; }),
-          "stopping the server disconnects its players");
+        "stopping the server disconnects its players");
     a.stop();
 }
 
@@ -269,7 +274,7 @@ void discovery(std::uint16_t port) {
     wait_until([&] {
         const std::string query = std::string("YKAH") + '\x01' + '\x02';
         ::sendto(s, query.data(), static_cast<int>(query.size()), 0, reinterpret_cast<const sockaddr *>(&host.storage),
-                 host.length);
+            host.length);
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
         char buffer[128];
         const auto count = ::recv(s, buffer, static_cast<int>(sizeof(buffer)), 0);
@@ -277,22 +282,22 @@ void discovery(std::uint16_t port) {
         return !answer.empty();
     });
     check(answer.size() == 58u && answer.compare(0, 4, "YKAH") == 0 && answer[5] == 1 &&
-              wire::get16(answer.data() + 6) == port && static_cast<std::uint8_t>(answer[10]) == 3u &&
-              wire::get_fixed(answer.data() + 16, 10) == kProduct &&
-              wire::get_fixed(answer.data() + 26, 32) == "Test host",
-          "a query is answered with the host's announcement");
+            wire::get16(answer.data() + 6) == port && static_cast<std::uint8_t>(answer[10]) == 3u &&
+            wire::get_fixed(answer.data() + 16, 10) == kProduct &&
+            wire::get_fixed(answer.data() + 26, 32) == "Test host",
+        "a query is answered with the host's announcement");
 
     // An announcement sent to the discovery port is listed.
     discovery.start_listening();
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     std::string packet = answer;
-    packet[12] = '\x55';  // another session than this process's own
+    packet[12] = '\x55'; // another session than this process's own
     packet.replace(26, 32, std::string("Other host") + std::string(22, '\0'));
     const Address listener = Address::ipv4_address(htonl(INADDR_LOOPBACK), kDiscoveryPort);
     bool found = false;
     wait_until([&] {
         ::sendto(s, packet.data(), static_cast<int>(packet.size()), 0,
-                 reinterpret_cast<const sockaddr *>(&listener.storage), listener.length);
+            reinterpret_cast<const sockaddr *>(&listener.storage), listener.length);
         std::this_thread::sleep_for(std::chrono::milliseconds(150));
         for (const FoundHost &entry : discovery.hosts())
             if (entry.info.name == "Other host" && entry.address == "127.0.0.1" && entry.info.players == 3u)
@@ -312,7 +317,7 @@ void discovery(std::uint16_t port) {
 // then leaves main(): with `tidy`, after shutting the network down as the
 // game does; without, leaving everything to exit, which must not abort either.
 int exit_while_hosting(bool tidy) {
-    static Server server;  // destroyed by exit() while its thread runs, unless tidy
+    static Server server; // destroyed by exit() while its thread runs, unless tidy
     const std::uint16_t port = start_server(server);
     if (port == 0u) return 3;
     Discovery::get().start_listening();
@@ -333,7 +338,7 @@ int exit_while_hosting(bool tidy) {
     client.join(kGroup);
     if (!wait_until([&] { return client.in_group(); })) return 3;
     (void)client.pdp_open(10000, 8192);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));  // announcing, relaying
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500)); // announcing, relaying
     if (tidy) {
         Discovery::get().shutdown();
         server.stop();

@@ -67,10 +67,10 @@ struct TrackInfo {
     std::uint32_t file_size{};
     std::uint32_t data_offset{};
     std::uint32_t data_size{};
-    std::int32_t end_sample{};    // last playable position
-    std::int32_t loop_start{-1};  // positions, -1 without a loop
+    std::int32_t end_sample{};   // last playable position
+    std::int32_t loop_start{-1}; // positions, -1 without a loop
     std::int32_t loop_end{-1};
-    std::uint32_t skip{};         // decoded samples before position 0
+    std::uint32_t skip{}; // decoded samples before position 0
 };
 
 struct AtracContext {
@@ -78,7 +78,7 @@ struct AtracContext {
     std::uint32_t buffer{};
     std::uint32_t buffer_size{};
     std::int32_t loop_num{};
-    std::int32_t position{};  // next position DecodeData returns
+    std::int32_t position{}; // next position DecodeData returns
     audio::AtracDecoder decoder;
     // The frame the decoder produces next if fed sequentially, and the last
     // frame it produced, kept because a call rarely consumes a whole frame.
@@ -103,8 +103,8 @@ std::uint32_t context_error(std::uint32_t id) {
 
 std::uint32_t read_le32(const std::vector<std::uint8_t> &bytes, std::size_t offset) {
     return static_cast<std::uint32_t>(bytes[offset]) | (static_cast<std::uint32_t>(bytes[offset + 1u]) << 8u) |
-           (static_cast<std::uint32_t>(bytes[offset + 2u]) << 16u) |
-           (static_cast<std::uint32_t>(bytes[offset + 3u]) << 24u);
+        (static_cast<std::uint32_t>(bytes[offset + 2u]) << 16u) |
+        (static_cast<std::uint32_t>(bytes[offset + 3u]) << 24u);
 }
 
 std::uint16_t read_le16(const std::vector<std::uint8_t> &bytes, std::size_t offset) {
@@ -113,14 +113,14 @@ std::uint16_t read_le16(const std::vector<std::uint8_t> &bytes, std::size_t offs
 
 // Parses the RIFF WAVE header at the start of the guest buffer. Returns an
 // error code on failure.
-std::optional<std::uint32_t> parse_header(const psprecomp::GuestMemory &memory, std::uint32_t buffer,
-                                          std::uint32_t buffer_size, TrackInfo &info) {
+std::optional<std::uint32_t> parse_header(
+    const psprecomp::GuestMemory &memory, std::uint32_t buffer, std::uint32_t buffer_size, TrackInfo &info) {
     if (buffer_size < 12u) return atrac_error::kSizeTooSmall;
     // The header is small; everything up to the data chunk fits in far less.
     const std::uint32_t header_bytes = std::min<std::uint32_t>(buffer_size, 0x1000u);
     std::vector<std::uint8_t> bytes(header_bytes);
     memory.copy_out(buffer, bytes);
-    if (read_le32(bytes, 0u) != 0x46464952u || read_le32(bytes, 8u) != 0x45564157u)  // "RIFF", "WAVE"
+    if (read_le32(bytes, 0u) != 0x46464952u || read_le32(bytes, 8u) != 0x45564157u) // "RIFF", "WAVE"
         return atrac_error::kUnknownFormat;
     info.file_size = read_le32(bytes, 4u) + 8u;
 
@@ -133,32 +133,34 @@ std::optional<std::uint32_t> parse_header(const psprecomp::GuestMemory &memory, 
         const std::uint32_t id = read_le32(bytes, offset);
         const std::uint32_t size = read_le32(bytes, offset + 4u);
         const std::size_t body = offset + 8u;
-        if (id == 0x61746164u) {  // "data"
+        if (id == 0x61746164u) { // "data"
             info.data_offset = static_cast<std::uint32_t>(body);
             info.data_size = size;
             break;
         }
         if (body + size > bytes.size()) return atrac_error::kSizeTooSmall;
-        if (id == 0x20746D66u && size >= 16u) {  // "fmt "
+        if (id == 0x20746D66u && size >= 16u) { // "fmt "
             const std::uint16_t tag = read_le16(bytes, body);
             info.channels = read_le16(bytes, body + 2u);
             info.block_align = read_le16(bytes, body + 12u);
             if (tag == kFormatAtrac3) {
                 info.codec = audio::AtracCodec::Atrac3;
-                if (size >= 18u + 14u) info.extradata.assign(bytes.begin() + static_cast<std::ptrdiff_t>(body + 18u),
-                                                              bytes.begin() + static_cast<std::ptrdiff_t>(body + 32u));
+                if (size >= 18u + 14u)
+                    info.extradata.assign(bytes.begin() + static_cast<std::ptrdiff_t>(body + 18u),
+                        bytes.begin() + static_cast<std::ptrdiff_t>(body + 32u));
             } else if (tag == kFormatExtensible) {
                 info.codec = audio::AtracCodec::Atrac3Plus;
             } else {
                 return atrac_error::kBadCodecType;
             }
             have_format = true;
-        } else if (id == 0x74636166u && size >= 4u) {  // "fact"
+        } else if (id == 0x74636166u && size >= 4u) { // "fact"
             fact_samples = read_le32(bytes, body);
             if (size >= 8u) fact_offset = read_le32(bytes, body + 4u);
-        } else if (id == 0x6C706D73u && size >= 36u) {  // "smpl"
+        } else if (id == 0x6C706D73u && size >= 36u) { // "smpl"
             const std::uint32_t loops = read_le32(bytes, body + 28u);
-            if (loops > 0u && size >= 36u + 24u) loop = {read_le32(bytes, body + 36u + 8u), read_le32(bytes, body + 36u + 12u)};
+            if (loops > 0u && size >= 36u + 24u)
+                loop = {read_le32(bytes, body + 36u + 8u), read_le32(bytes, body + 36u + 12u)};
         }
         offset = body + size + (size & 1u);
     }
@@ -193,7 +195,8 @@ bool load_frame(const psprecomp::GuestMemory &memory, AtracContext &context, std
     std::vector<std::uint8_t> bytes(track.block_align);
     const auto decode = [&](std::int64_t index) {
         const std::uint64_t offset = track.data_offset + static_cast<std::uint64_t>(index) * track.block_align;
-        if (offset + track.block_align > std::min(context.buffer_size, track.data_offset + track.data_size)) return false;
+        if (offset + track.block_align > std::min(context.buffer_size, track.data_offset + track.data_size))
+            return false;
         memory.copy_out(context.buffer + static_cast<std::uint32_t>(offset), bytes);
         return context.decoder.decode(bytes, context.cached.data()) != 0u;
     };
@@ -373,8 +376,10 @@ void register_atrac_functions(HleRegistrar &hle) {
         }
         // Bytes per frame times frames per second, in the library's rounding.
         std::uint32_t bitrate = context->track.block_align * 352'800u / 1000u;
-        if (context->track.codec == audio::AtracCodec::Atrac3) bitrate = (bitrate + 511u) >> 10u;
-        else bitrate = ((bitrate >> 11u) + 8u) & 0xFFFFFFF0u;
+        if (context->track.codec == audio::AtracCodec::Atrac3)
+            bitrate = (bitrate + 511u) >> 10u;
+        else
+            bitrate = ((bitrate >> 11u) + 8u) & 0xFFFFFFF0u;
         rt.memory().store32(arg(ctx, 1), bitrate);
         finish_traced(ctx, "sceAtracGetBitrate", 0u, "kbps=" + std::to_string(bitrate));
     });
@@ -462,9 +467,10 @@ void register_atrac_functions(HleRegistrar &hle) {
             return;
         }
         auto &memory = rt.memory();
-        const std::array<std::uint32_t, 8> fields = {context->buffer, 0u, 0u, context->track.file_size,
-                                                     context->buffer, 0u, 0u, 0u};
-        for (std::size_t i = 0; i < fields.size(); ++i) memory.store32(info + static_cast<std::uint32_t>(i * 4u), fields[i]);
+        const std::array<std::uint32_t, 8> fields = {
+            context->buffer, 0u, 0u, context->track.file_size, context->buffer, 0u, 0u, 0u};
+        for (std::size_t i = 0; i < fields.size(); ++i)
+            memory.store32(info + static_cast<std::uint32_t>(i * 4u), fields[i]);
         finish_traced(ctx, "sceAtracGetBufferInfoForResetting", 0u);
     });
 

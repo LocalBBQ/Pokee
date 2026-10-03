@@ -79,11 +79,9 @@ void test_guards() {
     online.online = true;
     Guards menu = open_guards();
     menu.menu = true;
-    const Case cases[] = {{off, Reason::Disabled, "the setting off"},
-                          {buttons, Reason::Buttons, "a button held"},
-                          {movie, Reason::Movie, "a movie"},
-                          {online, Reason::Online, "ad hoc play"},
-                          {menu, Reason::Menu, "the in-game menu"}};
+    const Case cases[] = {{off, Reason::Disabled, "the setting off"}, {buttons, Reason::Buttons, "a button held"},
+        {movie, Reason::Movie, "a movie"}, {online, Reason::Online, "ad hoc play"},
+        {menu, Reason::Menu, "the in-game menu"}};
     for (const Case &c : cases) {
         Detector detector;
         detector.disc_read(1000 * kMs);

@@ -34,10 +34,12 @@ constexpr int kPreviewWidth = 1024;
 constexpr int kPreviewHeight = 64;
 
 bool list_open = false;
-bool focus_current = false;   // focus the chosen font's row when the list opens
-bool focus_font_row = false;  // focus the Font row when the list closes
+bool focus_current = false;  // focus the chosen font's row when the list opens
+bool focus_font_row = false; // focus the Font row when the list closes
 
-float px(float value) { return std::round(value * Layer::get().scale()); }
+float px(float value) {
+    return std::round(value * Layer::get().scale());
+}
 
 RowOptions options_for(const char *key, std::string description) {
     RowOptions options;
@@ -58,7 +60,9 @@ void apply(const std::string &value) {
 
 // Half-width in the game's sense: Latin, digits and symbols, and half-width
 // kana.
-bool half_width(char32_t c) { return c < 0x250u || (c >= 0xFF61u && c <= 0xFF9Fu); }
+bool half_width(char32_t c) {
+    return c < 0x250u || (c >= 0xFF61u && c <= 0xFF9Fu);
+}
 
 // A glyph cell as the game fills it: centred, or at its left bearing, and a
 // half-width character drawn twice, the second time 31/64 of a pixel left.
@@ -131,7 +135,7 @@ void build_preview(Preview &p, int size) {
                     const int x0 = static_cast<int>(std::floor(u));
                     const float fx = u - static_cast<float>(x0);
                     const float a = (texel(x0, y0) * (1.0f - fx) + texel(x0 + 1, y0) * fx) * (1.0f - fy) +
-                                    (texel(x0, y0 + 1) * (1.0f - fx) + texel(x0 + 1, y0 + 1) * fx) * fy;
+                        (texel(x0, y0 + 1) * (1.0f - fx) + texel(x0 + 1, y0 + 1) * fx) * fy;
                     const auto alpha = static_cast<std::uint32_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f + 0.5f);
                     pixels[static_cast<std::size_t>(oy) * kPreviewWidth + pen + ox] = (alpha << 24u) | 0x00FFFFFFu;
                 }
@@ -159,11 +163,11 @@ void draw_preview() {
     ImGui::Dummy({width, height});
     ImDrawList *draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled({min.x + px(16.0f), min.y + px(4.0f)}, {min.x + width - px(16.0f), min.y + height - px(4.0f)},
-                        IM_COL32(0, 0, 0, 90), px(6.0f));
+        IM_COL32(0, 0, 0, 90), px(6.0f));
     const float shown = std::min(static_cast<float>(p.width), width - px(48.0f));
     const ImVec2 at{min.x + px(24.0f), min.y + px(10.0f)};
     draw->AddImage(p.texture->GetTexRef(), at, {at.x + shown, at.y + static_cast<float>(size)}, {0.0f, 0.0f},
-                   {shown / kPreviewWidth, static_cast<float>(size) / kPreviewHeight}, colors::kText);
+        {shown / kPreviewWidth, static_cast<float>(size) / kPreviewHeight}, colors::kText);
 }
 
 std::string current_font_label() {
@@ -175,16 +179,19 @@ std::string current_font_label() {
 
 } // namespace
 
-bool font_list_open() { return list_open; }
+bool font_list_open() {
+    return list_open;
+}
 
 void font_rows() {
     settings::Settings &s = settings::current();
     fonts::start_catalog();
     section("Text");
     {
-        RowOptions o = options_for("text.font", "The font the game's text is drawn with. Characters it lacks, such "
-                                                "as Japanese in a Latin font, come from the default: " +
-                                                    fonts::fallback_name() + ".");
+        RowOptions o = options_for("text.font",
+            "The font the game's text is drawn with. Characters it lacks, such "
+            "as Japanese in a Latin font, come from the default: " +
+                fonts::fallback_name() + ".");
         if (!fonts::problem().empty()) o.description += "\n" + fonts::problem();
         if (focus_font_row) {
             focus_next_row();
@@ -198,10 +205,10 @@ void font_rows() {
     {
         static const char *const kWeights[] = {"Regular", "Bold", "Heavy"};
         const int current = static_cast<int>(std::min(s.font_weight, settings::kMaxFontWeight));
-        if (const int delta = choice_row(
-                "Weight", kWeights[current],
-                options_for("text.weight", "Thickens the strokes of the game's text. The game squeezes Latin "
-                                           "letters to half width, which thins them; Bold makes up for it."))) {
+        if (const int delta = choice_row("Weight", kWeights[current],
+                options_for("text.weight",
+                    "Thickens the strokes of the game's text. The game squeezes Latin "
+                    "letters to half width, which thins them; Bold makes up for it."))) {
             const int count = static_cast<int>(settings::kMaxFontWeight) + 1;
             s.font_weight = static_cast<std::uint32_t>(((current + delta) % count + count) % count);
             settings::save();
@@ -209,16 +216,18 @@ void font_rows() {
         }
     }
     if (toggle_row("Sharp text", s.crisp_text,
-                   options_for("text.crisp", "Above x1, draws the game's text again at the internal resolution "
-                                             "instead of magnifying its 20-pixel glyphs. The game lays the text out "
-                                             "as before; only the letters are sharper."))) {
+            options_for("text.crisp",
+                "Above x1, draws the game's text again at the internal resolution "
+                "instead of magnifying its 20-pixel glyphs. The game lays the text out "
+                "as before; only the letters are sharper."))) {
         s.crisp_text = !s.crisp_text;
         settings::save();
     }
     draw_preview();
     if (button_row("Open the fonts folder",
-                   {false, {}, "Fonts put in this folder (.ttf, .otf, .ttc) are listed first under Font: " +
-                                   fonts::user_font_folder()})) {
+            {false, {},
+                "Fonts put in this folder (.ttf, .otf, .ttc) are listed first under Font: " +
+                    fonts::user_font_folder()})) {
         const std::string folder = fonts::user_font_folder();
         std::error_code ec;
         std::filesystem::create_directories(install::path_from_utf8(folder), ec);
@@ -239,7 +248,7 @@ bool font_list(bool back) {
     ImGui::Indent(px(16.0f));
     paragraph("The game's text changes as soon as you choose. Characters a font lacks come from the default; "
               "fonts in the fonts folder are listed first.",
-              colors::kTextDim);
+        colors::kTextDim);
     ImGui::Unindent(px(16.0f));
     ImGui::Dummy({0.0f, px(4.0f)});
 
@@ -264,7 +273,7 @@ bool font_list(bool back) {
         const fonts::FontChoice &choice = choices[i];
         ImGui::PushID(static_cast<int>(i));
         const std::string detail = choice.user_folder ? (choice.japanese ? "Your font, Japanese" : "Your font")
-                                   : choice.japanese  ? "Japanese"
+            : choice.japanese                         ? "Japanese"
                                                       : "Latin";
         entry("##font", choice.name, detail, choice.value);
         ImGui::PopID();

@@ -28,7 +28,9 @@ void take_focus() {
     ImGui::SetScrollHereY(0.3f);
 }
 
-float font() { return Layer::get().font_size(); }
+float font() {
+    return Layer::get().font_size();
+}
 
 // End of the visible part of a label: "##" starts the part that only makes
 // the id unique, as everywhere in ImGui.
@@ -36,7 +38,9 @@ const char *shown_end(const char *label) {
     const char *hidden = std::strstr(label, "##");
     return hidden != nullptr ? hidden : label + std::strlen(label);
 }
-float px(float value) { return std::round(value * Layer::get().scale()); }
+float px(float value) {
+    return std::round(value * Layer::get().scale());
+}
 
 // Left or right on the keyboard, the D-pad or the left stick, with repeat.
 int horizontal_press() {
@@ -52,10 +56,10 @@ void draw_triangle(ImDrawList *draw, ImVec2 center, float size, bool right, ImU3
     const float h = size * 0.5f;
     if (right)
         draw->AddTriangleFilled({center.x - h * 0.8f, center.y - h}, {center.x - h * 0.8f, center.y + h},
-                                {center.x + h * 0.8f, center.y}, color);
+            {center.x + h * 0.8f, center.y}, color);
     else
         draw->AddTriangleFilled({center.x + h * 0.8f, center.y - h}, {center.x + h * 0.8f, center.y + h},
-                                {center.x - h * 0.8f, center.y}, color);
+            {center.x - h * 0.8f, center.y}, color);
 }
 
 struct Row {
@@ -83,13 +87,13 @@ Row row(const char *label, const RowOptions &options, ImU32 color = colors::kTex
     if (result.focused) {
         draw->AddRectFilled(result.min, result.max, colors::kRowFocus, rounding);
         draw->AddRectFilled(result.min, {result.min.x + px(4.0f), result.max.y}, colors::kAccent, rounding,
-                            ImDrawFlags_RoundCornersLeft);
+            ImDrawFlags_RoundCornersLeft);
     } else if (result.hovered) {
         draw->AddRectFilled(result.min, result.max, colors::kRowHover, rounding);
     }
     const float text_y = result.min.y + (height - font()) * 0.5f;
-    draw->AddText({result.min.x + px(16.0f), text_y}, options.disabled ? colors::kTextDisabled : color, label,
-                  shown_end(label));
+    draw->AddText(
+        {result.min.x + px(16.0f), text_y}, options.disabled ? colors::kTextDisabled : color, label, shown_end(label));
     if (result.focused || (result.hovered && Layer::get().description().empty())) {
         std::string description = options.description;
         if (!options.note.empty()) description += (description.empty() ? "" : "\n") + options.note;
@@ -99,8 +103,7 @@ Row row(const char *label, const RowOptions &options, ImU32 color = colors::kTex
 }
 
 // Draws `value` right-aligned in the row, with the note to its left.
-float draw_value(const Row &r, const std::string &value, const RowOptions &options, float right_inset,
-                 ImU32 color) {
+float draw_value(const Row &r, const std::string &value, const RowOptions &options, float right_inset, ImU32 color) {
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const float text_y = r.min.y + (r.max.y - r.min.y - font()) * 0.5f;
     const float value_width = ImGui::CalcTextSize(value.c_str()).x;
@@ -122,10 +125,12 @@ float draw_cap(ImDrawList *draw, ImVec2 at, const char *text, bool filled) {
     const float width = std::max(height, text_size.x + font() * 0.7f);
     const ImVec2 min{at.x, at.y + (font() - height) * 0.5f};
     const ImVec2 max{min.x + width, min.y + height};
-    if (filled) draw->AddRectFilled(min, max, colors::kAccent, height * 0.3f);
-    else draw->AddRect(min, max, colors::kTextDim, height * 0.3f, 0, px(1.5f));
+    if (filled)
+        draw->AddRectFilled(min, max, colors::kAccent, height * 0.3f);
+    else
+        draw->AddRect(min, max, colors::kTextDim, height * 0.3f, 0, px(1.5f));
     draw->AddText({min.x + (width - text_size.x) * 0.5f, min.y + (height - text_size.y) * 0.5f},
-                  filled ? colors::kPanel : colors::kText, text);
+        filled ? colors::kPanel : colors::kText, text);
     return width;
 }
 
@@ -135,15 +140,23 @@ float draw_face(ImDrawList *draw, ImVec2 at, SDL_GamepadButton button) {
     const ImVec2 center{at.x + radius, at.y + font() * 0.5f};
     draw->AddCircleFilled(center, radius, colors::kAccent);
     SDL_Gamepad *pad = Layer::get().attached() ? Layer::get().renderer().gamepad() : nullptr;
-    SDL_GamepadButtonLabel label = pad != nullptr ? SDL_GetGamepadButtonLabel(pad, button)
-                                                  : SDL_GAMEPAD_BUTTON_LABEL_UNKNOWN;
+    SDL_GamepadButtonLabel label =
+        pad != nullptr ? SDL_GetGamepadButtonLabel(pad, button) : SDL_GAMEPAD_BUTTON_LABEL_UNKNOWN;
     if (label == SDL_GAMEPAD_BUTTON_LABEL_UNKNOWN) {
         // Positional names of the common Xbox-style layout, as on a Steam Deck.
         switch (button) {
-        case SDL_GAMEPAD_BUTTON_SOUTH: label = SDL_GAMEPAD_BUTTON_LABEL_A; break;
-        case SDL_GAMEPAD_BUTTON_EAST: label = SDL_GAMEPAD_BUTTON_LABEL_B; break;
-        case SDL_GAMEPAD_BUTTON_WEST: label = SDL_GAMEPAD_BUTTON_LABEL_X; break;
-        default: label = SDL_GAMEPAD_BUTTON_LABEL_Y; break;
+        case SDL_GAMEPAD_BUTTON_SOUTH:
+            label = SDL_GAMEPAD_BUTTON_LABEL_A;
+            break;
+        case SDL_GAMEPAD_BUTTON_EAST:
+            label = SDL_GAMEPAD_BUTTON_LABEL_B;
+            break;
+        case SDL_GAMEPAD_BUTTON_WEST:
+            label = SDL_GAMEPAD_BUTTON_LABEL_X;
+            break;
+        default:
+            label = SDL_GAMEPAD_BUTTON_LABEL_Y;
+            break;
         }
     }
     const ImU32 ink = colors::kPanel;
@@ -154,19 +167,21 @@ float draw_face(ImDrawList *draw, ImVec2 at, SDL_GamepadButton button) {
         draw->AddLine({center.x - s, center.y - s}, {center.x + s, center.y + s}, ink, thickness);
         draw->AddLine({center.x - s, center.y + s}, {center.x + s, center.y - s}, ink, thickness);
         break;
-    case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: draw->AddCircle(center, s * 1.1f, ink, 0, thickness); break;
+    case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE:
+        draw->AddCircle(center, s * 1.1f, ink, 0, thickness);
+        break;
     case SDL_GAMEPAD_BUTTON_LABEL_SQUARE:
         draw->AddRect({center.x - s, center.y - s}, {center.x + s, center.y + s}, ink, 0.0f, 0, thickness);
         break;
     case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE:
         draw->AddTriangle({center.x, center.y - s * 1.1f}, {center.x + s * 1.1f, center.y + s * 0.8f},
-                          {center.x - s * 1.1f, center.y + s * 0.8f}, ink, thickness);
+            {center.x - s * 1.1f, center.y + s * 0.8f}, ink, thickness);
         break;
     default: {
-        const char *letter = label == SDL_GAMEPAD_BUTTON_LABEL_A   ? "A"
-                             : label == SDL_GAMEPAD_BUTTON_LABEL_B ? "B"
-                             : label == SDL_GAMEPAD_BUTTON_LABEL_X ? "X"
-                                                                   : "Y";
+        const char *letter = label == SDL_GAMEPAD_BUTTON_LABEL_A ? "A"
+            : label == SDL_GAMEPAD_BUTTON_LABEL_B                ? "B"
+            : label == SDL_GAMEPAD_BUTTON_LABEL_X                ? "X"
+                                                                 : "Y";
         const ImVec2 size = ImGui::CalcTextSize(letter);
         draw->AddText({center.x - size.x * 0.5f, center.y - size.y * 0.5f}, ink, letter);
         break;
@@ -179,8 +194,8 @@ const char *shoulder_name(bool right) {
     SDL_Gamepad *pad = Layer::get().attached() ? Layer::get().renderer().gamepad() : nullptr;
     const SDL_GamepadType type = pad != nullptr ? SDL_GetGamepadType(pad) : SDL_GAMEPAD_TYPE_UNKNOWN;
     const char *name = pad != nullptr ? SDL_GetGamepadName(pad) : nullptr;
-    const bool playstation = type == SDL_GAMEPAD_TYPE_PS3 || type == SDL_GAMEPAD_TYPE_PS4 ||
-                             type == SDL_GAMEPAD_TYPE_PS5;
+    const bool playstation =
+        type == SDL_GAMEPAD_TYPE_PS3 || type == SDL_GAMEPAD_TYPE_PS4 || type == SDL_GAMEPAD_TYPE_PS5;
     // The Steam Deck prints L1 and R1 on its bumpers.
     const bool deck = name != nullptr && std::strstr(name, "Steam Deck") != nullptr;
     if (playstation || deck) return right ? "R1" : "L1";
@@ -193,12 +208,17 @@ const char *shoulder_name(bool right) {
 const char *select_name() {
     SDL_Gamepad *pad = Layer::get().attached() ? Layer::get().renderer().gamepad() : nullptr;
     switch (pad != nullptr ? SDL_GetGamepadType(pad) : SDL_GAMEPAD_TYPE_UNKNOWN) {
-    case SDL_GAMEPAD_TYPE_PS3: return "Select";
-    case SDL_GAMEPAD_TYPE_PS4: return "Share";
-    case SDL_GAMEPAD_TYPE_PS5: return "Create";
+    case SDL_GAMEPAD_TYPE_PS3:
+        return "Select";
+    case SDL_GAMEPAD_TYPE_PS4:
+        return "Share";
+    case SDL_GAMEPAD_TYPE_PS5:
+        return "Create";
     case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
-    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: return "−";
-    default: return "View";
+    case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+        return "−";
+    default:
+        return "View";
     }
 }
 
@@ -250,12 +270,12 @@ void begin_panel(const char *id, const std::string &title, const std::string &su
     if (dim_game) ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, io.DisplaySize, colors::kBackdrop);
     const float margin = std::round(std::min(io.DisplaySize.x, io.DisplaySize.y) * 0.03f);
     const ImVec2 size{std::min(io.DisplaySize.x - 2.0f * margin, font() * 46.0f),
-                      std::min(io.DisplaySize.y - 2.0f * margin, font() * 31.0f)};
+        std::min(io.DisplaySize.y - 2.0f * margin, font() * 31.0f)};
     ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f}, ImGuiCond_Always, {0.5f, 0.5f});
     ImGui::SetNextWindowSize(size, ImGuiCond_Always);
     ImGui::Begin(id, nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoBringToFrontOnFocus);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoBringToFrontOnFocus);
 
     ImDrawList *draw = ImGui::GetWindowDrawList();
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.45f);
@@ -268,13 +288,12 @@ void begin_panel(const char *id, const std::string &title, const std::string &su
     if (!subtitle.empty()) {
         const float width = ImGui::CalcTextSize(subtitle.c_str()).x;
         const float right = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - ImGui::GetStyle().WindowPadding.x;
-        draw->AddText({right - width, title_at.y + title_height - font() * 1.15f}, colors::kTextDim,
-                      subtitle.c_str());
+        draw->AddText({right - width, title_at.y + title_height - font() * 1.15f}, colors::kTextDim, subtitle.c_str());
     }
     const ImVec2 line = ImGui::GetCursorScreenPos();
     const float line_width = ImGui::GetContentRegionAvail().x;
     draw->AddRectFilledMultiColor(line, {line.x + line_width, line.y + px(2.0f)}, colors::kAccent,
-                                  IM_COL32(143, 93, 36, 0), IM_COL32(143, 93, 36, 0), colors::kAccent);
+        IM_COL32(143, 93, 36, 0), IM_COL32(143, 93, 36, 0), colors::kAccent);
     ImGui::Dummy({0.0f, px(10.0f)});
 }
 
@@ -302,8 +321,8 @@ void begin_footer() {
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const ImVec2 line = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
-    draw->AddLine({line.x, line.y + px(4.0f)}, {line.x + width, line.y + px(4.0f)}, IM_COL32(143, 93, 36, 90),
-                  px(1.0f));
+    draw->AddLine(
+        {line.x, line.y + px(4.0f)}, {line.x + width, line.y + px(4.0f)}, IM_COL32(143, 93, 36, 90), px(1.0f));
     ImGui::Dummy({0.0f, px(10.0f)});
     // Two lines for the description, whatever it holds, so the hints stay put.
     const float description_height = font() * 2.4f;
@@ -314,7 +333,7 @@ void begin_footer() {
     float size = ImGui::GetStyle().FontSizeBase * 0.88f;
     const float smallest = ImGui::GetStyle().FontSizeBase * 0.66f;
     while (size > smallest &&
-           ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, width, description.c_str()).y > description_height)
+        ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, width, description.c_str()).y > description_height)
         size -= 1.0f;
     ImGui::PushFont(nullptr, size);
     ImGui::PushStyleColor(ImGuiCol_Text, colors::kTextDim);
@@ -326,7 +345,9 @@ void begin_footer() {
     ImGui::SetCursorScreenPos({at.x, at.y + description_height});
 }
 
-void end_panel() { ImGui::End(); }
+void end_panel() {
+    ImGui::End();
+}
 
 bool tab_bar(const char *const *labels, int count, int &selected) {
     const int before = selected;
@@ -342,11 +363,11 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
     // The switch buttons at both ends.
-    const float cap_left = draw_cap(draw, {start.x, start.y + (height - font()) * 0.5f},
-                                    pad ? shoulder_name(false) : "Q", false);
+    const float cap_left =
+        draw_cap(draw, {start.x, start.y + (height - font()) * 0.5f}, pad ? shoulder_name(false) : "Q", false);
     const float cap_right_width = ImGui::CalcTextSize(pad ? shoulder_name(true) : "W").x + font() * 0.7f;
     draw_cap(draw, {start.x + width - std::max(font() * 1.15f, cap_right_width), start.y + (height - font()) * 0.5f},
-             pad ? shoulder_name(true) : "W", false);
+        pad ? shoulder_name(true) : "W", false);
 
     const float inner_left = start.x + cap_left + px(14.0f);
     const float inner_width = width - cap_left - std::max(font() * 1.15f, cap_right_width) - px(28.0f);
@@ -364,10 +385,10 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
         if (hovered && !active) draw->AddRectFilled(min, max, colors::kRowHover, px(6.0f));
         const ImVec2 size = ImGui::CalcTextSize(labels[i]);
         draw->AddText({min.x + (tab_width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f},
-                      active ? colors::kAccentBright : colors::kTextDim, labels[i]);
+            active ? colors::kAccentBright : colors::kTextDim, labels[i]);
         if (active)
             draw->AddRectFilled({min.x + tab_width * 0.18f, max.y - px(3.0f)}, {max.x - tab_width * 0.18f, max.y},
-                                colors::kAccent, px(2.0f));
+                colors::kAccent, px(2.0f));
     }
     ImGui::PopItemFlag();
     ImGui::SetCursorScreenPos({start.x, start.y + height + px(8.0f)});
@@ -375,7 +396,9 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
     return selected != before;
 }
 
-void focus_next_row() { focus_next = true; }
+void focus_next_row() {
+    focus_next = true;
+}
 
 int choice_row(const char *label, const std::string &value, const RowOptions &options) {
     const Row r = row(label, options);
@@ -388,7 +411,7 @@ int choice_row(const char *label, const std::string &value, const RowOptions &op
         // A click on the left arrow steps back; anything else steps forward.
         const float mouse_x = ImGui::GetIO().MousePos.x;
         const bool on_left_arrow = ImGui::GetIO().MouseReleased[0] && mouse_x > left_arrow_x - font() &&
-                                   mouse_x < left_arrow_x + font() * 0.6f;
+            mouse_x < left_arrow_x + font() * 0.6f;
         delta = on_left_arrow ? -1 : 1;
     }
     const bool live = r.focused || r.hovered;
@@ -419,13 +442,13 @@ bool toggle_row(const char *label, bool value, const RowOptions &options) {
     const float knob = height * 0.5f - px(3.0f);
     const ImVec2 knob_center{on ? max.x - height * 0.5f : min.x + height * 0.5f, mid_y};
     draw->AddCircleFilled(knob_center, knob, options.disabled ? colors::kTextDisabled : colors::kText);
-    draw_value(r, on ? "On" : "Off", options, px(16.0f) + width + px(12.0f),
-               on ? colors::kAccentBright : colors::kTextDim);
+    draw_value(
+        r, on ? "On" : "Off", options, px(16.0f) + width + px(12.0f), on ? colors::kAccentBright : colors::kTextDim);
     return toggled;
 }
 
-bool slider_row(const char *label, int &value, int minimum, int maximum, int step, const char *format,
-                const RowOptions &options) {
+bool slider_row(
+    const char *label, int &value, int minimum, int maximum, int step, const char *format, const RowOptions &options) {
     const Row r = row(label, options);
     const int before = value;
     ImDrawList *draw = ImGui::GetWindowDrawList();
@@ -457,13 +480,14 @@ bool slider_row(const char *label, int &value, int minimum, int maximum, int ste
     const bool live = (r.focused || r.hovered) && !options.disabled;
     draw->AddRectFilled(bar_min, bar_max, colors::kTrack, px(3.0f));
     draw->AddRectFilled(bar_min, {bar_min.x + bar_width * t, bar_max.y},
-                        options.disabled ? colors::kTextDisabled : colors::kAccent, px(3.0f));
+        options.disabled ? colors::kTextDisabled : colors::kAccent, px(3.0f));
     draw->AddCircleFilled({bar_min.x + bar_width * t, mid_y}, font() * (live ? 0.42f : 0.34f),
-                          options.disabled ? colors::kTextDisabled : live ? colors::kAccentBright : colors::kText);
+        options.disabled ? colors::kTextDisabled
+            : live       ? colors::kAccentBright
+                         : colors::kText);
     char text[32];
     std::snprintf(text, sizeof(text), format, value);
-    draw_value(r, text, options, px(16.0f) + bar_width + font() * 1.0f,
-               live ? colors::kAccentBright : colors::kText);
+    draw_value(r, text, options, px(16.0f) + bar_width + font() * 1.0f, live ? colors::kAccentBright : colors::kText);
     return value != before;
 }
 
@@ -471,8 +495,9 @@ bool button_row(const char *label, const RowOptions &options, ImU32 color) {
     const Row r = row(label, options, color);
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const float mid_y = (r.min.y + r.max.y) * 0.5f;
-    const ImU32 chevron = options.disabled ? colors::kTextDisabled : (r.focused || r.hovered) ? colors::kAccent
-                                                                                            : colors::kTextDim;
+    const ImU32 chevron = options.disabled ? colors::kTextDisabled
+        : (r.focused || r.hovered)         ? colors::kAccent
+                                           : colors::kTextDim;
     const float x = r.max.x - px(16.0f) - font() * 0.3f;
     const float s = font() * 0.28f;
     draw->AddLine({x - s, mid_y - s * 1.6f}, {x + s * 0.6f, mid_y}, chevron, px(2.0f));
@@ -492,7 +517,9 @@ bool value_row(const char *label, const std::string &value, const RowOptions &op
     draw->AddLine({x - s, mid_y - s * 1.6f}, {x + s * 0.6f, mid_y}, chevron, px(2.0f));
     draw->AddLine({x + s * 0.6f, mid_y}, {x - s, mid_y + s * 1.6f}, chevron, px(2.0f));
     draw_value(r, value, options, px(16.0f) + font() * 1.1f,
-               options.warning ? colors::kDanger : live ? colors::kAccentBright : colors::kText);
+        options.warning ? colors::kDanger
+            : live      ? colors::kAccentBright
+                        : colors::kText);
     return r.pressed && !options.disabled;
 }
 
@@ -512,7 +539,7 @@ bool list_row(const char *id, const std::string &name, const std::string &detail
         draw->AddRectFilled(min, max, ink, px(2.0f));
         if (icon == ListIcon::ParentFolder)
             draw->AddTriangleFilled({min.x + unit, min.y + unit * 0.25f}, {min.x + unit * 0.55f, min.y + unit * 0.9f},
-                                    {min.x + unit * 1.45f, min.y + unit * 0.9f}, colors::kPanel);
+                {min.x + unit * 1.45f, min.y + unit * 0.9f}, colors::kPanel);
         break;
     }
     case ListIcon::Disc:
@@ -520,15 +547,16 @@ bool list_row(const char *id, const std::string &name, const std::string &detail
         draw->AddCircleFilled({icon_x + unit, mid_y}, unit * 0.25f, ink);
         break;
     case ListIcon::Drive:
-        draw->AddRect({icon_x, mid_y - unit * 0.55f}, {icon_x + unit * 2.0f, mid_y + unit * 0.55f}, ink, px(2.0f), 0,
-                      px(2.0f));
+        draw->AddRect(
+            {icon_x, mid_y - unit * 0.55f}, {icon_x + unit * 2.0f, mid_y + unit * 0.55f}, ink, px(2.0f), 0, px(2.0f));
         draw->AddCircleFilled({icon_x + unit * 1.55f, mid_y}, unit * 0.15f, ink);
         break;
     case ListIcon::File:
         draw->AddRect({icon_x + unit * 0.3f, mid_y - unit * 0.8f}, {icon_x + unit * 1.7f, mid_y + unit * 0.8f}, ink,
-                      px(2.0f), 0, px(1.5f));
+            px(2.0f), 0, px(1.5f));
         break;
-    case ListIcon::None: break;
+    case ListIcon::None:
+        break;
     }
     const float text_x = icon == ListIcon::None ? r.min.x + px(16.0f) : icon_x + unit * 2.0f + px(14.0f);
     const float text_y = mid_y - font() * 0.5f;
@@ -553,11 +581,10 @@ void info_row(const char *label, const std::string &value) {
     const ImVec2 max{min.x + width + px(32.0f), min.y + height};
     if (focused) draw->AddRectFilled(min, max, colors::kRowFocus, px(6.0f));
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.8f);
-    draw->AddText({min.x + px(16.0f), min.y + px(5.0f)}, colors::kTextDim, label,
-                  shown_end(label));
+    draw->AddText({min.x + px(16.0f), min.y + px(5.0f)}, colors::kTextDim, label, shown_end(label));
     ImGui::PopFont();
-    draw->AddText(nullptr, 0.0f, {min.x + px(16.0f), min.y + font() * 0.95f}, colors::kText, value.c_str(), nullptr,
-                  width);
+    draw->AddText(
+        nullptr, 0.0f, {min.x + px(16.0f), min.y + font() * 0.95f}, colors::kText, value.c_str(), nullptr, width);
 }
 
 void section(const char *title) {
@@ -589,13 +616,16 @@ bool big_button(const char *label, float width, bool primary, bool disabled) {
         draw->AddRectFilled(min, max, focused || hovered ? colors::kAccentBright : colors::kAccent, rounding);
         text = colors::kPanel;
     } else {
-        draw->AddRectFilled(min, max, focused ? colors::kRowFocus : hovered ? colors::kRowHover : colors::kRow,
-                            rounding);
+        draw->AddRectFilled(min, max,
+            focused       ? colors::kRowFocus
+                : hovered ? colors::kRowHover
+                          : colors::kRow,
+            rounding);
         draw->AddRect(min, max, focused ? colors::kAccent : colors::kPanelEdge, rounding, 0, px(1.5f));
     }
     if (focused && !disabled)
-        draw->AddRect({min.x - px(3.0f), min.y - px(3.0f)}, {max.x + px(3.0f), max.y + px(3.0f)},
-                      colors::kAccentBright, rounding + px(3.0f), 0, px(2.0f));
+        draw->AddRect({min.x - px(3.0f), min.y - px(3.0f)}, {max.x + px(3.0f), max.y + px(3.0f)}, colors::kAccentBright,
+            rounding + px(3.0f), 0, px(2.0f));
     const char *end = shown_end(label);
     const ImVec2 size = ImGui::CalcTextSize(label, end);
     draw->AddText({min.x + (width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f}, text, label, end);
@@ -614,8 +644,7 @@ void progress_bar(float fraction, const std::string &overlay) {
     if (filled > 1.0f)
         draw->AddRectFilled(min, {min.x + std::max(filled, height), max.y}, colors::kAccent, height * 0.5f);
     const ImVec2 size = ImGui::CalcTextSize(overlay.c_str());
-    draw->AddText({min.x + (width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f}, colors::kText,
-                  overlay.c_str());
+    draw->AddText({min.x + (width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f}, colors::kText, overlay.c_str());
 }
 
 void paragraph(const std::string &text, ImU32 color) {
@@ -647,8 +676,7 @@ void hints(std::initializer_list<Hint> list) {
     for (const Hint &hint : list) {
         // The browser's file filter switch has a button on the pad only.
         const bool pad_only = hint.control == Control::Toggle || hint.control == Control::Shift ||
-                              hint.control == Control::Space || hint.control == Control::Symbols ||
-                              hint.control == Control::Reset;
+            hint.control == Control::Space || hint.control == Control::Symbols || hint.control == Control::Reset;
         if (pad_only && !pad) continue;
         float x = at.x;
         const auto cap = [&](const char *text) { x += draw_cap(draw, {x, at.y}, text, false) + gap; };
@@ -663,18 +691,24 @@ void hints(std::initializer_list<Hint> list) {
         };
         switch (hint.control) {
         case Control::Confirm:
-            if (pad) x += draw_face(draw, {x, at.y}, confirm) + gap;
-            else cap("Enter");
+            if (pad)
+                x += draw_face(draw, {x, at.y}, confirm) + gap;
+            else
+                cap("Enter");
             break;
         case Control::Back:
-            if (pad) x += draw_face(draw, {x, at.y}, back) + gap;
-            else cap("Esc");
+            if (pad)
+                x += draw_face(draw, {x, at.y}, back) + gap;
+            else
+                cap("Esc");
             break;
         case Control::Tabs:
             cap(pad ? shoulder_name(false) : "Q");
             cap(pad ? shoulder_name(true) : "W");
             break;
-        case Control::Change: arrows(); break;
+        case Control::Change:
+            arrows();
+            break;
         case Control::Menu:
             if (pad) {
                 cap("L3");
@@ -683,20 +717,34 @@ void hints(std::initializer_list<Hint> list) {
                 cap("Esc");
             }
             break;
-        case Control::Start: cap(pad ? "Start" : "Enter"); break;
+        case Control::Start:
+            cap(pad ? "Start" : "Enter");
+            break;
         case Control::Toggle:
-        case Control::Space: x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_NORTH) + gap; break;
+        case Control::Space:
+            x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_NORTH) + gap;
+            break;
         case Control::Delete:
-            if (pad) x += draw_face(draw, {x, at.y}, back) + gap;
-            else cap("Backspace");
+            if (pad)
+                x += draw_face(draw, {x, at.y}, back) + gap;
+            else
+                cap("Backspace");
             break;
-        case Control::Shift: x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_WEST) + gap; break;
-        case Control::Reset: cap(select_name()); break;
+        case Control::Shift:
+            x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_WEST) + gap;
+            break;
+        case Control::Reset:
+            cap(select_name());
+            break;
         case Control::Clear:
-            if (pad) x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_NORTH) + gap;
-            else cap("Del");
+            if (pad)
+                x += draw_face(draw, {x, at.y}, SDL_GAMEPAD_BUTTON_NORTH) + gap;
+            else
+                cap("Del");
             break;
-        case Control::Symbols: cap(select_name()); break;
+        case Control::Symbols:
+            cap(select_name());
+            break;
         case Control::Cursor:
             if (pad) {
                 cap(shoulder_name(false));

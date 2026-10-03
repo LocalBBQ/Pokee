@@ -17,15 +17,17 @@ void check(bool condition, const char *message) {
     }
 }
 
-const Circle &at(const Layout &layout, Control control) { return layout.controls[static_cast<std::size_t>(control)]; }
+const Circle &at(const Layout &layout, Control control) {
+    return layout.controls[static_cast<std::size_t>(control)];
+}
 
 void test_layout_fits(float width, float height, Insets insets, float size, const char *what) {
     const Layout layout = make_layout(width, height, insets, size);
     bool inside = true;
     for (const Circle &c : layout.controls)
         inside = inside && c.centre.x - c.radius >= insets.left - 0.5f &&
-                 c.centre.x + c.radius <= width - insets.right + 0.5f && c.centre.y - c.radius >= insets.top - 0.5f &&
-                 c.centre.y + c.radius <= height - insets.bottom + 0.5f;
+            c.centre.x + c.radius <= width - insets.right + 0.5f && c.centre.y - c.radius >= insets.top - 0.5f &&
+            c.centre.y + c.radius <= height - insets.bottom + 0.5f;
     check(inside, what);
     bool apart = true;
     for (std::size_t i = 0; i < kControls; ++i)
@@ -37,8 +39,8 @@ void test_layout_fits(float width, float height, Insets insets, float size, cons
     check(apart, "no two controls overlap");
     const Circle &d = layout.dpad;
     check(d.centre.x - d.radius >= insets.left - 0.5f && d.centre.y - d.radius >= insets.top - 0.5f &&
-              d.centre.y + d.radius <= height - insets.bottom + 0.5f && d.centre.x + d.radius < layout.stick_split,
-          "the D-pad is on the left, on screen");
+            d.centre.y + d.radius <= height - insets.bottom + 0.5f && d.centre.x + d.radius < layout.stick_split,
+        "the D-pad is on the left, on screen");
     bool dpad_apart = true;
     for (const Circle &c : layout.controls)
         dpad_apart = dpad_apart && std::hypot(c.centre.x - d.centre.x, c.centre.y - d.centre.y) >= c.radius + d.radius;
@@ -46,10 +48,10 @@ void test_layout_fits(float width, float height, Insets insets, float size, cons
     check(at(layout, Control::Cross).centre.x > layout.stick_split, "the face buttons are on the right");
     check(at(layout, Control::L).centre.x < layout.stick_split, "L is on the left");
     check(at(layout, Control::L).centre.y < height * 0.3f && at(layout, Control::R).centre.y < height * 0.3f,
-          "the shoulders are at the top");
+        "the shoulders are at the top");
     check(at(layout, Control::Triangle).centre.y < at(layout, Control::Cross).centre.y &&
-              at(layout, Control::Square).centre.x < at(layout, Control::Circle).centre.x,
-          "the face buttons make the PSP's diamond");
+            at(layout, Control::Square).centre.x < at(layout, Control::Circle).centre.x,
+        "the face buttons make the PSP's diamond");
 }
 
 void test_layouts() {
@@ -152,8 +154,8 @@ void test_action_layout_fits(float width, float height, Insets insets, float sca
     for (std::size_t i = 0; i < kElements; ++i) {
         const Placed &p = controls.placed(static_cast<Element>(i));
         inside = inside && p.centre.x - p.half_width >= area.left - 0.5f &&
-                 p.centre.x + p.half_width <= area.left + area.width + 0.5f &&
-                 p.centre.y - p.radius >= area.top - 0.5f && p.centre.y + p.radius <= area.top + area.height + 0.5f;
+            p.centre.x + p.half_width <= area.left + area.width + 0.5f && p.centre.y - p.radius >= area.top - 0.5f &&
+            p.centre.y + p.radius <= area.top + area.height + 0.5f;
         if (static_cast<Element>(i) == Element::Swipe) continue;
         for (std::size_t j = i + 1; j < kElements; ++j) {
             if (static_cast<Element>(j) == Element::Swipe) continue;
@@ -175,20 +177,21 @@ void test_action_layout() {
         const Placement &p = default_action_layout().elements[i];
         Placement back;
         check(parse(format(p), back) && back.anchor == p.anchor && std::fabs(back.x - p.x) < 1e-3f &&
-                  std::fabs(back.y - p.y) < 1e-3f && std::fabs(back.size - p.size) < 1e-3f &&
-                  back.buttons == p.buttons && back.shown == p.shown,
-              "every placement round-trips through settings.ini");
+                std::fabs(back.y - p.y) < 1e-3f && std::fabs(back.size - p.size) < 1e-3f && back.buttons == p.buttons &&
+                back.shown == p.shown,
+            "every placement round-trips through settings.ini");
     }
     Placement placement;
     check(!parse("middle 0 0 0.1 0x1000 1", placement) && !parse("left 0 0", placement), "bad placements are refused");
     check(default_action_layout().at(Element::Combo).buttons == 0x3000u, "the combined attack is △ and ○ together");
 
     const Area area = safe_area(2000.0f, 1000.0f, {});
-    const Placement moved = move_to(default_action_layout().at(Element::Attack), Element::Attack, {300.0f, 500.0f}, area);
+    const Placement moved =
+        move_to(default_action_layout().at(Element::Attack), Element::Attack, {300.0f, 500.0f}, area);
     const Placed there = place(moved, Element::Attack, area, 1.0f);
     check(moved.anchor == Anchor::Left && std::fabs(there.centre.x - 300.0f) < 0.01f &&
-              std::fabs(there.centre.y - 500.0f) < 0.01f,
-          "moving an element puts it where it is dropped, anchored to the nearer edge");
+            std::fabs(there.centre.y - 500.0f) < 0.01f,
+        "moving an element puts it where it is dropped, anchored to the nearer edge");
 }
 
 void test_action_fingers() {
@@ -243,7 +246,7 @@ void test_action_fingers() {
 
     controls.finger_down(7, centre(Element::Pause), ms);
     check(controls.take_menu() && !controls.take_menu() && controls.buttons(ms) == 0u,
-          "Pause opens the menu and presses nothing");
+        "Pause opens the menu and presses nothing");
     controls.release_all();
 
     // A hidden element is not there, and a rebound one presses what it is bound to.

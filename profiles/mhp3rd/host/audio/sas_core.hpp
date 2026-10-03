@@ -20,7 +20,7 @@ struct SasVoice {
     std::uint32_t address{};
     std::uint32_t size{};
     bool looping{};
-    bool pcm{};  // raw 16-bit PCM instead of VAG
+    bool pcm{}; // raw 16-bit PCM instead of VAG
     std::uint32_t pitch{0x1000u};
     std::int32_t left{0x1000};
     std::int32_t right{0x1000};

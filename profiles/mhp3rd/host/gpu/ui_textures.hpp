@@ -44,12 +44,12 @@ inline constexpr std::uint32_t kCellPitch = 22u;
 // repeated. False when the page does not look like the atlas: more than a
 // few of its known cells differ from their glyphs drawn again at scale 1.
 struct GlyphPageReport {
-    std::uint32_t cells{};     // cells with a known character
-    std::uint32_t redrawn{};   // of those, drawn again
+    std::uint32_t cells{};   // cells with a known character
+    std::uint32_t redrawn{}; // of those, drawn again
     std::uint32_t mismatched{};
 };
 bool glyph_page(const GuestMemory &memory, const TextureState &texture, int scale, std::vector<std::uint32_t> &out,
-                GlyphPageReport &report);
+    GlyphPageReport &report);
 
 // MMPX copies are made on a thread of their own, so a texture seen for the
 // first time (a menu opening) never holds up a frame: the original is drawn
@@ -67,7 +67,7 @@ public:
     // True once, with the image, when the copy for `key` is done; an empty
     // image when it could not be made.
     bool take(std::uint64_t key, std::vector<std::uint32_t> &pixels, std::uint32_t &width, std::uint32_t &height,
-              double &milliseconds);
+        double &milliseconds);
     [[nodiscard]] std::size_t queued() const;
 
 private:

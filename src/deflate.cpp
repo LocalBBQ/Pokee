@@ -38,7 +38,8 @@ private:
     [[nodiscard]] bool ensure(std::uint32_t count) {
         while (bit_count_ < count) {
             if (loaded_bytes_ == std::numeric_limits<std::uint32_t>::max() ||
-                !memory_.contains(base_ + loaded_bytes_, 1u)) return false;
+                !memory_.contains(base_ + loaded_bytes_, 1u))
+                return false;
             bits_ |= static_cast<std::uint64_t>(memory_.aot_load8(base_ + loaded_bytes_)) << bit_count_;
             ++loaded_bytes_;
             bit_count_ += 8u;
@@ -127,8 +128,7 @@ bool build_fixed_trees(HuffmanTree &literal_length, HuffmanTree &distance) {
 
 bool build_dynamic_trees(BitReader &reader, HuffmanTree &literal_length, HuffmanTree &distance) {
     std::uint32_t hlit_bits{}, hdist_bits{}, hclen_bits{};
-    if (!reader.read(5u, hlit_bits) || !reader.read(5u, hdist_bits) || !reader.read(4u, hclen_bits))
-        return false;
+    if (!reader.read(5u, hlit_bits) || !reader.read(5u, hdist_bits) || !reader.read(4u, hclen_bits)) return false;
     const std::uint32_t literal_count = hlit_bits + 257u;
     const std::uint32_t distance_count = hdist_bits + 1u;
     const std::uint32_t code_length_count = hclen_bits + 4u;
@@ -180,26 +180,19 @@ bool build_dynamic_trees(BitReader &reader, HuffmanTree &literal_length, Huffman
     return literal_length.build(literal_lengths) && distance.build(distance_lengths);
 }
 
-constexpr std::array<std::uint16_t, 29> length_base{
-    3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 13u, 15u, 17u, 19u, 23u, 27u,
+constexpr std::array<std::uint16_t, 29> length_base{3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 13u, 15u, 17u, 19u, 23u, 27u,
     31u, 35u, 43u, 51u, 59u, 67u, 83u, 99u, 115u, 131u, 163u, 195u, 227u, 258u};
 constexpr std::array<std::uint8_t, 29> length_extra{
-    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 1u, 1u, 1u, 1u, 2u, 2u, 2u,
-    2u, 3u, 3u, 3u, 3u, 4u, 4u, 4u, 4u, 5u, 5u, 5u, 5u, 0u};
-constexpr std::array<std::uint16_t, 30> distance_base{
-    1u, 2u, 3u, 4u, 5u, 7u, 9u, 13u, 17u, 25u, 33u, 49u, 65u, 97u, 129u,
-    193u, 257u, 385u, 513u, 769u, 1025u, 1537u, 2049u, 3073u, 4097u, 6145u,
-    8193u, 12289u, 16385u, 24577u};
-constexpr std::array<std::uint8_t, 30> distance_extra{
-    0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 3u, 3u, 4u, 4u, 5u, 5u, 6u,
-    6u, 7u, 7u, 8u, 8u, 9u, 9u, 10u, 10u, 11u, 11u, 12u, 12u, 13u, 13u};
+    0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 1u, 1u, 1u, 1u, 2u, 2u, 2u, 2u, 3u, 3u, 3u, 3u, 4u, 4u, 4u, 4u, 5u, 5u, 5u, 5u, 0u};
+constexpr std::array<std::uint16_t, 30> distance_base{1u, 2u, 3u, 4u, 5u, 7u, 9u, 13u, 17u, 25u, 33u, 49u, 65u, 97u,
+    129u, 193u, 257u, 385u, 513u, 769u, 1025u, 1537u, 2049u, 3073u, 4097u, 6145u, 8193u, 12289u, 16385u, 24577u};
+constexpr std::array<std::uint8_t, 30> distance_extra{0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 3u, 3u, 4u, 4u, 5u, 5u, 6u, 6u,
+    7u, 7u, 8u, 8u, 9u, 9u, 10u, 10u, 11u, 11u, 12u, 12u, 13u, 13u};
 
 } // namespace
 
-RawDeflateResult inflate_raw_deflate(GuestMemory &memory,
-                                     std::uint32_t output_address,
-                                     std::uint32_t output_capacity,
-                                     std::uint32_t input_address) {
+RawDeflateResult inflate_raw_deflate(
+    GuestMemory &memory, std::uint32_t output_address, std::uint32_t output_capacity, std::uint32_t input_address) {
     BitReader reader(memory, input_address);
     std::uint32_t produced = 0u;
     bool final_block = false;
@@ -211,33 +204,26 @@ RawDeflateResult inflate_raw_deflate(GuestMemory &memory,
         final_block = final_bit != 0u;
 
         if (block_type == 0u) {
-            if (!reader.align_byte())
-                return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
+            if (!reader.align_byte()) return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
             std::uint32_t length{}, complement{};
-            if (!reader.read(16u, length) || !reader.read(16u, complement) ||
-                (length ^ 0xFFFFu) != complement)
+            if (!reader.read(16u, length) || !reader.read(16u, complement) || (length ^ 0xFFFFu) != complement)
                 return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
-            if (length > output_capacity - produced ||
-                !memory.contains(output_address + produced, length))
+            if (length > output_capacity - produced || !memory.contains(output_address + produced, length))
                 return {RawDeflateStatus::OutputOverflow, produced, reader.consumed_bytes()};
             for (std::uint32_t index = 0u; index < length; ++index) {
                 std::uint32_t byte{};
-                if (!reader.read(8u, byte))
-                    return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
+                if (!reader.read(8u, byte)) return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
                 memory.aot_store8(output_address + produced++, static_cast<std::uint8_t>(byte));
             }
             continue;
         }
-        if (block_type == 3u)
-            return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
+        if (block_type == 3u) return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
 
         HuffmanTree literal_length;
         HuffmanTree distance;
-        const bool trees_ok = block_type == 1u
-            ? build_fixed_trees(literal_length, distance)
-            : build_dynamic_trees(reader, literal_length, distance);
-        if (!trees_ok)
-            return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
+        const bool trees_ok = block_type == 1u ? build_fixed_trees(literal_length, distance)
+                                               : build_dynamic_trees(reader, literal_length, distance);
+        if (!trees_ok) return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
 
         for (;;) {
             std::uint32_t symbol{};
@@ -273,12 +259,9 @@ RawDeflateResult inflate_raw_deflate(GuestMemory &memory,
             }
             if (match_distance == 0u || match_distance > produced)
                 return {RawDeflateStatus::InvalidData, produced, reader.consumed_bytes()};
-            if (length > output_capacity - produced ||
-                !memory.contains(output_address + produced, length))
+            if (length > output_capacity - produced || !memory.contains(output_address + produced, length))
                 return {RawDeflateStatus::OutputOverflow, produced, reader.consumed_bytes()};
-            memory.aot_copy_lz_match(output_address + produced,
-                                     output_address + produced - match_distance,
-                                     length);
+            memory.aot_copy_lz_match(output_address + produced, output_address + produced - match_distance, length);
             produced += length;
         }
     }

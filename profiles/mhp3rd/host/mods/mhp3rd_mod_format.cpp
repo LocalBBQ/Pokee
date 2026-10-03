@@ -30,11 +30,26 @@ struct EquipType {
     const char *label;
 };
 constexpr EquipType kEquipTypes[] = {
-    {"GS", "Great Sword"},    {"LS", "Long Sword"},       {"SNS", "Sword and Shield"}, {"DB", "Dual Blades"},
-    {"LNC", "Lance"},         {"GL", "Gunlance"},         {"HMR", "Hammer"},           {"HH", "Hunting Horn"},
-    {"LBG", "Light Bowgun"},  {"HBG", "Heavy Bowgun"},    {"BOW", "Bow"},              {"SAXE", "Switch Axe"},
-    {"HEAD", "Head armour"},  {"ARMS", "Arm armour"},     {"BODY", "Body armour"},     {"WAIST", "Waist armour"},
-    {"LEGS", "Leg armour"},   {"CATHELM", "Felyne helm"}, {"CATPLATE", "Felyne plate"}, {"CATWPN", "Felyne weapon"},
+    {"GS", "Great Sword"},
+    {"LS", "Long Sword"},
+    {"SNS", "Sword and Shield"},
+    {"DB", "Dual Blades"},
+    {"LNC", "Lance"},
+    {"GL", "Gunlance"},
+    {"HMR", "Hammer"},
+    {"HH", "Hunting Horn"},
+    {"LBG", "Light Bowgun"},
+    {"HBG", "Heavy Bowgun"},
+    {"BOW", "Bow"},
+    {"SAXE", "Switch Axe"},
+    {"HEAD", "Head armour"},
+    {"ARMS", "Arm armour"},
+    {"BODY", "Body armour"},
+    {"WAIST", "Waist armour"},
+    {"LEGS", "Leg armour"},
+    {"CATHELM", "Felyne helm"},
+    {"CATPLATE", "Felyne plate"},
+    {"CATWPN", "Felyne weapon"},
 };
 
 std::string hex4(std::uint32_t value) {
@@ -78,7 +93,7 @@ std::optional<fs::path> find_file(const fs::path &folder, const std::string &rel
 
 std::uint32_t load32(const std::vector<std::uint8_t> &bytes, std::size_t offset) {
     return static_cast<std::uint32_t>(bytes[offset]) | static_cast<std::uint32_t>(bytes[offset + 1u]) << 8u |
-           static_cast<std::uint32_t>(bytes[offset + 2u]) << 16u | static_cast<std::uint32_t>(bytes[offset + 3u]) << 24u;
+        static_cast<std::uint32_t>(bytes[offset + 2u]) << 16u | static_cast<std::uint32_t>(bytes[offset + 3u]) << 24u;
 }
 
 // "0601" -> 0x601; also without leading zeros, and with 0x.
@@ -117,8 +132,8 @@ public:
         : format_(format), entries_(entries), folder_(folder), mod_(mod) {}
 
     // Files and targets as the Version key selects them.
-    void file_changes(const IniFile &ini, const std::string &section, const std::string &version,
-                      FileChange::Kind kind) {
+    void file_changes(
+        const IniFile &ini, const std::string &section, const std::string &version, FileChange::Kind kind) {
         std::string files = ini.get(section, "Files");
         std::string targets = ini.get(section, "Target");
         if (version == "BOTH") {
@@ -126,8 +141,8 @@ public:
             if (const std::string *hd = ini.find(section, "TargetHD")) targets = *hd;
         } else if (version != "HD") {
             unusable("Made for the PSP version" +
-                     std::string(version.empty() ? " (it gives no Version, which means PSP)" : "") +
-                     ": its file ids are not the HD version's.");
+                std::string(version.empty() ? " (it gives no Version, which means PSP)" : "") +
+                ": its file ids are not the HD version's.");
             return;
         }
         const std::vector<std::string> names = split_list(files);
@@ -138,7 +153,7 @@ public:
         }
         if (names.size() != ids.size()) {
             unusable("Its mod.ini lists " + std::to_string(names.size()) + " files for " + std::to_string(ids.size()) +
-                     " targets.");
+                " targets.");
             return;
         }
         for (std::size_t i = 0; i < names.size(); ++i) {
@@ -161,12 +176,12 @@ public:
     }
 
     // `parts`: the manager's key for what each file stands in for (HEAD, GS).
-    void slots(const std::string &files, const std::vector<std::string> &labels,
-               const std::vector<std::string> &parts) {
+    void slots(
+        const std::string &files, const std::vector<std::string> &labels, const std::vector<std::string> &parts) {
         const std::vector<std::string> names = split_list(files);
         if (names.size() != labels.size()) {
             unusable("Its mod.ini lists " + std::to_string(names.size()) + " files; this type takes " +
-                     std::to_string(labels.size()) + ".");
+                std::to_string(labels.size()) + ".");
             return;
         }
         for (std::size_t i = 0; i < names.size(); ++i) {
@@ -212,25 +227,29 @@ std::optional<Mod> read_id_files(const ModFolderFormat &format, std::uint32_t en
     }
     if (mod.changes.empty()) return std::nullopt;
     std::sort(mod.changes.begin(), mod.changes.end(),
-              [](const FileChange &a, const FileChange &b) { return a.file < b.file; });
+        [](const FileChange &a, const FileChange &b) { return a.file < b.file; });
     mod.name = to_utf8(folder.filename());
-    const bool patches = std::any_of(mod.changes.begin(), mod.changes.end(),
-                                     [](const FileChange &c) { return c.kind == FileChange::Kind::Patch; });
+    const bool patches = std::any_of(
+        mod.changes.begin(), mod.changes.end(), [](const FileChange &c) { return c.kind == FileChange::Kind::Patch; });
     const bool files = std::any_of(mod.changes.begin(), mod.changes.end(),
-                                   [](const FileChange &c) { return c.kind == FileChange::Kind::Replace; });
+        [](const FileChange &c) { return c.kind == FileChange::Kind::Replace; });
     mod.type = files && patches ? "Files and patches" : patches ? "Patch" : "Files";
     mod.version = "HD version (assumed)";
     mod.description = "No mod.ini: its files are named by the file id they replace (" +
-                      format.file_name(mod.changes.front().file) +
-                      "), as in mhp3reload's files folder. Taken to be made for the HD version.";
+        format.file_name(mod.changes.front().file) +
+        "), as in mhp3reload's files folder. Taken to be made for the HD version.";
     return mod;
 }
 
 } // namespace
 
-std::string ModFolderFormat::file_name(FileId file) const { return hex4(file); }
+std::string ModFolderFormat::file_name(FileId file) const {
+    return hex4(file);
+}
 
-std::optional<FileId> ModFolderFormat::parse_file(const std::string &text) const { return parse_hex(text); }
+std::optional<FileId> ModFolderFormat::parse_file(const std::string &text) const {
+    return parse_hex(text);
+}
 
 std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
     const std::optional<fs::path> ini_path = find_file(folder, "mod.ini");
@@ -280,10 +299,13 @@ std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
             const std::string sub_type = trim(ini->get(sub, "Type"));
             Mod part;
             Reader sub_reader(*this, entries_, folder, part);
-            if (iequals(sub_type, "File")) sub_reader.file_changes(*ini, sub, version, FileChange::Kind::Replace);
-            else if (iequals(sub_type, "Patch")) sub_reader.file_changes(*ini, sub, version, FileChange::Kind::Patch);
-            else part.unusable = "its type " + (sub_type.empty() ? std::string("is missing") : sub_type) +
-                                 " cannot be part of a pack here";
+            if (iequals(sub_type, "File"))
+                sub_reader.file_changes(*ini, sub, version, FileChange::Kind::Replace);
+            else if (iequals(sub_type, "Patch"))
+                sub_reader.file_changes(*ini, sub, version, FileChange::Kind::Patch);
+            else
+                part.unusable = "its type " + (sub_type.empty() ? std::string("is missing") : sub_type) +
+                    " cannot be part of a pack here";
             if (!part.unusable.empty()) {
                 mod.notes.push_back("Part \"" + sub + "\" is left out: " + part.unusable);
                 continue;
@@ -297,13 +319,13 @@ std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
         if (iequals(kind, "SET")) {
             mod.type = "Armour set";
             reader.slots(ini->get(kInfo, "Files"), {"Head", "Arms", "Body", "Waist", "Legs"},
-                         {"HEAD", "ARMS", "BODY", "WAIST", "LEGS"});
+                {"HEAD", "ARMS", "BODY", "WAIST", "LEGS"});
         } else if (iequals(kind, "CATSET")) {
             mod.type = "Felyne armour set";
             reader.slots(ini->get(kInfo, "Files"), {"Felyne helm", "Felyne plate"}, {"CATHELM", "CATPLATE"});
         } else {
             const auto found = std::find_if(std::begin(kEquipTypes), std::end(kEquipTypes),
-                                            [&kind](const EquipType &t) { return iequals(t.key, kind); });
+                [&kind](const EquipType &t) { return iequals(t.key, kind); });
             if (found == std::end(kEquipTypes)) {
                 mod.type = type;
                 reader.unusable("Unknown equipment type " + kind + ".");
@@ -314,8 +336,7 @@ std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
         }
         if (ini->find(kInfo, "Animation") != nullptr)
             mod.notes.push_back("Its custom animations are not used: they need a code mod.");
-        if (ini->find(kInfo, "Audio") != nullptr)
-            mod.notes.push_back("Its custom sounds are not used yet.");
+        if (ini->find(kInfo, "Audio") != nullptr) mod.notes.push_back("Its custom sounds are not used yet.");
     } else {
         mod.type = type.empty() ? "Unknown" : type;
         reader.unusable(type.empty() ? "Its mod.ini gives no Type." : "Unknown type " + type + ".");
@@ -356,8 +377,8 @@ PatchOutcome apply_patch(std::vector<std::uint8_t> &bytes, const fs::path &patch
         const auto payload = data.begin() + static_cast<std::ptrdiff_t>(at + 8u);
         at += 8u + length;
         if ((length_word & 0x80000000u) != 0u) {
-            outcome.problems.push_back("the block for " + hex8(address) +
-                                       " is code that runs as it loads, which this port cannot run");
+            outcome.problems.push_back(
+                "the block for " + hex8(address) + " is code that runs as it loads, which this port cannot run");
             continue;
         }
         const std::uint32_t guest = address & kMirrorMask;
@@ -366,16 +387,16 @@ PatchOutcome apply_patch(std::vector<std::uint8_t> &bytes, const fs::path &patch
             std::copy_n(payload, length, bytes.begin() + (guest - overlay->load));
             ++outcome.applied;
             if (guest < overlay->code_end)
-                outcome.problems.push_back("the block for " + hex8(address) +
-                                           " changes code: that overlay then runs in the interpreter");
+                outcome.problems.push_back(
+                    "the block for " + hex8(address) + " changes code: that overlay then runs in the interpreter");
         } else if (overlay && in_ram) {
             outcome.after_load.push_back({guest, std::vector<std::uint8_t>(payload, payload + length)});
         } else if (!in_ram && static_cast<std::uint64_t>(address) + length <= bytes.size()) {
             std::copy_n(payload, length, bytes.begin() + address);
             ++outcome.applied;
         } else if (in_ram) {
-            outcome.problems.push_back("the block for " + hex8(address) +
-                                       " writes to memory, but this file does not load to a fixed address");
+            outcome.problems.push_back(
+                "the block for " + hex8(address) + " writes to memory, but this file does not load to a fixed address");
         } else {
             outcome.problems.push_back("the block for " + hex8(address) + " is outside the file");
         }

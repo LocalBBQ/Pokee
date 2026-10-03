@@ -58,9 +58,9 @@ public:
     // The time of the next present, once there is a frame to show.
     [[nodiscard]] std::optional<std::int64_t> next_due() const noexcept;
     struct Present {
-        std::int64_t time_us{};    // the grid moment it was due at
-        float t{};                 // 0 shows the older frame, 1 the newer one
-        std::uint32_t skipped{};   // grid moments passed over since the last present
+        std::int64_t time_us{};  // the grid moment it was due at
+        float t{};               // 0 shows the older frame, 1 the newer one
+        std::uint32_t skipped{}; // grid moments passed over since the last present
     };
     // The latest present due at `now_us`, if one is; it counts as done.
     // Earlier ones not presented in time are skipped.
@@ -77,7 +77,7 @@ public:
 
     static constexpr std::int64_t kWorkMarginUs = 1000;
     static constexpr std::size_t kWorkWindowFrames = 60;
-    static constexpr std::size_t kWorkRank = 8;  // how many of the window may be later
+    static constexpr std::size_t kWorkRank = 8; // how many of the window may be later
 
 private:
     // The grid moment `index`, and when it is presented.
@@ -88,7 +88,7 @@ private:
     // The shortest step from a frame's moment to the next grid moment.
     std::int64_t first_step_us_{kGameFrameUs};
     std::int64_t work_us_{kWorkMarginUs};
-    std::vector<std::int64_t> work_window_;  // the last frames' code time, oldest first
+    std::vector<std::int64_t> work_window_; // the last frames' code time, oldest first
     std::size_t work_cursor_{};
     std::int64_t frame_us_{kGameFrameUs};
     bool has_newer_{};
@@ -102,14 +102,14 @@ private:
 
 // What one second of play measured, for the governor.
 struct Second {
-    double speed{1.0};             // emulated time per real time
-    double idle_ms{};              // per game frame: the kernel waited with nothing to do
-    double blend_ms{};             // CPU time of one blended present (replay, submit, present)
-    double plain_ms{};             // CPU time of one present of a frame as it is
-    double interpolation_ms{};     // per game frame: CPU time of all presents between flips
-    std::uint32_t presents{};      // presents between flips this second
-    std::uint32_t skipped{};       // grid moments passed over this second
-    std::uint32_t blocked{};       // presents dropped: the display had no image free
+    double speed{1.0};         // emulated time per real time
+    double idle_ms{};          // per game frame: the kernel waited with nothing to do
+    double blend_ms{};         // CPU time of one blended present (replay, submit, present)
+    double plain_ms{};         // CPU time of one present of a frame as it is
+    double interpolation_ms{}; // per game frame: CPU time of all presents between flips
+    std::uint32_t presents{};  // presents between flips this second
+    std::uint32_t skipped{};   // grid moments passed over this second
+    std::uint32_t blocked{};   // presents dropped: the display had no image free
 };
 
 // Picks the rate from the setting down to 30, so that interpolation never
@@ -139,11 +139,11 @@ public:
     [[nodiscard]] static double cost_ms(double rate, const Second &second) noexcept;
 
     // Tuning, public for the tests.
-    static constexpr double kSlowSpeed = 0.97;        // behind real time
-    static constexpr double kSteadySpeed = 0.99;      // keeping up
-    static constexpr double kMinCostMs = 0.5;         // presents cost something worth saving
-    static constexpr double kMinIdleMs = 1.0;         // spare time a frame needs to keep its moments
-    static constexpr double kMarginMs = 3.0;          // spare time kept at a faster rate
+    static constexpr double kSlowSpeed = 0.97;   // behind real time
+    static constexpr double kSteadySpeed = 0.99; // keeping up
+    static constexpr double kMinCostMs = 0.5;    // presents cost something worth saving
+    static constexpr double kMinIdleMs = 1.0;    // spare time a frame needs to keep its moments
+    static constexpr double kMarginMs = 3.0;     // spare time kept at a faster rate
     static constexpr int kSecondsBeforeUp = 3;
     static constexpr int kSecondsAfterDown = 10;
     static constexpr int kBlockSeconds = 30;
@@ -161,8 +161,8 @@ private:
     int skipping_seconds_{};
     int spare_seconds_{};
     int wait_up_{};
-    std::vector<int> blocked_;        // seconds before each rate may be tried again
-    std::vector<int> block_length_;   // how long the next block of each rate lasts
+    std::vector<int> blocked_;      // seconds before each rate may be tried again
+    std::vector<int> block_length_; // how long the next block of each rate lasts
     const char *reason_{""};
 };
 

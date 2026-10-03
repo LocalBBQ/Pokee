@@ -11,7 +11,9 @@
 namespace mhp3rd {
 namespace {
 
-std::uint32_t as_unsigned(std::int32_t value) { return static_cast<std::uint32_t>(value); }
+std::uint32_t as_unsigned(std::int32_t value) {
+    return static_cast<std::uint32_t>(value);
+}
 
 // Formats the subset of printf used for diagnostics. Arguments are taken from
 // a1..a3 and t0..t3.
@@ -24,18 +26,42 @@ std::string format_guest(const psprecomp::GuestMemory &memory, const AllegrexCon
             continue;
         }
         std::size_t j = i + 1;
-        while (j < format.size() && std::string_view("-+ #0123456789.lhz").find(format[j]) != std::string_view::npos) ++j;
+        while (j < format.size() && std::string_view("-+ #0123456789.lhz").find(format[j]) != std::string_view::npos)
+            ++j;
         if (j >= format.size()) break;
         const char conversion = format[j];
         const std::uint32_t value = next < 8u ? arg(ctx, next) : 0u;
         switch (conversion) {
-        case '%': out.push_back('%'); break;
-        case 'd': case 'i': out += std::to_string(static_cast<std::int32_t>(value)); ++next; break;
-        case 'u': out += std::to_string(value); ++next; break;
-        case 'x': case 'X': case 'p': out += psprecomp::hex32(value); ++next; break;
-        case 'c': out.push_back(static_cast<char>(value)); ++next; break;
-        case 's': out += read_cstring(memory, value, 256u); ++next; break;
-        default: out += format.substr(i, j - i + 1); ++next; break;
+        case '%':
+            out.push_back('%');
+            break;
+        case 'd':
+        case 'i':
+            out += std::to_string(static_cast<std::int32_t>(value));
+            ++next;
+            break;
+        case 'u':
+            out += std::to_string(value);
+            ++next;
+            break;
+        case 'x':
+        case 'X':
+        case 'p':
+            out += psprecomp::hex32(value);
+            ++next;
+            break;
+        case 'c':
+            out.push_back(static_cast<char>(value));
+            ++next;
+            break;
+        case 's':
+            out += read_cstring(memory, value, 256u);
+            ++next;
+            break;
+        default:
+            out += format.substr(i, j - i + 1);
+            ++next;
+            break;
         }
         i = j;
     }

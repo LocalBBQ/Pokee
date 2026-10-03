@@ -48,8 +48,8 @@ struct StallTrace {
 };
 
 struct Alternate {
-    std::uint32_t paths{};  // bit per NewPath named in MHP3RD_PERF_ALTERNATE
-    bool off{};             // the second in progress takes the old paths
+    std::uint32_t paths{}; // bit per NewPath named in MHP3RD_PERF_ALTERNATE
+    bool off{};            // the second in progress takes the old paths
 };
 
 Alternate &alternate() {
@@ -59,7 +59,7 @@ Alternate &alternate() {
         if (text == nullptr) return result;
         const std::string names = std::string(",") + text + ",";
         const char *known[] = {"direct", "lookup", "reuse", "merge", "store", "decode", "alpha", "uploads", "clearload",
-                               "gpudecode", "texturedecode"};
+            "gpudecode", "texturedecode"};
         static_assert(sizeof(known) / sizeof(known[0]) == static_cast<std::size_t>(NewPath::Count));
         for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(NewPath::Count); ++i)
             if (names.find(std::string(",") + known[i] + ",") != std::string::npos) result.paths |= 1u << i;
@@ -84,7 +84,7 @@ const StallTrace &stall_trace() {
 struct State {
     // Frame in progress.
     Clock::time_point frame_start{Clock::now()};
-    Clock::time_point frame_start_previous{Clock::now()};  // of the frame end_frame() closes
+    Clock::time_point frame_start_previous{Clock::now()}; // of the frame end_frame() closes
     Clock::duration render{};
     Clock::duration wait{};
     Clock::duration pacing{};
@@ -103,10 +103,10 @@ struct State {
     Clock::time_point window_start{Clock::now()};
     std::uint64_t window_virtual_us{};
     bool window_has_clock{};
-    std::uint32_t frames{};    // guest flips
-    double frame_sum_ms{};     // flip to flip
+    std::uint32_t frames{}; // guest flips
+    double frame_sum_ms{};  // flip to flip
     std::uint32_t presents{};
-    double present_sum_ms{};   // present to present
+    double present_sum_ms{}; // present to present
     double present_max_ms{};
     Clock::duration render_sum{};
     Clock::duration wait_sum{};
@@ -144,33 +144,32 @@ State &state() {
 void print(const Summary &s) {
     char line[512];
     int length = std::snprintf(line, sizeof(line),
-                               "[perf] fps %.1f game %.1f speed %.0f%% | frame avg %.1f max %.1f ms | guest %.1f "
-                               "render %.1f wait %.1f ms | lists %.0f/s draws %.0f/%.0f | %s %ux%u",
-                               s.fps, s.game_fps, s.speed * 100.0, s.frame_avg_ms, s.frame_max_ms, s.guest_ms,
-                               s.render_ms, s.wait_ms, s.lists, s.draws, s.recorded_draws, s.present_mode.c_str(),
-                               s.width, s.height);
+        "[perf] fps %.1f game %.1f speed %.0f%% | frame avg %.1f max %.1f ms | guest %.1f "
+        "render %.1f wait %.1f ms | lists %.0f/s draws %.0f/%.0f | %s %ux%u",
+        s.fps, s.game_fps, s.speed * 100.0, s.frame_avg_ms, s.frame_max_ms, s.guest_ms, s.render_ms, s.wait_ms, s.lists,
+        s.draws, s.recorded_draws, s.present_mode.c_str(), s.width, s.height);
     if (s.refresh_hz > 0.0f && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " %.0fHz", s.refresh_hz);
     if (length > 0 && static_cast<std::size_t>(length) < sizeof(line)) {
         if (s.gpu_valid)
-            length += std::snprintf(line + length, sizeof(line) - length, " | gpu %.1f max %.1f ms", s.gpu_avg_ms,
-                                    s.gpu_max_ms);
+            length += std::snprintf(
+                line + length, sizeof(line) - length, " | gpu %.1f max %.1f ms", s.gpu_avg_ms, s.gpu_max_ms);
         else
             length += std::snprintf(line + length, sizeof(line) - length, " | gpu n/a");
     }
     if (s.frame_rate > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line)) {
         if (s.requested_rate > s.frame_rate + 0.5)
-            length += std::snprintf(line + length, sizeof(line) - length, " | interpolation %.0f of %.0f", s.frame_rate,
-                                    s.requested_rate);
+            length += std::snprintf(
+                line + length, sizeof(line) - length, " | interpolation %.0f of %.0f", s.frame_rate, s.requested_rate);
         else
             length += std::snprintf(line + length, sizeof(line) - length, " | interpolation %.0f", s.frame_rate);
     }
     if (s.vertex_mib > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
-        length += std::snprintf(line + length, sizeof(line) - length, " | space vertex %.1f index %.1f MiB",
-                                s.vertex_mib, s.index_mib);
+        length += std::snprintf(
+            line + length, sizeof(line) - length, " | space vertex %.1f index %.1f MiB", s.vertex_mib, s.index_mib);
     if (s.passes > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " | passes %.1f (%.1f cleared) copies %.1f",
-                                s.passes, s.cleared_passes, s.copies);
+            s.passes, s.cleared_passes, s.copies);
     if (s.overlay_ms > 0.0 && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
         length += std::snprintf(line + length, sizeof(line) - length, " | overlay %.2f ms", s.overlay_ms);
     if (alternate().paths != 0u && length > 0 && static_cast<std::size_t>(length) < sizeof(line))
@@ -192,7 +191,7 @@ std::string format_stalls(const StallTallies &tallies, double frames, bool per_f
         const double total = to_ms(tally.total);
         if (per_frame_average)
             std::snprintf(part, sizeof(part), " %s %.2f max %.2f x%u", stall_name(static_cast<Stall>(i)),
-                          total / frames, to_ms(tally.longest), tally.count);
+                total / frames, to_ms(tally.longest), tally.count);
         else
             std::snprintf(part, sizeof(part), " %s %.2f x%u", stall_name(static_cast<Stall>(i)), total, tally.count);
         text += part;
@@ -209,20 +208,34 @@ bool alternate_off(NewPath path) {
 
 const char *stall_name(Stall kind) {
     switch (kind) {
-    case Stall::Fence: return "fence";
-    case Stall::Acquire: return "acquire";
-    case Stall::Submit: return "submit";
-    case Stall::Present: return "present";
-    case Stall::Upload: return "upload";
-    case Stall::Evict: return "evict";
-    case Stall::Readback: return "readback";
-    case Stall::Idle: return "idle";
-    case Stall::Pacing: return "pacing";
-    case Stall::Copy: return "copy";
-    case Stall::Store: return "store";
-    case Stall::Pipeline: return "pipeline";
-    case Stall::Decode: return "decode";
-    case Stall::Count: break;
+    case Stall::Fence:
+        return "fence";
+    case Stall::Acquire:
+        return "acquire";
+    case Stall::Submit:
+        return "submit";
+    case Stall::Present:
+        return "present";
+    case Stall::Upload:
+        return "upload";
+    case Stall::Evict:
+        return "evict";
+    case Stall::Readback:
+        return "readback";
+    case Stall::Idle:
+        return "idle";
+    case Stall::Pacing:
+        return "pacing";
+    case Stall::Copy:
+        return "copy";
+    case Stall::Store:
+        return "store";
+    case Stall::Pipeline:
+        return "pipeline";
+    case Stall::Decode:
+        return "decode";
+    case Stall::Count:
+        break;
     }
     return "?";
 }
@@ -230,10 +243,17 @@ const char *stall_name(Stall kind) {
 Options options() {
     Options result{};
     switch (settings::current().perf) {
-    case settings::PerfDisplay::Off: break;
-    case settings::PerfDisplay::Overlay: result.overlay = true; break;
-    case settings::PerfDisplay::OverlayAndLog: result.overlay = result.log = true; break;
-    case settings::PerfDisplay::Log: result.log = true; break;
+    case settings::PerfDisplay::Off:
+        break;
+    case settings::PerfDisplay::Overlay:
+        result.overlay = true;
+        break;
+    case settings::PerfDisplay::OverlayAndLog:
+        result.overlay = result.log = true;
+        break;
+    case settings::PerfDisplay::Log:
+        result.log = true;
+        break;
     }
     return result;
 }
@@ -266,7 +286,9 @@ void restart_measurement() {
     s.gpu_frames = 0u;
 }
 
-void add_render_time(Clock::duration duration) { state().render += duration; }
+void add_render_time(Clock::duration duration) {
+    state().render += duration;
+}
 
 namespace {
 
@@ -310,9 +332,9 @@ void report_split(double frames) {
     const double replay = ms(Split::Replay);
     std::printf("[render-split] ms per game frame: lists %.2f = parse %.2f + decode %.2f + draw %.2f (host %.2f, "
                 "texture %.2f, record %.2f, summary %.2f) | interp %.2f replay %.2f present %.2f writeback %.2f\n",
-                lists, std::max(0.0, lists - decode - draw), decode, draw,
-                std::max(0.0, draw - texture - record - summary), texture, record, summary, ms(Split::Interp),
-                replay, std::max(0.0, ms(Split::Present) - replay), ms(Split::Writeback));
+        lists, std::max(0.0, lists - decode - draw), decode, draw, std::max(0.0, draw - texture - record - summary),
+        texture, record, summary, ms(Split::Interp), replay, std::max(0.0, ms(Split::Present) - replay),
+        ms(Split::Writeback));
     std::fflush(stdout);
     split.ticks = {};
 }
@@ -337,7 +359,9 @@ std::uint64_t split_ticks() noexcept {
 #endif
 }
 
-void add_split(Split kind, std::uint64_t ticks) noexcept { render_split().ticks[static_cast<std::size_t>(kind)] += ticks; }
+void add_split(Split kind, std::uint64_t ticks) noexcept {
+    render_split().ticks[static_cast<std::size_t>(kind)] += ticks;
+}
 void add_wait_time(Clock::duration duration, Stall kind) {
     State &s = state();
     s.wait += duration;
@@ -351,19 +375,35 @@ void add_gpu_time(double milliseconds) {
     s.gpu_ms += milliseconds;
     ++s.gpu_samples;
 }
-void set_gpu_time_unavailable() { state().gpu_unavailable = true; }
+void set_gpu_time_unavailable() {
+    state().gpu_unavailable = true;
+}
 void add_pacing_time(Clock::duration duration) {
     State &s = state();
     s.pacing += duration;
     s.stalls[static_cast<std::size_t>(Stall::Pacing)].add(duration);
 }
-void add_overlay_time(Clock::duration duration) { state().overlay += duration; }
-void count_display_list() { ++state().lists; }
-void count_draw() { ++state().draws; }
-void count_recorded_draws(std::uint32_t count) { state().recorded_draws += count; }
-void count_render_pass() { ++state().pass_sum; }
-void count_target_copy() { ++state().copy_sum; }
-void count_cleared_pass() { ++state().cleared_pass_sum; }
+void add_overlay_time(Clock::duration duration) {
+    state().overlay += duration;
+}
+void count_display_list() {
+    ++state().lists;
+}
+void count_draw() {
+    ++state().draws;
+}
+void count_recorded_draws(std::uint32_t count) {
+    state().recorded_draws += count;
+}
+void count_render_pass() {
+    ++state().pass_sum;
+}
+void count_target_copy() {
+    ++state().copy_sum;
+}
+void count_cleared_pass() {
+    ++state().cleared_pass_sum;
+}
 
 void note_frame_space(std::uint64_t vertex_bytes, std::uint64_t index_bytes) {
     State &s = state();
@@ -438,9 +478,9 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
         const double wait_ms = to_ms(s.wait) + to_ms(s.pacing);
         char head[192];
         std::snprintf(head, sizeof(head),
-                      "[slow-frame] %llu %.1f ms | guest %.1f render %.1f wait %.1f ms | gpu(prev) ",
-                      static_cast<unsigned long long>(s.frame_number), frame_ms,
-                      std::max(0.0, frame_ms - render_ms - wait_ms), render_ms, wait_ms);
+            "[slow-frame] %llu %.1f ms | guest %.1f render %.1f wait %.1f ms | gpu(prev) ",
+            static_cast<unsigned long long>(s.frame_number), frame_ms, std::max(0.0, frame_ms - render_ms - wait_ms),
+            render_ms, wait_ms);
         std::string line = head;
         if (s.gpu_samples != 0u) {
             char gpu[32];
@@ -531,8 +571,14 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     s.gpu_frames = 0u;
 }
 
-const Summary &last_second() { return state().summary; }
-const std::array<float, kHistoryFrames> &frame_history() { return state().history; }
-std::size_t history_cursor() { return state().cursor; }
+const Summary &last_second() {
+    return state().summary;
+}
+const std::array<float, kHistoryFrames> &frame_history() {
+    return state().history;
+}
+std::size_t history_cursor() {
+    return state().cursor;
+}
 
 } // namespace mhp3rd::perf

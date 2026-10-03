@@ -23,8 +23,8 @@ void expect(bool condition, const char *what) {
 
 // The renderer's expansion as it was written before the index lists, kept
 // here as the reference: which decoded vertex lands at each output position.
-std::vector<std::uint16_t> reference(PrimitiveType primitive, std::size_t count,
-                                     const std::vector<std::uint16_t> &indices, std::size_t vertex_count) {
+std::vector<std::uint16_t> reference(
+    PrimitiveType primitive, std::size_t count, const std::vector<std::uint16_t> &indices, std::size_t vertex_count) {
     std::vector<std::uint16_t> out;
     const auto vertex_at = [&](std::size_t index) -> std::uint16_t {
         if (!indices.empty()) {
@@ -56,7 +56,8 @@ std::vector<std::uint16_t> reference(PrimitiveType primitive, std::size_t count,
             out.push_back(vertex_at(i + 1u));
         }
         break;
-    default: break;
+    default:
+        break;
     }
     return out;
 }
@@ -65,7 +66,7 @@ void test_matches_expansion() {
     std::mt19937 random(92u);
     std::vector<std::uint16_t> out;
     for (const PrimitiveType primitive :
-         {PrimitiveType::Triangles, PrimitiveType::TriangleStrip, PrimitiveType::TriangleFan}) {
+        {PrimitiveType::Triangles, PrimitiveType::TriangleStrip, PrimitiveType::TriangleFan}) {
         for (std::size_t count = 0; count < 40u; ++count) {
             for (int indexed = 0; indexed < 2; ++indexed) {
                 for (int trial = 0; trial < 8; ++trial) {
@@ -80,9 +81,9 @@ void test_matches_expansion() {
                     }
                     if (vertex_count == 0u) continue;
                     expect(mhp3rd::gpu::triangle_indices(primitive, count, indices, vertex_count, out),
-                           "triangle primitives are supported");
-                    expect(out == reference(primitive, count, indices, vertex_count),
-                           "index list matches the expansion");
+                        "triangle primitives are supported");
+                    expect(
+                        out == reference(primitive, count, indices, vertex_count), "index list matches the expansion");
                     expect(out.size() % 3u == 0u, "whole triangles");
                 }
             }
@@ -102,7 +103,7 @@ void test_large_mesh() {
 void test_other_primitives() {
     std::vector<std::uint16_t> out{1u, 2u, 3u};
     for (const PrimitiveType primitive :
-         {PrimitiveType::Points, PrimitiveType::Lines, PrimitiveType::LineStrip, PrimitiveType::Sprites}) {
+        {PrimitiveType::Points, PrimitiveType::Lines, PrimitiveType::LineStrip, PrimitiveType::Sprites}) {
         expect(!mhp3rd::gpu::triangle_indices(primitive, 4u, {}, 4u, out), "other primitives are refused");
         expect(out.empty(), "refused primitives leave no indices");
     }

@@ -39,11 +39,12 @@ struct AvcDecoder::Impl {
         picture.width = static_cast<std::uint32_t>(frame->width);
         picture.height = static_cast<std::uint32_t>(frame->height);
         picture.full_range = format == AV_PIX_FMT_YUVJ420P || frame->color_range == AVCOL_RANGE_JPEG;
-        const auto copy_plane = [&](int plane, std::uint32_t width, std::uint32_t height, std::vector<std::uint8_t> &out) {
+        const auto copy_plane = [&](int plane, std::uint32_t width, std::uint32_t height,
+                                    std::vector<std::uint8_t> &out) {
             out.resize(static_cast<std::size_t>(width) * height);
             for (std::uint32_t row = 0; row < height; ++row)
                 std::memcpy(out.data() + static_cast<std::size_t>(row) * width,
-                            frame->data[plane] + static_cast<std::ptrdiff_t>(row) * frame->linesize[plane], width);
+                    frame->data[plane] + static_cast<std::ptrdiff_t>(row) * frame->linesize[plane], width);
         };
         copy_plane(0, picture.width, picture.height, picture.y);
         copy_plane(1, (picture.width + 1u) / 2u, (picture.height + 1u) / 2u, picture.cb);
@@ -56,7 +57,9 @@ struct AvcDecoder::Impl {
 AvcDecoder::AvcDecoder() : impl_(std::make_unique<Impl>()) {}
 AvcDecoder::~AvcDecoder() = default;
 
-bool AvcDecoder::available() noexcept { return avcodec_find_decoder(AV_CODEC_ID_H264) != nullptr; }
+bool AvcDecoder::available() noexcept {
+    return avcodec_find_decoder(AV_CODEC_ID_H264) != nullptr;
+}
 
 bool AvcDecoder::open() {
     Impl &impl = *impl_;
@@ -81,8 +84,12 @@ bool AvcDecoder::open() {
     return true;
 }
 
-void AvcDecoder::close() { impl_->close(); }
-bool AvcDecoder::is_open() const noexcept { return impl_->context != nullptr; }
+void AvcDecoder::close() {
+    impl_->close();
+}
+bool AvcDecoder::is_open() const noexcept {
+    return impl_->context != nullptr;
+}
 
 bool AvcDecoder::decode(std::span<const std::uint8_t> unit, Picture &picture) {
     Impl &impl = *impl_;
@@ -118,12 +125,22 @@ struct AvcDecoder::Impl {};
 AvcDecoder::AvcDecoder() : impl_(std::make_unique<Impl>()) {}
 AvcDecoder::~AvcDecoder() = default;
 
-bool AvcDecoder::available() noexcept { return false; }
-bool AvcDecoder::open() { return false; }
+bool AvcDecoder::available() noexcept {
+    return false;
+}
+bool AvcDecoder::open() {
+    return false;
+}
 void AvcDecoder::close() {}
-bool AvcDecoder::is_open() const noexcept { return false; }
-bool AvcDecoder::decode(std::span<const std::uint8_t>, Picture &) { return false; }
-bool AvcDecoder::drain(Picture &) { return false; }
+bool AvcDecoder::is_open() const noexcept {
+    return false;
+}
+bool AvcDecoder::decode(std::span<const std::uint8_t>, Picture &) {
+    return false;
+}
+bool AvcDecoder::drain(Picture &) {
+    return false;
+}
 void AvcDecoder::reset() {}
 
 #endif

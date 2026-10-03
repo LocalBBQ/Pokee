@@ -18,8 +18,8 @@ namespace mhp3rd::mods {
 class ModSession {
 public:
     struct Paths {
-        std::filesystem::path folder;   // the mods folder
-        std::filesystem::path choices;  // mods.ini
+        std::filesystem::path folder;  // the mods folder
+        std::filesystem::path choices; // mods.ini
         // The environment variable that turned every mod off for this run,
         // or null. The library is still read and shown.
         const char *disabled_by{};

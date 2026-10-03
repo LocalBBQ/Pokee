@@ -83,7 +83,7 @@ void test_diagonal() {
     bool line = true;
     for (std::uint32_t i = 1; i + 1u < kSize; ++i)
         line = line && at(out, kSize * 2u, 2u * i, 2u * i) == kBlack &&
-               at(out, kSize * 2u, 2u * i + 1u, 2u * i + 1u) == kBlack;
+            at(out, kSize * 2u, 2u * i + 1u, 2u * i + 1u) == kBlack;
     expect(line, "and the line itself stays");
 }
 

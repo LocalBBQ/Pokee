@@ -37,15 +37,19 @@ namespace mapping = input::mapping;
 namespace devices = input::devices;
 using mapping::Target;
 
-float px(float value) { return std::round(value * Layer::get().scale()); }
-float font() { return Layer::get().font_size(); }
+float px(float value) {
+    return std::round(value * Layer::get().scale());
+}
+float font() {
+    return Layer::get().font_size();
+}
 
 // What the setup asks for, in order, and how. The home button is left out:
 // nothing in the port uses it, and a PS2 pad's Analog button reports nothing.
 struct Step {
     Target target;
-    const char *name;    // in the summary
-    const char *prompt;  // what to do
+    const char *name;   // in the summary
+    const char *prompt; // what to do
 };
 constexpr Step kSteps[] = {
     {Target::A, "× (bottom)", "Press the bottom face button: × on a PlayStation pad, A on an Xbox pad."},
@@ -85,19 +89,19 @@ struct Wizard {
     Phase phase{Phase::Settle};
     Clock::time_point settle_started{};
     std::size_t step{};
-    std::size_t next{};  // the step after the release
+    std::size_t next{}; // the step after the release
     mapping::Answers answers{};
     mapping::Snapshot rest;
-    std::vector<std::size_t> history;  // the steps done, for going back
+    std::vector<std::size_t> history; // the steps done, for going back
     std::string message;
 };
 
 struct ScreenState {
     bool open{};
-    bool focus{};  // focus the first row next frame
+    bool focus{}; // focus the first row next frame
     SDL_JoystickID selected{};
     Wizard wizard;
-    std::string notice;  // what the last save or removal did
+    std::string notice; // what the last save or removal did
 };
 
 ScreenState &screen() {
@@ -113,7 +117,7 @@ std::string usb_ids(const devices::Info &i) {
 
 std::string inputs_text(const devices::Info &i) {
     return std::to_string(i.buttons) + (i.buttons == 1 ? " button, " : " buttons, ") + std::to_string(i.axes) +
-           (i.axes == 1 ? " axis, " : " axes, ") + std::to_string(i.hats) + (i.hats == 1 ? " hat" : " hats");
+        (i.axes == 1 ? " axis, " : " axes, ") + std::to_string(i.hats) + (i.hats == 1 ? " hat" : " hats");
 }
 
 // The mapping with room to wrap.
@@ -147,16 +151,26 @@ void text(const std::string &words, ImU32 color) {
 
 const char *hat_text(std::uint8_t hat) {
     switch (hat) {
-    case SDL_HAT_CENTERED: return "centred";
-    case SDL_HAT_UP: return "up";
-    case SDL_HAT_RIGHT: return "right";
-    case SDL_HAT_DOWN: return "down";
-    case SDL_HAT_LEFT: return "left";
-    case SDL_HAT_RIGHTUP: return "up right";
-    case SDL_HAT_RIGHTDOWN: return "down right";
-    case SDL_HAT_LEFTUP: return "up left";
-    case SDL_HAT_LEFTDOWN: return "down left";
-    default: return "?";
+    case SDL_HAT_CENTERED:
+        return "centred";
+    case SDL_HAT_UP:
+        return "up";
+    case SDL_HAT_RIGHT:
+        return "right";
+    case SDL_HAT_DOWN:
+        return "down";
+    case SDL_HAT_LEFT:
+        return "left";
+    case SDL_HAT_RIGHTUP:
+        return "up right";
+    case SDL_HAT_RIGHTDOWN:
+        return "down right";
+    case SDL_HAT_LEFTUP:
+        return "up left";
+    case SDL_HAT_LEFTDOWN:
+        return "down left";
+    default:
+        return "?";
     }
 }
 
@@ -186,7 +200,7 @@ void draw_live(SDL_JoystickID id) {
             const std::string number = std::to_string(k);
             const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(small, FLT_MAX, 0.0f, number.c_str());
             draw->AddText(nullptr, small, {min.x + (box - size.x) * 0.5f, min.y + (box - size.y) * 0.5f},
-                          held ? colors::kPanel : colors::kTextDim, number.c_str());
+                held ? colors::kPanel : colors::kTextDim, number.c_str());
         }
     }
     for (std::size_t k = 0; k < now.hats.size(); ++k) {
@@ -210,8 +224,8 @@ void draw_live(SDL_JoystickID id) {
         draw->AddRectFilled(bar_min, bar_max, colors::kTrack, bar_height * 0.5f);
         const float middle = (bar_min.x + bar_max.x) * 0.5f;
         const float reach = (bar_max.x - bar_min.x) * 0.5f * std::clamp(value, -1.0f, 1.0f);
-        draw->AddRectFilled({std::min(middle, middle + reach), bar_min.y}, {std::max(middle, middle + reach), bar_max.y},
-                            colors::kAccent, bar_height * 0.5f);
+        draw->AddRectFilled({std::min(middle, middle + reach), bar_min.y},
+            {std::max(middle, middle + reach), bar_max.y}, colors::kAccent, bar_height * 0.5f);
         draw->AddLine({middle, bar_min.y - px(2.0f)}, {middle, bar_max.y + px(2.0f)}, colors::kTextDim, px(1.0f));
     }
     // What SDL makes of it as a gamepad.
@@ -265,7 +279,7 @@ void advance(Wizard &w) {
         // Whatever was held when the setup started (a button that opened it)
         // is let go of first; a button that never lets go counts as at rest.
         const bool idle = std::none_of(now.buttons.begin(), now.buttons.end(), [](bool b) { return b; }) &&
-                          std::all_of(now.hats.begin(), now.hats.end(), [](std::uint8_t h) { return h == 0u; });
+            std::all_of(now.hats.begin(), now.hats.end(), [](std::uint8_t h) { return h == 0u; });
         if (idle || Clock::now() - w.settle_started > std::chrono::milliseconds(1500)) {
             w.rest = now;
             w.phase = Wizard::Phase::Ask;
@@ -281,7 +295,7 @@ void advance(Wizard &w) {
             // A stick's axis may also be half of a D-pad on pads without a
             // hat; anything else answered twice is a slip.
             w.message = mapping::describe(*found) + " is " + step_name(static_cast<Target>(t)) +
-                        " already. Press another, or skip this one.";
+                " already. Press another, or skip this one.";
             std::cout << "[pad] setup: " << w.message << std::endl;
             w.next = w.step;
             w.phase = Wizard::Phase::Release;
@@ -301,7 +315,8 @@ void advance(Wizard &w) {
         w.phase = w.step >= kStepCount ? Wizard::Phase::Review : Wizard::Phase::Ask;
         if (w.phase == Wizard::Phase::Review) screen().focus = true;
         break;
-    case Wizard::Phase::Review: break;
+    case Wizard::Phase::Review:
+        break;
     }
 }
 
@@ -351,9 +366,9 @@ void wizard_frame(bool back) {
         const std::size_t shown = std::min(w.step, kStepCount - 1u);
         heading(w.phase == Wizard::Phase::Settle ? "Let go of the controller." : kSteps[shown].prompt);
         text("Step " + std::to_string(shown + 1u) + " of " + std::to_string(kStepCount) +
-                      ". Use the keyboard, the mouse or the touch screen here: the controller's own buttons are "
-                      "being recorded. Skip anything the controller does not have.",
-                  colors::kTextDim);
+                ". Use the keyboard, the mouse or the touch screen here: the controller's own buttons are "
+                "being recorded. Skip anything the controller does not have.",
+            colors::kTextDim);
         if (!w.message.empty()) text(w.message, colors::kAccentBright);
         if (w.phase == Wizard::Phase::Release) text("Let go…", colors::kTextDim);
         if (button_row("Skip this one", {false, {}, "The controller has no such control, or it is not needed."}) &&
@@ -372,10 +387,10 @@ void wizard_frame(bool back) {
         heading("Done. Check the answers, then save.");
         const std::size_t answered = mapping::count(w.answers);
         if (button_row("Save and use this layout",
-                       {answered == 0u, answered == 0u ? "Nothing recorded" : "",
-                        "Saves the layout to gamecontrollerdb.txt in the data folder and uses it at once: the "
-                        "controller then drives the game and this menu."},
-                       colors::kAccentBright)) {
+                {answered == 0u, answered == 0u ? "Nothing recorded" : "",
+                    "Saves the layout to gamecontrollerdb.txt in the data folder and uses it at once: the "
+                    "controller then drives the game and this menu."},
+                colors::kAccentBright)) {
             const std::string error = devices::save_mapping(w.id, w.answers);
             s.notice = error.empty() ? w.name + " is set up. It now works in the game and in this menu." : error;
             finish_wizard();
@@ -437,8 +452,8 @@ void list_frame(bool back) {
     }
     for (const devices::Info &i : all) {
         ImGui::PushID(static_cast<int>(i.id));
-        if (list_row("##device", i.name.empty() ? "(no name)" : i.name, status_text(i), ListIcon::None,
-                     i.id == s.selected))
+        if (list_row(
+                "##device", i.name.empty() ? "(no name)" : i.name, status_text(i), ListIcon::None, i.id == s.selected))
             s.selected = i.id;
         ImGui::PopID();
     }
@@ -450,20 +465,23 @@ void list_frame(bool back) {
         section(i.name.empty() ? "Controller" : i.name.c_str());
         if (!i.gamepad)
             text(devices::unmapped_gamepad(i)
-                     ? "SDL has no layout for this controller, so neither the game nor this menu reads it. Set it "
-                       "up: it takes a minute."
-                     : "SDL has no layout for this device. If it is a controller, set it up.",
-                 colors::kDanger);
+                    ? "SDL has no layout for this controller, so neither the game nor this menu reads it. Set it "
+                      "up: it takes a minute."
+                    : "SDL has no layout for this device. If it is a controller, set it up.",
+                colors::kDanger);
         if (button_row(i.gamepad ? "Set up this controller again" : "Set up this controller",
-                       {false, {}, "Asks for each button, the D-pad and the sticks in turn, then saves the layout "
-                                   "for this controller."},
-                       i.gamepad ? colors::kText : colors::kAccentBright)) {
+                {false, {},
+                    "Asks for each button, the D-pad and the sticks in turn, then saves the layout "
+                    "for this controller."},
+                i.gamepad ? colors::kText : colors::kAccentBright)) {
             start_wizard(i);
             return;
         }
         if (i.saved &&
-            button_row("Remove my layout", {false, {}, "Takes this controller's line out of gamecontrollerdb.txt: "
-                                                       "it goes back to SDL's own layout, or to none at the next start."})) {
+            button_row("Remove my layout",
+                {false, {},
+                    "Takes this controller's line out of gamecontrollerdb.txt: "
+                    "it goes back to SDL's own layout, or to none at the next start."})) {
             const std::string error = devices::remove_mapping(i.id);
             s.notice = error.empty() ? "Your layout for " + i.name + " is removed." : error;
         }
@@ -477,21 +495,20 @@ void list_frame(bool back) {
         info_row("Inputs", inputs_text(i));
         info_row("Layout", !i.gamepad ? "None" : i.saved ? "Yours, from gamecontrollerdb.txt" : "SDL's own");
         if (i.gamepad) info_row("Mapping", spaced(i.mapping));
-        if (button_row("Copy these details",
-                       {false, {}, "Copies the name, USB ids, GUID and mapping, for a bug report."})) {
+        if (button_row(
+                "Copy these details", {false, {}, "Copies the name, USB ids, GUID and mapping, for a bug report."})) {
             const std::string details = "Controller: " + i.name + "\nUSB: " + usb_ids(i) + "\nGUID: " + i.guid +
-                                        "\nInputs: " + inputs_text(i) + "\nMapping: " +
-                                        (i.gamepad ? i.mapping : std::string("none")) +
-                                        "\nPlatform: " + SDL_GetPlatform();
+                "\nInputs: " + inputs_text(i) + "\nMapping: " + (i.gamepad ? i.mapping : std::string("none")) +
+                "\nPlatform: " + SDL_GetPlatform();
             SDL_SetClipboardText(details.c_str());
             s.notice = "Copied.";
         }
     }
     section("Layouts");
     text("Layouts you set up are kept in " + install::path_to_utf8(devices::mappings_file()) +
-                  ". Lines from the community's SDL_GameControllerDB can be pasted there too; they are read at "
-                  "start. SDL_GAMECONTROLLERCONFIG, if set, wins over both.",
-              colors::kTextDim);
+            ". Lines from the community's SDL_GameControllerDB can be pasted there too; they are read at "
+            "start. SDL_GAMECONTROLLERCONFIG, if set, wins over both.",
+        colors::kTextDim);
 }
 
 // ---- Notes --------------------------------------------------------------------
@@ -507,18 +524,18 @@ void note_for(SDL_JoystickID id, bool pressed) {
     const Clock::time_point now = Clock::now();
     if (pressed && now - last_note() < std::chrono::seconds(10)) return;
     last_note() = now;
-    std::cout << "[pad] note: " << (i->name.empty() ? "a controller" : i->name) << " has no gamepad mapping" << std::endl;
+    std::cout << "[pad] note: " << (i->name.empty() ? "a controller" : i->name) << " has no gamepad mapping"
+              << std::endl;
     show_note("Unknown controller " + (i->name.empty() ? std::string() : "\"" + i->name + "\" ") +
-              "does nothing yet: set it up in the menu (Esc), Controls > Controllers.");
+        "does nothing yet: set it up in the menu (Esc), Controls > Controllers.");
 }
 
 } // namespace
 
 void controllers_rows() {
     const std::vector<devices::Info> all = devices::list();
-    const auto unknown = std::count_if(all.begin(), all.end(), [](const devices::Info &i) {
-        return devices::unmapped_gamepad(i);
-    });
+    const auto unknown =
+        std::count_if(all.begin(), all.end(), [](const devices::Info &i) { return devices::unmapped_gamepad(i); });
     std::string value = all.empty() ? std::string("None") : std::to_string(all.size()) + " connected";
     if (unknown > 0) value += ", " + std::to_string(unknown) + " not set up";
     section("Controllers");
@@ -533,7 +550,9 @@ void controllers_rows() {
     }
 }
 
-bool controllers_screen_open() { return screen().open; }
+bool controllers_screen_open() {
+    return screen().open;
+}
 
 bool controllers_screen(bool back) {
     ScreenState &s = screen();
@@ -541,15 +560,18 @@ bool controllers_screen(bool back) {
         if (s.wizard.active) finish_wizard();
         return false;
     }
-    if (s.wizard.active) wizard_frame(back);
-    else list_frame(back);
+    if (s.wizard.active)
+        wizard_frame(back);
+    else
+        list_frame(back);
     if (!s.open) focus_next_row();
     return true;
 }
 
 void note_unknown_controller(const SDL_Event &event) {
     if (screen().wizard.active) return;
-    if (event.type == SDL_EVENT_JOYSTICK_ADDED) note_for(event.jdevice.which, false);
+    if (event.type == SDL_EVENT_JOYSTICK_ADDED)
+        note_for(event.jdevice.which, false);
     else if (event.type == SDL_EVENT_JOYSTICK_BUTTON_DOWN && !SDL_IsGamepad(event.jbutton.which))
         note_for(event.jbutton.which, true);
 }

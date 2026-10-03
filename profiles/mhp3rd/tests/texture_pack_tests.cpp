@@ -30,7 +30,9 @@ namespace fs = std::filesystem;
 
 // The decoder asks whether its buffer reuse is being measured against the old
 // path; these checks link no frame statistics, so it never is.
-bool mhp3rd::perf::alternate_off(NewPath) { return false; }
+bool mhp3rd::perf::alternate_off(NewPath) {
+    return false;
+}
 
 namespace {
 
@@ -99,7 +101,7 @@ void test_layouts(const fs::path &root) {
     check(c.files == 4u, "hidden files are left out of the copy");
     check(c.bytes == std::string(kIni).size() + 6u + 6u + 1u, "the copy's size is every file's");
     check(c.missing == 1u && c.missing_names.size() == 1u && c.missing_names[0] == "ui/missing.png",
-          "a listed image that is not there is counted, one in another case is not");
+        "a listed image that is not there is counted, one in another case is not");
     check(c.made_for.empty(), "a pack under its own name is not marked as another release's");
 
     const struct {
@@ -123,11 +125,11 @@ void test_layouts(const fs::path &root) {
     write(root / "zipped" / "pack.zip", "PK");
     const TexturePackCheck zip = check_texture_pack(root / "zipped", kGame);
     check(!zip.found() && zip.problem.find("unpack it first") != std::string::npos,
-          "a .zip beside no pack says to unpack it");
+        "a .zip beside no pack says to unpack it");
     write(root / "zipped2" / kGame / "textures.zip", "PK");
     const TexturePackCheck textures_zip = check_texture_pack(root / "zipped2", kGame);
     check(textures_zip.found() && !textures_zip.ok() && textures_zip.problem.find("Unpack") != std::string::npos,
-          "a textures.zip pack is refused with \"unpack it first\"");
+        "a textures.zip pack is refused with \"unpack it first\"");
 }
 
 void test_games(const fs::path &root) {
@@ -141,7 +143,7 @@ void test_games(const fs::path &root) {
     make_pack(root / "games2" / "PSP" / "TEXTURES" / "ULJM05800", listed);
     c = check_texture_pack(root / "games2", kGame);
     check(c.ok() && c.folder.filename() == "ULJM05800" && c.made_for == "ULJM05800",
-          "a pack named for another release is found through its [games]");
+        "a pack named for another release is found through its [games]");
     // Not listing this release.
     const fs::path other = root / "games3" / "ULJM05800";
     make_pack(other, std::string(kIni) + "\n[games]\nULJM05800 = true\n");
@@ -166,7 +168,7 @@ void test_hashes(const fs::path &root) {
     make_pack(root / "quick" / kGame, quick);
     TexturePackCheck c = check_texture_pack(root / "quick", kGame);
     check(c.found() && !c.ok() && c.problem.find("\"quick\" hash") != std::string::npos,
-          "hash = quick is refused with its reason");
+        "hash = quick is refused with its reason");
     std::string xxh32 = kIni;
     xxh32.replace(xxh32.find("xxh64"), 5, "xxh32");
     make_pack(root / "xxh32" / kGame, xxh32);
@@ -204,7 +206,7 @@ void test_copy(const fs::path &root) {
     const TexturePackCopy::Progress progress = copy.progress();
     check(progress.files == c.files && progress.bytes == c.bytes, "the progress reaches every file and byte");
     check(fs::exists(copy.staging() / "maps" / "village.png") && !fs::exists(copy.staging() / ".DS_Store"),
-          "the staging folder holds the pack without hidden files");
+        "the staging folder holds the pack without hidden files");
     check(read(installed / "old.txt") == "the old pack", "the installed pack is untouched until the swap");
 
     const fs::path backup_dir =
@@ -213,15 +215,14 @@ void test_copy(const fs::path &root) {
     fs::path backup;
     std::string error;
     check(install_staged_texture_pack(copy.staging(), textures, kGame, backup_dir, backup, error),
-          "the copy is put in place: " + error);
+        "the copy is put in place: " + error);
     check(backup == backup_dir / kGame && read(backup / "old.txt") == "the old pack",
-          "the replaced pack moved to .backup/<time>/NPJB40001, whole");
+        "the replaced pack moved to .backup/<time>/NPJB40001, whole");
     check(read(installed / "maps" / "village.png") == "village" && !fs::exists(installed / "old.txt"),
-          "the new pack is installed as NPJB40001");
+        "the new pack is installed as NPJB40001");
     check(!fs::exists(copy.staging()), "no staging folder is left");
-    check(texture_pack_backup_directory(textures, std::chrono::system_clock::from_time_t(1'000'000'000)) !=
-              backup_dir,
-          "a second backup in the same second gets a new folder");
+    check(texture_pack_backup_directory(textures, std::chrono::system_clock::from_time_t(1'000'000'000)) != backup_dir,
+        "a second backup in the same second gets a new folder");
 
     // Cancelled: nothing changes and nothing is left behind.
     const fs::path big = root / "big" / kGame;
@@ -250,10 +251,10 @@ void test_location(const fs::path &root) {
 #endif
     TexturePackLocation l = texture_pack_location(textures, kGame, "");
     check(l.source == TexturePackLocation::Source::Installed && l.folder == textures / kGame,
-          "the pack is read from textures/NPJB40001 by default");
+        "the pack is read from textures/NPJB40001 by default");
     l = texture_pack_location(textures, kGame, "/somewhere/pack");
     check(l.source == TexturePackLocation::Source::InPlace && l.folder == fs::path("/somewhere/pack"),
-          "a pack used in place is read from its folder");
+        "a pack used in place is read from its folder");
 #if !defined(_WIN32)
     setenv("MHP3RD_TEXTURE_PACK", "1", 1);
     l = texture_pack_location(textures, kGame, "/somewhere/pack");
@@ -261,7 +262,7 @@ void test_location(const fs::path &root) {
     setenv("MHP3RD_TEXTURE_PACK", "/elsewhere", 1);
     l = texture_pack_location(textures, kGame, "/somewhere/pack");
     check(l.source == TexturePackLocation::Source::Variable && l.folder == fs::path("/elsewhere"),
-          "a folder in MHP3RD_TEXTURE_PACK wins");
+        "a folder in MHP3RD_TEXTURE_PACK wins");
     unsetenv("MHP3RD_TEXTURE_PACK");
 #endif
 }
@@ -275,7 +276,7 @@ int check_folder(const char *folder) {
     std::printf("layout   %s\n", c.layout.c_str());
     if (!c.made_for.empty()) std::printf("made for %s\n", c.made_for.c_str());
     std::printf("hash     %s%s\n", c.hash == TexturePackHash::Xxh64 ? "xxh64" : "xxh32",
-                c.ignore_address ? ", ignoreAddress" : "");
+        c.ignore_address ? ", ignoreAddress" : "");
     std::printf("keys     %zu\n", c.keys);
     std::printf("images   %zu\n", c.images);
     std::printf("files    %zu, %llu bytes\n", c.files, static_cast<unsigned long long>(c.bytes));
@@ -293,7 +294,8 @@ void test_dxt_decode() {
     psprecomp::GuestMemory memory;
     constexpr std::uint32_t kAddress = 0x08800000u;
     const auto put = [&](const std::vector<std::uint8_t> &bytes) {
-        for (std::size_t i = 0; i < bytes.size(); ++i) memory.store8(kAddress + static_cast<std::uint32_t>(i), bytes[i]);
+        for (std::size_t i = 0; i < bytes.size(); ++i)
+            memory.store8(kAddress + static_cast<std::uint32_t>(i), bytes[i]);
     };
     TextureState texture;
     texture.address = kAddress;
@@ -314,15 +316,15 @@ void test_dxt_decode() {
     put(colour);
     check(decode_texture(memory, texture, out) && out.size() == 16u, "a DXT1 block decodes");
     check(out[0] == kRed && out[1] == kBlue && out[2] == kTwoThirdsRed && out[3] == kOneThirdRed,
-          "DXT1: the first four bytes are the rows' indices, the endpoints follow, red in the top bits");
+        "DXT1: the first four bytes are the rows' indices, the endpoints follow, red in the top bits");
     check(out[4] == kOneThirdRed && out[7] == kRed && out[8] == kRed && out[12] == kBlue,
-          "DXT1: one index byte per row, the leftmost texel in the low bits");
+        "DXT1: one index byte per row, the leftmost texel in the low bits");
 
     // Endpoints in the other order: three colours and transparent black.
     put({0xE4, 0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0xF8});
     decode_texture(memory, texture, out);
     check(out[0] == kBlue && out[1] == kRed && out[2] == 0xFF7F007Fu && out[3] == 0u,
-          "DXT1: endpoints in rising order give a midpoint and transparent black");
+        "DXT1: endpoints in rising order give a midpoint and transparent black");
 
     // DXT3: 4-bit alphas after the colour part, a 16-bit word per row.
     std::vector<std::uint8_t> dxt3 = colour;
@@ -333,7 +335,7 @@ void test_dxt_decode() {
     bool alphas = true;
     for (std::uint32_t i = 0; i < 16u; ++i) alphas = alphas && (out[i] >> 24u) == i * 17u;
     check(out[0] == (kRed & 0x00FFFFFFu) && (out[1] & 0x00FFFFFFu) == (kBlue & 0x00FFFFFFu) && alphas,
-          "DXT3: the colour part first, then 4-bit alphas");
+        "DXT3: the colour part first, then 4-bit alphas");
 
     // DXT5: 48 bits of 3-bit alpha indices, then the two alpha endpoints.
     // Texel i takes index i % 8: 0, 1, then the six steps between 200 and 30.
@@ -347,8 +349,8 @@ void test_dxt_decode() {
     put(dxt5);
     decode_texture(memory, texture, out);
     check((out[0] >> 24u) == 200u && (out[1] >> 24u) == 30u && (out[2] >> 24u) == (6u * 200u + 30u) / 7u &&
-              (out[7] >> 24u) == (200u + 6u * 30u) / 7u && (out[8] >> 24u) == 200u && (out[0] & 0x00FFFFFFu) == 0x0000FFu,
-          "DXT5: the colour part first, then the alpha indices, then the alpha endpoints");
+            (out[7] >> 24u) == (200u + 6u * 30u) / 7u && (out[8] >> 24u) == 200u && (out[0] & 0x00FFFFFFu) == 0x0000FFu,
+        "DXT5: the colour part first, then the alpha indices, then the alpha endpoints");
 
     // The key of a block texture ignores the CLUT: the game leaves its address
     // at the framebuffer, whose first word changes every frame.

@@ -53,8 +53,8 @@ public:
     void end_frame();
 
     // Requests from the player, each reported once.
-    bool take_menu_toggle();  // L3+R3; Esc while the game runs
-    bool take_back();         // Esc while a screen runs
+    bool take_menu_toggle(); // L3+R3; Esc while the game runs
+    bool take_back();        // Esc while a screen runs
     std::optional<std::filesystem::path> take_dropped_file();
     [[nodiscard]] bool window_closed() const noexcept { return window_closed_; }
 
@@ -135,7 +135,7 @@ private:
     // nothing until it lifts, so the tap does not also press a row.
     bool swallow_touch_{};
     std::vector<input::Binding> capture_held_;
-    std::vector<input::Binding> capture_down_;  // of those, the ones still down
+    std::vector<input::Binding> capture_down_; // of those, the ones still down
     bool capture_triggers_[2]{};
     // After a gamepad capture, the pad reaches the interface again only once
     // nothing on it is held, so the chord just bound does nothing there.

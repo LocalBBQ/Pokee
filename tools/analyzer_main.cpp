@@ -15,58 +15,62 @@ std::string json_escape(const std::string &s) {
     std::string out;
     for (char c : s) {
         switch (c) {
-        case '\\': out += "\\\\"; break;
-        case '"': out += "\\\""; break;
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
-        case '\t': out += "\\t"; break;
-        default: out += c; break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '"':
+            out += "\\\"";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            out += c;
+            break;
         }
     }
     return out;
 }
 
-void write_import_csv(const std::filesystem::path &path,
-                      const std::vector<psprecomp::PspImport> &imports,
-                      const psprecomp::NidRegistry &nids) {
+void write_import_csv(const std::filesystem::path &path, const std::vector<psprecomp::PspImport> &imports,
+    const psprecomp::NidRegistry &nids) {
     std::ofstream out(path);
     if (!out) throw psprecomp::Error("Cannot create import CSV: " + path.string());
     out << "library,nid,name,stub_address\n";
     for (const auto &imp : imports) {
-        out << imp.library << ',' << psprecomp::hex32(imp.nid) << ','
-            << nids.resolve(imp.library, imp.nid).value_or("") << ','
-            << psprecomp::hex32(imp.stub_address) << '\n';
+        out << imp.library << ',' << psprecomp::hex32(imp.nid) << ',' << nids.resolve(imp.library, imp.nid).value_or("")
+            << ',' << psprecomp::hex32(imp.stub_address) << '\n';
     }
 }
 
-void write_seed_csv(const std::filesystem::path &path,
-                    const std::map<std::uint32_t, std::string> &seeds,
-                    std::uint32_t entry) {
+void write_seed_csv(
+    const std::filesystem::path &path, const std::map<std::uint32_t, std::string> &seeds, std::uint32_t entry) {
     std::ofstream out(path);
     if (!out) throw psprecomp::Error("Cannot create function seed CSV: " + path.string());
     out << "name,address,source\n";
     for (const auto &[address, source] : seeds) {
-        out << (address == entry ? "module_start" : "sub_" + psprecomp::hex32(address).substr(2))
-            << ',' << psprecomp::hex32(address) << ',' << source << '\n';
+        out << (address == entry ? "module_start" : "sub_" + psprecomp::hex32(address).substr(2)) << ','
+            << psprecomp::hex32(address) << ',' << source << '\n';
     }
 }
 
-void write_function_csv(const std::filesystem::path &path,
-                        const psprecomp::ProgramAnalysis &program) {
+void write_function_csv(const std::filesystem::path &path, const psprecomp::ProgramAnalysis &program) {
     std::ofstream out(path);
     if (!out) throw psprecomp::Error("Cannot create automatic function CSV: " + path.string());
     out << "name,address,instructions,basic_blocks,direct_calls,indirect_call_sites,unsupported,truncated,seed_source\n";
     for (const auto &function : program.functions) {
         const auto source = program.seeds.find(function.entry);
-        out << "sub_" << psprecomp::hex32(function.entry).substr(2) << ','
-            << psprecomp::hex32(function.entry) << ','
-            << function.labels.size() << ','
-            << function.basic_block_count << ','
-            << function.direct_calls.size() << ','
-            << function.indirect_call_sites.size() << ','
-            << function.unsupported_instruction_count << ','
-            << (function.truncated ? "true" : "false") << ','
-            << (source != program.seeds.end() ? source->second : "") << '\n';
+        out << "sub_" << psprecomp::hex32(function.entry).substr(2) << ',' << psprecomp::hex32(function.entry) << ','
+            << function.labels.size() << ',' << function.basic_block_count << ',' << function.direct_calls.size() << ','
+            << function.indirect_call_sites.size() << ',' << function.unsupported_instruction_count << ','
+            << (function.truncated ? "true" : "false") << ',' << (source != program.seeds.end() ? source->second : "")
+            << '\n';
     }
 }
 }
@@ -96,7 +100,8 @@ int main(int argc, char **argv) {
         if (module) imports = elf.scan_imports(memory, *module);
         const auto program = psprecomp::analyze_program(elf, memory, load_base);
 
-        std::filesystem::create_directories(output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
+        std::filesystem::create_directories(
+            output.parent_path().empty() ? std::filesystem::path(".") : output.parent_path());
         const auto stem = output.parent_path() / output.stem();
         const auto imports_csv = std::filesystem::path(stem.string() + "_imports.csv");
         const auto seeds_csv = std::filesystem::path(stem.string() + "_function_seeds.csv");
@@ -128,35 +133,27 @@ int main(int argc, char **argv) {
             << "  \"load_base\": \"" << psprecomp::hex32(load_base) << "\",\n"
             << "  \"entry_relative\": \"" << psprecomp::hex32(elf.entry()) << "\",\n"
             << "  \"entry_runtime\": \"" << psprecomp::hex32(elf.runtime_entry(load_base)) << "\",\n"
-            << "  \"relocations\": {\"total\":" << relocations.total
-            << ",\"r_mips_32\":" << relocations.r_mips_32
-            << ",\"r_mips_26\":" << relocations.r_mips_26
-            << ",\"r_mips_hi16\":" << relocations.r_mips_hi16
-            << ",\"r_mips_lo16\":" << relocations.r_mips_lo16
-            << ",\"unsupported\":" << relocations.unsupported
+            << "  \"relocations\": {\"total\":" << relocations.total << ",\"r_mips_32\":" << relocations.r_mips_32
+            << ",\"r_mips_26\":" << relocations.r_mips_26 << ",\"r_mips_hi16\":" << relocations.r_mips_hi16
+            << ",\"r_mips_lo16\":" << relocations.r_mips_lo16 << ",\"unsupported\":" << relocations.unsupported
             << ",\"invalid\":" << relocations.invalid << "},\n"
             << "  \"segments\": [\n";
         for (std::size_t i = 0; i < elf.segments().size(); ++i) {
             const auto &s = elf.segments()[i];
-            out << "    {\"index\":" << i
-                << ",\"type\":" << s.type
-                << ",\"vaddr_relative\":\"" << psprecomp::hex32(s.vaddr)
-                << "\",\"vaddr_runtime\":\"" << psprecomp::hex32(elf.segment_runtime_address(i, load_base))
-                << "\",\"filesz\":" << s.file_size
-                << ",\"memsz\":" << s.memory_size
-                << ",\"flags\":" << s.flags << "}"
+            out << "    {\"index\":" << i << ",\"type\":" << s.type << ",\"vaddr_relative\":\""
+                << psprecomp::hex32(s.vaddr) << "\",\"vaddr_runtime\":\""
+                << psprecomp::hex32(elf.segment_runtime_address(i, load_base)) << "\",\"filesz\":" << s.file_size
+                << ",\"memsz\":" << s.memory_size << ",\"flags\":" << s.flags << "}"
                 << (i + 1 < elf.segments().size() ? "," : "") << "\n";
         }
         out << "  ],\n  \"module\": ";
         if (module) {
-            out << "{\"name\":\"" << json_escape(module->name)
-                << "\",\"attributes\":" << module->attributes
+            out << "{\"name\":\"" << json_escape(module->name) << "\",\"attributes\":" << module->attributes
                 << ",\"version\":\"" << static_cast<unsigned>(module->major_version) << '.'
-                << static_cast<unsigned>(module->minor_version)
-                << "\",\"address\":\"" << psprecomp::hex32(module->address)
-                << "\",\"gp\":\"" << psprecomp::hex32(module->gp)
-                << "\",\"stub_top\":\"" << psprecomp::hex32(module->stub_top)
-                << "\",\"stub_end\":\"" << psprecomp::hex32(module->stub_end) << "\"}";
+                << static_cast<unsigned>(module->minor_version) << "\",\"address\":\""
+                << psprecomp::hex32(module->address) << "\",\"gp\":\"" << psprecomp::hex32(module->gp)
+                << "\",\"stub_top\":\"" << psprecomp::hex32(module->stub_top) << "\",\"stub_end\":\""
+                << psprecomp::hex32(module->stub_end) << "\"}";
         } else {
             out << "null";
         }
@@ -180,8 +177,8 @@ int main(int argc, char **argv) {
             << "    \"truncated_functions\": " << truncated_functions << "\n"
             << "  },\n"
             << "  \"artifacts\": {\"imports_csv\":\"" << json_escape(imports_csv.string())
-            << "\",\"function_seeds_csv\":\"" << json_escape(seeds_csv.string())
-            << "\",\"automatic_functions_csv\":\"" << json_escape(functions_csv.string()) << "\"}\n"
+            << "\",\"function_seeds_csv\":\"" << json_escape(seeds_csv.string()) << "\",\"automatic_functions_csv\":\""
+            << json_escape(functions_csv.string()) << "\"}\n"
             << "}\n";
 
         std::cout << "Analyzed " << input.string() << "\n"

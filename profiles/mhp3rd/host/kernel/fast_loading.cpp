@@ -65,13 +65,15 @@ void end_episode(Reason reason) {
     s.saved_ms += saved;
     ++s.episodes;
     std::printf("[load] fast %.0f ms of game time in %.0f ms real, %.0f ms saved (%s; %.1f s saved so far)\n",
-                emulated_ms, real_ms, saved, reason_name(reason), s.saved_ms / 1000.0);
+        emulated_ms, real_ms, saved, reason_name(reason), s.saved_ms / 1000.0);
     std::fflush(stdout);
 }
 
 } // namespace
 
-void note_disc_read() { state().detector.disc_read(kernel().now_us()); }
+void note_disc_read() {
+    state().detector.disc_read(kernel().now_us());
+}
 
 bool note_audio(int peak) {
     Detector &detector = state().detector;
@@ -81,16 +83,22 @@ bool note_audio(int peak) {
     return drop;
 }
 
-void note_buttons(bool held) { state().buttons_held = held; }
+void note_buttons(bool held) {
+    state().buttons_held = held;
+}
 
 void update() {
     Detector &detector = state().detector;
     const bool was_fast = detector.fast();
     const bool fast = detector.update(kernel().now_us(), sample_guards());
-    if (fast && !was_fast) begin_episode();
-    else if (!fast && was_fast) end_episode(detector.reason());
+    if (fast && !was_fast)
+        begin_episode();
+    else if (!fast && was_fast)
+        end_episode(detector.reason());
 }
 
-bool active() { return state().detector.fast(); }
+bool active() {
+    return state().detector.fast();
+}
 
 } // namespace mhp3rd::fast_loading

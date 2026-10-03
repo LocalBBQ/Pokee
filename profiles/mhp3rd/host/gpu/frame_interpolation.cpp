@@ -8,7 +8,9 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 
-float length3(const float *v) noexcept { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+float length3(const float *v) noexcept {
+    return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+}
 
 } // namespace
 
@@ -58,7 +60,9 @@ std::size_t Matcher::KeyHash::operator()(const Key &key) const noexcept {
     return static_cast<std::size_t>(hash);
 }
 
-std::uint64_t Matcher::hash_of(const DrawSummary &draw) noexcept { return KeyHash{}(key_of(draw)); }
+std::uint64_t Matcher::hash_of(const DrawSummary &draw) noexcept {
+    return KeyHash{}(key_of(draw));
+}
 
 std::array<float, 3> Matcher::eye_translation_of(const DrawSummary &draw) noexcept {
     // Column 3 of multiply(view, world), term for term as multiply() sums it.
@@ -73,11 +77,11 @@ std::array<float, 3> Matcher::eye_translation_of(const DrawSummary &draw) noexce
 
 Matcher::Key Matcher::key_of(const DrawSummary &draw) noexcept {
     return Key{draw.vertex_address, draw.index_address, draw.vertex_type, draw.texture_address, draw.count,
-               static_cast<std::uint8_t>(draw.primitive)};
+        static_cast<std::uint8_t>(draw.primitive)};
 }
 
-const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
-                               const CutThresholds &thresholds) {
+const Matching &Matcher::match(
+    const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer, const CutThresholds &thresholds) {
     Matching &out = result_;
     // The vector keeps its capacity from one frame to the next.
     std::vector<std::int32_t> newer_of = std::move(out.newer_of);
@@ -126,8 +130,10 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
         if (slot.first < 0) continue;
         const auto index = static_cast<std::int32_t>(i);
         older_slot_[i] = static_cast<std::int32_t>(&slot - slots_.data());
-        if (slot.older_first < 0) slot.older_first = index;
-        else older_next_[static_cast<std::size_t>(slot.older_last)] = index;
+        if (slot.older_first < 0)
+            slot.older_first = index;
+        else
+            older_next_[static_cast<std::size_t>(slot.older_last)] = index;
         slot.older_last = index;
         ++slot.older_count;
         if (slot.cursor < 0) continue;
@@ -164,13 +170,13 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     }
     if (!samples.empty()) {
         const auto middle = samples.begin() + static_cast<std::ptrdiff_t>(samples.size() / 2u);
-        std::nth_element(samples.begin(), middle, samples.end(),
-                         [](const Sample &a, const Sample &b) { return a.turn < b.turn; });
+        std::nth_element(
+            samples.begin(), middle, samples.end(), [](const Sample &a, const Sample &b) { return a.turn < b.turn; });
         out.camera_found = true;
         out.camera_angle_degrees = middle->turn;
         out.camera = middle->motion;
-        out.camera_distance = std::sqrt(out.camera[12] * out.camera[12] + out.camera[13] * out.camera[13] +
-                                        out.camera[14] * out.camera[14]);
+        out.camera_distance = std::sqrt(
+            out.camera[12] * out.camera[12] + out.camera[13] * out.camera[13] + out.camera[14] * out.camera[14]);
     }
 
     if (out.camera_found && thresholds.nearest_instances) pair_nearest_instances(older, newer, thresholds);
@@ -191,7 +197,7 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
             float distance = 0.0f;
             for (std::size_t row = 0; row < 3u; ++row) {
                 const float predicted = c[row] * before_column[0] + c[4u + row] * before_column[1] +
-                                        c[8u + row] * before_column[2] + c[12u + row];
+                    c[8u + row] * before_column[2] + c[12u + row];
                 const float d = after_column[row] - predicted;
                 distance += d * d;
             }
@@ -210,17 +216,17 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
     float max_angle = thresholds.max_camera_angle_degrees;
     float max_distance = thresholds.max_camera_distance;
     if (previous_blended_) {
-        max_angle = std::clamp(previous_angle_degrees_ * thresholds.continuous_growth +
-                                   thresholds.continuous_angle_margin_degrees,
-                               max_angle, std::max(max_angle, thresholds.max_continuous_angle_degrees));
-        max_distance = std::clamp(previous_distance_ * thresholds.continuous_growth +
-                                      thresholds.continuous_distance_margin,
-                                  max_distance, std::max(max_distance, thresholds.max_continuous_distance));
+        max_angle = std::clamp(
+            previous_angle_degrees_ * thresholds.continuous_growth + thresholds.continuous_angle_margin_degrees,
+            max_angle, std::max(max_angle, thresholds.max_continuous_angle_degrees));
+        max_distance =
+            std::clamp(previous_distance_ * thresholds.continuous_growth + thresholds.continuous_distance_margin,
+                max_distance, std::max(max_distance, thresholds.max_continuous_distance));
     }
     if (out.eligible_newer == 0u || out.matched == 0u) {
         out.cut = "nothing to blend";
     } else if (static_cast<float>(out.matched) <
-               thresholds.min_matched_fraction * static_cast<float>(std::max(out.eligible_newer, out.eligible_older))) {
+        thresholds.min_matched_fraction * static_cast<float>(std::max(out.eligible_newer, out.eligible_older))) {
         out.cut = "few draws match";
     } else if (out.camera_found && out.camera_angle_degrees > max_angle) {
         out.cut = "camera turned";
@@ -228,8 +234,8 @@ const Matching &Matcher::match(const std::vector<DrawSummary> &older, const std:
         out.cut = "camera moved";
     }
     out.continued = out.cut == nullptr && out.camera_found &&
-                    (out.camera_angle_degrees > thresholds.max_camera_angle_degrees ||
-                     out.camera_distance > thresholds.max_camera_distance);
+        (out.camera_angle_degrees > thresholds.max_camera_angle_degrees ||
+            out.camera_distance > thresholds.max_camera_distance);
     previous_blended_ = out.cut == nullptr;
     previous_angle_degrees_ = out.camera_found ? out.camera_angle_degrees : 0.0f;
     previous_distance_ = out.camera_found ? out.camera_distance : 0.0f;
@@ -258,8 +264,8 @@ float distance_squared(const Matrix &c, const DrawSummary &from, const DrawSumma
 
 } // namespace
 
-void Matcher::pair_nearest_instances(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
-                                     const CutThresholds &thresholds) {
+void Matcher::pair_nearest_instances(
+    const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer, const CutThresholds &thresholds) {
     Matching &out = result_;
     const Matrix &c = out.camera;
     done_slot_.assign(slots_.size(), 0u);
@@ -279,8 +285,8 @@ void Matcher::pair_nearest_instances(const std::vector<DrawSummary> &older, cons
             for (std::int32_t k = slot.older_first; k >= 0 && still; k = older_next_[static_cast<std::size_t>(k)]) {
                 const std::int32_t partner = out.newer_of[static_cast<std::size_t>(k)];
                 still = partner >= 0 &&
-                        distance_squared(c, older[static_cast<std::size_t>(k)], newer[static_cast<std::size_t>(partner)]) <=
-                            kStillSquared;
+                    distance_squared(c, older[static_cast<std::size_t>(k)], newer[static_cast<std::size_t>(partner)]) <=
+                        kStillSquared;
             }
             if (still) continue;
         }
@@ -297,7 +303,7 @@ void Matcher::pair_nearest_instances(const std::vector<DrawSummary> &older, cons
             const DrawSummary &from = older[static_cast<std::size_t>(instance_older_[a])];
             for (std::size_t b = 0; b < instance_newer_.size(); ++b)
                 candidates_.push_back({distance_squared(c, from, newer[static_cast<std::size_t>(instance_newer_[b])]),
-                                       static_cast<std::int32_t>(a), static_cast<std::int32_t>(b)});
+                    static_cast<std::int32_t>(a), static_cast<std::int32_t>(b)});
         }
         // Ties keep drawing order, so instances that stand still pair as before.
         std::sort(candidates_.begin(), candidates_.end(), [](const Candidate &x, const Candidate &y) {
@@ -403,7 +409,8 @@ bool affine_inverse(const Matrix &m, Matrix &out) noexcept {
     set(2, 2, (at(0, 0) * at(1, 1) - at(0, 1) * at(1, 0)) * f);
     for (int row = 0; row < 3; ++row) {
         float sum = 0.0f;
-        for (int k = 0; k < 3; ++k) sum += r[static_cast<std::size_t>(k * 4 + row)] * m[static_cast<std::size_t>(12 + k)];
+        for (int k = 0; k < 3; ++k)
+            sum += r[static_cast<std::size_t>(k * 4 + row)] * m[static_cast<std::size_t>(12 + k)];
         set(row, 3, -sum);
     }
     r[15] = 1.0f;
@@ -418,7 +425,9 @@ using Vec3 = std::array<float, 3>;
 Vec3 cross(const Vec3 &a, const Vec3 &b) noexcept {
     return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
 }
-float dot(const Vec3 &a, const Vec3 &b) noexcept { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+float dot(const Vec3 &a, const Vec3 &b) noexcept {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
 
 // The rotation by `angle` radians about the unit `axis`, as a 3x3 inside a
 // column-major 4x4.
@@ -500,7 +509,7 @@ RigidMotion rigid_motion(const Matrix &m) noexcept {
     const float cotangent = 1.0f / std::tan(0.5f * motion.angle);
     const Vec3 side = cross(u, across);
     motion.centre = {0.5f * (across[0] + cotangent * side[0]), 0.5f * (across[1] + cotangent * side[1]),
-                     0.5f * (across[2] + cotangent * side[2])};
+        0.5f * (across[2] + cotangent * side[2])};
     return motion;
 }
 

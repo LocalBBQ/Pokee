@@ -58,14 +58,14 @@ struct Preview {
 
 struct State {
     Stage stage{Stage::List};
-    std::string mod;  // the mod the details show
+    std::string mod; // the mod the details show
     std::unique_ptr<FileBrowser> browser;
     fs::path last_folder;
     mods::ImportCheck check;
     mods::ImportResult result;
     bool focus{};
     bool focus_row{};
-    std::string return_to;  // the mod whose row gets the focus back
+    std::string return_to; // the mod whose row gets the focus back
     bool restart{};
     std::map<fs::path, Preview> previews;
     // Slot targets typed on the keyboard, applied on the next frame.
@@ -82,9 +82,13 @@ State &state() {
     return s;
 }
 
-float px(float value) { return std::round(value * Layer::get().scale()); }
+float px(float value) {
+    return std::round(value * Layer::get().scale());
+}
 
-std::string utf8(const fs::path &path) { return install::path_to_utf8(path); }
+std::string utf8(const fs::path &path) {
+    return install::path_to_utf8(path);
+}
 
 void go(Stage stage) {
     State &s = state();
@@ -119,7 +123,9 @@ std::string count(std::size_t n, const char *one, const char *many) {
     return std::to_string(n) + " " + (n == 1u ? one : many);
 }
 
-std::string file_name(ModSession &session, mods::FileId file) { return session.library().format().file_name(file); }
+std::string file_name(ModSession &session, mods::FileId file) {
+    return session.library().format().file_name(file);
+}
 
 std::string mod_name(ModSession &session, const std::string &id) {
     const Mod *mod = session.library().find(id);
@@ -135,9 +141,9 @@ const Preview &preview(const fs::path &path) {
     int width = 0;
     int height = 0;
     int channels = 0;
-    unsigned char *pixels = bytes.empty() ? nullptr
-                                          : stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width,
-                                                                  &height, &channels, 4);
+    unsigned char *pixels = bytes.empty()
+        ? nullptr
+        : stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width, &height, &channels, 4);
     // The mod manager's previews are 166 pixels square; anything very large
     // is refused rather than uploaded.
     if (pixels == nullptr || width <= 0 || height <= 0 || width > 1024 || height > 1024) {
@@ -147,7 +153,8 @@ const Preview &preview(const fs::path &path) {
     }
     p.texture = std::make_unique<ImTextureData>();
     p.texture->Create(ImTextureFormat_RGBA32, width, height);
-    std::memcpy(p.texture->GetPixels(), pixels, static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
+    std::memcpy(
+        p.texture->GetPixels(), pixels, static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
     stbi_image_free(pixels);
     ImGui::RegisterUserTexture(p.texture.get());
     return p;
@@ -159,8 +166,8 @@ void draw_preview(const fs::path &path, float size) {
     if (!p.texture) return;
     const float scale = size / static_cast<float>(std::max(p.texture->Width, p.texture->Height));
     ImGui::Indent(px(16.0f));
-    ImGui::Image(p.texture->GetTexRef(), {static_cast<float>(p.texture->Width) * scale,
-                                          static_cast<float>(p.texture->Height) * scale});
+    ImGui::Image(p.texture->GetTexRef(),
+        {static_cast<float>(p.texture->Width) * scale, static_cast<float>(p.texture->Height) * scale});
     ImGui::Unindent(px(16.0f));
 }
 
@@ -174,7 +181,8 @@ std::string changes_text(ModSession &session, const Mod &mod) {
     if (replaced > 0u) text = "Replaces " + count(replaced, "file", "files");
     if (patched > 0u) text += (text.empty() ? "Patches " : ", patches ") + count(patched, "file", "files");
     if (!mod.slots.empty()) text += text.empty() ? "Replaces equipment you choose" : ", replaces equipment you choose";
-    if (!mod.members.empty()) text += (text.empty() ? "Turns on " : ", turns on ") + count(mod.members.size(), "mod", "mods");
+    if (!mod.members.empty())
+        text += (text.empty() ? "Turns on " : ", turns on ") + count(mod.members.size(), "mod", "mods");
     std::string ids;
     std::size_t shown = 0u;
     for (const mods::FileChange &change : mod.changes) {
@@ -192,8 +200,9 @@ std::string changes_text(ModSession &session, const Mod &mod) {
 std::vector<const Resolution::Conflict *> conflicts_of(const Resolution &resolution, const std::string &id) {
     std::vector<const Resolution::Conflict *> found;
     for (const Resolution::Conflict &c : resolution.conflicts) {
-        const bool named = c.winner == id || std::find(c.overridden.begin(), c.overridden.end(), id) != c.overridden.end() ||
-                           std::find(c.patched_by.begin(), c.patched_by.end(), id) != c.patched_by.end();
+        const bool named = c.winner == id ||
+            std::find(c.overridden.begin(), c.overridden.end(), id) != c.overridden.end() ||
+            std::find(c.patched_by.begin(), c.patched_by.end(), id) != c.patched_by.end();
         if (named) found.push_back(&c);
     }
     return found;
@@ -219,9 +228,11 @@ void status_rows(ModSession &session) {
         indented(std::string(session.paths().disabled_by) + " is set: no mod applies this run.", colors::kDanger);
     if (!session.error().empty()) indented(session.error(), colors::kDanger);
     if (session.restart_pending() &&
-        button_row("Restart now", {false, {}, "Close the game and start it again with the mods as chosen. Progress "
-                                              "since your last save is lost."},
-                   colors::kAccentBright))
+        button_row("Restart now",
+            {false, {},
+                "Close the game and start it again with the mods as chosen. Progress "
+                "since your last save is lost."},
+            colors::kAccentBright))
         state().restart = true;
 }
 
@@ -266,7 +277,7 @@ void browse(bool back) {
              "holds several.");
     indented("On Android this lists only folders Yakumo can read by itself, which leaves out Downloads and SD "
              "cards. Importing through Android's file picker is not supported yet.",
-             colors::kTextDim);
+        colors::kTextDim);
 #else
     indented("Open the folder of a mod you downloaded and unpacked (the one with its mod.ini), or a folder that "
              "holds several. You can also drop the folder on the window.");
@@ -301,22 +312,24 @@ void review(ModSession &session, bool back) {
     if (s.check.mods.empty()) indented(s.check.problem, colors::kDanger);
     for (const mods::ImportCandidate &c : s.check.mods) {
         std::string detail = c.mod.type;
-        if (!c.mod.unusable.empty()) detail += ", cannot be used here";
-        else if (c.replaces) detail += ", replaces the installed one";
+        if (!c.mod.unusable.empty())
+            detail += ", cannot be used here";
+        else if (c.replaces)
+            detail += ", replaces the installed one";
         info_row(c.mod.name.c_str(), detail);
         if (!c.mod.unusable.empty()) indented(c.mod.unusable, colors::kDanger);
     }
     ImGui::Dummy({0.0f, px(12.0f)});
     if (!s.check.mods.empty()) {
-        const bool replaces = std::any_of(s.check.mods.begin(), s.check.mods.end(),
-                                          [](const mods::ImportCandidate &c) { return c.replaces; });
+        const bool replaces = std::any_of(
+            s.check.mods.begin(), s.check.mods.end(), [](const mods::ImportCandidate &c) { return c.replaces; });
         focus_first();
         if (button_row(s.check.mods.size() == 1u ? "Import this mod" : "Import these mods",
-                       {false, {},
-                        "Copies them into the mods folder, turned off; turn them on in the list. " +
-                            std::string(replaces ? "A mod installed under the same folder name moves to "
-                                                   "mods/.backup; nothing is deleted."
-                                                 : "")})) {
+                {false, {},
+                    "Copies them into the mods folder, turned off; turn them on in the list. " +
+                        std::string(replaces ? "A mod installed under the same folder name moves to "
+                                               "mods/.backup; nothing is deleted."
+                                             : "")})) {
             s.result = mods::import_mods(s.check, session.paths().folder);
             std::cout << "[mods] imported " << s.result.imported.size() << " mod(s)"
                       << (s.result.error.empty() ? "" : "; " + s.result.error) << std::endl;
@@ -337,7 +350,8 @@ void result_screen(bool back) {
         return;
     }
     section("Import mods");
-    if (!s.result.imported.empty()) info_row("Imported", count(s.result.imported.size(), "mod", "mods") + ", off for now");
+    if (!s.result.imported.empty())
+        info_row("Imported", count(s.result.imported.size(), "mod", "mods") + ", off for now");
     for (const fs::path &backup : s.result.backups) info_row("Kept", utf8(backup));
     if (!s.result.error.empty()) info_row("Problem", s.result.error);
     indented("Turn a mod on in the list. File mods apply the next time the game loads the file, or at the next start "
@@ -390,8 +404,10 @@ void fill_slots(ModSession &session, const Mod &mod, bool bare) {
             } else if (!bare) {
                 piece = game::carried_weapon(ram);
                 if (piece && piece->kind != kind) {
-                    problem = game::hunter_name(ram) + " carries a " + kind_label(piece->kind) + "; this mod replaces "
-                              "a " + kind_label(kind) + ". Equip one at the item box first.";
+                    problem = game::hunter_name(ram) + " carries a " + kind_label(piece->kind) +
+                        "; this mod replaces "
+                        "a " +
+                        kind_label(kind) + ". Equip one at the item box first.";
                     continue;
                 }
             }
@@ -404,7 +420,7 @@ void fill_slots(ModSession &session, const Mod &mod, bool bare) {
             fills.emplace_back(slot, *file);
             const std::string what = game::describe_file(ram, *file);
             done += (done.empty() ? "" : "; ") + mod.slots[slot].label + " " + file_name(session, *file) +
-                    (what.empty() ? "" : " (" + what + ")");
+                (what.empty() ? "" : " (" + what + ")");
         }
     });
     if (!running) problem = "The game is not running yet.";
@@ -422,8 +438,10 @@ void fill_slots(ModSession &session, const Mod &mod, bool bare) {
     session.commit();
     const bool armor = std::any_of(kinds.begin(), kinds.end(), [](const auto &k) { return k && game::is_armor(*k); });
     s.equip_note = std::string(bare ? "Set to no armor for " : "Set to what ") + who +
-                   (bare ? ": " : armor ? " wears: " : " carries: ") + done +
-                   "." + (turned_on ? " The mod is on now." : "") + (problem.empty() ? "" : " " + problem);
+        (bare           ? ": "
+                : armor ? " wears: "
+                        : " carries: ") +
+        done + "." + (turned_on ? " The mod is on now." : "") + (problem.empty() ? "" : " " + problem);
     std::cout << "[mods] " << mod.id << ": " << s.equip_note << std::endl;
 }
 
@@ -436,17 +454,17 @@ void equipment_buttons(ModSession &session, const Mod &mod) {
     const bool weapon = std::any_of(kinds.begin(), kinds.end(), [](const auto &k) { return k && game::is_weapon(*k); });
     if (!armor && !weapon) return;
     if (button_row(armor ? "Use my current armor" : "Use my current weapon",
-                   {false, {},
-                    armor ? "Point each slot at the model of the armor your hunter wears in that part now, for your "
-                            "hunter's sex. The hunter must be loaded (in the village, not on the title screen)."
-                          : "Point the slot at the model of the weapon your hunter carries now. It must be of the "
-                            "mod's weapon class."}))
+            {false, {},
+                armor ? "Point each slot at the model of the armor your hunter wears in that part now, for your "
+                        "hunter's sex. The hunter must be loaded (in the village, not on the title screen)."
+                      : "Point the slot at the model of the weapon your hunter carries now. It must be of the "
+                        "mod's weapon class."}))
         fill_slots(session, mod, false);
     if (armor &&
         button_row("No armor",
-                   {false, {},
-                    "Point each slot at what the game shows when that part is empty, for your hunter's sex and "
-                    "inner wear: take the armor off in the game to see the mod."}))
+            {false, {},
+                "Point each slot at what the game shows when that part is empty, for your hunter's sex and "
+                "inner wear: take the armor off in the game to see the mod."}))
         fill_slots(session, mod, true);
     if (s.equip_mod != mod.id || s.equip_note.empty()) return;
     indented(s.equip_note, s.equip_failed ? colors::kDanger : colors::kText);
@@ -464,7 +482,7 @@ void details(ModSession &session, bool back) {
         back_to_list();
         return;
     }
-    const Mod mod = *found;  // the list may be re-sorted below
+    const Mod mod = *found; // the list may be re-sorted below
     const mods::ModChoice choice = library.choice(mod.id);
     if (s.typed_slot) {
         const auto [slot, text] = *s.typed_slot;
@@ -477,10 +495,10 @@ void details(ModSession &session, bool back) {
     draw_preview(mod.preview, px(166.0f));
     focus_first();
     if (toggle_row("On", choice.enabled,
-                   {!mod.unusable.empty(), mod.unusable.empty() ? std::string() : "Cannot be used",
-                    mod.unusable.empty() ? "Use this mod. A pack turns its mods on and off with it; turning a mod on "
-                                           "also turns on the mods it needs."
-                                         : mod.unusable})) {
+            {!mod.unusable.empty(), mod.unusable.empty() ? std::string() : "Cannot be used",
+                mod.unusable.empty() ? "Use this mod. A pack turns its mods on and off with it; turning a mod on "
+                                       "also turns on the mods it needs."
+                                     : mod.unusable})) {
         library.set_enabled(mod.id, !choice.enabled);
         session.commit();
     }
@@ -489,9 +507,9 @@ void details(ModSession &session, bool back) {
     const auto position = static_cast<std::size_t>(place - order.begin());
     const std::string priority = std::to_string(position + 1u) + " of " + std::to_string(order.size());
     const int delta = choice_row("Priority", priority,
-                                 {false, {},
-                                  "Where two mods replace the same file, the one higher in the list wins. Left or "
-                                  "right moves this mod up or down."});
+        {false, {},
+            "Where two mods replace the same file, the one higher in the list wins. Left or "
+            "right moves this mod up or down."});
     if (delta != 0) {
         library.move(mod.id, -delta);
         session.commit();
@@ -508,9 +526,9 @@ void details(ModSession &session, bool back) {
         const std::string value =
             target ? file_name(session, *target) + (described[slot].empty() ? "" : "  " + described[slot]) : "Choose…";
         if (value_row(label.c_str(), value,
-                      {false, {},
-                       "The file id of the piece this model takes the place of, in four hex digits (0601), typed "
-                       "here or filled in by the buttons below. Empty: none."})) {
+                {false, {},
+                    "The file id of the piece this model takes the place of, in four hex digits (0601), typed "
+                    "here or filled in by the buttons below. Empty: none."})) {
             TextInputRequest request;
             request.title = label;
             request.prompt = "File id, four hex digits";
@@ -532,14 +550,15 @@ void details(ModSession &session, bool back) {
     if (!changes.empty()) info_row("Changes", changes);
     if (!mod.members.empty()) {
         std::string members;
-        for (const std::string &member : mod.members) members += (members.empty() ? "" : ", ") + mod_name(session, member);
+        for (const std::string &member : mod.members)
+            members += (members.empty() ? "" : ", ") + mod_name(session, member);
         info_row("Mods in the pack", members);
     }
     if (!mod.depends.empty()) {
         std::string needs;
         for (const std::string &dependency : mod.depends)
             needs += (needs.empty() ? "" : ", ") + mod_name(session, dependency) +
-                     (library.find(dependency) == nullptr ? " (not installed)" : "");
+                (library.find(dependency) == nullptr ? " (not installed)" : "");
         info_row("Needs", needs);
     }
     info_row("Folder", utf8(mod.folder));
@@ -553,7 +572,8 @@ void details(ModSession &session, bool back) {
             info_row(file_name(session, c->file).c_str(), conflict_text(session, *c));
     }
     ImGui::Dummy({0.0f, px(12.0f)});
-    if (button_row("Open its folder", {false, {}, "Show the mod's folder in the file manager."})) open_folder(mod.folder);
+    if (button_row("Open its folder", {false, {}, "Show the mod's folder in the file manager."}))
+        open_folder(mod.folder);
     if (button_row("Back", {false, {}, "Back to the mods."})) back_to_list();
 }
 
@@ -569,27 +589,29 @@ void list(ModSession &session) {
              "the game's data can end up in them.");
     status_rows(session);
     if (toggle_row("Use mods", library.master(),
-                   {session.paths().disabled_by != nullptr,
-                    session.paths().disabled_by != nullptr ? std::string("Set by ") + session.paths().disabled_by : "",
-                    "Off: the game reads only its own files, whatever is turned on below, for a clean comparison."})) {
+            {session.paths().disabled_by != nullptr,
+                session.paths().disabled_by != nullptr ? std::string("Set by ") + session.paths().disabled_by : "",
+                "Off: the game reads only its own files, whatever is turned on below, for a clean comparison."})) {
         library.set_master(!library.master());
         session.commit();
     }
     if (button_row("Import mod…",
-                   {false, {},
-                    "Copy a mod you downloaded into the mods folder: choose its unpacked folder, the one with its "
-                    "mod.ini. Yakumo does not download mods; unpack .zip, .rar or .7z archives first."}))
+            {false, {},
+                "Copy a mod you downloaded into the mods folder: choose its unpacked folder, the one with its "
+                "mod.ini. Yakumo does not download mods; unpack .zip, .rar or .7z archives first."}))
         open_browser();
     if (button_row("Open the mods folder",
-                   {false, {}, "Show the mods folder in the file manager: one folder per mod, as the mhp3reload mod "
-                               "manager has them."}))
+            {false, {},
+                "Show the mods folder in the file manager: one folder per mod, as the mhp3reload mod "
+                "manager has them."}))
         open_folder(session.paths().folder);
     if (button_row("Read the folder again", {false, {}, "Pick up mods added to or removed from the folder."}))
         session.rescan();
 
     const auto &all = library.mods();
     section(("Installed (" + std::to_string(all.size()) + ")").c_str());
-    if (all.empty()) indented("No mods yet. Import one, or copy mod folders into " + utf8(session.paths().folder) + ".");
+    if (all.empty())
+        indented("No mods yet. Import one, or copy mod folders into " + utf8(session.paths().folder) + ".");
     const Resolution &wanted = session.wanted();
     for (std::size_t i = 0; i < all.size(); ++i) {
         const Mod &mod = all[i];
@@ -597,7 +619,7 @@ void list(ModSession &session) {
         std::string value = !mod.unusable.empty() ? "Cannot be used" : on ? "On" : "Off";
         if (on && !conflicts_of(wanted, mod.id).empty()) value += ", conflict";
         std::string description = mod.type + (mod.author.empty() ? "" : " by " + mod.author) + ". " +
-                                  (mod.unusable.empty() ? changes_text(session, mod) : mod.unusable);
+            (mod.unusable.empty() ? changes_text(session, mod) : mod.unusable);
         const std::string label = std::to_string(i + 1u) + ". " + mod.name;
         ImGui::PushID(mod.id.c_str());
         if (s.return_to == mod.id) {
@@ -634,16 +656,30 @@ void mods_page(bool back) {
         return;
     }
     switch (s.stage) {
-    case Stage::List: list(*session); break;
-    case Stage::Details: details(*session, back); break;
-    case Stage::Choose: browse(back); break;
-    case Stage::Review: review(*session, back); break;
-    case Stage::Result: result_screen(back); break;
+    case Stage::List:
+        list(*session);
+        break;
+    case Stage::Details:
+        details(*session, back);
+        break;
+    case Stage::Choose:
+        browse(back);
+        break;
+    case Stage::Review:
+        review(*session, back);
+        break;
+    case Stage::Result:
+        result_screen(back);
+        break;
     }
 }
 
-bool mods_screen_open() { return state().stage != Stage::List; }
+bool mods_screen_open() {
+    return state().stage != Stage::List;
+}
 
-bool take_mods_restart_request() { return std::exchange(state().restart, false); }
+bool take_mods_restart_request() {
+    return std::exchange(state().restart, false);
+}
 
 } // namespace mhp3rd::ui

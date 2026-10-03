@@ -58,7 +58,6 @@ struct PspImport {
     std::uint32_t stub_address{};
 };
 
-
 struct PspRelocationSite {
     std::uint32_t patch_address{};
     std::uint32_t type{};
@@ -90,10 +89,10 @@ public:
     [[nodiscard]] const std::vector<ElfSection> &sections() const noexcept;
     [[nodiscard]] const std::string &source_name() const noexcept;
 
-    [[nodiscard]] std::uint32_t segment_runtime_address(std::size_t segment_index,
-                                                        std::uint32_t load_base = kDefaultPspUserLoadBase) const;
-    [[nodiscard]] std::uint32_t section_runtime_address(const ElfSection &section,
-                                                        std::uint32_t load_base = kDefaultPspUserLoadBase) const noexcept;
+    [[nodiscard]] std::uint32_t segment_runtime_address(
+        std::size_t segment_index, std::uint32_t load_base = kDefaultPspUserLoadBase) const;
+    [[nodiscard]] std::uint32_t section_runtime_address(
+        const ElfSection &section, std::uint32_t load_base = kDefaultPspUserLoadBase) const noexcept;
 
     // Smallest supported guest RAM (32 or 64 MiB) that holds every PT_LOAD
     // segment including its BSS. Extended-memory titles such as PS3 PSP
@@ -101,17 +100,16 @@ public:
     [[nodiscard]] std::uint32_t required_ram_size(std::uint32_t load_base = kDefaultPspUserLoadBase) const;
 
     void load_into(GuestMemory &memory, std::uint32_t load_base = kDefaultPspUserLoadBase) const;
-    [[nodiscard]] RelocationStats apply_relocations(GuestMemory &memory,
-                                                    std::uint32_t load_base = kDefaultPspUserLoadBase) const;
-    [[nodiscard]] RelocationStats load_and_relocate(GuestMemory &memory,
-                                                   std::uint32_t load_base = kDefaultPspUserLoadBase) const;
+    [[nodiscard]] RelocationStats apply_relocations(
+        GuestMemory &memory, std::uint32_t load_base = kDefaultPspUserLoadBase) const;
+    [[nodiscard]] RelocationStats load_and_relocate(
+        GuestMemory &memory, std::uint32_t load_base = kDefaultPspUserLoadBase) const;
     [[nodiscard]] std::vector<PspRelocationSite> relocation_sites(
         std::uint32_t load_base = kDefaultPspUserLoadBase) const;
 
     [[nodiscard]] std::optional<PspModuleInfo> find_module_info(
         const GuestMemory &memory, std::uint32_t load_base = kDefaultPspUserLoadBase) const;
-    [[nodiscard]] std::vector<PspImport> scan_imports(const GuestMemory &memory,
-                                                      const PspModuleInfo &module) const;
+    [[nodiscard]] std::vector<PspImport> scan_imports(const GuestMemory &memory, const PspModuleInfo &module) const;
     [[nodiscard]] std::uint32_t read_word_at_vaddr(std::uint32_t address) const;
 
 private:

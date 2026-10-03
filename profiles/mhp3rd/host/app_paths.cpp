@@ -82,7 +82,9 @@ void set_bundled_resource_directory(std::filesystem::path directory) {
     bundled_resource_directory() = std::move(directory);
 }
 
-std::filesystem::path bundled_overlay_directory() { return shipped_directory("Frameworks", "overlays"); }
+std::filesystem::path bundled_overlay_directory() {
+    return shipped_directory("Frameworks", "overlays");
+}
 
 // Android unpacks the APK's assets into a directory it names at start-up.
 std::filesystem::path bundled_font_directory() {

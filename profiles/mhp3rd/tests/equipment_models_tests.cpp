@@ -25,7 +25,7 @@ void check(bool condition, const char *message) {
 }
 
 constexpr std::uint32_t kBase = 0x08800000u;
-constexpr std::size_t kSize = 0x02000000u;  // up to 0x0A800000
+constexpr std::size_t kSize = 0x02000000u; // up to 0x0A800000
 
 void write_table(Ram &ram, std::uint32_t at, const std::vector<std::string> &strings) {
     const auto count = static_cast<std::uint32_t>(strings.size());
@@ -34,7 +34,7 @@ void write_table(Ram &ram, std::uint32_t at, const std::vector<std::string> &str
         ram.store32(at + i * 4u, text);
         for (std::size_t c = 0; c <= strings[i].size(); ++c)
             ram.store8(at + text + static_cast<std::uint32_t>(c),
-                       c < strings[i].size() ? static_cast<std::uint8_t>(strings[i][c]) : 0u);
+                c < strings[i].size() ? static_cast<std::uint8_t>(strings[i][c]) : 0u);
         text += static_cast<std::uint32_t>(strings[i].size() + 1u);
     }
     ram.store32(at + count * 4u, 0xFFFFFFFFu);
@@ -52,8 +52,8 @@ void write_text(Ram &ram) {
 }
 
 // An armor record: male and female model, who can wear it.
-void write_armor(Ram &ram, std::uint32_t table, std::uint16_t id, std::uint16_t male, std::uint16_t female,
-                 std::uint8_t who) {
+void write_armor(
+    Ram &ram, std::uint32_t table, std::uint16_t id, std::uint16_t male, std::uint16_t female, std::uint8_t who) {
     const std::uint32_t at = table + id * kArmorRecord;
     ram.store16(at, male);
     ram.store16(at + 2u, female);
@@ -76,19 +76,19 @@ void write_tables(Ram &ram) {
         ram.store32(table + 4u, list);
     }
     write_armor(ram, kChestData, 1, 3, 4, 0x0F);
-    write_armor(ram, kChestData, 2, 5, 0, 0x05);  // for men only
-    write_armor(ram, kChestData, 3, 3, 4, 0x0F);  // the same look as 1
+    write_armor(ram, kChestData, 2, 5, 0, 0x05); // for men only
+    write_armor(ram, kChestData, 3, 3, 4, 0x0F); // the same look as 1
     write_armor(ram, kHeadData, 1, 7, 7, 0x0F);
     // Great swords: the first file and how many models (every 4 bytes).
     ram.store16(kWeaponFileBase, 2000u);
     ram.store16(kWeaponModelCount, 10u);
     ram.store16(0x08997AA0u + 1u * 28u, 3u);
-    ram.store16(0x08997AA0u + 2u * 28u, 50u);  // past the count: the game uses the last
+    ram.store16(0x08997AA0u + 2u * 28u, 50u); // past the count: the game uses the last
 }
 
 // The character: a fullwidth name, sex, inner wear, weapon and armor.
 void write_character(Ram &ram, std::uint8_t sex, std::uint8_t inner) {
-    ram.store16(kCharacter, 0xFF34u);  // "T"
+    ram.store16(kCharacter, 0xFF34u); // "T"
     ram.store8(kCharacter + kCharacterSex, sex);
     ram.store8(kCharacter + kCharacterInnerWear, inner);
     const auto record = [&ram](std::uint32_t at, std::uint8_t kind, std::uint16_t id) {
@@ -97,8 +97,8 @@ void write_character(Ram &ram, std::uint8_t sex, std::uint8_t inner) {
         ram.store16(at + 2u, id);
     };
     record(kCharacter + kCharacterWeapon, 5, 1);
-    record(kCharacter + kCharacterArmor, 0, 1);                           // chest
-    record(kCharacter + kCharacterArmor + 4u * kEquipmentRecord, 4, 1);  // head
+    record(kCharacter + kCharacterArmor, 0, 1);                         // chest
+    record(kCharacter + kCharacterArmor + 4u * kEquipmentRecord, 4, 1); // head
 }
 
 void test_nothing_loaded() {
@@ -171,21 +171,21 @@ void test_layered_armor() {
 
     layered::Pieces pieces{layered::kReal, layered::kReal, layered::kReal, layered::kReal, layered::kReal};
     check(!layered::replacement_model(ram, block, 0, 0, pieces), "a real part is left to the game");
-    pieces[0] = 1;  // chest: Plain Mail, models 3 and 4
+    pieces[0] = 1; // chest: Plain Mail, models 3 and 4
     check(layered::replacement_model(ram, block, 0, 0, pieces) == std::optional<std::uint16_t>{4},
-          "the chosen chest's model for her");
+        "the chosen chest's model for her");
     check(!layered::replacement_model(ram, block, 1, 0, pieces), "another player's hunter is left to the game");
     check(!layered::replacement_model(ram, block + 4u, 0, 0, pieces), "a block not the game's is left alone");
     check(!layered::replacement_model(ram, block, 0, 5, pieces), "hair and face are left to the game");
     ram.store32(own + layered::kRecordFlags, 0u);
     check(layered::replacement_model(ram, block, 0, 0, pieces) == std::optional<std::uint16_t>{3},
-          "the record's sex picks the model");
+        "the record's sex picks the model");
     ram.store32(own + layered::kRecordFlags, 1u);
-    pieces[0] = 2;  // for men only
+    pieces[0] = 2; // for men only
     check(!layered::replacement_model(ram, block, 0, 0, pieces), "a piece she cannot wear shows the real one");
     pieces[0] = 0;
     check(layered::replacement_model(ram, block, 0, 0, pieces) == std::optional<std::uint16_t>{0},
-          "nothing: the model of an empty part");
+        "nothing: the model of an empty part");
 
     // Offers: the pieces owned, or all she can wear.
     ram.store8(kEquipmentBox, 1u);
@@ -193,7 +193,7 @@ void test_layered_armor() {
     ram.store16(kEquipmentBox + 2u, 3u);
     const std::vector<layered::Offer> owned = layered::offers(ram, 0, false);
     check(owned.size() == 2u && owned[0].id == 1 && owned[0].worn && owned[1].id == 3 && !owned[1].worn,
-          "owned chests: the one worn and the one in the box");
+        "owned chests: the one worn and the one in the box");
     const std::vector<layered::Offer> all = layered::offers(ram, 0, true);
     check(all.size() == 2u, "all chests she can wear, not the one for men");
     check(!all.empty() && all[0].name == "Plain Mail", "offers carry the game's names");
@@ -212,7 +212,7 @@ void test_layered_armor() {
     check(layered::own_hunter(ram, hunter) && layered::load_done(ram, hunter), "the hunter played here, loaded");
     layered::restart_load(ram, hunter);
     check(ram.load32(hunter + layered::kLoadState) == 0u && ram.load32(hunter + layered::kLoadPart) == 0u,
-          "a restarted load begins at the first part");
+        "a restarted load begins at the first part");
     check(!layered::load_done(ram, hunter), "and is running");
     ram.store16(hunter + layered::kObjectIndex, 1u);
     check(!layered::own_hunter(ram, hunter), "another player's hunter is not ours");

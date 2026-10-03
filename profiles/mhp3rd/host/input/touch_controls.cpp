@@ -7,15 +7,24 @@ namespace mhp3rd::input::touch {
 
 std::uint16_t psp_button(Control control) {
     switch (control) {
-    case Control::Triangle: return 0x1000u;
-    case Control::Circle: return 0x2000u;
-    case Control::Cross: return 0x4000u;
-    case Control::Square: return 0x8000u;
-    case Control::L: return 0x0100u;
-    case Control::R: return 0x0200u;
-    case Control::Start: return 0x0008u;
-    case Control::Select: return 0x0001u;
-    default: return 0u;
+    case Control::Triangle:
+        return 0x1000u;
+    case Control::Circle:
+        return 0x2000u;
+    case Control::Cross:
+        return 0x4000u;
+    case Control::Square:
+        return 0x8000u;
+    case Control::L:
+        return 0x0100u;
+    case Control::R:
+        return 0x0200u;
+    case Control::Start:
+        return 0x0008u;
+    case Control::Select:
+        return 0x0001u;
+    default:
+        return 0u;
     }
 }
 
@@ -57,9 +66,9 @@ Layout make_layout(float width, float height, Insets insets, float size, bool dp
     const float reach = face * 2.3f;
     layout.dpad_shown = dpad;
     layout.dpad = {{left + reach + face * 0.5f,
-                    std::max(top + (bottom - top) * 0.47f, c[static_cast<std::size_t>(Control::L)].centre.y +
-                                                               shoulder + reach + face * 0.4f)},
-                   reach};
+                       std::max(top + (bottom - top) * 0.47f,
+                           c[static_cast<std::size_t>(Control::L)].centre.y + shoulder + reach + face * 0.4f)},
+        reach};
     layout.stick_radius = unit * 0.13f;
     layout.stick_split = left + (right - left) * 0.45f;
     return layout;
@@ -74,8 +83,8 @@ std::uint16_t dpad_buttons(Point offset, float reach) {
     if (angle < 0.0f) angle += 2.0f * kPi;
     const int sector = static_cast<int>(std::floor(angle / (kPi / 4.0f) + 0.5f)) % 8;
     constexpr std::uint16_t kUp = 0x10u, kRight = 0x20u, kDown = 0x40u, kLeft = 0x80u;
-    constexpr std::uint16_t kSectors[8] = {kRight,        kRight | kUp,  kUp,           kUp | kLeft,
-                                           kLeft,         kLeft | kDown, kDown,         kDown | kRight};
+    constexpr std::uint16_t kSectors[8] = {
+        kRight, kRight | kUp, kUp, kUp | kLeft, kLeft, kLeft | kDown, kDown, kDown | kRight};
     return kSectors[sector];
 }
 
@@ -171,8 +180,9 @@ void Controls::finger_move(std::uint64_t id, Point at) {
         camera_drag_.x += at.x - finger->last.x;
         camera_drag_.y += at.y - finger->last.y;
         break;
-    case Role::DPad:  // the direction follows the finger; see buttons()
-    case Role::None: break;
+    case Role::DPad: // the direction follows the finger; see buttons()
+    case Role::None:
+        break;
     }
     finger->last = at;
 }
@@ -202,8 +212,8 @@ std::uint16_t Controls::buttons() const {
 }
 
 std::uint16_t Controls::dpad_held_by(const Finger &finger) const {
-    return dpad_buttons({finger.last.x - layout_.dpad.centre.x, finger.last.y - layout_.dpad.centre.y},
-                        layout_.dpad.radius);
+    return dpad_buttons(
+        {finger.last.x - layout_.dpad.centre.x, finger.last.y - layout_.dpad.centre.y}, layout_.dpad.radius);
 }
 
 std::uint16_t Controls::dpad_held() const {
@@ -227,8 +237,7 @@ bool Controls::any_finger() const {
 
 Point Controls::stick() const {
     if (!stick_.active) return {};
-    return stick_deflection({stick_.thumb.x - stick_.origin.x, stick_.thumb.y - stick_.origin.y},
-                            layout_.stick_radius);
+    return stick_deflection({stick_.thumb.x - stick_.origin.x, stick_.thumb.y - stick_.origin.y}, layout_.stick_radius);
 }
 
 Point Controls::take_camera_drag() {

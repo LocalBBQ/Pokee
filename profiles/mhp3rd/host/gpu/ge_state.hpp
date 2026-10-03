@@ -39,7 +39,7 @@ enum class TextureFormat : std::uint8_t {
 
 // One decoded vertex in the format the backend consumes.
 struct Vertex {
-    std::array<float, 4> position{0.0f, 0.0f, 0.0f, 1.0f};  // object or screen space
+    std::array<float, 4> position{0.0f, 0.0f, 0.0f, 1.0f}; // object or screen space
     std::array<float, 3> normal{};
     std::array<float, 2> texcoord{};
     std::uint32_t color{0xFFFFFFFFu};
@@ -64,8 +64,8 @@ struct TextureState {
     std::uint32_t clut_format_word{0xC5000000u};
     std::uint32_t clut_load_bytes{};
     std::uint32_t clut_max_bytes{};
-    std::uint32_t function{};        // TFX: modulate/decal/blend/replace/add
-    bool alpha_from_texture{};       // TCC
+    std::uint32_t function{};  // TFX: modulate/decal/blend/replace/add
+    bool alpha_from_texture{}; // TCC
     std::uint32_t min_filter{};
     std::uint32_t mag_filter{};
     std::uint32_t wrap_s{};
@@ -80,7 +80,7 @@ struct TextureState {
 struct RenderTarget {
     std::uint32_t color_address{};
     std::uint32_t color_stride{512u};
-    std::uint32_t color_format{};  // 0:5650 1:5551 2:4444 3:8888
+    std::uint32_t color_format{}; // 0:5650 1:5551 2:4444 3:8888
     std::uint32_t depth_address{};
     std::uint32_t depth_stride{512u};
 };
@@ -113,21 +113,21 @@ struct ViewportState {
     float x_scale{}, y_scale{}, z_scale{};
     float x_offset{}, y_offset{}, z_offset{};
     std::uint32_t scissor_x1{}, scissor_y1{}, scissor_x2{479u}, scissor_y2{271u};
-    float offset_x{}, offset_y{};  // screen-space origin, 16 bits with 4 fractional
+    float offset_x{}, offset_y{}; // screen-space origin, 16 bits with 4 fractional
 };
 
 // One of the GE's four lights. The register layout below was read off the
 // running game with MHP3RD_TRACE_LIGHTING, not taken from a reference table.
 struct LightState {
     bool enabled{};
-    std::uint32_t kind{};         // bits 0..1: diffuse, diffuse + specular, powered diffuse
-    std::uint32_t type{};         // bits 8..9: directional, point, spot
-    std::array<float, 3> position{};   // the direction towards the light, for a directional one
-    std::array<float, 3> direction{};  // spot axis
-    std::array<float, 3> attenuation{1.0f, 0.0f, 0.0f};  // constant, linear, quadratic
+    std::uint32_t kind{};                               // bits 0..1: diffuse, diffuse + specular, powered diffuse
+    std::uint32_t type{};                               // bits 8..9: directional, point, spot
+    std::array<float, 3> position{};                    // the direction towards the light, for a directional one
+    std::array<float, 3> direction{};                   // spot axis
+    std::array<float, 3> attenuation{1.0f, 0.0f, 0.0f}; // constant, linear, quadratic
     float spot_exponent{};
-    float spot_cutoff{};          // cosine of the cone's half angle
-    std::uint32_t ambient{};      // 0x00BBGGRR, as every colour register
+    float spot_cutoff{};     // cosine of the cone's half angle
+    std::uint32_t ambient{}; // 0x00BBGGRR, as every colour register
     std::uint32_t diffuse{};
     std::uint32_t specular{};
 };
@@ -136,22 +136,22 @@ struct LightState {
 // ambient colour and alpha stay in DrawCall::material_color, which unlit draws
 // use as well.
 struct LightingState {
-    std::uint32_t material_update{};     // 0x53: which terms the vertex colour replaces
-    std::uint32_t material_emissive{};   // 0x54
-    std::uint32_t material_diffuse{};    // 0x56
-    std::uint32_t material_specular{};   // 0x57
-    float specular_power{1.0f};          // 0x5B
-    std::uint32_t ambient_color{};       // 0x5C: global ambient light
-    std::uint32_t ambient_alpha{0xFFu};  // 0x5D
-    std::uint32_t mode{};                // 0x5E: 1 keeps specular apart, added after texturing
-    bool reverse_normals{};              // 0x51
+    std::uint32_t material_update{};    // 0x53: which terms the vertex colour replaces
+    std::uint32_t material_emissive{};  // 0x54
+    std::uint32_t material_diffuse{};   // 0x56
+    std::uint32_t material_specular{};  // 0x57
+    float specular_power{1.0f};         // 0x5B
+    std::uint32_t ambient_color{};      // 0x5C: global ambient light
+    std::uint32_t ambient_alpha{0xFFu}; // 0x5D
+    std::uint32_t mode{};               // 0x5E: 1 keeps specular apart, added after texturing
+    bool reverse_normals{};             // 0x51
     std::array<LightState, 4> lights{};
 };
 
 struct FogState {
     bool enabled{};
-    float end{};    // 0xCD: fog is complete at this view distance
-    float scale{};  // 0xCE: 1 / (end - start)
+    float end{};   // 0xCD: fog is complete at this view distance
+    float scale{}; // 0xCE: 1 / (end - start)
     std::uint32_t color{};
 };
 
@@ -159,8 +159,8 @@ struct FogState {
 struct DrawCall {
     PrimitiveType primitive{};
     std::vector<Vertex> vertices;
-    std::vector<std::uint16_t> indices;  // empty when the draw is not indexed
-    bool through{};                      // vertices are already in screen space
+    std::vector<std::uint16_t> indices; // empty when the draw is not indexed
+    bool through{};                     // vertices are already in screen space
     TextureState texture;
     RenderTarget target;
     BlendState blend;
@@ -169,8 +169,8 @@ struct DrawCall {
     ViewportState viewport;
     bool culling_enabled{};
     bool cull_clockwise{};
-    bool clear_mode{};                   // CLEARMODE is active for this draw
-    std::uint32_t clear_flags{};         // CLEARMODE bits 8..10: color, alpha/stencil, depth
+    bool clear_mode{};           // CLEARMODE is active for this draw
+    std::uint32_t clear_flags{}; // CLEARMODE bits 8..10: color, alpha/stencil, depth
     std::uint32_t vertex_type{};
     // Where the vertices and indices were read from and how many the prim
     // consumed: what recognises the same draw in the next frame.
@@ -184,7 +184,7 @@ struct DrawCall {
     std::uint32_t call_return{};
     std::uint32_t material_color{0xFFFFFFFFu};
     bool lighting_enabled{};
-    bool has_vertex_color{};             // the vertex type carries a colour
+    bool has_vertex_color{}; // the vertex type carries a colour
     LightingState lighting;
     FogState fog;
     // Change counters: environment_version moves whenever a register behind
@@ -212,7 +212,7 @@ struct DrawCall {
 // decode_vertices() reads them; kNoVertexField when the type has none.
 inline constexpr std::uint32_t kNoVertexField = 0xFFFFFFFFu;
 struct VertexFormat {
-    std::uint32_t stride{};  // of one morph target
+    std::uint32_t stride{}; // of one morph target
     std::uint32_t weight_offset{kNoVertexField};
     std::uint32_t texcoord_offset{kNoVertexField};
     std::uint32_t color_offset{kNoVertexField};
@@ -306,8 +306,8 @@ private:
     std::uint32_t vertex_type_{};
     std::uint32_t vertex_address_{};
     std::uint32_t index_address_{};
-    std::uint32_t base_extended_{};   // BASE: bits 16..19 become address bits 24..27
-    std::uint32_t offset_address_{};  // OFFSET_ADDR: added to every relative address
+    std::uint32_t base_extended_{};  // BASE: bits 16..19 become address bits 24..27
+    std::uint32_t offset_address_{}; // OFFSET_ADDR: added to every relative address
     std::array<float, 16> world_{};
     std::array<float, 16> view_{};
     std::array<float, 16> projection_{};
@@ -324,7 +324,7 @@ private:
 
     std::vector<std::uint32_t> call_stack_;
     std::uint32_t command_pc_{};
-    DrawCall call_;  // reused by draw_primitive for every draw
+    DrawCall call_; // reused by draw_primitive for every draw
     DrawSink draw_sink_;
     SignalSink signal_sink_;
     TransferSink transfer_sink_;
@@ -349,7 +349,6 @@ bool find_vram_copy(std::uint32_t address, std::uint32_t &source, std::uint32_t 
 // `bone_matrices`, when given, points at 8 consecutive 3x4 matrices (96 floats)
 // and skinned vertices are blended into their bones' space by their weights.
 std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, std::uint32_t vertex_type,
-                              std::uint32_t count, std::vector<Vertex> &out,
-                              const float *bone_matrices = nullptr);
+    std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices = nullptr);
 
 } // namespace mhp3rd::gpu

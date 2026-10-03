@@ -32,7 +32,7 @@ struct Element {
     enum class Range : std::uint8_t { Full, Positive, Negative };
     Kind kind{Kind::None};
     int index{};
-    int hat_mask{};  // Hat: 1 up, 2 right, 4 down, 8 left
+    int hat_mask{}; // Hat: 1 up, 2 right, 4 down, 8 left
     Range range{Range::Full};
     bool inverted{};
     [[nodiscard]] bool empty() const { return kind == Kind::None; }
@@ -49,10 +49,10 @@ struct Element {
 // What a mapping can name, in the order the setup asks for them. The axes
 // come last: a stick is asked for once per direction it moves in.
 enum class Target : std::uint8_t {
-    A,  // bottom face button
-    B,  // right
-    X,  // left
-    Y,  // top
+    A, // bottom face button
+    B, // right
+    X, // left
+    Y, // top
     DpadUp,
     DpadDown,
     DpadLeft,
@@ -88,8 +88,8 @@ using Answers = std::array<Element, kTargets>;
 // The mapping line: "GUID,Name,a:b2,...,platform:Linux," with the answered
 // targets in Target order. `platform` as SDL_GetPlatform() has it; SDL reads a
 // file's lines only when they carry one.
-[[nodiscard]] std::string build(std::string_view guid, std::string_view name, const Answers &answers,
-                                std::string_view platform);
+[[nodiscard]] std::string build(
+    std::string_view guid, std::string_view name, const Answers &answers, std::string_view platform);
 // The answers a mapping line gives, for the targets above; unknown fields are
 // left out.
 [[nodiscard]] Answers answers_of(std::string_view line);
@@ -100,16 +100,16 @@ using Answers = std::array<Element, kTargets>;
 [[nodiscard]] std::string_view platform_of(std::string_view line);
 // The line for this GUID and platform, if the text has one. A line without a
 // platform counts for every platform.
-[[nodiscard]] std::optional<std::string> find_line(std::string_view text, std::string_view guid,
-                                              std::string_view platform);
+[[nodiscard]] std::optional<std::string> find_line(
+    std::string_view text, std::string_view guid, std::string_view platform);
 // The text with any line for the GUID and platform of `line` replaced by
 // `line`, or with `line` added at the end. A new file starts with a comment
 // saying what it is.
 [[nodiscard]] std::string with_line(std::string_view text, std::string_view line);
 // The text without the lines for the GUID and platform. `removed`: whether
 // there was one.
-[[nodiscard]] std::string without(std::string_view text, std::string_view guid, std::string_view platform,
-                                  bool *removed = nullptr);
+[[nodiscard]] std::string without(
+    std::string_view text, std::string_view guid, std::string_view platform, bool *removed = nullptr);
 // The lines of a text (SDL_GAMECONTROLLERCONFIG may hold several), without
 // blanks and comments.
 [[nodiscard]] std::vector<std::string> lines(std::string_view text);

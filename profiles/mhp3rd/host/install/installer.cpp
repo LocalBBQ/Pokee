@@ -42,9 +42,13 @@ constexpr std::uint64_t kMiB = 1024u * 1024u;
 // Room left over after copying, so the copy never fills the disk to the last byte.
 constexpr std::uint64_t kFreeSpaceMargin = 64u * kMiB;
 
-std::string display_name(const std::filesystem::path &path) { return path_to_utf8(path.filename()); }
+std::string display_name(const std::filesystem::path &path) {
+    return path_to_utf8(path.filename());
+}
 
-std::string megabytes(std::uint64_t bytes) { return std::to_string((bytes + kMiB / 2u) / kMiB) + " MB"; }
+std::string megabytes(std::uint64_t bytes) {
+    return std::to_string((bytes + kMiB / 2u) / kMiB) + " MB";
+}
 
 std::uint32_t le16(const std::vector<std::uint8_t> &data, std::size_t offset) {
     return static_cast<std::uint32_t>(data[offset]) | (static_cast<std::uint32_t>(data[offset + 1u]) << 8u);
@@ -99,40 +103,42 @@ Inspection inspect(const std::filesystem::path &path) {
     {
         std::ifstream in(path, std::ios::binary);
         std::array<char, 4> magic{};
-        if (!in.read(magic.data(), magic.size()))
-            throw InstallError("\"" + name + "\" is empty or cannot be read.");
+        if (!in.read(magic.data(), magic.size())) throw InstallError("\"" + name + "\" is empty or cannot be read.");
         if (std::memcmp(magic.data(), "CISO", 4u) == 0 || std::memcmp(magic.data(), "ZISO", 4u) == 0)
-            throw InstallError("\"" + name + "\" is a compressed image. Yakumo needs an uncompressed .iso image of the "
-                               "disc; decompress it first.");
+            throw InstallError("\"" + name +
+                "\" is a compressed image. Yakumo needs an uncompressed .iso image of the "
+                "disc; decompress it first.");
     }
 
     std::optional<IsoImage> iso;
     try {
         iso.emplace(path);
     } catch (const std::exception &) {
-        throw InstallError("\"" + name + "\" is not a disc image Yakumo can read. Choose an uncompressed .iso image "
-                           "of the game's PSP disc.");
+        throw InstallError("\"" + name +
+            "\" is not a disc image Yakumo can read. Choose an uncompressed .iso image "
+            "of the game's PSP disc.");
     }
 
     const auto sfo_entry = iso->find(kParamSfoPathOnDisc);
     if (!sfo_entry || sfo_entry->directory) {
         if (iso->find("PS3_GAME/PARAM.SFO"))
             throw InstallError("\"" + name + "\" is a PlayStation 3 disc image. Yakumo needs the PSP disc image of " +
-                               kGameTitle + ": an .iso whose top level holds a PSP_GAME folder.");
+                kGameTitle + ": an .iso whose top level holds a PSP_GAME folder.");
         throw InstallError("\"" + name + "\" is not a PSP game disc image: it has no PSP_GAME/PARAM.SFO.");
     }
     const auto sfo = parse_sfo(read_file(*iso, *sfo_entry));
     const auto disc_id = sfo.find("DISC_ID");
     if (disc_id == sfo.end())
-        throw InstallError("\"" + name + "\" has no disc id in PSP_GAME/PARAM.SFO, so it is not an image Yakumo "
-                           "supports.");
+        throw InstallError("\"" + name +
+            "\" has no disc id in PSP_GAME/PARAM.SFO, so it is not an image Yakumo "
+            "supports.");
     if (disc_id->second != kDiscId) {
         const auto title = sfo.find("TITLE");
         std::string what = "\"" + name + "\" is ";
         what += title != sfo.end() && !title->second.empty() ? title->second + " (" + disc_id->second + ")"
-                                                              : "disc " + disc_id->second;
+                                                             : "disc " + disc_id->second;
         what += ". Yakumo supports only " + std::string(kGameTitle) + ", the Japanese release with disc id " +
-                kDiscIdDisplay + ".";
+            kDiscIdDisplay + ".";
         if (disc_id->second == "ULJM05800")
             what += " This is the original PSP release of the game, which Yakumo does not support.";
         else
@@ -142,20 +148,21 @@ Inspection inspect(const std::filesystem::path &path) {
 
     const auto eboot_entry = iso->find(kExecutablePathOnDisc);
     if (!eboot_entry || eboot_entry->directory)
-        throw InstallError("\"" + name + "\" has the right disc id but no PSP_GAME/SYSDIR/EBOOT.BIN. The image is "
-                           "incomplete or modified; make it again from your disc.");
+        throw InstallError("\"" + name +
+            "\" has the right disc id but no PSP_GAME/SYSDIR/EBOOT.BIN. The image is "
+            "incomplete or modified; make it again from your disc.");
     Inspection result;
     result.eboot_bin = read_file(*iso, *eboot_entry);
     if (psprecomp::sha256_bytes(result.eboot_bin) != kEncryptedExecutableSha256)
         throw InstallError("\"" + name + "\" is " + kGameTitle + " (" + kDiscIdDisplay +
-                           "), but its executable is not the version Yakumo supports. The image may be patched, "
-                           "modified or damaged; make it again from an unmodified disc.");
+            "), but its executable is not the version Yakumo supports. The image may be patched, "
+            "modified or damaged; make it again from an unmodified disc.");
     result.info.size_bytes = iso->size_bytes();
     return result;
 }
 
 void copy_with_progress(const std::filesystem::path &from, const std::filesystem::path &to, std::uint64_t total,
-                        const ProgressFn &progress) {
+    const ProgressFn &progress) {
     const std::string stage = "Copying the disc image";
     std::ifstream in(from, std::ios::binary);
     std::ofstream out(to, std::ios::binary | std::ios::trunc);
@@ -190,7 +197,7 @@ bool same_file(const std::filesystem::path &a, const std::filesystem::path &b) {
 }
 
 void install_checked(const std::filesystem::path &image, ImageStorage storage, const std::filesystem::path &data_dir,
-                     const ProgressFn &progress) {
+    const ProgressFn &progress) {
     Inspection inspection = inspect(image);
     std::filesystem::create_directories(data_dir);
 
@@ -203,8 +210,8 @@ void install_checked(const std::filesystem::path &image, ImageStorage storage, c
         const auto space = available_space(data_dir);
         if (space && *space < needed)
             throw InstallError("Not enough free space to copy the disc image: it needs " + megabytes(needed) +
-                               " in \"" + path_to_utf8(data_dir) + "\" and " + megabytes(*space) +
-                               " is free. Free up space, or choose to use the image where it is.");
+                " in \"" + path_to_utf8(data_dir) + "\" and " + megabytes(*space) +
+                " is free. Free up space, or choose to use the image where it is.");
         try {
             copy_with_progress(image, copying, inspection.info.size_bytes, progress);
         } catch (...) {
@@ -223,10 +230,8 @@ void install_checked(const std::filesystem::path &image, ImageStorage storage, c
 
     const std::string stage = "Preparing the executable";
     progress(stage, 0u, 1u);
-    const std::vector<std::uint8_t> executable =
-        prepare_executable(inspection.eboot_bin, [&](std::uint64_t done, std::uint64_t total) {
-            progress(stage, done, total);
-        });
+    const std::vector<std::uint8_t> executable = prepare_executable(
+        inspection.eboot_bin, [&](std::uint64_t done, std::uint64_t total) { progress(stage, done, total); });
     const std::filesystem::path executable_path = data_dir / kExecutableFile;
     const std::filesystem::path executable_partial = data_dir / (std::string(kExecutableFile) + ".part");
     write_file(executable_partial, executable);
@@ -250,10 +255,12 @@ void install_checked(const std::filesystem::path &image, ImageStorage storage, c
 
 } // namespace
 
-ImageInfo check_image(const std::filesystem::path &path) { return inspect(path).info; }
+ImageInfo check_image(const std::filesystem::path &path) {
+    return inspect(path).info;
+}
 
 void install(const std::filesystem::path &image, ImageStorage storage, const std::filesystem::path &data_dir,
-             const ProgressFn &progress) {
+    const ProgressFn &progress) {
     try {
         install_checked(image, storage, data_dir, progress);
     } catch (const InstallError &) {
@@ -270,20 +277,22 @@ void install(const std::filesystem::path &image, ImageStorage storage, const std
 }
 
 #if defined(MHP3RD_ANDROID_APP)
-bool is_document_uri(const std::filesystem::path &image) { return path_to_utf8(image).rfind("content://", 0) == 0; }
+bool is_document_uri(const std::filesystem::path &image) {
+    return path_to_utf8(image).rfind("content://", 0) == 0;
+}
 
-std::filesystem::path copy_image_document(const std::string &uri, const std::filesystem::path &data_dir,
-                                          const ProgressFn &progress) {
+std::filesystem::path copy_image_document(
+    const std::string &uri, const std::filesystem::path &data_dir, const ProgressFn &progress) {
     const int fd = android::open_document(uri, "r");
     if (fd < 0) throw InstallError("Android would not let Yakumo read that file. Choose it again.");
-    struct stat info {};
+    struct stat info{};
     const std::uint64_t size = ::fstat(fd, &info) == 0 ? static_cast<std::uint64_t>(info.st_size) : 0u;
     // The copy, with room to spare for the executable prepared from it.
     const std::uint64_t needed = size + kFreeSpaceMargin;
     if (const auto space = available_space(data_dir); space && size != 0u && *space < needed) {
         ::close(fd);
         throw InstallError("Not enough free space to copy the disc image: it needs " + megabytes(needed) + " and " +
-                           megabytes(*space) + " is free on this device.");
+            megabytes(*space) + " is free on this device.");
     }
     std::error_code ec;
     std::filesystem::create_directories(data_dir, ec);
@@ -321,14 +330,16 @@ std::filesystem::path copy_image_document(const std::string &uri, const std::fil
 }
 #endif
 
-void InstallerUi::run_task(const std::string &, const std::function<void()> &work) { work(); }
+void InstallerUi::run_task(const std::string &, const std::function<void()> &work) {
+    work();
+}
 
 bool run_installer(InstallerUi &ui, const std::filesystem::path &data_dir) {
     for (;;) {
         if (!ui.introduce(data_dir)) return false;
         for (;;) {
             auto image = ui.choose_image();
-            if (!image) break;  // back to the introduction
+            if (!image) break; // back to the introduction
             try {
 #if defined(MHP3RD_ANDROID_APP)
                 // A document that reached here as it is (the SDL dialogs'
@@ -338,21 +349,22 @@ bool run_installer(InstallerUi &ui, const std::filesystem::path &data_dir) {
                     const std::string uri = path_to_utf8(*image);
                     std::cout << "[setup] copying " << uri << std::endl;
                     ui.run_task("Copying the disc image", [&] {
-                        image = copy_image_document(uri, data_dir,
-                                                    [&ui](const std::string &stage, std::uint64_t done,
-                                                          std::uint64_t total) { ui.progress(stage, done, total); });
+                        image = copy_image_document(
+                            uri, data_dir, [&ui](const std::string &stage, std::uint64_t done, std::uint64_t total) {
+                                ui.progress(stage, done, total);
+                            });
                     });
                 }
 #endif
                 ImageInfo info;
                 ui.run_task("Checking the disc image", [&] { info = check_image(*image); });
                 const auto storage = ui.choose_storage(*image, info, data_dir);
-                if (!storage) continue;  // choose another image
+                if (!storage) continue; // choose another image
                 ui.run_task("Setting up", [&] {
                     install(*image, *storage, data_dir,
-                            [&ui](const std::string &stage, std::uint64_t done, std::uint64_t total) {
-                                ui.progress(stage, done, total);
-                            });
+                        [&ui](const std::string &stage, std::uint64_t done, std::uint64_t total) {
+                            ui.progress(stage, done, total);
+                        });
                 });
                 ui.finished(data_dir);
                 return true;
@@ -379,15 +391,21 @@ std::optional<std::uint64_t> available_space(const std::filesystem::path &data_d
     return space.available;
 }
 
-std::uint64_t space_needed_to_copy(const ImageInfo &info) { return info.size_bytes + kFreeSpaceMargin; }
+std::uint64_t space_needed_to_copy(const ImageInfo &info) {
+    return info.size_bytes + kFreeSpaceMargin;
+}
 
 namespace {
 bool setup_on_exit = false;
 bool restart_on_exit = false;
 }
 
-void request_restart_on_exit() { restart_on_exit = true; }
-bool restart_requested_on_exit() { return restart_on_exit; }
+void request_restart_on_exit() {
+    restart_on_exit = true;
+}
+bool restart_requested_on_exit() {
+    return restart_on_exit;
+}
 
 #if defined(_WIN32)
 namespace {
@@ -442,10 +460,9 @@ int restart(char **argv) {
     int argc = 0;
     while (argv[argc] != nullptr) ++argc;
     const std::vector<std::string> arguments = utf8_arguments(argc, argv);
-    const std::filesystem::path program =
-        !self.empty() || arguments.empty() ? self : path_from_utf8(arguments.front());
-    exec_wide(program, std::vector<std::string>(arguments.empty() ? arguments.end() : arguments.begin() + 1,
-                                                arguments.end()));
+    const std::filesystem::path program = !self.empty() || arguments.empty() ? self : path_from_utf8(arguments.front());
+    exec_wide(program,
+        std::vector<std::string>(arguments.empty() ? arguments.end() : arguments.begin() + 1, arguments.end()));
 #else
     const std::filesystem::path program = self.empty() ? std::filesystem::path(argv[0]) : self;
     execv(program.c_str(), argv);
@@ -454,8 +471,12 @@ int restart(char **argv) {
     return 1;
 }
 
-void request_setup_on_exit() { setup_on_exit = true; }
-bool setup_requested_on_exit() { return setup_on_exit; }
+void request_setup_on_exit() {
+    setup_on_exit = true;
+}
+bool setup_requested_on_exit() {
+    return setup_on_exit;
+}
 
 int restart_for_setup(const char *program) {
     // Nothing buffered survives the exec.
@@ -465,7 +486,9 @@ int restart_for_setup(const char *program) {
     // The next start runs the setup: a marker in the data directory stands
     // for --install, which an app is not started with.
     (void)program;
-    { std::ofstream(user_data_directory() / kSetupMarkerFile) << "setup\n"; }
+    {
+        std::ofstream(user_data_directory() / kSetupMarkerFile) << "setup\n";
+    }
     android::relaunch();
     std::cerr << "Start Yakumo again to set up\n";
     return 1;

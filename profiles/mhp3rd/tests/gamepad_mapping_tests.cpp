@@ -15,7 +15,9 @@ void check(bool condition, const char *message) {
     }
 }
 
-Element button(int index) { return {Element::Kind::Button, index}; }
+Element button(int index) {
+    return {Element::Kind::Button, index};
+}
 Element hat(int index, int mask) {
     Element e{Element::Kind::Hat, index};
     e.hat_mask = mask;
@@ -37,20 +39,20 @@ void test_elements() {
     check(text(hat(0, 4)) == "h0.4", "a hat is h, its number and the direction's bit");
     check(text(axis(2)) == "a2", "a whole axis is a and its number");
     check(text(axis(1, Element::Range::Positive)) == "+a1" && text(axis(1, Element::Range::Negative)) == "-a1",
-          "half an axis has its sign in front");
+        "half an axis has its sign in front");
     check(text(axis(0, Element::Range::Full, true)) == "a0~", "an inverted axis ends in a tilde");
-    for (const Element &e : {button(11), hat(1, 8), axis(5), axis(3, Element::Range::Negative),
-                             axis(4, Element::Range::Full, true)})
+    for (const Element &e :
+        {button(11), hat(1, 8), axis(5), axis(3, Element::Range::Negative), axis(4, Element::Range::Full, true)})
         check(parse_element(text(e)) == e, "every element reads back as written");
     check(parse_element("q7").empty() && parse_element("").empty() && parse_element("b").empty(),
-          "anything else is no element");
+        "anything else is no element");
     check(describe(hat(0, 2)) == "Hat 0 right" && describe(button(0)) == "Button 0" &&
-              describe(axis(1, Element::Range::Positive)) == "Axis 1 +",
-          "the screen names elements in words");
+            describe(axis(1, Element::Range::Positive)) == "Axis 1 +",
+        "the screen names elements in words");
     check(button(2).same_input(button(2)) && !button(2).same_input(button(3)) &&
-              axis(1, Element::Range::Positive).same_input(axis(1, Element::Range::Negative)) &&
-              !hat(0, 1).same_input(hat(0, 4)),
-          "the same input is the same button, hat direction or axis");
+            axis(1, Element::Range::Positive).same_input(axis(1, Element::Range::Negative)) &&
+            !hat(0, 1).same_input(hat(0, 4)),
+        "the same input is the same button, hat direction or axis");
 }
 
 void test_build() {
@@ -68,50 +70,54 @@ void test_build() {
     set(a, Target::RightX, axis(3));
     set(a, Target::RightY, axis(2, Element::Range::Full, true));
     const std::string line = build("03000000100800000100000000000000", "PS to USB, twin", a, "Windows");
-    check(line == "03000000100800000100000000000000,PS to USB  twin,a:b2,b:b1,x:b3,y:b0,dpup:h0.1,dpdown:h0.4,"
-                  "leftshoulder:b6,start:b9,leftx:a0,lefty:a1,rightx:a3,righty:a2~,platform:Windows,",
-          "the mapping line lists the answers in order and ends with the platform");
+    check(line ==
+            "03000000100800000100000000000000,PS to USB  twin,a:b2,b:b1,x:b3,y:b0,dpup:h0.1,dpdown:h0.4,"
+            "leftshoulder:b6,start:b9,leftx:a0,lefty:a1,rightx:a3,righty:a2~,platform:Windows,",
+        "the mapping line lists the answers in order and ends with the platform");
     check(guid_of(line) == "03000000100800000100000000000000" && platform_of(line) == "Windows",
-          "the GUID and the platform read back");
+        "the GUID and the platform read back");
     check(answers_of(line) == a, "and so do the answers");
     check(count(a) == 12u, "the answers are counted");
     Answers none{};
     check(build("00", "Pad", none, "") == "00,Pad,", "no answers, no platform: only the GUID and the name");
     check(clean_name(" A,B\n ") == "A B" && clean_name(",") == "Controller",
-          "names lose commas and line breaks, and are never empty");
+        "names lose commas and line breaks, and are never empty");
     check(field(Target::DpadLeft) == std::string("dpleft") && field(Target::RightY) == std::string("righty") &&
-              is_axis(Target::LeftX) && !is_axis(Target::LeftTrigger),
-          "targets have SDL's field names");
+            is_axis(Target::LeftX) && !is_axis(Target::LeftTrigger),
+        "targets have SDL's field names");
     // SDL's own line for the adapter of #147 reads back.
     const Answers sdl = answers_of("03000000100800000100000000000000,PS1 Controller,a:b2,b:b1,back:b8,dpdown:h0.4,"
                                    "lefttrigger:b4,leftx:a0,righty:a2,start:b9,platform:Windows,");
     check(sdl[static_cast<std::size_t>(Target::A)] == button(2) &&
-              sdl[static_cast<std::size_t>(Target::DpadDown)] == hat(0, 4) &&
-              sdl[static_cast<std::size_t>(Target::RightY)] == axis(2) && count(sdl) == 8u,
-          "SDL's own lines read back");
+            sdl[static_cast<std::size_t>(Target::DpadDown)] == hat(0, 4) &&
+            sdl[static_cast<std::size_t>(Target::RightY)] == axis(2) && count(sdl) == 8u,
+        "SDL's own lines read back");
 }
 
 void test_file() {
     const std::string guid = "0300000010080000010000000000abcd";
     const std::string first = guid + ",Pad,a:b0,platform:Linux,";
     std::string text = with_line("", first);
-    check(text.rfind("# ", 0) == 0 && find_line(text, guid, "Linux") == first, "a new file gets a comment and the line");
+    check(
+        text.rfind("# ", 0) == 0 && find_line(text, guid, "Linux") == first, "a new file gets a comment and the line");
     check(lines(text).size() == 1u, "comments are no mappings");
     const std::string second = guid + ",Pad,a:b1,platform:Linux,";
     text = with_line(text, second);
     check(find_line(text, guid, "Linux") == second && lines(text).size() == 1u, "a new line replaces the old one");
     const std::string windows = guid + ",Pad,a:b2,platform:Windows,";
     text = with_line(text, windows);
-    check(lines(text).size() == 2u && find_line(text, guid, "Windows") == windows && find_line(text, guid, "Linux") == second,
-          "another platform's line for the same GUID is kept");
+    check(lines(text).size() == 2u && find_line(text, guid, "Windows") == windows &&
+            find_line(text, guid, "Linux") == second,
+        "another platform's line for the same GUID is kept");
     const std::string other = "03000000aaaa0000bbbb000000000000,Other,a:b0,platform:Linux,";
     text += "\r\n" + other + "\r\n";
     check(find_line(text, "03000000AAAA0000BBBB000000000000", "Linux") == other,
-          "GUIDs match ignoring case, and Windows line breaks are read");
+        "GUIDs match ignoring case, and Windows line breaks are read");
     bool removed = false;
     text = without(text, guid, "Linux", &removed);
-    check(removed && !find_line(text, guid, "Linux") && find_line(text, guid, "Windows") && find_line(text, other.substr(0, 32), "Linux"),
-          "removing takes only that GUID's line for that platform");
+    check(removed && !find_line(text, guid, "Linux") && find_line(text, guid, "Windows") &&
+            find_line(text, other.substr(0, 32), "Linux"),
+        "removing takes only that GUID's line for that platform");
     (void)without(text, guid, "Linux", &removed);
     check(!removed, "and says when there was none");
     check(find_line("# 0300,comment\n", "0300", "") == std::nullopt, "comment lines are never mappings");
@@ -157,7 +163,7 @@ void test_detect() {
     now = trigger_rest;
     now.axes[3] = -32768;
     check(detect(trigger_rest, now, false) == axis(3, Element::Range::Full, true),
-          "a trigger resting at the top is inverted");
+        "a trigger resting at the top is inverted");
     // Buttons first, then hats, then axes.
     now = rest;
     now.buttons[0] = true;

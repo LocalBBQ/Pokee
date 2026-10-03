@@ -83,7 +83,7 @@ private:
     }
     void put32(std::uint32_t value) {
         const std::uint8_t bytes[4] = {static_cast<std::uint8_t>(value), static_cast<std::uint8_t>(value >> 8u),
-                                       static_cast<std::uint8_t>(value >> 16u), static_cast<std::uint8_t>(value >> 24u)};
+            static_cast<std::uint8_t>(value >> 16u), static_cast<std::uint8_t>(value >> 24u)};
         stream_.write(reinterpret_cast<const char *>(bytes), 4);
     }
     std::ofstream stream_;
@@ -95,8 +95,8 @@ private:
 struct AudioSink::Impl {
     std::mutex lock;
     std::vector<std::int16_t> ring = std::vector<std::int16_t>(kRingFrames * kChannels, 0);
-    std::uint64_t read_position{};   // frames handed to the device
-    std::uint64_t write_end{};       // frames any producer has written up to
+    std::uint64_t read_position{}; // frames handed to the device
+    std::uint64_t write_end{};     // frames any producer has written up to
     bool started{};
     bool closed{};
     bool enabled{true};
@@ -137,8 +137,8 @@ struct AudioSink::Impl {
                 out[frame * kChannels] = left;
                 out[frame * kChannels + 1u] = right;
             }
-            const std::int32_t magnitude = std::max(std::abs(static_cast<std::int32_t>(left)),
-                                                    std::abs(static_cast<std::int32_t>(right)));
+            const std::int32_t magnitude =
+                std::max(std::abs(static_cast<std::int32_t>(left)), std::abs(static_cast<std::int32_t>(right)));
             window_peak = std::max(window_peak, magnitude);
             window_energy += static_cast<double>(left) * left + static_cast<double>(right) * right;
         }
@@ -161,10 +161,8 @@ struct AudioSink::Impl {
         if (dump.active()) dump.flush();
         if (trace) {
             std::printf("[audio] %llus frames=%llu peak=%d rms=%.1f silent=%llu dropped=%llu\n",
-                        static_cast<unsigned long long>(seconds),
-                        static_cast<unsigned long long>(window_frames), window_peak, rms,
-                        static_cast<unsigned long long>(window_silent),
-                        static_cast<unsigned long long>(window_dropped));
+                static_cast<unsigned long long>(seconds), static_cast<unsigned long long>(window_frames), window_peak,
+                rms, static_cast<unsigned long long>(window_silent), static_cast<unsigned long long>(window_dropped));
             std::fflush(stdout);
         }
         window_frames = 0u;
@@ -193,7 +191,9 @@ void SDLCALL feed_device(void *user, SDL_AudioStream *stream, int additional, in
 } // namespace
 
 AudioSink::AudioSink() : impl_(std::make_unique<Impl>()) {}
-AudioSink::~AudioSink() { shutdown(); }
+AudioSink::~AudioSink() {
+    shutdown();
+}
 
 AudioSink &AudioSink::instance() {
     static AudioSink sink;
@@ -256,9 +256,8 @@ void AudioSink::shutdown() {
     if (impl.dump.active()) impl.dump.close();
     if (impl.trace) {
         std::printf("[audio] total frames=%llu silent=%llu dropped=%llu\n",
-                    static_cast<unsigned long long>(impl.total_frames),
-                    static_cast<unsigned long long>(impl.total_silent),
-                    static_cast<unsigned long long>(impl.total_dropped));
+            static_cast<unsigned long long>(impl.total_frames), static_cast<unsigned long long>(impl.total_silent),
+            static_cast<unsigned long long>(impl.total_dropped));
         std::fflush(stdout);
     }
 }
@@ -286,15 +285,17 @@ void AudioSink::set_paused(bool paused) {
 #if defined(MHP3RD_HAS_SDL_AUDIO)
     Impl &impl = *impl_;
     if (impl.stream == nullptr) return;
-    if (paused) SDL_PauseAudioStreamDevice(impl.stream);
-    else SDL_ResumeAudioStreamDevice(impl.stream);
+    if (paused)
+        SDL_PauseAudioStreamDevice(impl.stream);
+    else
+        SDL_ResumeAudioStreamDevice(impl.stream);
 #else
     (void)paused;
 #endif
 }
 
-void AudioSink::mix(std::uint64_t &cursor, const std::int16_t *frames, std::size_t count,
-                    std::uint32_t left_volume, std::uint32_t right_volume) {
+void AudioSink::mix(std::uint64_t &cursor, const std::int16_t *frames, std::size_t count, std::uint32_t left_volume,
+    std::uint32_t right_volume) {
     if (count == 0u) return;
     Impl &impl = *impl_;
     std::lock_guard<std::mutex> guard(impl.lock);

@@ -29,8 +29,7 @@ public:
     [[nodiscard]] bool has_section(std::string_view section) const;
     // The value, or null. With a key given twice, the last one counts.
     [[nodiscard]] const std::string *find(std::string_view section, std::string_view key) const;
-    [[nodiscard]] std::string get(std::string_view section, std::string_view key,
-                                  std::string_view fallback = {}) const;
+    [[nodiscard]] std::string get(std::string_view section, std::string_view key, std::string_view fallback = {}) const;
     // Section names in file order, as written.
     [[nodiscard]] std::vector<std::string> sections() const;
     // The section's lines in file order; empty when there is no such section.

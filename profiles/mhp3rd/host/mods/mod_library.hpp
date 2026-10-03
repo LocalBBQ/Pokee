@@ -24,13 +24,13 @@ struct FileChange {
     enum class Kind { Replace, Patch };
     Kind kind{Kind::Replace};
     FileId file{};
-    std::filesystem::path source;  // the mod's own file
+    std::filesystem::path source; // the mod's own file
 };
 
 // A file of a mod whose target the player chooses, such as a model that can
 // stand in for any one piece of equipment.
 struct Slot {
-    std::string label;  // "Head", "Weapon"
+    std::string label; // "Head", "Weapon"
     std::filesystem::path source;
     // What the file stands in for, in the game's own terms ("HEAD", "GS" for
     // this game), so a tool can find the file the player means.
@@ -38,20 +38,20 @@ struct Slot {
 };
 
 struct Mod {
-    std::string id;  // the folder's name; the key its choices are saved under
+    std::string id; // the folder's name; the key its choices are saved under
     std::filesystem::path folder;
     std::string name;
     std::string author;
-    std::string type;         // as shown: "Files", "Patch", "Pack", ...
-    std::string description;  // may hold line breaks
-    std::string version;      // what the mod says it was made for, as shown
-    std::filesystem::path preview;  // an image, when the mod has one
+    std::string type;              // as shown: "Files", "Patch", "Pack", ...
+    std::string description;       // may hold line breaks
+    std::string version;           // what the mod says it was made for, as shown
+    std::filesystem::path preview; // an image, when the mod has one
     std::vector<FileChange> changes;
     std::vector<Slot> slots;
-    std::vector<std::string> members;  // a pack: the mods it turns on and off
-    std::vector<std::string> depends;  // mods it needs, turned on with it
-    std::vector<std::string> notes;    // parts that do nothing here, and why
-    std::string unusable;              // why it cannot be turned on; empty when it can
+    std::vector<std::string> members; // a pack: the mods it turns on and off
+    std::vector<std::string> depends; // mods it needs, turned on with it
+    std::vector<std::string> notes;   // parts that do nothing here, and why
+    std::string unusable;             // why it cannot be turned on; empty when it can
 };
 
 // What a game supplies: how a folder describes a mod, and how files are named.
@@ -68,25 +68,25 @@ public:
 // The player's choices for one mod.
 struct ModChoice {
     bool enabled{};
-    int rank{};  // higher wins where two mods change the same file
-    std::vector<std::optional<FileId>> slots;  // per Mod::slots: the file each replaces
+    int rank{};                               // higher wins where two mods change the same file
+    std::vector<std::optional<FileId>> slots; // per Mod::slots: the file each replaces
 };
 
 // What the enabled mods add up to.
 struct Resolution {
     struct Source {
-        std::string mod;  // Mod::id
+        std::string mod; // Mod::id
         std::filesystem::path path;
         bool operator==(const Source &) const = default;
     };
     struct Conflict {
         FileId file{};
         std::string winner;                  // the replacement used; empty when only patches
-        std::vector<std::string> overridden;  // replacements that lost, highest first
-        std::vector<std::string> patched_by;  // patches applied to it, in order
+        std::vector<std::string> overridden; // replacements that lost, highest first
+        std::vector<std::string> patched_by; // patches applied to it, in order
     };
     std::map<FileId, Source> replacements;         // the winning replacement per file
-    std::map<FileId, std::vector<Source>> patches;  // applied in this order: the last wins
+    std::map<FileId, std::vector<Source>> patches; // applied in this order: the last wins
     std::vector<Conflict> conflicts;
 
     [[nodiscard]] bool empty() const { return replacements.empty() && patches.empty(); }

@@ -39,24 +39,24 @@ struct TexturePackLocation {
     std::filesystem::path folder;
     Source source{Source::Installed};
 };
-[[nodiscard]] TexturePackLocation texture_pack_location(const std::filesystem::path &textures_root,
-                                                        const std::string &game_id, const std::string &in_place);
+[[nodiscard]] TexturePackLocation texture_pack_location(
+    const std::filesystem::path &textures_root, const std::string &game_id, const std::string &in_place);
 
 struct TexturePackCheck {
-    std::filesystem::path chosen;  // what the player picked
-    std::filesystem::path folder;  // the pack folder found in it; empty when none
-    std::string layout;            // how it was found, for the review screen
-    std::string made_for;          // a pack folder named for another release, installed under the game's ID
-    std::string problem;           // why it cannot be installed; empty when it can
+    std::filesystem::path chosen; // what the player picked
+    std::filesystem::path folder; // the pack folder found in it; empty when none
+    std::string layout;           // how it was found, for the review screen
+    std::string made_for;         // a pack folder named for another release, installed under the game's ID
+    std::string problem;          // why it cannot be installed; empty when it can
 
     TexturePackHash hash{TexturePackHash::Xxh64};
     bool ignore_address{};
     std::size_t keys{};
-    std::size_t images{};               // image files in the folder (PNG and the formats packs also carry)
-    std::size_t files{};                // every file that would be copied
-    std::uint64_t bytes{};              // their total size
-    std::size_t missing{};              // files textures.ini names that are not there
-    std::vector<std::string> missing_names;  // the first few, for the screen
+    std::size_t images{};                   // image files in the folder (PNG and the formats packs also carry)
+    std::size_t files{};                    // every file that would be copied
+    std::uint64_t bytes{};                  // their total size
+    std::size_t missing{};                  // files textures.ini names that are not there
+    std::vector<std::string> missing_names; // the first few, for the screen
 
     [[nodiscard]] bool found() const noexcept { return !folder.empty(); }
     [[nodiscard]] bool ok() const noexcept { return found() && problem.empty(); }
@@ -72,10 +72,10 @@ struct InstalledTexturePack {
     std::size_t keys{};
     std::size_t files{};
     std::uint64_t bytes{};
-    std::string problem;  // when it does not load
+    std::string problem; // when it does not load
 };
-[[nodiscard]] InstalledTexturePack summarize_texture_pack(const std::filesystem::path &folder,
-                                                          const std::string &game_id);
+[[nodiscard]] InstalledTexturePack summarize_texture_pack(
+    const std::filesystem::path &folder, const std::string &game_id);
 
 // Free bytes where `folder` is or would be created; nothing when unknown.
 [[nodiscard]] std::optional<std::uint64_t> texture_pack_free_space(const std::filesystem::path &folder);
@@ -84,8 +84,8 @@ inline constexpr std::uint64_t kTexturePackSpaceMargin = 64ull * 1024u * 1024u;
 
 // textures/.backup/<date>_<time>, made unique with -2, -3... The pack it
 // replaces moves into it under its own name.
-[[nodiscard]] std::filesystem::path texture_pack_backup_directory(const std::filesystem::path &textures_root,
-                                                                  std::chrono::system_clock::time_point time);
+[[nodiscard]] std::filesystem::path texture_pack_backup_directory(
+    const std::filesystem::path &textures_root, std::chrono::system_clock::time_point time);
 
 // Copies a checked pack into a staging folder beside the installed one,
 // textures/.incomplete-<date>_<time>, on a thread of its own. The installed
@@ -97,7 +97,7 @@ public:
         std::uint64_t total_bytes{};
         std::size_t files{};
         std::size_t total_files{};
-        std::string current;  // the file being copied, relative to the pack
+        std::string current; // the file being copied, relative to the pack
     };
     enum class State { Idle, Copying, Done, Failed, Cancelled };
 
@@ -137,8 +137,8 @@ private:
 // moves into `backup_dir`, then the staging folder takes its name. On failure
 // the old pack is put back. `backup` is set to where the old pack went.
 bool install_staged_texture_pack(const std::filesystem::path &staging, const std::filesystem::path &textures_root,
-                                 const std::string &game_id, const std::filesystem::path &backup_dir,
-                                 std::filesystem::path &backup, std::string &error);
+    const std::string &game_id, const std::filesystem::path &backup_dir, std::filesystem::path &backup,
+    std::string &error);
 
 // Removes a staging folder this import made. Never called on anything else.
 void discard_staged_texture_pack(const std::filesystem::path &staging);

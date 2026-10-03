@@ -23,8 +23,8 @@ namespace mhp3rd::android {
 [[noreturn]] void fatal_error(const std::string &title, const std::string &text, int exit_code);
 
 struct SavedLogs {
-    std::string where;  // the picked folder and the log folder's name
-    std::string error;  // empty: saved
+    std::string where; // the picked folder and the log folder's name
+    std::string error; // empty: saved
 };
 // Copies Yakumo's logs in `storage` (this run's, the previous run's, the
 // last fatal error's and the logs folder) into a folder named `name` in a

@@ -37,7 +37,9 @@ using Clock = std::chrono::steady_clock;
 
 const char *const kSubtitle = "Setup";
 
-float font() { return Layer::get().font_size(); }
+float font() {
+    return Layer::get().font_size();
+}
 
 // Two buttons side by side, the first one primary. Returns 1 or 2 when one
 // was activated. The first is focused when the screen appears.
@@ -63,8 +65,8 @@ class SetupScreens final : public install::InstallerUi {
 public:
     bool introduce(const fs::path &data_dir) override;
     std::optional<fs::path> choose_image() override;
-    std::optional<install::ImageStorage> choose_storage(const fs::path &image, const install::ImageInfo &info,
-                                                        const fs::path &data_dir) override;
+    std::optional<install::ImageStorage> choose_storage(
+        const fs::path &image, const install::ImageInfo &info, const fs::path &data_dir) override;
     void run_task(const std::string &title, const std::function<void()> &work) override;
     void progress(const std::string &stage, std::uint64_t done, std::uint64_t total) override;
     bool offer_retry(const std::string &message) override;
@@ -105,20 +107,20 @@ bool SetupScreens::introduce(const fs::path &data_dir) {
             begin_content();
             ImGui::Dummy({0.0f, font() * 0.3f});
             paragraph(std::string("Yakumo plays ") + install::kGameTitle +
-                      " from your own copy of the game. It needs the disc image of the game's PSP disc, " +
-                      install::kDiscIdDisplay + ", as an .iso file: the PlayStation 3 release carries it.");
+                " from your own copy of the game. It needs the disc image of the game's PSP disc, " +
+                install::kDiscIdDisplay + ", as an .iso file: the PlayStation 3 release carries it.");
             ImGui::Dummy({0.0f, font() * 0.4f});
 #if defined(MHP3RD_ANDROID_APP)
             paragraph("Choose the image next, in Android's file picker. Yakumo copies it into its own storage (an "
                       "app cannot keep reading a file elsewhere), checks that it is the right release and prepares "
                       "the game from it. The copy needs about 1.3 GB of free space, besides the 0.8 GB the app takes; "
                       "once it is made, the original can be deleted. Nothing is downloaded.",
-                      colors::kTextDim);
+                colors::kTextDim);
 #else
             paragraph("Choose the image next. Yakumo checks that it is the right release, prepares the game from it "
                       "and, unless you choose otherwise, copies it into its data folder so the game keeps working if "
                       "the original is moved or deleted. Nothing is downloaded.",
-                      colors::kTextDim);
+                colors::kTextDim);
 #endif
             ImGui::Dummy({0.0f, font() * 0.4f});
             section("Data folder");
@@ -154,9 +156,10 @@ std::optional<fs::path> SetupScreens::choose_image() {
         try {
             fs::path copied;
             run_task("Copying the disc image", [&] {
-                copied = install::copy_image_document(*uri, data_dir_,
-                                                      [this](const std::string &stage, std::uint64_t done,
-                                                             std::uint64_t total) { progress(stage, done, total); });
+                copied = install::copy_image_document(
+                    *uri, data_dir_, [this](const std::string &stage, std::uint64_t done, std::uint64_t total) {
+                        progress(stage, done, total);
+                    });
             });
             return copied;
         } catch (const install::InstallCancelled &) {
@@ -173,8 +176,8 @@ std::optional<fs::path> SetupScreens::choose_image() {
     Layer &layer = Layer::get();
     layer.set_interactive(true);
     FileBrowser browser(settings::current().last_folder.empty()
-                            ? FileBrowser::home()
-                            : install::path_from_utf8(settings::current().last_folder));
+            ? FileBrowser::home()
+            : install::path_from_utf8(settings::current().last_folder));
     std::optional<fs::path> chosen;
     layer.run(
         [&] {
@@ -189,7 +192,7 @@ std::optional<fs::path> SetupScreens::choose_image() {
             begin_content();
             const FileBrowser::Result result = browser.frame(back || pad_back);
             layer.set_description(std::string("Look for the .iso image of ") + install::kDiscIdDisplay +
-                                  ". Removable drives and SD cards are listed next to Home.");
+                ". Removable drives and SD cards are listed next to Home.");
             begin_footer();
             if (layer.input_device() == InputDevice::Gamepad)
                 hints({{Control::Confirm, "Open"}, {Control::Back, "Up a folder"}, {Control::Toggle, "All files"}});
@@ -209,9 +212,8 @@ std::optional<fs::path> SetupScreens::choose_image() {
 }
 #endif
 
-std::optional<install::ImageStorage> SetupScreens::choose_storage(const fs::path &image,
-                                                                  const install::ImageInfo &info,
-                                                                  const fs::path &data_dir) {
+std::optional<install::ImageStorage> SetupScreens::choose_storage(
+    const fs::path &image, const install::ImageInfo &info, const fs::path &data_dir) {
 #if defined(MHP3RD_ANDROID_APP)
     // Already copied into the data folder by choose_image().
     (void)image;
@@ -233,19 +235,20 @@ std::optional<install::ImageStorage> SetupScreens::choose_storage(const fs::path
             begin_panel("##storage", "Disc image found", kSubtitle, false);
             begin_content();
             paragraph(std::string(install::kGameTitle) + " (" + install::kDiscIdDisplay + "), " +
-                          human_size(info.size_bytes) + ". It passed its checks.",
-                      colors::kGood);
+                    human_size(info.size_bytes) + ". It passed its checks.",
+                colors::kGood);
             ImGui::Dummy({0.0f, font() * 0.2f});
             paragraph(install::path_to_utf8(image), colors::kTextDim);
             ImGui::Dummy({0.0f, font() * 0.6f});
             heading("Keep a copy, or use the image where it is?");
 
-            std::string copy_note = "Recommended. The game keeps working if the original is moved or deleted. Needs " +
-                                    human_size(needed);
+            std::string copy_note =
+                "Recommended. The game keeps working if the original is moved or deleted. Needs " + human_size(needed);
             if (space) copy_note += "; " + human_size(*space) + " free";
             copy_note += ".";
-            if (!room) copy_note = "Not enough free space: the copy needs " + human_size(needed) + " and " +
-                                   human_size(*space) + " is free in the data folder.";
+            if (!room)
+                copy_note = "Not enough free space: the copy needs " + human_size(needed) + " and " +
+                    human_size(*space) + " is free in the data folder.";
             RowOptions copy_options{!room, {}, {}};
             if (first && room) focus_next_row();
             if (button_row("Copy it into Yakumo's data folder", copy_options)) choice = install::ImageStorage::Copy;
@@ -253,8 +256,8 @@ std::optional<install::ImageStorage> SetupScreens::choose_storage(const fs::path
             paragraph(copy_note, room ? colors::kTextDim : colors::kDanger);
             ImGui::Unindent(std::round(16.0f * layer.scale()));
             ImGui::Dummy({0.0f, font() * 0.4f});
-            const std::string place_note =
-                "Saves " + human_size(info.size_bytes) + ". The image must then stay where it is; if it moves, "
+            const std::string place_note = "Saves " + human_size(info.size_bytes) +
+                ". The image must then stay where it is; if it moves, "
                 "Yakumo asks you to set up again.";
             if (first && !room) focus_next_row();
             if (button_row("Use it where it is")) choice = install::ImageStorage::InPlace;
@@ -320,8 +323,9 @@ void SetupScreens::run_task(const std::string &title, const std::function<void()
                 char text[96];
                 if (total >= 1'000'000u)
                     std::snprintf(text, sizeof(text), "%d%%   %s of %s", static_cast<int>(fraction * 100.0f),
-                                  megabytes(done).c_str(), megabytes(total).c_str());
-                else std::snprintf(text, sizeof(text), "%d%%", static_cast<int>(fraction * 100.0f));
+                        megabytes(done).c_str(), megabytes(total).c_str());
+                else
+                    std::snprintf(text, sizeof(text), "%d%%", static_cast<int>(fraction * 100.0f));
                 progress_bar(fraction, text);
                 const double seconds = std::chrono::duration<double>(Clock::now() - stage_started).count();
                 if (fraction > 0.02f && seconds > 2.0) {
@@ -388,7 +392,7 @@ bool SetupScreens::offer_retry(const std::string &message) {
             answer = button_pair("Choose another file", "Quit", first);
             first = false;
             layer.set_description(std::string("Yakumo supports only ") + install::kGameTitle + ", " +
-                                  install::kDiscIdDisplay + ", as an unmodified, uncompressed .iso image.");
+                install::kDiscIdDisplay + ", as an unmodified, uncompressed .iso image.");
             begin_footer();
             hints({{Control::Confirm, "Select"}, {Control::Back, "Quit"}});
             end_panel();
@@ -412,11 +416,11 @@ void SetupScreens::finished(const fs::path &data_dir) {
             paragraph("In the game, Back, the menu button at the top of the touch controls, or L3+R3 on a gamepad "
                       "(both sticks pressed) opens Yakumo's menu, with the settings and the way back to this setup. "
                       "Touch the screen to show the touch controls.",
-                      colors::kTextDim);
+                colors::kTextDim);
 #else
             paragraph("In the game, Esc or L3+R3 (both sticks pressed) opens Yakumo's menu, with the settings and the "
                       "way back to this setup.",
-                      colors::kTextDim);
+                colors::kTextDim);
 #endif
             ImGui::Dummy({0.0f, font() * 0.3f});
             section("Data folder");
@@ -472,7 +476,7 @@ ProblemAnswer run_problem(const std::string &title, const std::string &message, 
 }
 
 ChoiceAnswer run_choice(const std::string &title, const std::string &message, const std::string &first_label,
-                        const std::string &second_label) {
+    const std::string &second_label) {
     Layer &layer = Layer::get();
     layer.set_interactive(true);
     int answer = 0;
@@ -503,8 +507,8 @@ ChoiceAnswer run_choice(const std::string &title, const std::string &message, co
 
 } // namespace
 
-ChoiceAnswer ask_choice(const std::string &title, const std::string &message, const std::string &first,
-                        const std::string &second) {
+ChoiceAnswer ask_choice(
+    const std::string &title, const std::string &message, const std::string &first, const std::string &second) {
     if (ensure_renderer() == nullptr || !Layer::get().attached()) return ChoiceAnswer::Unavailable;
     return run_choice(title, message, first, second);
 }

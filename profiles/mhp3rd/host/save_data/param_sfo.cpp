@@ -6,14 +6,14 @@
 namespace mhp3rd::savedata {
 namespace {
 
-constexpr std::uint32_t kMagic = 0x46535000u;  // "\0PSF"
+constexpr std::uint32_t kMagic = 0x46535000u; // "\0PSF"
 constexpr std::uint32_t kVersion = 0x00000101u;
 constexpr std::size_t kHeaderSize = 20u;
 constexpr std::size_t kIndexEntrySize = 16u;
 
 std::uint32_t read32(std::span<const std::uint8_t> bytes, std::size_t offset) {
     return static_cast<std::uint32_t>(bytes[offset]) | (static_cast<std::uint32_t>(bytes[offset + 1]) << 8u) |
-           (static_cast<std::uint32_t>(bytes[offset + 2]) << 16u) | (static_cast<std::uint32_t>(bytes[offset + 3]) << 24u);
+        (static_cast<std::uint32_t>(bytes[offset + 2]) << 16u) | (static_cast<std::uint32_t>(bytes[offset + 3]) << 24u);
 }
 
 std::uint16_t read16(std::span<const std::uint8_t> bytes, std::size_t offset) {
@@ -29,7 +29,9 @@ void write16(std::vector<std::uint8_t> &out, std::size_t offset, std::uint16_t v
     out[offset + 1] = static_cast<std::uint8_t>(value >> 8u);
 }
 
-std::size_t align4(std::size_t value) { return (value + 3u) & ~std::size_t{3u}; }
+std::size_t align4(std::size_t value) {
+    return (value + 3u) & ~std::size_t{3u};
+}
 
 } // namespace
 
@@ -51,9 +53,10 @@ std::optional<ParamSfo> ParamSfo::parse(std::span<const std::uint8_t> bytes) {
         if (key_offset >= bytes.size() || data_offset + length > bytes.size() || length > entry.max_length)
             return std::nullopt;
         std::string key;
-        for (std::size_t p = key_offset; p < bytes.size() && bytes[p] != 0u; ++p) key.push_back(static_cast<char>(bytes[p]));
+        for (std::size_t p = key_offset; p < bytes.size() && bytes[p] != 0u; ++p)
+            key.push_back(static_cast<char>(bytes[p]));
         entry.data.assign(bytes.begin() + static_cast<std::ptrdiff_t>(data_offset),
-                          bytes.begin() + static_cast<std::ptrdiff_t>(data_offset + length));
+            bytes.begin() + static_cast<std::ptrdiff_t>(data_offset + length));
         sfo.entries_[key] = std::move(entry);
     }
     return sfo;
@@ -84,7 +87,8 @@ std::vector<std::uint8_t> ParamSfo::serialize() const {
         write32(out, index + 8, entry.max_length);
         write32(out, index + 12, static_cast<std::uint32_t>(data_offset));
         std::memcpy(&out[key_table + key_offset], key.data(), key.size());
-        std::copy(entry.data.begin(), entry.data.end(), out.begin() + static_cast<std::ptrdiff_t>(data_table + data_offset));
+        std::copy(
+            entry.data.begin(), entry.data.end(), out.begin() + static_cast<std::ptrdiff_t>(data_table + data_offset));
         key_offset += key.size() + 1u;
         data_offset += align4(entry.max_length);
         index += kIndexEntrySize;
@@ -118,7 +122,7 @@ void ParamSfo::set_integer(const std::string &key, std::uint32_t value) {
     entry.format = kInteger;
     entry.max_length = 4u;
     entry.data = {static_cast<std::uint8_t>(value), static_cast<std::uint8_t>(value >> 8u),
-                  static_cast<std::uint8_t>(value >> 16u), static_cast<std::uint8_t>(value >> 24u)};
+        static_cast<std::uint8_t>(value >> 16u), static_cast<std::uint8_t>(value >> 24u)};
     entries_[key] = std::move(entry);
 }
 
@@ -141,7 +145,8 @@ std::optional<std::string> ParamSfo::string(const std::string &key) const {
 
 std::optional<std::uint32_t> ParamSfo::integer(const std::string &key) const {
     const auto found = entries_.find(key);
-    if (found == entries_.end() || found->second.format != kInteger || found->second.data.size() < 4u) return std::nullopt;
+    if (found == entries_.end() || found->second.format != kInteger || found->second.data.size() < 4u)
+        return std::nullopt;
     return read32(found->second.data, 0);
 }
 

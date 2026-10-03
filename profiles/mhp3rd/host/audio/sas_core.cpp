@@ -31,8 +31,8 @@ struct EnvelopeRate {
 // larger step; above it, by the smallest step but only every 1<<(shift-11)
 // samples. Exponential attack slows fourfold past three quarters of full
 // scale; exponential decrease scales the step by the current level.
-[[nodiscard]] EnvelopeRate decode_rate(std::uint32_t rate, bool increase, bool exponential,
-                                       std::int32_t level) noexcept {
+[[nodiscard]] EnvelopeRate decode_rate(
+    std::uint32_t rate, bool increase, bool exponential, std::int32_t level) noexcept {
     const std::int32_t shift = static_cast<std::int32_t>((rate >> 2) & 0x1Fu);
     const auto step_index = static_cast<std::int32_t>(rate & 3u);
     EnvelopeRate result{};
@@ -239,8 +239,8 @@ void SasCore::advance_source(const psprecomp::GuestMemory &memory, SasVoice &voi
             }
         }
         const std::uint8_t *sample = memory.raw_pointer(voice.address + voice.block, 2u);
-        voice.current = sample != nullptr ? static_cast<std::int16_t>(sample[0] | (sample[1] << 8))
-                                          : static_cast<std::int16_t>(0);
+        voice.current =
+            sample != nullptr ? static_cast<std::int16_t>(sample[0] | (sample[1] << 8)) : static_cast<std::int16_t>(0);
         voice.block += 2u;
         return;
     }
@@ -273,8 +273,7 @@ void SasCore::step_envelope(SasVoice &voice) {
         rate = decode_rate(((adsr1 >> 4) & 0x0Fu) << 2u, false, true, voice.envelope);
         break;
     case EnvelopeStage::Sustain:
-        rate = decode_rate((adsr2 >> 6) & 0x7Fu, (adsr2 & 0x4000u) == 0u, (adsr2 & 0x8000u) != 0u,
-                           voice.envelope);
+        rate = decode_rate((adsr2 >> 6) & 0x7Fu, (adsr2 & 0x4000u) == 0u, (adsr2 & 0x8000u) != 0u, voice.envelope);
         break;
     case EnvelopeStage::Release:
         rate = decode_rate((adsr2 & 0x1Fu) << 2u, false, (adsr2 & 0x20u) != 0u, voice.envelope);
@@ -294,8 +293,8 @@ void SasCore::step_envelope(SasVoice &voice) {
         }
         break;
     case EnvelopeStage::Decay: {
-        const std::int32_t sustain = std::min<std::int32_t>(
-            (static_cast<std::int32_t>(adsr1 & 0x0Fu) + 1) * 0x800, kEnvelopeMax);
+        const std::int32_t sustain =
+            std::min<std::int32_t>((static_cast<std::int32_t>(adsr1 & 0x0Fu) + 1) * 0x800, kEnvelopeMax);
         if (voice.envelope <= sustain) {
             voice.envelope = sustain;
             voice.stage = EnvelopeStage::Sustain;
@@ -319,8 +318,8 @@ void SasCore::render(const psprecomp::GuestMemory &memory, std::int16_t *output,
     std::fill_n(output, frames * 2u, static_cast<std::int16_t>(0));
     // Sampled before mixing: a short voice can finish inside this very block.
     if (tracing())
-        trace().voices = std::max(trace().voices, static_cast<std::uint32_t>(std::popcount(
-                                                      ~end_flag() & ((1u << max_voices_) - 1u))));
+        trace().voices = std::max(
+            trace().voices, static_cast<std::uint32_t>(std::popcount(~end_flag() & ((1u << max_voices_) - 1u))));
     for (std::uint32_t index = 0; index < max_voices_; ++index) {
         SasVoice &voice = voices_[index];
         if (!voice.playing || voice.paused) continue;
@@ -335,15 +334,12 @@ void SasCore::render(const psprecomp::GuestMemory &memory, std::int16_t *output,
 
         for (std::size_t frame = 0; frame < frames; ++frame) {
             const std::int32_t span = voice.current - voice.previous;
-            const std::int32_t sample =
-                voice.previous + ((span * static_cast<std::int32_t>(voice.phase)) >> 12);
+            const std::int32_t sample = voice.previous + ((span * static_cast<std::int32_t>(voice.phase)) >> 12);
             step_envelope(voice);
             const std::int32_t scaled = (sample * voice.envelope) >> 15;
             const std::size_t slot = frame * 2u;
-            output[slot] = static_cast<std::int16_t>(
-                clamp16(output[slot] + ((scaled * voice.left) >> 12)));
-            output[slot + 1u] = static_cast<std::int16_t>(
-                clamp16(output[slot + 1u] + ((scaled * voice.right) >> 12)));
+            output[slot] = static_cast<std::int16_t>(clamp16(output[slot] + ((scaled * voice.left) >> 12)));
+            output[slot + 1u] = static_cast<std::int16_t>(clamp16(output[slot + 1u] + ((scaled * voice.right) >> 12)));
 
             voice.phase += voice.pitch;
             while (voice.phase >= kPitchUnity) {
@@ -365,9 +361,8 @@ void SasCore::render(const psprecomp::GuestMemory &memory, std::int16_t *output,
     for (std::size_t sample = 0; sample < frames * 2u; ++sample)
         stats.peak = std::max(stats.peak, std::abs(static_cast<std::int32_t>(output[sample])));
     if (stats.frames >= 44'100u) {
-        std::printf("[sas] frames=%llu peak=%d voices=%u key_ons=%llu\n",
-                    static_cast<unsigned long long>(stats.frames), stats.peak, stats.voices,
-                    static_cast<unsigned long long>(stats.key_ons));
+        std::printf("[sas] frames=%llu peak=%d voices=%u key_ons=%llu\n", static_cast<unsigned long long>(stats.frames),
+            stats.peak, stats.voices, static_cast<unsigned long long>(stats.key_ons));
         std::fflush(stdout);
         stats = RenderTrace{};
     }

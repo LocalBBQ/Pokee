@@ -64,7 +64,9 @@ std::uint32_t load_image_end(const psprecomp::Elf32Image &elf) {
 
 } // namespace
 
-std::filesystem::path memory_stick_directory(const std::filesystem::path &game_dir) { return game_dir / "ms0"; }
+std::filesystem::path memory_stick_directory(const std::filesystem::path &game_dir) {
+    return game_dir / "ms0";
+}
 
 void install_profile(Runtime &runtime, const psprecomp::Elf32Image &elf, const ProfilePaths &paths) {
     const auto module = elf.find_module_info(runtime.memory(), kLoadBase);

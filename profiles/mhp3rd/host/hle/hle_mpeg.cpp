@@ -38,7 +38,7 @@ inline constexpr std::uint32_t kInvalidValue = 0x806101FEu;
 inline constexpr std::uint32_t kNoMemory = 0x80610022u;
 } // namespace mpeg_error
 
-constexpr std::uint32_t kPsmfMagic = 0x464D5350u;  // "PSMF"
+constexpr std::uint32_t kPsmfMagic = 0x464D5350u; // "PSMF"
 constexpr std::uint32_t kMpegMemorySize = 0x10000u;
 constexpr std::uint32_t kRingbufferPacketOverhead = 104u;
 constexpr std::uint32_t kAtracEsSize = 2112u;
@@ -50,9 +50,9 @@ constexpr std::uint32_t kHandleOffset = 0x30u;
 // SceMpegRingbuffer fields.
 namespace ring {
 inline constexpr std::uint32_t kPackets = 0x00u;
-inline constexpr std::uint32_t kRead = 0x04u;       // next packet to demultiplex
-inline constexpr std::uint32_t kWritten = 0x08u;    // next packet to fill
-inline constexpr std::uint32_t kFilled = 0x0Cu;     // packets holding data
+inline constexpr std::uint32_t kRead = 0x04u;    // next packet to demultiplex
+inline constexpr std::uint32_t kWritten = 0x08u; // next packet to fill
+inline constexpr std::uint32_t kFilled = 0x0Cu;  // packets holding data
 inline constexpr std::uint32_t kPacketSize = 0x10u;
 inline constexpr std::uint32_t kData = 0x14u;
 inline constexpr std::uint32_t kCallback = 0x18u;
@@ -81,25 +81,25 @@ bool trace_mpeg() {
 }
 
 struct MpegState {
-    std::uint32_t mpeg{};        // guest address of the SceMpeg variable
-    std::uint32_t work{};        // the work area sceMpegCreate was given
+    std::uint32_t mpeg{}; // guest address of the SceMpeg variable
+    std::uint32_t work{}; // the work area sceMpegCreate was given
     std::uint32_t ringbuffer{};
-    std::uint32_t stream_packets{};  // packets in the movie, from its header
+    std::uint32_t stream_packets{}; // packets in the movie, from its header
     std::uint32_t packets_demuxed{};
-    std::map<std::uint32_t, StreamType> streams;  // handle -> type
+    std::map<std::uint32_t, StreamType> streams; // handle -> type
     std::uint32_t next_stream{};
     movie::PsmfDemuxer demuxer;
     movie::AvcDecoder video;
     audio::AtracDecoder audio;
-    std::optional<movie::AccessUnit> video_unit;  // taken by GetAvcAu, not yet decoded
+    std::optional<movie::AccessUnit> video_unit; // taken by GetAvcAu, not yet decoded
     std::optional<movie::AccessUnit> audio_unit;
     movie::Picture picture;
     std::uint64_t pictures{};
 };
 
 struct MpegModule {
-    std::map<std::uint32_t, std::unique_ptr<MpegState>> instances;  // by SceMpeg address
-    std::uint32_t pending_stream_packets{};  // from the last header the game queried
+    std::map<std::uint32_t, std::unique_ptr<MpegState>> instances; // by SceMpeg address
+    std::uint32_t pending_stream_packets{};                        // from the last header the game queried
     // YCbCr buffer -> the picture written into it, for sceJpegCsc.
     std::map<std::uint32_t, movie::Picture> ycbcr;
 };
@@ -115,7 +115,7 @@ MpegState *find_mpeg(std::uint32_t address) {
 }
 
 void finish_traced(AllegrexContext &ctx, const char *name, std::uint32_t result, const std::string &details = {},
-                   unsigned arguments = 4u) {
+    unsigned arguments = 4u) {
     if (trace_mpeg()) {
         std::ostringstream line;
         line << "[mpeg] " << name << "(";
@@ -129,8 +129,8 @@ void finish_traced(AllegrexContext &ctx, const char *name, std::uint32_t result,
 
 std::uint32_t load_be32(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     return (static_cast<std::uint32_t>(memory.load8(address)) << 24u) |
-           (static_cast<std::uint32_t>(memory.load8(address + 1u)) << 16u) |
-           (static_cast<std::uint32_t>(memory.load8(address + 2u)) << 8u) | memory.load8(address + 3u);
+        (static_cast<std::uint32_t>(memory.load8(address + 1u)) << 16u) |
+        (static_cast<std::uint32_t>(memory.load8(address + 2u)) << 8u) | memory.load8(address + 3u);
 }
 
 void store_timestamp(psprecomp::GuestMemory &memory, std::uint32_t high, std::uint32_t low, std::int64_t value) {
@@ -149,8 +149,7 @@ void write_unit(psprecomp::GuestMemory &memory, std::uint32_t address, const mov
 // Demultiplexes packs out of the ring until `ready` holds or the ring is
 // empty. Consumed packets are handed back to the feeder at once: their
 // contents now live in the demultiplexer's queues.
-template <typename Ready>
-bool demux_until(psprecomp::GuestMemory &memory, MpegState &state, Ready ready) {
+template <typename Ready> bool demux_until(psprecomp::GuestMemory &memory, MpegState &state, Ready ready) {
     const std::uint32_t buffer = state.ringbuffer;
     if (buffer == 0u) return ready();
     const std::uint32_t packets = memory.load32(buffer + ring::kPackets);
@@ -202,34 +201,33 @@ void ringbuffer_put(AllegrexContext &ctx, std::uint32_t buffer, std::uint32_t re
         std::cerr << "[mpeg] ring callback " << psprecomp::hex32(callback) << "(" << psprecomp::hex32(target) << ", "
                   << chunk << ", " << psprecomp::hex32(argument) << ")\n";
     kernel().call_guest(ctx, callback, {target, chunk, argument, 0u},
-                        [buffer, requested, chunk, total](AllegrexContext &ctx, std::uint32_t result) {
-                            auto &memory = kernel().runtime().memory();
-                            const auto read = static_cast<std::int32_t>(result);
-                            if (read < 0) {
-                                finish_traced(ctx, "sceMpegRingbufferPut", result, "callback failed", 0u);
-                                return;
-                            }
-                            const auto count = std::min(static_cast<std::uint32_t>(read), chunk);
-                            const std::uint32_t packets = memory.load32(buffer + ring::kPackets);
-                            const std::uint32_t written = memory.load32(buffer + ring::kWritten);
-                            memory.store32(buffer + ring::kWritten, (written + count) % packets);
-                            memory.store32(buffer + ring::kFilled, memory.load32(buffer + ring::kFilled) + count);
-                            // A short read is the end of the file: do not ask again.
-                            if (count == chunk && requested > chunk) {
-                                ringbuffer_put(ctx, buffer, requested - chunk, total + count);
-                                return;
-                            }
-                            // The callback has clobbered the argument registers,
-                            // so the trace names no arguments.
-                            finish_traced(ctx, "sceMpegRingbufferPut", total + count,
-                                          "packets=" + std::to_string(total + count), 0u);
-                        });
+        [buffer, requested, chunk, total](AllegrexContext &ctx, std::uint32_t result) {
+            auto &memory = kernel().runtime().memory();
+            const auto read = static_cast<std::int32_t>(result);
+            if (read < 0) {
+                finish_traced(ctx, "sceMpegRingbufferPut", result, "callback failed", 0u);
+                return;
+            }
+            const auto count = std::min(static_cast<std::uint32_t>(read), chunk);
+            const std::uint32_t packets = memory.load32(buffer + ring::kPackets);
+            const std::uint32_t written = memory.load32(buffer + ring::kWritten);
+            memory.store32(buffer + ring::kWritten, (written + count) % packets);
+            memory.store32(buffer + ring::kFilled, memory.load32(buffer + ring::kFilled) + count);
+            // A short read is the end of the file: do not ask again.
+            if (count == chunk && requested > chunk) {
+                ringbuffer_put(ctx, buffer, requested - chunk, total + count);
+                return;
+            }
+            // The callback has clobbered the argument registers,
+            // so the trace names no arguments.
+            finish_traced(ctx, "sceMpegRingbufferPut", total + count, "packets=" + std::to_string(total + count), 0u);
+        });
 }
 
 void register_ringbuffer(HleRegistrar &hle) {
     hle.add("sceMpeg", "sceMpegRingbufferQueryMemSize", [](Runtime &, AllegrexContext &ctx) {
         finish_traced(ctx, "sceMpegRingbufferQueryMemSize",
-                      arg(ctx, 0) * (static_cast<std::uint32_t>(movie::kPackSize) + kRingbufferPacketOverhead), {}, 1u);
+            arg(ctx, 0) * (static_cast<std::uint32_t>(movie::kPackSize) + kRingbufferPacketOverhead), {}, 1u);
     });
     // sceMpegRingbufferConstruct(ring, packets, data, size, callback, argument)
     hle.add("sceMpeg", "sceMpegRingbufferConstruct", [](Runtime &rt, AllegrexContext &ctx) {
@@ -250,9 +248,8 @@ void register_ringbuffer(HleRegistrar &hle) {
         memory.store32(buffer + ring::kMpeg, 0u);
         finish_traced(ctx, "sceMpegRingbufferConstruct", 0u, {}, 6u);
     });
-    hle.add("sceMpeg", "sceMpegRingbufferDestruct", [](Runtime &, AllegrexContext &ctx) {
-        finish_traced(ctx, "sceMpegRingbufferDestruct", 0u, {}, 1u);
-    });
+    hle.add("sceMpeg", "sceMpegRingbufferDestruct",
+        [](Runtime &, AllegrexContext &ctx) { finish_traced(ctx, "sceMpegRingbufferDestruct", 0u, {}, 1u); });
     // Free packets.
     hle.add("sceMpeg", "sceMpegRingbufferAvailableSize", [](Runtime &rt, AllegrexContext &ctx) {
         auto &memory = rt.memory();
@@ -262,9 +259,8 @@ void register_ringbuffer(HleRegistrar &hle) {
         finish_traced(ctx, "sceMpegRingbufferAvailableSize", packets > filled ? packets - filled : 0u, {}, 1u);
     });
     // sceMpegRingbufferPut(ring, packets, available)
-    hle.add("sceMpeg", "sceMpegRingbufferPut", [](Runtime &, AllegrexContext &ctx) {
-        ringbuffer_put(ctx, arg(ctx, 0), arg(ctx, 1), 0u);
-    });
+    hle.add("sceMpeg", "sceMpegRingbufferPut",
+        [](Runtime &, AllegrexContext &ctx) { ringbuffer_put(ctx, arg(ctx, 0), arg(ctx, 1), 0u); });
 }
 
 // ---------------------------------------------------------------------------
@@ -273,9 +269,8 @@ void register_ringbuffer(HleRegistrar &hle) {
 void register_library(HleRegistrar &hle) {
     for (const char *name : {"sceMpegInit", "sceMpegFinish"})
         hle.add("sceMpeg", name, [name](Runtime &, AllegrexContext &ctx) { finish_traced(ctx, name, 0u, {}, 0u); });
-    hle.add("sceMpeg", "sceMpegQueryMemSize", [](Runtime &, AllegrexContext &ctx) {
-        finish_traced(ctx, "sceMpegQueryMemSize", kMpegMemorySize, {}, 1u);
-    });
+    hle.add("sceMpeg", "sceMpegQueryMemSize",
+        [](Runtime &, AllegrexContext &ctx) { finish_traced(ctx, "sceMpegQueryMemSize", kMpegMemorySize, {}, 1u); });
     // sceMpegCreate(mpeg, work, size, ring, frameWidth, mode, ddrTop)
     hle.add("sceMpeg", "sceMpegCreate", [](Runtime &rt, AllegrexContext &ctx) {
         auto &memory = rt.memory();
@@ -311,7 +306,8 @@ void register_library(HleRegistrar &hle) {
             return;
         }
         const std::uint32_t offset = load_be32(memory, header + 8u);
-        module().pending_stream_packets = load_be32(memory, header + 12u) / static_cast<std::uint32_t>(movie::kPackSize);
+        module().pending_stream_packets =
+            load_be32(memory, header + 12u) / static_cast<std::uint32_t>(movie::kPackSize);
         if (MpegState *state = find_mpeg(arg(ctx, 0))) state->stream_packets = module().pending_stream_packets;
         memory.store32(arg(ctx, 2), offset);
         finish_traced(ctx, "sceMpegQueryStreamOffset", 0u, "offset=" + std::to_string(offset), 3u);
@@ -343,12 +339,10 @@ void register_library(HleRegistrar &hle) {
         if (MpegState *state = find_mpeg(arg(ctx, 0))) state->streams.erase(arg(ctx, 1));
         finish_traced(ctx, "sceMpegUnRegistStream", 0u, {}, 2u);
     });
-    hle.add("sceMpeg", "sceMpegMallocAvcEsBuf", [](Runtime &, AllegrexContext &ctx) {
-        finish_traced(ctx, "sceMpegMallocAvcEsBuf", 1u, {}, 1u);
-    });
-    hle.add("sceMpeg", "sceMpegFreeAvcEsBuf", [](Runtime &, AllegrexContext &ctx) {
-        finish_traced(ctx, "sceMpegFreeAvcEsBuf", 0u, {}, 2u);
-    });
+    hle.add("sceMpeg", "sceMpegMallocAvcEsBuf",
+        [](Runtime &, AllegrexContext &ctx) { finish_traced(ctx, "sceMpegMallocAvcEsBuf", 1u, {}, 1u); });
+    hle.add("sceMpeg", "sceMpegFreeAvcEsBuf",
+        [](Runtime &, AllegrexContext &ctx) { finish_traced(ctx, "sceMpegFreeAvcEsBuf", 0u, {}, 2u); });
     // sceMpegInitAu(mpeg, esBuffer, au)
     hle.add("sceMpeg", "sceMpegInitAu", [](Runtime &rt, AllegrexContext &ctx) {
         auto &memory = rt.memory();
@@ -392,8 +386,8 @@ void register_library(HleRegistrar &hle) {
         write_unit(memory, arg(ctx, 2), *state->video_unit);
         if (arg(ctx, 3) != 0u) memory.store32(arg(ctx, 3), 1u);
         finish_traced(ctx, "sceMpegGetAvcAu", 0u,
-                      "pts=" + std::to_string(state->video_unit->pts) + " size=" +
-                          std::to_string(state->video_unit->data.size()));
+            "pts=" + std::to_string(state->video_unit->pts) +
+                " size=" + std::to_string(state->video_unit->data.size()));
     });
     // sceMpegGetAtracAu(mpeg, stream, au, outAttribute)
     hle.add("sceMpeg", "sceMpegGetAtracAu", [](Runtime &rt, AllegrexContext &ctx) {
@@ -439,9 +433,8 @@ void register_decoding(HleRegistrar &hle) {
         finish_traced(ctx, "sceMpegAvcQueryYCbCrSize", 0u, {}, 5u);
     });
     // sceMpegAvcInitYCbCr(mpeg, mode, width, height, buffer)
-    hle.add("sceMpeg", "sceMpegAvcInitYCbCr", [](Runtime &, AllegrexContext &ctx) {
-        finish_traced(ctx, "sceMpegAvcInitYCbCr", 0u, {}, 5u);
-    });
+    hle.add("sceMpeg", "sceMpegAvcInitYCbCr",
+        [](Runtime &, AllegrexContext &ctx) { finish_traced(ctx, "sceMpegAvcInitYCbCr", 0u, {}, 5u); });
     // sceMpegAvcDecodeYCbCr(mpeg, au, bufferPointer, outInit): the picture
     // goes to the buffer `bufferPointer` points at.
     hle.add("sceMpeg", "sceMpegAvcDecodeYCbCr", [](Runtime &rt, AllegrexContext &ctx) {
@@ -461,7 +454,8 @@ void register_decoding(HleRegistrar &hle) {
             store_picture(memory, memory.load32(arg(ctx, 2)), state->picture);
         }
         if (arg(ctx, 3) != 0u) memory.store32(arg(ctx, 3), produced ? 1u : 0u);
-        finish_traced(ctx, "sceMpegAvcDecodeYCbCr", 0u, produced ? "picture " + std::to_string(state->pictures) : "none");
+        finish_traced(
+            ctx, "sceMpegAvcDecodeYCbCr", 0u, produced ? "picture " + std::to_string(state->pictures) : "none");
     });
     // sceMpegAvcDecodeStopYCbCr(mpeg, bufferPointer, outStatus): pictures
     // the decoder still holds at the end of the stream.
@@ -482,7 +476,7 @@ void register_decoding(HleRegistrar &hle) {
         if (state != nullptr && detail != 0u) {
             auto &memory = rt.memory();
             memory.store32(detail + 0x00u, 0u);                                          // decode result
-            memory.store32(detail + 0x04u, static_cast<std::uint32_t>(state->pictures));  // pictures decoded
+            memory.store32(detail + 0x04u, static_cast<std::uint32_t>(state->pictures)); // pictures decoded
             memory.store32(detail + 0x08u, state->picture.width);
             memory.store32(detail + 0x0Cu, state->picture.height);
         }
@@ -514,8 +508,7 @@ void register_decoding(HleRegistrar &hle) {
         if (state->audio_unit) {
             if (!state->audio.is_open() && state->demuxer.audio_frame_size() > movie::kAtracFrameHeader)
                 (void)state->audio.open(audio::AtracCodec::Atrac3Plus, std::max(state->demuxer.audio_channels(), 1u),
-                                        static_cast<unsigned>(state->demuxer.audio_frame_size() - movie::kAtracFrameHeader),
-                                        {});
+                    static_cast<unsigned>(state->demuxer.audio_frame_size() - movie::kAtracFrameHeader), {});
             decoded = state->audio.decode(state->audio_unit->data, samples.data()) != 0u;
             state->audio_unit.reset();
         }
@@ -560,7 +553,7 @@ void register_jpeg(HleRegistrar &hle) {
                 int scale = 1 << 16;
                 if (!picture.full_range) {
                     y -= 16;
-                    scale = 76309;  // 255/219
+                    scale = 76309; // 255/219
                 }
                 const int luma = y * scale;
                 const int red = (luma + 91881 * cr) >> 16;
@@ -588,18 +581,20 @@ void register_movie_skip(HleRegistrar &hle) {
         kernel().finish(ctx, mpeg_error::kNoData);
     };
     for (const char *name : {"sceMpegInit", "sceMpegFinish", "sceMpegDelete", "sceMpegRegistStream",
-                             "sceMpegUnRegistStream", "sceMpegFlushAllStream", "sceMpegInitAu",
-                             "sceMpegAvcInitYCbCr", "sceMpegRingbufferDestruct", "sceMpegFreeAvcEsBuf"})
+             "sceMpegUnRegistStream", "sceMpegFlushAllStream", "sceMpegInitAu", "sceMpegAvcInitYCbCr",
+             "sceMpegRingbufferDestruct", "sceMpegFreeAvcEsBuf"})
         hle.try_add("sceMpeg", name, succeed);
-    for (const char *name : {"sceMpegGetAvcAu", "sceMpegGetAtracAu", "sceMpegAvcDecode", "sceMpegAtracDecode",
-                             "sceMpegAvcDecodeYCbCr", "sceMpegAvcDecodeStopYCbCr", "sceMpegAvcDecodeDetail",
-                             "sceMpegAvcConvertToYuv420"})
+    for (const char *name :
+        {"sceMpegGetAvcAu", "sceMpegGetAtracAu", "sceMpegAvcDecode", "sceMpegAtracDecode", "sceMpegAvcDecodeYCbCr",
+            "sceMpegAvcDecodeStopYCbCr", "sceMpegAvcDecodeDetail", "sceMpegAvcConvertToYuv420"})
         hle.try_add("sceMpeg", name, no_data);
 }
 
 } // namespace
 
-bool mpeg_active() { return !module().instances.empty(); }
+bool mpeg_active() {
+    return !module().instances.empty();
+}
 
 void register_mpeg(HleRegistrar &hle) {
     if (!movie::AvcDecoder::available() || !audio::AtracDecoder::available()) {

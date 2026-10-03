@@ -62,27 +62,43 @@ std::uint32_t branch_target(std::uint32_t pc, const DecodedInstruction &decoded)
 
 bool is_conditional_branch(OpcodeKind kind) {
     switch (kind) {
-    case OpcodeKind::Beq: case OpcodeKind::Bne: case OpcodeKind::Beql: case OpcodeKind::Bnel:
-    case OpcodeKind::Blez: case OpcodeKind::Bgtz: case OpcodeKind::Blezl: case OpcodeKind::Bgtzl:
-    case OpcodeKind::Bltz: case OpcodeKind::Bgez: case OpcodeKind::Bltzl: case OpcodeKind::Bgezl:
-    case OpcodeKind::Bltzal: case OpcodeKind::Bgezal: case OpcodeKind::Bltzall: case OpcodeKind::Bgezall:
-    case OpcodeKind::Bc1f: case OpcodeKind::Bc1t: case OpcodeKind::Bc1fl: case OpcodeKind::Bc1tl:
-    case OpcodeKind::Bvf: case OpcodeKind::Bvt: case OpcodeKind::Bvfl: case OpcodeKind::Bvtl:
+    case OpcodeKind::Beq:
+    case OpcodeKind::Bne:
+    case OpcodeKind::Beql:
+    case OpcodeKind::Bnel:
+    case OpcodeKind::Blez:
+    case OpcodeKind::Bgtz:
+    case OpcodeKind::Blezl:
+    case OpcodeKind::Bgtzl:
+    case OpcodeKind::Bltz:
+    case OpcodeKind::Bgez:
+    case OpcodeKind::Bltzl:
+    case OpcodeKind::Bgezl:
+    case OpcodeKind::Bltzal:
+    case OpcodeKind::Bgezal:
+    case OpcodeKind::Bltzall:
+    case OpcodeKind::Bgezall:
+    case OpcodeKind::Bc1f:
+    case OpcodeKind::Bc1t:
+    case OpcodeKind::Bc1fl:
+    case OpcodeKind::Bc1tl:
+    case OpcodeKind::Bvf:
+    case OpcodeKind::Bvt:
+    case OpcodeKind::Bvfl:
+    case OpcodeKind::Bvtl:
         return true;
     default:
         return false;
     }
 }
 
-void add_seed(std::map<std::uint32_t, std::string> &seeds,
-              const std::vector<ExecutableRange> &ranges,
-              std::uint32_t address,
-              const char *source) {
+void add_seed(std::map<std::uint32_t, std::string> &seeds, const std::vector<ExecutableRange> &ranges,
+    std::uint32_t address, const char *source) {
     if (is_executable_address(ranges, address)) seeds.try_emplace(address, source);
 }
 
-std::set<std::uint32_t> collect_global_block_starts(const GuestMemory &memory,
-                                                    const std::vector<ExecutableRange> &ranges) {
+std::set<std::uint32_t> collect_global_block_starts(
+    const GuestMemory &memory, const std::vector<ExecutableRange> &ranges) {
     std::set<std::uint32_t> starts;
     for (const auto &range : ranges) {
         starts.insert(range.start);
@@ -110,21 +126,15 @@ void clear_all_constants(ConstantState &constants) {
     constants[0] = 0u;
 }
 
-void set_constant_and_seed(ConstantState &constants,
-                           std::uint32_t reg_index,
-                           std::optional<std::uint32_t> value,
-                           std::map<std::uint32_t, std::string> &seeds,
-                           const std::vector<ExecutableRange> &ranges) {
+void set_constant_and_seed(ConstantState &constants, std::uint32_t reg_index, std::optional<std::uint32_t> value,
+    std::map<std::uint32_t, std::string> &seeds, const std::vector<ExecutableRange> &ranges) {
     if (reg_index == 0u) return;
     constants[reg_index] = value;
     if (value && reg_index != 31u) add_seed(seeds, ranges, *value, "materialized_code_pointer");
 }
 
-void propagate_constant(const DecodedInstruction &decoded,
-                        std::uint32_t pc,
-                        ConstantState &constants,
-                        std::map<std::uint32_t, std::string> &seeds,
-                        const std::vector<ExecutableRange> &ranges) {
+void propagate_constant(const DecodedInstruction &decoded, std::uint32_t pc, ConstantState &constants,
+    std::map<std::uint32_t, std::string> &seeds, const std::vector<ExecutableRange> &ranges) {
     const auto lhs = constants[decoded.rs];
     const auto rhs = constants[decoded.rt];
     const auto simm = static_cast<std::int32_t>(decoded.immediate);
@@ -140,20 +150,19 @@ void propagate_constant(const DecodedInstruction &decoded,
         break;
     case OpcodeKind::Addiu:
         set_constant_and_seed(constants, decoded.rt,
-            lhs ? std::optional<std::uint32_t>(*lhs + static_cast<std::uint32_t>(simm)) : std::nullopt,
-            seeds, ranges);
+            lhs ? std::optional<std::uint32_t>(*lhs + static_cast<std::uint32_t>(simm)) : std::nullopt, seeds, ranges);
         break;
     case OpcodeKind::Andi:
-        set_constant_and_seed(constants, decoded.rt,
-            lhs ? std::optional<std::uint32_t>(*lhs & uimm) : std::nullopt, seeds, ranges);
+        set_constant_and_seed(
+            constants, decoded.rt, lhs ? std::optional<std::uint32_t>(*lhs & uimm) : std::nullopt, seeds, ranges);
         break;
     case OpcodeKind::Ori:
-        set_constant_and_seed(constants, decoded.rt,
-            lhs ? std::optional<std::uint32_t>(*lhs | uimm) : std::nullopt, seeds, ranges);
+        set_constant_and_seed(
+            constants, decoded.rt, lhs ? std::optional<std::uint32_t>(*lhs | uimm) : std::nullopt, seeds, ranges);
         break;
     case OpcodeKind::Xori:
-        set_constant_and_seed(constants, decoded.rt,
-            lhs ? std::optional<std::uint32_t>(*lhs ^ uimm) : std::nullopt, seeds, ranges);
+        set_constant_and_seed(
+            constants, decoded.rt, lhs ? std::optional<std::uint32_t>(*lhs ^ uimm) : std::nullopt, seeds, ranges);
         break;
     case OpcodeKind::Slti:
     case OpcodeKind::Sltiu:
@@ -187,15 +196,16 @@ void propagate_constant(const DecodedInstruction &decoded,
         break;
     case OpcodeKind::Sra:
         set_constant_and_seed(constants, decoded.rd,
-            rhs ? std::optional<std::uint32_t>(static_cast<std::uint32_t>(static_cast<std::int32_t>(*rhs) >> decoded.sa)) : std::nullopt,
+            rhs ? std::optional<std::uint32_t>(
+                      static_cast<std::uint32_t>(static_cast<std::int32_t>(*rhs) >> decoded.sa))
+                : std::nullopt,
             seeds, ranges);
         break;
     case OpcodeKind::Ext: {
         const std::uint32_t size = decoded.rd + 1u;
         const std::uint32_t mask = size == 32u ? 0xFFFFFFFFu : ((1u << size) - 1u);
         set_constant_and_seed(constants, decoded.rt,
-            lhs ? std::optional<std::uint32_t>((*lhs >> decoded.sa) & mask) : std::nullopt,
-            seeds, ranges);
+            lhs ? std::optional<std::uint32_t>((*lhs >> decoded.sa) & mask) : std::nullopt, seeds, ranges);
         break;
     }
     case OpcodeKind::Ins: {
@@ -204,7 +214,9 @@ void propagate_constant(const DecodedInstruction &decoded,
         const std::uint32_t destination_mask = source_mask << decoded.sa;
         const auto destination = constants[decoded.rt];
         set_constant_and_seed(constants, decoded.rt,
-            lhs && destination ? std::optional<std::uint32_t>((*destination & ~destination_mask) | ((*lhs & source_mask) << decoded.sa)) : std::nullopt,
+            lhs && destination ? std::optional<std::uint32_t>(
+                                     (*destination & ~destination_mask) | ((*lhs & source_mask) << decoded.sa))
+                               : std::nullopt,
             seeds, ranges);
         break;
     }
@@ -214,10 +226,17 @@ void propagate_constant(const DecodedInstruction &decoded,
     case OpcodeKind::Mflo:
         set_constant_and_seed(constants, decoded.rd, std::nullopt, seeds, ranges);
         break;
-    case OpcodeKind::Lw: case OpcodeKind::Lwl: case OpcodeKind::Lwr:
-    case OpcodeKind::Lh: case OpcodeKind::Lhu:
-    case OpcodeKind::Lb: case OpcodeKind::Lbu: case OpcodeKind::Lwc1:
-    case OpcodeKind::Mfc1: case OpcodeKind::Cfc1: case OpcodeKind::Mfv:
+    case OpcodeKind::Lw:
+    case OpcodeKind::Lwl:
+    case OpcodeKind::Lwr:
+    case OpcodeKind::Lh:
+    case OpcodeKind::Lhu:
+    case OpcodeKind::Lb:
+    case OpcodeKind::Lbu:
+    case OpcodeKind::Lwc1:
+    case OpcodeKind::Mfc1:
+    case OpcodeKind::Cfc1:
+    case OpcodeKind::Mfv:
         set_constant_and_seed(constants, decoded.rt, std::nullopt, seeds, ranges);
         break;
     case OpcodeKind::Jal:
@@ -242,9 +261,8 @@ void propagate_constant(const DecodedInstruction &decoded,
     constants[0] = 0u;
 }
 
-void collect_materialized_code_pointers(const GuestMemory &memory,
-                                        const std::vector<ExecutableRange> &ranges,
-                                        std::map<std::uint32_t, std::string> &seeds) {
+void collect_materialized_code_pointers(const GuestMemory &memory, const std::vector<ExecutableRange> &ranges,
+    std::map<std::uint32_t, std::string> &seeds) {
     const auto block_starts = collect_global_block_starts(memory, ranges);
     for (const auto block_start : block_starts) {
         if (!is_executable_address(ranges, block_start)) continue;
@@ -296,11 +314,8 @@ void collect_materialized_code_pointers(const GuestMemory &memory,
     }
 }
 
-void collect_relocated_data_code_pointers(const Elf32Image &elf,
-                                          const GuestMemory &memory,
-                                          std::uint32_t load_base,
-                                          const std::vector<ExecutableRange> &ranges,
-                                          std::map<std::uint32_t, std::string> &seeds) {
+void collect_relocated_data_code_pointers(const Elf32Image &elf, const GuestMemory &memory, std::uint32_t load_base,
+    const std::vector<ExecutableRange> &ranges, std::map<std::uint32_t, std::string> &seeds) {
     for (std::size_t i = 0; i < elf.segments().size(); ++i) {
         const auto &segment = elf.segments()[i];
         if (segment.type != 1u || (segment.flags & 1u) != 0u || segment.file_size < 4u) continue;
@@ -318,24 +333,22 @@ void collect_relocated_data_code_pointers(const Elf32Image &elf,
 // only when its target has a function shape: a stack-frame prologue
 // (addiu $sp, $sp, -N) or the instruction pair right after a `jr $ra`. The shape
 // filter keeps coincidental mid-function values out of the seed set.
-void collect_section_data_code_pointers(const Elf32Image &elf,
-                                        const GuestMemory &memory,
-                                        std::uint32_t load_base,
-                                        const std::vector<ExecutableRange> &ranges,
-                                        std::map<std::uint32_t, std::string> &seeds) {
+void collect_section_data_code_pointers(const Elf32Image &elf, const GuestMemory &memory, std::uint32_t load_base,
+    const std::vector<ExecutableRange> &ranges, std::map<std::uint32_t, std::string> &seeds) {
     constexpr std::uint32_t kShtProgbits = 1u;
     constexpr std::uint32_t kShfAlloc = 2u;
     constexpr std::uint32_t kShfExecinstr = 4u;
     const auto function_shaped = [&](std::uint32_t target) {
         const std::uint32_t word = memory.load32(target);
         const bool stack_prologue = (word >> 16u) == 0x27BDu && (word & 0x8000u) != 0u;
-        const bool after_return = is_executable_address(ranges, target - 8u) &&
-                                  memory.load32(target - 8u) == 0x03E00008u;
+        const bool after_return =
+            is_executable_address(ranges, target - 8u) && memory.load32(target - 8u) == 0x03E00008u;
         return stack_prologue || after_return;
     };
     for (const auto &section : elf.sections()) {
         if (section.type != kShtProgbits || (section.flags & kShfAlloc) == 0u ||
-            (section.flags & kShfExecinstr) != 0u || section.size < 4u) continue;
+            (section.flags & kShfExecinstr) != 0u || section.size < 4u)
+            continue;
         const std::uint32_t start = elf.section_runtime_address(section, load_base);
         if (!memory.contains(start, section.size)) continue;
         const std::uint32_t size = section.size & ~3u;
@@ -347,10 +360,8 @@ void collect_section_data_code_pointers(const Elf32Image &elf,
     }
 }
 
-std::map<std::uint32_t, std::string> collect_initial_seeds(const Elf32Image &elf,
-                                                           const GuestMemory &memory,
-                                                           std::uint32_t load_base,
-                                                           const std::vector<ExecutableRange> &ranges) {
+std::map<std::uint32_t, std::string> collect_initial_seeds(const Elf32Image &elf, const GuestMemory &memory,
+    std::uint32_t load_base, const std::vector<ExecutableRange> &ranges) {
     std::map<std::uint32_t, std::string> seeds;
     const std::uint32_t entry = elf.runtime_entry(load_base);
     add_seed(seeds, ranges, entry, "elf_entry");
@@ -375,11 +386,9 @@ std::map<std::uint32_t, std::string> collect_initial_seeds(const Elf32Image &elf
     return seeds;
 }
 
-FunctionAnalysis analyze_function(std::uint32_t entry,
-                                  const GuestMemory &memory,
-                                  const std::vector<ExecutableRange> &ranges,
-                                  const std::map<std::uint32_t, std::string> &known_seeds,
-                                  std::size_t max_instructions) {
+FunctionAnalysis analyze_function(std::uint32_t entry, const GuestMemory &memory,
+    const std::vector<ExecutableRange> &ranges, const std::map<std::uint32_t, std::string> &known_seeds,
+    std::size_t max_instructions) {
     FunctionAnalysis result{};
     result.entry = entry;
     std::deque<std::uint32_t> pending_blocks;
@@ -415,8 +424,10 @@ FunctionAnalysis analyze_function(std::uint32_t entry,
             if (is_conditional_branch(decoded.kind)) {
                 const std::uint32_t taken = branch_target(pc, decoded);
                 const std::uint32_t fallthrough = pc + 8u;
-                if (is_executable_address(ranges, taken) && queued_blocks.insert(taken).second) pending_blocks.push_back(taken);
-                if (is_executable_address(ranges, fallthrough) && queued_blocks.insert(fallthrough).second) pending_blocks.push_back(fallthrough);
+                if (is_executable_address(ranges, taken) && queued_blocks.insert(taken).second)
+                    pending_blocks.push_back(taken);
+                if (is_executable_address(ranges, fallthrough) && queued_blocks.insert(fallthrough).second)
+                    pending_blocks.push_back(fallthrough);
                 break;
             }
 
@@ -469,10 +480,8 @@ bool is_executable_address(const std::vector<ExecutableRange> &ranges, std::uint
     return address >= range.start && address < range.end && (address & 3u) == 0u;
 }
 
-ProgramAnalysis analyze_program(const Elf32Image &elf,
-                                const GuestMemory &memory,
-                                std::uint32_t load_base,
-                                std::size_t max_instructions_per_function) {
+ProgramAnalysis analyze_program(const Elf32Image &elf, const GuestMemory &memory, std::uint32_t load_base,
+    std::size_t max_instructions_per_function) {
     ProgramAnalysis program{};
     program.executable_ranges = executable_ranges_for(elf, load_base);
     program.seeds = collect_initial_seeds(elf, memory, load_base, program.executable_ranges);
@@ -481,8 +490,8 @@ ProgramAnalysis analyze_program(const Elf32Image &elf,
     std::unordered_map<std::uint32_t, std::size_t> label_owners;
     for (const auto &[entry, source] : program.seeds) {
         (void)source;
-        auto function = analyze_function(entry, memory, program.executable_ranges, program.seeds,
-                                         max_instructions_per_function);
+        auto function =
+            analyze_function(entry, memory, program.executable_ranges, program.seeds, max_instructions_per_function);
         for (const auto label : function.labels) program.covered_labels.insert(label);
         for (const auto label : function.entry_labels) {
             const auto [it, inserted] = label_owners.emplace(label, program.functions.size());

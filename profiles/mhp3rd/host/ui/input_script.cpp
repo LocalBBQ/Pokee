@@ -103,7 +103,9 @@ std::pair<std::string, std::uint64_t> name_and_frames(const std::string &argumen
     return {argument.substr(0, space), std::max<std::uint64_t>(1u, std::strtoull(last.c_str(), nullptr, 10))};
 }
 
-bool mouse_step(const std::string &action) { return action == "mouse" || action == "click"; }
+bool mouse_step(const std::string &action) {
+    return action == "mouse" || action == "click";
+}
 
 // The virtual touch screen's device id.
 constexpr SDL_TouchID kScriptTouch = 0x59414bu;
@@ -266,9 +268,8 @@ void run(const Step &due) {
         SDL_PushEvent(&event);
     } else if (step.action == "click") {
         const auto [name, frames] = name_and_frames(step.argument, kHoldFrames);
-        static const std::pair<const char *, std::uint8_t> kButtons[] = {
-            {"left", SDL_BUTTON_LEFT}, {"middle", SDL_BUTTON_MIDDLE}, {"right", SDL_BUTTON_RIGHT},
-            {"x1", SDL_BUTTON_X1},     {"x2", SDL_BUTTON_X2}};
+        static const std::pair<const char *, std::uint8_t> kButtons[] = {{"left", SDL_BUTTON_LEFT},
+            {"middle", SDL_BUTTON_MIDDLE}, {"right", SDL_BUTTON_RIGHT}, {"x1", SDL_BUTTON_X1}, {"x2", SDL_BUTTON_X2}};
         std::uint8_t button = 0u;
         for (const auto &[button_name, value] : kButtons)
             if (name == button_name) button = value;
@@ -298,7 +299,8 @@ void run(const Step &due) {
         if (s.pad == nullptr) return;
         const auto space = step.argument.find(' ');
         const SDL_GamepadAxis axis = SDL_GetGamepadAxisFromString(step.argument.substr(0, space).c_str());
-        const float value = space == std::string::npos ? 0.0f : std::strtof(step.argument.c_str() + space + 1u, nullptr);
+        const float value =
+            space == std::string::npos ? 0.0f : std::strtof(step.argument.c_str() + space + 1u, nullptr);
         if (axis == SDL_GAMEPAD_AXIS_INVALID) {
             std::cout << "[script] unknown axis " << step.argument << std::endl;
             return;
@@ -313,9 +315,9 @@ void run(const Step &due) {
         float x = 0.0f;
         float y = 0.0f;
         in >> id >> what >> x >> y;
-        const Uint32 type = what == "down"   ? SDL_EVENT_FINGER_DOWN
-                            : what == "move" ? SDL_EVENT_FINGER_MOTION
-                                             : SDL_EVENT_FINGER_UP;
+        const Uint32 type = what == "down" ? SDL_EVENT_FINGER_DOWN
+            : what == "move"               ? SDL_EVENT_FINGER_MOTION
+                                           : SDL_EVENT_FINGER_UP;
         push_finger(type, id + 1u, x, y);
     } else if (step.action == "hold" || step.action == "swipe") {
         const std::vector<float> v = numbers(step.argument);
@@ -325,12 +327,14 @@ void run(const Step &due) {
             return;
         }
         const std::string id = std::to_string(static_cast<std::uint64_t>(v[0]));
-        const auto frames = static_cast<std::uint64_t>(v.size() > (swipe ? 5u : 3u) ? v[swipe ? 5 : 3] : (swipe ? 8 : 4));
+        const auto frames =
+            static_cast<std::uint64_t>(v.size() > (swipe ? 5u : 3u) ? v[swipe ? 5 : 3] : (swipe ? 8 : 4));
         push_finger(SDL_EVENT_FINGER_DOWN, static_cast<std::uint64_t>(v[0]) + 1u, v[1], v[2]);
         for (std::uint64_t k = 1; swipe && k <= frames; ++k) {
             const float t = static_cast<float>(k) / static_cast<float>(frames);
             add_step(s.frame + k, "finger",
-                     id + " move " + std::to_string(v[1] + (v[3] - v[1]) * t) + " " + std::to_string(v[2] + (v[4] - v[2]) * t));
+                id + " move " + std::to_string(v[1] + (v[3] - v[1]) * t) + " " +
+                    std::to_string(v[2] + (v[4] - v[2]) * t));
         }
         add_step(s.frame + frames + 1u, "finger", id + " up");
     } else if (step.action == "drag") {
@@ -345,7 +349,7 @@ void run(const Step &due) {
         for (std::uint64_t k = 1; k <= frames; ++k) {
             const float t = static_cast<float>(k) / static_cast<float>(frames);
             add_step(s.frame + 1u + k, "pointer",
-                     std::to_string(v[0] + (v[2] - v[0]) * t) + " " + std::to_string(v[1] + (v[3] - v[1]) * t));
+                std::to_string(v[0] + (v[2] - v[0]) * t) + " " + std::to_string(v[1] + (v[3] - v[1]) * t));
         }
         add_step(s.frame + frames + 3u, "pointer", "up");
     } else if (step.action == "pointer") {
@@ -384,8 +388,7 @@ void run(const Step &due) {
 void add_step(std::uint64_t frame, std::string action, std::string argument) {
     State &s = state();
     s.steps.push_back({frame, std::move(action), std::move(argument)});
-    std::stable_sort(s.steps.begin(), s.steps.end(),
-                     [](const Step &a, const Step &b) { return a.frame < b.frame; });
+    std::stable_sort(s.steps.begin(), s.steps.end(), [](const Step &a, const Step &b) { return a.frame < b.frame; });
 }
 
 // Parses `frame:action argument`; `base` is added to the frame.
@@ -402,8 +405,7 @@ bool parse_step(std::string item, std::uint64_t base, Step &step) {
 }
 
 void sort_steps(State &s) {
-    std::stable_sort(s.steps.begin(), s.steps.end(),
-                     [](const Step &a, const Step &b) { return a.frame < b.frame; });
+    std::stable_sort(s.steps.begin(), s.steps.end(), [](const Step &a, const Step &b) { return a.frame < b.frame; });
 }
 
 // Reads the lines appended to the live file since the last call. Their frames
@@ -413,13 +415,13 @@ void read_live(State &s) {
     if (!file) return;
     file.seekg(0, std::ios::end);
     const std::streamoff size = file.tellg();
-    if (size < s.live_offset) s.live_offset = 0;  // the file was replaced
+    if (size < s.live_offset) s.live_offset = 0; // the file was replaced
     if (size == s.live_offset) return;
     file.seekg(s.live_offset);
     std::string line;
     bool added = false;
     while (std::getline(file, line)) {
-        if (file.eof()) break;  // an incomplete last line: read it next time
+        if (file.eof()) break; // an incomplete last line: read it next time
         s.live_offset = file.tellg();
         Step step;
         if (parse_step(line, s.frame, step)) {
@@ -505,7 +507,8 @@ void tick() {
         if (it->key != SDLK_UNKNOWN) push_key(it->key, false);
         if (it->mouse_button != 0u) push_mouse_button(it->mouse_button, false);
         for (SDL_GamepadButton button : it->buttons) SDL_SetJoystickVirtualButton(s.pad, button, false);
-        if (it->joystick != nullptr && it->joy_button >= 0) SDL_SetJoystickVirtualButton(it->joystick, it->joy_button, false);
+        if (it->joystick != nullptr && it->joy_button >= 0)
+            SDL_SetJoystickVirtualButton(it->joystick, it->joy_button, false);
         if (it->joystick != nullptr && it->joy_hat) SDL_SetJoystickVirtualHat(it->joystick, 0, SDL_HAT_CENTERED);
         it = s.releases.erase(it);
     }

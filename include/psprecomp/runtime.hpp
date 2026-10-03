@@ -78,8 +78,7 @@ void set_runtime_thread_identity(std::int32_t uid, const std::string &name) noex
 class Runtime {
 public:
     using RecompiledFunction = void (*)(Runtime &, AllegrexContext &);
-    using RecompiledEntryFunction = void (*)(Runtime &, AllegrexContext &, std::uint16_t,
-                                             GuestMemory::AotFastView &);
+    using RecompiledEntryFunction = void (*)(Runtime &, AllegrexContext &, std::uint16_t, GuestMemory::AotFastView &);
     using HleFunction = std::function<void(Runtime &, AllegrexContext &)>;
     using NativeFastPath = void (*)(Runtime &, AllegrexContext &);
 
@@ -110,13 +109,11 @@ public:
     // Generated import wrappers have a stable numeric slot. Resolve the
     // library/NID hash maps only on the first call, then invoke the bound HLE
     // std::function directly on every subsequent frame.
-    void invoke_import_cached(std::uint32_t slot, std::string_view library,
-                              std::uint32_t nid, AllegrexContext &ctx);
+    void invoke_import_cached(std::uint32_t slot, std::string_view library, std::uint32_t nid, AllegrexContext &ctx);
     // Executes one registered AOT function in a caller-supplied context without
     // charging guest scheduler work. Used by host render integrations that must
     // call a pure guest math helper with an isolated stack/context.
-    [[nodiscard]] bool invoke_isolated_aot(std::uint32_t address,
-                                           AllegrexContext &ctx);
+    [[nodiscard]] bool invoke_isolated_aot(std::uint32_t address, AllegrexContext &ctx);
     // Profiles may register native replacements for selected guest functions.
     // Generated profile code can call this API without putting game-specific
     // addresses or implementations in the reusable runtime.
@@ -143,14 +140,13 @@ public:
     // only the return PC is insufficient because another PSP thread can resume
     // at the same address.  Depth is bounded so guest recursion cannot exhaust
     // the native stack.  PSPRECOMP_NO_CHAIN=1 disables it for A/B checks.
-    [[nodiscard]] bool invoke_chained_call(AllegrexContext &ctx,
-                                           GuestMemory::AotFastView *shared_aot_mem = nullptr);
+    [[nodiscard]] bool invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView *shared_aot_mem = nullptr);
     // Fast path for compile-time-known cross-unit targets.  Automatic AOT knows
     // the 16 KiB unit index and can avoid the large guest-PC dispatch table.
     // Units containing an import/HLE/host override fall back to the exact
     // per-PC chainability path at runtime.
-    [[nodiscard]] bool invoke_chained_unit(AllegrexContext &ctx, std::uint32_t unit_index,
-                                           GuestMemory::AotFastView *shared_aot_mem = nullptr);
+    [[nodiscard]] bool invoke_chained_unit(
+        AllegrexContext &ctx, std::uint32_t unit_index, GuestMemory::AotFastView *shared_aot_mem = nullptr);
 
     // compile-time unit chain.  Automatic AOT knows both the target
     // function symbol and bucket, so the normal path becomes a direct native
@@ -162,14 +158,13 @@ public:
     // poisons generated_units_[UnitIndex].  We then fall back to the old exact
     // path and unwind to outer dispatch instead of bypassing the replacement.
     template <auto Function, std::uint32_t UnitIndex, std::uint16_t DirectEntryId = 0u,
-              std::uint32_t DirectTargetPc = 0u>
+        std::uint32_t DirectTargetPc = 0u>
     [[nodiscard]] PSPRECOMP_RUNTIME_FORCEINLINE bool invoke_chained_direct(
         AllegrexContext &ctx, GuestMemory::AotFastView *shared_aot_mem = nullptr) {
 #if defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
         if (UnitIndex >= kGeneratedUnitFastCapacity || !generated_unit_layout_valid_) {
 #else
-        if (g_runtime_chain_observers_active ||
-            UnitIndex >= kGeneratedUnitFastCapacity ||
+        if (g_runtime_chain_observers_active || UnitIndex >= kGeneratedUnitFastCapacity ||
             !generated_unit_layout_valid_) {
 #endif
             if constexpr (DirectTargetPc != 0u) ctx.pc = DirectTargetPc;
@@ -215,8 +210,8 @@ public:
             ~DepthGuard() { --depth; }
         } guard(chain_depth_);
         if constexpr (DirectEntryId != 0u &&
-                      std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t,
-                                          GuestMemory::AotFastView &>) {
+            std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t,
+                GuestMemory::AotFastView &>) {
             if (shared_aot_mem != nullptr) {
                 Function(*this, ctx, DirectEntryId, *shared_aot_mem);
             } else {
@@ -224,7 +219,7 @@ public:
                 Function(*this, ctx, DirectEntryId, local_aot_mem);
             }
         } else if constexpr (DirectEntryId != 0u &&
-                             std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t>) {
+            std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t>) {
             Function(*this, ctx, DirectEntryId);
         } else {
             Function(*this, ctx);
@@ -251,9 +246,8 @@ public:
         return run_starvation_boundary(ctx);
     }
 
-    void register_generated_unit(std::uint32_t unit_index, std::uint32_t unit_address,
-                                 std::uint32_t unit_span, RecompiledFunction function,
-                                 RecompiledEntryFunction entry_function = nullptr);
+    void register_generated_unit(std::uint32_t unit_index, std::uint32_t unit_address, std::uint32_t unit_span,
+        RecompiledFunction function, RecompiledEntryFunction entry_function = nullptr);
     [[nodiscard]] std::uint64_t dispatch_work_count() const noexcept { return dispatch_work_count_; }
 
     AllegrexContext &cpu() noexcept;
@@ -273,9 +267,7 @@ private:
 
     struct TransparentStringHash {
         using is_transparent = void;
-        std::size_t operator()(std::string_view value) const noexcept {
-            return std::hash<std::string_view>{}(value);
-        }
+        std::size_t operator()(std::string_view value) const noexcept { return std::hash<std::string_view>{}(value); }
     };
     using HleLibrary = std::unordered_map<std::uint32_t, HleFunction>;
 
@@ -335,8 +327,7 @@ private:
     std::uint64_t dispatches_since_import_{};
     std::uint64_t chained_dispatches_{};
     std::uint64_t dispatch_work_count_{};
-    std::unordered_map<std::string, HleLibrary,
-                       TransparentStringHash, std::equal_to<>> hle_;
+    std::unordered_map<std::string, HleLibrary, TransparentStringHash, std::equal_to<>> hle_;
     std::unordered_map<std::uint32_t, NativeFastPath> native_fast_paths_;
     std::vector<const HleFunction *> import_bindings_;
     std::filesystem::path game_root_;
@@ -409,11 +400,11 @@ void set_runtime_starvation_hook(RuntimeStarvationHook hook, std::uint64_t inter
 // `dispatch_pc` and `dispatch_thread_uid` identify the unit and PSP thread
 // that started the dispatch, even if an HLE call switched `ctx` to another
 // thread before the translated wrapper returned.
-using RuntimePreDispatchHook = void (*)(Runtime &, AllegrexContext &, std::uint32_t dispatch_pc,
-                                        std::int32_t dispatch_thread_uid);
+using RuntimePreDispatchHook = void (*)(
+    Runtime &, AllegrexContext &, std::uint32_t dispatch_pc, std::int32_t dispatch_thread_uid);
 void set_runtime_pre_dispatch_hook(RuntimePreDispatchHook hook) noexcept;
-using RuntimePostDispatchHook = void (*)(Runtime &, AllegrexContext &, std::uint32_t dispatch_pc,
-                                         std::int32_t dispatch_thread_uid);
+using RuntimePostDispatchHook = void (*)(
+    Runtime &, AllegrexContext &, std::uint32_t dispatch_pc, std::int32_t dispatch_thread_uid);
 void set_runtime_post_dispatch_hook(RuntimePostDispatchHook hook) noexcept;
 
 // Optional diagnostics around native cross-unit calls.  Unlike the outer
@@ -421,10 +412,10 @@ void set_runtime_post_dispatch_hook(RuntimePostDispatchHook hook) noexcept;
 // so a host profile can inspect a nested guest routine without disabling the
 // fast chaining path or changing guest timing.  `target_pc` is captured before
 // the callee runs and `native_depth` is the zero-based chained-call depth.
-using RuntimePreChainedCallHook = void (*)(Runtime &, AllegrexContext &, std::uint32_t target_pc,
-                                           std::uint32_t native_depth);
-using RuntimePostChainedCallHook = void (*)(Runtime &, AllegrexContext &, std::uint32_t target_pc,
-                                            std::uint32_t native_depth);
+using RuntimePreChainedCallHook = void (*)(
+    Runtime &, AllegrexContext &, std::uint32_t target_pc, std::uint32_t native_depth);
+using RuntimePostChainedCallHook = void (*)(
+    Runtime &, AllegrexContext &, std::uint32_t target_pc, std::uint32_t native_depth);
 void set_runtime_pre_chained_call_hook(RuntimePreChainedCallHook hook) noexcept;
 void set_runtime_post_chained_call_hook(RuntimePostChainedCallHook hook) noexcept;
 

@@ -109,7 +109,7 @@ void test_copy(const fs::path &root) {
     check(fs::is_directory(to / "logs"), "empty folders are copied too");
     check(monotonic && last_done == last_total && last_total == (3u << 20) + 4u, "progress counts the bytes");
     check(read(from / kSettingsFile) == "disc_image=disc.iso\n" && file_count(from) == 3u,
-          "the source is left as it was");
+        "the source is left as it was");
     check(copy_user_data(from, to) == 0u, "copying again copies nothing");
 
     // Stopping half way removes what was copied and leaves no partial file.
@@ -125,7 +125,7 @@ void test_copy(const fs::path &root) {
     }
     check(threw, "a progress function can stop the copy");
     check(file_count(stopped) == 1u && read(stopped / "keep.txt") == "mine",
-          "a stopped copy removes what it copied and keeps what was there");
+        "a stopped copy removes what it copied and keeps what was there");
 }
 
 } // namespace

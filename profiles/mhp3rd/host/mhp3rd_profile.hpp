@@ -13,8 +13,8 @@ inline constexpr std::uint32_t kLoadBase = psprecomp::kDefaultPspUserLoadBase;
 inline constexpr std::uint32_t kGuestRamBytes = 64u * 1024u * 1024u;
 
 struct ProfilePaths {
-    std::filesystem::path disc_image;    // UMD ISO; empty disables disc0:
-    std::filesystem::path memory_stick;  // host directory backing ms0:
+    std::filesystem::path disc_image;   // UMD ISO; empty disables disc0:
+    std::filesystem::path memory_stick; // host directory backing ms0:
 };
 
 // Installs the kernel and HLE modules, binds logging stubs for the remaining
@@ -33,19 +33,19 @@ void install_profile(psprecomp::Runtime &runtime, const psprecomp::Elf32Image &e
 // jump into one stops the runtime until that overlay has its own corpus.
 // The end of each slot is the start of the next one.
 inline constexpr std::uint32_t kOverlaySlots[] = {
-    0x0A001780u,  // demo_sub, game_sub
-    0x0A055E80u,  // P_m*/P_v* maps
-    0x0A05E600u,  // *_task mode overlays
-    0x0A1BB000u,  // em*m0 monsters, result
-    0x0A1EFE80u,  // em*m1
-    0x0A224D00u,  // em*m2
-    0x0A239780u,  // em*m3
-    0x0A24E200u,  // we*player00 weapons
-    0x0A25BA80u,  // we*player01
-    0x0A269300u,  // we*player02
-    0x0A276B80u,  // we*player03, tutorialm1
-    0x0A284400u,  // P_v00 and village maps
-    0x0A285200u,  // end of the load image
+    0x0A001780u, // demo_sub, game_sub
+    0x0A055E80u, // P_m*/P_v* maps
+    0x0A05E600u, // *_task mode overlays
+    0x0A1BB000u, // em*m0 monsters, result
+    0x0A1EFE80u, // em*m1
+    0x0A224D00u, // em*m2
+    0x0A239780u, // em*m3
+    0x0A24E200u, // we*player00 weapons
+    0x0A25BA80u, // we*player01
+    0x0A269300u, // we*player02
+    0x0A276B80u, // we*player03, tutorialm1
+    0x0A284400u, // P_v00 and village maps
+    0x0A285200u, // end of the load image
 };
 
 } // namespace mhp3rd

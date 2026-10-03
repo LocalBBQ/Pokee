@@ -24,13 +24,12 @@ using HleFunction = std::function<void(Runtime &, AllegrexContext &)>;
 // 64-bit arguments occupy an even-aligned register pair, low word first.
 [[nodiscard]] inline std::uint64_t arg64(const AllegrexContext &ctx, unsigned low_index) noexcept {
     return static_cast<std::uint64_t>(arg(ctx, low_index)) |
-           (static_cast<std::uint64_t>(arg(ctx, low_index + 1u)) << 32u);
+        (static_cast<std::uint64_t>(arg(ctx, low_index + 1u)) << 32u);
 }
 
-[[nodiscard]] std::string read_cstring(const psprecomp::GuestMemory &memory, std::uint32_t address,
-                                       std::size_t max_length = 512u);
-void write_cstring(psprecomp::GuestMemory &memory, std::uint32_t address, std::string_view text,
-                   std::size_t capacity);
+[[nodiscard]] std::string read_cstring(
+    const psprecomp::GuestMemory &memory, std::uint32_t address, std::size_t max_length = 512u);
+void write_cstring(psprecomp::GuestMemory &memory, std::uint32_t address, std::string_view text, std::size_t capacity);
 void store64(psprecomp::GuestMemory &memory, std::uint32_t address, std::uint64_t value);
 
 // Registers HLE handlers by function name, resolving NIDs from the runtime's
@@ -80,7 +79,9 @@ void register_savedata(HleRegistrar &hle, const std::filesystem::path &memory_st
 void register_adhoc(HleRegistrar &hle);
 
 #if defined(MHP3RD_HAS_RENDERER)
-namespace gpu { class VulkanRenderer; }
+namespace gpu {
+class VulkanRenderer;
+}
 // The renderer owns the window, so HLE that needs host input goes through it.
 [[nodiscard]] gpu::VulkanRenderer *active_renderer();
 // Creates the renderer, with the window and the interface on it, the first

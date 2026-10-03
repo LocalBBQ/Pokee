@@ -57,7 +57,7 @@ private:
 // image size (header, code and data). Nothing when the file is not one.
 struct OverlayImage {
     std::uint32_t load{};
-    std::uint32_t code_end{};  // guest address after the code
+    std::uint32_t code_end{}; // guest address after the code
     std::uint32_t size{};
 };
 [[nodiscard]] std::optional<OverlayImage> overlay_image(const std::vector<std::uint8_t> &bytes);

@@ -30,9 +30,9 @@ struct Info {
     std::uint16_t vendor{};
     std::uint16_t product{};
     std::string guid;
-    bool gamepad{};        // SDL has a mapping: the game and the menu can read it
-    std::string mapping;   // that mapping, as SDL has it
-    bool saved{};          // gamecontrollerdb.txt in the data directory has one for it
+    bool gamepad{};      // SDL has a mapping: the game and the menu can read it
+    std::string mapping; // that mapping, as SDL has it
+    bool saved{};        // gamecontrollerdb.txt in the data directory has one for it
     int buttons{};
     int axes{};
     int hats{};

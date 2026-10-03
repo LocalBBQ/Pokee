@@ -25,8 +25,10 @@ void expect(bool condition, const char *what) {
 }
 
 template <typename Handle> Handle make_handle(std::uint64_t value) {
-    if constexpr (std::is_pointer_v<Handle>) return reinterpret_cast<Handle>(static_cast<std::uintptr_t>(value));
-    else return static_cast<Handle>(value);
+    if constexpr (std::is_pointer_v<Handle>)
+        return reinterpret_cast<Handle>(static_cast<std::uintptr_t>(value));
+    else
+        return static_cast<Handle>(value);
 }
 
 // A strict driver: each pool holds maxSets sets and its declared descriptors,
@@ -80,8 +82,8 @@ struct StrictDriver {
 };
 
 const std::vector<VkDescriptorPoolSize> kTexture{{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1u}};
-const std::vector<VkDescriptorPoolSize> kLighting{{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 3u},
-                                                  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2u}};
+const std::vector<VkDescriptorPoolSize> kLighting{
+    {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 3u}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2u}};
 
 void test_grows_instead_of_failing() {
     StrictDriver strict;
@@ -119,7 +121,7 @@ void test_limit() {
     expect(e == VK_NULL_HANDLE, "the fifth set fails at the limit");
     expect(error.find("texture sets") != std::string::npos, "the error names the pools");
     expect(error.find("VK_ERROR_OUT_OF_POOL_MEMORY (-1000069000)") != std::string::npos,
-           "the error names the result and its number");
+        "the error names the result and its number");
     pools.free(b);
     expect(pools.allocate(error) != VK_NULL_HANDLE, "a freed set makes room again");
     pools.destroy();
@@ -175,7 +177,7 @@ void test_free_of_unknown_and_after_destroy() {
     pools.create(strict.driver(), {"texture sets", kTexture, 2u, 2u}, error);
     VkDescriptorSet set = pools.allocate(error);
     pools.destroy();
-    pools.free(set);  // the pool is gone: nothing to give back to
+    pools.free(set); // the pool is gone: nothing to give back to
     expect(set == VK_NULL_HANDLE, "a set freed after destroy() is only cleared");
     VkDescriptorSet null_set = VK_NULL_HANDLE;
     pools.free(null_set);

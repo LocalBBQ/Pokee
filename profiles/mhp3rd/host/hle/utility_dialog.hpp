@@ -40,9 +40,12 @@ public:
     // Returns the status to report for this poll, then advances it.
     std::uint32_t poll() noexcept {
         const std::uint32_t reported = status_;
-        if (status_ == dialog_status::kInit) status_ = dialog_status::kVisible;
-        else if (status_ == dialog_status::kVisible) status_ = dialog_status::kQuit;
-        else if (status_ == dialog_status::kFinished) status_ = dialog_status::kNone;
+        if (status_ == dialog_status::kInit)
+            status_ = dialog_status::kVisible;
+        else if (status_ == dialog_status::kVisible)
+            status_ = dialog_status::kQuit;
+        else if (status_ == dialog_status::kFinished)
+            status_ = dialog_status::kNone;
         return reported;
     }
 

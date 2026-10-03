@@ -21,8 +21,8 @@ public:
     struct Options {
         // Files listed unless the player asks for all, as lower-case extensions.
         std::vector<std::string> extensions{".iso"};
-        std::string filter_name{".iso"};          // "Showing .iso only"
-        std::string listed_name{".iso images"};   // "only .iso images are listed"
+        std::string filter_name{".iso"};        // "Showing .iso only"
+        std::string listed_name{".iso images"}; // "only .iso images are listed"
         std::string empty_note{"No folders or disc images here."};
         // A row that chooses the folder being shown, with this label; none when empty.
         std::string choose_folder;
@@ -51,7 +51,7 @@ private:
         std::filesystem::path path;
         std::string name;
         bool directory{};
-        bool choosable{};  // a folder chosen when opened, or a listed file
+        bool choosable{}; // a folder chosen when opened, or a listed file
         std::uint64_t size{};
     };
     struct Place {

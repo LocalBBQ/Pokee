@@ -120,11 +120,9 @@ public:
 
     private:
         friend class GuestMemory;
-        AotFastView(GuestMemory *owner, std::uint8_t *ram_data,
-                    std::uint32_t limit8, std::uint32_t limit16,
-                    std::uint32_t limit32, bool write_watch) noexcept
-            : owner_(owner), ram_data_(ram_data), ram_limit8_(limit8),
-              ram_limit16_(limit16), ram_limit32_(limit32),
+        AotFastView(GuestMemory *owner, std::uint8_t *ram_data, std::uint32_t limit8, std::uint32_t limit16,
+            std::uint32_t limit32, bool write_watch) noexcept
+            : owner_(owner), ram_data_(ram_data), ram_limit8_(limit8), ram_limit16_(limit16), ram_limit32_(limit32),
               write_watch_enabled_(write_watch) {}
         [[nodiscard]] PSPRECOMP_MEMORY_FAST_PATH static constexpr std::uint32_t ram_offset_of_fast(
             std::uint32_t address) noexcept {
@@ -139,8 +137,7 @@ public:
     };
 
     [[nodiscard]] PSPRECOMP_MEMORY_FAST_PATH AotFastView aot_fast_view() noexcept {
-        return AotFastView(this, ram_data_, ram_limit8_, ram_limit16_, ram_limit32_,
-                           write_watch_enabled_);
+        return AotFastView(this, ram_data_, ram_limit8_, ram_limit16_, ram_limit32_, write_watch_enabled_);
     }
 
     // Fast paths used only by statically generated AOT code. They retain
@@ -215,8 +212,7 @@ public:
     // match (for example distance=1) can expand to a long repeated run.
     // Generated AOT can use this for verified overlap-aware match-copy loops such as
     // hot guest loops instead of executing one translated load/store per byte.
-    void aot_copy_lz_match(std::uint32_t destination, std::uint32_t source,
-                           std::uint32_t length);
+    void aot_copy_lz_match(std::uint32_t destination, std::uint32_t source, std::uint32_t length);
 
     // Direct pointer to `length` contiguous bytes, or nullptr when the range is
     // not wholly inside one region.  The software rasterizer resolves the frame
@@ -278,8 +274,8 @@ private:
         std::uint32_t value{};
         std::memcpy(&value, source, sizeof(value));
         if constexpr (std::endian::native == std::endian::big)
-            value = ((value >> 24u) & 0x000000FFu) | ((value >> 8u) & 0x0000FF00u) |
-                    ((value << 8u) & 0x00FF0000u) | ((value << 24u) & 0xFF000000u);
+            value = ((value >> 24u) & 0x000000FFu) | ((value >> 8u) & 0x0000FF00u) | ((value << 8u) & 0x00FF0000u) |
+                ((value << 24u) & 0xFF000000u);
         return value;
     }
     PSPRECOMP_MEMORY_FAST_PATH static void write_le16(std::uint8_t *destination, std::uint16_t value) noexcept {
@@ -289,8 +285,8 @@ private:
     }
     PSPRECOMP_MEMORY_FAST_PATH static void write_le32(std::uint8_t *destination, std::uint32_t value) noexcept {
         if constexpr (std::endian::native == std::endian::big)
-            value = ((value >> 24u) & 0x000000FFu) | ((value >> 8u) & 0x0000FF00u) |
-                    ((value << 8u) & 0x00FF0000u) | ((value << 24u) & 0xFF000000u);
+            value = ((value >> 24u) & 0x000000FFu) | ((value >> 8u) & 0x0000FF00u) | ((value << 8u) & 0x00FF0000u) |
+                ((value << 24u) & 0xFF000000u);
         std::memcpy(destination, &value, sizeof(value));
     }
 

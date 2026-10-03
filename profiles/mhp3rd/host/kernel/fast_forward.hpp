@@ -31,9 +31,9 @@ inline constexpr std::uint32_t kDefaultSpeed = 3u;
 
 // What keeps real time whatever the bind says, sampled at each update.
 struct Guards {
-    bool available{};  // there is a window, and Game speed is Normal
-    bool online{};     // ad hoc networking is on, or a session is going
-    bool menu{};       // the menu is open over the running game
+    bool available{}; // there is a window, and Game speed is Normal
+    bool online{};    // ad hoc networking is on, or a session is going
+    bool menu{};      // the menu is open over the running game
 };
 
 enum class Reason { None, Released, Off, Unavailable, Online, Menu };

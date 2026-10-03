@@ -47,7 +47,9 @@ std::optional<std::vector<std::uint8_t>> read_file(const fs::path &path) {
 
 // A path as UTF-8, for messages and names; path::string() can throw on
 // Windows for names outside the system code page.
-std::string text(const fs::path &path) { return path_to_utf8(path); }
+std::string text(const fs::path &path) {
+    return path_to_utf8(path);
+}
 
 bool has_param_sfo(const fs::path &folder) {
     std::error_code ec;
@@ -124,7 +126,7 @@ bool same_folder(const fs::path &a, const fs::path &b) {
 
 bool is_game_save_name(std::string_view folder_name) {
     return std::find(std::begin(kSaveFolderNames), std::end(kSaveFolderNames), folder_name) !=
-           std::end(kSaveFolderNames);
+        std::end(kSaveFolderNames);
 }
 
 std::string save_label(std::string_view folder_name) {
@@ -231,8 +233,8 @@ SaveCheck check_save_folder(const fs::path &folder, const std::optional<Block> &
                 name.push_back(static_cast<char>((*list)[offset + i]));
             if (name.empty()) continue;
             Block hash{};
-            std::copy_n(list->begin() + static_cast<std::ptrdiff_t>(offset + kFileListNameSize), hash.size(),
-                        hash.begin());
+            std::copy_n(
+                list->begin() + static_cast<std::ptrdiff_t>(offset + kFileListNameSize), hash.size(), hash.begin());
             listed.emplace_back(std::move(name), hash);
         }
     }
@@ -325,7 +327,7 @@ ImportResult import_save(const SaveCheck &save, const fs::path &memory_stick, co
     // the save in use untouched.
     std::error_code ec;
     const fs::path staging = root / (".import-" + save.name);
-    fs::remove_all(staging, ec);  // a partial copy left by an earlier failed import
+    fs::remove_all(staging, ec); // a partial copy left by an earlier failed import
     std::string error;
     if (!copy_folder_files(save.folder, staging, error)) {
         fs::remove_all(staging, ec);
@@ -336,8 +338,10 @@ ImportResult import_save(const SaveCheck &save, const fs::path &memory_stick, co
     if (fs::exists(result.destination, ec)) {
         fs::create_directories(backup_dir, ec);
         const fs::path backup = backup_dir / save.name;
-        if (!ec && !fs::exists(backup, ec)) fs::rename(result.destination, backup, ec);
-        else if (!ec) ec = std::make_error_code(std::errc::file_exists);
+        if (!ec && !fs::exists(backup, ec))
+            fs::rename(result.destination, backup, ec);
+        else if (!ec)
+            ec = std::make_error_code(std::errc::file_exists);
         if (ec) {
             fs::remove_all(staging, ec);
             result.error = "cannot move the current save aside: " + ec.message();
@@ -362,8 +366,8 @@ ImportResult import_save(const SaveCheck &save, const fs::path &memory_stick, co
     return result;
 }
 
-ExportResult export_saves(const fs::path &memory_stick, const fs::path &target,
-                          std::chrono::system_clock::time_point time) {
+ExportResult export_saves(
+    const fs::path &memory_stick, const fs::path &target, std::chrono::system_clock::time_point time) {
     ExportResult result;
     const fs::path root = memory_stick / "PSP" / "SAVEDATA";
     std::vector<std::string> names;
@@ -467,8 +471,8 @@ std::string release_of(std::string_view describe) {
     const std::string_view count = describe.substr(count_dash + 1, hash_dash - count_dash - 1);
     const auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
     const auto is_hex = [&](char c) { return is_digit(c) || (c >= 'a' && c <= 'f'); };
-    const bool looks_like_hash = hash.size() >= 5 && hash[0] == 'g' &&
-                                 std::all_of(hash.begin() + 1, hash.end(), is_hex);
+    const bool looks_like_hash =
+        hash.size() >= 5 && hash[0] == 'g' && std::all_of(hash.begin() + 1, hash.end(), is_hex);
     const bool looks_like_count = !count.empty() && std::all_of(count.begin(), count.end(), is_digit);
     if (!looks_like_hash || !looks_like_count) return std::string(describe);
     return std::string(describe.substr(0, count_dash));

@@ -38,19 +38,19 @@ void add_render_time(Clock::duration duration);
 // towards "wait"; the copies are CPU work inside "render" that reads memory
 // the GPU wrote, which can be slow when that memory is not cached.
 enum class Stall : std::uint8_t {
-    Fence,     // the frame fence, before recording the next frame
-    Acquire,   // vkAcquireNextImageKHR
-    Submit,    // the frame's vkQueueSubmit (MoltenVK waits for a drawable here)
-    Present,   // vkQueuePresentKHR
-    Upload,    // a texture upload waiting for the queue to go idle
-    Evict,     // the queue idle wait before a cached texture is destroyed
-    Readback,  // a framebuffer read back for a GE block transfer
-    Idle,      // other device or queue idle waits: settings changes, captures
-    Pacing,    // the kernel holding the game to real time
-    Copy,      // copying the written-back frame out of mapped memory
-    Store,     // converting that frame into guest memory (store_frame)
-    Pipeline,  // creating a graphics pipeline the frame needs (CPU work inside "render")
-    Decode,    // waiting at the frame's submit for textures decoded in the background
+    Fence,    // the frame fence, before recording the next frame
+    Acquire,  // vkAcquireNextImageKHR
+    Submit,   // the frame's vkQueueSubmit (MoltenVK waits for a drawable here)
+    Present,  // vkQueuePresentKHR
+    Upload,   // a texture upload waiting for the queue to go idle
+    Evict,    // the queue idle wait before a cached texture is destroyed
+    Readback, // a framebuffer read back for a GE block transfer
+    Idle,     // other device or queue idle waits: settings changes, captures
+    Pacing,   // the kernel holding the game to real time
+    Copy,     // copying the written-back frame out of mapped memory
+    Store,    // converting that frame into guest memory (store_frame)
+    Pipeline, // creating a graphics pipeline the frame needs (CPU work inside "render")
+    Decode,   // waiting at the frame's submit for textures decoded in the background
     Count,
 };
 [[nodiscard]] const char *stall_name(Stall kind);
@@ -108,24 +108,24 @@ void set_display_info(const std::string &present_mode, std::uint32_t width, std:
 // Averages over the last whole second of real time.
 struct Summary {
     bool valid{};
-    std::uint64_t second{};   // counts the summaries, so a reader can tell a new one
-    double fps{};             // presents per real second
-    double game_fps{};        // guest flips per emulated second
-    double speed{};           // emulated time per real time, 1.0 = real time
-    double lists{};           // display lists enqueued per real second
-    double draws{};           // GE draws per frame
-    double recorded_draws{};  // Vulkan draw calls per frame
-    double passes{};          // render passes per frame, presents between flips included
-    double cleared_passes{};  // of those, begun without loading what a clear overwrites
-    double copies{};          // full-size render target copies and blits per frame
+    std::uint64_t second{};  // counts the summaries, so a reader can tell a new one
+    double fps{};            // presents per real second
+    double game_fps{};       // guest flips per emulated second
+    double speed{};          // emulated time per real time, 1.0 = real time
+    double lists{};          // display lists enqueued per real second
+    double draws{};          // GE draws per frame
+    double recorded_draws{}; // Vulkan draw calls per frame
+    double passes{};         // render passes per frame, presents between flips included
+    double cleared_passes{}; // of those, begun without loading what a clear overwrites
+    double copies{};         // full-size render target copies and blits per frame
     double frame_avg_ms{};
     double frame_max_ms{};
     double guest_ms{};
     double render_ms{};
     double wait_ms{};
-    double pacing_ms{};       // of wait: holding the game to real time, when it had nothing to do
+    double pacing_ms{}; // of wait: holding the game to real time, when it had nothing to do
     double overlay_ms{};
-    double frame_rate{};      // frame interpolation's rate now and the setting's, 0 when off
+    double frame_rate{}; // frame interpolation's rate now and the setting's, 0 when off
     double requested_rate{};
     // GPU time per frame from timestamp queries, when the device has them.
     bool gpu_valid{};
@@ -135,7 +135,7 @@ struct Summary {
     std::uint32_t width{};
     std::uint32_t height{};
     float refresh_hz{};
-    double vertex_mib{};      // the most one frame took of the vertex buffer, 0 when unknown
+    double vertex_mib{}; // the most one frame took of the vertex buffer, 0 when unknown
     double index_mib{};
 };
 [[nodiscard]] const Summary &last_second();
@@ -146,7 +146,18 @@ struct Summary {
 // "alt off" for the second it covers. Names: direct, lookup, reuse, merge,
 // store, decode, alpha, uploads, clearload, gpudecode, texturedecode.
 enum class NewPath : std::uint8_t {
-    Direct, Lookup, Reuse, Merge, Store, Decode, Alpha, Uploads, ClearLoad, GpuDecode, TextureDecode, Count
+    Direct,
+    Lookup,
+    Reuse,
+    Merge,
+    Store,
+    Decode,
+    Alpha,
+    Uploads,
+    ClearLoad,
+    GpuDecode,
+    TextureDecode,
+    Count
 };
 // True while `path` is to take its old route this second.
 [[nodiscard]] bool alternate_off(NewPath path);
@@ -168,7 +179,17 @@ enum class NewPath : std::uint8_t {
 //   Writeback: storing the shown frame into guest memory
 //   Summary:   of Draw, what interpolation keeps of each draw
 enum class Split : std::uint8_t {
-    Lists, Decode, Draw, Texture, Record, Summary, Interp, Replay, Present, Writeback, Count
+    Lists,
+    Decode,
+    Draw,
+    Texture,
+    Record,
+    Summary,
+    Interp,
+    Replay,
+    Present,
+    Writeback,
+    Count
 };
 [[nodiscard]] bool split_enabled() noexcept;
 [[nodiscard]] std::uint64_t split_ticks() noexcept;

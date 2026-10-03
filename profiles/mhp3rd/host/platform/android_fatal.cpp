@@ -36,8 +36,8 @@ std::string log_folder_name() {
 } // namespace
 
 std::string system_summary() {
-    std::string text = "Android " + property("ro.build.version.release") + " (API " +
-                       std::to_string(SDL_GetAndroidSDKVersion()) + ")";
+    std::string text =
+        "Android " + property("ro.build.version.release") + " (API " + std::to_string(SDL_GetAndroidSDKVersion()) + ")";
     const std::string maker = property("ro.product.manufacturer");
     const std::string model = property("ro.product.model");
     if (!maker.empty() || !model.empty()) text += ", " + maker + (maker.empty() ? "" : " ") + model;
@@ -76,8 +76,7 @@ void fatal_error(const std::string &title, const std::string &text, int exit_cod
     const fs::path storage = storage_text != nullptr ? fs::path(storage_text) : fs::path();
     if (!storage.empty()) {
         std::error_code ec;
-        fs::copy_file(storage / "yakumo.log", storage / "yakumo-fatal.log", fs::copy_options::overwrite_existing,
-                      ec);
+        fs::copy_file(storage / "yakumo.log", storage / "yakumo-fatal.log", fs::copy_options::overwrite_existing, ec);
     }
 
     enum : int { kSave = 1, kClose = 2 };
@@ -100,9 +99,12 @@ void fatal_error(const std::string &title, const std::string &text, int exit_cod
         if (!SDL_ShowMessageBox(&box, &pressed)) break;
         if (pressed != kSave) break;
         const std::optional<SavedLogs> saved = save_logs(storage, log_folder_name());
-        if (!saved) note = "The log was not saved: no folder was chosen.";
-        else if (!saved->error.empty()) note = "The log was not saved: " + saved->error + ".";
-        else note = "The log was saved to " + saved->where + ".\n\nPlease attach it to your report.";
+        if (!saved)
+            note = "The log was not saved: no folder was chosen.";
+        else if (!saved->error.empty())
+            note = "The log was not saved: " + saved->error + ".";
+        else
+            note = "The log was saved to " + saved->where + ".\n\nPlease attach it to your report.";
         std::cout << "[fatal] " << note << "\n" << std::flush;
     }
     std::fflush(stdout);

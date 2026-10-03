@@ -34,7 +34,7 @@ struct DrawCall;
 // in the picture from anywhere else either: see the profile README.
 namespace mhp3rd::camera {
 
-using Matrix = std::array<float, 16>;  // column major, as the GE's matrices are expanded
+using Matrix = std::array<float, 16>; // column major, as the GE's matrices are expanded
 
 // Where the camera is and where it looks. Yaw 0 looks along +z, and yaw grows
 // towards +x; pitch looks up when positive. Degrees. No roll.
@@ -53,9 +53,9 @@ struct FreePose {
 
 // What to do in one step, from any device.
 struct FlyInput {
-    float right{};    // -1..1: strafe
-    float forward{};  // -1..1: along where the camera looks, up and down included
-    float up{};       // -1..1: straight up or down
+    float right{};   // -1..1: strafe
+    float forward{}; // -1..1: along where the camera looks, up and down included
+    float up{};      // -1..1: straight up or down
     // Degrees to turn: positive yaw turns right and positive pitch looks down,
     // as camera_input.hpp counts them.
     float yaw_degrees{};
@@ -76,9 +76,9 @@ inline constexpr float kFreePitchLimit = 89.0f;
 // --- The running free camera ------------------------------------------------
 
 struct FreeCameraStatus {
-    bool active{};  // flying
-    bool paused{};  // flying in the photo mode, the game stood still
-    float speed{};  // units a second
+    bool active{}; // flying
+    bool paused{}; // flying in the photo mode, the game stood still
+    float speed{}; // units a second
     // Draws given the free camera's view and draws left as the game made
     // them during the last game frame, for the indicator and the trace.
     std::uint32_t moved_draws{};
@@ -95,7 +95,7 @@ struct FreeCameraRequest {
     int speed_steps{};
     bool fast{};
     bool slow{};
-    FlyInput input;  // look already in degrees; movement as fractions
+    FlyInput input; // look already in degrees; movement as fractions
 };
 
 // Once per game flip, and once per shown frame while the photo mode holds

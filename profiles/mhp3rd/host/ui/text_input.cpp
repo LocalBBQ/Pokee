@@ -84,7 +84,8 @@ std::u32string decode_utf8(const std::string &text) {
             c = byte & 0x1Fu;
         }
         ++i;
-        for (int k = 0; k < extra && i < text.size(); ++k, ++i) c = (c << 6u) | (static_cast<unsigned char>(text[i]) & 0x3Fu);
+        for (int k = 0; k < extra && i < text.size(); ++k, ++i)
+            c = (c << 6u) | (static_cast<unsigned char>(text[i]) & 0x3Fu);
         out.push_back(c);
     }
     return out;
@@ -136,15 +137,21 @@ Keyboard &keyboard() {
     return value;
 }
 
-float font() { return Layer::get().font_size(); }
-float px(float value) { return std::round(value * Layer::get().scale()); }
+float font() {
+    return Layer::get().font_size();
+}
+float px(float value) {
+    return std::round(value * Layer::get().scale());
+}
 
 bool allowed(char32_t c) {
     const Keyboard &k = keyboard();
     return k.request.allowed ? k.request.allowed(c) : printable_ascii(c);
 }
 
-bool steam_keyboard_available() { return SDL_HasScreenKeyboardSupport(); }
+bool steam_keyboard_available() {
+    return SDL_HasScreenKeyboardSupport();
+}
 
 // The whole grid for the current page: four rows of characters and a row of
 // actions.
@@ -153,7 +160,7 @@ std::vector<Row> grid() {
     const auto &page = k.symbols ? symbol_rows() : letter_rows();
     std::vector<Row> rows(page.begin(), page.end());
     Row actions{{KeyKind::Shift, 0, 0, 1.5f}, {KeyKind::Symbols, 0, 0, 1.5f}, {KeyKind::Space, 0, 0, 2.5f},
-                {KeyKind::Delete, 0, 0, 1.5f}};
+        {KeyKind::Delete, 0, 0, 1.5f}};
     if (steam_keyboard_available()) actions.push_back({KeyKind::SteamKeyboard, 0, 0, 1.5f});
     actions.push_back({KeyKind::Cancel, 0, 0, 1.5f});
     actions.push_back({KeyKind::Ok, 0, 0, 1.5f});
@@ -182,7 +189,7 @@ void stop_system_text_input() {
     SDL_Window *window = Layer::get().renderer().window();
     if (window != nullptr && SDL_TextInputActive(window)) SDL_StopTextInput(window);
     SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD,
-                k.saved_screen_keyboard_hint.empty() ? nullptr : k.saved_screen_keyboard_hint.c_str());
+        k.saved_screen_keyboard_hint.empty() ? nullptr : k.saved_screen_keyboard_hint.c_str());
     k.steam_keyboard = false;
 }
 
@@ -247,21 +254,37 @@ void move_cursor(int delta) {
 void cycle_shift() {
     Keyboard &k = keyboard();
     k.shift = k.shift == ShiftState::Off ? ShiftState::Once
-              : k.shift == ShiftState::Once ? ShiftState::Locked
-                                            : ShiftState::Off;
+        : k.shift == ShiftState::Once    ? ShiftState::Locked
+                                         : ShiftState::Off;
 }
 
 void press(const Key &key) {
     Keyboard &k = keyboard();
     switch (key.kind) {
-    case KeyKind::Char: type(key_char(key)); break;
-    case KeyKind::Shift: cycle_shift(); break;
-    case KeyKind::Symbols: k.symbols = !k.symbols; break;
-    case KeyKind::Space: type(U' '); break;
-    case KeyKind::Delete: erase_before_cursor(); break;
-    case KeyKind::SteamKeyboard: start_system_text_input(true); break;
-    case KeyKind::Cancel: finish(false); break;
-    case KeyKind::Ok: finish(true); break;
+    case KeyKind::Char:
+        type(key_char(key));
+        break;
+    case KeyKind::Shift:
+        cycle_shift();
+        break;
+    case KeyKind::Symbols:
+        k.symbols = !k.symbols;
+        break;
+    case KeyKind::Space:
+        type(U' ');
+        break;
+    case KeyKind::Delete:
+        erase_before_cursor();
+        break;
+    case KeyKind::SteamKeyboard:
+        start_system_text_input(true);
+        break;
+    case KeyKind::Cancel:
+        finish(false);
+        break;
+    case KeyKind::Ok:
+        finish(true);
+        break;
     }
 }
 
@@ -309,14 +332,22 @@ void move_selection(int dx, int dy) {
 const char *action_label(KeyKind kind) {
     const Keyboard &k = keyboard();
     switch (kind) {
-    case KeyKind::Shift: return k.shift == ShiftState::Locked ? "CAPS" : "Shift";
-    case KeyKind::Symbols: return k.symbols ? "abc" : "#+=";
-    case KeyKind::Space: return "Space";
-    case KeyKind::Delete: return "Delete";
-    case KeyKind::SteamKeyboard: return "Steam";
-    case KeyKind::Cancel: return "Cancel";
-    case KeyKind::Ok: return "OK";
-    case KeyKind::Char: break;
+    case KeyKind::Shift:
+        return k.shift == ShiftState::Locked ? "CAPS" : "Shift";
+    case KeyKind::Symbols:
+        return k.symbols ? "abc" : "#+=";
+    case KeyKind::Space:
+        return "Space";
+    case KeyKind::Delete:
+        return "Delete";
+    case KeyKind::SteamKeyboard:
+        return "Steam";
+    case KeyKind::Cancel:
+        return "Cancel";
+    case KeyKind::Ok:
+        return "OK";
+    case KeyKind::Char:
+        break;
     }
     return "";
 }
@@ -394,7 +425,10 @@ void draw_field(ImDrawList *draw, float width) {
     const ImVec2 counter_size = ImGui::CalcTextSize(counter);
     const float pad = px(14.0f);
     draw->AddText({max.x - pad - counter_size.x, min.y + (height - counter_size.y) * 0.5f},
-                  refused ? colors::kDanger : full ? colors::kAccent : colors::kTextDim, counter);
+        refused    ? colors::kDanger
+            : full ? colors::kAccent
+                   : colors::kTextDim,
+        counter);
 
     const float scale = 1.25f;
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * scale);
@@ -443,8 +477,8 @@ void draw_grid(ImDrawList *draw, const std::vector<Row> &rows, float width) {
                 if (key.kind == KeyKind::Space) enabled = allowed(U' ');
             }
             const bool lit = (key.kind == KeyKind::Shift && k.shift != ShiftState::Off) ||
-                             (key.kind == KeyKind::Symbols && k.symbols) ||
-                             (key.kind == KeyKind::SteamKeyboard && k.steam_keyboard) || key.kind == KeyKind::Ok;
+                (key.kind == KeyKind::Symbols && k.symbols) ||
+                (key.kind == KeyKind::SteamKeyboard && k.steam_keyboard) || key.kind == KeyKind::Ok;
             ImU32 fill = key.kind == KeyKind::Char ? colors::kRow : colors::kTrack;
             ImU32 ink = enabled ? colors::kText : colors::kTextDisabled;
             if (lit) {
@@ -457,13 +491,13 @@ void draw_grid(ImDrawList *draw, const std::vector<Row> &rows, float width) {
             if (selected) {
                 if (!lit) draw->AddRectFilled(min, max, colors::kRowFocus, rounding);
                 draw->AddRect({min.x - px(2.0f), min.y - px(2.0f)}, {max.x + px(2.0f), max.y + px(2.0f)},
-                              colors::kAccentBright, rounding + px(2.0f), 0, px(2.0f));
+                    colors::kAccentBright, rounding + px(2.0f), 0, px(2.0f));
             }
             const bool big = key.kind == KeyKind::Char;
             ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * (big ? 1.2f : 0.9f));
             const ImVec2 size = ImGui::CalcTextSize(label.c_str());
-            draw->AddText({min.x + (max.x - min.x - size.x) * 0.5f, min.y + (max.y - min.y - size.y) * 0.5f}, ink,
-                          label.c_str());
+            draw->AddText(
+                {min.x + (max.x - min.x - size.x) * 0.5f, min.y + (max.y - min.y - size.y) * 0.5f}, ink, label.c_str());
             ImGui::PopFont();
             if (clicked) {
                 k.row = static_cast<int>(r);
@@ -479,7 +513,9 @@ void draw_grid(ImDrawList *draw, const std::vector<Row> &rows, float width) {
 
 } // namespace
 
-bool printable_ascii(char32_t c) { return c >= 0x20u && c < 0x7Fu; }
+bool printable_ascii(char32_t c) {
+    return c >= 0x20u && c < 0x7Fu;
+}
 
 bool hunter_name_character(char32_t c) {
     if ((c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z') || (c >= U'0' && c <= U'9')) return true;
@@ -493,9 +529,13 @@ void open_text_input(TextInputRequest request, TextInputDone on_done) {
     begin(std::move(request), std::move(on_done), false);
 }
 
-bool text_input_open() { return keyboard().open; }
+bool text_input_open() {
+    return keyboard().open;
+}
 
-void cancel_text_input() { finish(false); }
+void cancel_text_input() {
+    finish(false);
+}
 
 bool open_game_text_input(TextInputRequest request, TextInputDone on_done) {
     Layer &layer = Layer::get();
@@ -527,8 +567,8 @@ void text_input_frame() {
     ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f}, ImGuiCond_Always, {0.5f, 0.5f});
     ImGui::SetNextWindowSize({width, 0.0f}, ImGuiCond_Always);
     ImGui::Begin("##keyboard", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollWithMouse);
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const float inner = ImGui::GetContentRegionAvail().x;
 
@@ -538,8 +578,8 @@ void text_input_frame() {
     ImGui::PopStyleColor();
     ImGui::PopFont();
     const ImVec2 line = ImGui::GetCursorScreenPos();
-    draw->AddRectFilledMultiColor(line, {line.x + inner, line.y + px(2.0f)}, colors::kAccent,
-                                  IM_COL32(143, 93, 36, 0), IM_COL32(143, 93, 36, 0), colors::kAccent);
+    draw->AddRectFilledMultiColor(line, {line.x + inner, line.y + px(2.0f)}, colors::kAccent, IM_COL32(143, 93, 36, 0),
+        IM_COL32(143, 93, 36, 0), colors::kAccent);
     ImGui::Dummy({0.0f, px(8.0f)});
     if (!k.request.prompt.empty()) {
         paragraph(k.request.prompt, colors::kTextDim);
@@ -554,18 +594,16 @@ void text_input_frame() {
     }
 
     draw->AddLine({line.x, ImGui::GetCursorScreenPos().y}, {line.x + inner, ImGui::GetCursorScreenPos().y},
-                  IM_COL32(143, 93, 36, 90), px(1.0f));
+        IM_COL32(143, 93, 36, 90), px(1.0f));
     ImGui::Dummy({0.0f, px(8.0f)});
     if (layer.input_device() == InputDevice::Gamepad) {
-        hints({{Control::Confirm, "Type"},
-               {Control::Delete, "Delete"},
-               {Control::Shift, "Shift"},
-               {Control::Space, "Space"}});
+        hints({{Control::Confirm, "Type"}, {Control::Delete, "Delete"}, {Control::Shift, "Shift"},
+            {Control::Space, "Space"}});
         ImGui::Dummy({0.0f, px(4.0f)});
         hints({{Control::Cursor, "Cursor"}, {Control::Symbols, "Symbols"}, {Control::Start, "OK"}});
     } else {
         hints({{Control::Start, "OK"}, {Control::Back, "Cancel"}, {Control::Delete, "Delete"},
-               {Control::Cursor, "Cursor"}});
+            {Control::Cursor, "Cursor"}});
     }
     ImGui::End();
 }

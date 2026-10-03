@@ -18,13 +18,11 @@
 #include <sstream>
 #include <thread>
 
-
 namespace mhp3rd::adhoc {
 
 std::string format_mac(const Mac &mac) {
     char text[18];
-    std::snprintf(text, sizeof(text), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
-                  mac[5]);
+    std::snprintf(text, sizeof(text), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     return text;
 }
 
@@ -162,8 +160,7 @@ std::atomic<bool> &tracing_flag() {
 std::string wall_clock() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
-    const auto millis =
-        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+    const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
     std::tm tm{};
 #if defined(_WIN32)
     localtime_s(&tm, &seconds);
@@ -171,15 +168,19 @@ std::string wall_clock() {
     localtime_r(&seconds, &tm);
 #endif
     char text[32];
-    std::snprintf(text, sizeof(text), "%02d:%02d:%02d.%03d", tm.tm_hour, tm.tm_min, tm.tm_sec,
-                  static_cast<int>(millis));
+    std::snprintf(
+        text, sizeof(text), "%02d:%02d:%02d.%03d", tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(millis));
     return text;
 }
 
 // Network events always go to the log buffer; to the console only while
 // tracing, unless they are reports a player should see.
-void trace(const std::string &line) { Client::log("[adhoc-net] " + line, false); }
-void report(const std::string &line) { Client::log("[adhoc] " + line, true); }
+void trace(const std::string &line) {
+    Client::log("[adhoc-net] " + line, false);
+}
+void report(const std::string &line) {
+    Client::log("[adhoc] " + line, true);
+}
 
 // Retry delays that double from `first` up to `limit`.
 struct Backoff {
@@ -197,12 +198,12 @@ struct Backoff {
 // One TCP connection to the server.
 struct Link {
     Socket socket{kNoSocket};
-    bool open{};         // the TCP connection is up
-    bool failed{};       // closed by the server, refused, or broken
+    bool open{};   // the TCP connection is up
+    bool failed{}; // closed by the server, refused, or broken
     std::string input;
     std::string output;
     Clock::time_point started{};
-    Clock::time_point last_write{};  // last time output shrank or was empty
+    Clock::time_point last_write{}; // last time output shrank or was empty
     bool pause_reading{};
 
     [[nodiscard]] bool active() const { return socket != kNoSocket; }
@@ -301,8 +302,10 @@ struct Link {
             fail();
             return;
         }
-        if (output.empty()) last_write = now;
-        else if (now - last_write > kStallTimeout) fail();
+        if (output.empty())
+            last_write = now;
+        else if (now - last_write > kStallTimeout)
+            fail();
     }
 };
 
@@ -336,7 +339,7 @@ struct StreamSocket {
     std::uint16_t peer_port{};
     std::size_t capacity{};
     Link link;
-    bool notice_seen{};       // the relay's "established" notice
+    bool notice_seen{}; // the relay's "established" notice
     std::string received;
     std::uint64_t sent_total{};
     std::uint64_t received_total{};
@@ -364,17 +367,17 @@ struct Client::Impl {
     // What the game asked for.
     bool active{};
     Identity identity;
-    std::uint64_t generation{};  // bumps on start() so a stale resolution is ignored
+    std::uint64_t generation{}; // bumps on start() so a stale resolution is ignored
 
     // Server connection.
     std::vector<Address> addresses;
     std::size_t address_index{};
     bool resolving{};
-    std::optional<Address> server;  // the adhocctl address that last worked
+    std::optional<Address> server; // the adhocctl address that last worked
     std::uint16_t relay_port{kRelayPort};
     Link ctl;
     bool logged_in{};
-    bool stop_ctl{};  // close `ctl` on the network thread
+    bool stop_ctl{}; // close `ctl` on the network thread
     Backoff ctl_backoff{milliseconds(500), milliseconds(8000)};
     Clock::time_point ctl_retry_at{};
     Clock::time_point last_ping{};
@@ -382,8 +385,8 @@ struct Client::Impl {
 
     // Matchmaking.
     std::optional<std::string> wanted_group;
-    bool joined{};                  // the server confirmed the join in this login
-    bool game_connected{};          // the game was told it is connected
+    bool joined{};         // the server confirmed the join in this login
+    bool game_connected{}; // the game was told it is connected
     std::optional<GroupInfo> current_group;
     std::optional<Clock::time_point> join_started;
     std::optional<Clock::time_point> lost_since;
@@ -418,7 +421,9 @@ struct Client::Impl {
     std::map<int, DatagramSocket> datagrams;
     std::map<int, StreamSocket> streams;
 
-    Impl() { thread = std::thread([this] { run(); }); }
+    Impl() {
+        thread = std::thread([this] { run(); });
+    }
 
     ~Impl() {
         quit = true;
@@ -546,7 +551,7 @@ struct Client::Impl {
             entry.peer.joined_ms = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<milliseconds>(Clock::now().time_since_epoch()).count());
             trace("ctl < connect peer " + format_mac(entry.peer.mac) + " \"" + entry.peer.nickname + "\" id " +
-                  std::to_string(entry.id));
+                std::to_string(entry.id));
             if (entry.peer.mac != identity.mac) {
                 if (!peers.contains(entry.peer.mac)) report("peer joined: " + entry.peer.nickname);
                 peers[entry.peer.mac] = entry;
@@ -612,7 +617,7 @@ struct Client::Impl {
         failed_attempts = 0;
         last_ping = Clock::now();
         report("logged in to " + (server ? server->describe() : std::string("?")) + " as \"" + identity.nickname +
-               "\" " + format_mac(identity.mac));
+            "\" " + format_mac(identity.mac));
         if (wanted_group) {
             clear_group_state();
             send_ctl(ctl::connect(*wanted_group), "connect \"" + *wanted_group + "\"");
@@ -639,7 +644,7 @@ struct Client::Impl {
             }
             ctl_backoff.reset();
             ctl_retry_at = now;
-            addresses.clear();  // resolve again: the address may have changed
+            addresses.clear(); // resolve again: the address may have changed
         }
         if (join_started && !game_connected && now - *join_started > kRequestTimeout) {
             report("could not join group " + wanted_group.value_or("?") + ": the server did not answer");
@@ -666,12 +671,12 @@ struct Client::Impl {
             on_ctl_lost(logged_in ? "closed" : "could not connect");
             if (failed_attempts == 1u || failed_attempts % 10u == 0u)
                 report("cannot reach the ad hoc server " + identity.server + " (attempt " +
-                       std::to_string(failed_attempts) + ")");
+                    std::to_string(failed_attempts) + ")");
             return;
         }
         if (!ctl.active()) {
             if (resolving || now < ctl_retry_at) return;
-            if (addresses.empty()) return;  // run() resolves outside the lock
+            if (addresses.empty()) return; // run() resolves outside the lock
             const Address address = addresses[address_index % addresses.size()];
             trace("connecting to " + address.describe());
             if (!ctl.start(address)) return;
@@ -680,7 +685,7 @@ struct Client::Impl {
         }
         if (ctl.open && !logged_in) {
             send_ctl(ctl::login(identity.mac, identity.nickname, identity.product),
-                     "login " + format_mac(identity.mac) + " \"" + identity.nickname + "\" " + identity.product);
+                "login " + format_mac(identity.mac) + " \"" + identity.nickname + "\" " + identity.product);
             on_logged_in();
         }
         if (logged_in && now - last_ping >= kPingInterval) {
@@ -718,12 +723,11 @@ struct Client::Impl {
                 const auto delay = socket.backoff.next();
                 socket.retry_at = now + delay;
                 trace("pdp " + std::to_string(it->first) + " relay link closed; retry in " +
-                      std::to_string(delay.count()) + " ms");
+                    std::to_string(delay.count()) + " ms");
             }
             if (!socket.link.active() && joined && server && now >= socket.retry_at) {
-                start_relay(socket.link,
-                            relay::init(relay::kInitPdp, identity.mac, socket.port, Mac{}, 0u),
-                            "pdp " + format_mac(identity.mac) + " port " + std::to_string(socket.port));
+                start_relay(socket.link, relay::init(relay::kInitPdp, identity.mac, socket.port, Mac{}, 0u),
+                    "pdp " + format_mac(identity.mac) + " port " + std::to_string(socket.port));
             }
             if (socket.link.open && socket.link.input.empty() && now - socket.link.started > milliseconds(3000))
                 socket.backoff.reset();
@@ -757,7 +761,7 @@ struct Client::Impl {
             datagram.data.assign(in.data() + offset, socket.partial_size);
             offset += socket.partial_size;
             trace("relay < pdp " + std::to_string(handle) + " from " + format_mac(datagram.source) + " port " +
-                  std::to_string(datagram.port) + " size " + std::to_string(datagram.data.size()));
+                std::to_string(datagram.port) + " size " + std::to_string(datagram.data.size()));
             ++traffic.packets_in;
             traffic.bytes_in += datagram.data.size();
             heard[datagram.source] = Clock::now();
@@ -790,12 +794,12 @@ struct Client::Impl {
                     const auto delay = socket.backoff.next();
                     socket.retry_at = now + delay;
                     trace("ptp " + std::to_string(handle) + " listen link closed; retry in " +
-                          std::to_string(delay.count()) + " ms");
+                        std::to_string(delay.count()) + " ms");
                 }
                 if (!socket.link.active() && joined && server && now >= socket.retry_at) {
                     start_relay(socket.link,
-                                relay::init(relay::kInitPtpListen, identity.mac, socket.local_port, Mac{}, 0u),
-                                "ptp listen port " + std::to_string(socket.local_port));
+                        relay::init(relay::kInitPtpListen, identity.mac, socket.local_port, Mac{}, 0u),
+                        "ptp listen port " + std::to_string(socket.local_port));
                 }
                 while (!socket.backlog.empty() && now - socket.backlog.front().arrived > kPendingConnectionLife)
                     socket.backlog.pop_front();
@@ -812,8 +816,8 @@ struct Client::Impl {
                                 socket.state = StreamState::Failed;
                             } else {
                                 --socket.retries_left;
-                                socket.retry_at = now + std::chrono::microseconds(
-                                                            std::max<std::uint64_t>(socket.retry_us, 100'000u));
+                                socket.retry_at =
+                                    now + std::chrono::microseconds(std::max<std::uint64_t>(socket.retry_us, 100'000u));
                                 trace("ptp " + std::to_string(handle) + " not accepted; retrying");
                             }
                         }
@@ -822,10 +826,10 @@ struct Client::Impl {
                         now >= socket.retry_at) {
                         socket.notice_seen = false;
                         start_relay(socket.link,
-                                    relay::init(relay::kInitPtpConnect, identity.mac, socket.local_port, socket.peer,
-                                                socket.peer_port),
-                                    "ptp connect " + std::to_string(socket.local_port) + " -> " +
-                                        format_mac(socket.peer) + " port " + std::to_string(socket.peer_port));
+                            relay::init(
+                                relay::kInitPtpConnect, identity.mac, socket.local_port, socket.peer, socket.peer_port),
+                            "ptp connect " + std::to_string(socket.local_port) + " -> " + format_mac(socket.peer) +
+                                " port " + std::to_string(socket.peer_port));
                     }
                     break;
                 }
@@ -835,10 +839,10 @@ struct Client::Impl {
                     socket.accept_pending = false;
                     if (server)
                         start_relay(socket.link,
-                                    relay::init(relay::kInitPtpAccept, identity.mac, socket.local_port, socket.peer,
-                                                socket.peer_port),
-                                    "ptp accept " + std::to_string(socket.local_port) + " <- " +
-                                        format_mac(socket.peer) + " port " + std::to_string(socket.peer_port));
+                            relay::init(
+                                relay::kInitPtpAccept, identity.mac, socket.local_port, socket.peer, socket.peer_port),
+                            "ptp accept " + std::to_string(socket.local_port) + " <- " + format_mac(socket.peer) +
+                                " port " + std::to_string(socket.peer_port));
                     if (!socket.link.active()) socket.state = StreamState::Disconnected;
                 }
                 if (socket.link.failed) {
@@ -853,7 +857,8 @@ struct Client::Impl {
                 break;
             }
             if (socket.link.active())
-                socket.link.pause_reading = socket.kind != StreamKind::Listen && socket.received.size() >= socket.capacity;
+                socket.link.pause_reading =
+                    socket.kind != StreamKind::Listen && socket.received.size() >= socket.capacity;
             ++it;
         }
     }
@@ -868,8 +873,8 @@ struct Client::Impl {
                 pending.port = wire::get16(in.data() + offset + 8);
                 pending.arrived = Clock::now();
                 offset += relay::kPtpNoticeSize;
-                trace("relay < ptp " + std::to_string(handle) + " connection request from " +
-                      format_mac(pending.mac) + " port " + std::to_string(pending.port));
+                trace("relay < ptp " + std::to_string(handle) + " connection request from " + format_mac(pending.mac) +
+                    " port " + std::to_string(pending.port));
                 if (socket.backlog.size() < std::max<std::size_t>(socket.backlog_limit, 1u))
                     socket.backlog.push_back(pending);
             }
@@ -880,8 +885,8 @@ struct Client::Impl {
             if (in.size() < relay::kPtpNoticeSize) return;
             socket.notice_seen = true;
             offset = relay::kPtpNoticeSize;
-            trace("relay < ptp " + std::to_string(handle) + " established with " + format_mac(wire::get_mac(in.data())) +
-                  " port " + std::to_string(wire::get16(in.data() + 8)));
+            trace("relay < ptp " + std::to_string(handle) + " established with " +
+                format_mac(wire::get_mac(in.data())) + " port " + std::to_string(wire::get16(in.data() + 8)));
             if (socket.state == StreamState::Opening) {
                 socket.state = StreamState::Established;
                 report("stream to " + format_mac(socket.peer) + " established");
@@ -938,15 +943,17 @@ struct Client::Impl {
         d.mac = identity.mac;
         d.product = identity.product;
         d.state = !active || identity.server.empty() ? ServerState::Off
-                  : logged_in                        ? ServerState::Online
+            : logged_in                              ? ServerState::Online
                                                      : ServerState::Connecting;
         d.failed_attempts = failed_attempts;
         d.reconnects = reconnects;
         d.last_error = last_error;
         if (online_since) d.online_ms = ms(*online_since);
         d.rtt_ms = ctl_rtt_ms();
-        if (game_connected && wanted_group) d.group = wanted_group;
-        else if (wanted_group) d.joining = wanted_group;
+        if (game_connected && wanted_group)
+            d.group = wanted_group;
+        else if (wanted_group)
+            d.joining = wanted_group;
         if (lost_since) d.rejoin_ms = ms(*lost_since);
         for (const auto &[mac, entry] : peers) {
             PeerSummary peer;
@@ -972,9 +979,9 @@ struct Client::Impl {
         for (const auto &[handle, socket] : streams) {
             if (socket.closing) continue;
             SocketSummary summary;
-            summary.kind = socket.kind == StreamKind::Listen    ? "PTP listen"
-                           : socket.kind == StreamKind::Connect ? "PTP open"
-                                                                : "PTP accepted";
+            summary.kind = socket.kind == StreamKind::Listen ? "PTP listen"
+                : socket.kind == StreamKind::Connect         ? "PTP open"
+                                                             : "PTP accepted";
             summary.handle = handle;
             summary.port = socket.local_port;
             summary.relay_linked = socket.link.open;
@@ -983,16 +990,25 @@ struct Client::Impl {
                 summary.peer_port = socket.peer_port;
             }
             switch (socket.state) {
-            case StreamState::Closed: summary.state = "closed"; break;
+            case StreamState::Closed:
+                summary.state = "closed";
+                break;
             case StreamState::Listening:
                 summary.state = std::string(socket.link.open ? "listening" : "linking") +
-                                (socket.backlog.empty() ? "" : ", " + std::to_string(socket.backlog.size()) +
-                                                                   " waiting");
+                    (socket.backlog.empty() ? "" : ", " + std::to_string(socket.backlog.size()) + " waiting");
                 break;
-            case StreamState::Opening: summary.state = "connecting"; break;
-            case StreamState::Established: summary.state = "established"; break;
-            case StreamState::Failed: summary.state = "refused"; break;
-            case StreamState::Disconnected: summary.state = "disconnected"; break;
+            case StreamState::Opening:
+                summary.state = "connecting";
+                break;
+            case StreamState::Established:
+                summary.state = "established";
+                break;
+            case StreamState::Failed:
+                summary.state = "refused";
+                break;
+            case StreamState::Disconnected:
+                summary.state = "disconnected";
+                break;
             }
             d.sockets.push_back(summary);
             if (socket.state == StreamState::Listening || socket.state == StreamState::Established ||
@@ -1046,8 +1062,8 @@ struct Client::Impl {
                     if (!link.active()) return;
                     PollEntry entry{};
                     entry.fd = link.socket;
-                    entry.events = static_cast<short>((link.pause_reading ? 0 : POLLIN) |
-                                                      (!link.open || !link.output.empty() ? POLLOUT : 0));
+                    entry.events = static_cast<short>(
+                        (link.pause_reading ? 0 : POLLIN) | (!link.open || !link.output.empty() ? POLLOUT : 0));
                     entries.push_back(entry);
                     links.push_back(&link);
                 };
@@ -1122,7 +1138,9 @@ void Client::shutdown() noexcept {
 Client::Client() : impl_(std::make_unique<Impl>()) {}
 Client::~Client() = default;
 
-bool Client::tracing() { return tracing_flag().load(std::memory_order_relaxed); }
+bool Client::tracing() {
+    return tracing_flag().load(std::memory_order_relaxed);
+}
 
 void Client::set_tracing(bool enabled) {
     tracing_flag() = enabled;
@@ -1187,9 +1205,12 @@ std::filesystem::path Client::save_log(const std::filesystem::path &dir) const {
     if (!out) return {};
     const auto state = [](ServerState value) {
         switch (value) {
-        case ServerState::Off: return "off";
-        case ServerState::Connecting: return "connecting";
-        case ServerState::Online: return "online";
+        case ServerState::Off:
+            return "off";
+        case ServerState::Connecting:
+            return "connecting";
+        case ServerState::Online:
+            return "online";
         }
         return "?";
     };
@@ -1210,8 +1231,8 @@ std::filesystem::path Client::save_log(const std::filesystem::path &dir) const {
             << (socket.peer ? " peer " + format_mac(*socket.peer) + " port " + std::to_string(socket.peer_port) : "")
             << "\n";
     out << "traffic: in " << d.total.packets_in << " packets / " << d.total.bytes_in << " bytes, out "
-        << d.total.packets_out << " packets / " << d.total.bytes_out << " bytes; dropped " << d.dropped
-        << ", timeouts " << d.timeouts << "\n\n";
+        << d.total.packets_out << " packets / " << d.total.bytes_out << " bytes; dropped " << d.dropped << ", timeouts "
+        << d.timeouts << "\n\n";
     for (const std::string &line : lines) out << line << "\n";
     if (!out) return {};
     return path;
@@ -1221,7 +1242,7 @@ void Client::start(const Identity &identity) {
     std::lock_guard lock(impl_->mutex);
     Impl &s = *impl_;
     const bool same = s.active && s.identity.server == identity.server && s.identity.mac == identity.mac &&
-                      s.identity.nickname == identity.nickname && s.identity.product == identity.product;
+        s.identity.nickname == identity.nickname && s.identity.product == identity.product;
     if (same) return;
     s.stop_ctl = true;
     s.logged_in = false;
@@ -1241,8 +1262,10 @@ void Client::start(const Identity &identity) {
     s.lost_since.reset();
     s.clear_group_state();
     s.close_relay_links(true);
-    if (identity.server.empty()) report("no ad hoc server is configured; ad hoc play is offline");
-    else report("using ad hoc server " + identity.server);
+    if (identity.server.empty())
+        report("no ad hoc server is configured; ad hoc play is offline");
+    else
+        report("using ad hoc server " + identity.server);
 }
 
 void Client::stop() {
@@ -1403,7 +1426,7 @@ bool Client::pdp_send(int handle, const Mac &destination, std::uint16_t port, co
         socket.link.output += relay::pdp_header(target, port, static_cast<std::uint32_t>(size));
         socket.link.output.append(static_cast<const char *>(data), size);
         trace("relay > pdp " + std::to_string(handle) + " to " + format_mac(target) + " port " + std::to_string(port) +
-              " size " + std::to_string(size));
+            " size " + std::to_string(size));
     };
     if (destination == kBroadcastMac) {
         for (const auto &[mac, entry] : s.peers) queue(mac);
@@ -1454,7 +1477,7 @@ int Client::ptp_listen(std::uint16_t port, std::size_t capacity, std::size_t bac
 }
 
 int Client::ptp_open(std::uint16_t local_port, const Mac &peer, std::uint16_t peer_port, std::size_t capacity,
-                     std::uint64_t retry_us, std::uint32_t retries) {
+    std::uint64_t retry_us, std::uint32_t retries) {
     std::lock_guard lock(impl_->mutex);
     Impl &s = *impl_;
     if (local_port == 0u) local_port = s.ephemeral_port(true);
@@ -1470,7 +1493,7 @@ int Client::ptp_open(std::uint16_t local_port, const Mac &peer, std::uint16_t pe
     socket.retry_us = retry_us;
     socket.retries_left = retries;
     trace("ptp " + std::to_string(handle) + " open " + std::to_string(local_port) + " -> " + format_mac(peer) +
-          " port " + std::to_string(peer_port));
+        " port " + std::to_string(peer_port));
     return handle;
 }
 
@@ -1518,8 +1541,8 @@ StreamInfo Client::ptp_info(int handle) const {
     // small, so the queue holds at most a block or two, each with a 4-byte
     // size in front; before the relay link is up it holds the init record.
     info.unsent_data = socket.link.open && socket.link.output.size() > relay::kPtpHeaderSize
-                           ? socket.link.output.size() - relay::kPtpHeaderSize
-                           : 0u;
+        ? socket.link.output.size() - relay::kPtpHeaderSize
+        : 0u;
     info.capacity = socket.capacity;
     info.sent = socket.sent_total;
     info.received = socket.received_total;

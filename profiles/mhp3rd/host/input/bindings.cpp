@@ -19,21 +19,110 @@ struct KeyName {
 // and the keypad's symbols, spelled out so no name holds the separators
 // " / " and " + ".
 constexpr KeyName kKeyNames[] = {
-    {4, "A"}, {5, "B"}, {6, "C"}, {7, "D"}, {8, "E"}, {9, "F"}, {10, "G"}, {11, "H"}, {12, "I"},
-    {13, "J"}, {14, "K"}, {15, "L"}, {16, "M"}, {17, "N"}, {18, "O"}, {19, "P"}, {20, "Q"}, {21, "R"},
-    {22, "S"}, {23, "T"}, {24, "U"}, {25, "V"}, {26, "W"}, {27, "X"}, {28, "Y"}, {29, "Z"},
-    {30, "1"}, {31, "2"}, {32, "3"}, {33, "4"}, {34, "5"}, {35, "6"}, {36, "7"}, {37, "8"}, {38, "9"},
-    {39, "0"}, {40, "Enter"}, {41, "Esc"}, {42, "Backspace"}, {43, "Tab"}, {44, "Space"}, {45, "-"},
-    {46, "="}, {47, "["}, {48, "]"}, {49, "\\"}, {50, "#"}, {51, ";"}, {52, "'"}, {53, "`"}, {54, ","},
-    {55, "."}, {56, "/"}, {57, "CapsLock"}, {58, "F1"}, {59, "F2"}, {60, "F3"}, {61, "F4"}, {62, "F5"},
-    {63, "F6"}, {64, "F7"}, {65, "F8"}, {66, "F9"}, {67, "F10"}, {68, "F11"}, {69, "F12"},
-    {70, "PrintScreen"}, {71, "ScrollLock"}, {72, "Pause"}, {73, "Insert"}, {74, "Home"}, {75, "PageUp"},
-    {76, "Delete"}, {77, "End"}, {78, "PageDown"}, {79, "Right"}, {80, "Left"}, {81, "Down"}, {82, "Up"},
-    {83, "Numlock"}, {84, "Keypad Divide"}, {85, "Keypad Multiply"}, {86, "Keypad Minus"}, {87, "Keypad Plus"},
-    {88, "Keypad Enter"}, {89, "Keypad 1"}, {90, "Keypad 2"}, {91, "Keypad 3"}, {92, "Keypad 4"},
-    {93, "Keypad 5"}, {94, "Keypad 6"}, {95, "Keypad 7"}, {96, "Keypad 8"}, {97, "Keypad 9"},
-    {98, "Keypad 0"}, {99, "Keypad Period"}, {100, "NonUSBackslash"}, {224, "Left Ctrl"}, {225, "Left Shift"},
-    {226, "Left Alt"}, {227, "Left GUI"}, {228, "Right Ctrl"}, {229, "Right Shift"}, {230, "Right Alt"},
+    {4, "A"},
+    {5, "B"},
+    {6, "C"},
+    {7, "D"},
+    {8, "E"},
+    {9, "F"},
+    {10, "G"},
+    {11, "H"},
+    {12, "I"},
+    {13, "J"},
+    {14, "K"},
+    {15, "L"},
+    {16, "M"},
+    {17, "N"},
+    {18, "O"},
+    {19, "P"},
+    {20, "Q"},
+    {21, "R"},
+    {22, "S"},
+    {23, "T"},
+    {24, "U"},
+    {25, "V"},
+    {26, "W"},
+    {27, "X"},
+    {28, "Y"},
+    {29, "Z"},
+    {30, "1"},
+    {31, "2"},
+    {32, "3"},
+    {33, "4"},
+    {34, "5"},
+    {35, "6"},
+    {36, "7"},
+    {37, "8"},
+    {38, "9"},
+    {39, "0"},
+    {40, "Enter"},
+    {41, "Esc"},
+    {42, "Backspace"},
+    {43, "Tab"},
+    {44, "Space"},
+    {45, "-"},
+    {46, "="},
+    {47, "["},
+    {48, "]"},
+    {49, "\\"},
+    {50, "#"},
+    {51, ";"},
+    {52, "'"},
+    {53, "`"},
+    {54, ","},
+    {55, "."},
+    {56, "/"},
+    {57, "CapsLock"},
+    {58, "F1"},
+    {59, "F2"},
+    {60, "F3"},
+    {61, "F4"},
+    {62, "F5"},
+    {63, "F6"},
+    {64, "F7"},
+    {65, "F8"},
+    {66, "F9"},
+    {67, "F10"},
+    {68, "F11"},
+    {69, "F12"},
+    {70, "PrintScreen"},
+    {71, "ScrollLock"},
+    {72, "Pause"},
+    {73, "Insert"},
+    {74, "Home"},
+    {75, "PageUp"},
+    {76, "Delete"},
+    {77, "End"},
+    {78, "PageDown"},
+    {79, "Right"},
+    {80, "Left"},
+    {81, "Down"},
+    {82, "Up"},
+    {83, "Numlock"},
+    {84, "Keypad Divide"},
+    {85, "Keypad Multiply"},
+    {86, "Keypad Minus"},
+    {87, "Keypad Plus"},
+    {88, "Keypad Enter"},
+    {89, "Keypad 1"},
+    {90, "Keypad 2"},
+    {91, "Keypad 3"},
+    {92, "Keypad 4"},
+    {93, "Keypad 5"},
+    {94, "Keypad 6"},
+    {95, "Keypad 7"},
+    {96, "Keypad 8"},
+    {97, "Keypad 9"},
+    {98, "Keypad 0"},
+    {99, "Keypad Period"},
+    {100, "NonUSBackslash"},
+    {224, "Left Ctrl"},
+    {225, "Left Shift"},
+    {226, "Left Alt"},
+    {227, "Left GUI"},
+    {228, "Right Ctrl"},
+    {229, "Right Shift"},
+    {230, "Right Alt"},
     {231, "Right GUI"},
 };
 constexpr const char *kMouseNames[] = {"Mouse Left", "Mouse Middle", "Mouse Right", "Mouse 4", "Mouse 5"};
@@ -42,10 +131,10 @@ constexpr const char *kJoin = " + ";
 
 struct PadName {
     PadInput input;
-    const char *name;      // settings.ini, after "Pad "
+    const char *name; // settings.ini, after "Pad "
     const char *xbox;
     const char *playstation;
-    const char *nintendo;  // by place: Nintendo's A is on the right, where Xbox has B
+    const char *nintendo; // by place: Nintendo's A is on the right, where Xbox has B
 };
 constexpr PadName kPadNames[] = {
     {PadInput::South, "South", "A", "×", "B"},
@@ -80,13 +169,27 @@ constexpr PadName kPadNames[] = {
 constexpr std::string_view kPadPrefix = "Pad ";
 
 constexpr ActionInfo kInfo[kActions] = {
-    {"stick_up", "Move forward"},  {"stick_left", "Move left"},    {"stick_down", "Move back"},
-    {"stick_right", "Move right"}, {"triangle", "△"},              {"circle", "○  (confirm)"},
-    {"cross", "×  (back)"},        {"square", "□"},                {"l", "L"},
-    {"r", "R"},                    {"start", "START"},             {"select", "SELECT"},
-    {"dpad_up", "D-pad up"},       {"dpad_left", "D-pad left"},    {"dpad_down", "D-pad down"},
-    {"dpad_right", "D-pad right"}, {"camera_up", "Camera up"},     {"camera_left", "Camera left"},
-    {"camera_down", "Camera down"}, {"camera_right", "Camera right"}, {"triangle_circle", "△ + ○  (together)"},
+    {"stick_up", "Move forward"},
+    {"stick_left", "Move left"},
+    {"stick_down", "Move back"},
+    {"stick_right", "Move right"},
+    {"triangle", "△"},
+    {"circle", "○  (confirm)"},
+    {"cross", "×  (back)"},
+    {"square", "□"},
+    {"l", "L"},
+    {"r", "R"},
+    {"start", "START"},
+    {"select", "SELECT"},
+    {"dpad_up", "D-pad up"},
+    {"dpad_left", "D-pad left"},
+    {"dpad_down", "D-pad down"},
+    {"dpad_right", "D-pad right"},
+    {"camera_up", "Camera up"},
+    {"camera_left", "Camera left"},
+    {"camera_down", "Camera down"},
+    {"camera_right", "Camera right"},
+    {"triangle_circle", "△ + ○  (together)"},
     {"fast_forward", "Fast-forward"},
     {"screenshot", "Screenshot"},
     {"frame_step", "Frame step (photo mode)"},
@@ -98,28 +201,62 @@ constexpr ActionInfo kInfo[kActions] = {
 
 // SceCtrlButtons for the actions that are buttons.
 constexpr std::uint32_t kButtonBits[kActions] = {
-    0u,      0u,      0u,      0u,      0x1000u, 0x2000u, 0x4000u, 0x8000u, 0x0100u, 0x0200u, 0x0008u,
-    0x0001u, 0x0010u, 0x0080u, 0x0040u, 0x0020u, 0u,      0u,      0u,      0u,      0x3000u, 0u,
-    0u,      0u,      0u,      0x8100u, 0x2100u, 0u,
+    0u,
+    0u,
+    0u,
+    0u,
+    0x1000u,
+    0x2000u,
+    0x4000u,
+    0x8000u,
+    0x0100u,
+    0x0200u,
+    0x0008u,
+    0x0001u,
+    0x0010u,
+    0x0080u,
+    0x0040u,
+    0x0020u,
+    0u,
+    0u,
+    0u,
+    0u,
+    0x3000u,
+    0u,
+    0u,
+    0u,
+    0u,
+    0x8100u,
+    0x2100u,
+    0u,
 };
 
 // The PSP's buttons as the menu and settings.ini name them, in the order
 // they are listed.
 struct ButtonName {
     std::uint32_t bit;
-    const char *symbol;  // the menu
-    const char *name;    // settings.ini
+    const char *symbol; // the menu
+    const char *name;   // settings.ini
 };
 constexpr ButtonName kButtonNames[] = {
-    {0x1000u, "△", "Triangle"}, {0x2000u, "○", "Circle"}, {0x4000u, "×", "Cross"},   {0x8000u, "□", "Square"},
-    {0x0100u, "L", "L"},        {0x0200u, "R", "R"},      {0x0010u, "↑", "Up"},      {0x0040u, "↓", "Down"},
-    {0x0080u, "←", "Left"},     {0x0020u, "→", "Right"},  {0x0008u, "START", "Start"}, {0x0001u, "SELECT", "Select"},
+    {0x1000u, "△", "Triangle"},
+    {0x2000u, "○", "Circle"},
+    {0x4000u, "×", "Cross"},
+    {0x8000u, "□", "Square"},
+    {0x0100u, "L", "L"},
+    {0x0200u, "R", "R"},
+    {0x0010u, "↑", "Up"},
+    {0x0040u, "↓", "Down"},
+    {0x0080u, "←", "Left"},
+    {0x0020u, "→", "Right"},
+    {0x0008u, "START", "Start"},
+    {0x0001u, "SELECT", "Select"},
 };
 
 bool equal_ignoring_case(std::string_view a, std::string_view b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-               return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
-           });
+        return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+    });
 }
 
 std::string_view trim(std::string_view text) {
@@ -165,11 +302,13 @@ bool parse_chord(std::string_view text, Chord &out) {
 // them in: every action that is neither a PSP button nor a stick.
 std::uint64_t port_bits() {
     static const std::uint64_t bits = [] {
-        std::uint64_t mask = 1ull << 63;  // the port's reserved chords (chords.cpp)
+        std::uint64_t mask = 1ull << 63; // the port's reserved chords (chords.cpp)
         for (std::size_t i = 0; i < kActions; ++i)
-            if (kButtonBits[i] == 0u && !(i >= static_cast<std::size_t>(Action::StickUp) &&
-                                          i <= static_cast<std::size_t>(Action::StickRight)) &&
-                !(i >= static_cast<std::size_t>(Action::CameraUp) && i <= static_cast<std::size_t>(Action::CameraRight)))
+            if (kButtonBits[i] == 0u &&
+                !(i >= static_cast<std::size_t>(Action::StickUp) &&
+                    i <= static_cast<std::size_t>(Action::StickRight)) &&
+                !(i >= static_cast<std::size_t>(Action::CameraUp) &&
+                    i <= static_cast<std::size_t>(Action::CameraRight)))
                 mask |= 1ull << (32u + i);
         return mask;
     }();
@@ -186,8 +325,10 @@ bool read_held(std::size_t target) {
     case Action::StickDown:
     case Action::StickRight:
     case Action::L:
-    case Action::R: return true;
-    default: return false;
+    case Action::R:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -207,7 +348,9 @@ bool valid(const Chord &c) {
     return true;
 }
 
-const ActionInfo &info(Action action) { return kInfo[static_cast<std::size_t>(action)]; }
+const ActionInfo &info(Action action) {
+    return kInfo[static_cast<std::size_t>(action)];
+}
 
 ActionGroup group_of(Action action) {
     switch (action) {
@@ -215,15 +358,18 @@ ActionGroup group_of(Action action) {
     case Action::StickLeft:
     case Action::StickDown:
     case Action::StickRight:
-    case Action::Cross: return ActionGroup::Movement;
+    case Action::Cross:
+        return ActionGroup::Movement;
     case Action::Triangle:
     case Action::Circle:
     case Action::TriangleCircle:
-    case Action::R: return ActionGroup::Attacks;
+    case Action::R:
+        return ActionGroup::Attacks;
     case Action::Square:
     case Action::L:
     case Action::ItemLeft:
-    case Action::ItemRight: return ActionGroup::Items;
+    case Action::ItemRight:
+        return ActionGroup::Items;
     case Action::CameraUp:
     case Action::CameraLeft:
     case Action::CameraDown:
@@ -232,33 +378,47 @@ ActionGroup group_of(Action action) {
     case Action::Left:
     case Action::Down:
     case Action::Right:
-    case Action::LockOn: return ActionGroup::Camera;
+    case Action::LockOn:
+        return ActionGroup::Camera;
     case Action::Start:
-    case Action::Select: return ActionGroup::System;
-    default: return ActionGroup::Port;
+    case Action::Select:
+        return ActionGroup::System;
+    default:
+        return ActionGroup::Port;
     }
 }
 
 const char *group_name(ActionGroup group) {
     switch (group) {
-    case ActionGroup::Movement: return "Movement";
-    case ActionGroup::Attacks: return "Attacks";
-    case ActionGroup::Items: return "Items";
-    case ActionGroup::Camera: return "Camera";
-    case ActionGroup::System: return "System";
-    default: return "Port features";
+    case ActionGroup::Movement:
+        return "Movement";
+    case ActionGroup::Attacks:
+        return "Attacks";
+    case ActionGroup::Items:
+        return "Items";
+    case ActionGroup::Camera:
+        return "Camera";
+    case ActionGroup::System:
+        return "System";
+    default:
+        return "Port features";
     }
 }
 
 Context context_of(Action action) {
     switch (action) {
-    case Action::FrameStep: return Context::PhotoMode;
-    case Action::Screenshot: return Context::Anywhere;
-    default: return Context::Game;
+    case Action::FrameStep:
+        return Context::PhotoMode;
+    case Action::Screenshot:
+        return Context::Anywhere;
+    default:
+        return Context::Game;
     }
 }
 
-std::uint32_t buttons_of(Action action) { return kButtonBits[static_cast<std::size_t>(action)]; }
+std::uint32_t buttons_of(Action action) {
+    return kButtonBits[static_cast<std::size_t>(action)];
+}
 
 std::string buttons_label(std::uint32_t buttons) {
     std::string text;
@@ -290,7 +450,9 @@ bool parse_buttons(std::string_view text, std::uint32_t &buttons) {
     return true;
 }
 
-bool acts_on_release(Action action) { return action == Action::LockOn; }
+bool acts_on_release(Action action) {
+    return action == Action::LockOn;
+}
 
 std::string name(Binding binding) {
     if (const int button = mouse_button_of(binding)) return kMouseNames[button - 1];
@@ -332,10 +494,14 @@ std::string label(Binding binding, PadStyle style) {
     const PadName *p = pad_name(binding);
     if (p == nullptr) return name(binding);
     switch (style) {
-    case PadStyle::Xbox: return p->xbox;
-    case PadStyle::PlayStation: return p->playstation;
-    case PadStyle::Nintendo: return p->nintendo;
-    case PadStyle::Generic: break;
+    case PadStyle::Xbox:
+        return p->xbox;
+    case PadStyle::PlayStation:
+        return p->playstation;
+    case PadStyle::Nintendo:
+        return p->nintendo;
+    case PadStyle::Generic:
+        break;
     }
     return p->name;
 }
@@ -374,7 +540,8 @@ bool parse(std::string_view text, Slots &slots) {
 }
 
 std::size_t count(const Slots &slots) {
-    return static_cast<std::size_t>(std::count_if(slots.begin(), slots.end(), [](const Chord &c) { return !c.empty(); }));
+    return static_cast<std::size_t>(
+        std::count_if(slots.begin(), slots.end(), [](const Chord &c) { return !c.empty(); }));
 }
 
 bool add(Slots &slots, const Chord &c) {
@@ -390,7 +557,7 @@ bool add(Slots &slots, const Chord &c) {
 bool replace(Slots &slots, std::size_t slot, const Chord &c) {
     if (slot >= kSlots || slots[slot].empty() || !valid(c)) return false;
     if (slots[slot] == c) {
-        slots[slot] = c;  // the same inputs, perhaps in another order
+        slots[slot] = c; // the same inputs, perhaps in another order
         return true;
     }
     const auto same = std::find(slots.begin(), slots.end(), c);
@@ -402,7 +569,7 @@ bool replace(Slots &slots, std::size_t slot, const Chord &c) {
 bool clear(Slots &slots, std::size_t slot) {
     if (slot >= kSlots || slots[slot].empty()) return false;
     std::move(slots.begin() + static_cast<std::ptrdiff_t>(slot) + 1, slots.end(),
-              slots.begin() + static_cast<std::ptrdiff_t>(slot));
+        slots.begin() + static_cast<std::ptrdiff_t>(slot));
     slots.back() = Chord{};
     // Earlier files may have left a gap; keep the chords packed.
     const auto end = std::stable_partition(slots.begin(), slots.end(), [](const Chord &c) { return !c.empty(); });
@@ -444,7 +611,9 @@ std::uint64_t Table::effect(std::size_t target) const {
     return kButtonBits[target] != 0u ? kButtonBits[target] : 1ull << (32u + target);
 }
 
-bool port_effect(std::uint64_t effect) { return (effect & port_bits()) != 0u; }
+bool port_effect(std::uint64_t effect) {
+    return (effect & port_bits()) != 0u;
+}
 
 bool waits_for(std::uint64_t shorter, std::uint64_t longer) {
     // L, R and moving held first are what a player does anyway: the longer
@@ -464,8 +633,7 @@ std::vector<Conflict> conflicts(const Table &table, std::size_t target) {
         for (std::size_t other = 0; other < table.size(); ++other) {
             if (other == target) continue;
             const Context their_when = table.context(other);
-            if (mine_when != their_when && mine_when != Context::Anywhere && their_when != Context::Anywhere)
-                continue;
+            if (mine_when != their_when && mine_when != Context::Anywhere && their_when != Context::Anywhere) continue;
             for (const Chord &theirs : table.slots(other)) {
                 if (theirs.empty()) continue;
                 if (theirs == c) {
@@ -481,9 +649,9 @@ std::vector<Conflict> conflicts(const Table &table, std::size_t target) {
                     else if (waits_for(table.effect(other), table.effect(target)))
                         found.push_back({Conflict::Kind::Part, other, c, theirs});
                 } else if (c.part_of(theirs)) {
-                    if (taps(target)) continue;  // as above, the other way round
+                    if (taps(target)) continue; // as above, the other way round
                     if (read_held(target) && (table.effect(target) & ~table.effect(other)) != 0u)
-                        continue;  // theirs reports it as Held
+                        continue; // theirs reports it as Held
                     if (waits_for(table.effect(target), table.effect(other)))
                         found.push_back({Conflict::Kind::Contains, other, c, theirs});
                 }
@@ -497,8 +665,8 @@ std::vector<Conflict> conflicts(const Bindings &bindings, Action action) {
     return conflicts(Table{bindings, {}, false}, static_cast<std::size_t>(action));
 }
 
-MouseTurn mouse_turn(float counts_x, float counts_y, float degrees_per_count, bool invert_x, bool invert_y,
-                     float scale) {
+MouseTurn mouse_turn(
+    float counts_x, float counts_y, float degrees_per_count, bool invert_x, bool invert_y, float scale) {
     const float factor = degrees_per_count * scale;
     return {counts_x * factor * (invert_x ? -1.0f : 1.0f), counts_y * factor * (invert_y ? -1.0f : 1.0f)};
 }

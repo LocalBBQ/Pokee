@@ -38,11 +38,11 @@ inline constexpr double kMaxSpeed = 16.0;
 
 // What keeps real time regardless of the loading, sampled at each update.
 struct Guards {
-    bool enabled{};       // the setting is on, Game speed is Normal and there is a window
-    bool buttons_held{};  // a button or a D-pad direction is down (the sticks do not count)
-    bool movie{};         // a movie is playing
-    bool online{};        // ad hoc networking is on, or a session is going
-    bool menu{};          // the in-game menu is open over the game
+    bool enabled{};      // the setting is on, Game speed is Normal and there is a window
+    bool buttons_held{}; // a button or a D-pad direction is down (the sticks do not count)
+    bool movie{};        // a movie is playing
+    bool online{};       // ad hoc networking is on, or a session is going
+    bool menu{};         // the in-game menu is open over the game
 };
 
 // Why fast loading is off at the moment, for the log.

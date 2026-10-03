@@ -41,8 +41,8 @@ bool check(VkResult result, const char *what, std::string &error) {
 }
 
 void barrier(VkCommandBuffer commands, VkImage image, std::uint32_t level, std::uint32_t levels, VkImageLayout from,
-             VkImageLayout to, VkAccessFlags source_access, VkAccessFlags destination_access,
-             VkPipelineStageFlags source_stage, VkPipelineStageFlags destination_stage) {
+    VkImageLayout to, VkAccessFlags source_access, VkAccessFlags destination_access, VkPipelineStageFlags source_stage,
+    VkPipelineStageFlags destination_stage) {
     VkImageMemoryBarrier info{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     info.oldLayout = from;
     info.newLayout = to;
@@ -75,7 +75,7 @@ bool ReplacementTextures::initialize(const Device &device, std::string &error) {
     descriptor_info.poolSizeCount = 1u;
     descriptor_info.pPoolSizes = &size;
     if (!check(vkCreateDescriptorPool(device.device, &descriptor_info, nullptr, &descriptor_pool_),
-               "vkCreateDescriptorPool", error))
+            "vkCreateDescriptorPool", error))
         return false;
 
     // Replacements are usually several times the original's size and are
@@ -116,15 +116,18 @@ std::uint32_t ReplacementTextures::memory_type(std::uint32_t mask, VkMemoryPrope
 
 VkSampler ReplacementTextures::sampler_for(ReplacementFilter filter) const {
     switch (filter) {
-    case ReplacementFilter::Nearest: return nearest_;
-    case ReplacementFilter::Linear: return linear_;
-    default: return sharp_ ? nearest_ : linear_;
+    case ReplacementFilter::Nearest:
+        return nearest_;
+    case ReplacementFilter::Linear:
+        return linear_;
+    default:
+        return sharp_ ? nearest_ : linear_;
     }
 }
 
 void ReplacementTextures::write_descriptor(const Resident &resident) {
-    VkDescriptorImageInfo image_info{sampler_for(resident.owner->filter), resident.view,
-                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo image_info{
+        sampler_for(resident.owner->filter), resident.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     write.dstSet = resident.descriptor;
     write.descriptorCount = 1u;
@@ -143,15 +146,17 @@ VkDescriptorSet ReplacementTextures::descriptor(Replacement &replacement, Textur
     case Replacement::State::Unloaded:
         pack.request(replacement);
         return VK_NULL_HANDLE;
-    case Replacement::State::Decoded: break;
-    default: return VK_NULL_HANDLE;
+    case Replacement::State::Decoded:
+        break;
+    default:
+        return VK_NULL_HANDLE;
     }
     if (frame != frame_) {
         frame_ = frame;
         uploaded_this_frame_ = 0u;
     }
     if (uploaded_this_frame_ != 0u && uploaded_this_frame_ + replacement.pixels.size() > kUploadBytesPerFrame)
-        return VK_NULL_HANDLE;  // next frame; the original is drawn meanwhile
+        return VK_NULL_HANDLE; // next frame; the original is drawn meanwhile
     if (resident_.size() >= kMaxResident) return VK_NULL_HANDLE;
 
     auto resident = std::make_unique<Resident>();
@@ -164,8 +169,8 @@ VkDescriptorSet ReplacementTextures::descriptor(Replacement &replacement, Textur
         return VK_NULL_HANDLE;
     }
     if (texture_pack_trace())
-        std::cout << "[texpack] frame " << frame << ": uploaded " << replacement.name << " (" << (resident->bytes >> 10u)
-                  << " KiB with mips)\n";
+        std::cout << "[texpack] frame " << frame << ": uploaded " << replacement.name << " ("
+                  << (resident->bytes >> 10u) << " KiB with mips)\n";
     uploaded_this_frame_ += replacement.pixels.size();
     resident->last_used = frame;
     resident_bytes_ += resident->bytes;
@@ -241,8 +246,8 @@ bool ReplacementTextures::upload(Replacement &replacement, Resident &resident) {
     }
     vkGetBufferMemoryRequirements(device, upload.staging, &requirements);
     allocate.allocationSize = requirements.size;
-    allocate.memoryTypeIndex = memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                                                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    allocate.memoryTypeIndex = memory_type(
+        requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     void *mapped = nullptr;
     if (!check(vkAllocateMemory(device, &allocate, nullptr, &upload.staging_memory), "vkAllocateMemory", error) ||
         !check(vkBindBufferMemory(device, upload.staging, upload.staging_memory, 0u), "vkBindBufferMemory", error) ||
@@ -268,7 +273,7 @@ bool ReplacementTextures::upload(Replacement &replacement, Resident &resident) {
     vkBeginCommandBuffer(upload.commands, &begin);
     const VkImage image = resident.image;
     barrier(upload.commands, image, 0u, levels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0u,
-            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
     copy.imageExtent = {width, height, 1u};
@@ -278,8 +283,8 @@ bool ReplacementTextures::upload(Replacement &replacement, Resident &resident) {
     std::int32_t level_height = static_cast<std::int32_t>(height);
     for (std::uint32_t level = 1; level < levels; ++level) {
         barrier(upload.commands, image, level - 1u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
         const std::int32_t next_width = std::max(level_width / 2, 1);
         const std::int32_t next_height = std::max(level_height / 2, 1);
         VkImageBlit blit{};
@@ -288,16 +293,16 @@ bool ReplacementTextures::upload(Replacement &replacement, Resident &resident) {
         blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0u, 1u};
         blit.dstOffsets[1] = {next_width, next_height, 1};
         vkCmdBlitImage(upload.commands, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &blit, VK_FILTER_LINEAR);
         barrier(upload.commands, image, level - 1u, 1u, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
         level_width = next_width;
         level_height = next_height;
     }
     barrier(upload.commands, image, levels - 1u, 1u, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     vkEndCommandBuffer(upload.commands);
     // Submitted now, ahead of the frame being recorded: queue order puts the
     // copy before every draw that samples the image, with no wait here.
@@ -349,7 +354,7 @@ void ReplacementTextures::begin_frame(std::uint64_t frame) {
         if (resident->upload_fence == VK_NULL_HANDLE && resident->last_used + kKeepFrames < frame)
             candidates.push_back(resident.get());
     std::sort(candidates.begin(), candidates.end(),
-              [](const Resident *a, const Resident *b) { return a->last_used < b->last_used; });
+        [](const Resident *a, const Resident *b) { return a->last_used < b->last_used; });
     for (Resident *resident : candidates) {
         if (resident_bytes_ <= budget_bytes_ * 7u / 8u && resident_.size() < kMaxResident) break;
         Replacement *owner = resident->owner;
@@ -361,8 +366,8 @@ void ReplacementTextures::begin_frame(std::uint64_t frame) {
     }
     if (resident_bytes_ > budget_bytes_ && !warned_budget_) {
         warned_budget_ = true;
-        std::cerr << "[texpack] the replacements drawn right now need " << (resident_bytes_ >> 20u)
-                  << " MB, over the " << (budget_bytes_ >> 20u) << " MB budget (MHP3RD_TEXTURE_PACK_MEMORY)\n";
+        std::cerr << "[texpack] the replacements drawn right now need " << (resident_bytes_ >> 20u) << " MB, over the "
+                  << (budget_bytes_ >> 20u) << " MB budget (MHP3RD_TEXTURE_PACK_MEMORY)\n";
     }
 }
 

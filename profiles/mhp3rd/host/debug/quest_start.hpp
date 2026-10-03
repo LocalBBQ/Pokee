@@ -41,12 +41,12 @@ enum class Board : std::uint8_t { Village, Hall };
 struct Quest {
     std::uint16_t id{};
     std::uint8_t stars{};
-    std::uint32_t fee{};         // zenny the counter takes when it is accepted
-    std::uint32_t reward{};      // zenny for completing it
-    std::uint32_t time_limit{};  // frames at 30 a second
+    std::uint32_t fee{};        // zenny the counter takes when it is accepted
+    std::uint32_t reward{};     // zenny for completing it
+    std::uint32_t time_limit{}; // frames at 30 a second
     std::string name;
     std::string objective;
-    std::string monsters;        // the "Main Monster" lines, one per line
+    std::string monsters; // the "Main Monster" lines, one per line
     std::string client;
 
     [[nodiscard]] Board board() const;

@@ -43,14 +43,16 @@ void check(bool condition, const char *message) {
     }
 }
 
-void original(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) { ctx.pc = ctx.gpr[31]; }
+void original(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    ctx.pc = ctx.gpr[31];
+}
 
 void write_float(psprecomp::GuestMemory &memory, std::uint32_t address, float value) {
     memory.store32(address, std::bit_cast<std::uint32_t>(value));
 }
 
 void place(psprecomp::GuestMemory &memory, std::uint32_t monster, float x, float z, std::int16_t health = 1000,
-           std::int16_t most = 1000, bool other_area = false) {
+    std::int16_t most = 1000, bool other_area = false) {
     write_float(memory, monster + game::kPosition, x);
     write_float(memory, monster + game::kPosition + 4u, 0.0f);
     write_float(memory, monster + game::kPosition + 8u, z);
@@ -98,9 +100,9 @@ struct Fixture {
         memory.store32(game::kMonsterTable, monster_a);
         memory.store32(game::kMonsterTable + 4u, companion);
         memory.store32(game::kMonsterTable + 8u, monster_b);
-        place(memory, monster_a, 1000.0f, 0.0f);          // to the right, 90 degrees off the view
-        place(memory, monster_b, 0.0f, -3000.0f);         // straight ahead, farther
-        place(memory, companion, 0.0f, -100.0f, 50, 0);   // no most health: not a large monster
+        place(memory, monster_a, 1000.0f, 0.0f);        // to the right, 90 degrees off the view
+        place(memory, monster_b, 0.0f, -3000.0f);       // straight ahead, farther
+        place(memory, companion, 0.0f, -100.0f, 50, 0); // no most health: not a large monster
     }
     void update() {
         write_float(runtime.memory(), stack_address + 0x34u, 150.0f);
@@ -134,7 +136,7 @@ void test_geometry() {
     check(lock_on_ease_yaw(100u, 120u) == 120u, "a small rest is closed at once");
     check(lock_on_ease_yaw(1000u, 20000u, 0.0f) == 1000u, "with the monster on top of the hunter the yaw holds");
     check(yaw_difference(0u, lock_on_ease_yaw(0u, 32868u, 1.0f, 1)) > 0,
-          "near half a turn, the turn keeps the way it was going");
+        "near half a turn, the turn keeps the way it was going");
     check(yaw_difference(0u, lock_on_ease_yaw(0u, 32868u)) < 0, "and otherwise takes the short way");
 }
 
@@ -145,7 +147,7 @@ void test_monsters_and_pick() {
     check(found.size() == 2u, "a companion is no large monster");
     const Vec3 origin{0.0f, 190.0f, 0.0f};
     check(lock_on_pick(found, origin, 0u, std::nullopt, {}) == monster_b,
-          "a tap picks the monster in view over a nearer one out of view");
+        "a tap picks the monster in view over a nearer one out of view");
     check(lock_on_pick(found, origin, 49152u, std::nullopt, {}) == monster_a, "or the one the camera looks at");
     check(lock_on_pick(found, origin, 32768u, std::nullopt, {}) == monster_a, "with none in view, the nearest");
     check(lock_on_pick(found, origin, 0u, monster_a, {monster_a}) == monster_b, "a second tap moves to the next one");
@@ -201,7 +203,7 @@ void test_lock_follows_and_lets_go() {
     lock_on_tap();
     f.frame();
     check(lock_on_status().locked, "locked once more");
-    memory.store16(camera_address + 0x84u, 0x0080u);  // the D-pad's turn
+    memory.store16(camera_address + 0x84u, 0x0080u); // the D-pad's turn
     f.frame();
     memory.store16(camera_address + 0x84u, 0u);
     check(!lock_on_status().locked, "a camera command of the game's lets go");
@@ -232,7 +234,7 @@ void test_binds() {
     check(!tap.update(true, false), "nothing while held");
     check(tap.update(false, false), "a tap when let go alone");
     check(!tap.update(true, false) && !tap.update(true, true) && !tap.update(false, false),
-          "no tap when another input was pressed during the hold (R3 + Left)");
+        "no tap when another input was pressed during the hold (R3 + Left)");
     check(!tap.update(true, true) && !tap.update(false, false), "nor when one was held as it went down (L3 + R3)");
     for (std::size_t i = 0; i < kPresets; ++i) {
         const Layout &l = layout(static_cast<Preset>(i));
@@ -246,13 +248,14 @@ void test_binds() {
     }
     const Layout &d = layout(Preset::Default);
     check(d.pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::RightStick)),
-          "R3 locks on in the default preset");
+        "R3 locks on in the default preset");
     check(acts_on_release(Action::LockOn) && !acts_on_release(Action::Screenshot), "only lock-on acts on release");
-    check(layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::LeftStick)),
-          "and L3 in the left-handed one");
+    check(
+        layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::LeftStick)),
+        "and L3 in the left-handed one");
     check(d.keys[static_cast<std::size_t>(Action::LockOn)][0] == single(mouse_button(2)) &&
-              d.keys[static_cast<std::size_t>(Action::LockOn)][1] == single(from_name("T")),
-          "the middle mouse button and T lock on from the keyboard");
+            d.keys[static_cast<std::size_t>(Action::LockOn)][1] == single(from_name("T")),
+        "the middle mouse button and T lock on from the keyboard");
     {
         // A tap's chord inside a longer one is no conflict either way; the
         // same chord inside a longer one for anything else still is.
@@ -262,7 +265,7 @@ void test_binds() {
         b[static_cast<std::size_t>(Action::LockOn)] = {r3};
         b[static_cast<std::size_t>(Action::Screenshot)] = {shot};
         check(conflicts(b, Action::LockOn).empty() && conflicts(b, Action::Screenshot).empty(),
-              "R3 for lock-on beside R3 + D-pad left for a screenshot is no conflict");
+            "R3 for lock-on beside R3 + D-pad left for a screenshot is no conflict");
         b[static_cast<std::size_t>(Action::HideHud)] = {r3};
         check(conflicts(b, Action::HideHud).size() == 2u, "R3 for Hide HUD clashes with lock-on and the screenshot");
     }

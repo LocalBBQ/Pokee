@@ -22,13 +22,15 @@ namespace {
 // aiming included: a pointer's motion rather than a held rate.
 Turn combine(const Turn &a, const Turn &b) {
     return {a.yaw_degrees + b.yaw_degrees, a.pitch_degrees + b.pitch_degrees, a.yaw_held || b.yaw_held,
-            a.pitch_held || b.pitch_held};
+        a.pitch_held || b.pitch_held};
 }
 Turn take_pointer() {
     const Turn mouse = take(Source::Mouse);
     return combine(mouse, take(Source::Touch));
 }
-Turn peek_pointer() { return combine(peek(Source::Mouse), peek(Source::Touch)); }
+Turn peek_pointer() {
+    return combine(peek(Source::Mouse), peek(Source::Touch));
+}
 } // namespace
 namespace {
 
@@ -202,13 +204,17 @@ bool option_on() {
     const auto &s = settings::current();
     // Right stick describes a physical stick. On Android a finger drag turns
     // the camera whatever it says, so there Analog camera alone decides.
-    return s.analog_camera && (s.right_stick == settings::RightStick::Camera ||
-                               settings::kPlatform == settings::Platform::Android);
+    return s.analog_camera &&
+        (s.right_stick == settings::RightStick::Camera || settings::kPlatform == settings::Platform::Android);
 }
 
-bool driving_allowed() { return state.hooked && option_on(); }
+bool driving_allowed() {
+    return state.hooked && option_on();
+}
 
-bool lock_on_allowed() { return settings::current().lock_on; }
+bool lock_on_allowed() {
+    return settings::current().lock_on;
+}
 
 // The game's camera commands in the camera's buttons (0x088E77D4), the
 // D-pad's turn and tilt, as the PSP's buttons.
@@ -236,7 +242,7 @@ void release() {
 }
 
 void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t stack, const Turn &turn,
-           bool active, bool recentre, bool vertical_command, float y, float z, float target_height) {
+    bool active, bool recentre, bool vertical_command, float y, float z, float target_height) {
     static const std::filesystem::path path = environment_path("MHP3RD_TRACE_CAMERA_STATE");
     if (path.empty()) return;
     static std::ofstream out(path);
@@ -254,8 +260,8 @@ void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, std::uin
 
 // The ordinary follow camera: yaw on the game's own angle, pitch by orbiting
 // the eye around its look-at point at the preset's distance.
-void drive_follow(psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ctx, std::uint32_t address,
-                  std::uint32_t stack) {
+void drive_follow(
+    psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ctx, std::uint32_t address, std::uint32_t stack) {
     if (state.address != address || state.frame - state.last_update > 2u) {
         state.pitch_owned = false;
         state.yaw_remainder = 0.0f;
@@ -291,7 +297,7 @@ void drive_follow(psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ct
         camera.address = address;
         camera.yaw = memory.load16(address + kYawCurrent);
         camera.look_at = {load_float(memory, address + 0x10u), load_float(memory, address + 0x14u),
-                          load_float(memory, address + 0x18u)};
+            load_float(memory, address + 0x18u)};
         camera.manual_yaw = turn.yaw_held ? turn.yaw_degrees : 0.0f;
         // Recentring (L) shows as the snap; holding L for the item bar
         // does not. The D-pad turns and tilts.
@@ -417,8 +423,7 @@ void trace_modes(const psprecomp::GuestMemory &memory, const psprecomp::Allegrex
     // While the weapon aims, the object the camera follows (s5 at the
     // ordinary call), which carries the aim the camera turns after.
     const auto followed = ctx.gpr[21];
-    if (camera && ctx.gpr[31] == kCameraReturn &&
-        static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0 &&
+    if (camera && ctx.gpr[31] == kCameraReturn && static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0 &&
         memory.raw_pointer(followed, 0x2000u) != nullptr) {
         out << ",s5=" << std::hex << followed << ",followed=";
         for (std::uint32_t offset = 0u; offset < 0x2000u; offset += 4u)
@@ -431,7 +436,7 @@ void trace_modes(const psprecomp::GuestMemory &memory, const psprecomp::Allegrex
 
 bool scoped(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
     return memory.raw_pointer(hunter, kHunterExtent) != nullptr &&
-           (memory.load32(hunter + kHunterWeaponFlags) & kScopeFlag) != 0u;
+        (memory.load32(hunter + kHunterWeaponFlags) & kScopeFlag) != 0u;
 }
 
 // MHP3RD_TRACE_AIM=path.csv: one line per aiming camera update with what the
@@ -459,7 +464,8 @@ void store_pitch(psprecomp::GuestMemory &memory, std::uint32_t hunter, const Pit
 void remember_aim(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
     state.aim_hunter = hunter;
     state.aim_heading = memory.load16(hunter + kHunterHeading);
-    for (std::size_t i = 0; i < kPitchFields.size(); ++i) state.aim_pitch[i] = load_pitch(memory, hunter, kPitchFields[i]);
+    for (std::size_t i = 0; i < kPitchFields.size(); ++i)
+        state.aim_pitch[i] = load_pitch(memory, hunter, kPitchFields[i]);
 }
 
 void store_heading(psprecomp::GuestMemory &memory, std::uint32_t hunter, std::uint16_t heading) {
@@ -467,7 +473,9 @@ void store_heading(psprecomp::GuestMemory &memory, std::uint32_t hunter, std::ui
     memory.store16(hunter + kHunterYaw, heading);
 }
 
-int sign_of(float value) { return value > 0.0f ? 1 : (value < 0.0f ? -1 : 0); }
+int sign_of(float value) {
+    return value > 0.0f ? 1 : (value < 0.0f ? -1 : 0);
+}
 
 // The direction the mouse shows the game this frame, each axis -1, 0 or +1:
 // every axis with degrees waiting is pushed all the way, so the game steps it
@@ -500,8 +508,7 @@ void settle_anticipation(psprecomp::GuestMemory &memory) {
         const PitchField &field = kPitchFields[state.pitch_field];
         const int value = load_pitch(memory, hunter, field);
         if (std::abs(value - state.anticipated_pitch_value) <= field.largest_step)
-            store_pitch(memory, hunter, field,
-                        std::clamp(value + state.anticipated_pitch, -field.limit, field.limit));
+            store_pitch(memory, hunter, field, std::clamp(value + state.anticipated_pitch, -field.limit, field.limit));
     }
     state.anticipated_yaw = 0;
     state.anticipated_pitch = 0;
@@ -637,10 +644,10 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
     if (std::ofstream *out = aim_trace()) {
         const int applied = static_cast<std::int16_t>(
             static_cast<std::uint16_t>(memory.load16(hunter + kHunterHeading) - state.aim_heading));
-        *out << state.frame << ",update,scope=" << scope << ",stick=" << turn.yaw_degrees << ':'
-             << turn.pitch_degrees << ",mouse=" << mouse.yaw_degrees << ':' << mouse.pitch_degrees
-             << ",carried=" << carried_yaw << ",shown=" << mouse_shown << ",anticipated=" << anticipated_yaw << ':'
-             << anticipated_pitch << ",game=" << game_yaw << ':' << game_pitch_seen << ",yaw=" << applied
+        *out << state.frame << ",update,scope=" << scope << ",stick=" << turn.yaw_degrees << ':' << turn.pitch_degrees
+             << ",mouse=" << mouse.yaw_degrees << ':' << mouse.pitch_degrees << ",carried=" << carried_yaw
+             << ",shown=" << mouse_shown << ",anticipated=" << anticipated_yaw << ':' << anticipated_pitch
+             << ",game=" << game_yaw << ':' << game_pitch_seen << ",yaw=" << applied
              << ",pitch=" << load_pitch(memory, hunter, kPitchFields[0]) - state.aim_pitch[0] << '\n';
     }
     if (pitch_spent) state.mouse_pitch = 0.0f;
@@ -699,7 +706,9 @@ void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
 
 } // namespace
 
-std::span<const CodeWord> game_code_signature() { return kSignature; }
+std::span<const CodeWord> game_code_signature() {
+    return kSignature;
+}
 
 bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original) {
     state = State{};

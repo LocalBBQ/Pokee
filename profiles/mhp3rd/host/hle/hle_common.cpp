@@ -19,8 +19,7 @@ std::string read_cstring(const psprecomp::GuestMemory &memory, std::uint32_t add
     return text;
 }
 
-void write_cstring(psprecomp::GuestMemory &memory, std::uint32_t address, std::string_view text,
-                   std::size_t capacity) {
+void write_cstring(psprecomp::GuestMemory &memory, std::uint32_t address, std::string_view text, std::size_t capacity) {
     if (address == 0u || capacity == 0u) return;
     const std::size_t count = std::min(text.size(), capacity - 1u);
     for (std::size_t i = 0; i < count; ++i)
@@ -48,7 +47,7 @@ bool HleRegistrar::try_add(std::string_view library, std::string_view name, HleF
 void HleRegistrar::add(std::string_view library, std::string_view name, HleFunction function) {
     if (!try_add(library, name, std::move(function)))
         throw psprecomp::Error("Unknown HLE function " + std::string(library) + "::" + std::string(name) +
-                               " (missing from configs/nids.csv)");
+            " (missing from configs/nids.csv)");
 }
 
 bool HleRegistrar::bound(const std::string &library, std::uint32_t nid) const {

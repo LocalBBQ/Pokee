@@ -22,12 +22,11 @@ void draw_action_controls(const input::touch::ActionControls &controls, float op
 struct ElementLook {
     float opacity{0.5f};
     bool held{};
-    bool selected{};  // the editor's choice: an accent ring
-    bool hidden{};    // the editor shows hidden elements, struck through
-    int swipe{};      // the swipe area: -1 or 1 while a swipe presses
+    bool selected{}; // the editor's choice: an accent ring
+    bool hidden{};   // the editor shows hidden elements, struck through
+    int swipe{};     // the swipe area: -1 or 1 while a swipe presses
 };
 void draw_action_element(ImDrawList *list, input::touch::Element element, const input::touch::Placement &placement,
-                         const input::touch::Placed &placed, const input::touch::Point &stick_thumb,
-                         const ElementLook &look);
+    const input::touch::Placed &placed, const input::touch::Point &stick_thumb, const ElementLook &look);
 
 } // namespace mhp3rd::ui

@@ -32,8 +32,8 @@ State &state() {
 }
 
 std::string lower(std::string text) {
-    std::transform(text.begin(), text.end(), text.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(
+        text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return text;
 }
 
@@ -105,14 +105,18 @@ void log_device(const Info &i) {
     std::cout << "[pad] joystick " << i.id << ": " << (i.name.empty() ? "(no name)" : i.name) << ", USB " << ids
               << ", GUID " << i.guid << ", " << i.buttons << " buttons, " << i.axes << " axes, " << i.hats
               << (i.hats == 1 ? " hat" : " hats");
-    if (i.gamepad) std::cout << "; gamepad mapping" << (i.saved ? " (gamecontrollerdb.txt)" : "") << ": " << i.mapping;
-    else std::cout << "; no gamepad mapping: set it up in the menu, Controls > Controllers";
+    if (i.gamepad)
+        std::cout << "; gamepad mapping" << (i.saved ? " (gamecontrollerdb.txt)" : "") << ": " << i.mapping;
+    else
+        std::cout << "; no gamepad mapping: set it up in the menu, Controls > Controllers";
     std::cout << std::endl;
 }
 
 } // namespace
 
-std::filesystem::path mappings_file() { return install::user_data_directory() / "gamecontrollerdb.txt"; }
+std::filesystem::path mappings_file() {
+    return install::user_data_directory() / "gamecontrollerdb.txt";
+}
 
 void load_mappings() {
     State &s = state();
@@ -127,7 +131,8 @@ void load_mappings() {
     }
     if (lines_here > 0) {
         const int added = SDL_AddGamepadMappingsFromFile(install::path_to_utf8(path).c_str());
-        if (added < 0) std::cout << "[pad] cannot read " << install::path_to_utf8(path) << ": " << SDL_GetError() << "\n";
+        if (added < 0)
+            std::cout << "[pad] cannot read " << install::path_to_utf8(path) << ": " << SDL_GetError() << "\n";
         else
             std::cout << "[pad] " << lines_here << " mapping(s) for " << platform << " from "
                       << install::path_to_utf8(path) << "\n";
@@ -210,7 +215,9 @@ mapping::Snapshot snapshot(SDL_JoystickID id) {
     return out;
 }
 
-bool unmapped_gamepad(const Info &i) { return !i.gamepad && i.buttons >= 4 && (i.hats >= 1 || i.axes >= 2); }
+bool unmapped_gamepad(const Info &i) {
+    return !i.gamepad && i.buttons >= 4 && (i.hats >= 1 || i.axes >= 2);
+}
 
 std::string save_mapping(SDL_JoystickID id, const mapping::Answers &answers) {
     const std::optional<Info> i = info(id);

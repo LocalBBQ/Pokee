@@ -18,7 +18,7 @@ struct TextureSnapshot {
     TextureState texture;
     std::uint32_t row_bytes{};
     std::vector<std::uint8_t> texels;
-    std::vector<std::uint8_t> clut;  // the palette's first 512 entries, for the indexed formats
+    std::vector<std::uint8_t> clut; // the palette's first 512 entries, for the indexed formats
 };
 // Copies what decode_texture() would read; false for a texture it cannot copy
 // that way (a block format, a run not contiguous in host memory), which is

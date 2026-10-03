@@ -13,8 +13,12 @@ namespace mhp3rd::debug {
 namespace p3rd {
 namespace {
 
-std::uint32_t item_slot(std::uint32_t slot) { return kItemBox + slot * 4u; }
-std::uint32_t equipment_slot(std::uint32_t slot) { return kEquipmentBox + slot * kEquipmentRecord; }
+std::uint32_t item_slot(std::uint32_t slot) {
+    return kItemBox + slot * 4u;
+}
+std::uint32_t equipment_slot(std::uint32_t slot) {
+    return kEquipmentBox + slot * kEquipmentRecord;
+}
 
 } // namespace
 
@@ -33,23 +37,31 @@ ItemInfo item_info(const Ram &ram, std::uint16_t id) {
 
 ItemGroup item_group(const ItemInfo &info) {
     switch (info.category) {
-    case 1: return ItemGroup::Ammo;
-    case 3: return ItemGroup::Decoration;
+    case 1:
+        return ItemGroup::Ammo;
+    case 3:
+        return ItemGroup::Decoration;
     case 0:
         if (info.use != 0u) return ItemGroup::Consumable;
         // Materials stack to 99 in the pouch and are not used from it.
         return info.carry == kMostPerStack ? ItemGroup::Material : ItemGroup::Other;
-    default: return ItemGroup::Other;
+    default:
+        return ItemGroup::Other;
     }
 }
 
 const char *group_name(ItemGroup group) {
     switch (group) {
-    case ItemGroup::Material: return "Material";
-    case ItemGroup::Consumable: return "Consumable";
-    case ItemGroup::Ammo: return "Ammo";
-    case ItemGroup::Decoration: return "Decoration";
-    default: return "Other";
+    case ItemGroup::Material:
+        return "Material";
+    case ItemGroup::Consumable:
+        return "Consumable";
+    case ItemGroup::Ammo:
+        return "Ammo";
+    case ItemGroup::Decoration:
+        return "Decoration";
+    default:
+        return "Other";
     }
 }
 
@@ -127,7 +139,7 @@ std::uint32_t fill_materials(Ram &ram, std::uint16_t count) {
     std::uint32_t kinds = 0u;
     for (const Item &item : item_list(ram)) {
         if (item.group != ItemGroup::Material || held.count(item.id) != 0u) continue;
-        if (give_item(ram, item.id, count) == 0u) break;  // the box is full
+        if (give_item(ram, item.id, count) == 0u) break; // the box is full
         ++kinds;
     }
     return kinds;
@@ -166,7 +178,8 @@ std::optional<std::uint32_t> give_equipment(Ram &ram, std::uint8_t kind, std::ui
 
 bool on_quest(const Ram &ram) {
     // The overlay header: "MWo3", its load address at +8, its name at +32.
-    if (!ram.contains(kTaskSlot, 64u) || ram.load32(kTaskSlot) != 0x336F574Du || ram.load32(kTaskSlot + 8u) != kTaskSlot)
+    if (!ram.contains(kTaskSlot, 64u) || ram.load32(kTaskSlot) != 0x336F574Du ||
+        ram.load32(kTaskSlot + 8u) != kTaskSlot)
         return false;
     return read_text(ram, kTaskSlot + 32u) == "game_task.ovl";
 }
@@ -178,8 +191,8 @@ std::vector<Monster> monsters(const Ram &ram) {
         const std::uint32_t at = ram.load32(kMonsterTable + i * 4u);
         if (at < 0x08800000u || !ram.contains(at, kMonsterMostHealth + 2u)) continue;
         Monster m{at, ram.load8(at + kMonsterKind), static_cast<std::int16_t>(ram.load16(at + kMonsterHealth)),
-                  static_cast<std::int16_t>(ram.load16(at + kMonsterMostHealth))};
-        if (m.most <= 0) continue;  // a companion, or not spawned yet
+            static_cast<std::int16_t>(ram.load16(at + kMonsterMostHealth))};
+        if (m.most <= 0) continue; // a companion, or not spawned yet
         out.push_back(m);
     }
     return out;
@@ -191,8 +204,12 @@ std::string monster_name(const Ram &ram, std::uint8_t kind) {
     return !name.empty() ? name : "Monster " + std::to_string(kind);
 }
 
-std::uint32_t money(const Ram &ram) { return ram.load32(kMoney); }
-void set_money(Ram &ram, std::uint32_t zenny) { ram.store32(kMoney, std::min(zenny, kMostMoney)); }
+std::uint32_t money(const Ram &ram) {
+    return ram.load32(kMoney);
+}
+void set_money(Ram &ram, std::uint32_t zenny) {
+    ram.store32(kMoney, std::min(zenny, kMostMoney));
+}
 
 } // namespace p3rd
 
@@ -202,18 +219,17 @@ std::uint32_t number(const std::string &text) {
 }
 } // namespace
 
-bool game_command(Ram &ram, const std::string &command, const std::vector<std::string> &args,
-                  std::vector<std::string> &out) {
+bool game_command(
+    Ram &ram, const std::string &command, const std::vector<std::string> &args, std::vector<std::string> &out) {
     using namespace p3rd;
     const auto arg = [&](std::size_t i, std::uint32_t fallback = 0u) {
         return i < args.size() ? number(args[i]) : fallback;
     };
     if (command == "state") {
-        out.push_back("character: " + (character_loaded(ram) ? hunter_name(ram) : std::string("(none)")) +
-                      ", zenny " + std::to_string(money(ram)) + ", free item slots " +
-                      std::to_string(free_item_slots(ram)) + ", free equipment slots " +
-                      std::to_string(free_equipment_slots(ram)) + ", items named " +
-                      std::to_string(item_list(ram).size()));
+        out.push_back("character: " + (character_loaded(ram) ? hunter_name(ram) : std::string("(none)")) + ", zenny " +
+            std::to_string(money(ram)) + ", free item slots " + std::to_string(free_item_slots(ram)) +
+            ", free equipment slots " + std::to_string(free_equipment_slots(ram)) + ", items named " +
+            std::to_string(item_list(ram).size()));
     } else if (command == "money") {
         set_money(ram, arg(0));
         out.push_back("zenny now " + std::to_string(money(ram)));
@@ -221,29 +237,28 @@ bool game_command(Ram &ram, const std::string &command, const std::vector<std::s
         const auto id = static_cast<std::uint16_t>(arg(0));
         const std::uint32_t given = give_item(ram, id, arg(1, 1u));
         out.push_back("gave " + std::to_string(given) + " of item " + std::to_string(id) + "; box holds " +
-                      std::to_string(box_count(ram, id)));
+            std::to_string(box_count(ram, id)));
     } else if (command == "remove") {
         const auto id = static_cast<std::uint16_t>(arg(0));
         out.push_back("removed " + std::to_string(remove_item(ram, id)) + " of item " + std::to_string(id));
     } else if (command == "fillmats") {
         out.push_back("added " + std::to_string(fill_materials(ram, static_cast<std::uint16_t>(arg(0, 99u)))) +
-                      " kinds of material");
+            " kinds of material");
     } else if (command == "giveequip") {
         const auto kind = static_cast<std::uint8_t>(arg(0));
         const auto id = static_cast<std::uint16_t>(arg(1));
         const std::optional<std::uint32_t> slot = give_equipment(ram, kind, id);
         const std::vector<std::string> names = equipment_names(ram, kind);
         out.push_back(slot ? "equipment " + std::to_string(kind) + ":" + std::to_string(id) + " (" +
-                                 (id < names.size() ? names[id] : std::string("?")) + ") in slot " +
-                                 std::to_string(*slot)
+                    (id < names.size() ? names[id] : std::string("?")) + ") in slot " + std::to_string(*slot)
                            : std::string("no equipment given"));
     } else if (command == "item") {
         const auto id = static_cast<std::uint16_t>(arg(0));
         const std::vector<std::string> names = text_table(ram, kTextBlock, kItemNameTable);
         const ItemInfo info = item_info(ram, id);
-        out.push_back("item " + std::to_string(id) + " " + (id < names.size() ? names[id] : std::string("?")) +
-                      ": " + group_name(item_group(info)) + ", rarity " + std::to_string(info.rarity) +
-                      ", carry " + std::to_string(info.carry) + ", in box " + std::to_string(box_count(ram, id)));
+        out.push_back("item " + std::to_string(id) + " " + (id < names.size() ? names[id] : std::string("?")) + ": " +
+            group_name(item_group(info)) + ", rarity " + std::to_string(info.rarity) + ", carry " +
+            std::to_string(info.carry) + ", in box " + std::to_string(box_count(ram, id)));
     } else if (command == "table") {
         const std::vector<std::string> t = text_table(ram, kTextBlock, static_cast<int>(arg(0)));
         out.push_back("table " + std::to_string(arg(0)) + ": " + std::to_string(t.size()) + " entries");
@@ -305,11 +320,11 @@ std::vector<std::string> quest_lines(const Ram &ram) {
     if (!on_quest(ram)) return lines;
     const std::uint32_t left = ram.load32(kQuestTimeLeft) / 30u;
     char clock[32];
-    std::snprintf(clock, sizeof(clock), "%u:%02u left of %u min", left / 60u, left % 60u,
-                  ram.load32(kQuestTimeLimit) / 1800u);
+    std::snprintf(
+        clock, sizeof(clock), "%u:%02u left of %u min", left / 60u, left % 60u, ram.load32(kQuestTimeLimit) / 1800u);
     lines.push_back(std::string("Time ") + clock);
     lines.push_back("Hunter health " + std::to_string(static_cast<std::int16_t>(ram.load16(kHealth))) + "/" +
-                    std::to_string(ram.load16(kMostHealth)));
+        std::to_string(ram.load16(kMostHealth)));
     for (const Monster &m : monsters(ram))
         lines.push_back(monster_name(ram, m.kind) + " " + std::to_string(m.health) + "/" + std::to_string(m.most));
     return lines;

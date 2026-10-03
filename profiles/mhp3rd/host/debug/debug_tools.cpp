@@ -74,7 +74,8 @@ std::optional<std::vector<std::uint8_t>> read_entry(std::uint32_t entry) {
     if (head.size() < 4u) return std::nullopt;
     std::vector<std::uint8_t> first(head.begin(), head.begin() + 4);
     db::decrypt(first, 0u, 0u);
-    const std::uint32_t blocks = first[0] | first[1] << 8u | first[2] << 16u | static_cast<std::uint32_t>(first[3]) << 24u;
+    const std::uint32_t blocks =
+        first[0] | first[1] << 8u | first[2] << 16u | static_cast<std::uint32_t>(first[3]) << 24u;
     if (blocks == 0u || blocks >= 512u) return std::nullopt;
     std::vector<std::uint8_t> encrypted(static_cast<std::size_t>(blocks) * db::kBlock);
     encrypted.resize(mods::read_data_bin(0u, encrypted));
@@ -93,8 +94,7 @@ bool enabled() {
     static const bool on = [] {
         const char *text = std::getenv("MHP3RD_DEBUG_MENU");
         const bool value = text != nullptr && std::strcmp(text, "1") == 0;
-        if (value)
-            std::cout << "[debug] developer tools on (MHP3RD_DEBUG_MENU=1): Debug page in the menu" << std::endl;
+        if (value) std::cout << "[debug] developer tools on (MHP3RD_DEBUG_MENU=1): Debug page in the menu" << std::endl;
         return value;
     }();
     return on;
@@ -134,7 +134,9 @@ void frame(psprecomp::Runtime &runtime) {
     s.quest = quest_lines(ram);
 }
 
-HeldCheats held_cheats() { return state().held; }
+HeldCheats held_cheats() {
+    return state().held;
+}
 
 void set_held_cheats(const HeldCheats &cheats) {
     HeldCheats &held = state().held;
@@ -148,7 +150,9 @@ void set_held_cheats(const HeldCheats &cheats) {
     held = cheats;
 }
 
-std::vector<std::string> quest_status() { return state().quest; }
+std::vector<std::string> quest_status() {
+    return state().quest;
+}
 
 const std::vector<quests::Quest> &board_quests() {
     static std::vector<quests::Quest> list;
@@ -187,6 +191,8 @@ void log(const std::string &line) {
     while (recent.size() > kRecentLines) recent.pop_front();
 }
 
-std::vector<std::string> recent_log() { return {recent_lines().begin(), recent_lines().end()}; }
+std::vector<std::string> recent_log() {
+    return {recent_lines().begin(), recent_lines().end()};
+}
 
 } // namespace mhp3rd::debug

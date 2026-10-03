@@ -44,8 +44,7 @@ struct Entry {
 // The children of a folder document; nothing if it cannot be read.
 [[nodiscard]] std::optional<std::vector<Entry>> list_folder(const std::string &folder_uri);
 // A new folder or file in a folder document, its URI; nothing on failure.
-[[nodiscard]] std::optional<std::string> create(const std::string &folder_uri, const std::string &name,
-                                                bool directory);
+[[nodiscard]] std::optional<std::string> create(const std::string &folder_uri, const std::string &name, bool directory);
 // A file descriptor the caller closes, for reading ("r") or writing ("w",
 // truncating); -1 on failure.
 [[nodiscard]] int open_document(const std::string &uri, const char *mode);

@@ -23,20 +23,20 @@ namespace mhp3rd::screenshot {
 // "_2", "_3", ... before ".png" when a file of that name exists already, as
 // it does for two screenshots in one second, or when save_png_later was
 // given that path already.
-[[nodiscard]] std::filesystem::path free_path(const std::filesystem::path &folder,
-                                              std::chrono::system_clock::time_point when);
+[[nodiscard]] std::filesystem::path free_path(
+    const std::filesystem::path &folder, std::chrono::system_clock::time_point when);
 
 // Encodes `rgba` (4 bytes a pixel, top row first; alpha is left out, as the
 // PSP's alpha is the stencil, not transparency) as an RGB PNG and writes it
 // to `path`, creating its folder. False with `error` filled on failure.
 bool write_png(const std::filesystem::path &path, const std::vector<std::uint8_t> &rgba, std::uint32_t width,
-               std::uint32_t height, std::string &error);
+    std::uint32_t height, std::string &error);
 
 // write_png on a background thread, so encoding a large picture does not
 // hold the game up; the result goes to the log. At most one write runs at a
 // time: a second waits for the first.
-void save_png_later(std::filesystem::path path, std::vector<std::uint8_t> rgba, std::uint32_t width,
-                    std::uint32_t height);
+void save_png_later(
+    std::filesystem::path path, std::vector<std::uint8_t> rgba, std::uint32_t width, std::uint32_t height);
 // Waits for the write in progress, if any.
 void finish_writes();
 

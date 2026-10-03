@@ -25,8 +25,8 @@ namespace {
 namespace fs = std::filesystem;
 
 std::string lower(std::string text) {
-    std::transform(text.begin(), text.end(), text.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(
+        text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return text;
 }
 
@@ -49,14 +49,17 @@ bool chip(const char *id, const std::string &text, bool active = false) {
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const ImVec2 max{min.x + size.x, min.y + size.y};
     const float rounding = size.y * 0.5f;
-    if (active) draw->AddRectFilled(min, max, colors::kAccent, rounding);
-    else if (focused) draw->AddRectFilled(min, max, colors::kRowFocus, rounding);
-    else if (hovered) draw->AddRectFilled(min, max, colors::kRowHover, rounding);
+    if (active)
+        draw->AddRectFilled(min, max, colors::kAccent, rounding);
+    else if (focused)
+        draw->AddRectFilled(min, max, colors::kRowFocus, rounding);
+    else if (hovered)
+        draw->AddRectFilled(min, max, colors::kRowHover, rounding);
     draw->AddRect(min, max, focused ? colors::kAccentBright : colors::kPanelEdge, rounding, 0,
-                  std::round((focused ? 2.0f : 1.5f) * scale));
+        std::round((focused ? 2.0f : 1.5f) * scale));
     const ImVec2 text_size = ImGui::CalcTextSize(text.c_str());
     draw->AddText({min.x + (size.x - text_size.x) * 0.5f, min.y + (size.y - text_size.y) * 0.5f},
-                  active ? colors::kPanel : colors::kText, text.c_str());
+        active ? colors::kPanel : colors::kText, text.c_str());
     ImGui::SameLine(0.0f, std::round(8.0f * scale));
     return pressed;
 }
@@ -65,10 +68,14 @@ bool chip(const char *id, const std::string &text, bool active = false) {
 
 std::string human_size(std::uint64_t bytes) {
     char text[32];
-    if (bytes >= 1'000'000'000u) std::snprintf(text, sizeof(text), "%.1f GB", static_cast<double>(bytes) / 1e9);
-    else if (bytes >= 1'000'000u) std::snprintf(text, sizeof(text), "%.0f MB", static_cast<double>(bytes) / 1e6);
-    else if (bytes >= 1'000u) std::snprintf(text, sizeof(text), "%.0f KB", static_cast<double>(bytes) / 1e3);
-    else std::snprintf(text, sizeof(text), "%llu bytes", static_cast<unsigned long long>(bytes));
+    if (bytes >= 1'000'000'000u)
+        std::snprintf(text, sizeof(text), "%.1f GB", static_cast<double>(bytes) / 1e9);
+    else if (bytes >= 1'000'000u)
+        std::snprintf(text, sizeof(text), "%.0f MB", static_cast<double>(bytes) / 1e6);
+    else if (bytes >= 1'000u)
+        std::snprintf(text, sizeof(text), "%.0f KB", static_cast<double>(bytes) / 1e3);
+    else
+        std::snprintf(text, sizeof(text), "%llu bytes", static_cast<unsigned long long>(bytes));
     return text;
 }
 
@@ -111,8 +118,7 @@ void FileBrowser::find_places() {
     // Every mounted volume; the system disk appears as a link to / and is left out.
     for (const fs::directory_entry &entry : fs::directory_iterator("/Volumes", ec)) {
         if (entry.is_symlink(ec)) continue;
-        if (is_folder(entry.path()))
-            places_.push_back({install::path_to_utf8(entry.path().filename()), entry.path()});
+        if (is_folder(entry.path())) places_.push_back({install::path_to_utf8(entry.path().filename()), entry.path()});
     }
 #elif defined(__linux__)
     // SD cards and USB drives: /run/media/<user>/<label> on most desktops and
@@ -257,14 +263,19 @@ FileBrowser::Result FileBrowser::frame(bool back) {
             auto *shared = static_cast<std::shared_ptr<SystemDialog> *>(userdata);
             {
                 std::lock_guard lock((*shared)->mutex);
-                if (files == nullptr) (*shared)->error = SDL_GetError();
-                else if (files[0] != nullptr) (*shared)->path = install::path_from_utf8(files[0]);
+                if (files == nullptr)
+                    (*shared)->error = SDL_GetError();
+                else if (files[0] != nullptr)
+                    (*shared)->path = install::path_from_utf8(files[0]);
             }
             delete shared;
         };
         const std::string start = install::path_to_utf8(folder_);
-        if (folders) SDL_ShowOpenFolderDialog(callback, state, Layer::get().renderer().window(), start.c_str(), false);
-        else SDL_ShowOpenFileDialog(callback, state, Layer::get().renderer().window(), kFilters, 2, start.c_str(), false);
+        if (folders)
+            SDL_ShowOpenFolderDialog(callback, state, Layer::get().renderer().window(), start.c_str(), false);
+        else
+            SDL_ShowOpenFileDialog(
+                callback, state, Layer::get().renderer().window(), kFilters, 2, start.c_str(), false);
     }
     ImGui::NewLine();
 
@@ -306,7 +317,8 @@ FileBrowser::Result FileBrowser::frame(bool back) {
         ImGui::PushID(static_cast<int>(i));
         const bool iso = !entry.directory && lower(install::path_to_utf8(entry.path.extension())) == ".iso";
         const ListIcon icon = entry.directory ? ListIcon::Folder : iso ? ListIcon::Disc : ListIcon::File;
-        if (list_row("##entry", entry.name, entry.directory ? "" : human_size(entry.size), icon, entry.choosable)) activated = i;
+        if (list_row("##entry", entry.name, entry.directory ? "" : human_size(entry.size), icon, entry.choosable))
+            activated = i;
         ImGui::PopID();
     }
     focus_.reset();
@@ -322,7 +334,7 @@ FileBrowser::Result FileBrowser::frame(bool back) {
         std::string note = entries_.empty() ? options_.empty_note : "";
         if (hidden_files_ > 0 && !show_all_)
             note += (note.empty() ? "" : " ") + std::to_string(hidden_files_) + " other file" +
-                    (hidden_files_ == 1 ? " is" : "s are") + " hidden; only " + options_.listed_name + " are listed.";
+                (hidden_files_ == 1 ? " is" : "s are") + " hidden; only " + options_.listed_name + " are listed.";
         paragraph(note, colors::kTextDim);
         ImGui::Unindent(std::round(16.0f * Layer::get().scale()));
     }

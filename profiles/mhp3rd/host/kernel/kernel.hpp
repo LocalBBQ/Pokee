@@ -93,7 +93,7 @@ enum class WaitType {
     Mutex,
     VBlank,
     ThreadEnd,
-    Host,  // a condition only the host can check, such as network data arriving
+    Host, // a condition only the host can check, such as network data arriving
 };
 
 // Checks a host wait. Returns v0 for the thread once the wait is over, or
@@ -104,12 +104,12 @@ using HostWaitPoll = std::function<std::optional<std::uint32_t>(bool timed_out)>
 struct WaitState {
     WaitType type{WaitType::None};
     SceUID object{};
-    std::uint32_t value{};        // requested count / bit pattern
-    std::uint32_t mode{};         // event flag wait mode
-    std::uint32_t out_address{};  // event flag result pattern pointer
+    std::uint32_t value{};       // requested count / bit pattern
+    std::uint32_t mode{};        // event flag wait mode
+    std::uint32_t out_address{}; // event flag result pattern pointer
     std::uint32_t timeout_address{};
     std::optional<std::uint64_t> deadline_us;
-    HostWaitPoll host_poll;       // WaitType::Host
+    HostWaitPoll host_poll; // WaitType::Host
 };
 
 struct Thread {
@@ -121,7 +121,7 @@ struct Thread {
     std::uint32_t attributes{};
     std::uint32_t stack_size{};
     std::uint32_t stack_bottom{};
-    std::uint32_t control_block{};  // $k0 block, 256 bytes at the stack top
+    std::uint32_t control_block{}; // $k0 block, 256 bytes at the stack top
     std::uint32_t gp{};
     SceUID stack_block{};
     ThreadStatus status{ThreadStatus::Dormant};
@@ -217,8 +217,9 @@ public:
     [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> real_time_of(
         std::uint64_t virtual_us) const noexcept {
         if (!pacing_started_ || pacing_speed_ != 1.0) return std::nullopt;
-        return pacing_real_base_ + std::chrono::microseconds(static_cast<std::int64_t>(virtual_us) -
-                                                             static_cast<std::int64_t>(pacing_virtual_base_));
+        return pacing_real_base_ +
+            std::chrono::microseconds(
+                static_cast<std::int64_t>(virtual_us) - static_cast<std::int64_t>(pacing_virtual_base_));
     }
     // Frame interpolation presents between the game's flips from two places.
     // The idle hook runs while the kernel waits for real time to catch up
@@ -239,9 +240,9 @@ public:
     // Creates the thread that runs module_start and makes it current.
     void start_loader_thread(AllegrexContext &ctx, std::uint32_t entry, std::uint32_t stack_top);
     std::int32_t create_thread(const std::string &name, std::uint32_t entry, std::uint32_t priority,
-                               std::uint32_t stack_size, std::uint32_t attributes, std::uint32_t gp);
-    std::int32_t start_thread(AllegrexContext &ctx, SceUID uid, std::uint32_t argument_size,
-                              std::uint32_t argument_address);
+        std::uint32_t stack_size, std::uint32_t attributes, std::uint32_t gp);
+    std::int32_t start_thread(
+        AllegrexContext &ctx, SceUID uid, std::uint32_t argument_size, std::uint32_t argument_address);
     void exit_current_thread(AllegrexContext &ctx, std::int32_t status, bool delete_thread);
     std::int32_t terminate_thread(AllegrexContext &ctx, SceUID uid, bool delete_thread);
     std::int32_t delete_thread(SceUID uid);
@@ -271,7 +272,7 @@ public:
     // finish(), as the last thing the import does.
     using GuestCallReturn = std::function<void(AllegrexContext &, std::uint32_t)>;
     void call_guest(AllegrexContext &ctx, std::uint32_t function, const std::array<std::uint32_t, 4> &arguments,
-                    GuestCallReturn on_return);
+        GuestCallReturn on_return);
     void set_dispatch_enabled(bool enabled) noexcept { dispatch_enabled_ = enabled; }
     [[nodiscard]] bool dispatch_enabled() const noexcept { return dispatch_enabled_; }
 
@@ -286,13 +287,14 @@ public:
     void release_event_flag_waiters(SceUID uid);
     void release_mutex_waiters(SceUID uid);
     void cancel_waiters(std::deque<SceUID> &waiters, std::uint32_t result);
-    [[nodiscard]] static bool event_flag_matches(std::uint32_t pattern, std::uint32_t bits, std::uint32_t mode) noexcept;
+    [[nodiscard]] static bool event_flag_matches(
+        std::uint32_t pattern, std::uint32_t bits, std::uint32_t mode) noexcept;
     [[nodiscard]] std::uint64_t vtimer_value(const VTimer &timer) const noexcept;
 
     // Memory --------------------------------------------------------------
     // type: 0 low, 1 high, 2 at address, 3 low aligned, 4 high aligned.
-    std::int32_t allocate_block(const std::string &name, std::uint32_t type, std::uint32_t size,
-                                std::uint32_t address_or_alignment);
+    std::int32_t allocate_block(
+        const std::string &name, std::uint32_t type, std::uint32_t size, std::uint32_t address_or_alignment);
     std::int32_t free_block(SceUID uid);
     [[nodiscard]] const MemoryBlock *find_block(SceUID uid) const;
     [[nodiscard]] std::uint32_t free_memory() const noexcept;

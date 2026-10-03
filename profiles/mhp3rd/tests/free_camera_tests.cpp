@@ -25,7 +25,9 @@ void check(bool condition, const char *message) {
     }
 }
 
-bool near(float a, float b, float slack = 1e-3f) { return std::fabs(a - b) <= slack; }
+bool near(float a, float b, float slack = 1e-3f) {
+    return std::fabs(a - b) <= slack;
+}
 
 // Misty Peaks, base camp: rows of the rotation, then the translation.
 Matrix traced_view() {
@@ -46,7 +48,7 @@ void test_traced_view() {
     if (!pose) return;
     // Where MHP3RD_TRACE_VIEWS put the eye.
     check(near(pose->eye[0], 364.79f, 0.2f) && near(pose->eye[1], -8.84f, 0.2f) && near(pose->eye[2], 781.77f, 0.2f),
-          "the eye is where the trace put it");
+        "the eye is where the trace put it");
     const Matrix again = view_of_pose(*pose);
     bool same = true;
     for (std::size_t i = 0; i < 16u; ++i) same = same && near(again[i], traced_view()[i], i >= 12u ? 0.5f : 2e-3f);
@@ -54,15 +56,15 @@ void test_traced_view() {
 }
 
 void test_round_trip() {
-    for (const FreePose pose : {FreePose{{0.0f, 0.0f, 0.0f}, 0.0f, 0.0f}, FreePose{{100.0f, -50.0f, 7.0f}, 90.0f, 30.0f},
-                                FreePose{{-3000.0f, 200.0f, 5000.0f}, -135.0f, -80.0f}}) {
+    for (const FreePose pose : {FreePose{{0.0f, 0.0f, 0.0f}, 0.0f, 0.0f},
+             FreePose{{100.0f, -50.0f, 7.0f}, 90.0f, 30.0f}, FreePose{{-3000.0f, 200.0f, 5000.0f}, -135.0f, -80.0f}}) {
         const auto back = pose_of_view(view_of_pose(pose));
         check(back.has_value(), "a pose's view is a rotation");
         if (!back) continue;
         check(near(back->yaw, pose.yaw, 1e-2f) && near(back->pitch, pose.pitch, 1e-2f), "yaw and pitch come back");
         check(near(back->eye[0], pose.eye[0], 1e-2f) && near(back->eye[1], pose.eye[1], 1e-2f) &&
-                  near(back->eye[2], pose.eye[2], 1e-2f),
-              "the eye comes back");
+                near(back->eye[2], pose.eye[2], 1e-2f),
+            "the eye comes back");
     }
 }
 
@@ -82,7 +84,7 @@ void test_fly() {
     ahead.forward = 1.0f;
     const FreePose moved = fly(start, ahead, 0.5f, 400.0f);
     check(near(moved.eye[2], 200.0f) && near(moved.eye[0], 0.0f) && near(moved.eye[1], 0.0f),
-          "forward goes along the look, at the speed");
+        "forward goes along the look, at the speed");
 
     // A turn to the right looks where the right strafe went.
     FlyInput strafe;
@@ -93,7 +95,7 @@ void test_fly() {
     FreePose turned = fly(start, turn, 0.0f, 100.0f);
     turned = fly(turned, ahead, 1.0f, 100.0f);
     check(near(turned.eye[0], right.eye[0], 0.05f) && near(turned.eye[2], right.eye[2], 0.05f),
-          "turning right faces where strafing right goes");
+        "turning right faces where strafing right goes");
 
     // Positive pitch looks down, and stops short of straight down.
     FlyInput down;
@@ -115,7 +117,7 @@ void test_same_uploaded() {
     const Matrix kept = traced_view();
     Matrix uploaded = kept;
     for (float &value : uploaded) value = std::bit_cast<float>(std::bit_cast<std::uint32_t>(value) & 0xFFFFFF00u);
-    uploaded[3] = 5.0f;  // never uploaded
+    uploaded[3] = 5.0f; // never uploaded
     check(same_uploaded(uploaded, kept), "the GE's 24 bits of the game's view are the game's view");
     uploaded[12] += 1.0f;
     check(!same_uploaded(uploaded, kept), "another translation is another view");
@@ -156,7 +158,7 @@ void test_frame_step_repeat() {
     check(!repeat.update(false, t0), "nothing while the bind is up");
     check(repeat.update(true, t0), "a press steps at once");
     check(!repeat.update(true, t0 + 16ms) && !repeat.update(true, t0 + kFrameStepDelay - 1ms),
-          "held, nothing more until the delay is over");
+        "held, nothing more until the delay is over");
     check(repeat.update(true, t0 + kFrameStepDelay), "then a step");
     check(!repeat.update(true, t0 + kFrameStepDelay + 50ms), "and none until the repeat is due");
     check(repeat.update(true, t0 + kFrameStepDelay + kFrameStepRepeat), "then the next");
@@ -167,8 +169,8 @@ void test_frame_step_repeat() {
     FrameStepRepeat held;
     for (auto t = t0; t < t0 + 1400ms; t += 16ms) steps += held.update(true, t) ? 1 : 0;
     check(steps == 1 + static_cast<int>((1400ms - kFrameStepDelay) / kFrameStepRepeat) ||
-              steps == static_cast<int>((1400ms - kFrameStepDelay) / kFrameStepRepeat),
-          "held for 1.4 s at 60 frames a second, about ten steps a second after the delay");
+            steps == static_cast<int>((1400ms - kFrameStepDelay) / kFrameStepRepeat),
+        "held for 1.4 s at 60 frames a second, about ten steps a second after the delay");
     check(!held.update(false, t0 + 1400ms) && held.update(true, t0 + 1416ms), "released and pressed again: a step");
     held.reset();
     check(held.update(true, t0 + 1432ms), "reset forgets the hold");

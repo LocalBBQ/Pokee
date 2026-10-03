@@ -39,8 +39,8 @@ public:
     [[nodiscard]] static Driver vulkan(VkDevice device, VkDescriptorSetLayout layout);
 
     struct Options {
-        std::string name;                           // in the log and in errors: "texture sets"
-        std::vector<VkDescriptorPoolSize> per_set;  // what one set of the layout holds
+        std::string name;                          // in the log and in errors: "texture sets"
+        std::vector<VkDescriptorPoolSize> per_set; // what one set of the layout holds
         std::uint32_t sets_per_pool{};
         std::uint32_t max_pools{};
     };
@@ -69,19 +69,19 @@ public:
 private:
     struct Pool {
         VkDescriptorPool handle{};
-        std::uint32_t sets{};  // as declared
+        std::uint32_t sets{}; // as declared
         std::uint32_t used{};
-        bool refused{};        // the driver said it is full
+        bool refused{}; // the driver said it is full
     };
     bool add_pool(std::uint32_t sets, std::string &error);
 
     Driver driver_;
     Options options_;
     std::vector<Pool> pools_;
-    std::unordered_map<VkDescriptorSet, std::size_t> owner_;  // set -> index into pools_
-    std::size_t current_{};                                   // where the last set came from
+    std::unordered_map<VkDescriptorSet, std::size_t> owner_; // set -> index into pools_
+    std::size_t current_{};                                  // where the last set came from
     std::size_t peak_{};
-    std::uint32_t headroom_{1u};  // grows when the driver refuses a pool with room left
+    std::uint32_t headroom_{1u}; // grows when the driver refuses a pool with room left
 };
 
 // "VK_ERROR_OUT_OF_POOL_MEMORY (-1000069000)" and the like.

@@ -24,9 +24,6 @@ struct RawDeflateResult {
 // LZ matches. It has no zlib/miniz dependency and is therefore identical on
 // Linux and MSVC builds.
 [[nodiscard]] RawDeflateResult inflate_raw_deflate(
-    GuestMemory &memory,
-    std::uint32_t output_address,
-    std::uint32_t output_capacity,
-    std::uint32_t input_address);
+    GuestMemory &memory, std::uint32_t output_address, std::uint32_t output_capacity, std::uint32_t input_address);
 
 } // namespace psprecomp

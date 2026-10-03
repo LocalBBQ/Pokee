@@ -25,9 +25,12 @@ bool report_problem(const std::string &title, const std::string &message, bool a
     std::cerr << title << ": " << message << "\n";
 #if defined(MHP3RD_HAS_RENDERER)
     switch (ui::show_problem(title, message, ask_setup)) {
-    case ui::ProblemAnswer::Quit: return false;
-    case ui::ProblemAnswer::SetUpAgain: return true;
-    case ui::ProblemAnswer::Unavailable: break;
+    case ui::ProblemAnswer::Quit:
+        return false;
+    case ui::ProblemAnswer::SetUpAgain:
+        return true;
+    case ui::ProblemAnswer::Unavailable:
+        break;
     }
 #endif
     return report_problem_in_dialog(title, message, ask_setup);
@@ -46,9 +49,8 @@ bool copy_with_progress(const std::filesystem::path &from, const std::filesystem
 #if defined(MHP3RD_HAS_RENDERER)
     try {
         const bool shown = ui::run_with_progress("Copying your data", [&](const ui::ReportProgress &report) {
-            files = copy_user_data(from, to, [&report](std::uint64_t done, std::uint64_t total) {
-                report("Copying your data", done, total);
-            });
+            files = copy_user_data(from, to,
+                [&report](std::uint64_t done, std::uint64_t total) { report("Copying your data", done, total); });
         });
         if (shown) {
             std::cout << "[data] " << copy_summary(files, to) << std::endl;
@@ -59,9 +61,8 @@ bool copy_with_progress(const std::filesystem::path &from, const std::filesystem
         return false;
     }
 #endif
-    files = copy_user_data(from, to, [](std::uint64_t done, std::uint64_t total) {
-        print_progress("Copying your data", done, total);
-    });
+    files = copy_user_data(
+        from, to, [](std::uint64_t done, std::uint64_t total) { print_progress("Copying your data", done, total); });
     std::cout << "[data] " << copy_summary(files, to) << std::endl;
     return true;
 }
@@ -70,9 +71,9 @@ bool copy_with_progress(const std::filesystem::path &from, const std::filesystem
 
 bool offer_user_data_copy(const std::filesystem::path &from, const std::filesystem::path &to) {
     const std::string title = "Use your existing data?";
-    const std::string message =
-        "This copy of Yakumo is portable: it keeps its settings, saves and game data in\n" + path_to_utf8(to) +
-        "\n\nwhich is empty. Yakumo is also set up on this computer, with its data in\n" + path_to_utf8(from) +
+    const std::string message = "This copy of Yakumo is portable: it keeps its settings, saves and game data in\n" +
+        path_to_utf8(to) + "\n\nwhich is empty. Yakumo is also set up on this computer, with its data in\n" +
+        path_to_utf8(from) +
         "\n\nCopy that data here to keep playing with your saves and settings? The original stays where it is "
         "and is not changed.";
     const std::string copy = "Copy my data";
@@ -80,10 +81,17 @@ bool offer_user_data_copy(const std::filesystem::path &from, const std::filesyst
     int answer = -1;
 #if defined(MHP3RD_HAS_RENDERER)
     switch (ui::ask_choice(title, message, copy, fresh)) {
-    case ui::ChoiceAnswer::First: answer = 1; break;
-    case ui::ChoiceAnswer::Second: answer = 2; break;
-    case ui::ChoiceAnswer::Closed: answer = 0; break;
-    case ui::ChoiceAnswer::Unavailable: break;
+    case ui::ChoiceAnswer::First:
+        answer = 1;
+        break;
+    case ui::ChoiceAnswer::Second:
+        answer = 2;
+        break;
+    case ui::ChoiceAnswer::Closed:
+        answer = 0;
+        break;
+    case ui::ChoiceAnswer::Unavailable:
+        break;
     }
 #endif
     if (answer < 0) answer = ask_choice_in_dialog(title, message, copy, fresh);
@@ -99,9 +107,9 @@ bool offer_user_data_copy(const std::filesystem::path &from, const std::filesyst
         (void)copy_with_progress(from, to);
     } catch (const std::exception &e) {
         (void)report_problem("Copy failed",
-                             std::string("Yakumo could not copy your data:\n") + e.what() +
-                                 "\n\nWhat it had copied was removed again; the original is unchanged.",
-                             false);
+            std::string("Yakumo could not copy your data:\n") + e.what() +
+                "\n\nWhat it had copied was removed again; the original is unchanged.",
+            false);
         return false;
     }
     return true;
@@ -118,9 +126,8 @@ int copy_user_data_on_console(const std::filesystem::path &from, const std::file
         return 1;
     }
     try {
-        const std::uint64_t files = copy_user_data(from, to, [](std::uint64_t done, std::uint64_t total) {
-            print_progress("Copying your data", done, total);
-        });
+        const std::uint64_t files = copy_user_data(from, to,
+            [](std::uint64_t done, std::uint64_t total) { print_progress("Copying your data", done, total); });
         std::cout << copy_summary(files, to) << "; " << path_to_utf8(from) << " is unchanged.\n";
     } catch (const std::exception &e) {
         std::cerr << "Yakumo: copy failed: " << e.what() << "\nWhat was copied has been removed again.\n";

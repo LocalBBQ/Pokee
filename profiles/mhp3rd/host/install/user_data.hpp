@@ -59,8 +59,8 @@ void set_portable_requested();                                     // --portable
 // is where the executable is, portable whether --portable or MHP3RD_PORTABLE=1
 // asked for portable mode, and no_portable whether MHP3RD_PORTABLE=0 turned
 // the check off. Empty when portable mode is not on there.
-[[nodiscard]] std::filesystem::path portable_data_directory(const std::filesystem::path &executable_dir,
-                                                            bool portable, bool no_portable);
+[[nodiscard]] std::filesystem::path portable_data_directory(
+    const std::filesystem::path &executable_dir, bool portable, bool no_portable);
 // SDL_GetPrefPath("Yakumo", "MHP3rd"), or the same location computed by hand in
 // a build without SDL: where an installed copy keeps its data. SDL creates the
 // directory if it does not exist yet.
@@ -84,8 +84,8 @@ void set_portable_requested();                                     // --portable
 // copied, so to is left as it was apart from empty folders. Returns the number of files copied;
 // throws std::filesystem::filesystem_error when a file cannot be copied.
 using CopyProgressFn = std::function<void(std::uint64_t done, std::uint64_t total)>;
-std::uint64_t copy_user_data(const std::filesystem::path &from, const std::filesystem::path &to,
-                             const CopyProgressFn &progress = {});
+std::uint64_t copy_user_data(
+    const std::filesystem::path &from, const std::filesystem::path &to, const CopyProgressFn &progress = {});
 
 // Every key=value line of settings.ini. The installer owns disc_image; the
 // player's settings (host/settings) keep their keys next to it, and writing

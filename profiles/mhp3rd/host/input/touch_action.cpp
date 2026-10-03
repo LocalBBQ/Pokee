@@ -14,11 +14,21 @@ constexpr std::uint16_t kL = 0x0100u, kR = 0x0200u, kStart = 0x0008u, kSelect = 
 constexpr std::uint16_t kUp = 0x0010u, kRight = 0x0020u, kDown = 0x0040u, kLeft = 0x0080u;
 
 constexpr ElementInfo kInfo[kElements] = {
-    {"stick", "Stick"},         {"item", "Item pouch"},     {"dpad_up", "D-pad Up"},
-    {"dpad_down", "D-pad Down"}, {"attack", "Attack"},       {"secondary", "Second attack"},
-    {"combo", "Combined attack"}, {"evade", "Evade"},        {"use", "Use / sheathe"},
-    {"guard", "Guard"},          {"special", "Special"},     {"pause", "Pause (menu)"},
-    {"start", "Start"},          {"select", "Select"},       {"swipe", "Swipe area"},
+    {"stick", "Stick"},
+    {"item", "Item pouch"},
+    {"dpad_up", "D-pad Up"},
+    {"dpad_down", "D-pad Down"},
+    {"attack", "Attack"},
+    {"secondary", "Second attack"},
+    {"combo", "Combined attack"},
+    {"evade", "Evade"},
+    {"use", "Use / sheathe"},
+    {"guard", "Guard"},
+    {"special", "Special"},
+    {"pause", "Pause (menu)"},
+    {"start", "Start"},
+    {"select", "Select"},
+    {"swipe", "Swipe area"},
 };
 
 ActionLayout make_default() {
@@ -50,7 +60,9 @@ ActionLayout make_default() {
     return l;
 }
 
-bool is_button(Element e) { return e != Element::Stick && e != Element::Swipe; }
+bool is_button(Element e) {
+    return e != Element::Stick && e != Element::Swipe;
+}
 
 // The right thumb's buttons, which a thumb may slide across.
 bool in_cluster(Element e) {
@@ -61,16 +73,21 @@ bool in_cluster(Element e) {
     case Element::Evade:
     case Element::Use:
     case Element::Guard:
-    case Element::Special: return true;
-    default: return false;
+    case Element::Special:
+        return true;
+    default:
+        return false;
     }
 }
 
 const char *anchor_name(Anchor a) {
     switch (a) {
-    case Anchor::Left: return "left";
-    case Anchor::Centre: return "centre";
-    case Anchor::Right: return "right";
+    case Anchor::Left:
+        return "left";
+    case Anchor::Centre:
+        return "centre";
+    case Anchor::Right:
+        return "right";
     }
     return "left";
 }
@@ -82,9 +99,13 @@ const ActionLayout &default_action_layout() {
     return value;
 }
 
-const ElementInfo &info(Element element) { return kInfo[static_cast<std::size_t>(element)]; }
+const ElementInfo &info(Element element) {
+    return kInfo[static_cast<std::size_t>(element)];
+}
 
-bool rebindable(Element element) { return is_button(element) && element != Element::Pause; }
+bool rebindable(Element element) {
+    return is_button(element) && element != Element::Pause;
+}
 
 const std::vector<ButtonChoice> &button_choices() {
     static const std::vector<ButtonChoice> choices = {
@@ -122,7 +143,7 @@ std::string buttons_label(std::uint16_t buttons) {
 std::string format(const Placement &p) {
     char text[96];
     std::snprintf(text, sizeof(text), "%s %.3f %.3f %.3f 0x%04X %d", anchor_name(p.anchor), static_cast<double>(p.x),
-                  static_cast<double>(p.y), static_cast<double>(p.size), p.buttons, p.shown ? 1 : 0);
+        static_cast<double>(p.y), static_cast<double>(p.size), p.buttons, p.shown ? 1 : 0);
     return text;
 }
 
@@ -132,10 +153,14 @@ bool parse(std::string_view text, Placement &out) {
     Placement p;
     int shown = 1;
     if (!(in >> anchor >> p.x >> p.y >> p.size >> buttons >> shown)) return false;
-    if (anchor == "left") p.anchor = Anchor::Left;
-    else if (anchor == "centre") p.anchor = Anchor::Centre;
-    else if (anchor == "right") p.anchor = Anchor::Right;
-    else return false;
+    if (anchor == "left")
+        p.anchor = Anchor::Left;
+    else if (anchor == "centre")
+        p.anchor = Anchor::Centre;
+    else if (anchor == "right")
+        p.anchor = Anchor::Right;
+    else
+        return false;
     char *end = nullptr;
     const unsigned long bits = std::strtoul(buttons.c_str(), &end, 0);
     if (end == buttons.c_str() || *end != '\0' || bits > 0xFFFFu) return false;
@@ -162,9 +187,15 @@ Placed place(const Placement &p, Element element, const Area &area, float scale)
     const float unit = area.height;
     Placed placed;
     switch (p.anchor) {
-    case Anchor::Left: placed.centre.x = area.left + p.x * unit; break;
-    case Anchor::Centre: placed.centre.x = area.left + area.width * 0.5f + p.x * unit; break;
-    case Anchor::Right: placed.centre.x = area.left + area.width - p.x * unit; break;
+    case Anchor::Left:
+        placed.centre.x = area.left + p.x * unit;
+        break;
+    case Anchor::Centre:
+        placed.centre.x = area.left + area.width * 0.5f + p.x * unit;
+        break;
+    case Anchor::Right:
+        placed.centre.x = area.left + area.width - p.x * unit;
+        break;
     }
     placed.centre.y = area.top + p.y * unit;
     placed.radius = p.size * std::clamp(scale, 0.5f, 2.0f) * unit;
@@ -177,12 +208,20 @@ Placement move_to(const Placement &placement, Element element, Point centre, con
     const float unit = area.height;
     centre.x = std::clamp(centre.x, area.left, area.left + area.width);
     centre.y = std::clamp(centre.y, area.top, area.top + area.height);
-    if (element == Element::Swipe) p.anchor = Anchor::Centre;
-    else p.anchor = centre.x < area.left + area.width * 0.5f ? Anchor::Left : Anchor::Right;
+    if (element == Element::Swipe)
+        p.anchor = Anchor::Centre;
+    else
+        p.anchor = centre.x < area.left + area.width * 0.5f ? Anchor::Left : Anchor::Right;
     switch (p.anchor) {
-    case Anchor::Left: p.x = (centre.x - area.left) / unit; break;
-    case Anchor::Centre: p.x = (centre.x - area.left - area.width * 0.5f) / unit; break;
-    case Anchor::Right: p.x = (area.left + area.width - centre.x) / unit; break;
+    case Anchor::Left:
+        p.x = (centre.x - area.left) / unit;
+        break;
+    case Anchor::Centre:
+        p.x = (centre.x - area.left - area.width * 0.5f) / unit;
+        break;
+    case Anchor::Right:
+        p.x = (area.left + area.width - centre.x) / unit;
+        break;
     }
     p.y = (centre.y - area.top) / unit;
     return p;
@@ -255,7 +294,7 @@ void ActionControls::finger_down(std::uint64_t id, Point at, std::uint64_t ms) {
         if (*button == Element::Pause) menu_tapped_ = true;
         ++haptics_;
     } else if (layout_.at(Element::Stick).shown && !stick_finger_ &&
-               std::hypot(at.x - stick.centre.x, at.y - stick.centre.y) <= stick.radius * 1.8f) {
+        std::hypot(at.x - stick.centre.x, at.y - stick.centre.y) <= stick.radius * 1.8f) {
         slot->role = Role::Stick;
         stick_finger_ = id;
         stick_thumb_ = at;
@@ -271,7 +310,9 @@ void ActionControls::finger_move(std::uint64_t id, Point at, std::uint64_t ms) {
     if (finger == nullptr) return;
     const float unit = std::max(area_.height, 1.0f);
     switch (finger->role) {
-    case Role::Stick: stick_thumb_ = at; break;
+    case Role::Stick:
+        stick_thumb_ = at;
+        break;
     case Role::Button:
         if (in_cluster(finger->element)) {
             if (const std::optional<Element> button = button_at(at, true)) {
@@ -315,7 +356,8 @@ void ActionControls::finger_move(std::uint64_t id, Point at, std::uint64_t ms) {
         }
         break;
     }
-    case Role::None: break;
+    case Role::None:
+        break;
     }
     finger->last = at;
 }

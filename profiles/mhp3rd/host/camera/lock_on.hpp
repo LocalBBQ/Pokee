@@ -46,7 +46,7 @@ struct Vec3 {
 
 // What lock-on reads in the game. Exposed for tests, which build a stand-in.
 namespace lock_on_layout {
-inline constexpr std::uint32_t kTaskSlot = 0x0A05E600u;  // the code overlay slot: "game_task.ovl" in a quest
+inline constexpr std::uint32_t kTaskSlot = 0x0A05E600u; // the code overlay slot: "game_task.ovl" in a quest
 inline constexpr std::uint32_t kMonsterTable = 0x0A1B0AE0u;
 inline constexpr std::uint32_t kMonsterSlots = 5u;
 inline constexpr std::uint32_t kFlags = 0x04u;
@@ -78,18 +78,17 @@ struct LockMonster {
 // go. With nothing locked: the nearest monster within kInView of where the
 // camera looks, else the nearest one. Locked: the next monster in the table
 // this lock has not been on yet; after the last, nothing.
-inline constexpr float kInView = 60.0f;  // degrees either side of where the camera looks
+inline constexpr float kInView = 60.0f; // degrees either side of where the camera looks
 [[nodiscard]] std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monsters, const Vec3 &look_at,
-                                                        std::uint16_t camera_yaw, std::optional<std::uint32_t> current,
-                                                        const std::vector<std::uint32_t> &visited);
+    std::uint16_t camera_yaw, std::optional<std::uint32_t> current, const std::vector<std::uint32_t> &visited);
 
 // One step of the camera's yaw towards `wanted`: a share of what is left,
 // neither too small to finish nor so large that the turn jumps. `weight`
 // (0..1) scales the step, down to none; `sign` (+1, -1, 0 for none) is the
 // way the previous step went, kept while the rest is near half a turn, where
 // the short way round flips from one update to the next.
-[[nodiscard]] std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, float weight = 1.0f,
-                                             int sign = 0);
+[[nodiscard]] std::uint16_t lock_on_ease_yaw(
+    std::uint16_t current, std::uint16_t wanted, float weight = 1.0f, int sign = 0);
 
 // --- The running lock -------------------------------------------------------
 
@@ -100,8 +99,8 @@ void lock_on_tap();
 // gets back: the yaw to put the camera at, and the pitch (degrees, the eye
 // above the look-at point) when lock-on tilts it too.
 struct LockOnCamera {
-    std::uint32_t address{};  // the camera structure (s1)
-    std::uint16_t yaw{};      // the camera's yaw now
+    std::uint32_t address{}; // the camera structure (s1)
+    std::uint16_t yaw{};     // the camera's yaw now
     Vec3 look_at;
     // The player turned the camera by hand this update, in degrees, or gave
     // the game a camera command (the D-pad's turn or tilt, recentring).
@@ -109,7 +108,7 @@ struct LockOnCamera {
     bool command{};
     // The camera's pitch now, from the game's eye offset, in degrees.
     float pitch{};
-    bool player_pitch{};  // the player has tilted the camera by hand
+    bool player_pitch{}; // the player has tilted the camera by hand
 };
 struct LockOnAim {
     std::uint16_t yaw{};

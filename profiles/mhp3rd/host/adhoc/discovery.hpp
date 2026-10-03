@@ -45,9 +45,9 @@ inline constexpr std::uint16_t kDiscoveryPort = 27314;
 
 // An IPv4 address of this machine that others may reach it at.
 struct LocalAddress {
-    std::string address;    // "192.168.1.20"
-    std::string interface;  // "en0", "Wi-Fi"
-    std::string network;    // "Local network", "Tailscale", "ZeroTier", "Hamachi", "VPN", "Internet"
+    std::string address;   // "192.168.1.20"
+    std::string interface; // "en0", "Wi-Fi"
+    std::string network;   // "Local network", "Tailscale", "ZeroTier", "Hamachi", "VPN", "Internet"
 };
 
 // Up interfaces, loopback left out, VPNs included.
@@ -66,8 +66,8 @@ struct Announcement {
 
 struct FoundHost {
     Announcement info;
-    std::string address;        // where it was heard from
-    std::uint64_t heard_ms{};   // since the last announcement or answer
+    std::string address;      // where it was heard from
+    std::uint64_t heard_ms{}; // since the last announcement or answer
     // "address" or "address:port" when the port is not the usual one: what to
     // type, or use, to join it.
     [[nodiscard]] std::string join_address() const;
@@ -75,7 +75,7 @@ struct FoundHost {
 
 struct DiscoveryStatus {
     bool announcing{};
-    std::string announce_note;   // interfaces announced on, or why answering queries is off
+    std::string announce_note; // interfaces announced on, or why answering queries is off
     std::uint64_t announcements_sent{};
     std::uint64_t queries_answered{};
     bool listening{};

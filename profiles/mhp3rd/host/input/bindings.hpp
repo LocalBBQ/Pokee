@@ -116,9 +116,15 @@ enum class PadInput : std::uint8_t {
     Count
 };
 
-[[nodiscard]] constexpr Binding key(std::uint16_t position) { return position; }
-[[nodiscard]] constexpr Binding mouse_button(int button) { return static_cast<Binding>(kMouse + button); }
-[[nodiscard]] constexpr Binding pad(PadInput input) { return static_cast<Binding>(kPad + 1u + static_cast<unsigned>(input)); }
+[[nodiscard]] constexpr Binding key(std::uint16_t position) {
+    return position;
+}
+[[nodiscard]] constexpr Binding mouse_button(int button) {
+    return static_cast<Binding>(kMouse + button);
+}
+[[nodiscard]] constexpr Binding pad(PadInput input) {
+    return static_cast<Binding>(kPad + 1u + static_cast<unsigned>(input));
+}
 // The key position, or -1 for anything else.
 [[nodiscard]] constexpr int key_position(Binding binding) {
     return binding != kNone && binding < kKeyPositions ? binding : -1;
@@ -131,14 +137,16 @@ enum class PadInput : std::uint8_t {
 [[nodiscard]] constexpr int pad_input_of(Binding binding) {
     return binding > kPad && binding <= kPad + static_cast<unsigned>(PadInput::Count) ? binding - kPad - 1 : -1;
 }
-[[nodiscard]] constexpr bool is_pad(Binding binding) { return pad_input_of(binding) >= 0; }
+[[nodiscard]] constexpr bool is_pad(Binding binding) {
+    return pad_input_of(binding) >= 0;
+}
 
 // Up to four inputs held together, in the order they were pressed; a chord
 // of one is a single input. Two chords are the same when they hold the same
 // inputs, whatever the order.
 inline constexpr std::size_t kChordInputs = 4u;
 struct Chord {
-    std::array<Binding, kChordInputs> inputs{};  // packed at the front
+    std::array<Binding, kChordInputs> inputs{}; // packed at the front
 
     [[nodiscard]] constexpr std::size_t size() const {
         std::size_t n = 0;
@@ -161,16 +169,18 @@ struct Chord {
             if (!other.contains(b)) return false;
         return true;
     }
-    friend constexpr bool operator==(const Chord &a, const Chord &b) {
-        return a.size() == b.size() && a.part_of(b);
-    }
+    friend constexpr bool operator==(const Chord &a, const Chord &b) { return a.size() == b.size() && a.part_of(b); }
 };
-[[nodiscard]] constexpr Chord single(Binding binding) { return {{binding, kNone, kNone, kNone}}; }
+[[nodiscard]] constexpr Chord single(Binding binding) {
+    return {{binding, kNone, kNone, kNone}};
+}
 [[nodiscard]] constexpr Chord chord(Binding a, Binding b, Binding c = kNone, Binding d = kNone) {
     return {{a, b, c, d}};
 }
 // The keyboard and the mouse are one device, gamepads another.
-[[nodiscard]] constexpr bool same_device(Binding a, Binding b) { return is_pad(a) == is_pad(b); }
+[[nodiscard]] constexpr bool same_device(Binding a, Binding b) {
+    return is_pad(a) == is_pad(b);
+}
 // One to four different inputs, all on one device, packed at the front.
 [[nodiscard]] bool valid(const Chord &chord);
 
@@ -178,8 +188,8 @@ using Slots = std::array<Chord, kSlots>;
 using Bindings = std::array<Slots, kActions>;
 
 struct ActionInfo {
-    const char *key;    // in settings.ini, after "input.bind." or "input.pad."
-    const char *label;  // in the menu
+    const char *key;   // in settings.ini, after "input.bind." or "input.pad."
+    const char *label; // in the menu
 };
 [[nodiscard]] const ActionInfo &info(Action action);
 
@@ -205,7 +215,7 @@ enum class Context : std::uint8_t { Game, PhotoMode, Anywhere };
 [[nodiscard]] bool acts_on_release(Action action);
 
 // The PSP's buttons an action of the player's may press together (#198).
-inline constexpr std::uint32_t kComboButtons = 0xF3F9u;  // △ ○ × □ L R START SELECT and the D-pad
+inline constexpr std::uint32_t kComboButtons = 0xF3F9u; // △ ○ × □ L R START SELECT and the D-pad
 // "L + □" in the menu, in the PSP's order: △ ○ × □ L R, the D-pad, START,
 // SELECT. Empty for none.
 [[nodiscard]] std::string buttons_label(std::uint32_t buttons);
@@ -217,9 +227,9 @@ bool parse_buttons(std::string_view text, std::uint32_t &buttons);
 // An action the player made (#198): any set of the PSP's buttons, pressed
 // together by its chords on each device.
 struct Combo {
-    std::uint32_t buttons{};  // SceCtrlButtons, within kComboButtons
-    Slots keys{};             // the keyboard and the mouse
-    Slots pad{};              // gamepads
+    std::uint32_t buttons{}; // SceCtrlButtons, within kComboButtons
+    Slots keys{};            // the keyboard and the mouse
+    Slots pad{};             // gamepads
     friend bool operator==(const Combo &, const Combo &) = default;
 };
 inline constexpr std::size_t kMaxCombos = 8u;
@@ -273,7 +283,7 @@ bool remove(Bindings &bindings, Action action, const Chord &chord);
 struct Table {
     const Bindings &actions;
     std::span<const Combo> combos;
-    bool pad{};  // which of a combo's slots
+    bool pad{}; // which of a combo's slots
 
     [[nodiscard]] std::size_t size() const { return kActions + combos.size(); }
     [[nodiscard]] const Slots &slots(std::size_t target) const;
@@ -299,32 +309,32 @@ struct Table {
 // (context_of) do not clash.
 struct Conflict {
     enum class Kind : std::uint8_t {
-        Same,      // another target has the same chord: one press does both
-        Part,      // the other's chord is part of this one: that input waits, then does only this
-        Contains,  // this chord is part of the other's: held together, they do only the other
-        Held,      // part of this chord does something the game reads held (L, R, moving), which
-                   // stops while the chord is held
+        Same,     // another target has the same chord: one press does both
+        Part,     // the other's chord is part of this one: that input waits, then does only this
+        Contains, // this chord is part of the other's: held together, they do only the other
+        Held,     // part of this chord does something the game reads held (L, R, moving), which
+                  // stops while the chord is held
     };
     Kind kind{};
-    std::size_t other{};  // a target (Table)
-    Chord chord;          // the chord of `target` that clashes
-    Chord theirs;         // and the chord of `other` it clashes with
+    std::size_t other{}; // a target (Table)
+    Chord chord;         // the chord of `target` that clashes
+    Chord theirs;        // and the chord of `other` it clashes with
 };
 [[nodiscard]] std::vector<Conflict> conflicts(const Table &table, std::size_t target);
 [[nodiscard]] std::vector<Conflict> conflicts(const Bindings &bindings, Action action);
 
 // What the held inputs press, in PSP terms.
 struct PadState {
-    std::uint32_t buttons{};  // SceCtrlButtons
-    int stick_x{};            // -127..127 from the centre, each axis
+    std::uint32_t buttons{}; // SceCtrlButtons
+    int stick_x{};           // -127..127 from the centre, each axis
     int stick_y{};
-    int camera_x{};           // the second stick
+    int camera_x{}; // the second stick
     int camera_y{};
-    bool fast_forward{};      // the fast-forward bind is held
-    bool screenshot{};        // the screenshot bind is held
-    bool frame_step{};        // the frame step bind is held
-    bool hide_hud{};          // the hide-HUD bind is held
-    bool lock_on{};           // the lock-on bind is held
+    bool fast_forward{}; // the fast-forward bind is held
+    bool screenshot{};   // the screenshot bind is held
+    bool frame_step{};   // the frame step bind is held
+    bool hide_hud{};     // the hide-HUD bind is held
+    bool lock_on{};      // the lock-on bind is held
 };
 // At once, with no memory of what came before (Resolver has it): among the
 // held inputs, the longest bound chord wins and its inputs do nothing else;
@@ -340,8 +350,10 @@ struct PadState {
 class TapDetector {
 public:
     bool update(bool held, bool others) {
-        if (held && !held_) spoiled_ = others;
-        else if (held) spoiled_ = spoiled_ || others;
+        if (held && !held_)
+            spoiled_ = others;
+        else if (held)
+            spoiled_ = spoiled_ || others;
         const bool tap = !held && held_ && !spoiled_;
         held_ = held;
         return tap;
@@ -360,7 +372,7 @@ struct MouseTurn {
     float yaw{};
     float pitch{};
 };
-[[nodiscard]] MouseTurn mouse_turn(float counts_x, float counts_y, float degrees_per_count, bool invert_x,
-                                   bool invert_y, float scale);
+[[nodiscard]] MouseTurn mouse_turn(
+    float counts_x, float counts_y, float degrees_per_count, bool invert_x, bool invert_y, float scale);
 
 } // namespace mhp3rd::input

@@ -26,7 +26,7 @@ void ModLibrary::scan(const fs::path &folder) {
     std::vector<fs::path> folders;
     for (const fs::directory_entry &entry : it) {
         const std::string name = to_utf8(entry.path().filename());
-        if (name.empty() || name.front() == '.') continue;  // .backup and hidden folders
+        if (name.empty() || name.front() == '.') continue; // .backup and hidden folders
         if (entry.is_directory(ec)) folders.push_back(entry.path());
     }
     std::sort(folders.begin(), folders.end());
@@ -95,8 +95,7 @@ bool ModLibrary::save_choices(const fs::path &file, std::string &error) const {
         for (const auto &[id, c] : choices_) {
             out << "\n[" << kModPrefix << id << "]\nenabled=" << (c.enabled ? 1 : 0) << "\nrank=" << c.rank << "\n";
             for (std::size_t slot = 0; slot < c.slots.size(); ++slot)
-                out << "slot" << slot + 1u << "=" << (c.slots[slot] ? format_->file_name(*c.slots[slot]) : "")
-                    << "\n";
+                out << "slot" << slot + 1u << "=" << (c.slots[slot] ? format_->file_name(*c.slots[slot]) : "") << "\n";
         }
         if (!out) {
             error = "cannot write " + to_utf8(partial);
@@ -123,7 +122,9 @@ ModChoice ModLibrary::choice(const std::string &id) const {
     return found != choices_.end() ? found->second : ModChoice{};
 }
 
-ModChoice &ModLibrary::choice_for(const std::string &id) { return choices_[id]; }
+ModChoice &ModLibrary::choice_for(const std::string &id) {
+    return choices_[id];
+}
 
 void ModLibrary::set_enabled(const std::string &id, bool on) {
     std::set<std::string> visited;
@@ -157,8 +158,10 @@ void ModLibrary::move(const std::string &id, int delta) {
     if (other < 0 || other >= static_cast<std::ptrdiff_t>(mods_.size())) return;
     ModChoice &a = choice_for(id);
     ModChoice &b = choice_for(mods_[static_cast<std::size_t>(other)].id);
-    if (a.rank == b.rank) a.rank += delta;
-    else std::swap(a.rank, b.rank);
+    if (a.rank == b.rank)
+        a.rank += delta;
+    else
+        std::swap(a.rank, b.rank);
     sort();
 }
 
@@ -166,7 +169,7 @@ Resolution ModLibrary::resolve() const {
     Resolution result;
     if (!master_) return result;
     struct Touch {
-        std::vector<std::string> replaced;  // lowest priority first
+        std::vector<std::string> replaced; // lowest priority first
         std::vector<std::string> patched;
     };
     std::map<FileId, Touch> touches;

@@ -12,28 +12,30 @@ namespace {
 constexpr std::uint32_t kEventFlagWaitMulti = 0x200u;
 constexpr std::uint32_t kMutexAttrRecursive = 0x200u;
 
-std::int32_t as_signed(std::uint32_t value) { return static_cast<std::int32_t>(value); }
-std::uint32_t as_unsigned(std::int32_t value) { return static_cast<std::uint32_t>(value); }
+std::int32_t as_signed(std::uint32_t value) {
+    return static_cast<std::int32_t>(value);
+}
+std::uint32_t as_unsigned(std::int32_t value) {
+    return static_cast<std::uint32_t>(value);
+}
 
 void register_threads(HleRegistrar &hle) {
     hle.add("ThreadManForUser", "sceKernelCreateThread", [](Runtime &rt, AllegrexContext &ctx) {
         const std::string name = read_cstring(rt.memory(), arg(ctx, 0), 32u);
-        kernel().finish(ctx, as_unsigned(kernel().create_thread(name, arg(ctx, 1), arg(ctx, 2), arg(ctx, 3),
-                                                                arg(ctx, 4), ctx.gpr[28])));
+        kernel().finish(ctx,
+            as_unsigned(kernel().create_thread(name, arg(ctx, 1), arg(ctx, 2), arg(ctx, 3), arg(ctx, 4), ctx.gpr[28])));
     });
     hle.add("ThreadManForUser", "sceKernelStartThread", [](Runtime &, AllegrexContext &ctx) {
         kernel().finish(ctx, as_unsigned(kernel().start_thread(ctx, as_signed(arg(ctx, 0)), arg(ctx, 1), arg(ctx, 2))));
     });
-    hle.add("ThreadManForUser", "sceKernelExitThread", [](Runtime &, AllegrexContext &ctx) {
-        kernel().exit_current_thread(ctx, as_signed(arg(ctx, 0)), false);
-    });
-    hle.add("ThreadManForUser", "sceKernelExitDeleteThread", [](Runtime &, AllegrexContext &ctx) {
-        kernel().exit_current_thread(ctx, as_signed(arg(ctx, 0)), true);
-    });
+    hle.add("ThreadManForUser", "sceKernelExitThread",
+        [](Runtime &, AllegrexContext &ctx) { kernel().exit_current_thread(ctx, as_signed(arg(ctx, 0)), false); });
+    hle.add("ThreadManForUser", "sceKernelExitDeleteThread",
+        [](Runtime &, AllegrexContext &ctx) { kernel().exit_current_thread(ctx, as_signed(arg(ctx, 0)), true); });
     hle.add("ThreadManForUser", "sceKernelDeleteThread", [](Runtime &, AllegrexContext &ctx) {
         const SceUID uid = as_signed(arg(ctx, 0));
-        kernel().finish(ctx, uid == kernel().current_uid() ? error::kNotDormant
-                                                           : as_unsigned(kernel().delete_thread(uid)));
+        kernel().finish(
+            ctx, uid == kernel().current_uid() ? error::kNotDormant : as_unsigned(kernel().delete_thread(uid)));
     });
     hle.add("ThreadManForUser", "sceKernelTerminateThread", [](Runtime &, AllegrexContext &ctx) {
         kernel().finish(ctx, as_unsigned(kernel().terminate_thread(ctx, as_signed(arg(ctx, 0)), false)));
@@ -60,9 +62,12 @@ void register_threads(HleRegistrar &hle) {
     });
     hle.add("ThreadManForUser", "sceKernelGetThreadExitStatus", [](Runtime &, AllegrexContext &ctx) {
         const Thread *thread = kernel().find_thread(as_signed(arg(ctx, 0)));
-        if (thread == nullptr) kernel().finish(ctx, error::kUnknownThid);
-        else if (thread->status != ThreadStatus::Dormant) kernel().finish(ctx, error::kNotDormant);
-        else kernel().finish(ctx, as_unsigned(thread->exit_status));
+        if (thread == nullptr)
+            kernel().finish(ctx, error::kUnknownThid);
+        else if (thread->status != ThreadStatus::Dormant)
+            kernel().finish(ctx, error::kNotDormant);
+        else
+            kernel().finish(ctx, as_unsigned(thread->exit_status));
     });
 
     // The *CB variants run the thread's notified callbacks before waiting.
@@ -128,12 +133,10 @@ void register_time(HleRegistrar &hle) {
         store64(rt.memory(), arg(ctx, 0), kernel().now_us());
         kernel().finish(ctx, 0u);
     });
-    hle.add("ThreadManForUser", "sceKernelGetSystemTimeWide", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish64(ctx, kernel().now_us());
-    });
-    hle.add("ThreadManForUser", "sceKernelGetSystemTimeLow", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, static_cast<std::uint32_t>(kernel().now_us()));
-    });
+    hle.add("ThreadManForUser", "sceKernelGetSystemTimeWide",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish64(ctx, kernel().now_us()); });
+    hle.add("ThreadManForUser", "sceKernelGetSystemTimeLow",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, static_cast<std::uint32_t>(kernel().now_us())); });
     hle.add("ThreadManForUser", "sceKernelSysClock2USecWide", [](Runtime &rt, AllegrexContext &ctx) {
         const std::uint64_t clock = arg64(ctx, 0);
         if (arg(ctx, 2) != 0u) rt.memory().store32(arg(ctx, 2), static_cast<std::uint32_t>(clock / 1'000'000u));
@@ -151,7 +154,8 @@ void register_semaphores(HleRegistrar &hle) {
             return;
         }
         const SceUID uid = kernel().allocate_uid();
-        kernel().semaphores[uid] = Semaphore{read_cstring(rt.memory(), arg(ctx, 0), 32u), arg(ctx, 1), initial, maximum, {}};
+        kernel().semaphores[uid] =
+            Semaphore{read_cstring(rt.memory(), arg(ctx, 0), 32u), arg(ctx, 1), initial, maximum, {}};
         kernel().finish(ctx, as_unsigned(uid));
     });
     hle.add("ThreadManForUser", "sceKernelDeleteSema", [](Runtime &, AllegrexContext &ctx) {
@@ -172,7 +176,8 @@ void register_semaphores(HleRegistrar &hle) {
             return;
         }
         const auto signal = as_signed(arg(ctx, 1));
-        if (found->second.count + signal - static_cast<std::int32_t>(found->second.waiters.size()) > found->second.max_count) {
+        if (found->second.count + signal - static_cast<std::int32_t>(found->second.waiters.size()) >
+            found->second.max_count) {
             kernel().finish(ctx, error::kSemaOverflow);
             return;
         }
@@ -209,8 +214,10 @@ void register_semaphores(HleRegistrar &hle) {
     hle.add("ThreadManForUser", "sceKernelPollSema", [](Runtime &, AllegrexContext &ctx) {
         auto found = kernel().semaphores.find(as_signed(arg(ctx, 0)));
         const auto wanted = as_signed(arg(ctx, 1));
-        if (found == kernel().semaphores.end()) kernel().finish(ctx, error::kUnknownSemid);
-        else if (wanted <= 0) kernel().finish(ctx, error::kIllegalCount);
+        if (found == kernel().semaphores.end())
+            kernel().finish(ctx, error::kUnknownSemid);
+        else if (wanted <= 0)
+            kernel().finish(ctx, error::kIllegalCount);
         else if (found->second.waiters.empty() && found->second.count >= wanted) {
             found->second.count -= wanted;
             kernel().finish(ctx, 0u);
@@ -223,7 +230,8 @@ void register_semaphores(HleRegistrar &hle) {
 void register_event_flags(HleRegistrar &hle) {
     hle.add("ThreadManForUser", "sceKernelCreateEventFlag", [](Runtime &rt, AllegrexContext &ctx) {
         const SceUID uid = kernel().allocate_uid();
-        kernel().event_flags[uid] = EventFlag{read_cstring(rt.memory(), arg(ctx, 0), 32u), arg(ctx, 1), arg(ctx, 2), {}};
+        kernel().event_flags[uid] =
+            EventFlag{read_cstring(rt.memory(), arg(ctx, 0), 32u), arg(ctx, 1), arg(ctx, 2), {}};
         if (trace_sync()) log_sync("CreateEventFlag " + std::to_string(uid) + " " + kernel().event_flags[uid].name);
         kernel().finish(ctx, as_unsigned(uid));
     });
@@ -246,8 +254,8 @@ void register_event_flags(HleRegistrar &hle) {
         }
         found->second.pattern |= arg(ctx, 1);
         if (trace_sync())
-            log_sync("SetEventFlag " + std::to_string(uid) + " " + found->second.name + " bits=" +
-                     psprecomp::hex32(arg(ctx, 1)) + " -> " + psprecomp::hex32(found->second.pattern));
+            log_sync("SetEventFlag " + std::to_string(uid) + " " + found->second.name +
+                " bits=" + psprecomp::hex32(arg(ctx, 1)) + " -> " + psprecomp::hex32(found->second.pattern));
         kernel().release_event_flag_waiters(uid);
         kernel().finish(ctx, 0u);
     });
@@ -284,8 +292,10 @@ void register_event_flags(HleRegistrar &hle) {
         EventFlag &flag = found->second;
         if (Kernel::event_flag_matches(flag.pattern, bits, mode)) {
             if (out != 0u) rt.memory().store32(out, flag.pattern);
-            if ((mode & 0x10u) != 0u) flag.pattern = 0u;
-            else if ((mode & 0x20u) != 0u) flag.pattern &= ~bits;
+            if ((mode & 0x10u) != 0u)
+                flag.pattern = 0u;
+            else if ((mode & 0x20u) != 0u)
+                flag.pattern &= ~bits;
             kernel().finish(ctx, 0u);
             return true;
         }
@@ -300,15 +310,14 @@ void register_event_flags(HleRegistrar &hle) {
         }
         return false;
     };
-    hle.add("ThreadManForUser", "sceKernelPollEventFlag", [try_match](Runtime &rt, AllegrexContext &ctx) {
-        (void)try_match(rt, ctx, true);
-    });
+    hle.add("ThreadManForUser", "sceKernelPollEventFlag",
+        [try_match](Runtime &rt, AllegrexContext &ctx) { (void)try_match(rt, ctx, true); });
     hle.add("ThreadManForUser", "sceKernelWaitEventFlag", [try_match](Runtime &rt, AllegrexContext &ctx) {
         if (try_match(rt, ctx, false)) return;
         const SceUID uid = as_signed(arg(ctx, 0));
         if (trace_sync())
             log_sync("WaitEventFlag " + std::to_string(uid) + " " + kernel().event_flags[uid].name + " bits=" +
-                     psprecomp::hex32(arg(ctx, 1)) + " pattern=" + psprecomp::hex32(kernel().event_flags[uid].pattern));
+                psprecomp::hex32(arg(ctx, 1)) + " pattern=" + psprecomp::hex32(kernel().event_flags[uid].pattern));
         kernel().event_flags[uid].waiters.push_back(kernel().current_uid());
         WaitState wait{};
         wait.type = WaitType::EventFlag;
@@ -384,9 +393,12 @@ void register_mutexes(HleRegistrar &hle) {
             return;
         }
         Mutex &mutex = found->second;
-        if (count <= 0) kernel().finish(ctx, error::kIllegalCount);
-        else if (mutex.lock_count == 0 || mutex.owner != kernel().current_uid()) kernel().finish(ctx, error::kMutexUnlocked);
-        else if (count > mutex.lock_count) kernel().finish(ctx, error::kMutexUnlockUnderflow);
+        if (count <= 0)
+            kernel().finish(ctx, error::kIllegalCount);
+        else if (mutex.lock_count == 0 || mutex.owner != kernel().current_uid())
+            kernel().finish(ctx, error::kMutexUnlocked);
+        else if (count > mutex.lock_count)
+            kernel().finish(ctx, error::kMutexUnlockUnderflow);
         else {
             mutex.lock_count -= count;
             if (mutex.lock_count == 0) {
@@ -401,8 +413,8 @@ void register_mutexes(HleRegistrar &hle) {
 void register_callbacks_and_timers(HleRegistrar &hle) {
     hle.add("ThreadManForUser", "sceKernelCreateCallback", [](Runtime &rt, AllegrexContext &ctx) {
         const SceUID uid = kernel().allocate_uid();
-        kernel().callbacks[uid] = Callback{read_cstring(rt.memory(), arg(ctx, 0), 32u), arg(ctx, 1), arg(ctx, 2),
-                                           kernel().current_uid()};
+        kernel().callbacks[uid] =
+            Callback{read_cstring(rt.memory(), arg(ctx, 0), 32u), arg(ctx, 1), arg(ctx, 2), kernel().current_uid()};
         kernel().finish(ctx, as_unsigned(uid));
     });
     hle.add("ThreadManForUser", "sceKernelDeleteCallback", [](Runtime &, AllegrexContext &ctx) {

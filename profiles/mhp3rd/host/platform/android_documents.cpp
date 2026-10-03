@@ -114,8 +114,8 @@ bool holds_param_sfo(const std::vector<Entry> &entries) {
 // and PSP folders, and one level of other folders, so a memory stick's root,
 // an export ("MHP3rd saves <time>/PSP/SAVEDATA") or a folder holding one all
 // work. The first save of a name wins.
-bool find_and_copy(const std::string &uri, const std::string &name, const fs::path &savedata, int depth,
-                   std::string &error) {
+bool find_and_copy(
+    const std::string &uri, const std::string &name, const fs::path &savedata, int depth, std::string &error) {
     const auto entries = list_folder(uri);
     if (!entries) return true;
     if (holds_param_sfo(*entries)) {
@@ -127,8 +127,7 @@ bool find_and_copy(const std::string &uri, const std::string &name, const fs::pa
     for (const Entry &entry : *entries) {
         if (!entry.directory) continue;
         const bool obvious = entry.name == "PSP" || entry.name == "SAVEDATA" || name == "SAVEDATA";
-        if ((obvious || depth < 2) && !find_and_copy(entry.uri, entry.name, savedata, depth + 1, error))
-            return false;
+        if ((obvious || depth < 2) && !find_and_copy(entry.uri, entry.name, savedata, depth + 1, error)) return false;
     }
     return true;
 }

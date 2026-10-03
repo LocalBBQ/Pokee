@@ -39,7 +39,7 @@
 namespace mhp3rd::adhoc {
 
 struct ServerConfig {
-    std::uint16_t adhocctl_port{kAdhocctlPort};  // the relay listens on relay_port_for() this
+    std::uint16_t adhocctl_port{kAdhocctlPort}; // the relay listens on relay_port_for() this
     // Written to the network log as it happens; to the console as well when
     // set, as in the standalone server.
     bool print_events{};
@@ -48,7 +48,7 @@ struct ServerConfig {
 struct ServerPlayer {
     std::string nickname;
     Mac mac{};
-    std::string address;              // where the player connects from
+    std::string address; // where the player connects from
     std::string product;
     std::optional<std::string> group;
     std::uint64_t online_ms{};
@@ -58,16 +58,16 @@ struct ServerStatus {
     bool running{};
     std::uint16_t adhocctl_port{};
     std::uint16_t relay_port{};
-    std::string error;                 // why start() failed
+    std::string error; // why start() failed
     std::uint64_t uptime_ms{};
     std::vector<ServerPlayer> players; // logged in
     std::size_t connections{};         // adhocctl connections, logged in or not
     std::size_t groups{};
-    std::size_t relay_sessions{};      // relay connections of every kind
-    std::size_t streams{};             // paired stream connections, counted once per pair
+    std::size_t relay_sessions{}; // relay connections of every kind
+    std::size_t streams{};        // paired stream connections, counted once per pair
     std::uint64_t relayed_packets{};
     std::uint64_t relayed_bytes{};
-    std::uint64_t dropped{};           // datagrams with no receiver or no room
+    std::uint64_t dropped{}; // datagrams with no receiver or no room
 };
 
 class Server {

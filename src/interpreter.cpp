@@ -38,8 +38,7 @@ void load_settings() {
     if (const char *text = std::getenv("PSPRECOMP_INTERPRETER_BUDGET")) {
         char *end = nullptr;
         const unsigned long long value = std::strtoull(text, &end, 0);
-        if (end != text && *end == '\0' && value != 0ull)
-            g_budget = static_cast<std::uint64_t>(value);
+        if (end != text && *end == '\0' && value != 0ull) g_budget = static_cast<std::uint64_t>(value);
     }
 }
 
@@ -50,8 +49,7 @@ void note_entry(std::uint32_t pc) {
     // Announce the first fallback unconditionally: an unexpected one is the
     // difference between "the corpus is incomplete" and "the game is slow".
     if (g_announced == 0u || g_verbose) {
-        std::cerr << "[interpreter] no recompiled function at " << hex32(pc)
-                  << "; interpreting guest code instead\n";
+        std::cerr << "[interpreter] no recompiled function at " << hex32(pc) << "; interpreting guest code instead\n";
     }
     ++g_announced;
 }
@@ -74,9 +72,15 @@ void charge_entry(std::uint32_t pc, std::uint64_t instructions) {
 [[nodiscard]] constexpr std::uint32_t vfpu_length(std::uint32_t word) noexcept {
     return (((word >> 7u) & 1u) | (((word >> 15u) & 1u) << 1u)) + 1u;
 }
-[[nodiscard]] constexpr std::uint32_t vfpu_vd(std::uint32_t word) noexcept { return word & 0x7Fu; }
-[[nodiscard]] constexpr std::uint32_t vfpu_vs(std::uint32_t word) noexcept { return (word >> 8u) & 0x7Fu; }
-[[nodiscard]] constexpr std::uint32_t vfpu_vt(std::uint32_t word) noexcept { return (word >> 16u) & 0x7Fu; }
+[[nodiscard]] constexpr std::uint32_t vfpu_vd(std::uint32_t word) noexcept {
+    return word & 0x7Fu;
+}
+[[nodiscard]] constexpr std::uint32_t vfpu_vs(std::uint32_t word) noexcept {
+    return (word >> 8u) & 0x7Fu;
+}
+[[nodiscard]] constexpr std::uint32_t vfpu_vt(std::uint32_t word) noexcept {
+    return (word >> 16u) & 0x7Fu;
+}
 
 // VFIM expands a binary16 literal. This differs from the VH2F conversion in
 // AllegrexContext: the immediate form shifts a NaN/infinity payload into the
@@ -88,7 +92,10 @@ void charge_entry(std::uint32_t pc, std::uint64_t instructions) {
     if (exponent == 0u) {
         if (mantissa == 0u) return sign;
         std::uint32_t shift = 0u;
-        while ((mantissa & 0x0400u) == 0u) { mantissa <<= 1u; ++shift; }
+        while ((mantissa & 0x0400u) == 0u) {
+            mantissa <<= 1u;
+            ++shift;
+        }
         mantissa &= 0x03FFu;
         return sign | ((113u - shift) << 23u) | (mantissa << 13u);
     }
@@ -100,22 +107,38 @@ void charge_entry(std::uint32_t pc, std::uint64_t instructions) {
     constexpr float half_pi = 1.57079632679489661923f;
     constexpr float two_over_pi = 0.63661977236758134308f;
     switch (operation) {
-    case 0u: return value;                                             // vmov
-    case 1u: return std::fabs(value);                                  // vabs
-    case 2u: return -value;                                            // vneg
-    case 4u: return value <= 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value); // vsat0
-    case 5u: return value < -1.0f ? -1.0f : (value > 1.0f ? 1.0f : value); // vsat1
-    case 16u: return 1.0f / value;                                     // vrcp
-    case 17u: return 1.0f / std::sqrt(value);                          // vrsq
-    case 18u: return std::sin(value * half_pi);                        // vsin
-    case 19u: return std::cos(value * half_pi);                        // vcos
-    case 20u: return std::exp2(value);                                 // vexp2
-    case 21u: return std::log2(value);                                 // vlog2
-    case 22u: return std::fabs(std::sqrt(value));                      // vsqrt
-    case 23u: return std::asin(value) * two_over_pi;                   // vasin
-    case 24u: return -1.0f / value;                                    // vnrcp
-    case 26u: return -std::sin(value * half_pi);                       // vnsin
-    default: return 1.0f / std::exp2(value);                           // vrexp2
+    case 0u:
+        return value; // vmov
+    case 1u:
+        return std::fabs(value); // vabs
+    case 2u:
+        return -value; // vneg
+    case 4u:
+        return value <= 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value); // vsat0
+    case 5u:
+        return value < -1.0f ? -1.0f : (value > 1.0f ? 1.0f : value); // vsat1
+    case 16u:
+        return 1.0f / value; // vrcp
+    case 17u:
+        return 1.0f / std::sqrt(value); // vrsq
+    case 18u:
+        return std::sin(value * half_pi); // vsin
+    case 19u:
+        return std::cos(value * half_pi); // vcos
+    case 20u:
+        return std::exp2(value); // vexp2
+    case 21u:
+        return std::log2(value); // vlog2
+    case 22u:
+        return std::fabs(std::sqrt(value)); // vsqrt
+    case 23u:
+        return std::asin(value) * two_over_pi; // vasin
+    case 24u:
+        return -1.0f / value; // vnrcp
+    case 26u:
+        return -std::sin(value * half_pi); // vnsin
+    default:
+        return 1.0f / std::exp2(value); // vrexp2
     }
 }
 
@@ -124,22 +147,46 @@ void charge_entry(std::uint32_t pc, std::uint64_t instructions) {
     const float ft = ctx.fpr[d.rt];
     const bool unordered = std::isnan(fs) || std::isnan(ft);
     switch (d.word & 0xFu) {
-    case 0u: case 8u: return false;
-    case 1u: case 9u: return unordered;
-    case 2u: case 10u: return !unordered && fs == ft;
-    case 3u: case 11u: return unordered || fs == ft;
-    case 4u: case 12u: return fs < ft;
-    case 5u: case 13u: return unordered || fs < ft;
-    case 6u: case 14u: return fs <= ft;
-    default: return unordered || fs <= ft;
+    case 0u:
+    case 8u:
+        return false;
+    case 1u:
+    case 9u:
+        return unordered;
+    case 2u:
+    case 10u:
+        return !unordered && fs == ft;
+    case 3u:
+    case 11u:
+        return unordered || fs == ft;
+    case 4u:
+    case 12u:
+        return fs < ft;
+    case 5u:
+    case 13u:
+        return unordered || fs < ft;
+    case 6u:
+    case 14u:
+        return fs <= ft;
+    default:
+        return unordered || fs <= ft;
     }
 }
 
 [[nodiscard]] bool is_likely_branch(OpcodeKind kind) noexcept {
     switch (kind) {
-    case OpcodeKind::Beql: case OpcodeKind::Bnel: case OpcodeKind::Blezl: case OpcodeKind::Bgtzl:
-    case OpcodeKind::Bltzl: case OpcodeKind::Bgezl: case OpcodeKind::Bltzall: case OpcodeKind::Bgezall:
-    case OpcodeKind::Bc1fl: case OpcodeKind::Bc1tl: case OpcodeKind::Bvfl: case OpcodeKind::Bvtl:
+    case OpcodeKind::Beql:
+    case OpcodeKind::Bnel:
+    case OpcodeKind::Blezl:
+    case OpcodeKind::Bgtzl:
+    case OpcodeKind::Bltzl:
+    case OpcodeKind::Bgezl:
+    case OpcodeKind::Bltzall:
+    case OpcodeKind::Bgezall:
+    case OpcodeKind::Bc1fl:
+    case OpcodeKind::Bc1tl:
+    case OpcodeKind::Bvfl:
+    case OpcodeKind::Bvtl:
         return true;
     default:
         return false;
@@ -148,8 +195,10 @@ void charge_entry(std::uint32_t pc, std::uint64_t instructions) {
 
 [[nodiscard]] bool is_link_branch(OpcodeKind kind) noexcept {
     switch (kind) {
-    case OpcodeKind::Bltzal: case OpcodeKind::Bgezal:
-    case OpcodeKind::Bltzall: case OpcodeKind::Bgezall:
+    case OpcodeKind::Bltzal:
+    case OpcodeKind::Bgezal:
+    case OpcodeKind::Bltzall:
+    case OpcodeKind::Bgezall:
         return true;
     default:
         return false;
@@ -159,21 +208,42 @@ void charge_entry(std::uint32_t pc, std::uint64_t instructions) {
 [[nodiscard]] bool evaluate_branch(const AllegrexContext &ctx, const DecodedInstruction &d) noexcept {
     const auto signed_rs = static_cast<std::int32_t>(ctx.gpr[d.rs]);
     switch (d.kind) {
-    case OpcodeKind::Beq: case OpcodeKind::Beql: return ctx.gpr[d.rs] == ctx.gpr[d.rt];
-    case OpcodeKind::Bne: case OpcodeKind::Bnel: return ctx.gpr[d.rs] != ctx.gpr[d.rt];
-    case OpcodeKind::Blez: case OpcodeKind::Blezl: return signed_rs <= 0;
-    case OpcodeKind::Bgtz: case OpcodeKind::Bgtzl: return signed_rs > 0;
-    case OpcodeKind::Bltz: case OpcodeKind::Bltzl:
-    case OpcodeKind::Bltzal: case OpcodeKind::Bltzall: return signed_rs < 0;
-    case OpcodeKind::Bgez: case OpcodeKind::Bgezl:
-    case OpcodeKind::Bgezal: case OpcodeKind::Bgezall: return signed_rs >= 0;
-    case OpcodeKind::Bc1f: case OpcodeKind::Bc1fl: return !ctx.fpu_condition();
-    case OpcodeKind::Bc1t: case OpcodeKind::Bc1tl: return ctx.fpu_condition();
-    case OpcodeKind::Bvf: case OpcodeKind::Bvfl:
+    case OpcodeKind::Beq:
+    case OpcodeKind::Beql:
+        return ctx.gpr[d.rs] == ctx.gpr[d.rt];
+    case OpcodeKind::Bne:
+    case OpcodeKind::Bnel:
+        return ctx.gpr[d.rs] != ctx.gpr[d.rt];
+    case OpcodeKind::Blez:
+    case OpcodeKind::Blezl:
+        return signed_rs <= 0;
+    case OpcodeKind::Bgtz:
+    case OpcodeKind::Bgtzl:
+        return signed_rs > 0;
+    case OpcodeKind::Bltz:
+    case OpcodeKind::Bltzl:
+    case OpcodeKind::Bltzal:
+    case OpcodeKind::Bltzall:
+        return signed_rs < 0;
+    case OpcodeKind::Bgez:
+    case OpcodeKind::Bgezl:
+    case OpcodeKind::Bgezal:
+    case OpcodeKind::Bgezall:
+        return signed_rs >= 0;
+    case OpcodeKind::Bc1f:
+    case OpcodeKind::Bc1fl:
+        return !ctx.fpu_condition();
+    case OpcodeKind::Bc1t:
+    case OpcodeKind::Bc1tl:
+        return ctx.fpu_condition();
+    case OpcodeKind::Bvf:
+    case OpcodeKind::Bvfl:
         return ((ctx.vfpu_ctrl[3] >> ((d.word >> 18u) & 7u)) & 1u) == 0u;
-    case OpcodeKind::Bvt: case OpcodeKind::Bvtl:
+    case OpcodeKind::Bvt:
+    case OpcodeKind::Bvtl:
         return ((ctx.vfpu_ctrl[3] >> ((d.word >> 18u) & 7u)) & 1u) != 0u;
-    default: return false;
+    default:
+        return false;
     }
 }
 
@@ -188,20 +258,36 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
     const std::uint32_t rt_value = ctx.gpr[d.rt];
 
     switch (d.kind) {
-    case OpcodeKind::Nop: break;
+    case OpcodeKind::Nop:
+        break;
     // PSP CACHE is a hint against a cache the host mapping does not have.
-    case OpcodeKind::Cache: break;
-    case OpcodeKind::Sync: memory.memory_barrier(); break;
+    case OpcodeKind::Cache:
+        break;
+    case OpcodeKind::Sync:
+        memory.memory_barrier();
+        break;
 
-    case OpcodeKind::Addiu: ctx.set_gpr(d.rt, rs + imm); break;
+    case OpcodeKind::Addiu:
+        ctx.set_gpr(d.rt, rs + imm);
+        break;
     case OpcodeKind::Slti:
         ctx.set_gpr(d.rt, static_cast<std::int32_t>(rs) < static_cast<std::int32_t>(imm) ? 1u : 0u);
         break;
-    case OpcodeKind::Sltiu: ctx.set_gpr(d.rt, rs < imm ? 1u : 0u); break;
-    case OpcodeKind::Andi: ctx.set_gpr(d.rt, rs & uimm); break;
-    case OpcodeKind::Ori: ctx.set_gpr(d.rt, rs | uimm); break;
-    case OpcodeKind::Xori: ctx.set_gpr(d.rt, rs ^ uimm); break;
-    case OpcodeKind::Lui: ctx.set_gpr(d.rt, uimm << 16u); break;
+    case OpcodeKind::Sltiu:
+        ctx.set_gpr(d.rt, rs < imm ? 1u : 0u);
+        break;
+    case OpcodeKind::Andi:
+        ctx.set_gpr(d.rt, rs & uimm);
+        break;
+    case OpcodeKind::Ori:
+        ctx.set_gpr(d.rt, rs | uimm);
+        break;
+    case OpcodeKind::Xori:
+        ctx.set_gpr(d.rt, rs ^ uimm);
+        break;
+    case OpcodeKind::Lui:
+        ctx.set_gpr(d.rt, uimm << 16u);
+        break;
 
     case OpcodeKind::Add:
         if (!ctx.execute_signed_add(d.rd, d.rs, d.rt)) {
@@ -217,39 +303,73 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
             return false;
         }
         break;
-    case OpcodeKind::Addu: ctx.set_gpr(d.rd, rs + rt_value); break;
-    case OpcodeKind::Subu: ctx.set_gpr(d.rd, rs - rt_value); break;
-    case OpcodeKind::And: ctx.set_gpr(d.rd, rs & rt_value); break;
-    case OpcodeKind::Or: ctx.set_gpr(d.rd, rs | rt_value); break;
-    case OpcodeKind::Xor: ctx.set_gpr(d.rd, rs ^ rt_value); break;
-    case OpcodeKind::Nor: ctx.set_gpr(d.rd, ~(rs | rt_value)); break;
+    case OpcodeKind::Addu:
+        ctx.set_gpr(d.rd, rs + rt_value);
+        break;
+    case OpcodeKind::Subu:
+        ctx.set_gpr(d.rd, rs - rt_value);
+        break;
+    case OpcodeKind::And:
+        ctx.set_gpr(d.rd, rs & rt_value);
+        break;
+    case OpcodeKind::Or:
+        ctx.set_gpr(d.rd, rs | rt_value);
+        break;
+    case OpcodeKind::Xor:
+        ctx.set_gpr(d.rd, rs ^ rt_value);
+        break;
+    case OpcodeKind::Nor:
+        ctx.set_gpr(d.rd, ~(rs | rt_value));
+        break;
     case OpcodeKind::Slt:
         ctx.set_gpr(d.rd, static_cast<std::int32_t>(rs) < static_cast<std::int32_t>(rt_value) ? 1u : 0u);
         break;
-    case OpcodeKind::Sltu: ctx.set_gpr(d.rd, rs < rt_value ? 1u : 0u); break;
+    case OpcodeKind::Sltu:
+        ctx.set_gpr(d.rd, rs < rt_value ? 1u : 0u);
+        break;
     case OpcodeKind::Max:
         ctx.set_gpr(d.rd, static_cast<std::int32_t>(rs) > static_cast<std::int32_t>(rt_value) ? rs : rt_value);
         break;
     case OpcodeKind::Min:
         ctx.set_gpr(d.rd, static_cast<std::int32_t>(rs) < static_cast<std::int32_t>(rt_value) ? rs : rt_value);
         break;
-    case OpcodeKind::Movz: if (rt_value == 0u) ctx.set_gpr(d.rd, rs); break;
-    case OpcodeKind::Movn: if (rt_value != 0u) ctx.set_gpr(d.rd, rs); break;
+    case OpcodeKind::Movz:
+        if (rt_value == 0u) ctx.set_gpr(d.rd, rs);
+        break;
+    case OpcodeKind::Movn:
+        if (rt_value != 0u) ctx.set_gpr(d.rd, rs);
+        break;
 
-    case OpcodeKind::Sll: ctx.set_gpr(d.rd, rt_value << d.sa); break;
-    case OpcodeKind::Srl: ctx.set_gpr(d.rd, rt_value >> d.sa); break;
+    case OpcodeKind::Sll:
+        ctx.set_gpr(d.rd, rt_value << d.sa);
+        break;
+    case OpcodeKind::Srl:
+        ctx.set_gpr(d.rd, rt_value >> d.sa);
+        break;
     case OpcodeKind::Sra:
         ctx.set_gpr(d.rd, static_cast<std::uint32_t>(static_cast<std::int32_t>(rt_value) >> d.sa));
         break;
-    case OpcodeKind::Rotr: ctx.set_gpr(d.rd, std::rotr(rt_value, static_cast<int>(d.sa))); break;
-    case OpcodeKind::Sllv: ctx.set_gpr(d.rd, rt_value << (rs & 31u)); break;
-    case OpcodeKind::Srlv: ctx.set_gpr(d.rd, rt_value >> (rs & 31u)); break;
+    case OpcodeKind::Rotr:
+        ctx.set_gpr(d.rd, std::rotr(rt_value, static_cast<int>(d.sa)));
+        break;
+    case OpcodeKind::Sllv:
+        ctx.set_gpr(d.rd, rt_value << (rs & 31u));
+        break;
+    case OpcodeKind::Srlv:
+        ctx.set_gpr(d.rd, rt_value >> (rs & 31u));
+        break;
     case OpcodeKind::Srav:
         ctx.set_gpr(d.rd, static_cast<std::uint32_t>(static_cast<std::int32_t>(rt_value) >> (rs & 31u)));
         break;
-    case OpcodeKind::Rotrv: ctx.set_gpr(d.rd, std::rotr(rt_value, static_cast<int>(rs & 31u))); break;
-    case OpcodeKind::Clz: ctx.set_gpr(d.rd, static_cast<std::uint32_t>(std::countl_zero(rs))); break;
-    case OpcodeKind::Clo: ctx.set_gpr(d.rd, static_cast<std::uint32_t>(std::countl_one(rs))); break;
+    case OpcodeKind::Rotrv:
+        ctx.set_gpr(d.rd, std::rotr(rt_value, static_cast<int>(rs & 31u)));
+        break;
+    case OpcodeKind::Clz:
+        ctx.set_gpr(d.rd, static_cast<std::uint32_t>(std::countl_zero(rs)));
+        break;
+    case OpcodeKind::Clo:
+        ctx.set_gpr(d.rd, static_cast<std::uint32_t>(std::countl_one(rs)));
+        break;
     case OpcodeKind::Ext: {
         const std::uint32_t size = d.rd + 1u;
         const std::uint32_t mask = size >= 32u ? 0xFFFFFFFFu : ((1u << size) - 1u);
@@ -264,50 +384,85 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         break;
     }
     case OpcodeKind::Seb:
-        ctx.set_gpr(d.rd, static_cast<std::uint32_t>(
-            static_cast<std::int32_t>(static_cast<std::int8_t>(rt_value))));
+        ctx.set_gpr(d.rd, static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int8_t>(rt_value))));
         break;
     case OpcodeKind::Seh:
-        ctx.set_gpr(d.rd, static_cast<std::uint32_t>(
-            static_cast<std::int32_t>(static_cast<std::int16_t>(rt_value))));
+        ctx.set_gpr(d.rd, static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(rt_value))));
         break;
-    case OpcodeKind::Bitrev: ctx.set_gpr(d.rd, bit_reverse32(rt_value)); break;
+    case OpcodeKind::Bitrev:
+        ctx.set_gpr(d.rd, bit_reverse32(rt_value));
+        break;
     case OpcodeKind::Wsbh:
         ctx.set_gpr(d.rd, ((rt_value & 0x00FF00FFu) << 8u) | ((rt_value & 0xFF00FF00u) >> 8u));
         break;
     case OpcodeKind::Wsbw:
-        ctx.set_gpr(d.rd, ((rt_value & 0x000000FFu) << 24u) | ((rt_value & 0x0000FF00u) << 8u) |
-                          ((rt_value & 0x00FF0000u) >> 8u) | ((rt_value & 0xFF000000u) >> 24u));
+        ctx.set_gpr(d.rd,
+            ((rt_value & 0x000000FFu) << 24u) | ((rt_value & 0x0000FF00u) << 8u) | ((rt_value & 0x00FF0000u) >> 8u) |
+                ((rt_value & 0xFF000000u) >> 24u));
         break;
 
-    case OpcodeKind::Lw: ctx.set_gpr(d.rt, memory.aot_load32(rs + imm)); break;
-    case OpcodeKind::Lwl: ctx.set_gpr(d.rt, memory.aot_load_word_left(rs + imm, rt_value)); break;
-    case OpcodeKind::Lwr: ctx.set_gpr(d.rt, memory.aot_load_word_right(rs + imm, rt_value)); break;
-    case OpcodeKind::Sw: memory.aot_store32(rs + imm, rt_value); break;
-    case OpcodeKind::Swl: memory.aot_store_word_left(rs + imm, rt_value); break;
-    case OpcodeKind::Swr: memory.aot_store_word_right(rs + imm, rt_value); break;
+    case OpcodeKind::Lw:
+        ctx.set_gpr(d.rt, memory.aot_load32(rs + imm));
+        break;
+    case OpcodeKind::Lwl:
+        ctx.set_gpr(d.rt, memory.aot_load_word_left(rs + imm, rt_value));
+        break;
+    case OpcodeKind::Lwr:
+        ctx.set_gpr(d.rt, memory.aot_load_word_right(rs + imm, rt_value));
+        break;
+    case OpcodeKind::Sw:
+        memory.aot_store32(rs + imm, rt_value);
+        break;
+    case OpcodeKind::Swl:
+        memory.aot_store_word_left(rs + imm, rt_value);
+        break;
+    case OpcodeKind::Swr:
+        memory.aot_store_word_right(rs + imm, rt_value);
+        break;
     case OpcodeKind::Lh:
-        ctx.set_gpr(d.rt, static_cast<std::uint32_t>(static_cast<std::int32_t>(
-            static_cast<std::int16_t>(memory.aot_load16(rs + imm)))));
+        ctx.set_gpr(d.rt,
+            static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(static_cast<std::int16_t>(memory.aot_load16(rs + imm)))));
         break;
-    case OpcodeKind::Lhu: ctx.set_gpr(d.rt, memory.aot_load16(rs + imm)); break;
-    case OpcodeKind::Sh: memory.aot_store16(rs + imm, static_cast<std::uint16_t>(rt_value)); break;
+    case OpcodeKind::Lhu:
+        ctx.set_gpr(d.rt, memory.aot_load16(rs + imm));
+        break;
+    case OpcodeKind::Sh:
+        memory.aot_store16(rs + imm, static_cast<std::uint16_t>(rt_value));
+        break;
     case OpcodeKind::Lb:
-        ctx.set_gpr(d.rt, static_cast<std::uint32_t>(static_cast<std::int32_t>(
-            static_cast<std::int8_t>(memory.aot_load8(rs + imm)))));
+        ctx.set_gpr(d.rt,
+            static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(static_cast<std::int8_t>(memory.aot_load8(rs + imm)))));
         break;
-    case OpcodeKind::Lbu: ctx.set_gpr(d.rt, memory.aot_load8(rs + imm)); break;
-    case OpcodeKind::Sb: memory.aot_store8(rs + imm, static_cast<std::uint8_t>(rt_value)); break;
-    case OpcodeKind::Lwc1: ctx.fpr[d.rt] = std::bit_cast<float>(memory.aot_load32(rs + imm)); break;
-    case OpcodeKind::Swc1: memory.aot_store32(rs + imm, std::bit_cast<std::uint32_t>(ctx.fpr[d.rt])); break;
+    case OpcodeKind::Lbu:
+        ctx.set_gpr(d.rt, memory.aot_load8(rs + imm));
+        break;
+    case OpcodeKind::Sb:
+        memory.aot_store8(rs + imm, static_cast<std::uint8_t>(rt_value));
+        break;
+    case OpcodeKind::Lwc1:
+        ctx.fpr[d.rt] = std::bit_cast<float>(memory.aot_load32(rs + imm));
+        break;
+    case OpcodeKind::Swc1:
+        memory.aot_store32(rs + imm, std::bit_cast<std::uint32_t>(ctx.fpr[d.rt]));
+        break;
 
-    case OpcodeKind::Mfhi: ctx.set_gpr(d.rd, ctx.hi); break;
-    case OpcodeKind::Mflo: ctx.set_gpr(d.rd, ctx.lo); break;
-    case OpcodeKind::Mthi: ctx.hi = rs; break;
-    case OpcodeKind::Mtlo: ctx.lo = rs; break;
+    case OpcodeKind::Mfhi:
+        ctx.set_gpr(d.rd, ctx.hi);
+        break;
+    case OpcodeKind::Mflo:
+        ctx.set_gpr(d.rd, ctx.lo);
+        break;
+    case OpcodeKind::Mthi:
+        ctx.hi = rs;
+        break;
+    case OpcodeKind::Mtlo:
+        ctx.lo = rs;
+        break;
     case OpcodeKind::Mult: {
         const std::int64_t product = static_cast<std::int64_t>(static_cast<std::int32_t>(rs)) *
-                                     static_cast<std::int64_t>(static_cast<std::int32_t>(rt_value));
+            static_cast<std::int64_t>(static_cast<std::int32_t>(rt_value));
         ctx.lo = static_cast<std::uint32_t>(static_cast<std::uint64_t>(product));
         ctx.hi = static_cast<std::uint32_t>(static_cast<std::uint64_t>(product) >> 32u);
         break;
@@ -321,11 +476,10 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
     case OpcodeKind::Madd:
     case OpcodeKind::Msub: {
         const std::int64_t product = static_cast<std::int64_t>(static_cast<std::int32_t>(rs)) *
-                                     static_cast<std::int64_t>(static_cast<std::int32_t>(rt_value));
+            static_cast<std::int64_t>(static_cast<std::int32_t>(rt_value));
         const std::uint64_t accumulator = (static_cast<std::uint64_t>(ctx.hi) << 32u) | ctx.lo;
-        const std::uint64_t result = d.kind == OpcodeKind::Madd
-            ? accumulator + static_cast<std::uint64_t>(product)
-            : accumulator - static_cast<std::uint64_t>(product);
+        const std::uint64_t result = d.kind == OpcodeKind::Madd ? accumulator + static_cast<std::uint64_t>(product)
+                                                                : accumulator - static_cast<std::uint64_t>(product);
         ctx.lo = static_cast<std::uint32_t>(result);
         ctx.hi = static_cast<std::uint32_t>(result >> 32u);
         break;
@@ -334,8 +488,7 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
     case OpcodeKind::Msubu: {
         const std::uint64_t product = static_cast<std::uint64_t>(rs) * static_cast<std::uint64_t>(rt_value);
         const std::uint64_t accumulator = (static_cast<std::uint64_t>(ctx.hi) << 32u) | ctx.lo;
-        const std::uint64_t result = d.kind == OpcodeKind::Maddu ? accumulator + product
-                                                                 : accumulator - product;
+        const std::uint64_t result = d.kind == OpcodeKind::Maddu ? accumulator + product : accumulator - product;
         ctx.lo = static_cast<std::uint32_t>(result);
         ctx.hi = static_cast<std::uint32_t>(result >> 32u);
         break;
@@ -365,8 +518,12 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         }
         break;
 
-    case OpcodeKind::Mfc1: ctx.set_gpr(d.rt, std::bit_cast<std::uint32_t>(ctx.fpr[d.rd])); break;
-    case OpcodeKind::Mtc1: ctx.fpr[d.rd] = std::bit_cast<float>(rt_value); break;
+    case OpcodeKind::Mfc1:
+        ctx.set_gpr(d.rt, std::bit_cast<std::uint32_t>(ctx.fpr[d.rd]));
+        break;
+    case OpcodeKind::Mtc1:
+        ctx.fpr[d.rd] = std::bit_cast<float>(rt_value);
+        break;
     case OpcodeKind::Cfc1:
         if (d.rd != 31u) {
             ctx.pc = pc;
@@ -383,31 +540,58 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         }
         ctx.fcr31 = rt_value & 0x0181FFFFu;
         break;
-    case OpcodeKind::AddS: ctx.fpr[d.sa] = ctx.fpr[d.rd] + ctx.fpr[d.rt]; break;
-    case OpcodeKind::SubS: ctx.fpr[d.sa] = ctx.fpr[d.rd] - ctx.fpr[d.rt]; break;
+    case OpcodeKind::AddS:
+        ctx.fpr[d.sa] = ctx.fpr[d.rd] + ctx.fpr[d.rt];
+        break;
+    case OpcodeKind::SubS:
+        ctx.fpr[d.sa] = ctx.fpr[d.rd] - ctx.fpr[d.rt];
+        break;
     case OpcodeKind::MulS: {
         const float fs = ctx.fpr[d.rd];
         const float ft = ctx.fpr[d.rt];
         // Allegrex produces a quiet NaN for inf * 0 rather than the host result.
         if ((std::isinf(fs) && ft == 0.0f) || (std::isinf(ft) && fs == 0.0f))
             ctx.set_fpr_bits(d.sa, 0x7FC00000u);
-        else ctx.fpr[d.sa] = fs * ft;
+        else
+            ctx.fpr[d.sa] = fs * ft;
         break;
     }
-    case OpcodeKind::DivS: ctx.fpr[d.sa] = ctx.fpr[d.rd] / ctx.fpr[d.rt]; break;
-    case OpcodeKind::SqrtS: ctx.fpr[d.sa] = std::sqrt(ctx.fpr[d.rd]); break;
-    case OpcodeKind::AbsS: ctx.set_fpr_bits(d.sa, ctx.fpr_bits(d.rd) & 0x7FFFFFFFu); break;
-    case OpcodeKind::MovS: ctx.set_fpr_bits(d.sa, ctx.fpr_bits(d.rd)); break;
-    case OpcodeKind::NegS: ctx.set_fpr_bits(d.sa, ctx.fpr_bits(d.rd) ^ 0x80000000u); break;
-    case OpcodeKind::RoundWS: ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 0u)); break;
-    case OpcodeKind::TruncWS: ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 1u)); break;
-    case OpcodeKind::CeilWS: ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 2u)); break;
-    case OpcodeKind::FloorWS: ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 3u)); break;
-    case OpcodeKind::CvtWS: ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 4u)); break;
+    case OpcodeKind::DivS:
+        ctx.fpr[d.sa] = ctx.fpr[d.rd] / ctx.fpr[d.rt];
+        break;
+    case OpcodeKind::SqrtS:
+        ctx.fpr[d.sa] = std::sqrt(ctx.fpr[d.rd]);
+        break;
+    case OpcodeKind::AbsS:
+        ctx.set_fpr_bits(d.sa, ctx.fpr_bits(d.rd) & 0x7FFFFFFFu);
+        break;
+    case OpcodeKind::MovS:
+        ctx.set_fpr_bits(d.sa, ctx.fpr_bits(d.rd));
+        break;
+    case OpcodeKind::NegS:
+        ctx.set_fpr_bits(d.sa, ctx.fpr_bits(d.rd) ^ 0x80000000u);
+        break;
+    case OpcodeKind::RoundWS:
+        ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 0u));
+        break;
+    case OpcodeKind::TruncWS:
+        ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 1u));
+        break;
+    case OpcodeKind::CeilWS:
+        ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 2u));
+        break;
+    case OpcodeKind::FloorWS:
+        ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 3u));
+        break;
+    case OpcodeKind::CvtWS:
+        ctx.set_fpr_bits(d.sa, ctx.fpu_float_to_word(ctx.fpr[d.rd], 4u));
+        break;
     case OpcodeKind::CvtSW:
         ctx.fpr[d.sa] = static_cast<float>(static_cast<std::int32_t>(ctx.fpr_bits(d.rd)));
         break;
-    case OpcodeKind::FpuCompare: ctx.set_fpu_condition(evaluate_fpu_compare(ctx, d)); break;
+    case OpcodeKind::FpuCompare:
+        ctx.set_fpu_condition(evaluate_fpu_compare(ctx, d));
+        break;
 
     case OpcodeKind::Vflush:
         // The 0xFFFF0000 encoding retains the prefixes; the others consume them.
@@ -437,8 +621,7 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         ctx.execute_vfpu_vh2f(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word));
         break;
     case OpcodeKind::Vx2i:
-        ctx.execute_vfpu_vx2i(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word),
-                              (d.word >> 16u) & 3u);
+        ctx.execute_vfpu_vx2i(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word), (d.word >> 16u) & 3u);
         break;
     case OpcodeKind::Vf2i: {
         const std::uint32_t length = vfpu_length(d.word);
@@ -463,10 +646,18 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
             } else {
                 double rounded = 0.0;
                 switch (mode) {
-                case 16u: rounded = AllegrexContext::round_ties_to_even(scaled); break;
-                case 17u: rounded = std::trunc(scaled); break;
-                case 18u: rounded = std::ceil(scaled); break;
-                default: rounded = std::floor(scaled); break;
+                case 16u:
+                    rounded = AllegrexContext::round_ties_to_even(scaled);
+                    break;
+                case 17u:
+                    rounded = std::trunc(scaled);
+                    break;
+                case 18u:
+                    rounded = std::ceil(scaled);
+                    break;
+                default:
+                    rounded = std::floor(scaled);
+                    break;
                 }
                 result[lane] = static_cast<std::int32_t>(rounded);
             }
@@ -494,8 +685,12 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         ctx.write_vfpu_vector_with_destination_prefix(result, vfpu_vd(d.word), length);
         break;
     }
-    case OpcodeKind::Mtv: ctx.set_vfpu_scalar_bits(d.word & 0xFFu, rt_value); break;
-    case OpcodeKind::Mfv: ctx.set_gpr(d.rt, ctx.vfpu_scalar_bits(d.word & 0xFFu)); break;
+    case OpcodeKind::Mtv:
+        ctx.set_vfpu_scalar_bits(d.word & 0xFFu, rt_value);
+        break;
+    case OpcodeKind::Mfv:
+        ctx.set_gpr(d.rt, ctx.vfpu_scalar_bits(d.word & 0xFFu));
+        break;
     case OpcodeKind::VmidT:
         ctx.execute_vfpu_matrix_init(vfpu_vd(d.word), vfpu_length(d.word), 3u);
         break;
@@ -535,26 +730,23 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         float result[4]{};
         ctx.read_vfpu_matrix(matrix, vfpu_vs(d.word), side);
         ctx.read_vfpu_vector(target_raw, vfpu_vt(d.word), side);
-        for (std::uint32_t lane = 0u; lane < 4u; ++lane)
-            target[lane] = lane < input_length ? target_raw[lane] : 0.0f;
+        for (std::uint32_t lane = 0u; lane < 4u; ++lane) target[lane] = lane < input_length ? target_raw[lane] : 0.0f;
         // VTFM/VHTFM implies a homogeneous 1 in the lane the encoded input omits.
         if (side - 1u >= input_length) target[side - 1u] = 1.0f;
         for (std::uint32_t row = 0u; row + 1u < side; ++row) {
             float sum = 0.0f;
-            for (std::uint32_t column = 0u; column < side; ++column)
-                sum += matrix[row * 4u + column] * target[column];
+            for (std::uint32_t column = 0u; column < side; ++column) sum += matrix[row * 4u + column] * target[column];
             result[row] = sum;
         }
-        float final_row[4]{matrix[(side - 1u) * 4u + 0u], matrix[(side - 1u) * 4u + 1u],
-                           matrix[(side - 1u) * 4u + 2u], matrix[(side - 1u) * 4u + 3u]};
+        float final_row[4]{matrix[(side - 1u) * 4u + 0u], matrix[(side - 1u) * 4u + 1u], matrix[(side - 1u) * 4u + 2u],
+            matrix[(side - 1u) * 4u + 3u]};
         ctx.apply_vfpu_source_prefix(final_row, 4u, 0u);
         ctx.apply_vfpu_source_prefix(target, 4u, 1u);
-        for (std::uint32_t column = 0u; column < 4u; ++column)
-            result[side - 1u] += final_row[column] * target[column];
+        for (std::uint32_t column = 0u; column < 4u; ++column) result[side - 1u] += final_row[column] * target[column];
         const std::uint32_t destination_prefix = ctx.vfpu_ctrl[2];
         const std::uint32_t last_lane = side - 1u;
-        ctx.vfpu_ctrl[2] = ((destination_prefix & (1u << 8u)) << last_lane) |
-                           ((destination_prefix & 3u) << (last_lane * 2u));
+        ctx.vfpu_ctrl[2] =
+            ((destination_prefix & (1u << 8u)) << last_lane) | ((destination_prefix & 3u) << (last_lane * 2u));
         ctx.write_vfpu_vector_with_destination_prefix(result, vfpu_vd(d.word), side);
         break;
     }
@@ -575,12 +767,38 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
     }
     case OpcodeKind::Vcst: {
         static constexpr std::uint32_t constant_bits[32] = {
-            0x00000000u, 0x7F7FFFFFu, 0x3FB504F3u, 0x3F3504F3u,
-            0x3F906EBAu, 0x3F22F983u, 0x3EA2F983u, 0x3F490FDBu,
-            0x3FC90FDBu, 0x40490FDBu, 0x402DF854u, 0x3FB8AA3Bu,
-            0x3EDE5BD9u, 0x3F317218u, 0x40135D8Eu, 0x40C90FDBu,
-            0x3F060A92u, 0x3E9A209Bu, 0x40549A78u, 0x3F5DB3D7u,
-            0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
+            0x00000000u,
+            0x7F7FFFFFu,
+            0x3FB504F3u,
+            0x3F3504F3u,
+            0x3F906EBAu,
+            0x3F22F983u,
+            0x3EA2F983u,
+            0x3F490FDBu,
+            0x3FC90FDBu,
+            0x40490FDBu,
+            0x402DF854u,
+            0x3FB8AA3Bu,
+            0x3EDE5BD9u,
+            0x3F317218u,
+            0x40135D8Eu,
+            0x40C90FDBu,
+            0x3F060A92u,
+            0x3E9A209Bu,
+            0x40549A78u,
+            0x3F5DB3D7u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
+            0u,
         };
         const float constant = std::bit_cast<float>(constant_bits[(d.word >> 16u) & 31u]);
         const float value[4]{constant, constant, constant, constant};
@@ -591,12 +809,11 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         ctx.execute_vfpu_vocp(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word));
         break;
     case OpcodeKind::VfpuHorizontal:
-        ctx.execute_vfpu_horizontal(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word),
-                                    ((d.word >> 16u) & 31u) == 7u);
+        ctx.execute_vfpu_horizontal(
+            vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word), ((d.word >> 16u) & 31u) == 7u);
         break;
     case OpcodeKind::Vrot:
-        ctx.execute_vfpu_vrot(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word),
-                              (d.word >> 16u) & 31u);
+        ctx.execute_vfpu_vrot(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word), (d.word >> 16u) & 31u);
         break;
     case OpcodeKind::VfpuVec3: {
         const std::uint32_t length = vfpu_length(d.word);
@@ -610,8 +827,8 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         ctx.read_vfpu_vector_with_source_prefix(target, vfpu_vt(d.word), length, 1u);
         for (std::uint32_t lane = 0u; lane < length; ++lane) {
             result[lane] = operation == 0u ? source[lane] + target[lane]
-                         : operation == 1u ? source[lane] - target[lane]
-                         : operation == 2u ? source[lane] * target[lane]
+                : operation == 1u          ? source[lane] - target[lane]
+                : operation == 2u          ? source[lane] * target[lane]
                                            : source[lane] / target[lane];
         }
         ctx.write_vfpu_vector_with_destination_prefix(result, vfpu_vd(d.word), length);
@@ -630,19 +847,19 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         ctx.execute_vfpu_cross_quat(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_vt(d.word), vfpu_length(d.word));
         break;
     case OpcodeKind::Vminmax:
-        ctx.execute_vfpu_vminmax(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_vt(d.word),
-                                 vfpu_length(d.word), ((d.word >> 23u) & 7u) == 3u);
+        ctx.execute_vfpu_vminmax(
+            vfpu_vd(d.word), vfpu_vs(d.word), vfpu_vt(d.word), vfpu_length(d.word), ((d.word >> 23u) & 7u) == 3u);
         break;
     case OpcodeKind::VfpuCompare3:
-        ctx.execute_vfpu_compare3(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_vt(d.word),
-                                  vfpu_length(d.word), (d.word >> 23u) & 7u);
+        ctx.execute_vfpu_compare3(
+            vfpu_vd(d.word), vfpu_vs(d.word), vfpu_vt(d.word), vfpu_length(d.word), (d.word >> 23u) & 7u);
         break;
     case OpcodeKind::Vcmp:
         ctx.execute_vfpu_vcmp(vfpu_vs(d.word), vfpu_vt(d.word), vfpu_length(d.word), d.word & 15u);
         break;
     case OpcodeKind::Vcmov:
-        ctx.execute_vfpu_vcmov(vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word),
-                               (d.word >> 16u) & 7u, ((d.word >> 19u) & 1u) != 0u);
+        ctx.execute_vfpu_vcmov(
+            vfpu_vd(d.word), vfpu_vs(d.word), vfpu_length(d.word), (d.word >> 16u) & 7u, ((d.word >> 19u) & 1u) != 0u);
         break;
     case OpcodeKind::VfpuUnary: {
         const std::uint32_t length = vfpu_length(d.word);
@@ -650,8 +867,7 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         float source[4]{};
         float result[4]{};
         ctx.read_vfpu_vector_with_source_prefix(source, vfpu_vs(d.word), length, 0u);
-        for (std::uint32_t lane = 0u; lane < length; ++lane)
-            result[lane] = vfpu_unary_value(operation, source[lane]);
+        for (std::uint32_t lane = 0u; lane < length; ++lane) result[lane] = vfpu_unary_value(operation, source[lane]);
         ctx.write_vfpu_vector_with_destination_prefix(result, vfpu_vd(d.word), length);
         break;
     }
@@ -680,33 +896,31 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         for (std::uint32_t lane = 0u; lane < length; ++lane) {
             const float inverse = 1.0f - source[lane];
             result[lane * 2u] = inverse < 0.0f ? 0.0f : (inverse > 1.0f ? 1.0f : inverse);
-            result[lane * 2u + 1u] = source[lane] < 0.0f ? 0.0f
-                                   : (source[lane] > 1.0f ? 1.0f : source[lane]);
+            result[lane * 2u + 1u] = source[lane] < 0.0f ? 0.0f : (source[lane] > 1.0f ? 1.0f : source[lane]);
         }
         ctx.write_vfpu_vector_with_destination_prefix(result, vfpu_vd(d.word), length * 2u);
         break;
     }
     case OpcodeKind::Lvs: {
-        const auto offset = static_cast<std::uint32_t>(
-            static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
+        const auto offset =
+            static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
         const std::uint32_t scalar = ((d.word >> 16u) & 0x1Fu) | ((d.word & 3u) << 5u);
         ctx.set_vfpu_scalar_bits(scalar, memory.aot_load32(rs + offset));
         break;
     }
     case OpcodeKind::Svs: {
-        const auto offset = static_cast<std::uint32_t>(
-            static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
+        const auto offset =
+            static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
         const std::uint32_t scalar = ((d.word >> 16u) & 0x1Fu) | ((d.word & 3u) << 5u);
         memory.aot_store32(rs + offset, ctx.vfpu_scalar_bits(scalar));
         break;
     }
     case OpcodeKind::Lvq: {
-        const auto offset = static_cast<std::uint32_t>(
-            static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
+        const auto offset =
+            static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
         const std::uint32_t vector = ((d.word >> 16u) & 0x1Fu) | ((d.word & 1u) << 5u);
         const std::uint32_t address = rs + offset;
-        const float value[4]{
-            std::bit_cast<float>(memory.aot_load32(address + 0u)),
+        const float value[4]{std::bit_cast<float>(memory.aot_load32(address + 0u)),
             std::bit_cast<float>(memory.aot_load32(address + 4u)),
             std::bit_cast<float>(memory.aot_load32(address + 8u)),
             std::bit_cast<float>(memory.aot_load32(address + 12u))};
@@ -714,8 +928,8 @@ bool execute_simple(Runtime &rt, AllegrexContext &ctx, const DecodedInstruction 
         break;
     }
     case OpcodeKind::Svq: {
-        const auto offset = static_cast<std::uint32_t>(
-            static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
+        const auto offset =
+            static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(d.word & 0xFFFCu)));
         const std::uint32_t vector = ((d.word >> 16u) & 0x1Fu) | ((d.word & 1u) << 5u);
         float value[4]{};
         ctx.read_vfpu_vector(value, vector, 4u);
@@ -755,8 +969,7 @@ InterpreterStats interpreter_stats() noexcept {
 }
 
 std::vector<std::pair<std::uint32_t, std::uint64_t>> interpreter_entry_profile() {
-    std::vector<std::pair<std::uint32_t, std::uint64_t>> entries(g_entry_profile.begin(),
-                                                                 g_entry_profile.end());
+    std::vector<std::pair<std::uint32_t, std::uint64_t>> entries(g_entry_profile.begin(), g_entry_profile.end());
     std::sort(entries.begin(), entries.end(), [](const auto &left, const auto &right) {
         if (left.second != right.second) return left.second > right.second;
         return left.first < right.first;
@@ -773,18 +986,16 @@ void reset_interpreter_stats() noexcept {
 
 void report_interpreter_stats(std::size_t limit) {
     if (g_instructions == 0u) return;
-    std::cerr << "[interpreter] instructions=" << g_instructions
-              << " entries=" << g_entries
+    std::cerr << "[interpreter] instructions=" << g_instructions << " entries=" << g_entries
               << " unique_addresses=" << g_entry_profile.size() << "\n";
     const auto entries = interpreter_entry_profile();
     for (std::size_t index = 0u; index < std::min(limit, entries.size()); ++index) {
-        std::cerr << "[interpreter] " << hex32(entries[index].first)
-                  << " instructions=" << entries[index].second << "\n";
+        std::cerr << "[interpreter] " << hex32(entries[index].first) << " instructions=" << entries[index].second
+                  << "\n";
     }
 }
 
-InterpreterExit interpret_allegrex(Runtime &rt, AllegrexContext &ctx,
-                                   std::uint64_t instruction_budget) {
+InterpreterExit interpret_allegrex(Runtime &rt, AllegrexContext &ctx, std::uint64_t instruction_budget) {
     load_settings();
     const std::uint64_t budget = instruction_budget != 0u ? instruction_budget : g_budget;
     GuestMemory &memory = rt.memory();
@@ -858,8 +1069,7 @@ InterpreterExit interpret_allegrex(Runtime &rt, AllegrexContext &ctx,
             // Both operands are read before the delay slot runs, so a slot that
             // overwrites rs or the link register cannot change the transfer.
             const std::uint32_t jump_target = ctx.gpr[decoded.rs];
-            if (decoded.kind == OpcodeKind::Jalr)
-                ctx.set_gpr(decoded.rd == 0u ? 31u : decoded.rd, return_pc);
+            if (decoded.kind == OpcodeKind::Jalr) ctx.set_gpr(decoded.rd == 0u ? 31u : decoded.rd, return_pc);
             next = jump_target;
             break;
         }
@@ -870,8 +1080,7 @@ InterpreterExit interpret_allegrex(Runtime &rt, AllegrexContext &ctx,
             const bool taken = evaluate_branch(ctx, decoded);
             if (is_link_branch(decoded.kind)) ctx.set_gpr(31u, return_pc);
             if (taken) {
-                next = pc + 4u + static_cast<std::uint32_t>(
-                    static_cast<std::int32_t>(decoded.immediate) * 4);
+                next = pc + 4u + static_cast<std::uint32_t>(static_cast<std::int32_t>(decoded.immediate) * 4);
             }
             run_slot = taken || !is_likely_branch(decoded.kind);
             break;

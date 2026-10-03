@@ -95,7 +95,7 @@ struct Candidate {
     std::uint32_t offset{};
     Kind kind{};
     Shape shape{};
-    double ratio{};     // units of this word per degree of camera turn
+    double ratio{}; // units of this word per degree of camera turn
     double previous{};
     std::uint8_t strikes{};
 };
@@ -170,7 +170,9 @@ const char *name_of(Kind kind) {
     return kind == Kind::Float32 ? "float" : kind == Kind::Int32 ? "int32" : "int16";
 }
 
-const char *shape_of(Shape shape) { return shape == Shape::Angle ? "angle" : "rate"; }
+const char *shape_of(Shape shape) {
+    return shape == Shape::Angle ? "angle" : "rate";
+}
 
 bool plausible(Kind kind, double ratio) {
     const double size_of = std::fabs(ratio);
@@ -183,8 +185,8 @@ void write_list(const Hunt &h, std::uint32_t base, std::ofstream &out) {
         << " moving frames\n";
     out << std::setprecision(10);
     for (const Candidate &c : h.candidates)
-        out << h.name << " " << name_of(c.kind) << " " << shape_of(c.shape) << " 0x" << std::hex
-            << (base + c.offset) << std::dec << " value=" << c.previous << " per_degree=" << c.ratio << "\n";
+        out << h.name << " " << name_of(c.kind) << " " << shape_of(c.shape) << " 0x" << std::hex << (base + c.offset)
+            << std::dec << " value=" << c.previous << " per_degree=" << c.ratio << "\n";
 }
 
 void write_lists(const Probe &p, std::uint32_t base) {
@@ -262,8 +264,8 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
         h.snapshot.clear();
         h.snapshot.shrink_to_fit();
         h.have_snapshot = false;
-        std::cout << "[find-camera] " << h.name << " attempt " << h.attempts << " (" << signal << " deg): "
-                  << h.candidates.size() << " candidates\n";
+        std::cout << "[find-camera] " << h.name << " attempt " << h.attempts << " (" << signal
+                  << " deg): " << h.candidates.size() << " candidates\n";
         return;
     }
 
@@ -273,22 +275,21 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
     for (Candidate c : h.candidates) {
         const double now = read_as(ram, c.offset, c.kind);
         if (!judge) {
-            c.previous = now;  // too gentle a move to tell anything from
+            c.previous = now; // too gentle a move to tell anything from
             kept.push_back(c);
             continue;
         }
         const double expected = c.ratio * static_cast<double>(signal);
         // A rate may be read a frame before it reaches the matrix, so either
         // alignment counts as agreement.
-        const bool agrees =
-            c.shape == Shape::Angle
-                ? std::fabs((now - c.previous) - expected) <= slack_of(c.kind, expected)
-                : (std::fabs(now - expected) <= slack_of(c.kind, expected) ||
-                   std::fabs(c.previous - expected) <= slack_of(c.kind, expected));
+        const bool agrees = c.shape == Shape::Angle
+            ? std::fabs((now - c.previous) - expected) <= slack_of(c.kind, expected)
+            : (std::fabs(now - expected) <= slack_of(c.kind, expected) ||
+                  std::fabs(c.previous - expected) <= slack_of(c.kind, expected));
         if (!agrees) {
             if (++c.strikes >= kStrikes) continue;
         } else if (c.strikes != 0u) {
-            --c.strikes;  // it came back into step, so forgive the earlier frame
+            --c.strikes; // it came back into step, so forgive the earlier frame
         }
         c.previous = now;
         kept.push_back(c);
@@ -298,8 +299,8 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
     h.candidates.shrink_to_fit();
     ++h.frames;
     if (h.frames >= kCollapseBy && h.candidates.size() > kCollapsedTo) {
-        std::cout << "[find-camera] " << h.name << ": " << h.candidates.size() << " still standing after "
-                  << h.frames << " frames, so that movement could not tell them apart; starting over\n";
+        std::cout << "[find-camera] " << h.name << ": " << h.candidates.size() << " still standing after " << h.frames
+                  << " frames, so that movement could not tell them apart; starting over\n";
         h.candidates.clear();
         h.candidates.shrink_to_fit();
     }
@@ -307,9 +308,8 @@ void step(Hunt &h, const std::uint8_t *ram, std::uint32_t size, float signal, st
     // The point of narrowing is to get somewhere worth watching.
     if (!h.watching && !h.candidates.empty() && h.candidates.size() <= kWorthWatching) {
         const Candidate &best = h.candidates.front();
-        std::cout << "[find-camera] " << h.name << ": watching guest writes to 0x" << std::hex
-                  << (base + best.offset) << std::dec << " (" << name_of(best.kind) << " "
-                  << shape_of(best.shape) << ")\n";
+        std::cout << "[find-camera] " << h.name << ": watching guest writes to 0x" << std::hex << (base + best.offset)
+                  << std::dec << " (" << name_of(best.kind) << " " << shape_of(best.shape) << ")\n";
         psprecomp::set_write_watch(base + best.offset, best.kind == Kind::Int16 ? 2u : 4u);
         h.watching = true;
     }
@@ -380,22 +380,22 @@ std::vector<std::uint32_t> chosen_places(const std::vector<std::uint32_t> &place
     if (places.size() <= 1u) return places;
     if (which == nullptr || *which == '\0') {
         log_once(std::string("poke-which-") + what,
-                 std::string("[poke] ") + what + " matches " + std::to_string(places.size()) +
-                     " places; set MHP3RD_POKE_WHICH to an index (0-based) to write one of them, or to"
-                     " 'all' to write every one, which will also write whatever else holds that value");
+            std::string("[poke] ") + what + " matches " + std::to_string(places.size()) +
+                " places; set MHP3RD_POKE_WHICH to an index (0-based) to write one of them, or to"
+                " 'all' to write every one, which will also write whatever else holds that value");
         return {};
     }
     if (std::strcmp(which, "all") == 0) {
         log_once(std::string("poke-all-") + what,
-                 std::string("[poke] writing all ") + std::to_string(places.size()) + " places that match " +
-                     what + "; anything else holding that value is being overwritten too");
+            std::string("[poke] writing all ") + std::to_string(places.size()) + " places that match " + what +
+                "; anything else holding that value is being overwritten too");
         return places;
     }
     const std::size_t index = static_cast<std::size_t>(std::strtoul(which, nullptr, 0));
     if (index >= places.size()) {
         log_once(std::string("poke-range-") + what,
-                 std::string("[poke] MHP3RD_POKE_WHICH=") + which + " is past the " +
-                     std::to_string(places.size()) + " places that match " + what);
+            std::string("[poke] MHP3RD_POKE_WHICH=") + which + " is past the " + std::to_string(places.size()) +
+                " places that match " + what);
         return {};
     }
     return {places[index]};
@@ -433,8 +433,7 @@ void find_and_poke_copies(psprecomp::Runtime &runtime) {
             std::memcpy(&bits, ram + offset, sizeof(bits));
             if (bits == wanted_bits) copies.push_back(base + offset);
         }
-        std::cout << "[find-float] scan " << scans++ << ": " << wanted << " appears at " << copies.size()
-                  << " places";
+        std::cout << "[find-float] scan " << scans++ << ": " << wanted << " appears at " << copies.size() << " places";
         for (std::uint32_t address : copies) std::cout << " 0x" << std::hex << address << std::dec;
         std::cout << "\n";
     }
@@ -507,12 +506,11 @@ void find_step_field(psprecomp::Runtime &runtime, float turn) {
     static const char *step_text = std::getenv("MHP3RD_FIND_STEP");
     if (step_text == nullptr || *step_text == '\0') return;
     static const int step = static_cast<int>(std::strtol(step_text, nullptr, 0));
-    static std::vector<std::uint8_t> before;   // held only until the first compare
+    static std::vector<std::uint8_t> before; // held only until the first compare
     static std::vector<std::uint32_t> kept;
     static std::vector<std::int16_t> previous; // and only for the survivors after that
     static bool armed = false;
     static std::uint64_t rounds = 0u;
-
 
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t base = psprecomp::GuestMemory::kPhysicalBase;
@@ -539,15 +537,14 @@ void find_step_field(psprecomp::Runtime &runtime, float turn) {
     if (kept.empty() && rounds == 0u) {
         for (std::uint32_t offset = 0; offset + 2u <= size; offset += 2u) {
             // A 16-bit angle wraps, so the difference is taken as one too.
-            const std::int16_t moved =
-                static_cast<std::int16_t>(narrow(ram + offset) - narrow(before.data() + offset));
+            const std::int16_t moved = static_cast<std::int16_t>(narrow(ram + offset) - narrow(before.data() + offset));
             if (moved == step || moved == -step) {
                 kept.push_back(base + offset);
                 previous.push_back(narrow(ram + offset));
             }
         }
         before.clear();
-        before.shrink_to_fit();  // 64 MiB is worth giving back at once
+        before.shrink_to_fit(); // 64 MiB is worth giving back at once
         ++rounds;
         std::cout << "[find-step] " << kept.size() << " fields moved by exactly " << step;
         if (kept.size() <= 24u)
@@ -603,8 +600,8 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
 
     Probe &p = probe();
     if (!p.started) {
-        std::cout << "[find-camera] watching " << (size / (1024u * 1024u)) << " MiB of guest RAM from 0x"
-                  << std::hex << base << std::dec << ", as float, int32 and int16\n";
+        std::cout << "[find-camera] watching " << (size / (1024u * 1024u)) << " MiB of guest RAM from 0x" << std::hex
+                  << base << std::dec << ", as float, int32 and int16\n";
         p.started = true;
     }
 
@@ -672,8 +669,7 @@ void camera_frame(psprecomp::Runtime &runtime, std::uint32_t view_matrix_source)
         p.basis_strikes.swap(kept_strikes);
         ++p.basis_frames;
         if (thinned) {
-            std::cout << "[find-camera] basis after " << p.basis_frames << " frames: " << p.basis.size()
-                      << " left\n";
+            std::cout << "[find-camera] basis after " << p.basis_frames << " frames: " << p.basis.size() << " left\n";
             if (p.basis.size() <= kPrintable)
                 for (std::size_t i = 0; i < p.basis.size(); ++i)
                     std::cout << "[find-camera]   basis entry " << int(p.basis_entry[i]) << " at 0x" << std::hex

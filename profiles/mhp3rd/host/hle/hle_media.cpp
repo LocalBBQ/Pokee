@@ -140,12 +140,11 @@ void block_transfer(Runtime &rt, const gpu::BlockTransfer &transfer) {
 #endif
     const std::size_t row_bytes = static_cast<std::size_t>(transfer.width) * transfer.bytes_per_pixel;
     for (std::uint32_t row = 0; row < transfer.height; ++row) {
-        const std::uint32_t from =
-            transfer.source +
+        const std::uint32_t from = transfer.source +
             ((transfer.source_y + row) * transfer.source_stride + transfer.source_x) * transfer.bytes_per_pixel;
-        const std::uint32_t to = transfer.destination + ((transfer.destination_y + row) * transfer.destination_stride +
-                                                          transfer.destination_x) *
-                                                             transfer.bytes_per_pixel;
+        const std::uint32_t to = transfer.destination +
+            ((transfer.destination_y + row) * transfer.destination_stride + transfer.destination_x) *
+                transfer.bytes_per_pixel;
         const std::uint8_t *source = memory.raw_pointer(from, row_bytes);
         std::uint8_t *destination = memory.raw_pointer(to, row_bytes);
         if (source == nullptr || destination == nullptr) {
@@ -312,8 +311,8 @@ void replay_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
         try {
             (void)ge.execute(memory, run.pc, run.stall, finished);
         } catch (const psprecomp::Error &error) {
-            log_once("ge-replay-error",
-                     std::string("[freecam] display list aborted in the photo mode: ") + error.what());
+            log_once(
+                "ge-replay-error", std::string("[freecam] display list aborted in the photo mode: ") + error.what());
         }
     }
 }
@@ -324,8 +323,8 @@ void replay_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
 // frame, its logic, its vblanks and its drawing as in play. Meanwhile the
 // sound stays paused and every frame is shown at once, never interpolated.
 struct FrameStep {
-    bool running{};  // the game is running the frame of a step
-    std::uint64_t vblanks{};  // the vblank count when it began
+    bool running{};          // the game is running the frame of a step
+    std::uint64_t vblanks{}; // the vblank count when it began
     camera::FrameStepRepeat repeat;
 };
 FrameStep &frame_step() {
@@ -381,8 +380,7 @@ bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t ad
             rt.stop("quit from the menu");
             break;
         }
-        if (step.repeat.update(renderer.frame_step_held(), perf::Clock::now()) &&
-            camera::free_camera_status().paused) {
+        if (step.repeat.update(renderer.frame_step_held(), perf::Clock::now()) && camera::free_camera_status().paused) {
             step.running = true;
             step.vblanks = kernel().vblank_count();
             // The kernel's clock picks up from real time again, as after a
@@ -446,8 +444,8 @@ void present_frame(Runtime &rt) {
     gpu::VulkanRenderer &renderer = *media().renderer;
     // The guest passes a VRAM offset when the high byte is zero.
     const std::uint32_t address = (media().display.framebuffer & 0xFF000000u) == 0u
-                                      ? (media().display.framebuffer | 0x04000000u)
-                                      : media().display.framebuffer;
+        ? (media().display.framebuffer | 0x04000000u)
+        : media().display.framebuffer;
     const perf::Clock::time_point present_start = perf::Clock::now();
     // The GE only draws into VRAM, so a framebuffer in main memory was
     // written by the CPU (the movie player's sceJpegCsc) and has to be shown
@@ -456,8 +454,8 @@ void present_frame(Runtime &rt) {
     const DisplayState &display = media().display;
     if ((address & 0x1F000000u) != kEdramBase && display.pixel_format == kPixelFormat8888) {
         const std::size_t bytes = static_cast<std::size_t>(display.buffer_width) * display.height * 4u;
-        renderer.upload_frame(address, rt.memory().raw_pointer(address, bytes), display.width, display.height,
-                              display.buffer_width);
+        renderer.upload_frame(
+            address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
     }
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
@@ -483,13 +481,12 @@ void present_frame(Runtime &rt) {
         const float seconds = std::chrono::duration<float>(present_start - previous_flip).count();
         previous_flip = present_start;
         camera::set_rate(camera::Source::Stick, (static_cast<int>(renderer.pad().right_x) - 0x80) / 127.0f,
-                         (static_cast<int>(renderer.pad().right_y) - 0x80) / 127.0f);
+            (static_cast<int>(renderer.pad().right_y) - 0x80) / 127.0f);
         // A tap of Lock on (camera/lock_on.hpp) waits for the next update
         // of the follow camera, which game_camera_frame makes sure to drive.
         if (renderer.take_lock_on_press()) camera::lock_on_tap();
         camera::game_camera_frame(rt);
-        ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory())
-                                                                  : std::nullopt);
+        ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
         if (const std::string why = camera::lock_on_take_note(); !why.empty()) ui::show_note(why);
         // The view's shape follows the picture's: the game builds its next
         // projection with the aspect ratio of the target it will draw into.
@@ -646,11 +643,13 @@ void register_display_ctrl(HleRegistrar &hle) {
                 }
                 const float length = std::sqrt(static_cast<float>(dx * dx + dy * dy));
                 if (length > 0.0f) {
-                    right_x = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(std::lround(dx * 127.0f / length)), 0, 255));
-                    right_y = static_cast<std::uint8_t>(std::clamp(0x80 + static_cast<int>(std::lround(dy * 127.0f / length)), 0, 255));
+                    right_x = static_cast<std::uint8_t>(
+                        std::clamp(0x80 + static_cast<int>(std::lround(dx * 127.0f / length)), 0, 255));
+                    right_y = static_cast<std::uint8_t>(
+                        std::clamp(0x80 + static_cast<int>(std::lround(dy * 127.0f / length)), 0, 255));
                 }
             } else if (right_x == 0x80u && right_y == 0x80u &&
-                       settings::current().right_stick == settings::RightStick::Camera) {
+                settings::current().right_stick == settings::RightStick::Camera) {
                 // The game's own camera: the mouse switches its turn on while
                 // it moves sideways. Not in the D-pad mode, where the same
                 // bits move cursors in the game's menus.
@@ -692,15 +691,18 @@ void register_display_ctrl(HleRegistrar &hle) {
 }
 
 void register_ge(HleRegistrar &hle) {
-    hle.add("sceGe_user", "sceGeEdramGetAddr", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, kEdramBase); });
-    hle.add("sceGe_user", "sceGeEdramGetSize", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, kEdramSize); });
-    hle.add("sceGe_user", "sceGeEdramSetAddrTranslation", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
+    hle.add(
+        "sceGe_user", "sceGeEdramGetAddr", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, kEdramBase); });
+    hle.add(
+        "sceGe_user", "sceGeEdramGetSize", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, kEdramSize); });
+    hle.add("sceGe_user", "sceGeEdramSetAddrTranslation",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
     hle.add("sceGe_user", "sceGeSetCallback", [](Runtime &rt, AllegrexContext &ctx) {
         const std::uint32_t data = arg(ctx, 0);
         auto &memory = rt.memory();
         const std::int32_t id = media().next_ge_callback++;
-        media().ge_callbacks[id] = GeCallback{memory.load32(data), memory.load32(data + 4u), memory.load32(data + 8u),
-                                              memory.load32(data + 12u)};
+        media().ge_callbacks[id] = GeCallback{
+            memory.load32(data), memory.load32(data + 4u), memory.load32(data + 8u), memory.load32(data + 12u)};
         kernel().finish(ctx, static_cast<std::uint32_t>(id));
     });
     hle.add("sceGe_user", "sceGeUnsetCallback", [](Runtime &, AllegrexContext &ctx) {
@@ -769,7 +771,7 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
             // as the sink mixes it (0x8000 is full volume): 0 means the sink
             // would add nothing but zeros.
             const std::int32_t gains[2] = {static_cast<std::int32_t>(std::min<std::uint32_t>(left, 0x8000u)),
-                                           static_cast<std::int32_t>(std::min<std::uint32_t>(right, 0x8000u))};
+                static_cast<std::int32_t>(std::min<std::uint32_t>(right, 0x8000u))};
             int peak = 0;
             for (std::size_t i = 0; i < staging.size(); ++i)
                 peak = std::max(peak, std::abs((static_cast<std::int32_t>(staging[i]) * gains[i & 1u]) >> 15));
@@ -799,8 +801,8 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
 
 // __sceSasCore renders one grain into a guest buffer; the guest then hands that
 // buffer to a sceAudio channel itself, so nothing here reaches the sink.
-void sas_render(Runtime &rt, std::uint32_t core, std::uint32_t output, bool mix,
-                std::uint32_t left_volume, std::uint32_t right_volume) {
+void sas_render(Runtime &rt, std::uint32_t core, std::uint32_t output, bool mix, std::uint32_t left_volume,
+    std::uint32_t right_volume) {
     audio::SasCore &sas = audio::sas_core(core);
     const std::size_t frames = sas.grain();
     static std::vector<std::int16_t> staging;
@@ -843,7 +845,8 @@ void register_audio(HleRegistrar &hle) {
                 }
             }
         }
-        if (channel < 0 || channel >= static_cast<std::int32_t>(channels.size()) || channels[static_cast<std::size_t>(channel)].reserved) {
+        if (channel < 0 || channel >= static_cast<std::int32_t>(channels.size()) ||
+            channels[static_cast<std::size_t>(channel)].reserved) {
             kernel().finish(ctx, 0x80260002u);
             return;
         }
@@ -862,7 +865,8 @@ void register_audio(HleRegistrar &hle) {
         if (arg(ctx, 0) < media().audio.size()) media().audio[arg(ctx, 0)].format = arg(ctx, 1);
         kernel().finish(ctx, 0u);
     });
-    hle.add("sceAudio", "sceAudioChangeChannelVolume", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
+    hle.add(
+        "sceAudio", "sceAudioChangeChannelVolume", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
     // How much of what the channel was given is still to play, in samples.
     hle.add("sceAudio", "sceAudioGetChannelRestLength", [](Runtime &, AllegrexContext &ctx) {
         const std::uint32_t channel = arg(ctx, 0);
@@ -887,8 +891,8 @@ void register_audio(HleRegistrar &hle) {
         kernel().finish(ctx, 0u);
     });
     hle.try_add("sceSasCore", "__sceSasSetVoicePCM", [](Runtime &, AllegrexContext &ctx) {
-        audio::sas_core(arg(ctx, 0)).set_voice_pcm(arg(ctx, 1), arg(ctx, 2), arg(ctx, 3),
-                                                   static_cast<std::int32_t>(arg(ctx, 4)));
+        audio::sas_core(arg(ctx, 0))
+            .set_voice_pcm(arg(ctx, 1), arg(ctx, 2), arg(ctx, 3), static_cast<std::int32_t>(arg(ctx, 4)));
         kernel().finish(ctx, 0u);
     });
     hle.add("sceSasCore", "__sceSasSetPitch", [](Runtime &, AllegrexContext &ctx) {
@@ -896,8 +900,8 @@ void register_audio(HleRegistrar &hle) {
         kernel().finish(ctx, 0u);
     });
     hle.add("sceSasCore", "__sceSasSetVolume", [](Runtime &, AllegrexContext &ctx) {
-        audio::sas_core(arg(ctx, 0)).set_volume(arg(ctx, 1), static_cast<std::int32_t>(arg(ctx, 2)),
-                                                static_cast<std::int32_t>(arg(ctx, 3)));
+        audio::sas_core(arg(ctx, 0))
+            .set_volume(arg(ctx, 1), static_cast<std::int32_t>(arg(ctx, 2)), static_cast<std::int32_t>(arg(ctx, 3)));
         kernel().finish(ctx, 0u);
     });
     hle.add("sceSasCore", "__sceSasSetSimpleADSR", [](Runtime &, AllegrexContext &ctx) {
@@ -922,12 +926,10 @@ void register_audio(HleRegistrar &hle) {
     // Reverb is not modelled, so the sends are accepted and dropped.
     for (const char *name : {"__sceSasRevType", "__sceSasRevParam", "__sceSasRevEVOL", "__sceSasRevVON"})
         hle.add("sceSasCore", name, [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
-    hle.add("sceSasCore", "__sceSasGetOutputmode", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, audio::sas_core(arg(ctx, 0)).output_mode());
-    });
-    hle.add("sceSasCore", "__sceSasGetEndFlag", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, audio::sas_core(arg(ctx, 0)).end_flag());
-    });
+    hle.add("sceSasCore", "__sceSasGetOutputmode",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, audio::sas_core(arg(ctx, 0)).output_mode()); });
+    hle.add("sceSasCore", "__sceSasGetEndFlag",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, audio::sas_core(arg(ctx, 0)).end_flag()); });
     hle.add("sceSasCore", "__sceSasCore", [](Runtime &rt, AllegrexContext &ctx) {
         sas_render(rt, arg(ctx, 0), arg(ctx, 1), false, 0u, 0u);
         kernel().finish(ctx, 0u);
@@ -984,10 +986,10 @@ gpu::VulkanRenderer *ensure_renderer() {
         std::cerr << "Renderer: unavailable (" << error << ")\n";
         const std::string device = renderer->device_summary();
         const std::string text = "Yakumo cannot draw on this device's GPU:\n\n" + error + "\n\n" +
-                                 (device.empty() ? std::string("No GPU chosen yet") : device) + "\n" +
-                                 android::system_summary() + "\n" + std::string(kYakumoVersion) +
-                                 "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with a screenshot and "
-                                 "the log.";
+            (device.empty() ? std::string("No GPU chosen yet") : device) + "\n" + android::system_summary() + "\n" +
+            std::string(kYakumoVersion) +
+            "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with a screenshot and "
+            "the log.";
         android::fatal_error("Yakumo: graphics error", text, 4);
 #else
         std::cerr << "Renderer: unavailable (" << error << "); running headless\n";

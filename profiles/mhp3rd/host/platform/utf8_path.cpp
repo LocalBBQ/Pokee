@@ -50,11 +50,11 @@ std::string narrow(std::wstring_view wide) {
 std::optional<std::string> environment_utf8(const char *name) {
     const std::wstring wide_name = widen(name);
     SetLastError(ERROR_SUCCESS);
-    const DWORD needed = GetEnvironmentVariableW(wide_name.c_str(), nullptr, 0);  // with the terminator
+    const DWORD needed = GetEnvironmentVariableW(wide_name.c_str(), nullptr, 0); // with the terminator
     if (needed == 0u) return GetLastError() == ERROR_ENVVAR_NOT_FOUND ? std::nullopt : std::optional<std::string>("");
     std::wstring value(needed, L'\0');
     const DWORD written = GetEnvironmentVariableW(wide_name.c_str(), value.data(), needed);
-    if (written >= needed) return std::nullopt;  // changed in between
+    if (written >= needed) return std::nullopt; // changed in between
     value.resize(written);
     return narrow(value);
 }

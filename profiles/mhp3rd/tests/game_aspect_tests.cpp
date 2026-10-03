@@ -55,9 +55,9 @@ struct Fixture {
 void test_own_shape_writes_nothing() {
     Fixture f;
     check(prepare_game_aspect(f.runtime), "the matching game code is accepted");
-    write_float(f.runtime.memory(), kCamera + 0x10u, 1.0f);  // marks a write, if any
+    write_float(f.runtime.memory(), kCamera + 0x10u, 1.0f); // marks a write, if any
     game_aspect_frame(f.runtime, kGameAspect);
-    game_aspect_frame(f.runtime, 1.7650f);  // within a hair of it
+    game_aspect_frame(f.runtime, 1.7650f); // within a hair of it
     check(f.memory().load32(kAspectConstant) == kGameAspectBits, "the game's shape leaves the constant alone");
     check(read_float(f.memory(), kCamera + 0x10u) == 1.0f, "the game's shape leaves the camera alone");
 }
@@ -78,7 +78,7 @@ void test_wide_and_back() {
 
     game_aspect_frame(f.runtime, 32.0f / 9.0f);
     check(std::abs(read_float(f.memory(), kCullDepthConstant) + 4.0f / (32.0f / 9.0f)) < 1e-6f,
-          "32:9 widens the culling planes");
+        "32:9 widens the culling planes");
 
     game_aspect_frame(f.runtime, kGameAspect);
     check(f.memory().load32(kAspectConstant) == kGameAspectBits, "off restores the constant bit for bit");

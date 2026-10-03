@@ -56,10 +56,10 @@ inline constexpr int kItemNameTable = 3;
 enum class ItemGroup : std::uint8_t { Other, Material, Consumable, Ammo, Decoration };
 
 struct ItemInfo {
-    std::uint8_t category{};   // 0 items, 1 ammo and coatings, 3 decorations
+    std::uint8_t category{}; // 0 items, 1 ammo and coatings, 3 decorations
     std::uint8_t rarity{};
-    std::uint8_t carry{};      // how many the pouch holds
-    std::uint8_t use{};        // non-zero for items that can be used
+    std::uint8_t carry{}; // how many the pouch holds
+    std::uint8_t use{};   // non-zero for items that can be used
     std::uint32_t buy{};
     std::uint32_t sell{};
 };
@@ -161,8 +161,8 @@ void set_money(Ram &ram, std::uint32_t zenny);
 } // namespace p3rd
 
 // Console commands for the game's own structures; false for an unknown one.
-bool game_command(Ram &ram, const std::string &command, const std::vector<std::string> &args,
-                  std::vector<std::string> &out);
+bool game_command(
+    Ram &ram, const std::string &command, const std::vector<std::string> &args, std::vector<std::string> &out);
 
 struct HeldCheats;
 

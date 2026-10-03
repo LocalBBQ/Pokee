@@ -74,16 +74,16 @@ void write_char_info(psprecomp::GuestMemory &memory, std::uint32_t address, cons
     put(12u, static_cast<std::uint32_t>(glyph.top));
     put(16u, to_fixed26(static_cast<float>(glyph.width)));
     put(20u, to_fixed26(static_cast<float>(glyph.height)));
-    put(24u, to_fixed26(static_cast<float>(fonts::kAscender)));                  // ascender
-    put(28u, to_fixed26(static_cast<float>(fonts::kAscender - fonts::kCell)));   // descender
-    put(32u, to_fixed26(static_cast<float>(glyph.left)));                        // bearing HX
-    put(36u, to_fixed26(static_cast<float>(glyph.top)));                         // bearing HY
-    put(40u, 0u);                                                                // bearing VX
-    put(44u, to_fixed26(static_cast<float>(glyph.top)));                         // bearing VY
-    put(48u, to_fixed26(glyph.advance));                                         // advance H
-    put(52u, to_fixed26(static_cast<float>(fonts::kCell)));                      // advance V
-    memory.store16(address + 56u, 0u);                                          // shadow flags
-    memory.store16(address + 58u, 0u);                                          // shadow id
+    put(24u, to_fixed26(static_cast<float>(fonts::kAscender)));                // ascender
+    put(28u, to_fixed26(static_cast<float>(fonts::kAscender - fonts::kCell))); // descender
+    put(32u, to_fixed26(static_cast<float>(glyph.left)));                      // bearing HX
+    put(36u, to_fixed26(static_cast<float>(glyph.top)));                       // bearing HY
+    put(40u, 0u);                                                              // bearing VX
+    put(44u, to_fixed26(static_cast<float>(glyph.top)));                       // bearing VY
+    put(48u, to_fixed26(glyph.advance));                                       // advance H
+    put(52u, to_fixed26(static_cast<float>(fonts::kCell)));                    // advance V
+    memory.store16(address + 56u, 0u);                                         // shadow flags
+    memory.store16(address + 58u, 0u);                                         // shadow id
 }
 
 // SceFontInfo: the maximum glyph metrics, as 26.6 fixed point and as floats,
@@ -93,25 +93,25 @@ void write_font_info(psprecomp::GuestMemory &memory, std::uint32_t address) {
     const float cell = static_cast<float>(fonts::kCell);
     const float ascender = static_cast<float>(fonts::kAscender);
     const float values[10] = {
-        cell,             // max glyph width
-        cell,             // max glyph height
-        ascender,         // max ascender
-        ascender - cell,  // max descender
-        0.0f,             // max left X
-        ascender,         // max base Y
-        cell / 2.0f,      // min centre X
-        ascender,         // max top Y
-        cell,             // max advance X
-        cell,             // max advance Y
+        cell,            // max glyph width
+        cell,            // max glyph height
+        ascender,        // max ascender
+        ascender - cell, // max descender
+        0.0f,            // max left X
+        ascender,        // max base Y
+        cell / 2.0f,     // min centre X
+        ascender,        // max top Y
+        cell,            // max advance X
+        cell,            // max advance Y
     };
     for (std::uint32_t i = 0; i < 10u; ++i) {
         memory.store32(address + i * 4u, to_fixed26(values[i]));
         store_float(memory, address + 40u + i * 4u, values[i]);
     }
-    memory.store16(address + 80u, static_cast<std::uint16_t>(fonts::kCell));  // max glyph bitmap width
-    memory.store16(address + 82u, static_cast<std::uint16_t>(fonts::kCell));  // max glyph bitmap height
-    memory.store32(address + 84u, 0x10000u);                                  // glyph count
-    memory.store32(address + 88u, 0u);                                        // shadow map length
+    memory.store16(address + 80u, static_cast<std::uint16_t>(fonts::kCell)); // max glyph bitmap width
+    memory.store16(address + 82u, static_cast<std::uint16_t>(fonts::kCell)); // max glyph bitmap height
+    memory.store32(address + 84u, 0x10000u);                                 // glyph count
+    memory.store32(address + 88u, 0u);                                       // shadow map length
 }
 
 // The game keeps every glyph it has drawn in a texture atlas and draws it
@@ -121,17 +121,17 @@ void write_font_info(psprecomp::GuestMemory &memory, std::uint32_t address) {
 // for glyph images) keeps, in the object that owns the atlas, a table from
 // character code to atlas cell, where 0xFFFF means "not drawn yet". Clearing
 // it makes the game draw each character again the next time it shows it.
-constexpr std::uint32_t kGlyphImageCaller = 0x088EA3A4u;   // return address of the game's only call
-constexpr std::uint32_t kCellWidthOffset = 276u;            // u8, from the font info's maximum width
-constexpr std::uint32_t kCellHeightOffset = 277u;           // u8
-constexpr std::uint32_t kCellCountOffset = 286u;            // u16, cells in the whole atlas
-constexpr std::uint32_t kCodeToCellOffset = 22168u;         // u16 per character code below 0xFFF0
+constexpr std::uint32_t kGlyphImageCaller = 0x088EA3A4u; // return address of the game's only call
+constexpr std::uint32_t kCellWidthOffset = 276u;         // u8, from the font info's maximum width
+constexpr std::uint32_t kCellHeightOffset = 277u;        // u8
+constexpr std::uint32_t kCellCountOffset = 286u;         // u16, cells in the whole atlas
+constexpr std::uint32_t kCodeToCellOffset = 22168u;      // u16 per character code below 0xFFF0
 constexpr std::uint32_t kCodeToCellEntries = 0xFFF0u;
 constexpr std::uint32_t kAtlasPages = 8u;
 
 struct GameGlyphCache {
     psprecomp::GuestMemory *memory{};
-    std::uint32_t object{};  // 0: not recognised
+    std::uint32_t object{}; // 0: not recognised
 };
 
 GameGlyphCache &game_cache() {
@@ -151,7 +151,7 @@ void note_game_cache(psprecomp::GuestMemory &memory, const AllegrexContext &ctx)
     GameGlyphCache &cache = game_cache();
     cache.memory = &memory;
     if (cache.object != 0u || ctx.gpr[31] != kGlyphImageCaller) return;
-    const std::uint32_t object = ctx.gpr[17];  // s1 in that function
+    const std::uint32_t object = ctx.gpr[17]; // s1 in that function
     if (!memory.contains(object, kCodeToCellOffset + kCodeToCellEntries * 2u)) return;
     if (memory.load8(object + kCellWidthOffset) != fonts::kCell ||
         memory.load8(object + kCellHeightOffset) != fonts::kCell ||
@@ -173,7 +173,9 @@ void forget_game_glyphs() {
     std::cout << "[font] the game redraws its text with the new font\n";
 }
 
-std::int32_t floor_div64(std::int32_t value) { return value >= 0 ? value / 64 : -((-value + 63) / 64); }
+std::int32_t floor_div64(std::int32_t value) {
+    return value >= 0 ? value / 64 : -((-value + 63) / 64);
+}
 
 // Draws one glyph into the guest buffer described by SceFontGlyphImage. The
 // position is 26.6 fixed point; its fraction becomes a subpixel shift. Pixels
@@ -191,8 +193,8 @@ void blit_glyph(psprecomp::GuestMemory &memory, std::uint32_t image_address, std
 
     const std::int32_t x_whole = floor_div64(x64);
     const std::int32_t y_whole = floor_div64(y64);
-    const fonts::GlyphBitmap glyph = fonts::render(code, static_cast<float>(x64 - x_whole * 64) / 64.0f,
-                                                   static_cast<float>(y64 - y_whole * 64) / 64.0f);
+    const fonts::GlyphBitmap glyph = fonts::render(
+        code, static_cast<float>(x64 - x_whole * 64) / 64.0f, static_cast<float>(y64 - y_whole * 64) / 64.0f);
     if (glyph.pixels.empty()) return;
     const std::int32_t x_origin = x_whole + glyph.x;
     const std::int32_t y_origin = y_whole + glyph.y;
@@ -214,8 +216,9 @@ void blit_glyph(psprecomp::GuestMemory &memory, std::uint32_t image_address, std
                 const bool high = pixel_format == kPixelFormat4 ? ((x & 1) != 0) : ((x & 1) == 0);
                 const std::uint8_t old = high ? static_cast<std::uint8_t>(existing >> 4u) : (existing & 0x0Fu);
                 const std::uint8_t nibble = std::max(old, static_cast<std::uint8_t>(value >> 4u));
-                memory.store8(at, high ? static_cast<std::uint8_t>((existing & 0x0Fu) | (nibble << 4u))
-                                       : static_cast<std::uint8_t>((existing & 0xF0u) | nibble));
+                memory.store8(at,
+                    high ? static_cast<std::uint8_t>((existing & 0x0Fu) | (nibble << 4u))
+                         : static_cast<std::uint8_t>((existing & 0xF0u) | nibble));
                 break;
             }
             case kPixelFormat8: {
@@ -254,8 +257,7 @@ void register_font(HleRegistrar &hle) {
             const auto &m = rt.memory();
             const std::uint32_t p = arg(ctx, 0);
             trace("NewLib params=%08X userData=%08X numFonts=%u cache=%08X alloc=%08X free=%08X ra=%08X", p,
-                  m.load32(p), m.load32(p + 4u), m.load32(p + 8u), m.load32(p + 12u), m.load32(p + 16u),
-                  ctx.gpr[31]);
+                m.load32(p), m.load32(p + 4u), m.load32(p + 8u), m.load32(p + 12u), m.load32(p + 16u), ctx.gpr[31]);
         }
         if (arg(ctx, 1) != 0u) rt.memory().store32(arg(ctx, 1), 0u);
         kernel().finish(ctx, kLibraryHandle);
@@ -277,12 +279,12 @@ void register_font(HleRegistrar &hle) {
             const auto &m = rt.memory();
             trace("FindOptimumFont style=%08X h=%g v=%g hres=%g vres=%g weight=%g family=%u style=%u sub=%u "
                   "lang=%u region=%u country=%u name='%s' file='%s' attr=%08X ra=%08X",
-                  style, static_cast<double>(load_float(m, style)), static_cast<double>(load_float(m, style + 4u)),
-                  static_cast<double>(load_float(m, style + 8u)), static_cast<double>(load_float(m, style + 12u)),
-                  static_cast<double>(load_float(m, style + 16u)), m.load16(style + 20u), m.load16(style + 22u),
-                  m.load16(style + 24u), m.load16(style + 26u), m.load16(style + 28u), m.load16(style + 30u),
-                  read_cstring(m, style + 32u, 64u).c_str(), read_cstring(m, style + 96u, 64u).c_str(),
-                  m.load32(style + 160u), ctx.gpr[31]);
+                style, static_cast<double>(load_float(m, style)), static_cast<double>(load_float(m, style + 4u)),
+                static_cast<double>(load_float(m, style + 8u)), static_cast<double>(load_float(m, style + 12u)),
+                static_cast<double>(load_float(m, style + 16u)), m.load16(style + 20u), m.load16(style + 22u),
+                m.load16(style + 24u), m.load16(style + 26u), m.load16(style + 28u), m.load16(style + 30u),
+                read_cstring(m, style + 32u, 64u).c_str(), read_cstring(m, style + 96u, 64u).c_str(),
+                m.load32(style + 160u), ctx.gpr[31]);
         }
         if (arg(ctx, 2) != 0u) rt.memory().store32(arg(ctx, 2), 0u);
         kernel().finish(ctx, 0u);
@@ -301,7 +303,7 @@ void register_font(HleRegistrar &hle) {
         const std::uint32_t address = arg(ctx, 1);
         if (address != 0u && fonts::ready()) write_font_info(rt.memory(), address);
         trace("GetFontInfo font=%08X info=%08X max=%dx%d ascender=%d ra=%08X", arg(ctx, 0), address, fonts::kCell,
-              fonts::kCell, fonts::kAscender, ctx.gpr[31]);
+            fonts::kCell, fonts::kAscender, ctx.gpr[31]);
         kernel().finish(ctx, 0u);
     });
 
@@ -314,8 +316,8 @@ void register_font(HleRegistrar &hle) {
         const fonts::GlyphMetrics glyph = fonts::ready() ? fonts::metrics(arg(ctx, 1)) : fonts::GlyphMetrics{};
         write_char_info(rt.memory(), address, glyph);
         trace("GetCharInfo code=%04X w=%d h=%d left=%d top=%d adv=%.2f%s ra=%08X", arg(ctx, 1), glyph.width,
-              glyph.height, glyph.left, glyph.top, static_cast<double>(glyph.advance), glyph.found ? "" : " missing",
-              ctx.gpr[31]);
+            glyph.height, glyph.left, glyph.top, static_cast<double>(glyph.advance), glyph.found ? "" : " missing",
+            ctx.gpr[31]);
         kernel().finish(ctx, 0u);
     });
 
@@ -324,16 +326,16 @@ void register_font(HleRegistrar &hle) {
         if (trace_font() && image != 0u) {
             const auto &m = rt.memory();
             trace("GetCharGlyphImage code=%04X fmt=%u x64=%d y64=%d buf=%ux%u bpl=%u at=%08X ra=%08X", arg(ctx, 1),
-                  m.load32(image), static_cast<std::int32_t>(m.load32(image + 4u)),
-                  static_cast<std::int32_t>(m.load32(image + 8u)), m.load16(image + 12u), m.load16(image + 14u),
-                  m.load16(image + 16u), m.load32(image + 20u), ctx.gpr[31]);
+                m.load32(image), static_cast<std::int32_t>(m.load32(image + 4u)),
+                static_cast<std::int32_t>(m.load32(image + 8u)), m.load16(image + 12u), m.load16(image + 14u),
+                m.load16(image + 16u), m.load32(image + 20u), ctx.gpr[31]);
         }
         note_game_cache(rt.memory(), ctx);
         if (image != 0u && fonts::ready()) {
             // The renderer draws the atlas again from these (fonts::glyph_cell).
             const auto &m = rt.memory();
             fonts::note_glyph_pass(arg(ctx, 1), static_cast<std::int32_t>(m.load32(image + 4u)),
-                                   static_cast<std::int32_t>(m.load32(image + 8u)), ctx.gpr[31] == kGlyphImageCaller);
+                static_cast<std::int32_t>(m.load32(image + 8u)), ctx.gpr[31] == kGlyphImageCaller);
             blit_glyph(rt.memory(), image, arg(ctx, 1));
         }
         kernel().finish(ctx, 0u);

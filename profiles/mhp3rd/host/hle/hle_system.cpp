@@ -20,18 +20,22 @@ namespace {
 // Epoch the virtual PSP clock starts at, so guest wall time advances with it.
 std::uint64_t boot_unix_us() {
     static const std::uint64_t value = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count());
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count());
     return value;
 }
 
-std::uint64_t guest_unix_us() { return boot_unix_us() + kernel().now_us(); }
+std::uint64_t guest_unix_us() {
+    return boot_unix_us() + kernel().now_us();
+}
 
-void success(Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); }
+void success(Runtime &, AllegrexContext &ctx) {
+    kernel().finish(ctx, 0u);
+}
 
 void register_utils(HleRegistrar &hle) {
     for (const char *name : {"sceKernelDcacheWritebackAll", "sceKernelDcacheWritebackInvalidateAll",
-                             "sceKernelDcacheInvalidateRange", "sceKernelDcacheWritebackRange", "sceKernelSetGPO"})
+             "sceKernelDcacheInvalidateRange", "sceKernelDcacheWritebackRange", "sceKernelSetGPO"})
         hle.add("UtilsForUser", name, success);
     // The guest flushes the instruction cache after copying code into an overlay
     // slot, which is the profile's cue to re-check which overlay is loaded.
@@ -61,9 +65,8 @@ void register_utils(HleRegistrar &hle) {
         }
         kernel().finish(ctx, 0u);
     });
-    hle.add("UtilsForUser", "sceKernelLibcClock", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, static_cast<std::uint32_t>(kernel().now_us()));
-    });
+    hle.add("UtilsForUser", "sceKernelLibcClock",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, static_cast<std::uint32_t>(kernel().now_us())); });
 }
 
 void register_process(HleRegistrar &hle) {
@@ -78,12 +81,10 @@ void register_process(HleRegistrar &hle) {
 
     // The main executable is the only module; overlays are loaded by game code.
     constexpr std::uint32_t kMainModuleId = 0x01000001u;
-    hle.add("ModuleMgrForUser", "sceKernelGetModuleId", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, kMainModuleId);
-    });
-    hle.add("ModuleMgrForUser", "sceKernelGetModuleIdByAddress", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, kMainModuleId);
-    });
+    hle.add("ModuleMgrForUser", "sceKernelGetModuleId",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, kMainModuleId); });
+    hle.add("ModuleMgrForUser", "sceKernelGetModuleIdByAddress",
+        [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, kMainModuleId); });
     // Games load Sony's stock modules (font, codecs) as encrypted PRX blobs from
     // the disc. Their exports are served by this profile's HLE, so the load is
     // acknowledged with a module id and the image itself is never touched.
@@ -121,7 +122,8 @@ void register_interrupts(HleRegistrar &hle) {
         kernel().finish(ctx, 0u);
     });
     hle.add("InterruptManager", "sceKernelReleaseSubIntrHandler", [](Runtime &, AllegrexContext &ctx) {
-        kernel().finish(ctx, kernel().sub_interrupts[arg(ctx, 0)].erase(arg(ctx, 1)) != 0u ? 0u : error::kIllegalArgument);
+        kernel().finish(
+            ctx, kernel().sub_interrupts[arg(ctx, 0)].erase(arg(ctx, 1)) != 0u ? 0u : error::kIllegalArgument);
     });
     hle.add("InterruptManager", "sceKernelEnableSubIntr", [](Runtime &, AllegrexContext &ctx) {
         auto &handlers = kernel().sub_interrupts[arg(ctx, 0)];
@@ -166,18 +168,30 @@ void register_platform(HleRegistrar &hle) {
     });
     hle.add("sceImpose", "sceImposeSetLanguageMode", success);
     hle.add("sceOpenPSID", "sceOpenPSIDGetOpenPSID", [](Runtime &rt, AllegrexContext &ctx) {
-        for (std::uint32_t i = 0; i < 16u; ++i) rt.memory().store8(arg(ctx, 0) + i, static_cast<std::uint8_t>(0x10u + i));
+        for (std::uint32_t i = 0; i < 16u; ++i)
+            rt.memory().store8(arg(ctx, 0) + i, static_cast<std::uint8_t>(0x10u + i));
         kernel().finish(ctx, 0u);
     });
     hle.add("sceUtility", "sceUtilityGetSystemParamInt", [](Runtime &rt, AllegrexContext &ctx) {
         std::uint32_t value = 0u;
         switch (arg(ctx, 0)) {
-        case 2u: value = 1u; break;  // ad hoc channel: automatic
-        case 4u: value = 0u; break;  // date format YYYYMMDD
-        case 5u: value = 0u; break;  // 24-hour clock
-        case 8u: value = 0u; break;  // language: Japanese
-        case 9u: value = 0u; break;  // confirm button: circle
-        default: break;
+        case 2u:
+            value = 1u;
+            break; // ad hoc channel: automatic
+        case 4u:
+            value = 0u;
+            break; // date format YYYYMMDD
+        case 5u:
+            value = 0u;
+            break; // 24-hour clock
+        case 8u:
+            value = 0u;
+            break; // language: Japanese
+        case 9u:
+            value = 0u;
+            break; // confirm button: circle
+        default:
+            break;
         }
         rt.memory().store32(arg(ctx, 1), value);
         kernel().finish(ctx, 0u);

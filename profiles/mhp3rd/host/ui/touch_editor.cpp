@@ -23,8 +23,8 @@ struct State {
     bool open{};
     std::optional<Element> selected;
     bool dragging{};
-    ImVec2 grab{};           // the pointer's offset from the element's centre
-    bool panel_bottom{};     // the player moved the panel down
+    ImVec2 grab{};       // the pointer's offset from the element's centre
+    bool panel_bottom{}; // the player moved the panel down
 };
 
 State &state() {
@@ -34,16 +34,16 @@ State &state() {
 
 // The element under `at`, the smallest when they overlap, hidden ones
 // included: the editor is where they are shown again.
-std::optional<Element> element_at(const input::touch::ActionLayout &layout, const input::touch::Area &area,
-                                  float scale, ImVec2 at) {
+std::optional<Element> element_at(
+    const input::touch::ActionLayout &layout, const input::touch::Area &area, float scale, ImVec2 at) {
     std::optional<Element> best;
     float best_size = 0.0f;
     for (std::size_t i = 0; i < input::touch::kElements; ++i) {
         const auto e = static_cast<Element>(i);
         const input::touch::Placed p = input::touch::place(layout.elements[i], e, area, scale);
         const bool inside = e == Element::Swipe
-                                ? std::fabs(at.x - p.centre.x) <= p.half_width && std::fabs(at.y - p.centre.y) <= p.radius
-                                : std::hypot(at.x - p.centre.x, at.y - p.centre.y) <= std::max(p.radius * 1.2f, 12.0f);
+            ? std::fabs(at.x - p.centre.x) <= p.half_width && std::fabs(at.y - p.centre.y) <= p.radius
+            : std::hypot(at.x - p.centre.x, at.y - p.centre.y) <= std::max(p.radius * 1.2f, 12.0f);
         const float size = p.radius * p.half_width;
         if (inside && (!best || size < best_size)) {
             best = e;
@@ -53,7 +53,9 @@ std::optional<Element> element_at(const input::touch::ActionLayout &layout, cons
     return best;
 }
 
-int cycle(int value, int delta, int count) { return ((value + delta) % count + count) % count; }
+int cycle(int value, int delta, int count) {
+    return ((value + delta) % count + count) % count;
+}
 
 } // namespace
 
@@ -64,7 +66,9 @@ void open_touch_editor() {
     focus_next_row();
 }
 
-bool touch_editor_open() { return state().open; }
+bool touch_editor_open() {
+    return state().open;
+}
 
 void touch_editor_frame(bool back) {
     State &st = state();
@@ -86,8 +90,8 @@ void touch_editor_frame(bool back) {
         look.hidden = !layout.elements[i].shown;
         look.selected = st.selected == e;
         look.held = st.dragging && st.selected == e;
-        draw_action_element(list, e, layout.elements[i], input::touch::place(layout.elements[i], e, area, scale), {},
-                            look);
+        draw_action_element(
+            list, e, layout.elements[i], input::touch::place(layout.elements[i], e, area, scale), {}, look);
     }
 
     // Choosing and dragging, where the panel is not.
@@ -125,8 +129,8 @@ void touch_editor_frame(bool back) {
     ImGui::SetNextWindowPos(at, ImGuiCond_Always, pivot);
     ImGui::SetNextWindowSizeConstraints({width, 0.0f}, {width, io.DisplaySize.y - 2.0f * margin});
     ImGui::Begin("##touch_editor", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_AlwaysAutoResize);
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_AlwaysAutoResize);
     bool done = back;
     if (st.selected) {
         const Element e = *st.selected;
@@ -138,9 +142,9 @@ void touch_editor_frame(bool back) {
             for (std::size_t i = 0; i < choices.size(); ++i)
                 if (choices[i].buttons == p.buttons) current = static_cast<int>(i);
             if (const int delta = choice_row("Presses", input::touch::buttons_label(p.buttons),
-                                             {false, {}, "The PSP button, or two pressed in the same frame."})) {
-                p.buttons = choices[static_cast<std::size_t>(cycle(current, delta, static_cast<int>(choices.size())))]
-                                .buttons;
+                    {false, {}, "The PSP button, or two pressed in the same frame."})) {
+                p.buttons =
+                    choices[static_cast<std::size_t>(cycle(current, delta, static_cast<int>(choices.size())))].buttons;
                 settings::save();
             }
         }
@@ -148,7 +152,7 @@ void touch_editor_frame(bool back) {
         int size = static_cast<int>(std::lround(p.size / normal * 100.0f));
         if (slider_row("Size", size, 50, 250, 5, "%d%%", {false, {}, "Of the element's own default size."})) {
             p.size = std::clamp(normal * static_cast<float>(size) / 100.0f, input::touch::kMinElementSize,
-                                input::touch::kMaxElementSize);
+                input::touch::kMaxElementSize);
             settings::save();
         }
         RowOptions shown{false, {}, "A hidden element is not drawn and does not take fingers."};
@@ -179,14 +183,16 @@ void touch_editor_frame(bool back) {
             settings::save();
         }
         if (toggle_row("Haptic feedback", s.touch_haptics,
-                       {false, {}, "A short vibration when a button is pressed or a swipe is taken, where the "
-                                   "device can (the system's touch feedback setting applies)."})) {
+                {false, {},
+                    "A short vibration when a button is pressed or a swipe is taken, where the "
+                    "device can (the system's touch feedback setting applies)."})) {
             s.touch_haptics = !s.touch_haptics;
             settings::save();
         }
         if (choice_row("Panel", st.panel_bottom ? "Bottom" : "Top", {false, {}, "Where this panel sits."}))
             st.panel_bottom = !st.panel_bottom;
-        if (button_row("Reset the whole layout", {false, {}, "Every element back to where and what it was at first."})) {
+        if (button_row(
+                "Reset the whole layout", {false, {}, "Every element back to where and what it was at first."})) {
             layout = input::touch::default_action_layout();
             settings::save();
         }

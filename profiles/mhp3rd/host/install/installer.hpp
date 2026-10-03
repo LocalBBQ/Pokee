@@ -58,7 +58,7 @@ using ProgressFn = std::function<void(const std::string &stage, std::uint64_t do
 // passed its checks; files are written under temporary names and renamed at
 // the end. Throws InstallError.
 void install(const std::filesystem::path &image, ImageStorage storage, const std::filesystem::path &data_dir,
-             const ProgressFn &progress);
+    const ProgressFn &progress);
 
 #if defined(MHP3RD_ANDROID_APP)
 // Android: whether an image the player chose is a content:// document (from
@@ -68,8 +68,8 @@ void install(const std::filesystem::path &image, ImageStorage storage, const std
 // Copies such a document into data_dir as the copied image (kCopiedImageFile)
 // and returns where it is. Throws InstallError, or InstallCancelled from
 // progress; a partial copy is removed.
-std::filesystem::path copy_image_document(const std::string &uri, const std::filesystem::path &data_dir,
-                                          const ProgressFn &progress);
+std::filesystem::path copy_image_document(
+    const std::string &uri, const std::filesystem::path &data_dir, const ProgressFn &progress);
 #endif
 
 class InstallerUi {
@@ -80,8 +80,8 @@ public:
     // Lets the player pick the disc image. Empty: cancelled.
     virtual std::optional<std::filesystem::path> choose_image() = 0;
     // Copy the image or use it in place. Empty: cancelled.
-    virtual std::optional<ImageStorage> choose_storage(const std::filesystem::path &image, const ImageInfo &info,
-                                                       const std::filesystem::path &data_dir) = 0;
+    virtual std::optional<ImageStorage> choose_storage(
+        const std::filesystem::path &image, const ImageInfo &info, const std::filesystem::path &data_dir) = 0;
     // Runs work that may take a while: checking an image, installing. The
     // default runs it right here. A front end with a window runs it on
     // another thread and keeps drawing; progress() is then called from that
@@ -118,8 +118,8 @@ bool offer_user_data_copy(const std::filesystem::path &from, const std::filesyst
 // The copy itself, on the console: `Yakumo --portable --copy-user-data`.
 int copy_user_data_on_console(const std::filesystem::path &from, const std::filesystem::path &to);
 // Two answers in an SDL message box: 1 or 2, 0 when closed, -1 without dialogs.
-int ask_choice_in_dialog(const std::string &title, const std::string &message, const std::string &first,
-                         const std::string &second);
+int ask_choice_in_dialog(
+    const std::string &title, const std::string &message, const std::string &first, const std::string &second);
 
 // "Set up game data again" in the in-game menu: the game quits, and the
 // program starts again with --install once it has shut down.

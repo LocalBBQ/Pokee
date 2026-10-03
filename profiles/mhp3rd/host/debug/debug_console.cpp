@@ -39,7 +39,7 @@ std::uint32_t number(const std::string &text) {
 struct Search {
     unsigned width{4u};
     std::vector<std::uint32_t> places;
-    std::vector<std::uint32_t> values;  // what each held at the last step
+    std::vector<std::uint32_t> values; // what each held at the last step
 };
 
 Search &search() {
@@ -49,9 +49,12 @@ Search &search() {
 
 std::uint32_t load(const Ram &ram, std::uint32_t address, unsigned width) {
     switch (width) {
-    case 1u: return ram.load8(address);
-    case 2u: return ram.load16(address);
-    default: return ram.load32(address);
+    case 1u:
+        return ram.load8(address);
+    case 2u:
+        return ram.load16(address);
+    default:
+        return ram.load32(address);
     }
 }
 
@@ -69,8 +72,7 @@ void summary(std::vector<std::string> &out) {
     out.push_back(line);
 }
 
-template <typename Keep>
-void narrow(const Ram &ram, Keep keep) {
+template <typename Keep> void narrow(const Ram &ram, Keep keep) {
     Search &s = search();
     std::vector<std::uint32_t> places;
     std::vector<std::uint32_t> values;
@@ -128,9 +130,8 @@ std::vector<std::string> run_command(Ram &ram, const std::string &line) {
         summary(out);
     } else if (command == "delta") {
         const auto d = static_cast<std::int32_t>(arg(0));
-        narrow(ram, [&](std::uint32_t before, std::uint32_t now) {
-            return static_cast<std::int32_t>(now - before) == d;
-        });
+        narrow(
+            ram, [&](std::uint32_t before, std::uint32_t now) { return static_cast<std::int32_t>(now - before) == d; });
         summary(out);
     } else if (command == "list") {
         summary(out);
@@ -169,9 +170,12 @@ std::vector<std::string> run_command(Ram &ram, const std::string &line) {
         } else if (!ram.contains(address, width)) {
             out.push_back("not guest memory: " + hex(address));
         } else {
-            if (width == 1u) ram.store8(address, static_cast<std::uint8_t>(value));
-            else if (width == 2u) ram.store16(address, static_cast<std::uint16_t>(value));
-            else ram.store32(address, value);
+            if (width == 1u)
+                ram.store8(address, static_cast<std::uint8_t>(value));
+            else if (width == 2u)
+                ram.store16(address, static_cast<std::uint16_t>(value));
+            else
+                ram.store32(address, value);
             out.push_back(command + " " + hex(address) + " <- " + std::to_string(value));
         }
     } else if (command == "dump") {
@@ -198,14 +202,12 @@ std::vector<std::string> run_command(Ram &ram, const std::string &line) {
         for (const quests::Quest &q : board_quests()) {
             if ((board && q.board() != *board) || (stars != 0u && q.stars != stars)) continue;
             out.push_back("  " + std::to_string(q.id) + "  " +
-                          (q.board() == quests::Board::Hall ? "Hall " : "village ") + std::to_string(q.stars) +
-                          " star  " + q.name + "  (" + quests::monster_list(q) + "; fee " + std::to_string(q.fee) +
-                          "z)");
+                (q.board() == quests::Board::Hall ? "Hall " : "village ") + std::to_string(q.stars) + " star  " +
+                q.name + "  (" + quests::monster_list(q) + "; fee " + std::to_string(q.fee) + "z)");
             ++shown;
         }
         out.push_back(std::to_string(shown) + " quests" +
-                      (board_quests().empty() ? std::string(" (the game's quest lists could not be read)")
-                                              : std::string()));
+            (board_quests().empty() ? std::string(" (the game's quest lists could not be read)") : std::string()));
     } else if (command == "quest" && !args.empty() && args[0] == "start") {
         // quest start ID: leave for that quest, as its gate does.
         if (args.size() < 2u) {
@@ -218,7 +220,7 @@ std::vector<std::string> run_command(Ram &ram, const std::string &line) {
             out.push_back(quests::start(ram, *q));
         }
     } else if (command != "state" && command != "item" && command != "table" && command != "quest" &&
-               !blocked_reason().empty()) {
+        !blocked_reason().empty()) {
         out.push_back("refused (" + blocked_reason() + "): " + line);
     } else if (!game_command(ram, command, args, out)) {
         out.push_back("unknown command: " + command);
@@ -243,7 +245,7 @@ void console_frame(Ram &ram) {
     file.seekg(offset);
     std::string line;
     while (std::getline(file, line)) {
-        if (file.eof()) break;  // an incomplete last line: read it next time
+        if (file.eof()) break; // an incomplete last line: read it next time
         offset = file.tellg();
         log("> " + line);
         for (const std::string &answer : run_command(ram, line)) log(answer);

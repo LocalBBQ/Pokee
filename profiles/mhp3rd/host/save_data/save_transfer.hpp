@@ -41,7 +41,7 @@ void set_memory_stick(const std::filesystem::path &memory_stick);
 struct FolderSummary {
     bool exists{};
     std::uint64_t bytes{};
-    std::chrono::system_clock::time_point modified{};  // the newest file's time
+    std::chrono::system_clock::time_point modified{}; // the newest file's time
 };
 [[nodiscard]] FolderSummary summarize_folder(const std::filesystem::path &folder);
 
@@ -49,9 +49,9 @@ struct FolderSummary {
 // it cannot be imported, why, in words for the player.
 struct SaveCheck {
     std::filesystem::path folder;
-    std::string name;     // SAVEDATA_DIRECTORY, e.g. ULJM05800QST
-    std::string problem;  // empty: the save can be imported
-    bool other_game{};    // a save, but not this game's
+    std::string name;    // SAVEDATA_DIRECTORY, e.g. ULJM05800QST
+    std::string problem; // empty: the save can be imported
+    bool other_game{};   // a save, but not this game's
     [[nodiscard]] bool ok() const { return problem.empty(); }
 };
 
@@ -73,35 +73,35 @@ struct SaveCheck {
 
 // Where a save replaced at `time` is kept: <savedata>/.backup/<time>/, with
 // "-2", "-3"... appended when that folder is already taken.
-[[nodiscard]] std::filesystem::path backup_directory(const std::filesystem::path &savedata_root,
-                                                     std::chrono::system_clock::time_point time);
+[[nodiscard]] std::filesystem::path backup_directory(
+    const std::filesystem::path &savedata_root, std::chrono::system_clock::time_point time);
 
 struct ImportResult {
     bool ok{};
     std::string error;
     std::filesystem::path destination;
-    std::filesystem::path backup;  // where the replaced save went; empty when none was replaced
+    std::filesystem::path backup; // where the replaced save went; empty when none was replaced
 };
 
 // Copies a checked save folder into <memory_stick>/PSP/SAVEDATA/<name>. The
 // copy is made beside the destination first; an existing save is then moved
 // into `backup_dir`, and the copy moved into place. Nothing is deleted except
 // the partial copy of a failed import.
-ImportResult import_save(const SaveCheck &save, const std::filesystem::path &memory_stick,
-                         const std::filesystem::path &backup_dir);
+ImportResult import_save(
+    const SaveCheck &save, const std::filesystem::path &memory_stick, const std::filesystem::path &backup_dir);
 
 struct ExportResult {
     bool ok{};
     std::string error;
-    std::filesystem::path folder;       // <target>/MHP3rd saves <time>
-    std::vector<std::string> exported;  // folder names
+    std::filesystem::path folder;      // <target>/MHP3rd saves <time>
+    std::vector<std::string> exported; // folder names
 };
 
 // Copies this game's save folders from the memory stick to
 // <target>/MHP3rd saves <time>/PSP/SAVEDATA/, the layout of a memory stick,
 // so the PSP folder can be copied onto one as it is.
 ExportResult export_saves(const std::filesystem::path &memory_stick, const std::filesystem::path &target,
-                          std::chrono::system_clock::time_point time);
+    std::chrono::system_clock::time_point time);
 
 // The folders a backup holds: every folder of this game on the memory stick,
 // the install data included.
@@ -110,25 +110,25 @@ ExportResult export_saves(const std::filesystem::path &memory_stick, const std::
 // Where a backup goes. With a time, a new folder named by it:
 // <target>/2026-09-19_19-05-12/ULJM05800, ... ("-2" and so on when taken).
 // Without, the save folders go straight into <target>.
-[[nodiscard]] std::filesystem::path backup_folder(const std::filesystem::path &target,
-                                                  std::optional<std::chrono::system_clock::time_point> time);
+[[nodiscard]] std::filesystem::path backup_folder(
+    const std::filesystem::path &target, std::optional<std::chrono::system_clock::time_point> time);
 
 // The save folders an untimed backup into `folder` would replace.
-[[nodiscard]] std::vector<std::string> backup_conflicts(const std::filesystem::path &memory_stick,
-                                                        const std::filesystem::path &folder);
+[[nodiscard]] std::vector<std::string> backup_conflicts(
+    const std::filesystem::path &memory_stick, const std::filesystem::path &folder);
 
 struct BackupResult {
     bool ok{};
     std::string error;
     std::filesystem::path folder;
-    std::vector<std::string> saved;  // folder names
+    std::vector<std::string> saved; // folder names
 };
 
 // Copies the save folders into `folder` (from backup_folder). A save folder
 // already there is replaced only with `replace`, which the player confirms;
 // it is replaced whole, and only once its new copy is complete.
-BackupResult back_up_saves(const std::filesystem::path &memory_stick, const std::filesystem::path &folder,
-                           bool replace);
+BackupResult back_up_saves(
+    const std::filesystem::path &memory_stick, const std::filesystem::path &folder, bool replace);
 
 // The reminder to back up saves shows once for each release a player starts.
 // The release is the build's `git describe` without the commits after the tag

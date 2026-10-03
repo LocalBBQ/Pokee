@@ -32,8 +32,8 @@ public:
     // Mixes `frames` stereo frames at `cursor`, a monotonic frame index, with
     // volumes in 0..0x8000, and advances the cursor past them. A cursor that
     // has fallen behind the device is snapped forward to the write target.
-    void mix(std::uint64_t &cursor, const std::int16_t *frames, std::size_t count,
-             std::uint32_t left_volume, std::uint32_t right_volume);
+    void mix(std::uint64_t &cursor, const std::int16_t *frames, std::size_t count, std::uint32_t left_volume,
+        std::uint32_t right_volume);
 
     // Output gain in 0..1, from the volume and mute settings. Only the device
     // output is scaled; MHP3RD_AUDIO_DUMP keeps the game's own levels.

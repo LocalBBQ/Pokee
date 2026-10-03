@@ -27,15 +27,15 @@ struct MemoryWrite {
 };
 
 struct PatchOutcome {
-    std::size_t applied{};                // parts of the patch applied to the file's bytes
-    std::vector<MemoryWrite> after_load;  // parts to write to memory after the load
-    std::vector<std::string> problems;    // parts skipped, and why
+    std::size_t applied{};               // parts of the patch applied to the file's bytes
+    std::vector<MemoryWrite> after_load; // parts to write to memory after the load
+    std::vector<std::string> problems;   // parts skipped, and why
 };
 
 struct FileContent {
     std::vector<std::uint8_t> bytes;
     bool replaced{};
-    std::size_t patches{};  // patch files applied
+    std::size_t patches{}; // patch files applied
     std::vector<MemoryWrite> after_load;
     std::vector<std::string> problems;
 };

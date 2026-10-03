@@ -51,9 +51,9 @@ bool tab_bar(const char *const *labels, int count, int &selected);
 
 struct RowOptions {
     bool disabled{};
-    std::string note;         // shown dimmed next to the value, e.g. who decides it
-    std::string description;  // shown in the footer while the row is focused
-    bool warning{};           // the value clashes with something: drawn in the danger colour
+    std::string note;        // shown dimmed next to the value, e.g. who decides it
+    std::string description; // shown in the footer while the row is focused
+    bool warning{};          // the value clashes with something: drawn in the danger colour
 };
 
 // A setting with a few values, changed with left/right or by activating it.
@@ -64,7 +64,7 @@ bool toggle_row(const char *label, bool value, const RowOptions &options = {});
 // A number between minimum and maximum, changed in steps with left/right or
 // dragged with the mouse. Returns true when `value` changed.
 bool slider_row(const char *label, int &value, int minimum, int maximum, int step, const char *format,
-                const RowOptions &options = {});
+    const RowOptions &options = {});
 // An action. Returns true when activated.
 bool button_row(const char *label, const RowOptions &options = {}, ImU32 color = colors::kText);
 // A setting chosen on a screen of its own: its value, and a chevron that
@@ -73,8 +73,8 @@ bool value_row(const char *label, const std::string &value, const RowOptions &op
 // An entry of a list such as the file browser's: an icon, a name and a
 // detail on the right. `id` keeps rows with equal names apart.
 enum class ListIcon { None, Folder, ParentFolder, File, Disc, Drive };
-bool list_row(const char *id, const std::string &name, const std::string &detail, ListIcon icon,
-              bool highlight = false);
+bool list_row(
+    const char *id, const std::string &name, const std::string &detail, ListIcon icon, bool highlight = false);
 // A line of information, focusable so a gamepad can scroll to it.
 void info_row(const char *label, const std::string &value);
 void section(const char *title);
@@ -100,14 +100,14 @@ enum class Control {
     Change,
     Menu,
     Start,
-    Toggle,   // the top face button
-    Delete,   // the back face button; Backspace
-    Shift,    // the left face button
-    Space,    // the top face button
-    Symbols,  // Select, Share, Create or View, as the pad names it
-    Cursor,   // the shoulder buttons; the arrow keys
-    Clear,    // the top face button; Delete
-    Reset,    // Select, Share, Create or View, as Symbols
+    Toggle,  // the top face button
+    Delete,  // the back face button; Backspace
+    Shift,   // the left face button
+    Space,   // the top face button
+    Symbols, // Select, Share, Create or View, as the pad names it
+    Cursor,  // the shoulder buttons; the arrow keys
+    Clear,   // the top face button; Delete
+    Reset,   // Select, Share, Create or View, as Symbols
 };
 struct Hint {
     Control control;

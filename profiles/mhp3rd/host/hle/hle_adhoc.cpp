@@ -81,8 +81,8 @@ constexpr std::uint32_t kPtpSynSent = 2u;
 constexpr std::uint32_t kPtpEstablished = 4u;
 
 // Guest structure sizes.
-constexpr std::uint32_t kPeerInfoSize = 152u;  // next, nickname[128], mac[6], pad[2], flags, u64 last seen
-constexpr std::uint32_t kScanInfoSize = 28u;   // next, channel, group[8], bssid[6], pad[2], mode
+constexpr std::uint32_t kPeerInfoSize = 152u; // next, nickname[128], mac[6], pad[2], flags, u64 last seen
+constexpr std::uint32_t kScanInfoSize = 28u;  // next, channel, group[8], bssid[6], pad[2], mode
 // next, id, mac[6], peer mac[6], port, peer port, bytes waiting to be sent,
 // bytes waiting to be received, state
 constexpr std::uint32_t kPtpStatSize = 36u;
@@ -97,7 +97,9 @@ constexpr std::uint32_t kNetconfResultCancelled = 1u;
 constexpr const char *kDefaultProduct = "ULJM05800";
 constexpr std::uint32_t kErrorWaitTimeout = error::kWaitTimeout;
 
-bool trace_adhoc() { return Client::tracing(); }
+bool trace_adhoc() {
+    return Client::tracing();
+}
 
 std::string describe_args(const AllegrexContext &ctx, unsigned count) {
     std::ostringstream text;
@@ -109,15 +111,15 @@ void trace_line(const std::string &line) {
     if (!trace_adhoc()) return;
     const Thread *thread = kernel().current_thread();
     Client::log("[adhoc] " + line + " thread=" + (thread != nullptr ? thread->name : std::string("interrupt")) +
-                    " t=" + std::to_string(kernel().now_us() / 1000u) + "ms",
-                true);
+            " t=" + std::to_string(kernel().now_us() / 1000u) + "ms",
+        true);
 }
 
 // Finishes an import and logs it.
 void done(AllegrexContext &ctx, const char *name, unsigned argc, std::uint32_t result, const std::string &note = {}) {
     if (trace_adhoc())
         trace_line(std::string(name) + "(" + describe_args(ctx, argc) + ") = " + psprecomp::hex32(result) +
-                   (note.empty() ? "" : " " + note) + " ra=" + psprecomp::hex32(ctx.gpr[31]));
+            (note.empty() ? "" : " " + note) + " ra=" + psprecomp::hex32(ctx.gpr[31]));
     kernel().finish(ctx, result);
 }
 
@@ -126,19 +128,18 @@ void done(AllegrexContext &ctx, const char *name, unsigned argc, std::uint32_t r
 void block(AllegrexContext &ctx, const char *name, unsigned argc, std::uint32_t timeout_us, HostWaitPoll poll) {
     if (trace_adhoc())
         trace_line(std::string(name) + "(" + describe_args(ctx, argc) + ") waits" +
-                   (timeout_us != 0u ? " up to " + std::to_string(timeout_us / 1000u) + "ms" : "") +
-                   " ra=" + psprecomp::hex32(ctx.gpr[31]));
+            (timeout_us != 0u ? " up to " + std::to_string(timeout_us / 1000u) + "ms" : "") +
+            " ra=" + psprecomp::hex32(ctx.gpr[31]));
     std::string label = name;
     kernel().wait_host(ctx, timeout_us != 0u ? std::optional<std::uint64_t>(timeout_us) : std::nullopt,
-                       [label, poll = std::move(poll)](bool timed_out) -> std::optional<std::uint32_t> {
-                           const auto result = poll(timed_out);
-                           if (timed_out && result && (*result == err::kTimeout || *result == kErrorWaitTimeout))
-                               Client::get().note_timeout();
-                           if (result && trace_adhoc())
-                               trace_line(label + " ends = " + psprecomp::hex32(*result) +
-                                          (timed_out ? " (timed out)" : ""));
-                           return result;
-                       });
+        [label, poll = std::move(poll)](bool timed_out) -> std::optional<std::uint32_t> {
+            const auto result = poll(timed_out);
+            if (timed_out && result && (*result == err::kTimeout || *result == kErrorWaitTimeout))
+                Client::get().note_timeout();
+            if (result && trace_adhoc())
+                trace_line(label + " ends = " + psprecomp::hex32(*result) + (timed_out ? " (timed out)" : ""));
+            return result;
+        });
 }
 
 Mac read_mac(const psprecomp::GuestMemory &memory, std::uint32_t address) {
@@ -155,7 +156,7 @@ std::optional<Mac> parse_mac(const std::string &text) {
     Mac mac{};
     unsigned values[6];
     if (std::sscanf(text.c_str(), "%x:%x:%x:%x:%x:%x", &values[0], &values[1], &values[2], &values[3], &values[4],
-                    &values[5]) != 6)
+            &values[5]) != 6)
         return std::nullopt;
     for (int i = 0; i < 6; ++i) {
         if (values[i] > 0xFFu) return std::nullopt;
@@ -249,7 +250,7 @@ void notify_handlers(std::uint32_t event, std::uint32_t error) {
     for (const auto &[id, handler] : state().handlers) {
         if (trace_adhoc())
             trace_line("handler " + std::to_string(id) + " at " + psprecomp::hex32(handler.function) + " gets event " +
-                       std::to_string(event) + " error " + psprecomp::hex32(error));
+                std::to_string(event) + " error " + psprecomp::hex32(error));
         InterruptCall call{};
         call.function = handler.function;
         call.arguments = {event, error, handler.argument, 0u};
@@ -303,7 +304,7 @@ void register_net(HleRegistrar &hle) {
     hle.add("sceNet", "sceNetInit", [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetInit", 5, 0u); });
     hle.add("sceNet", "sceNetTerm", [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetTerm", 0, 0u); });
     hle.add("sceNet", "sceNetFreeThreadinfo",
-            [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetFreeThreadinfo", 1, 0u); });
+        [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetFreeThreadinfo", 1, 0u); });
     hle.add("sceNet", "sceNetGetLocalEtherAddr", [](Runtime &rt, AllegrexContext &ctx) {
         if (arg(ctx, 0) != 0u) write_mac(rt.memory(), arg(ctx, 0), own_mac());
         done(ctx, "sceNetGetLocalEtherAddr", 1, 0u, adhoc::format_mac(own_mac()));
@@ -344,7 +345,8 @@ void register_adhocctl(HleRegistrar &hle) {
     hle.add("sceNetAdhocctl", "sceNetAdhocctlAddHandler", [](Runtime &, AllegrexContext &ctx) {
         State &s = state();
         if (arg(ctx, 0) == 0u) return done(ctx, "sceNetAdhocctlAddHandler", 2, err::kCtlInvalidArg);
-        if (s.handlers.size() >= kMaxHandlers) return done(ctx, "sceNetAdhocctlAddHandler", 2, err::kCtlTooManyHandlers);
+        if (s.handlers.size() >= kMaxHandlers)
+            return done(ctx, "sceNetAdhocctlAddHandler", 2, err::kCtlTooManyHandlers);
         const std::uint32_t id = s.next_handler++;
         s.handlers[id] = Handler{arg(ctx, 0), arg(ctx, 1)};
         done(ctx, "sceNetAdhocctlAddHandler", 2, id);
@@ -376,7 +378,8 @@ void register_adhocctl(HleRegistrar &hle) {
             memory.store32(entry, i + 1u < count ? entry + kScanInfoSize : 0u);
             memory.store32(entry + 4u, kAdhocChannel);
             for (std::uint32_t c = 0; c < 8u; ++c)
-                memory.store8(entry + 8u + c, c < groups[i].name.size() ? static_cast<std::uint8_t>(groups[i].name[c]) : 0u);
+                memory.store8(
+                    entry + 8u + c, c < groups[i].name.size() ? static_cast<std::uint8_t>(groups[i].name[c]) : 0u);
             write_mac(memory, entry + 16u, groups[i].host);
             memory.store16(entry + 22u, 0u);
             memory.store32(entry + 24u, 1u);
@@ -443,8 +446,7 @@ void close_all_sockets() {
 // Delivers the next datagram of `socket` into the guest's buffers, or returns
 // nothing when none is waiting.
 std::optional<std::uint32_t> receive_datagram(psprecomp::GuestMemory &memory, const PdpSocket &socket,
-                                              std::uint32_t mac_address, std::uint32_t port_address,
-                                              std::uint32_t buffer, std::uint32_t length_address) {
+    std::uint32_t mac_address, std::uint32_t port_address, std::uint32_t buffer, std::uint32_t length_address) {
     const auto size = Client::get().pdp_peek(socket.handle);
     if (!size) return std::nullopt;
     const std::uint32_t room = memory.load32(length_address);
@@ -535,16 +537,16 @@ void register_pdp(HleRegistrar &hle) {
             return done(ctx, name, 7, *result);
         if (nonblock) return done(ctx, name, 7, err::kWouldBlock);
         block(ctx, name, 7, timeout,
-              [&memory, id, mac_address, port_address, buffer, length_address](bool timed_out)
-                  -> std::optional<std::uint32_t> {
-                  const PdpSocket *socket = find_pdp(id);
-                  if (socket == nullptr) return err::kInvalidSocketId;
-                  if (const auto result =
-                          receive_datagram(memory, *socket, mac_address, port_address, buffer, length_address))
-                      return result;
-                  if (timed_out) return err::kTimeout;
-                  return std::nullopt;
-              });
+            [&memory, id, mac_address, port_address, buffer, length_address](
+                bool timed_out) -> std::optional<std::uint32_t> {
+                const PdpSocket *socket = find_pdp(id);
+                if (socket == nullptr) return err::kInvalidSocketId;
+                if (const auto result =
+                        receive_datagram(memory, *socket, mac_address, port_address, buffer, length_address))
+                    return result;
+                if (timed_out) return err::kTimeout;
+                return std::nullopt;
+            });
     });
 }
 
@@ -552,14 +554,17 @@ void register_pdp(HleRegistrar &hle) {
 
 std::uint32_t stream_error(const adhoc::StreamInfo &info) {
     switch (info.state) {
-    case adhoc::StreamState::Disconnected: return err::kDisconnected;
-    case adhoc::StreamState::Failed: return err::kConnectionRefused;
-    default: return err::kNotConnected;
+    case adhoc::StreamState::Disconnected:
+        return err::kDisconnected;
+    case adhoc::StreamState::Failed:
+        return err::kConnectionRefused;
+    default:
+        return err::kNotConnected;
     }
 }
 
-std::optional<std::uint32_t> try_stream_receive(psprecomp::GuestMemory &memory, int handle, std::uint32_t buffer,
-                                                std::uint32_t length_address) {
+std::optional<std::uint32_t> try_stream_receive(
+    psprecomp::GuestMemory &memory, int handle, std::uint32_t buffer, std::uint32_t length_address) {
     const adhoc::StreamInfo info = Client::get().ptp_info(handle);
     const std::uint32_t room = memory.load32(length_address);
     if (info.readable != 0u) {
@@ -574,8 +579,8 @@ std::optional<std::uint32_t> try_stream_receive(psprecomp::GuestMemory &memory, 
     return std::nullopt;
 }
 
-std::optional<std::uint32_t> try_stream_send(psprecomp::GuestMemory &memory, int handle, std::uint32_t data,
-                                             std::uint32_t length_address) {
+std::optional<std::uint32_t> try_stream_send(
+    psprecomp::GuestMemory &memory, int handle, std::uint32_t data, std::uint32_t length_address) {
     const adhoc::StreamInfo info = Client::get().ptp_info(handle);
     if (info.state != adhoc::StreamState::Established) return stream_error(info);
     const std::uint32_t length = memory.load32(length_address);
@@ -602,8 +607,7 @@ void register_ptp(HleRegistrar &hle) {
         if (peer == adhoc::kBroadcastMac || peer == own_mac()) return done(ctx, name, 8, err::kInvalidAddr);
         if (arg(ctx, 4) == 0u) return done(ctx, name, 8, err::kInvalidBufLen);
         const int handle = Client::get().ptp_open(static_cast<std::uint16_t>(arg(ctx, 1)), peer,
-                                                  static_cast<std::uint16_t>(arg(ctx, 3)), arg(ctx, 4), arg(ctx, 5),
-                                                  arg(ctx, 6));
+            static_cast<std::uint16_t>(arg(ctx, 3)), arg(ctx, 4), arg(ctx, 5), arg(ctx, 6));
         if (handle == 0) return done(ctx, name, 8, err::kPortInUse);
         const auto id = static_cast<std::uint32_t>(handle);
         state().ptp[id] = PtpSocket{handle, false};
@@ -620,9 +624,12 @@ void register_ptp(HleRegistrar &hle) {
             if (socket == nullptr) return err::kInvalidSocketId;
             const adhoc::StreamInfo info = Client::get().ptp_info(socket->handle);
             switch (info.state) {
-            case adhoc::StreamState::Established: return 0u;
-            case adhoc::StreamState::Opening: break;
-            default: return stream_error(info);
+            case adhoc::StreamState::Established:
+                return 0u;
+            case adhoc::StreamState::Opening:
+                break;
+            default:
+                return stream_error(info);
             }
             if (timed_out) return err::kTimeout;
             return std::nullopt;
@@ -688,13 +695,13 @@ void register_ptp(HleRegistrar &hle) {
             return done(ctx, name, 5, *result, "len " + std::to_string(memory.load32(length_address)));
         if (arg(ctx, 4) != 0u) return done(ctx, name, 5, err::kWouldBlock);
         block(ctx, name, 5, arg(ctx, 3),
-              [&memory, id, data, length_address](bool timed_out) -> std::optional<std::uint32_t> {
-                  const PtpSocket *socket = find_ptp(id);
-                  if (socket == nullptr) return err::kInvalidSocketId;
-                  if (const auto result = try_stream_send(memory, socket->handle, data, length_address)) return result;
-                  if (timed_out) return err::kTimeout;
-                  return std::nullopt;
-              });
+            [&memory, id, data, length_address](bool timed_out) -> std::optional<std::uint32_t> {
+                const PtpSocket *socket = find_ptp(id);
+                if (socket == nullptr) return err::kInvalidSocketId;
+                if (const auto result = try_stream_send(memory, socket->handle, data, length_address)) return result;
+                if (timed_out) return err::kTimeout;
+                return std::nullopt;
+            });
     });
     // (id, data*, length*, timeout, nonblock)
     hle.add("sceNetAdhoc", "sceNetAdhocPtpRecv", [](Runtime &rt, AllegrexContext &ctx) {
@@ -709,17 +716,17 @@ void register_ptp(HleRegistrar &hle) {
         const std::uint32_t asked = memory.load32(length_address);
         if (const auto result = try_stream_receive(memory, socket->handle, buffer, length_address))
             return done(ctx, name, 5, *result,
-                        "asked " + std::to_string(asked) + " got " + std::to_string(memory.load32(length_address)));
+                "asked " + std::to_string(asked) + " got " + std::to_string(memory.load32(length_address)));
         if (arg(ctx, 4) != 0u) return done(ctx, name, 5, err::kWouldBlock);
         block(ctx, name, 5, arg(ctx, 3),
-              [&memory, id, buffer, length_address](bool timed_out) -> std::optional<std::uint32_t> {
-                  const PtpSocket *socket = find_ptp(id);
-                  if (socket == nullptr) return err::kInvalidSocketId;
-                  if (const auto result = try_stream_receive(memory, socket->handle, buffer, length_address))
-                      return result;
-                  if (timed_out) return err::kTimeout;
-                  return std::nullopt;
-              });
+            [&memory, id, buffer, length_address](bool timed_out) -> std::optional<std::uint32_t> {
+                const PtpSocket *socket = find_ptp(id);
+                if (socket == nullptr) return err::kInvalidSocketId;
+                if (const auto result = try_stream_receive(memory, socket->handle, buffer, length_address))
+                    return result;
+                if (timed_out) return err::kTimeout;
+                return std::nullopt;
+            });
     });
     // (id, timeout, nonblock)
     hle.add("sceNetAdhoc", "sceNetAdhocPtpFlush", [](Runtime &, AllegrexContext &ctx) {
@@ -778,9 +785,12 @@ void register_ptp(HleRegistrar &hle) {
             memory.store32(entry + 24u, static_cast<std::uint32_t>(info.unsent_data));
             memory.store32(entry + 28u, static_cast<std::uint32_t>(socket.listener ? 0u : info.readable));
             std::uint32_t status = kPtpClosed;
-            if (info.state == adhoc::StreamState::Listening) status = kPtpListen;
-            else if (info.state == adhoc::StreamState::Opening) status = kPtpSynSent;
-            else if (info.state == adhoc::StreamState::Established) status = kPtpEstablished;
+            if (info.state == adhoc::StreamState::Listening)
+                status = kPtpListen;
+            else if (info.state == adhoc::StreamState::Opening)
+                status = kPtpSynSent;
+            else if (info.state == adhoc::StreamState::Established)
+                status = kPtpEstablished;
             memory.store32(entry + 32u, status);
             ++index;
         }
@@ -803,9 +813,9 @@ void register_discover(HleRegistrar &hle) {
         done(ctx, "sceNetAdhocDiscoverInitStart", 1, 0u);
     });
     hle.add("sceNetAdhocDiscover", "sceNetAdhocDiscoverUpdate",
-            [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetAdhocDiscoverUpdate", 0, 0u); });
+        [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetAdhocDiscoverUpdate", 0, 0u); });
     hle.add("sceNetAdhocDiscover", "sceNetAdhocDiscoverGetStatus",
-            [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetAdhocDiscoverGetStatus", 0, status); });
+        [](Runtime &, AllegrexContext &ctx) { done(ctx, "sceNetAdhocDiscoverGetStatus", 0, status); });
     hle.add("sceNetAdhocDiscover", "sceNetAdhocDiscoverStop", [](Runtime &, AllegrexContext &ctx) {
         status = kDiscoverNone;
         done(ctx, "sceNetAdhocDiscoverStop", 0, 0u);
@@ -844,7 +854,7 @@ void register_netconf(HleRegistrar &hle) {
                 netconf.result = err::kCtlTimeout;
                 Client::log("[adhoc] no session to join and no server is set up (menu: Network); the connection "
                             "fails",
-                            true);
+                    true);
             } else {
                 start_client();
                 (void)Client::get().take_events();
@@ -866,13 +876,17 @@ void register_netconf(HleRegistrar &hle) {
     };
     hle.add("sceUtility", "sceUtilityNetconfUpdate", [status](Runtime &rt, AllegrexContext &ctx) {
         (void)status(rt.memory());
-        if (trace_adhoc() && !state().netconf.joining) done(ctx, "sceUtilityNetconfUpdate", 1, 0u);
-        else kernel().finish(ctx, 0u);
+        if (trace_adhoc() && !state().netconf.joining)
+            done(ctx, "sceUtilityNetconfUpdate", 1, 0u);
+        else
+            kernel().finish(ctx, 0u);
     });
     hle.add("sceUtility", "sceUtilityNetconfGetStatus", [status](Runtime &rt, AllegrexContext &ctx) {
         const std::uint32_t reported = status(rt.memory());
-        if (state().netconf.joining) kernel().finish(ctx, reported);
-        else done(ctx, "sceUtilityNetconfGetStatus", 0, reported);
+        if (state().netconf.joining)
+            kernel().finish(ctx, reported);
+        else
+            done(ctx, "sceUtilityNetconfGetStatus", 0, reported);
     });
     hle.add("sceUtility", "sceUtilityNetconfShutdownStart", [](Runtime &, AllegrexContext &ctx) {
         NetconfState &netconf = state().netconf;
@@ -901,9 +915,13 @@ void adhoc_apply_settings(bool switch_now) {
     if (switch_now || Client::get().server_state() == adhoc::ServerState::Off) start_client();
 }
 
-std::string adhoc_player_name() { return nickname(); }
+std::string adhoc_player_name() {
+    return nickname();
+}
 
-bool adhoc_networking_on() { return state().ctl_initialized || state().adhoc_initialized; }
+bool adhoc_networking_on() {
+    return state().ctl_initialized || state().adhoc_initialized;
+}
 
 bool adhoc_session_active() {
     const adhoc::Diagnostics d = Client::get().diagnostics();

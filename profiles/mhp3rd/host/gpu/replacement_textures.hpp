@@ -27,7 +27,7 @@ public:
         VkDevice device{};
         VkQueue queue{};
         std::uint32_t queue_family{};
-        VkDescriptorSetLayout layout{};  // one combined image sampler
+        VkDescriptorSetLayout layout{}; // one combined image sampler
     };
 
     bool initialize(const Device &device, std::string &error);
@@ -59,7 +59,7 @@ private:
         VkDescriptorSet descriptor{};
         VkDeviceSize bytes{};
         std::uint64_t last_used{};
-        VkFence upload_fence{};  // until the upload has finished
+        VkFence upload_fence{}; // until the upload has finished
     };
     struct Upload {
         VkFence fence{};

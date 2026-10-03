@@ -96,14 +96,18 @@ void adhoc_host_stop() {
     adhoc_apply_settings(true);
 }
 
-bool adhoc_hosting() { return host().server.running(); }
+bool adhoc_hosting() {
+    return host().server.running();
+}
 
 std::string adhoc_host_error() {
     std::lock_guard lock(host().mutex);
     return host().error;
 }
 
-adhoc::ServerStatus adhoc_host_status() { return host().server.status(); }
+adhoc::ServerStatus adhoc_host_status() {
+    return host().server.status();
+}
 
 void adhoc_shutdown() noexcept {
     try {

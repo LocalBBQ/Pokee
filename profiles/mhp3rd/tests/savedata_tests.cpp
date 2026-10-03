@@ -37,7 +37,8 @@ void check(bool condition, const char *what) {
 
 std::vector<std::uint8_t> from_hex(const std::string &hex) {
     std::vector<std::uint8_t> out;
-    for (std::size_t i = 0; i + 1 < hex.size(); i += 2) out.push_back(static_cast<std::uint8_t>(std::stoul(hex.substr(i, 2), nullptr, 16)));
+    for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+        out.push_back(static_cast<std::uint8_t>(std::stoul(hex.substr(i, 2), nullptr, 16)));
     return out;
 }
 
@@ -79,7 +80,7 @@ void test_param_sfo() {
     check(parsed && parsed->string("TITLE") == "Title", "PARAM.SFO keeps strings");
     check(parsed && parsed->integer("PARENTAL_LEVEL") == 7u, "PARAM.SFO keeps integers");
     check(parsed && parsed->binary("SAVEDATA_PARAMS") && parsed->binary("SAVEDATA_PARAMS")->at(127) == 0x5Au,
-          "PARAM.SFO keeps binary values");
+        "PARAM.SFO keeps binary values");
     check(parsed && parsed->serialize() == bytes, "PARAM.SFO serializes identically after a round trip");
     const auto offset = sfo.data_offset("SAVEDATA_PARAMS");
     check(offset && bytes.at(*offset) == 0x5Au && bytes.at(*offset + 127u) == 0x5Au, "PARAM.SFO reports data offsets");
@@ -93,21 +94,22 @@ void test_encryption() {
     for (const CryptMode mode : {CryptMode::Mode1, CryptMode::Mode3, CryptMode::Mode5}) {
         const std::string name = "mode " + std::to_string(static_cast<int>(mode)) + ": ";
         const auto encrypted = encrypt_data(plain, mode, &key, random);
-        check(encrypted.size() == kEncryptedHeaderSize + 5008u, (name + "encryption adds the header and pads to 16").c_str());
+        check(encrypted.size() == kEncryptedHeaderSize + 5008u,
+            (name + "encryption adds the header and pads to 16").c_str());
         check(!std::equal(plain.begin(), plain.end(), encrypted.begin() + kEncryptedHeaderSize),
-              (name + "encrypted data differs from the plaintext").c_str());
+            (name + "encrypted data differs from the plaintext").c_str());
         const auto decrypted = decrypt_data(encrypted, mode, &key);
         check(decrypted && std::equal(plain.begin(), plain.end(), decrypted->begin()) &&
-                  std::all_of(decrypted->begin() + 5000, decrypted->end(), [](std::uint8_t b) { return b == 0u; }),
-              (name + "decryption restores the plaintext").c_str());
+                std::all_of(decrypted->begin() + 5000, decrypted->end(), [](std::uint8_t b) { return b == 0u; }),
+            (name + "decryption restores the plaintext").c_str());
         if (mode == CryptMode::Mode1) continue;
         Block other = key;
         other[0] ^= 1u;
         const auto wrong = decrypt_data(encrypted, mode, &other);
         check(wrong && !std::equal(plain.begin(), plain.end(), wrong->begin()),
-              (name + "another game key does not decrypt it").c_str());
+            (name + "another game key does not decrypt it").c_str());
         check(data_file_hash(encrypted, mode, &key) != data_file_hash(encrypted, mode, &other),
-              (name + "the file hash depends on the game key").c_str());
+            (name + "the file hash depends on the game key").c_str());
     }
 }
 
@@ -130,8 +132,8 @@ void test_store() {
     check(write_save(root, files, contents, error), "a save is written");
     const auto folder = root / "PSP" / "SAVEDATA" / "TEST00000SLOT";
     check(std::filesystem::exists(folder / "PARAM.SFO") && std::filesystem::exists(folder / "DATA.BIN") &&
-              std::filesystem::exists(folder / "ICON0.PNG"),
-          "the save uses the PSP folder layout");
+            std::filesystem::exists(folder / "ICON0.PNG"),
+        "the save uses the PSP folder layout");
     std::ifstream in(folder / "PARAM.SFO", std::ios::binary);
     const std::vector<std::uint8_t> sfo_bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
@@ -163,7 +165,7 @@ std::vector<std::uint8_t> file_bytes(const std::filesystem::path &path) {
 
 // Writes a save the way the game does, under <memory_stick>/PSP/SAVEDATA.
 void make_save(const std::filesystem::path &memory_stick, const std::string &game, const std::string &save,
-               const Block &key, std::uint8_t fill) {
+    const Block &key, std::uint8_t fill) {
     SaveFiles files;
     files.game_name = game;
     files.save_name = save;
@@ -210,8 +212,8 @@ void test_transfer() {
     }
     check(!check_save_folder(damaged, key).ok(), "a damaged data file is refused");
     // A damaged PARAM.SFO: the title changed, which its hashes cover.
-    fs::copy_file(source_saves / "ULJM05800" / "MHP3RD.BIN", damaged / "MHP3RD.BIN",
-                  fs::copy_options::overwrite_existing);
+    fs::copy_file(
+        source_saves / "ULJM05800" / "MHP3RD.BIN", damaged / "MHP3RD.BIN", fs::copy_options::overwrite_existing);
     check(check_save_folder(damaged, key).ok(), "the undamaged copy passes");
     {
         auto sfo_bytes = file_bytes(damaged / "PARAM.SFO");
@@ -230,7 +232,7 @@ void test_transfer() {
     const auto from_stick = find_saves(source, key);
     check(from_stick.size() == 3u, "a memory stick's saves are found under PSP/SAVEDATA");
     check(std::count_if(from_stick.begin(), from_stick.end(), [](const SaveCheck &c) { return c.ok(); }) == 2,
-          "only this game's saves can be imported");
+        "only this game's saves can be imported");
     check(find_saves(source / "PSP", key).size() == 3u, "a PSP folder's saves are found under SAVEDATA");
     fs::create_directories(root / "empty");
     check(find_saves(root / "empty", key).empty(), "a folder without saves has none");
@@ -239,19 +241,19 @@ void test_transfer() {
     const auto time = std::chrono::system_clock::from_time_t(1790000000);
     const std::string stamp = timestamp_for_path(time);
     check(stamp.size() == 19u && stamp[4] == '-' && stamp[10] == '_' && stamp.find(':') == std::string::npos,
-          "backup folders are named by date and time, without colons");
+        "backup folders are named by date and time, without colons");
     const fs::path dest = root / "installed";
     const fs::path dest_saves = dest / "PSP" / "SAVEDATA";
     const fs::path first_backup = backup_directory(dest_saves, time);
     check(first_backup == dest_saves / ".backup" / stamp, "backups go to SAVEDATA/.backup/<time>");
     fs::create_directories(first_backup);
     check(backup_directory(dest_saves, time) == dest_saves / ".backup" / (stamp + "-2"),
-          "a second backup in the same second gets its own folder");
+        "a second backup in the same second gets its own folder");
     fs::remove_all(dest_saves / ".backup");
 
     // Import into an empty installation, then replace it with another save.
-    const ImportResult first = import_save(check_save_folder(source_saves / "ULJM05800", key), dest,
-                                           backup_directory(dest_saves, time));
+    const ImportResult first =
+        import_save(check_save_folder(source_saves / "ULJM05800", key), dest, backup_directory(dest_saves, time));
     check(first.ok && first.backup.empty(), "a save is imported where none was");
     SaveFiles files;
     files.game_name = "ULJM05800";
@@ -267,13 +269,13 @@ void test_transfer() {
         import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULJM05800", key), dest, backup_dir);
     check(second.ok && second.backup == backup_dir / "ULJM05800", "a replaced save is moved to the backup folder");
     check(file_bytes(second.backup / "MHP3RD.BIN") == old_bytes && fs::exists(second.backup / "PARAM.SFO"),
-          "the backup holds the replaced save unchanged");
+        "the backup holds the replaced save unchanged");
     check(load_save(dest, files).contents.data == std::vector<std::uint8_t>(2048u, 0x44u), "the new save loads");
     check(!fs::exists(dest_saves / ".import-ULJM05800"), "no partial copy is left behind");
     check(!import_save(check_save_folder(dest_saves / "ULJM05800", key), dest, backup_dir).ok,
-          "the save in use cannot be imported over itself");
+        "the save in use cannot be imported over itself");
     check(!import_save(other, dest, backup_dir).ok && !fs::exists(dest_saves / "ULUS10000"),
-          "a refused save is not copied");
+        "a refused save is not copied");
 
     // Export: a new folder laid out like a memory stick.
     const fs::path target = root / "export";
@@ -295,30 +297,30 @@ void test_transfer() {
     const fs::path timed = backup_folder(backups, time);
     check(timed == backups / stamp, "a timed backup is a folder named by its time");
     const BackupResult timed_result = back_up_saves(dest, timed, false);
-    check(timed_result.ok && file_bytes(timed / "ULJM05800" / "MHP3RD.BIN") ==
-                                 file_bytes(dest_saves / "ULJM05800" / "MHP3RD.BIN"),
-          "a timed backup copies the save");
+    check(timed_result.ok &&
+            file_bytes(timed / "ULJM05800" / "MHP3RD.BIN") == file_bytes(dest_saves / "ULJM05800" / "MHP3RD.BIN"),
+        "a timed backup copies the save");
     check(backup_folder(backups, time) == backups / (stamp + "-2"), "a second timed backup gets its own folder");
     check(backup_folder(backups, std::nullopt) == backups, "an untimed backup uses the folder as it is");
     check(backup_conflicts(dest, backups).empty(), "no earlier untimed backup is in the way");
     check(back_up_saves(dest, backups, false).ok, "an untimed backup is written");
-    check(backup_conflicts(dest, backups) == std::vector<std::string>{"ULJM05800"},
-          "an earlier untimed backup is found");
+    check(
+        backup_conflicts(dest, backups) == std::vector<std::string>{"ULJM05800"}, "an earlier untimed backup is found");
     // Make the installed save differ from the backup, then back up again.
     make_save(newer, "ULJM05800", "", key, 0x55u);
     check(import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULJM05800", key), dest,
-                      backup_directory(dest_saves, time))
+              backup_directory(dest_saves, time))
               .ok,
-          "another save is imported");
+        "another save is imported");
     const auto earlier = file_bytes(backups / "ULJM05800" / "MHP3RD.BIN");
     check(!back_up_saves(dest, backups, false).ok && file_bytes(backups / "ULJM05800" / "MHP3RD.BIN") == earlier,
-          "an earlier backup is not replaced without asking");
-    check(back_up_saves(dest, backups, true).ok && file_bytes(backups / "ULJM05800" / "MHP3RD.BIN") ==
-                                                       file_bytes(dest_saves / "ULJM05800" / "MHP3RD.BIN"),
-          "an earlier backup is replaced when the player agrees");
+        "an earlier backup is not replaced without asking");
+    check(back_up_saves(dest, backups, true).ok &&
+            file_bytes(backups / "ULJM05800" / "MHP3RD.BIN") == file_bytes(dest_saves / "ULJM05800" / "MHP3RD.BIN"),
+        "an earlier backup is replaced when the player agrees");
     check(!fs::exists(backups / ".ULJM05800.partial"), "no partial backup is left behind");
     check(!back_up_saves(dest, dest_saves, true).ok && load_save(dest, files).status == LoadStatus::Ok,
-          "a backup never replaces the save itself");
+        "a backup never replaces the save itself");
 
     fs::remove_all(root);
 }
@@ -341,7 +343,7 @@ std::vector<std::uint8_t> read_all(const std::filesystem::path &path) {
 }
 
 int check_save(const std::filesystem::path &folder, const std::string &file_name, const std::string &key_hex,
-               const char *plain_out) {
+    const char *plain_out) {
     const Block key = block(key_hex);
     const auto sfo_bytes = read_all(folder / "PARAM.SFO");
     const auto file = read_all(folder / file_name);

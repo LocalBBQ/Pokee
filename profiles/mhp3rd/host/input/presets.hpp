@@ -16,8 +16,8 @@
 namespace mhp3rd::input {
 
 struct Layout {
-    Bindings keys{};  // the keyboard and the mouse
-    Bindings pad{};   // gamepads
+    Bindings keys{}; // the keyboard and the mouse
+    Bindings pad{};  // gamepads
     // The right stick moves the hunter and the left one turns the camera.
     bool swap_sticks{};
     // The player's own actions (#198): any PSP buttons together. No shipped
@@ -39,9 +39,9 @@ enum class Preset : std::uint8_t { Default, Modern, LeftHanded, Classic, Count }
 inline constexpr std::size_t kPresets = static_cast<std::size_t>(Preset::Count);
 
 struct PresetInfo {
-    const char *id;           // in settings.ini
-    const char *name;         // in the menu
-    const char *description;  // in the menu's footer
+    const char *id;          // in settings.ini
+    const char *name;        // in the menu
+    const char *description; // in the menu's footer
 };
 [[nodiscard]] const PresetInfo &info(Preset preset);
 [[nodiscard]] const Layout &layout(Preset preset);
@@ -67,7 +67,7 @@ inline constexpr std::size_t kMaxPresetName = 24u;
 // Which preset is chosen, as settings.ini keeps it in input.preset: a shipped
 // preset's id, or "user:" and the name of one of the player's.
 struct PresetChoice {
-    std::optional<Preset> shipped;  // empty: the player's preset below
+    std::optional<Preset> shipped; // empty: the player's preset below
     std::string user;
     friend bool operator==(const PresetChoice &, const PresetChoice &) = default;
 };

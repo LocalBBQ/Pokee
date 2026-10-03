@@ -11,7 +11,7 @@ namespace {
 
 std::uint32_t read_le32(const std::vector<std::uint8_t> &data, std::size_t offset) {
     return static_cast<std::uint32_t>(data[offset]) | (static_cast<std::uint32_t>(data[offset + 1]) << 8u) |
-           (static_cast<std::uint32_t>(data[offset + 2]) << 16u) | (static_cast<std::uint32_t>(data[offset + 3]) << 24u);
+        (static_cast<std::uint32_t>(data[offset + 2]) << 16u) | (static_cast<std::uint32_t>(data[offset + 3]) << 24u);
 }
 
 } // namespace

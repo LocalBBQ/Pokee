@@ -36,10 +36,10 @@ void transcode(std::span<std::uint8_t> data, std::uint32_t from_block, std::uint
 // The archive's directory: where each entry starts, and the exact size of the
 // entries whose size is not a whole number of blocks.
 struct Directory {
-    std::vector<std::uint32_t> blocks;  // entries + 1: the last is the archive's size in blocks
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> sizes;  // (entry, bytes), by entry
-    std::uint32_t directory_blocks{};   // blocks the directory itself takes; blocks[0]
-    std::vector<std::uint8_t> trailer;  // encrypted bytes after the tables, kept as they are
+    std::vector<std::uint32_t> blocks;                          // entries + 1: the last is the archive's size in blocks
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> sizes; // (entry, bytes), by entry
+    std::uint32_t directory_blocks{};                           // blocks the directory itself takes; blocks[0]
+    std::vector<std::uint8_t> trailer;                          // encrypted bytes after the tables, kept as they are
 
     [[nodiscard]] std::size_t entries() const { return blocks.empty() ? 0u : blocks.size() - 1u; }
     [[nodiscard]] std::uint64_t span(std::uint32_t entry) const {
@@ -54,8 +54,8 @@ struct Directory {
     [[nodiscard]] std::int64_t entry_at(std::uint32_t block) const;
 
     // Parses the archive's first `directory_blocks` blocks as stored.
-    [[nodiscard]] static std::optional<Directory> parse(std::span<const std::uint8_t> encrypted,
-                                                        std::uint64_t archive_bytes);
+    [[nodiscard]] static std::optional<Directory> parse(
+        std::span<const std::uint8_t> encrypted, std::uint64_t archive_bytes);
     // The directory as stored: encrypted tables followed by the trailer.
     [[nodiscard]] std::vector<std::uint8_t> encode() const;
 };
@@ -67,7 +67,7 @@ struct Directory {
 // padded with zeros to its blocks.
 struct Layout {
     Directory directory;
-    std::map<FileId, std::uint64_t> padded;  // entries served with zero padding: the file's own size
+    std::map<FileId, std::uint64_t> padded; // entries served with zero padding: the file's own size
 
     [[nodiscard]] static Layout build(const Directory &disc, const std::map<FileId, std::uint64_t> &sizes);
     [[nodiscard]] bool same_as(const Layout &other) const {
@@ -101,7 +101,7 @@ public:
 private:
     struct Encoded {
         std::shared_ptr<const FileContent> content;
-        std::vector<std::uint8_t> bytes;  // encrypted for the entry's block, padded to its span
+        std::vector<std::uint8_t> bytes; // encrypted for the entry's block, padded to its span
         bool verbatim{};
     };
     const Encoded &encoded(FileId entry);

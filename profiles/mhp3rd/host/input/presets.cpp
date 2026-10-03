@@ -44,9 +44,7 @@ public:
     }
     // With the mouse in hand, its middle button locks on as well, as in many
     // PC action games; the presets that use the mouse leave it free.
-    Builder &mouse_lock_on() {
-        return set(Action::LockOn, single(mouse_button(2)), single(key(hid::T)));
-    }
+    Builder &mouse_lock_on() { return set(Action::LockOn, single(mouse_button(2)), single(key(hid::T))); }
     // The pad's: a screenshot on a chord of the camera stick's button, which
     // the game does not use, and the D-pad button the free camera leaves
     // free for frame step. `mirrored` puts both on the other side, as the
@@ -250,24 +248,24 @@ std::array<Layout, kPresets> make_layouts() {
 
 constexpr PresetInfo kInfo[kPresets] = {
     {"default", "Default",
-     "W A S D and the mouse; the PSP's buttons where a gamepad has them, with the triggers as L and R."},
+        "W A S D and the mouse; the PSP's buttons where a gamepad has them, with the triggers as L and R."},
     {"modern", "Modern",
-     "Like recent action games: on a gamepad RT attacks and shoots a bow, RB does the second attack and fires a "
-     "bowgun, LT guards and aims. On the keyboard, the side mouse button or C does △ + ○."},
+        "Like recent action games: on a gamepad RT attacks and shoots a bow, RB does the second attack and fires a "
+        "bowgun, LT guards and aims. On the keyboard, the side mouse button or C does △ + ○."},
     {"left_handed", "Left-handed",
-     "Mirrored: the mouse in the left hand and I J K L to move; on a gamepad the right stick moves, the D-pad "
-     "does the face buttons and the shoulders change sides."},
+        "Mirrored: the mouse in the left hand and I J K L to move; on a gamepad the right stick moves, the D-pad "
+        "does the face buttons and the shoulders change sides."},
     {"classic", "Classic keyboard",
-     "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are the face buttons, Q and W "
-     "are L and R. The gamepad as in Default."},
+        "The keys of earlier versions, for play without a mouse: I J K L move, Z X A S are the face buttons, Q and W "
+        "are L and R. The gamepad as in Default."},
 };
 
 constexpr std::string_view kUserPrefix = "user:";
 
 bool equal_ignoring_case(std::string_view a, std::string_view b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-               return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
-           });
+        return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+    });
 }
 
 } // namespace
@@ -282,7 +280,9 @@ const Slots &slots(const Layout &layout, bool pad, std::size_t target) {
     return slots(const_cast<Layout &>(layout), pad, target);
 }
 
-const PresetInfo &info(Preset preset) { return kInfo[static_cast<std::size_t>(preset)]; }
+const PresetInfo &info(Preset preset) {
+    return kInfo[static_cast<std::size_t>(preset)];
+}
 
 const Layout &layout(Preset preset) {
     static const std::array<Layout, kPresets> layouts = make_layouts();
@@ -333,7 +333,8 @@ std::string unique_preset_name(const std::vector<UserPreset> &presets, std::stri
     if (!taken(start)) return start;
     for (int n = 2;; ++n) {
         const std::string suffix = " " + std::to_string(n);
-        std::string candidate = clean_preset_name(start.substr(0, kMaxPresetName - std::min(kMaxPresetName, suffix.size())));
+        std::string candidate =
+            clean_preset_name(start.substr(0, kMaxPresetName - std::min(kMaxPresetName, suffix.size())));
         candidate += suffix;
         if (!taken(candidate)) return candidate;
     }
@@ -361,8 +362,10 @@ Layout layout_from_earlier(const Bindings &keys, std::string_view trigger_profil
     const auto slots = [&](Action action) -> Slots & { return result.pad[static_cast<std::size_t>(action)]; };
     slots(Action::L) = {single(pad(PadInput::LeftShoulder)), {}};
     slots(Action::R) = {single(pad(PadInput::RightShoulder)), single(pad(PadInput::LeftTrigger))};
-    if (bows) slots(Action::Triangle) = {single(pad(PadInput::North)), single(pad(PadInput::RightTrigger))};
-    else slots(Action::Circle) = {single(pad(PadInput::East)), single(pad(PadInput::RightTrigger))};
+    if (bows)
+        slots(Action::Triangle) = {single(pad(PadInput::North)), single(pad(PadInput::RightTrigger))};
+    else
+        slots(Action::Circle) = {single(pad(PadInput::East)), single(pad(PadInput::RightTrigger))};
     return result;
 }
 

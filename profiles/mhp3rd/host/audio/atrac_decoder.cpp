@@ -44,14 +44,17 @@ namespace {
 AtracDecoder::AtracDecoder() : impl_(std::make_unique<Impl>()) {}
 AtracDecoder::~AtracDecoder() = default;
 
-bool AtracDecoder::available() noexcept { return true; }
+bool AtracDecoder::available() noexcept {
+    return true;
+}
 
-bool AtracDecoder::open(AtracCodec codec, unsigned channels, unsigned block_align,
-                        std::span<const std::uint8_t> extradata) {
+bool AtracDecoder::open(
+    AtracCodec codec, unsigned channels, unsigned block_align, std::span<const std::uint8_t> extradata) {
     Impl &impl = *impl_;
     impl.close();
     if (channels == 0u || channels > 2u || block_align == 0u) return false;
-    const AVCodec *decoder = avcodec_find_decoder(codec == AtracCodec::Atrac3 ? AV_CODEC_ID_ATRAC3 : AV_CODEC_ID_ATRAC3P);
+    const AVCodec *decoder =
+        avcodec_find_decoder(codec == AtracCodec::Atrac3 ? AV_CODEC_ID_ATRAC3 : AV_CODEC_ID_ATRAC3P);
     if (decoder == nullptr) return false;
     impl.context = avcodec_alloc_context3(decoder);
     impl.packet = av_packet_alloc();
@@ -82,8 +85,12 @@ bool AtracDecoder::open(AtracCodec codec, unsigned channels, unsigned block_alig
     return true;
 }
 
-bool AtracDecoder::is_open() const noexcept { return impl_->context != nullptr; }
-AtracCodec AtracDecoder::codec() const noexcept { return impl_->codec; }
+bool AtracDecoder::is_open() const noexcept {
+    return impl_->context != nullptr;
+}
+AtracCodec AtracDecoder::codec() const noexcept {
+    return impl_->codec;
+}
 
 std::size_t AtracDecoder::decode(std::span<const std::uint8_t> frame, std::int16_t *out) {
     Impl &impl = *impl_;
@@ -132,11 +139,21 @@ struct AtracDecoder::Impl {};
 AtracDecoder::AtracDecoder() : impl_(std::make_unique<Impl>()) {}
 AtracDecoder::~AtracDecoder() = default;
 
-bool AtracDecoder::available() noexcept { return false; }
-bool AtracDecoder::open(AtracCodec, unsigned, unsigned, std::span<const std::uint8_t>) { return false; }
-bool AtracDecoder::is_open() const noexcept { return false; }
-AtracCodec AtracDecoder::codec() const noexcept { return AtracCodec::Atrac3; }
-std::size_t AtracDecoder::decode(std::span<const std::uint8_t>, std::int16_t *) { return 0u; }
+bool AtracDecoder::available() noexcept {
+    return false;
+}
+bool AtracDecoder::open(AtracCodec, unsigned, unsigned, std::span<const std::uint8_t>) {
+    return false;
+}
+bool AtracDecoder::is_open() const noexcept {
+    return false;
+}
+AtracCodec AtracDecoder::codec() const noexcept {
+    return AtracCodec::Atrac3;
+}
+std::size_t AtracDecoder::decode(std::span<const std::uint8_t>, std::int16_t *) {
+    return 0u;
+}
 void AtracDecoder::reset() {}
 
 #endif

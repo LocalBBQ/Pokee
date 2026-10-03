@@ -51,8 +51,8 @@ bool palette_of(const GuestMemory &memory, const TextureState &texture, std::arr
 
 bool is_glyph_page(const TextureState &texture) {
     const std::uint32_t atlas = fonts::game_atlas();
-    if (atlas == 0u || texture.format != TextureFormat::Clut4 || texture.width != 256u ||
-        texture.height != 256u || texture.buffer_width != 256u)
+    if (atlas == 0u || texture.format != TextureFormat::Clut4 || texture.width != 256u || texture.height != 256u ||
+        texture.buffer_width != 256u)
         return false;
     const std::uint32_t first = atlas + kAtlasPages;
     if (texture.address < first) return false;
@@ -61,7 +61,7 @@ bool is_glyph_page(const TextureState &texture) {
 }
 
 bool glyph_page(const GuestMemory &memory, const TextureState &texture, int scale, std::vector<std::uint32_t> &out,
-                GlyphPageReport &report) {
+    GlyphPageReport &report) {
     report = {};
     if (!is_glyph_page(texture) || scale < 2) return false;
     const std::uint32_t atlas = fonts::game_atlas();
@@ -89,8 +89,10 @@ bool glyph_page(const GuestMemory &memory, const TextureState &texture, int scal
         for (std::uint32_t x = 0; x < 256u; ++x) {
             const std::uint32_t colour = palette[index_at(x, y)];
             for (std::uint32_t dy = 0; dy < size; ++dy)
-                std::fill_n(out.begin() + static_cast<std::ptrdiff_t>((static_cast<std::size_t>(y) * size + dy) * side + static_cast<std::size_t>(x) * size), size,
-                            colour);
+                std::fill_n(out.begin() +
+                        static_cast<std::ptrdiff_t>(
+                            (static_cast<std::size_t>(y) * size + dy) * side + static_cast<std::size_t>(x) * size),
+                    size, colour);
         }
     for (std::uint32_t cell = 0; cell < kCellsPerPage; ++cell) {
         if (codes[cell] == ~0u) continue;
@@ -114,7 +116,8 @@ bool glyph_page(const GuestMemory &memory, const TextureState &texture, int scal
         const std::uint32_t cell_side = kCellWidth * size;
         for (std::uint32_t y = 0; y < cell_side; ++y)
             for (std::uint32_t x = 0; x < cell_side; ++x)
-                out[(static_cast<std::size_t>(top) * size + y) * side + static_cast<std::size_t>(left) * size + x] = palette[ink[static_cast<std::size_t>(y) * cell_side + x]];
+                out[(static_cast<std::size_t>(top) * size + y) * side + static_cast<std::size_t>(left) * size + x] =
+                    palette[ink[static_cast<std::size_t>(y) * cell_side + x]];
         ++report.redrawn;
     }
     // A page that is not what it was traced to be is left alone.
@@ -130,8 +133,8 @@ Upscaler::~Upscaler() {
     if (thread_.joinable()) thread_.join();
 }
 
-bool Upscaler::submit(std::uint64_t key, const GuestMemory &memory, const TextureState &texture,
-                      std::uint32_t doublings) {
+bool Upscaler::submit(
+    std::uint64_t key, const GuestMemory &memory, const TextureState &texture, std::uint32_t doublings) {
     auto job = std::make_shared<Job>();
     job->key = key;
     job->doublings = doublings;
@@ -158,8 +161,8 @@ std::size_t Upscaler::queued() const {
     return queue_.size();
 }
 
-bool Upscaler::take(std::uint64_t key, std::vector<std::uint32_t> &pixels, std::uint32_t &width,
-                    std::uint32_t &height, double &milliseconds) {
+bool Upscaler::take(std::uint64_t key, std::vector<std::uint32_t> &pixels, std::uint32_t &width, std::uint32_t &height,
+    double &milliseconds) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto found = jobs_.find(key);
     if (found == jobs_.end() || !found->second->done) return false;

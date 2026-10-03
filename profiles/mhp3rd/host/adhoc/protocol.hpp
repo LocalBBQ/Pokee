@@ -38,7 +38,9 @@ inline constexpr Mac kBroadcastMac{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 namespace wire {
 
-inline void put8(std::string &out, std::uint8_t value) { out.push_back(static_cast<char>(value)); }
+inline void put8(std::string &out, std::uint8_t value) {
+    out.push_back(static_cast<char>(value));
+}
 inline void put16(std::string &out, std::uint16_t value) {
     put8(out, static_cast<std::uint8_t>(value));
     put8(out, static_cast<std::uint8_t>(value >> 8u));
@@ -56,8 +58,7 @@ inline void put_mac(std::string &out, const Mac &mac) {
 }
 
 inline std::uint16_t get16(const char *data) {
-    return static_cast<std::uint16_t>(static_cast<std::uint8_t>(data[0]) |
-                                      (static_cast<std::uint8_t>(data[1]) << 8u));
+    return static_cast<std::uint16_t>(static_cast<std::uint8_t>(data[0]) | (static_cast<std::uint8_t>(data[1]) << 8u));
 }
 inline std::uint32_t get32(const char *data) {
     return static_cast<std::uint32_t>(get16(data)) | (static_cast<std::uint32_t>(get16(data + 2)) << 16u);
@@ -110,7 +111,9 @@ inline std::string connect(std::string_view group) {
     wire::put_fixed(out, group, kGroupNameLength);
     return out;
 }
-inline std::string opcode_only(Opcode opcode) { return std::string(1u, static_cast<char>(opcode)); }
+inline std::string opcode_only(Opcode opcode) {
+    return std::string(1u, static_cast<char>(opcode));
+}
 
 // Client to server: sizes including the opcode, 0 for an opcode a client
 // never sends.
@@ -119,13 +122,20 @@ inline std::string opcode_only(Opcode opcode) { return std::string(1u, static_ca
 //   Chat:    message[64]
 [[nodiscard]] constexpr std::size_t client_packet_size(std::uint8_t opcode) {
     switch (opcode) {
-    case kPing: return 1u;
-    case kLogin: return 1u + 6u + kNicknameLength + kProductCodeLength;
-    case kConnect: return 1u + kGroupNameLength;
-    case kDisconnect: return 1u;
-    case kScan: return 1u;
-    case kChat: return 1u + kChatLength;
-    default: return 0u;
+    case kPing:
+        return 1u;
+    case kLogin:
+        return 1u + 6u + kNicknameLength + kProductCodeLength;
+    case kConnect:
+        return 1u + kGroupNameLength;
+    case kDisconnect:
+        return 1u;
+    case kScan:
+        return 1u;
+    case kChat:
+        return 1u + kChatLength;
+    default:
+        return 0u;
     }
 }
 
@@ -139,14 +149,22 @@ inline std::string opcode_only(Opcode opcode) { return std::string(1u, static_ca
 //   Chat:         message[64], nickname[128]
 [[nodiscard]] constexpr std::size_t server_packet_size(std::uint8_t opcode) {
     switch (opcode) {
-    case kPing: return 1u;
-    case kConnect: return 1u + kNicknameLength + 6u + 4u;
-    case kDisconnect: return 1u + 4u;
-    case kScan: return 1u + kGroupNameLength + 6u;
-    case kScanComplete: return 1u;
-    case kConnectBssid: return 1u + 6u;
-    case kChat: return 1u + kChatLength + kNicknameLength;
-    default: return 0u;
+    case kPing:
+        return 1u;
+    case kConnect:
+        return 1u + kNicknameLength + 6u + 4u;
+    case kDisconnect:
+        return 1u + 4u;
+    case kScan:
+        return 1u + kGroupNameLength + 6u;
+    case kScanComplete:
+        return 1u;
+    case kConnectBssid:
+        return 1u + 6u;
+    case kChat:
+        return 1u + kChatLength + kNicknameLength;
+    default:
+        return 0u;
     }
 }
 
@@ -211,7 +229,7 @@ inline void put_address(std::string &out, const Mac &mac) {
 // i32 type, source address[8], u16 source port, destination address[8], u16 destination port.
 inline constexpr std::size_t kInitSize = 24u;
 inline std::string init(InitType type, const Mac &source, std::uint16_t source_port, const Mac &destination,
-                        std::uint16_t destination_port) {
+    std::uint16_t destination_port) {
     std::string out;
     wire::put32(out, type);
     put_address(out, source);

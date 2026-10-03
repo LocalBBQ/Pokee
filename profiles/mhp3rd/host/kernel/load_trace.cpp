@@ -96,9 +96,11 @@ void tick(std::uint64_t emulated_us) {
         threads += part;
     }
     const double at_s = std::chrono::duration<double>(now - s.run_start).count();
-    std::printf("[loadtrace] t=%.2fs real=%.0fms emu=%.0fms flips=%zu disc=%zuKiB/%zu ms0=%zuKiB pace=%.0fms audio=%d/%zu |%s\n",
-                at_s, real_ms, static_cast<double>(emulated_us - s.interval_emulated_start) / 1000.0, s.flips,
-                s.disc_bytes / 1024u, s.disc_reads, s.stick_bytes / 1024u, s.pacing_ms, s.audio_peak, s.audio_buffers, threads.c_str());
+    std::printf(
+        "[loadtrace] t=%.2fs real=%.0fms emu=%.0fms flips=%zu disc=%zuKiB/%zu ms0=%zuKiB pace=%.0fms audio=%d/%zu |%s\n",
+        at_s, real_ms, static_cast<double>(emulated_us - s.interval_emulated_start) / 1000.0, s.flips,
+        s.disc_bytes / 1024u, s.disc_reads, s.stick_bytes / 1024u, s.pacing_ms, s.audio_peak, s.audio_buffers,
+        threads.c_str());
     std::fflush(stdout);
     s.interval_start = now;
     s.interval_emulated_start = emulated_us;

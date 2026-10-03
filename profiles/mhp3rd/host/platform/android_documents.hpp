@@ -14,8 +14,8 @@
 namespace mhp3rd::android {
 
 struct PickedImport {
-    std::filesystem::path staged;  // the local copy to look for saves in
-    std::string error;             // empty: the copy worked
+    std::filesystem::path staged; // the local copy to look for saves in
+    std::string error;            // empty: the copy worked
 };
 // Asks for a folder, then copies the save folders (those holding a PARAM.SFO)
 // found in it into <staging>/<its name>/SAVEDATA, where find_saves() looks:
@@ -25,8 +25,8 @@ struct PickedImport {
 [[nodiscard]] std::optional<PickedImport> pick_saves_to_import(const std::filesystem::path &staging);
 
 struct PickedExport {
-    std::string where;  // the picked folder, for the player
-    std::string error;  // empty: the copy worked
+    std::string where; // the picked folder, for the player
+    std::string error; // empty: the copy worked
 };
 // Asks for a folder and copies `local` into it as a folder of the same name,
 // with everything in it. Nothing when the player cancels.

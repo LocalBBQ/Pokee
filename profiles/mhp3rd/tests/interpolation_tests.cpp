@@ -26,7 +26,9 @@ void check(bool condition, const char *what) {
     if (!condition) ++failures;
 }
 
-bool near(float a, float b, float tolerance = 1e-3f) { return std::fabs(a - b) <= tolerance; }
+bool near(float a, float b, float tolerance = 1e-3f) {
+    return std::fabs(a - b) <= tolerance;
+}
 
 constexpr float kPi = 3.14159265358979f;
 constexpr std::uint32_t kShown = 0x04000000u;
@@ -83,7 +85,8 @@ DrawSummary draw(std::uint32_t mesh, float x, float camera_degrees = 0.0f, float
 
 std::vector<DrawSummary> scene(std::uint32_t meshes, float camera_degrees = 0.0f, float camera_x = 0.0f) {
     std::vector<DrawSummary> frame;
-    for (std::uint32_t i = 0; i < meshes; ++i) frame.push_back(draw(i, static_cast<float>(i) * 10.0f, camera_degrees, camera_x));
+    for (std::uint32_t i = 0; i < meshes; ++i)
+        frame.push_back(draw(i, static_cast<float>(i) * 10.0f, camera_degrees, camera_x));
     mark_eligible(frame, kShown);
     return frame;
 }
@@ -103,7 +106,7 @@ void blending() {
     for (std::size_t row = 0; row < 3u; ++row) length += half[row] * half[row];
     check(near(std::sqrt(length), 1.0f), "a blended rotation keeps its scale");
     check(near(rotation_angle_degrees(transform(10.0f, 0, 0, 0), transform(100.0f, 0, 0, 0)), 90.0f, 0.01f),
-          "rotation_angle_degrees measures a quarter turn");
+        "rotation_angle_degrees measures a quarter turn");
     Matrix ortho{};
     ortho[0] = ortho[5] = ortho[10] = ortho[15] = 1.0f;
     check(is_orthographic(ortho) && !is_orthographic(perspective()), "orthographic projections are told apart");
@@ -118,7 +121,7 @@ void rigid() {
     const RigidMotion motion = rigid_motion(orbit);
     check(motion.valid && near(motion.angle * 180.0f / kPi, 24.0f, 0.01f), "the orbit's turn is found");
     check(near(motion.centre[0], 0.0f, 0.05f) && near(motion.centre[2], -400.0f, 0.05f) && near(motion.slide[1], 5.0f),
-          "its centre is the orbited point and the slide runs along the axis");
+        "its centre is the orbited point and the slide runs along the axis");
     const Matrix whole = rigid_at(motion, 1.0f);
     bool same = true;
     for (std::size_t i = 0; i < 16u; ++i) same = same && near(whole[i], orbit[i], 1e-2f);
@@ -182,9 +185,8 @@ void guards() {
     mark_eligible(older, kShown);
     mark_eligible(newer, kShown);
     const Matching &swapped = matcher.match(older, newer, thresholds);
-    check(swapped.newer_of[40] == 41 && swapped.newer_of[41] == 40 && swapped.rejected == 0u &&
-              swapped.repaired == 2u,
-          "swapped instances pair with themselves, by where they are");
+    check(swapped.newer_of[40] == 41 && swapped.newer_of[41] == 40 && swapped.rejected == 0u && swapped.repaired == 2u,
+        "swapped instances pair with themselves, by where they are");
     check(swapped.cut == nullptr, "the rest of the frame still blends");
 
     CutThresholds in_order = thresholds;
@@ -192,9 +194,9 @@ void guards() {
     Matcher ordered;
     const Matching &swapped_in_order = ordered.match(older, newer, in_order);
     check(swapped_in_order.rejected == 2u && swapped_in_order.rejected_shared == 2u &&
-              swapped_in_order.newer_of[40] == Matching::kFollowCamera &&
-              swapped_in_order.newer_of[41] == Matching::kFollowCamera && swapped_in_order.repaired == 0u,
-          "paired in drawing order, swapped instances 600 units apart are not blended into each other");
+            swapped_in_order.newer_of[40] == Matching::kFollowCamera &&
+            swapped_in_order.newer_of[41] == Matching::kFollowCamera && swapped_in_order.repaired == 0u,
+        "paired in drawing order, swapped instances 600 units apart are not blended into each other");
 
     // Issue #168: the hot spring's glints are one mesh drawn once per glint,
     // and a new glint is drawn first. In drawing order each glint would pair
@@ -203,7 +205,7 @@ void guards() {
     std::vector<DrawSummary> glints_before = scene(40u), glints_after = scene(40u);
     glints_before.push_back(draw(92u, 0.0f));
     glints_before.push_back(draw(92u, 60.0f));
-    glints_after.push_back(draw(92u, -60.0f));  // the new one
+    glints_after.push_back(draw(92u, -60.0f)); // the new one
     glints_after.push_back(draw(92u, 0.0f));
     glints_after.push_back(draw(92u, 60.0f));
     mark_eligible(glints_before, kShown);
@@ -211,11 +213,11 @@ void guards() {
     Matcher sparkling;
     const Matching &glints = sparkling.match(glints_before, glints_after, thresholds);
     check(glints.newer_of[40] == 41 && glints.newer_of[41] == 42 && glints.rejected == 0u,
-          "a new instance drawn first does not pull the others towards it");
+        "a new instance drawn first does not pull the others towards it");
     Matcher sparkling_in_order;
     const Matching &glints_in_order = sparkling_in_order.match(glints_before, glints_after, in_order);
     check(glints_in_order.newer_of[40] == 40 && glints_in_order.newer_of[41] == 41 && glints_in_order.rejected == 0u,
-          "in drawing order each would be blended 60 units towards another");
+        "in drawing order each would be blended 60 units towards another");
 
     // Instances of a mesh drawn many times keep drawing order.
     CutThresholds few = thresholds;
@@ -254,10 +256,10 @@ void matching() {
     // Orbiting 1.5 degrees at 400 units moves the eye 10.5 units sideways;
     // the slide takes 8 of them back.
     check(near(walking.camera_angle_degrees, 1.5f, 0.01f) && near(walking.camera_distance, 2.47f, 0.05f),
-          "the camera's turn and the eye's own move are measured, in eye space");
+        "the camera's turn and the eye's own move are measured, in eye space");
     const Matching &orbit = matcher.match(scene(100u, 0.0f), scene(100u, 7.0f), thresholds);
     check(orbit.cut == nullptr && near(orbit.camera_distance, 48.8f, 0.5f),
-          "a 7 degree orbit at 400 units moves the eye 49 units, however far the scenery swings");
+        "a 7 degree orbit at 400 units moves the eye 49 units, however far the scenery swings");
 
     const Matching &turned = matcher.match(scene(100u), scene(100u, 40.0f), thresholds);
     check(turned.cut != nullptr && std::strcmp(turned.cut, "camera turned") == 0, "a 40 degree turn is a cut");
@@ -270,7 +272,7 @@ void matching() {
     for (std::size_t i = 0; i < 60u; ++i) other[i].vertex_address += 0x00100000u;
     const Matching &replaced = matcher.match(scene(100u), other, thresholds);
     check(replaced.matched == 40u && replaced.cut != nullptr && std::strcmp(replaced.cut, "few draws match") == 0,
-          "a frame with most draws new is a cut");
+        "a frame with most draws new is a cut");
 
     // Instances of one mesh pair up in drawing order.
     std::vector<DrawSummary> older{draw(7u, 0.0f), draw(7u, 50.0f), draw(7u, 100.0f)};
@@ -279,24 +281,24 @@ void matching() {
     mark_eligible(newer, kShown);
     const Matching &instances = matcher.match(older, newer, thresholds);
     check(instances.newer_of[0] == 0 && instances.newer_of[1] == 1 && instances.newer_of[2] == -1,
-          "instances pair in order and an extra one stays unmatched");
+        "instances pair in order and an extra one stays unmatched");
 
     // Only perspective draws into the shown framebuffer take part.
     std::vector<DrawSummary> mixed{draw(1u, 0.0f), draw(2u, 0.0f), draw(3u, 0.0f)};
-    mixed[1].target = 0x04100000u;  // render to texture
-    mixed[2].perspective = false;   // 2D, orthographic or a clear
+    mixed[1].target = 0x04100000u; // render to texture
+    mixed[2].perspective = false;  // 2D, orthographic or a clear
     mark_eligible(mixed, kShown);
     const Matching &eligible = matcher.match(mixed, mixed, thresholds);
     check(eligible.eligible_older == 1u && eligible.matched == 1u && eligible.newer_of[1] == -1 &&
-              eligible.newer_of[2] == -1,
-          "draws into other framebuffers and 2D draws are never matched");
+            eligible.newer_of[2] == -1,
+        "draws into other framebuffers and 2D draws are never matched");
 
     std::vector<DrawSummary> flat{draw(1u, 0.0f)};
     flat[0].perspective = false;
     mark_eligible(flat, kShown);
     const Matching &nothing = matcher.match(flat, flat, thresholds);
     check(nothing.cut != nullptr && std::strcmp(nothing.cut, "nothing to blend") == 0,
-          "a frame without 3D draws, like a loading screen, is not blended");
+        "a frame without 3D draws, like a loading screen, is not blended");
 }
 
 // A fast analog turn keeps the camera turning by about the same angle each
@@ -323,7 +325,7 @@ void continuous_motion() {
     (void)fresh.match(scene(50u), scene(50u, 1.0f), thresholds);
     const Matching &sudden = fresh.match(scene(50u, 1.0f), scene(50u, 41.0f), thresholds);
     check(sudden.cut != nullptr && std::strcmp(sudden.cut, "camera turned") == 0,
-          "a 40 degree jump from a slow camera is a cut");
+        "a 40 degree jump from a slow camera is a cut");
 
     Matcher moving;
     float x = 0.0f;
@@ -335,21 +337,21 @@ void continuous_motion() {
     check(moved, "an eye orbiting faster and faster keeps blending");
     moving.forget_motion();
     check(moving.match(scene(50u, 0.0f, x), scene(50u, 0.0f, x + 300.0f), thresholds).cut != nullptr,
-          "after forget_motion the plain limits apply again");
+        "after forget_motion the plain limits apply again");
 }
 
 using namespace mhp3rd::gpu::pacing;
 
 void rates() {
     check(presents_per_frame(45.0) == 1.5 && presents_per_frame(60.0) == 2.0 && presents_per_frame(90.0) == 3.0 &&
-              presents_per_frame(120.0) == 4.0,
-          "45, 60, 90 and 120 are 1.5, 2, 3 and 4 presents per game frame");
+            presents_per_frame(120.0) == 4.0,
+        "45, 60, 90 and 120 are 1.5, 2, 3 and 4 presents per game frame");
     check(presents_per_frame(59.94) == 2.0 && presents_per_frame(89.9) == 3.0,
-          "a display reporting 59.94 or 89.9 Hz counts as 60 or 90");
+        "a display reporting 59.94 or 89.9 Hz counts as 60 or 90");
     check(near(static_cast<float>(presents_per_frame(144.0)), 4.8f), "144 Hz is 4.8 per game frame");
     check(plain_presents_per_frame(60.0) == 1.0 && plain_presents_per_frame(120.0) == 1.0 &&
-              plain_presents_per_frame(45.0) == 0.5 && near(static_cast<float>(plain_presents_per_frame(144.0)), 0.2f),
-          "presents that fall on a frame's own moment: every frame, every other one at 45, every fifth at 144");
+            plain_presents_per_frame(45.0) == 0.5 && near(static_cast<float>(plain_presents_per_frame(144.0)), 0.2f),
+        "presents that fall on a frame's own moment: every frame, every other one at 45, every fifth at 144");
 }
 
 // Runs the clock over `frames` game frames with the game's code taking
@@ -357,7 +359,7 @@ void rates() {
 // it is due, checked every 250 us. Returns each present's blend factor, and
 // checks that the moment shown never goes back.
 std::vector<float> run_clock(double rate, std::int64_t work_us, int frames, bool &monotonic, std::uint32_t &skipped,
-                             std::int64_t late_frame = -1) {
+    std::int64_t late_frame = -1) {
     PresentClock clock;
     clock.set_presents_per_frame(presents_per_frame(rate));
     std::vector<float> factors;
@@ -406,16 +408,15 @@ void present_clock() {
     std::uint32_t skipped = 0u;
     const std::vector<float> at60 = run_clock(60.0, 12000, 40, monotonic, skipped);
     check(pattern(at60, {1.0f, 0.5f}, 4u) && monotonic && skipped == 0u,
-          "60: each frame as it is, then halfway to the next");
+        "60: each frame as it is, then halfway to the next");
     const std::vector<float> at45 = run_clock(45.0, 12000, 40, monotonic, skipped);
     check(pattern(at45, {1.0f, 2.0f / 3.0f, 1.0f / 3.0f}, 4u) && monotonic && skipped == 0u,
-          "45: blend factors 1, 2/3, 1/3 over two game frames");
+        "45: blend factors 1, 2/3, 1/3 over two game frames");
     const std::vector<float> at90 = run_clock(90.0, 12000, 40, monotonic, skipped);
-    check(pattern(at90, {1.0f, 1.0f / 3.0f, 2.0f / 3.0f}, 4u) && monotonic && skipped == 0u,
-          "90: thirds");
+    check(pattern(at90, {1.0f, 1.0f / 3.0f, 2.0f / 3.0f}, 4u) && monotonic && skipped == 0u, "90: thirds");
     const std::vector<float> at120 = run_clock(120.0, 25000, 40, monotonic, skipped);
     check(pattern(at120, {1.0f, 0.25f, 0.5f, 0.75f}, 4u) && monotonic && skipped == 0u,
-          "120: quarters, even when the game's code takes 25 ms of each frame");
+        "120: quarters, even when the game's code takes 25 ms of each frame");
     check(at60.size() >= 76u && at60.size() <= 80u, "60 presents twice per game frame");
 
     // A frame whose code runs past its successor's moment: the presents hold
@@ -428,7 +429,7 @@ void present_clock() {
     clock.flip(0, 5000);
     clock.flip(kGameFrameUs, kGameFrameUs + 5000);
     check(clock.work_us() == 6000 && clock.delay_us() == kGameFrameUs / 2 + 6000,
-          "at 60 the delay is half a frame plus the game's code time and a millisecond");
+        "at 60 the delay is half a frame plus the game's code time and a millisecond");
     const std::int64_t delay = clock.delay_us();
     check(!clock.take(delay - 10), "nothing is due before the delay has passed");
     const auto first = clock.take(kGameFrameUs + delay);
@@ -474,7 +475,7 @@ void governor() {
     RateGovernor governor;
     governor.set_requested(30.0);
     check(governor.rate() == 30.0 && !governor.update(second_with(0.5, 0.0, 5.0, 0.5, 30.0)),
-          "30 stays 30 whatever happens");
+        "30 stays 30 whatever happens");
 
     governor.set_requested(120.0);
     check(governor.rate() == 120.0, "the governor starts at the rate asked for");
@@ -486,9 +487,9 @@ void governor() {
     // frame, the game is short of 6.7 ms plus the margin.
     check(!governor.update(second_with(0.8, 0.0, 6.0, 0.4, 120.0)), "one slow second is not enough");
     check(governor.update(second_with(0.8, 0.0, 6.0, 0.4, 120.0)) && governor.rate() == 60.0,
-          "two slow seconds drop straight to the rate that fits (120 to 60)");
+        "two slow seconds drop straight to the rate that fits (120 to 60)");
     check(!governor.update(second_with(0.8, 0.0, 0.0, 0.0, 60.0)),
-          "a slow second without presents to save is not blamed on them");
+        "a slow second without presents to save is not blamed on them");
 
     for (int i = 0; i < RateGovernor::kSecondsAfterDown + 5; ++i)
         (void)governor.update(second_with(1.0, 20.0, 6.0, 0.4, 60.0));
@@ -553,7 +554,7 @@ void governor() {
     // of 16 ms leave no time, and the game's frames drift later and later.
     (void)busy.update(second_with(1.0, 0.2, 16.0, 2.0, 90.0));
     check(busy.update(second_with(1.0, 0.2, 16.0, 2.0, 90.0)) && busy.rate() == 60.0,
-          "no spare time at full speed steps down too (90 to 60)");
+        "no spare time at full speed steps down too (90 to 60)");
 
     RateGovernor late;
     late.set_requested(90.0);
@@ -571,8 +572,7 @@ void governor() {
     RateGovernor slow45;
     slow45.set_requested(45.0);
     (void)slow45.update(second_with(0.9, 0.0, 5.0, 0.3, 45.0));
-    check(slow45.update(second_with(0.9, 0.0, 5.0, 0.3, 45.0)) && slow45.rate() == 30.0,
-          "45 steps down to 30");
+    check(slow45.update(second_with(0.9, 0.0, 5.0, 0.3, 45.0)) && slow45.rate() == 30.0, "45 steps down to 30");
 }
 
 } // namespace

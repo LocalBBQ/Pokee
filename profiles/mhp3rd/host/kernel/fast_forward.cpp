@@ -71,8 +71,8 @@ void end_stretch(Reason reason) {
     const double emulated_ms = static_cast<double>(kernel().now_us() - s.emulated_start) / 1000.0;
     const std::uint64_t vblanks = kernel().vblank_count() - s.vblank_start;
     std::printf("[fast-forward] off (%s): %.0f ms of game time, %llu vblanks, in %.0f ms real (%.2fx)\n",
-                reason_name(reason), emulated_ms, static_cast<unsigned long long>(vblanks), real_ms,
-                real_ms > 0.0 ? emulated_ms / real_ms : 0.0);
+        reason_name(reason), emulated_ms, static_cast<unsigned long long>(vblanks), real_ms,
+        real_ms > 0.0 ? emulated_ms / real_ms : 0.0);
     std::fflush(stdout);
 }
 
@@ -84,8 +84,10 @@ void note_bind(bool held) {
     const bool now_active = s.control.update(held, settings::current().fast_forward, sample_guards());
     if (s.control.take_refused_press())
         log_once("fast-forward-adhoc", "[fast-forward] single player only: the bind does nothing during ad hoc play");
-    if (now_active && !was_active) begin_stretch();
-    else if (!now_active && was_active) end_stretch(s.control.reason());
+    if (now_active && !was_active)
+        begin_stretch();
+    else if (!now_active && was_active)
+        end_stretch(s.control.reason());
     else if (now_active && setting_speed() != s.speed) {
         // The speed changed in the menu while it ran.
         end_stretch(Reason::None);
@@ -93,8 +95,12 @@ void note_bind(bool held) {
     }
 }
 
-bool active() { return state().control.active(); }
+bool active() {
+    return state().control.active();
+}
 
-double speed() { return active() ? static_cast<double>(state().speed) : 1.0; }
+double speed() {
+    return active() ? static_cast<double>(state().speed) : 1.0;
+}
 
 } // namespace mhp3rd::fast_forward

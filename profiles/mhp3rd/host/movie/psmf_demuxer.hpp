@@ -51,7 +51,7 @@ public:
 
 private:
     struct Stamp {
-        std::size_t offset{};  // position in the elementary stream buffer
+        std::size_t offset{}; // position in the elementary stream buffer
         std::int64_t pts{-1};
         std::int64_t dts{-1};
     };
@@ -60,9 +60,9 @@ private:
     void split_video();
     void split_audio();
 
-    std::vector<std::uint8_t> video_;          // bytes not yet split into pictures
-    std::size_t video_scanned_{};              // where the delimiter search resumes
-    std::vector<std::size_t> video_starts_;    // delimiter offsets in video_
+    std::vector<std::uint8_t> video_;       // bytes not yet split into pictures
+    std::size_t video_scanned_{};           // where the delimiter search resumes
+    std::vector<std::size_t> video_starts_; // delimiter offsets in video_
     std::deque<Stamp> video_stamps_;
     std::deque<AccessUnit> video_units_;
     std::int64_t last_video_pts_{-1};

@@ -12,12 +12,12 @@ namespace mhp3rd::debug::quests {
 namespace {
 
 constexpr std::size_t kRecordHeader = 0x48u;
-constexpr std::size_t kRecordStrings = 6u;  // name, objective, failure, description, monsters, client
+constexpr std::size_t kRecordStrings = 6u; // name, objective, failure, description, monsters, client
 
 std::uint32_t load32(std::span<const std::uint8_t> bytes, std::size_t at) {
     if (at + 4u > bytes.size()) return 0u;
     return static_cast<std::uint32_t>(bytes[at]) | static_cast<std::uint32_t>(bytes[at + 1u]) << 8u |
-           static_cast<std::uint32_t>(bytes[at + 2u]) << 16u | static_cast<std::uint32_t>(bytes[at + 3u]) << 24u;
+        static_cast<std::uint32_t>(bytes[at + 2u]) << 16u | static_cast<std::uint32_t>(bytes[at + 3u]) << 24u;
 }
 
 // Text as the lists hold it: printable bytes, line breaks and UTF-8.
@@ -46,9 +46,13 @@ std::vector<std::string> record_strings(std::span<const std::uint8_t> file, std:
     return out;
 }
 
-std::string money_text(std::uint32_t zenny) { return std::to_string(zenny) + "z"; }
+std::string money_text(std::uint32_t zenny) {
+    return std::to_string(zenny) + "z";
+}
 
-std::uint32_t character(const Ram &ram) { return ram.load32(kCharacterPointer); }
+std::uint32_t character(const Ram &ram) {
+    return ram.load32(kCharacterPointer);
+}
 
 std::optional<std::uint32_t> pointer(const Ram &ram, std::uint32_t at, std::uint32_t length) {
     if (!ram.contains(at, 4u)) return std::nullopt;
@@ -100,20 +104,26 @@ std::string monster_list(const Quest &quest) {
         line.clear();
     };
     for (const char c : quest.monsters) {
-        if (c == '\n') flush();
-        else line += c;
+        if (c == '\n')
+            flush();
+        else
+            line += c;
     }
     flush();
     return out;
 }
 
-bool village_quest(std::uint16_t id) { return id >= 101u && id <= 699u && id % 100u != 0u; }
+bool village_quest(std::uint16_t id) {
+    return id >= 101u && id <= 699u && id % 100u != 0u;
+}
 
 bool hall_quest(std::uint16_t id) {
     return id >= 10101u && id <= 10899u && (id / 100u) % 100u != 0u && id % 100u != 0u;
 }
 
-Board Quest::board() const { return hall_quest(id) ? Board::Hall : Board::Village; }
+Board Quest::board() const {
+    return hall_quest(id) ? Board::Hall : Board::Village;
+}
 
 std::vector<Quest> board_quests(
     const std::function<std::optional<std::vector<std::uint8_t>>(std::uint32_t entry)> &read_entry) {
@@ -123,8 +133,10 @@ std::vector<Quest> board_quests(
         const std::optional<std::vector<std::uint8_t>> file = read_entry(kFirstQuestList + level - 1u);
         if (!file) continue;
         for (Quest &q : parse_quest_list(*file)) {
-            if (village_quest(q.id) && q.id / 100u == level) village.push_back(std::move(q));
-            else if (hall_quest(q.id) && (q.id / 100u) % 100u == level) hall.push_back(std::move(q));
+            if (village_quest(q.id) && q.id / 100u == level)
+                village.push_back(std::move(q));
+            else if (hall_quest(q.id) && (q.id / 100u) % 100u == level)
+                hall.push_back(std::move(q));
         }
     }
     village.insert(village.end(), std::make_move_iterator(hall.begin()), std::make_move_iterator(hall.end()));
@@ -141,8 +153,7 @@ std::string start_blocked(const Ram &ram) {
     const std::optional<std::uint32_t> next = pointer(ram, kNextScenePointer, 0x2Cu);
     const std::optional<std::uint32_t> scene = pointer(ram, kScenePointer, kSceneFlags + 4u);
     const std::uint32_t c = character(ram);
-    if (!next || !scene || c < 0x08800000u || !ram.contains(c + kQuestIdOffset, 8u))
-        return "the village is not ready";
+    if (!next || !scene || c < 0x08800000u || !ram.contains(c + kQuestIdOffset, 8u)) return "the village is not ready";
     if (ram.load32(*next) != kSceneWalking) return "only while the hunter walks around, with no menu or dialog open";
     if ((ram.load32(*scene + kSceneFlags) & kSceneEnd) != 0u) return "the village is already being left";
     return {};
@@ -156,8 +167,8 @@ std::string start(Ram &ram, const Quest &quest) {
     const bool hall = quest.board() == Board::Hall;
     const std::uint32_t zenny = p3rd::money(ram);
     if (zenny < quest.fee)
-        return "not started, the fee is " + money_text(quest.fee) + " and the hunter has " + money_text(zenny) +
-               ": " + label;
+        return "not started, the fee is " + money_text(quest.fee) + " and the hunter has " + money_text(zenny) + ": " +
+            label;
 
     // What the counter does when the quest is accepted: the fee, the id.
     p3rd::set_money(ram, zenny - quest.fee);
@@ -180,9 +191,8 @@ std::string start(Ram &ram, const Quest &quest) {
 
     char minutes[16];
     std::snprintf(minutes, sizeof(minutes), "%u min", quest.time_limit / 1800u);
-    return "started " + label + ", " + (hall ? "Guild Hall " : "village ") + std::to_string(quest.stars) +
-           " star, " + minutes + ", fee " + money_text(quest.fee) + " paid (zenny now " +
-           std::to_string(p3rd::money(ram)) + ")";
+    return "started " + label + ", " + (hall ? "Guild Hall " : "village ") + std::to_string(quest.stars) + " star, " +
+        minutes + ", fee " + money_text(quest.fee) + " paid (zenny now " + std::to_string(p3rd::money(ram)) + ")";
 }
 
 } // namespace mhp3rd::debug::quests

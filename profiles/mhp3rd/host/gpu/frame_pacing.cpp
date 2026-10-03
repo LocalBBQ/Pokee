@@ -63,7 +63,9 @@ void PresentClock::reset() noexcept {
     next_index_ = 0;
 }
 
-std::int64_t PresentClock::delay_us() const noexcept { return frame_us_ - first_step_us_ + work_us_; }
+std::int64_t PresentClock::delay_us() const noexcept {
+    return frame_us_ - first_step_us_ + work_us_;
+}
 
 void PresentClock::flip(std::int64_t time_us, std::int64_t now_us) noexcept {
     if (has_newer_ && (time_us <= newer_us_ || time_us - newer_us_ > kGapFrames * frame_us_)) reset();
@@ -80,8 +82,8 @@ void PresentClock::flip(std::int64_t time_us, std::int64_t now_us) noexcept {
     std::copy(work_window_.begin(), work_window_.end(), sorted.begin());
     const std::size_t count = work_window_.size();
     const std::size_t rank = std::min(count - 1u, count * kWorkRank / kWorkWindowFrames);
-    std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(rank), sorted.begin() + static_cast<std::ptrdiff_t>(count),
-                     std::greater<>{});
+    std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(rank),
+        sorted.begin() + static_cast<std::ptrdiff_t>(count), std::greater<>{});
     work_us_ = sorted[rank];
     if (has_newer_) {
         older_us_ = newer_us_;
@@ -147,7 +149,9 @@ void RateGovernor::set_automatic(bool automatic) {
     set_requested(requested_);
 }
 
-double RateGovernor::rate() const noexcept { return ladder_[index_]; }
+double RateGovernor::rate() const noexcept {
+    return ladder_[index_];
+}
 
 double RateGovernor::cost_ms(double rate, const Second &second) noexcept {
     const double presents = presents_per_frame(rate);
@@ -185,7 +189,7 @@ bool RateGovernor::update(const Second &second) {
     const bool slow = second.speed < kSlowSpeed;
     const bool no_spare = second.idle_ms < kMinIdleMs;
     const double missing_ms = std::max(0.0, 1.0 - second.speed) * static_cast<double>(kGameFrameUs) / 1000.0 +
-                              std::max(0.0, kMinIdleMs - second.idle_ms);
+        std::max(0.0, kMinIdleMs - second.idle_ms);
     if (index_ > 0u && (slow || no_spare) && second.interpolation_ms >= std::max(kMinCostMs, 0.5 * missing_ms) &&
         second.idle_ms < second.interpolation_ms) {
         if (++slow_seconds_ >= 2) {
@@ -201,8 +205,7 @@ bool RateGovernor::update(const Second &second) {
     // Presents that come too late to be shown on time: the display or the
     // queue cannot take this many.
     const std::uint32_t due = second.presents + second.skipped + second.blocked;
-    if (index_ > 0u && due != 0u &&
-        static_cast<double>(second.skipped + second.blocked) > kMaxSkippedShare * due) {
+    if (index_ > 0u && due != 0u && static_cast<double>(second.skipped + second.blocked) > kMaxSkippedShare * due) {
         if (++skipping_seconds_ >= 2) {
             step_to(index_ - 1u, "presents were late");
             return true;

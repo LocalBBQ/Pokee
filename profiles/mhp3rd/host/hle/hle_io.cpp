@@ -40,7 +40,7 @@ enum class Device { Disc, MemoryStick, Unknown };
 struct OpenFile {
     enum class Kind { Disc, Host, Directory } kind{};
     std::string path;
-    std::uint64_t disc_offset{};  // absolute image offset of byte 0
+    std::uint64_t disc_offset{}; // absolute image offset of byte 0
     std::uint64_t size{};
     std::uint64_t position{};
     std::unique_ptr<std::fstream> host;
@@ -64,7 +64,7 @@ IoState &io() {
 
 struct SplitPath {
     Device device{Device::Unknown};
-    std::string path;  // without device, '/' separated, no leading '/'
+    std::string path; // without device, '/' separated, no leading '/'
 };
 
 SplitPath split_path(const std::string &full) {
@@ -72,8 +72,10 @@ SplitPath split_path(const std::string &full) {
     const auto colon = full.find(':');
     std::string device = colon == std::string::npos ? "disc0" : full.substr(0, colon);
     std::transform(device.begin(), device.end(), device.begin(), [](unsigned char c) { return std::tolower(c); });
-    if (device == "disc0" || device == "umd0" || device == "umd1" || device == "isofs0") result.device = Device::Disc;
-    else if (device == "ms0" || device == "fatms0") result.device = Device::MemoryStick;
+    if (device == "disc0" || device == "umd0" || device == "umd1" || device == "isofs0")
+        result.device = Device::Disc;
+    else if (device == "ms0" || device == "fatms0")
+        result.device = Device::MemoryStick;
 
     std::string rest = colon == std::string::npos ? full : full.substr(colon + 1u);
     std::replace(rest.begin(), rest.end(), '\\', '/');
@@ -119,7 +121,9 @@ std::optional<std::pair<std::uint64_t, std::uint64_t>> parse_lbn_path(const std:
     return std::make_pair(*lba, *length);
 }
 
-std::filesystem::path host_path(const std::string &path) { return io().memory_stick / path; }
+std::filesystem::path host_path(const std::string &path) {
+    return io().memory_stick / path;
+}
 
 bool trace_io() {
     static const bool enabled = std::getenv("MHP3RD_TRACE_IO") != nullptr;
@@ -149,9 +153,8 @@ std::int64_t open_file(const std::string &full_path, std::uint32_t flags) {
             return static_cast<std::int32_t>(io_error::kFileNotFound);
         }
         // DATA.BIN, or raw sectors inside it, as the game loads a module stored there.
-        if (const auto data_bin = mods::data_bin_on_disc();
-            data_bin && !split.path.empty() && file.disc_offset >= data_bin->offset &&
-            file.disc_offset < data_bin->offset + data_bin->size) {
+        if (const auto data_bin = mods::data_bin_on_disc(); data_bin && !split.path.empty() &&
+            file.disc_offset >= data_bin->offset && file.disc_offset < data_bin->offset + data_bin->size) {
             file.archive = true;
             file.archive_offset = file.disc_offset - data_bin->offset;
             if (file.archive_offset == 0u && file.size == data_bin->size) file.size = mods::data_bin_size();
@@ -197,8 +200,8 @@ void write_date_time(psprecomp::GuestMemory &memory, std::uint32_t address, std:
 }
 
 // SceIoStat: mode, attr, size(64), ctime, atime, mtime, private[6].
-void write_stat(psprecomp::GuestMemory &memory, std::uint32_t address, bool directory, std::uint64_t size,
-                std::uint32_t lba) {
+void write_stat(
+    psprecomp::GuestMemory &memory, std::uint32_t address, bool directory, std::uint64_t size, std::uint32_t lba) {
     for (std::uint32_t i = 0; i < 88u; ++i) memory.store8(address + i, 0u);
     memory.store32(address, (directory ? 0x1000u : 0x2000u) | 0x1FFu);
     memory.store32(address + 4u, (directory ? 0x10u : 0x20u) | 0x7u);
@@ -238,7 +241,8 @@ std::size_t read_open_file(std::uint32_t fd, std::uint64_t offset, std::uint8_t 
     return 0u;
 }
 
-void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, const std::filesystem::path &memory_stick) {
+void register_io(
+    HleRegistrar &hle, const std::filesystem::path &disc_image, const std::filesystem::path &memory_stick) {
     if (!disc_image.empty()) io().disc = std::make_unique<IsoImage>(disc_image);
     io().memory_stick = memory_stick;
     mods::attach_disc(io().disc.get());
@@ -328,9 +332,15 @@ void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, con
         const auto offset = static_cast<std::int64_t>(arg64(ctx, 2));
         std::int64_t base = 0;
         switch (arg(ctx, 4)) {
-        case 0u: base = 0; break;
-        case 1u: base = static_cast<std::int64_t>(file.position); break;
-        case 2u: base = static_cast<std::int64_t>(file.size); break;
+        case 0u:
+            base = 0;
+            break;
+        case 1u:
+            base = static_cast<std::int64_t>(file.position);
+            break;
+        case 2u:
+            base = static_cast<std::int64_t>(file.size);
+            break;
         default:
             kernel().finish64(ctx, static_cast<std::int64_t>(static_cast<std::int32_t>(io_error::kInvalidArgument)));
             return;
@@ -354,9 +364,9 @@ void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, con
                 // DATA.BIN is as large as the mods make it.
                 const auto data_bin = mods::data_bin_on_disc();
                 const bool is_data_bin = data_bin && !entry->directory &&
-                                         static_cast<std::uint64_t>(entry->lba) * IsoImage::kSectorSize == data_bin->offset;
+                    static_cast<std::uint64_t>(entry->lba) * IsoImage::kSectorSize == data_bin->offset;
                 write_stat(rt.memory(), arg(ctx, 1), entry->directory,
-                           is_data_bin ? mods::data_bin_size() : entry->size, entry->lba);
+                    is_data_bin ? mods::data_bin_size() : entry->size, entry->lba);
                 result = 0u;
             }
         } else if (split.device == Device::MemoryStick) {
@@ -364,7 +374,8 @@ void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, con
             const auto host = host_path(split.path);
             if (std::filesystem::exists(host, ec)) {
                 const bool directory = std::filesystem::is_directory(host, ec);
-                write_stat(rt.memory(), arg(ctx, 1), directory, directory ? 0u : std::filesystem::file_size(host, ec), 0u);
+                write_stat(
+                    rt.memory(), arg(ctx, 1), directory, directory ? 0u : std::filesystem::file_size(host, ec), 0u);
                 result = 0u;
             }
         }
@@ -417,8 +428,8 @@ void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, con
         const std::uint32_t output_length = arg(ctx, 5);
         auto &memory = rt.memory();
         switch (command) {
-        case 0x02015804u:    // register memory stick insert/eject callback (ms0:)
-        case 0x02415821u: {  // the same for fatms0:
+        case 0x02015804u:   // register memory stick insert/eject callback (ms0:)
+        case 0x02415821u: { // the same for fatms0:
             // The game waits for the first notification before it continues, and
             // refuses to save while it has not been told a card is inserted, so
             // report the card as present right away.
@@ -452,7 +463,7 @@ void register_io(HleRegistrar &hle, const std::filesystem::path &disc_image, con
         }
         default:
             log_once("devctl:" + device + psprecomp::hex32(command),
-                     "[io] devctl " + device + " cmd=" + psprecomp::hex32(command) + " (unhandled, returning 0)");
+                "[io] devctl " + device + " cmd=" + psprecomp::hex32(command) + " (unhandled, returning 0)");
             break;
         }
         kernel().finish(ctx, 0u);

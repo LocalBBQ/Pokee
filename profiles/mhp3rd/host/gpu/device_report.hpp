@@ -23,13 +23,13 @@ inline constexpr std::uint32_t kVendorQualcomm = 0x5143u;
 
 struct DeviceFacts {
     std::string name;
-    std::string driver_name;  // VK_KHR_driver_properties, when the device has it
+    std::string driver_name; // VK_KHR_driver_properties, when the device has it
     std::string driver_info;
     std::uint32_t vendor_id{};
     std::uint32_t device_id{};
     std::uint32_t api_version{};
     std::uint32_t driver_version{};
-    VkDeviceSize max_allocation{};  // maxMemoryAllocationSize; 0 when unknown
+    VkDeviceSize max_allocation{}; // maxMemoryAllocationSize; 0 when unknown
 
     [[nodiscard]] bool arm() const noexcept { return vendor_id == kVendorArm; }
     [[nodiscard]] bool imagination() const noexcept { return vendor_id == kVendorImagination; }
@@ -51,8 +51,8 @@ void log_device(VkPhysicalDevice device, VkSurfaceKHR surface, const DeviceFacts
 
 // What the renderer needs and the device does not offer, one entry each,
 // in words a player can pass on. Empty when everything is there.
-[[nodiscard]] std::vector<std::string> missing_requirements(VkPhysicalDevice device, const DeviceFacts &facts,
-                                                            VkDeviceSize vertex_buffer_bytes);
+[[nodiscard]] std::vector<std::string> missing_requirements(
+    VkPhysicalDevice device, const DeviceFacts &facts, VkDeviceSize vertex_buffer_bytes);
 
 // The drivers v0.6.5 and v0.6.6 started in GPU compatibility mode (ARM Mali
 // older than r38, PowerVR: what budget MediaTek phones ship, issues #159,

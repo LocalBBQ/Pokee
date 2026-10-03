@@ -11,8 +11,8 @@ namespace mhp3rd::gpu {
 
 // The vertex of a draw at position `index` of its primitive: through the
 // index list when there is one, clamped to the vertices decoded.
-inline std::uint16_t primitive_vertex(const std::vector<std::uint16_t> &indices, std::size_t vertex_count,
-                                      std::size_t index) {
+inline std::uint16_t primitive_vertex(
+    const std::vector<std::uint16_t> &indices, std::size_t vertex_count, std::size_t index) {
     const std::size_t last = vertex_count - 1u;
     const std::size_t mapped = indices.empty() ? index : indices[index];
     return static_cast<std::uint16_t>(std::min(mapped, last));
@@ -28,11 +28,11 @@ inline std::uint16_t primitive_vertex(const std::vector<std::uint16_t> &indices,
 // when it is indexed), `vertex_count` the number decoded, at most 65536.
 // Returns false, leaving `out` empty, for any other primitive.
 inline bool triangle_indices(PrimitiveType primitive, std::size_t count, const std::vector<std::uint16_t> &indices,
-                             std::size_t vertex_count, std::vector<std::uint16_t> &out) {
+    std::size_t vertex_count, std::vector<std::uint16_t> &out) {
     out.clear();
-    if (vertex_count == 0u) return primitive == PrimitiveType::Triangles ||
-                                   primitive == PrimitiveType::TriangleStrip ||
-                                   primitive == PrimitiveType::TriangleFan;
+    if (vertex_count == 0u)
+        return primitive == PrimitiveType::Triangles || primitive == PrimitiveType::TriangleStrip ||
+            primitive == PrimitiveType::TriangleFan;
     const auto at = [&](std::size_t index) { return primitive_vertex(indices, vertex_count, index); };
     switch (primitive) {
     case PrimitiveType::Triangles:
@@ -60,7 +60,8 @@ inline bool triangle_indices(PrimitiveType primitive, std::size_t count, const s
             out.push_back(at(i + 1u));
         }
         return true;
-    default: return false;
+    default:
+        return false;
     }
 }
 

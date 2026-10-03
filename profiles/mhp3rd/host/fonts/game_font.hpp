@@ -46,9 +46,9 @@ inline constexpr int kCell = 20;
 // second, bolder pass on the left and for the sprites that leave out the
 // cell's last column on the right.
 inline constexpr int kInkLeft = 1;
-inline constexpr int kInkRight = 19;   // exclusive
+inline constexpr int kInkRight = 19; // exclusive
 inline constexpr int kInkTop = 0;
-inline constexpr int kInkBottom = 20;  // exclusive
+inline constexpr int kInkBottom = 20; // exclusive
 // Row of the baseline inside the cell, as reported to the game. Each face's
 // own baseline goes on the row that best splits the cell between its
 // ascenders and descenders; glyph tops are reported relative to this one.
@@ -62,9 +62,9 @@ struct GlyphMetrics {
     int width{};
     int height{};
     int left{};
-    int top{};       // pixels above the baseline
+    int top{}; // pixels above the baseline
     float advance{};
-    bool found{};    // false: no font has the character; nothing is drawn
+    bool found{}; // false: no font has the character; nothing is drawn
 };
 
 // An 8-bit coverage bitmap. `x` and `y` are where its top-left pixel goes
@@ -112,12 +112,12 @@ void set_reload_hook(void (*hook)());
 
 // A font the player can choose.
 struct FontChoice {
-    std::string value;     // what settings.ini stores: "" for the default, else path, and "#face" for a collection
-    std::string name;      // the face's full name
-    std::string path;      // UTF-8
-    int face{};            // index in a collection
-    bool japanese{};       // has the kana and kanji the game uses; otherwise those come from the default
-    bool user_folder{};    // from the fonts folder in the data directory
+    std::string value;  // what settings.ini stores: "" for the default, else path, and "#face" for a collection
+    std::string name;   // the face's full name
+    std::string path;   // UTF-8
+    int face{};         // index in a collection
+    bool japanese{};    // has the kana and kanji the game uses; otherwise those come from the default
+    bool user_folder{}; // from the fonts folder in the data directory
 };
 
 // Starts looking for installed fonts on a worker thread.

@@ -19,13 +19,15 @@ constexpr std::uint32_t kAudioSampleRate = 44'100u;
 
 [[nodiscard]] std::int64_t timestamp(const std::uint8_t *bytes) noexcept {
     return (static_cast<std::int64_t>((bytes[0] >> 1u) & 7u) << 30u) | (static_cast<std::int64_t>(bytes[1]) << 22u) |
-           (static_cast<std::int64_t>(bytes[2] >> 1u) << 15u) | (static_cast<std::int64_t>(bytes[3]) << 7u) |
-           static_cast<std::int64_t>(bytes[4] >> 1u);
+        (static_cast<std::int64_t>(bytes[2] >> 1u) << 15u) | (static_cast<std::int64_t>(bytes[3]) << 7u) |
+        static_cast<std::int64_t>(bytes[4] >> 1u);
 }
 
 } // namespace
 
-void PsmfDemuxer::reset() { *this = PsmfDemuxer{}; }
+void PsmfDemuxer::reset() {
+    *this = PsmfDemuxer{};
+}
 
 bool PsmfDemuxer::push_pack(std::span<const std::uint8_t> pack) {
     if (pack.size() < 14u || pack[0] != 0u || pack[1] != 0u || pack[2] != 1u || pack[3] != kPackStart) return false;
@@ -89,12 +91,16 @@ void PsmfDemuxer::split_video() {
     while (index < video_starts_.size()) {
         const std::size_t start = video_starts_[index];
         std::size_t end{};
-        if (index + 1u < video_starts_.size()) end = video_starts_[index + 1u];
-        else if (ended_) end = video_.size();
-        else break;
+        if (index + 1u < video_starts_.size())
+            end = video_starts_[index + 1u];
+        else if (ended_)
+            end = video_.size();
+        else
+            break;
 
         AccessUnit unit;
-        unit.data.assign(video_.begin() + static_cast<std::ptrdiff_t>(start), video_.begin() + static_cast<std::ptrdiff_t>(end));
+        unit.data.assign(
+            video_.begin() + static_cast<std::ptrdiff_t>(start), video_.begin() + static_cast<std::ptrdiff_t>(end));
         // A PES timestamp belongs to the first picture that starts in it.
         std::optional<Stamp> stamp;
         while (!video_stamps_.empty() && video_stamps_.front().offset <= start) {
@@ -139,13 +145,14 @@ void PsmfDemuxer::split_audio() {
 
         AccessUnit unit;
         unit.data.assign(audio_.begin() + static_cast<std::ptrdiff_t>(consumed + kAtracFrameHeader),
-                         audio_.begin() + static_cast<std::ptrdiff_t>(consumed + size));
+            audio_.begin() + static_cast<std::ptrdiff_t>(consumed + size));
         std::optional<Stamp> stamp;
         while (!audio_stamps_.empty() && audio_stamps_.front().offset <= consumed) {
             stamp = audio_stamps_.front();
             audio_stamps_.pop_front();
         }
-        if (stamp) unit.pts = stamp->pts;
+        if (stamp)
+            unit.pts = stamp->pts;
         else if (last_audio_pts_ >= 0)
             unit.pts = last_audio_pts_ + static_cast<std::int64_t>(kAtracFrameSamples) * 90'000 / kAudioSampleRate;
         unit.dts = unit.pts;
@@ -172,7 +179,11 @@ std::optional<AccessUnit> PsmfDemuxer::pop_audio() {
     return unit;
 }
 
-bool PsmfDemuxer::video_ready() const { return !video_units_.empty(); }
-bool PsmfDemuxer::audio_ready() const { return !audio_units_.empty(); }
+bool PsmfDemuxer::video_ready() const {
+    return !video_units_.empty();
+}
+bool PsmfDemuxer::audio_ready() const {
+    return !audio_units_.empty();
+}
 
 } // namespace mhp3rd::movie

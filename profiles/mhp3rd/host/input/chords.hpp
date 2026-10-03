@@ -33,7 +33,7 @@ public:
     // the port reads by itself, such as L3 + R3 for the menu: they win like
     // any chord and press nothing.
     PadState update(const Table &table, const std::function<bool(Binding)> &held, std::uint64_t now_ms,
-                    unsigned window_ms, std::span<const Chord> reserved = {});
+        unsigned window_ms, std::span<const Chord> reserved = {});
     // Forgets everything held, for when the device goes away.
     void reset();
 
@@ -43,7 +43,7 @@ public:
         Kind kind{};
         Chord chord;
         std::uint64_t at_ms{};
-        std::uint64_t waited_ms{};  // since its last input went down
+        std::uint64_t waited_ms{}; // since its last input went down
     };
     [[nodiscard]] const std::vector<Event> &events() const { return events_; }
     // The targets pressing now, in Table order.
@@ -53,11 +53,11 @@ private:
     struct Held {
         Binding input{};
         std::uint64_t since{};
-        bool spent{};  // left over from a chord that let go: nothing until released
+        bool spent{}; // left over from a chord that let go: nothing until released
     };
     struct Active {
         Chord chord;
-        Chord base;  // what it grew from, which acts again if it is let go
+        Chord base; // what it grew from, which acts again if it is let go
     };
     struct Tap {
         Chord chord;
@@ -80,7 +80,7 @@ private:
 // Anything else passes through unchanged, and L held already counts.
 inline constexpr unsigned kLeadReads = 10u;
 inline constexpr unsigned kMinReads = 3u;
-inline constexpr std::uint32_t kLeadButton = 0x0100u;  // L
+inline constexpr std::uint32_t kLeadButton = 0x0100u; // L
 class LeadIn {
 public:
     // `buttons`: what the bindings and everything else press now.
@@ -90,9 +90,9 @@ public:
     void reset() { *this = LeadIn{}; }
 
 private:
-    unsigned held_reads_{};     // reads in a row the game has seen L
-    std::uint32_t pending_{};   // the others, waiting for L or being shown
-    unsigned shown_reads_{};    // reads the others have been shown
+    unsigned held_reads_{};   // reads in a row the game has seen L
+    std::uint32_t pending_{}; // the others, waiting for L or being shown
+    unsigned shown_reads_{};  // reads the others have been shown
 };
 // Of the targets pressing, the buttons of those that press L with others.
 [[nodiscard]] std::uint32_t lead_requested(const Table &table, std::span<const std::size_t> targets);

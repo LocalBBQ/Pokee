@@ -139,7 +139,7 @@ bool face_button_held() {
         SDL_Gamepad *pad = SDL_GetGamepadFromID(ids[i]);
         if (pad == nullptr) continue;
         for (SDL_GamepadButton button : {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST,
-                                         SDL_GAMEPAD_BUTTON_NORTH, SDL_GAMEPAD_BUTTON_START})
+                 SDL_GAMEPAD_BUTTON_NORTH, SDL_GAMEPAD_BUTTON_START})
             held = held || SDL_GetGamepadButton(pad, button);
     }
     SDL_free(ids);
@@ -198,8 +198,10 @@ void Layer::set_interactive(bool interactive) {
     // held when a screen closes stays held for the next one.
     io.ClearEventsQueue();
     io.ClearInputKeys();
-    if (interactive) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
-    else io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    if (interactive)
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    else
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     // A screen needs the pointer; the renderer frees it before the next frame.
     if (renderer_ != nullptr) renderer_->set_pointer_free(interactive);
     menu_toggle_ = false;
@@ -212,7 +214,9 @@ void Layer::set_interactive(bool interactive) {
     pad_blocked_ = false;
 }
 
-bool Layer::confirm_south() const { return settings::current().confirm_south; }
+bool Layer::confirm_south() const {
+    return settings::current().confirm_south;
+}
 
 void Layer::begin_binding_capture(Capture device) {
     capturing_binding_ = true;
@@ -254,7 +258,9 @@ void Layer::finish_capture(bool cancelled) {
     capture_down_.clear();
 }
 
-std::optional<input::Chord> Layer::take_captured_binding() { return std::exchange(captured_binding_, std::nullopt); }
+std::optional<input::Chord> Layer::take_captured_binding() {
+    return std::exchange(captured_binding_, std::nullopt);
+}
 
 bool Layer::handle_event(const SDL_Event &event) {
     const Clock::time_point now = Clock::now();
@@ -277,18 +283,18 @@ bool Layer::handle_event(const SDL_Event &event) {
             return true;
         };
         const bool escape = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
-                            (event.key.key == SDLK_ESCAPE
+            (event.key.key == SDLK_ESCAPE
 #if defined(__ANDROID__)
-                             || event.key.key == SDLK_AC_BACK
+                || event.key.key == SDLK_AC_BACK
 #endif
-                            );
+            );
         if (escape) {
             finish_capture(true);
             return true;
         }
         // A finger cancels: a touch screen has no key or button to bind.
         const bool touch = event.type == SDL_EVENT_FINGER_DOWN ||
-                           (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.which == SDL_TOUCH_MOUSEID);
+            (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.which == SDL_TOUCH_MOUSEID);
         if (touch) {
             finish_capture(true);
             swallow_touch_ = true;
@@ -316,7 +322,8 @@ bool Layer::handle_event(const SDL_Event &event) {
                 last_pad_button_ = now;
                 finish_capture(true);
                 return true;
-            default: break;
+            default:
+                break;
             }
         } else {
             switch (event.type) {
@@ -343,16 +350,18 @@ bool Layer::handle_event(const SDL_Event &event) {
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
                 return true;
-            default: break;
+            default:
+                break;
             }
         }
     }
     if (swallow_touch_) {
-        const bool from_touch = ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
-                                 event.button.which == SDL_TOUCH_MOUSEID) ||
-                                (event.type == SDL_EVENT_MOUSE_MOTION && event.motion.which == SDL_TOUCH_MOUSEID);
+        const bool from_touch =
+            ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+                event.button.which == SDL_TOUCH_MOUSEID) ||
+            (event.type == SDL_EVENT_MOUSE_MOTION && event.motion.which == SDL_TOUCH_MOUSEID);
         const bool lifted = event.type == SDL_EVENT_FINGER_UP ||
-                            (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.which == SDL_TOUCH_MOUSEID);
+            (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.which == SDL_TOUCH_MOUSEID);
         if (lifted) swallow_touch_ = false;
         if (from_touch || event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_MOTION) return true;
     }
@@ -387,7 +396,7 @@ bool Layer::handle_event(const SDL_Event &event) {
         if (button == SDL_GAMEPAD_BUTTON_LEFT_STICK || button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) {
             SDL_Gamepad *pad = SDL_GetGamepadFromID(event.gbutton.which);
             const SDL_GamepadButton other = button == SDL_GAMEPAD_BUTTON_LEFT_STICK ? SDL_GAMEPAD_BUTTON_RIGHT_STICK
-                                                                                     : SDL_GAMEPAD_BUTTON_LEFT_STICK;
+                                                                                    : SDL_GAMEPAD_BUTTON_LEFT_STICK;
             if (pad != nullptr && SDL_GetGamepadButton(pad, other) && !pad_blocked_) menu_toggle_ = true;
         }
         break;
@@ -412,12 +421,14 @@ bool Layer::handle_event(const SDL_Event &event) {
         // Android has no dropping: this is a document another app asked
         // Yakumo to open, and SDL passes only the path part of its content://
         // URI, which names no file. Nothing can be read from it.
-        if (event.drop.data != nullptr) std::cout << "[ui] ignored a document opened with Yakumo: " << event.drop.data << "\n";
+        if (event.drop.data != nullptr)
+            std::cout << "[ui] ignored a document opened with Yakumo: " << event.drop.data << "\n";
 #else
         if (event.drop.data != nullptr) dropped_ = install::path_from_utf8(event.drop.data);
 #endif
         return true;
-    default: break;
+    default:
+        break;
     }
     if (!interactive_) return false;
     ImGui_ImplSDL3_ProcessEvent(&event);
@@ -431,8 +442,10 @@ void Layer::resolve_escape() {
     const bool from_pad = *escape_pending_ - last_pad_button_ < kEscapeWindow;
     escape_pending_.reset();
     if (from_pad) return;
-    if (interactive_) back_ = true;
-    else menu_toggle_ = true;
+    if (interactive_)
+        back_ = true;
+    else
+        menu_toggle_ = true;
 }
 
 bool Layer::take_menu_toggle() {
@@ -445,7 +458,9 @@ bool Layer::take_back() {
     return std::exchange(back_, false);
 }
 
-std::optional<std::filesystem::path> Layer::take_dropped_file() { return std::exchange(dropped_, std::nullopt); }
+std::optional<std::filesystem::path> Layer::take_dropped_file() {
+    return std::exchange(dropped_, std::nullopt);
+}
 
 void Layer::apply_theme() {
     const ImGuiIO &io = ImGui::GetIO();
@@ -488,8 +503,10 @@ void Layer::begin_frame() {
         gamepad_armed_ = false;
     }
     if (!gamepad_armed_) gamepad_armed_ = !pad_quiet_ && !face_button_held();
-    if (gamepad_armed_) io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-    else io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+    if (gamepad_armed_)
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    else
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
     apply_theme();
     ImGui::NewFrame();
     description_.clear();

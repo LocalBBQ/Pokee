@@ -39,7 +39,9 @@ constexpr float kSlowFactor = 0.25f;
 
 using Vector = std::array<float, 3>;
 
-float dot(const Vector &a, const Vector &b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+float dot(const Vector &a, const Vector &b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
 
 Vector cross(const Vector &a, const Vector &b) {
     return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
@@ -95,7 +97,7 @@ struct State {
     std::uint32_t last_moved{};
     std::uint32_t last_other{};
     std::uint64_t frame{};
-    std::vector<ViewStats> views;  // MHP3RD_TRACE_VIEWS
+    std::vector<ViewStats> views; // MHP3RD_TRACE_VIEWS
 };
 
 State &state() {
@@ -104,9 +106,8 @@ State &state() {
 }
 
 void observe(State &s, const gpu::DrawCall &call) {
-    auto found = std::find_if(s.views.begin(), s.views.end(), [&](const ViewStats &v) {
-        return v.view == call.view && v.projection == call.projection;
-    });
+    auto found = std::find_if(s.views.begin(), s.views.end(),
+        [&](const ViewStats &v) { return v.view == call.view && v.projection == call.projection; });
     if (found == s.views.end()) {
         s.views.push_back({call.view, call.projection});
         found = s.views.end() - 1;
@@ -142,8 +143,8 @@ void print_views(const psprecomp::GuestMemory &memory, const State &s) {
         const auto pose = pose_of_view(v.view);
         std::cout << "[views]   draws=" << v.draws << " verts=" << v.vertices << " zwrite=" << v.depth_writes;
         if (pose)
-            std::cout << " eye=(" << pose->eye[0] << "," << pose->eye[1] << "," << pose->eye[2]
-                      << ") yaw=" << pose->yaw << " pitch=" << pose->pitch;
+            std::cout << " eye=(" << pose->eye[0] << "," << pose->eye[1] << "," << pose->eye[2] << ") yaw=" << pose->yaw
+                      << " pitch=" << pose->pitch;
         else
             std::cout << " not a rotation";
         const Matrix &m = v.view;
@@ -151,8 +152,8 @@ void print_views(const psprecomp::GuestMemory &memory, const State &s) {
                   << " | " << m[2] << " " << m[6] << " " << m[10] << "] t=(" << m[12] << "," << m[13] << "," << m[14]
                   << ")";
         const Matrix &p = v.projection;
-        std::cout << " proj=(" << p[0] << "," << p[5] << "," << p[10] << "," << p[11] << "," << p[14] << ","
-                  << p[15] << ") targets=" << std::hex;
+        std::cout << " proj=(" << p[0] << "," << p[5] << "," << p[10] << "," << p[11] << "," << p[14] << "," << p[15]
+                  << ") targets=" << std::hex;
         for (std::uint32_t target : v.targets) std::cout << " 0x" << target;
         std::cout << std::dec;
         const auto places = find_in_camera(memory, v.view);
@@ -186,7 +187,7 @@ std::uint32_t camera_address(const psprecomp::GuestMemory &memory) {
     const float aspect = load_float(memory, camera + kAspect);
     const float fov = load_float(memory, camera + kFieldOfView);
     const bool plausible = std::isfinite(near_plane) && std::isfinite(far_plane) && near_plane > 0.0f &&
-                           far_plane > near_plane && aspect > 0.25f && aspect < 8.0f && fov > 0.01f && fov < 3.1f;
+        far_plane > near_plane && aspect > 0.25f && aspect < 8.0f && fov > 0.01f && fov < 3.1f;
     return plausible ? camera : 0u;
 }
 
@@ -211,12 +212,12 @@ std::optional<FreePose> pose_of_view(const Matrix &view) {
         if (std::fabs(dot(*row, *row) - 1.0f) > kSlack) return std::nullopt;
     if (std::fabs(dot(r0, r1)) > kSlack || std::fabs(dot(r1, r2)) > kSlack || std::fabs(dot(r0, r2)) > kSlack)
         return std::nullopt;
-    if (dot(cross(r0, r1), r2) < 0.0f) return std::nullopt;  // a mirror
+    if (dot(cross(r0, r1), r2) < 0.0f) return std::nullopt; // a mirror
     const Vector forward{-r2[0], -r2[1], -r2[2]};
     FreePose pose;
     pose.yaw = std::atan2(forward[0], forward[2]) * kDegrees;
-    pose.pitch = std::clamp(std::asin(std::clamp(forward[1], -1.0f, 1.0f)) * kDegrees, -kFreePitchLimit,
-                            kFreePitchLimit);
+    pose.pitch =
+        std::clamp(std::asin(std::clamp(forward[1], -1.0f, 1.0f)) * kDegrees, -kFreePitchLimit, kFreePitchLimit);
     const float t0 = view[12], t1 = view[13], t2 = view[14];
     for (std::size_t axis = 0; axis < 3u; ++axis) pose.eye[axis] = -(r0[axis] * t0 + r1[axis] * t1 + r2[axis] * t2);
     return pose;
@@ -264,7 +265,7 @@ FreePose fly(FreePose pose, const FlyInput &input, float seconds, float units_pe
 
 bool same_uploaded(const Matrix &uploaded, const Matrix &kept) {
     for (std::size_t i = 0; i < 16u; ++i) {
-        if ((i & 3u) == 3u) continue;  // the GE uploads twelve entries
+        if ((i & 3u) == 3u) continue; // the GE uploads twelve entries
         const std::uint32_t a = std::bit_cast<std::uint32_t>(uploaded[i]) & 0xFFFFFF00u;
         const std::uint32_t b = std::bit_cast<std::uint32_t>(kept[i]) & 0xFFFFFF00u;
         if (a != b) return false;
@@ -286,7 +287,9 @@ FreeCameraStatus free_camera_status() {
     return {s.active, s.paused, s.speed, s.last_moved, s.last_other};
 }
 
-bool free_camera_active() { return state().active; }
+bool free_camera_active() {
+    return state().active;
+}
 
 void free_camera_leave() {
     State &s = state();
@@ -322,8 +325,8 @@ void free_camera_update(psprecomp::Runtime &runtime, const FreeCameraRequest &re
         // so two runs can look from exactly the same place.
         if (const char *text = std::getenv("MHP3RD_FREE_CAMERA_POSE"); text != nullptr && *text != '\0') {
             FreePose pose;
-            if (std::sscanf(text, "%f,%f,%f,%f,%f", &pose.eye[0], &pose.eye[1], &pose.eye[2], &pose.yaw,
-                            &pose.pitch) == 5) {
+            if (std::sscanf(text, "%f,%f,%f,%f,%f", &pose.eye[0], &pose.eye[1], &pose.eye[2], &pose.yaw, &pose.pitch) ==
+                5) {
                 pose.pitch = std::clamp(pose.pitch, -kFreePitchLimit, kFreePitchLimit);
                 s.pose = pose;
                 s.view = view_of_pose(pose);
@@ -336,7 +339,7 @@ void free_camera_update(psprecomp::Runtime &runtime, const FreeCameraRequest &re
         s.speed = settings::current().free_camera_speed;
         s.moved = s.other = s.last_moved = s.last_other = 0u;
         say_pose("on", s.pose, s.speed);
-        return;  // the first frame shows exactly the game's view
+        return; // the first frame shows exactly the game's view
     }
     if (!s.active) return;
     if (request.reset && start_from_game(s, memory)) say_pose("back to the game's camera", s.pose, s.speed);
@@ -347,7 +350,7 @@ void free_camera_update(psprecomp::Runtime &runtime, const FreeCameraRequest &re
     }
     if (request.speed_steps != 0) {
         s.speed = std::clamp(s.speed * std::pow(kSpeedStep, static_cast<float>(request.speed_steps)),
-                             settings::kMinFreeCameraSpeed, settings::kMaxFreeCameraSpeed);
+            settings::kMinFreeCameraSpeed, settings::kMaxFreeCameraSpeed);
     }
     const float factor = (request.fast ? kFastFactor : 1.0f) * (request.slow ? kSlowFactor : 1.0f);
     s.pose = fly(s.pose, request.input, seconds, s.speed * factor);

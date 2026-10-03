@@ -30,7 +30,7 @@ void ModSession::commit() {
     if (!library_.save_choices(paths_.choices, error_)) std::cerr << "[mods] " << error_ << "\n";
     wanted_ = resolve();
     if (wanted_.same_files(active_)) {
-        active_ = wanted_;  // the conflicts may read differently
+        active_ = wanted_; // the conflicts may read differently
         return;
     }
     if (game_.can_switch(wanted_)) {

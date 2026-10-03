@@ -37,15 +37,20 @@ std::uint32_t expand_4444(std::uint16_t value) {
 // Bits per texel for the format, or 0 for the block-compressed ones.
 std::uint32_t bits_per_texel(TextureFormat format) {
     switch (format) {
-    case TextureFormat::Clut4: return 4u;
-    case TextureFormat::Clut8: return 8u;
+    case TextureFormat::Clut4:
+        return 4u;
+    case TextureFormat::Clut8:
+        return 8u;
     case TextureFormat::Rgba5650:
     case TextureFormat::Rgba5551:
     case TextureFormat::Rgba4444:
-    case TextureFormat::Clut16: return 16u;
+    case TextureFormat::Clut16:
+        return 16u;
     case TextureFormat::Rgba8888:
-    case TextureFormat::Clut32: return 32u;
-    default: return 0u;
+    case TextureFormat::Clut32:
+        return 32u;
+    default:
+        return 0u;
     }
 }
 
@@ -69,10 +74,10 @@ void unswizzle(std::vector<std::uint8_t> &data, std::uint32_t row_bytes, std::ui
         for (std::uint32_t block_column = 0; block_column < block_columns; ++block_column) {
             for (std::uint32_t row = 0; row < 8u; ++row) {
                 const std::size_t destination = static_cast<std::size_t>(block_row * 8u + row) * row_bytes +
-                                                static_cast<std::size_t>(block_column) * 16u;
+                    static_cast<std::size_t>(block_column) * 16u;
                 if (offset + 16u > source.size() || destination + 16u > data.size()) return;
                 std::copy_n(source.begin() + static_cast<std::ptrdiff_t>(offset), 16u,
-                            data.begin() + static_cast<std::ptrdiff_t>(destination));
+                    data.begin() + static_cast<std::ptrdiff_t>(destination));
                 offset += 16u;
             }
         }
@@ -82,10 +87,14 @@ void unswizzle(std::vector<std::uint8_t> &data, std::uint32_t row_bytes, std::ui
 std::uint32_t read_clut(const GuestMemory &memory, const TextureState &texture, std::uint32_t index) {
     const std::uint32_t entry = ((index >> texture.clut_shift) & texture.clut_mask) | texture.clut_offset << 4u;
     switch (texture.clut_format) {
-    case 0u: return expand_5650(memory.load16(texture.clut_address + entry * 2u));
-    case 1u: return expand_5551(memory.load16(texture.clut_address + entry * 2u));
-    case 2u: return expand_4444(memory.load16(texture.clut_address + entry * 2u));
-    default: return memory.load32(texture.clut_address + entry * 4u);
+    case 0u:
+        return expand_5650(memory.load16(texture.clut_address + entry * 2u));
+    case 1u:
+        return expand_5551(memory.load16(texture.clut_address + entry * 2u));
+    case 2u:
+        return expand_4444(memory.load16(texture.clut_address + entry * 2u));
+    default:
+        return memory.load32(texture.clut_address + entry * 4u);
     }
 }
 
@@ -94,14 +103,18 @@ std::uint32_t read_clut_copy(const std::vector<std::uint8_t> &clut, const Textur
     const std::uint32_t entry = ((index >> texture.clut_shift) & texture.clut_mask) | texture.clut_offset << 4u;
     const std::size_t size = texture.clut_format == 3u ? 4u : 2u;
     const std::size_t at = static_cast<std::size_t>(entry) * size;
-    if (at + size > clut.size()) return 0xFF000000u;  // not reached: entries stay below 512
+    if (at + size > clut.size()) return 0xFF000000u; // not reached: entries stay below 512
     std::uint32_t value = 0u;
     std::memcpy(&value, clut.data() + at, size);
     switch (texture.clut_format) {
-    case 0u: return expand_5650(static_cast<std::uint16_t>(value));
-    case 1u: return expand_5551(static_cast<std::uint16_t>(value));
-    case 2u: return expand_4444(static_cast<std::uint16_t>(value));
-    default: return value;
+    case 0u:
+        return expand_5650(static_cast<std::uint16_t>(value));
+    case 1u:
+        return expand_5551(static_cast<std::uint16_t>(value));
+    case 2u:
+        return expand_4444(static_cast<std::uint16_t>(value));
+    default:
+        return value;
     }
 }
 
@@ -162,17 +175,22 @@ void decode_dxt_block(const std::uint8_t *block, TextureFormat format, std::uint
                 const std::uint32_t nibble_index = row * 4u + column;
                 const std::uint8_t byte = alphas[nibble_index / 2u];
                 alpha = ((nibble_index & 1u) != 0u ? (byte >> 4u) : (byte & 0xFu)) * 17u;
-            } else {  // DXT5
+            } else { // DXT5
                 const std::uint32_t alpha0 = alphas[6];
                 const std::uint32_t alpha1 = alphas[7];
                 std::uint64_t codes = 0u;
                 for (std::uint32_t i = 0; i < 6u; ++i) codes |= static_cast<std::uint64_t>(alphas[i]) << (i * 8u);
                 const std::uint32_t code = static_cast<std::uint32_t>((codes >> ((row * 4u + column) * 3u)) & 7u);
-                if (code == 0u) alpha = alpha0;
-                else if (code == 1u) alpha = alpha1;
-                else if (alpha0 > alpha1) alpha = ((8u - code) * alpha0 + (code - 1u) * alpha1) / 7u;
-                else if (code < 6u) alpha = ((6u - code) * alpha0 + (code - 1u) * alpha1) / 5u;
-                else alpha = code == 6u ? 0u : 255u;
+                if (code == 0u)
+                    alpha = alpha0;
+                else if (code == 1u)
+                    alpha = alpha1;
+                else if (alpha0 > alpha1)
+                    alpha = ((8u - code) * alpha0 + (code - 1u) * alpha1) / 7u;
+                else if (code < 6u)
+                    alpha = ((6u - code) * alpha0 + (code - 1u) * alpha1) / 5u;
+                else
+                    alpha = code == 6u ? 0u : 255u;
             }
             out[row * stride + column] = (palette[selector] & 0x00FFFFFFu) | (alpha << 24u);
         }
@@ -183,8 +201,7 @@ void decode_dxt_block(const std::uint8_t *block, TextureFormat format, std::uint
 // existed: every texel through one switch, every palette entry read from guest
 // memory again.
 bool decode_texels_slow(const GuestMemory &memory, const TextureState &texture, std::uint32_t width,
-                        std::uint32_t height, std::uint32_t row_bytes, std::vector<std::uint8_t> &data,
-                        std::vector<std::uint32_t> &out) {
+    std::uint32_t height, std::uint32_t row_bytes, std::vector<std::uint8_t> &data, std::vector<std::uint32_t> &out) {
     const std::size_t total = data.size();
     for (std::size_t i = 0; i < total; ++i) data[i] = memory.load8(texture.address + static_cast<std::uint32_t>(i));
     if (texture.swizzled) unswizzle(data, row_bytes, height);
@@ -200,7 +217,7 @@ bool decode_texels_slow(const GuestMemory &memory, const TextureState &texture, 
                 if (at + 1u >= data.size()) break;
                 const auto value = static_cast<std::uint16_t>(data[at] | (data[at + 1u] << 8));
                 color = texture.format == TextureFormat::Rgba5650 ? expand_5650(value)
-                      : texture.format == TextureFormat::Rgba5551 ? expand_5551(value)
+                    : texture.format == TextureFormat::Rgba5551   ? expand_5551(value)
                                                                   : expand_4444(value);
                 break;
             }
@@ -208,8 +225,8 @@ bool decode_texels_slow(const GuestMemory &memory, const TextureState &texture, 
                 const std::size_t at = row_offset + static_cast<std::size_t>(x) * 4u;
                 if (at + 3u >= data.size()) break;
                 color = static_cast<std::uint32_t>(data[at]) | (static_cast<std::uint32_t>(data[at + 1u]) << 8u) |
-                        (static_cast<std::uint32_t>(data[at + 2u]) << 16u) |
-                        (static_cast<std::uint32_t>(data[at + 3u]) << 24u);
+                    (static_cast<std::uint32_t>(data[at + 2u]) << 16u) |
+                    (static_cast<std::uint32_t>(data[at + 3u]) << 24u);
                 break;
             }
             case TextureFormat::Clut4: {
@@ -235,9 +252,9 @@ bool decode_texels_slow(const GuestMemory &memory, const TextureState &texture, 
                 const std::size_t at = row_offset + static_cast<std::size_t>(x) * 4u;
                 if (at + 3u >= data.size()) break;
                 color = read_clut(memory, texture,
-                                  static_cast<std::uint32_t>(data[at]) | (static_cast<std::uint32_t>(data[at + 1u]) << 8u) |
-                                      (static_cast<std::uint32_t>(data[at + 2u]) << 16u) |
-                                      (static_cast<std::uint32_t>(data[at + 3u]) << 24u));
+                    static_cast<std::uint32_t>(data[at]) | (static_cast<std::uint32_t>(data[at + 1u]) << 8u) |
+                        (static_cast<std::uint32_t>(data[at + 2u]) << 16u) |
+                        (static_cast<std::uint32_t>(data[at + 3u]) << 24u));
                 break;
             }
             default:
@@ -256,7 +273,7 @@ bool decode_texels_slow(const GuestMemory &memory, const TextureState &texture, 
 // the opaque black out was filled with, as before.)
 template <typename ReadClut>
 void decode_texels(ReadClut read_entry, const TextureState &texture, std::uint32_t width, std::uint32_t height,
-                   std::uint32_t row_bytes, const std::vector<std::uint8_t> &data, std::vector<std::uint32_t> &out) {
+    std::uint32_t row_bytes, const std::vector<std::uint8_t> &data, std::vector<std::uint32_t> &out) {
     const std::size_t size = data.size();
     const std::uint8_t *bytes = data.data();
     // Palette entries by their index into the CLUT: ((index >> shift) & mask)
@@ -369,7 +386,8 @@ bool decode_texture(const GuestMemory &memory, const TextureState &texture, std:
                     for (std::uint32_t column = 0; column < 4u; ++column) {
                         const std::uint32_t x = bx * 4u + column;
                         const std::uint32_t y = by * 4u + row;
-                        if (x < width && y < height) out[static_cast<std::size_t>(y) * width + x] = texels[row * 4u + column];
+                        if (x < width && y < height)
+                            out[static_cast<std::size_t>(y) * width + x] = texels[row * 4u + column];
                     }
                 }
             }
@@ -401,7 +419,7 @@ bool decode_texture(const GuestMemory &memory, const TextureState &texture, std:
     }
     if (texture.swizzled) unswizzle(data, row_bytes, height);
     decode_texels([&](std::uint32_t index) { return read_clut(memory, texture, index); }, texture, width, height,
-                  row_bytes, data, out);
+        row_bytes, data, out);
     // MHP3RD_CHECK_TEXTURE_DECODE: every texture decoded both ways, compared.
     static const bool check = std::getenv("MHP3RD_CHECK_TEXTURE_DECODE") != nullptr;
     if (check) {
@@ -424,7 +442,7 @@ bool snapshot_texture(const GuestMemory &memory, const TextureState &texture, Te
     const std::uint32_t height = texture.height;
     if (width == 0u || height == 0u || width > 1024u || height > 1024u) return false;
     const std::uint32_t bits = bits_per_texel(texture.format);
-    if (bits == 0u) return false;  // the block formats are decoded at once
+    if (bits == 0u) return false; // the block formats are decoded at once
     const std::uint32_t stride_texels = texture.buffer_width != 0u ? texture.buffer_width : width;
     const std::uint32_t row_bytes = stride_texels * bits / 8u;
     const std::size_t total = static_cast<std::size_t>(row_bytes) * height;
@@ -432,7 +450,7 @@ bool snapshot_texture(const GuestMemory &memory, const TextureState &texture, Te
     const std::uint8_t *texels = memory.raw_pointer(texture.address, total);
     if (texels == nullptr) return false;
     const bool indexed = texture.format == TextureFormat::Clut4 || texture.format == TextureFormat::Clut8 ||
-                         texture.format == TextureFormat::Clut16 || texture.format == TextureFormat::Clut32;
+        texture.format == TextureFormat::Clut16 || texture.format == TextureFormat::Clut32;
     snapshot.clut.clear();
     if (indexed) {
         const std::size_t clut_bytes = 512u * (texture.clut_format == 3u ? 4u : 2u);
@@ -451,7 +469,7 @@ bool decode_snapshot(TextureSnapshot &snapshot, std::vector<std::uint32_t> &out)
     out.assign(static_cast<std::size_t>(texture.width) * texture.height, 0xFF000000u);
     if (texture.swizzled) unswizzle(snapshot.texels, snapshot.row_bytes, texture.height);
     decode_texels([&](std::uint32_t index) { return read_clut_copy(snapshot.clut, texture, index); }, texture,
-                  texture.width, texture.height, snapshot.row_bytes, snapshot.texels, out);
+        texture.width, texture.height, snapshot.row_bytes, snapshot.texels, out);
     return true;
 }
 
@@ -477,16 +495,16 @@ std::uint64_t texture_key(const GuestMemory &memory, const TextureState &texture
     // The Boss Face's DXT1 texture is drawn with it at the framebuffer, whose
     // first word changes every frame (issue #144).
     const bool indexed = texture.format == TextureFormat::Clut4 || texture.format == TextureFormat::Clut8 ||
-                         texture.format == TextureFormat::Clut16 || texture.format == TextureFormat::Clut32;
+        texture.format == TextureFormat::Clut16 || texture.format == TextureFormat::Clut32;
     if (indexed) {
         mix(texture.clut_address);
         mix(texture.clut_format);
     }
     const std::uint32_t bits = bits_per_texel(texture.format);
     // DXT1 blocks hold half a byte per texel, DXT3 and DXT5 blocks a byte.
-    const std::uint32_t size = bits != 0u                               ? texture.width * texture.height * bits / 8u
-                               : texture.format == TextureFormat::Dxt1 ? texture.width * texture.height / 2u
-                                                                       : texture.width * texture.height;
+    const std::uint32_t size = bits != 0u       ? texture.width * texture.height * bits / 8u
+        : texture.format == TextureFormat::Dxt1 ? texture.width * texture.height / 2u
+                                                : texture.width * texture.height;
     // Resolve the texture once; this runs for every textured draw.
     if (const std::uint8_t *data = memory.raw_pointer(texture.address, static_cast<std::size_t>(size) + 3u)) {
         // MHP3RD_SAMPLED_TEXTURE_KEYS=1 samples small textures too, as before.
@@ -495,8 +513,8 @@ std::uint64_t texture_key(const GuestMemory &memory, const TextureState &texture
             // Small textures are read whole: the game's text atlas gains one
             // glyph at a time, and a sample misses most of them. Four
             // independent lanes keep this cheap.
-            std::uint64_t lanes[4] = {key, key ^ 0x9E3779B97F4A7C15ull, key ^ 0xC2B2AE3D27D4EB4Full,
-                                      key ^ 0x165667B19E3779F9ull};
+            std::uint64_t lanes[4] = {
+                key, key ^ 0x9E3779B97F4A7C15ull, key ^ 0xC2B2AE3D27D4EB4Full, key ^ 0x165667B19E3779F9ull};
             std::uint32_t offset = 0;
             for (; offset + 32u <= size; offset += 32u) {
                 for (int lane = 0; lane < 4; ++lane) {

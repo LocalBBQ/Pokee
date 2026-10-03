@@ -21,21 +21,21 @@
 namespace mhp3rd::input::touch {
 
 enum class Element : std::uint8_t {
-    Stick,      // the analog stick, fixed where it is placed
-    Item,       // L: the item pouch
+    Stick, // the analog stick, fixed where it is placed
+    Item,  // L: the item pouch
     DpadUp,
     DpadDown,
-    Attack,     // the large main attack: △
-    Secondary,  // ○
-    Combo,      // △ + ○ in one frame: the combined attack
-    Evade,      // ✕
-    Use,        // □: sheathe, use an item, gather
-    Guard,      // R
-    Special,    // R as well, where the other thumb reaches it
-    Pause,      // Yakumo's menu
+    Attack,    // the large main attack: △
+    Secondary, // ○
+    Combo,     // △ + ○ in one frame: the combined attack
+    Evade,     // ✕
+    Use,       // □: sheathe, use an item, gather
+    Guard,     // R
+    Special,   // R as well, where the other thumb reaches it
+    Pause,     // Yakumo's menu
     Start,
     Select,
-    Swipe,      // the swipe area: left and right swipes press D-pad Left and Right
+    Swipe, // the swipe area: left and right swipes press D-pad Left and Right
     Count
 };
 inline constexpr std::size_t kElements = static_cast<std::size_t>(Element::Count);
@@ -47,10 +47,10 @@ enum class Anchor : std::uint8_t { Left, Centre, Right };
 
 struct Placement {
     Anchor anchor{Anchor::Left};
-    float x{};              // the centre from the anchor (right: leftwards), in heights of the safe area
-    float y{};              // the centre from the safe area's top, in heights of the safe area
-    float size{};           // the radius in heights of the safe area; the swipe area's half height
-    std::uint16_t buttons{};  // SceCtrlButtons pressed; ignored for the stick, Pause and the swipe area
+    float x{};               // the centre from the anchor (right: leftwards), in heights of the safe area
+    float y{};               // the centre from the safe area's top, in heights of the safe area
+    float size{};            // the radius in heights of the safe area; the swipe area's half height
+    std::uint16_t buttons{}; // SceCtrlButtons pressed; ignored for the stick, Pause and the swipe area
     bool shown{true};
     friend bool operator==(const Placement &, const Placement &) = default;
 };
@@ -66,8 +66,8 @@ struct ActionLayout {
 [[nodiscard]] const ActionLayout &default_action_layout();
 
 struct ElementInfo {
-    const char *key;   // in settings.ini, after "input.touch_action."
-    const char *name;  // in the editor
+    const char *key;  // in settings.ini, after "input.touch_action."
+    const char *name; // in the editor
 };
 [[nodiscard]] const ElementInfo &info(Element element);
 // Whether the editor may change what an element presses.
@@ -93,8 +93,8 @@ bool parse(std::string_view text, Placement &placement);
 // An element in window pixels, for a layout on a screen.
 struct Placed {
     Point centre;
-    float radius{};       // for the swipe area, its half height
-    float half_width{};   // for the swipe area; the radius for the others
+    float radius{};     // for the swipe area, its half height
+    float half_width{}; // for the swipe area; the radius for the others
 };
 struct Area {
     float left{};
@@ -166,7 +166,7 @@ private:
         Point start;
         std::uint64_t start_ms{};
         bool swiped{};
-        Point pending;  // camera motion held back while a swipe may still come
+        Point pending; // camera motion held back while a swipe may still come
     };
     static constexpr std::size_t kFingers = 10u;
     [[nodiscard]] std::optional<Element> button_at(Point at, bool cluster_only) const;
@@ -184,7 +184,7 @@ private:
     Point camera_drag_{};
     bool menu_tapped_{};
     int haptics_{};
-    std::uint64_t swipe_until_[2]{};  // left, right
+    std::uint64_t swipe_until_[2]{}; // left, right
 };
 
 } // namespace mhp3rd::input::touch

@@ -26,10 +26,10 @@
 namespace mhp3rd::ui {
 
 struct TextInputRequest {
-    std::string title;           // what is being entered, e.g. "Nickname"
-    std::string prompt;          // a line under the title; may be empty
-    std::string initial;         // UTF-8
-    std::size_t max_length{16};  // in characters
+    std::string title;          // what is being entered, e.g. "Nickname"
+    std::string prompt;         // a line under the title; may be empty
+    std::string initial;        // UTF-8
+    std::size_t max_length{16}; // in characters
     // The characters that may be entered; the others are shown dimmed and
     // cannot be typed. Null: printable ASCII.
     std::function<bool(char32_t)> allowed;

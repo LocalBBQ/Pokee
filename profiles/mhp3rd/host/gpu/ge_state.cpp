@@ -34,7 +34,7 @@ enum Command : std::uint32_t {
     kOffsetAddress = 0x13,
     kOrigin = 0x14,
     kLightingEnable = 0x17,
-    kLightEnable0 = 0x18,  // to 0x1B, one per light
+    kLightEnable0 = 0x18, // to 0x1B, one per light
     kCullFaceEnable = 0x1D,
     kTextureMapEnable = 0x1E,
     kFogEnable = 0x1F,
@@ -165,20 +165,20 @@ float decode_float24(std::uint32_t data) {
 
 std::uint32_t expand_color(std::uint32_t value, std::uint32_t format) {
     switch (format) {
-    case 4u: {  // 5650
+    case 4u: { // 5650
         const std::uint32_t r = (value & 0x1Fu) * 255u / 31u;
         const std::uint32_t g = ((value >> 5u) & 0x3Fu) * 255u / 63u;
         const std::uint32_t b = ((value >> 11u) & 0x1Fu) * 255u / 31u;
         return 0xFF000000u | (b << 16u) | (g << 8u) | r;
     }
-    case 5u: {  // 5551
+    case 5u: { // 5551
         const std::uint32_t r = (value & 0x1Fu) * 255u / 31u;
         const std::uint32_t g = ((value >> 5u) & 0x1Fu) * 255u / 31u;
         const std::uint32_t b = ((value >> 10u) & 0x1Fu) * 255u / 31u;
         const std::uint32_t a = ((value >> 15u) & 1u) * 255u;
         return (a << 24u) | (b << 16u) | (g << 8u) | r;
     }
-    case 6u: {  // 4444
+    case 6u: { // 4444
         const std::uint32_t r = (value & 0xFu) * 17u;
         const std::uint32_t g = ((value >> 4u) & 0xFu) * 17u;
         const std::uint32_t b = ((value >> 8u) & 0xFu) * 17u;
@@ -186,7 +186,7 @@ std::uint32_t expand_color(std::uint32_t value, std::uint32_t format) {
         return (a << 24u) | (b << 16u) | (g << 8u) | r;
     }
     default:
-        return value;  // 8888
+        return value; // 8888
     }
 }
 
@@ -220,8 +220,7 @@ struct VertexLayout {
     bool skinned{};
 };
 
-template <typename T>
-[[gnu::always_inline]] inline T read_raw(const std::uint8_t *at) {
+template <typename T> [[gnu::always_inline]] inline T read_raw(const std::uint8_t *at) {
     T value{};
     std::memcpy(&value, at, sizeof(value));
     return value;
@@ -229,8 +228,7 @@ template <typename T>
 
 // A component of `Type` (1: 8-bit, 2: 16-bit, 3: float), signed or unsigned,
 // as decode_vertices() reads it.
-template <std::uint32_t Type, bool Signed>
-[[gnu::always_inline]] inline float read_field(const std::uint8_t *at) {
+template <std::uint32_t Type, bool Signed> [[gnu::always_inline]] inline float read_field(const std::uint8_t *at) {
     if constexpr (Type == 1u) {
         return Signed ? static_cast<float>(static_cast<std::int8_t>(at[0])) : static_cast<float>(at[0]);
     } else if constexpr (Type == 2u) {
@@ -251,18 +249,17 @@ constexpr std::uint32_t kFieldSize[4] = {0u, 1u, 2u, 4u};
 // the vertices are the same bit for bit (MHP3RD_CHECK_DECODE compares them).
 template <std::uint32_t WeightType, std::uint32_t NormalType, std::uint32_t PositionType>
 void decode_run(const std::uint8_t *data, std::uint32_t count, const VertexLayout &layout, Vertex *out,
-                const float *bone_matrices) {
+    const float *bone_matrices) {
     constexpr std::uint32_t normal_size = kFieldSize[NormalType];
     constexpr std::uint32_t position_size = kFieldSize[PositionType];
     constexpr std::uint32_t weight_size = kFieldSize[WeightType];
     const std::uint32_t texcoord_type = layout.texcoord_type;
     const std::uint32_t texcoord_size = kFieldSize[texcoord_type];
-    const float texcoord_scale = texcoord_type == 1u ? 1.0f / 128.0f
-                                                     : (texcoord_type == 2u && !layout.through ? 1.0f / 32768.0f : 1.0f);
+    const float texcoord_scale =
+        texcoord_type == 1u ? 1.0f / 128.0f : (texcoord_type == 2u && !layout.through ? 1.0f / 32768.0f : 1.0f);
     constexpr float normal_scale = NormalType == 1u ? 1.0f / 128.0f : (NormalType == 2u ? 1.0f / 32768.0f : 1.0f);
-    const float position_scale = layout.through ? 1.0f
-                                                : (PositionType == 1u ? 1.0f / 128.0f
-                                                                      : (PositionType == 2u ? 1.0f / 32768.0f : 1.0f));
+    const float position_scale =
+        layout.through ? 1.0f : (PositionType == 1u ? 1.0f / 128.0f : (PositionType == 2u ? 1.0f / 32768.0f : 1.0f));
     constexpr float weight_scale = WeightType == 1u ? 1.0f / 128.0f : (WeightType == 2u ? 1.0f / 32768.0f : 1.0f);
     const std::uint32_t color_type = layout.color_type;
     const bool skinned = WeightType != 0u && layout.skinned;
@@ -316,10 +313,12 @@ void decode_run(const std::uint8_t *data, std::uint32_t count, const VertexLayou
                     if (weight == 0.0f) continue;
                     const float *m = bone_matrices + bone * 12u;
                     for (std::uint32_t axis = 0; axis < 3u; ++axis) {
-                        position[axis] += weight * (vertex.position[0] * m[axis] + vertex.position[1] * m[3u + axis] +
-                                                    vertex.position[2] * m[6u + axis] + m[9u + axis]);
-                        normal[axis] += weight * (vertex.normal[0] * m[axis] + vertex.normal[1] * m[3u + axis] +
-                                                  vertex.normal[2] * m[6u + axis]);
+                        position[axis] += weight *
+                            (vertex.position[0] * m[axis] + vertex.position[1] * m[3u + axis] +
+                                vertex.position[2] * m[6u + axis] + m[9u + axis]);
+                        normal[axis] += weight *
+                            (vertex.normal[0] * m[axis] + vertex.normal[1] * m[3u + axis] +
+                                vertex.normal[2] * m[6u + axis]);
                     }
                 }
                 vertex.position[0] = position[0];
@@ -334,16 +333,14 @@ void decode_run(const std::uint8_t *data, std::uint32_t count, const VertexLayou
 
 using DecodeRun = void (*)(const std::uint8_t *, std::uint32_t, const VertexLayout &, Vertex *, const float *);
 
-template <std::uint32_t WeightType, std::uint32_t NormalType>
-constexpr std::array<DecodeRun, 4> runs_for_position() {
+template <std::uint32_t WeightType, std::uint32_t NormalType> constexpr std::array<DecodeRun, 4> runs_for_position() {
     return {nullptr, &decode_run<WeightType, NormalType, 1u>, &decode_run<WeightType, NormalType, 2u>,
-            &decode_run<WeightType, NormalType, 3u>};
+        &decode_run<WeightType, NormalType, 3u>};
 }
 
-template <std::uint32_t WeightType>
-constexpr std::array<std::array<DecodeRun, 4>, 4> runs_for_normal() {
+template <std::uint32_t WeightType> constexpr std::array<std::array<DecodeRun, 4>, 4> runs_for_normal() {
     return {runs_for_position<WeightType, 0u>(), runs_for_position<WeightType, 1u>(),
-            runs_for_position<WeightType, 2u>(), runs_for_position<WeightType, 3u>()};
+        runs_for_position<WeightType, 2u>(), runs_for_position<WeightType, 3u>()};
 }
 
 // By weight, normal and position format.
@@ -385,7 +382,7 @@ VertexFormat vertex_format(std::uint32_t vertex_type) noexcept {
 }
 
 std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, std::uint32_t vertex_type,
-                              std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices) {
+    std::uint32_t count, std::vector<Vertex> &out, const float *bone_matrices) {
     // Field order is weights, texcoords, color, normal, position; every field is
     // aligned to its component size and the vertex to the largest of them.
     const std::uint32_t texcoord_type = vertex_type & 3u;
@@ -427,8 +424,8 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
         count != 0u ? memory.raw_pointer(address, static_cast<std::size_t>(count) * stride) : nullptr;
     static const bool check_decode = std::getenv("MHP3RD_CHECK_DECODE") != nullptr;
     const DecodeRun fast_run = data != nullptr && morph_count == 1u && position_type != 0u
-                                   ? kDecodeRuns[weight_type][normal_type][position_type]
-                                   : nullptr;
+        ? kDecodeRuns[weight_type][normal_type][position_type]
+        : nullptr;
     if (fast_run != nullptr && (fast_decode_enabled() || check_decode)) {
         VertexLayout layout{};
         layout.texcoord_type = texcoord_type;
@@ -469,29 +466,35 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
 
     const auto read_unsigned = [&](std::uint32_t at, std::uint32_t type) -> float {
         switch (type) {
-        case 1u: return static_cast<float>(load8(at));
-        case 2u: return static_cast<float>(load16(at));
+        case 1u:
+            return static_cast<float>(load8(at));
+        case 2u:
+            return static_cast<float>(load16(at));
         case 3u: {
             const std::uint32_t bits = load32(at);
             float value{};
             std::memcpy(&value, &bits, sizeof(value));
             return value;
         }
-        default: return 0.0f;
+        default:
+            return 0.0f;
         }
     };
 
     const auto read_component = [&](std::uint32_t at, std::uint32_t type) -> float {
         switch (type) {
-        case 1u: return static_cast<float>(static_cast<std::int8_t>(load8(at)));
-        case 2u: return static_cast<float>(static_cast<std::int16_t>(load16(at)));
+        case 1u:
+            return static_cast<float>(static_cast<std::int8_t>(load8(at)));
+        case 2u:
+            return static_cast<float>(static_cast<std::int16_t>(load16(at)));
         case 3u: {
             const std::uint32_t bits = load32(at);
             float value{};
             std::memcpy(&value, &bits, sizeof(value));
             return value;
         }
-        default: return 0.0f;
+        default:
+            return 0.0f;
         }
     };
 
@@ -504,20 +507,18 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
             // Texture coordinates are unsigned; reading them signed wrapped the
             // upper half of every 8- and 16-bit UV range to negative values.
             const std::uint32_t component = kComponentSize[texcoord_type];
-            const float scale = texcoord_type == 1u ? 1.0f / 128.0f
-                                                    : (texcoord_type == 2u && !through ? 1.0f / 32768.0f : 1.0f);
+            const float scale =
+                texcoord_type == 1u ? 1.0f / 128.0f : (texcoord_type == 2u && !through ? 1.0f / 32768.0f : 1.0f);
             vertex.texcoord[0] = read_unsigned(base + texcoord_offset, texcoord_type) * scale;
             vertex.texcoord[1] = read_unsigned(base + texcoord_offset + component, texcoord_type) * scale;
         }
         if (color_offset != 0xFFFFFFFFu) {
-            const std::uint32_t raw = color_component == 2u ? load16(base + color_offset)
-                                                            : load32(base + color_offset);
+            const std::uint32_t raw = color_component == 2u ? load16(base + color_offset) : load32(base + color_offset);
             vertex.color = expand_color(raw, color_type);
         }
         if (normal_offset != 0xFFFFFFFFu) {
             const std::uint32_t component = kComponentSize[normal_type];
-            const float scale = normal_type == 1u ? 1.0f / 128.0f
-                                                  : (normal_type == 2u ? 1.0f / 32768.0f : 1.0f);
+            const float scale = normal_type == 1u ? 1.0f / 128.0f : (normal_type == 2u ? 1.0f / 32768.0f : 1.0f);
             for (std::uint32_t axis = 0; axis < 3u; ++axis)
                 vertex.normal[axis] = read_component(base + normal_offset + axis * component, normal_type) * scale;
         }
@@ -526,9 +527,8 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
             // Screen-space vertices keep their integer units; transformed ones
             // are normalized by their component size (128 / 32768, not 127 /
             // 32767 — the GE divides by the magnitude of the sign bit).
-            const float scale = through ? 1.0f
-                                        : (position_type == 1u ? 1.0f / 128.0f
-                                                               : (position_type == 2u ? 1.0f / 32768.0f : 1.0f));
+            const float scale =
+                through ? 1.0f : (position_type == 1u ? 1.0f / 128.0f : (position_type == 2u ? 1.0f / 32768.0f : 1.0f));
             for (std::uint32_t axis = 0; axis < 3u; ++axis) {
                 float value = read_component(base + position_offset + axis * component, position_type);
                 // Through-mode Z is unsigned in the 16-bit case.
@@ -544,22 +544,22 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
             // inside the unit cube they were normalised into and the whole model
             // collapses onto a couple of pixels.
             const std::uint32_t component = kComponentSize[weight_type];
-            const float weight_scale = weight_type == 1u ? 1.0f / 128.0f
-                                                         : (weight_type == 2u ? 1.0f / 32768.0f : 1.0f);
+            const float weight_scale = weight_type == 1u ? 1.0f / 128.0f : (weight_type == 2u ? 1.0f / 32768.0f : 1.0f);
             std::array<float, 3> position{};
             std::array<float, 3> normal{};
             for (std::uint32_t bone = 0; bone < weight_count && bone < 8u; ++bone) {
-                const float weight =
-                    read_unsigned(base + weight_offset + bone * component, weight_type) * weight_scale;
+                const float weight = read_unsigned(base + weight_offset + bone * component, weight_type) * weight_scale;
                 if (weight == 0.0f) continue;
                 // PSP 3x4 matrices are three basis rows plus a translation row,
                 // used as a row vector: p' = p * M.
                 const float *m = bone_matrices + bone * 12u;
                 for (std::uint32_t axis = 0; axis < 3u; ++axis) {
-                    position[axis] += weight * (vertex.position[0] * m[axis] + vertex.position[1] * m[3u + axis] +
-                                                vertex.position[2] * m[6u + axis] + m[9u + axis]);
-                    normal[axis] += weight * (vertex.normal[0] * m[axis] + vertex.normal[1] * m[3u + axis] +
-                                              vertex.normal[2] * m[6u + axis]);
+                    position[axis] += weight *
+                        (vertex.position[0] * m[axis] + vertex.position[1] * m[3u + axis] +
+                            vertex.position[2] * m[6u + axis] + m[9u + axis]);
+                    normal[axis] += weight *
+                        (vertex.normal[0] * m[axis] + vertex.normal[1] * m[3u + axis] +
+                            vertex.normal[2] * m[6u + axis]);
                 }
             }
             vertex.position[0] = position[0];
@@ -601,9 +601,9 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
     // that lighting and fog may live in: the enables after 0x17, 0x50..0x52,
     // 0x5D..0x9A and 0xC8..0xD0. Each value is also shown as a 24-bit float,
     // since several of them carry one.
-    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr;
-        trace && ((command >= 0x18u && command <= 0x20u) || (command >= 0x50u && command <= 0x52u) ||
-                  (command >= 0x5Du && command <= 0x9Au) || (command >= 0xC8u && command <= 0xD0u))) {
+    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr; trace &&
+        ((command >= 0x18u && command <= 0x20u) || (command >= 0x50u && command <= 0x52u) ||
+            (command >= 0x5Du && command <= 0x9Au) || (command >= 0xC8u && command <= 0xD0u))) {
         static std::map<std::uint32_t, std::map<std::uint32_t, std::uint64_t>> seen;
         auto &values = seen[command];
         if (++values[data] == 1u && values.size() <= 16u)
@@ -614,24 +614,57 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
     // Addresses in a display list are relative: BASE supplies four high bits and
     // OFFSET_ADDR is added on top of them. Conflating the two — and letting
     // OFFSET_ADDR overwrite BASE — produced pointers into nowhere.
-    case kVertexAddress: vertex_address_ = relative_address(data); break;
-    case kIndexAddress: index_address_ = relative_address(data); break;
-    case kBase: base_extended_ = (data & 0x000F0000u) << 8u; break;
-    case kVertexType: vertex_type_ = data; break;
-    case kOffsetAddress: offset_address_ = data << 8u; break;
-    case kOrigin: break;  // handled in execute(), where the list pc is known
+    case kVertexAddress:
+        vertex_address_ = relative_address(data);
+        break;
+    case kIndexAddress:
+        index_address_ = relative_address(data);
+        break;
+    case kBase:
+        base_extended_ = (data & 0x000F0000u) << 8u;
+        break;
+    case kVertexType:
+        vertex_type_ = data;
+        break;
+    case kOffsetAddress:
+        offset_address_ = data << 8u;
+        break;
+    case kOrigin:
+        break; // handled in execute(), where the list pc is known
 
-    case kCullFaceEnable: culling_enabled_ = (data & 1u) != 0u; break;
-    case kCull: cull_clockwise_ = (data & 1u) != 0u; break;
-    case kTextureMapEnable: texture_.enabled = (data & 1u) != 0u; break;
-    case kLightingEnable: lighting_enabled_ = (data & 1u) != 0u; break;
-    case kAlphaBlendEnable: blend_.enabled = (data & 1u) != 0u; break;
-    case kAlphaTestEnable: alpha_test_.enabled = (data & 1u) != 0u; break;
-    case kDepthTestEnable: depth_.test_enabled = (data & 1u) != 0u; break;
-    case kDepthWriteDisable: depth_.write_enabled = (data & 1u) == 0u; break;
-    case kDepthTest: depth_.function = data & 7u; break;
-    case kMinZ: depth_.range_near = static_cast<std::uint16_t>(data); break;
-    case kMaxZ: depth_.range_far = static_cast<std::uint16_t>(data); break;
+    case kCullFaceEnable:
+        culling_enabled_ = (data & 1u) != 0u;
+        break;
+    case kCull:
+        cull_clockwise_ = (data & 1u) != 0u;
+        break;
+    case kTextureMapEnable:
+        texture_.enabled = (data & 1u) != 0u;
+        break;
+    case kLightingEnable:
+        lighting_enabled_ = (data & 1u) != 0u;
+        break;
+    case kAlphaBlendEnable:
+        blend_.enabled = (data & 1u) != 0u;
+        break;
+    case kAlphaTestEnable:
+        alpha_test_.enabled = (data & 1u) != 0u;
+        break;
+    case kDepthTestEnable:
+        depth_.test_enabled = (data & 1u) != 0u;
+        break;
+    case kDepthWriteDisable:
+        depth_.write_enabled = (data & 1u) == 0u;
+        break;
+    case kDepthTest:
+        depth_.function = data & 7u;
+        break;
+    case kMinZ:
+        depth_.range_near = static_cast<std::uint16_t>(data);
+        break;
+    case kMaxZ:
+        depth_.range_far = static_cast<std::uint16_t>(data);
+        break;
 
     case kAlphaTest:
         alpha_test_.function = data & 7u;
@@ -643,8 +676,12 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         blend_.destination_factor = (data >> 4u) & 0xFu;
         blend_.equation = (data >> 8u) & 0xFu;
         break;
-    case kBlendFixedA: blend_.fixed_source = data; break;
-    case kBlendFixedB: blend_.fixed_destination = data; break;
+    case kBlendFixedA:
+        blend_.fixed_source = data;
+        break;
+    case kBlendFixedB:
+        blend_.fixed_destination = data;
+        break;
 
     case kFrameBufferPointer:
         target_.color_address = resolve_ge_address((target_.color_address & 0xFF000000u) | data);
@@ -662,9 +699,13 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         target_.depth_address =
             resolve_ge_address((target_.depth_address & 0x00FFFFFFu) | ((data << 8u) & 0xFF000000u));
         break;
-    case kFrameBufferPixelFormat: target_.color_format = data & 3u; break;
+    case kFrameBufferPixelFormat:
+        target_.color_format = data & 3u;
+        break;
 
-    case kTextureAddress0: texture_.address = resolve_ge_address((texture_.address & 0xFF000000u) | data); break;
+    case kTextureAddress0:
+        texture_.address = resolve_ge_address((texture_.address & 0xFF000000u) | data);
+        break;
     case kTextureBufferWidth0:
         texture_.buffer_width = data & 0xFFFFu;
         texture_.address = resolve_ge_address((texture_.address & 0x00FFFFFFu) | ((data << 8u) & 0xFF000000u));
@@ -673,11 +714,18 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         texture_.width = static_cast<std::uint16_t>(1u << (data & 0xFu));
         texture_.height = static_cast<std::uint16_t>(1u << ((data >> 8u) & 0xFu));
         break;
-    case kTextureFormat: texture_.format = static_cast<TextureFormat>(data & 0xFu); break;
-    case kTextureMode: texture_.swizzled = (data & 1u) != 0u; break;
-    case kClutAddress: texture_.clut_address = resolve_ge_address((texture_.clut_address & 0xFF000000u) | data); break;
+    case kTextureFormat:
+        texture_.format = static_cast<TextureFormat>(data & 0xFu);
+        break;
+    case kTextureMode:
+        texture_.swizzled = (data & 1u) != 0u;
+        break;
+    case kClutAddress:
+        texture_.clut_address = resolve_ge_address((texture_.clut_address & 0xFF000000u) | data);
+        break;
     case kClutAddressUpper:
-        texture_.clut_address = resolve_ge_address((texture_.clut_address & 0x00FFFFFFu) | ((data << 8u) & 0xFF000000u));
+        texture_.clut_address =
+            resolve_ge_address((texture_.clut_address & 0x00FFFFFFu) | ((data << 8u) & 0xFF000000u));
         break;
     case kClutFormat:
         texture_.clut_format_word = (command << 24u) | data;
@@ -698,17 +746,37 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         texture_.function = data & 7u;
         texture_.alpha_from_texture = ((data >> 8u) & 1u) != 0u;
         break;
-    case kTexScaleU: texture_.scale_u = decode_float24(data); break;
-    case kTexScaleV: texture_.scale_v = decode_float24(data); break;
-    case kTexOffsetU: texture_.offset_u = decode_float24(data); break;
-    case kTexOffsetV: texture_.offset_v = decode_float24(data); break;
+    case kTexScaleU:
+        texture_.scale_u = decode_float24(data);
+        break;
+    case kTexScaleV:
+        texture_.scale_v = decode_float24(data);
+        break;
+    case kTexOffsetU:
+        texture_.offset_u = decode_float24(data);
+        break;
+    case kTexOffsetV:
+        texture_.offset_v = decode_float24(data);
+        break;
 
-    case kViewportXScale: viewport_.x_scale = decode_float24(data); break;
-    case kViewportYScale: viewport_.y_scale = decode_float24(data); break;
-    case kViewportZScale: viewport_.z_scale = decode_float24(data); break;
-    case kViewportXCenter: viewport_.x_offset = decode_float24(data); break;
-    case kViewportYCenter: viewport_.y_offset = decode_float24(data); break;
-    case kViewportZCenter: viewport_.z_offset = decode_float24(data); break;
+    case kViewportXScale:
+        viewport_.x_scale = decode_float24(data);
+        break;
+    case kViewportYScale:
+        viewport_.y_scale = decode_float24(data);
+        break;
+    case kViewportZScale:
+        viewport_.z_scale = decode_float24(data);
+        break;
+    case kViewportXCenter:
+        viewport_.x_offset = decode_float24(data);
+        break;
+    case kViewportYCenter:
+        viewport_.y_offset = decode_float24(data);
+        break;
+    case kViewportZCenter:
+        viewport_.z_offset = decode_float24(data);
+        break;
     case kScissor1:
         viewport_.scissor_x1 = data & 0x3FFu;
         viewport_.scissor_y1 = (data >> 10u) & 0x3FFu;
@@ -719,8 +787,12 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         break;
     // The offset is an unsigned 16-bit value with 4 fractional bits; the bits
     // above it are not part of it.
-    case kOffsetX: viewport_.offset_x = static_cast<float>(data & 0xFFFFu) / 16.0f; break;
-    case kOffsetY: viewport_.offset_y = static_cast<float>(data & 0xFFFFu) / 16.0f; break;
+    case kOffsetX:
+        viewport_.offset_x = static_cast<float>(data & 0xFFFFu) / 16.0f;
+        break;
+    case kOffsetY:
+        viewport_.offset_y = static_cast<float>(data & 0xFFFFu) / 16.0f;
+        break;
 
     // The material registers; each write moves material_version_.
     case kMaterialAmbient:
@@ -731,18 +803,45 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         material_color_ = (material_color_ & 0x00FFFFFFu) | ((data & 0xFFu) << 24u);
         ++material_version_;
         break;
-    case kReverseNormal: lighting_.reverse_normals = (data & 1u) != 0u; ++material_version_; break;
-    case kMaterialUpdate: lighting_.material_update = data & 7u; ++material_version_; break;
-    case kMaterialEmissive: lighting_.material_emissive = data & 0x00FFFFFFu; ++material_version_; break;
-    case kMaterialDiffuse: lighting_.material_diffuse = data & 0x00FFFFFFu; ++material_version_; break;
-    case kMaterialSpecular: lighting_.material_specular = data & 0x00FFFFFFu; ++material_version_; break;
-    case kMaterialSpecularPower: lighting_.specular_power = decode_float24(data); ++material_version_; break;
-    case kLightMode: lighting_.mode = data & 1u; ++material_version_; break;
+    case kReverseNormal:
+        lighting_.reverse_normals = (data & 1u) != 0u;
+        ++material_version_;
+        break;
+    case kMaterialUpdate:
+        lighting_.material_update = data & 7u;
+        ++material_version_;
+        break;
+    case kMaterialEmissive:
+        lighting_.material_emissive = data & 0x00FFFFFFu;
+        ++material_version_;
+        break;
+    case kMaterialDiffuse:
+        lighting_.material_diffuse = data & 0x00FFFFFFu;
+        ++material_version_;
+        break;
+    case kMaterialSpecular:
+        lighting_.material_specular = data & 0x00FFFFFFu;
+        ++material_version_;
+        break;
+    case kMaterialSpecularPower:
+        lighting_.specular_power = decode_float24(data);
+        ++material_version_;
+        break;
+    case kLightMode:
+        lighting_.mode = data & 1u;
+        ++material_version_;
+        break;
 
     // The lighting environment: global ambient, lights and fog parameters;
     // each write moves environment_version_.
-    case kAmbientColor: lighting_.ambient_color = data & 0x00FFFFFFu; ++environment_version_; break;
-    case kAmbientAlpha: lighting_.ambient_alpha = data & 0xFFu; ++environment_version_; break;
+    case kAmbientColor:
+        lighting_.ambient_color = data & 0x00FFFFFFu;
+        ++environment_version_;
+        break;
+    case kAmbientAlpha:
+        lighting_.ambient_alpha = data & 0xFFu;
+        ++environment_version_;
+        break;
     case kLightEnable0:
     case kLightEnable0 + 1:
     case kLightEnable0 + 2:
@@ -751,16 +850,37 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         ++environment_version_;
         break;
 
-    case kFogEnable: fog_.enabled = (data & 1u) != 0u; break;
-    case kFogEnd: fog_.end = decode_float24(data); ++environment_version_; break;
-    case kFogScale: fog_.scale = decode_float24(data); ++environment_version_; break;
-    case kFogColor: fog_.color = data & 0x00FFFFFFu; ++environment_version_; break;
+    case kFogEnable:
+        fog_.enabled = (data & 1u) != 0u;
+        break;
+    case kFogEnd:
+        fog_.end = decode_float24(data);
+        ++environment_version_;
+        break;
+    case kFogScale:
+        fog_.scale = decode_float24(data);
+        ++environment_version_;
+        break;
+    case kFogColor:
+        fog_.color = data & 0x00FFFFFFu;
+        ++environment_version_;
+        break;
 
-    case kWorldMatrixNumber: world_write_index_ = data & 0xFu; break;
-    case kViewMatrixNumber: view_write_index_ = data & 0xFu; break;
-    case kProjMatrixNumber: projection_write_index_ = data & 0xFu; break;
-    case kTexGenMatrixNumber: texture_write_index_ = data & 0xFu; break;
-    case kBoneMatrixNumber: bone_write_index_ = data & 0x7Fu; break;
+    case kWorldMatrixNumber:
+        world_write_index_ = data & 0xFu;
+        break;
+    case kViewMatrixNumber:
+        view_write_index_ = data & 0xFu;
+        break;
+    case kProjMatrixNumber:
+        projection_write_index_ = data & 0xFu;
+        break;
+    case kTexGenMatrixNumber:
+        texture_write_index_ = data & 0xFu;
+        break;
+    case kBoneMatrixNumber:
+        bone_write_index_ = data & 0x7Fu;
+        break;
 
     case kWorldMatrixData:
     case kViewMatrixData:
@@ -820,7 +940,7 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
     case kTransferSourcePosition:
     case kTransferDestinationPosition:
     case kTransferSize:
-        break;  // read from registers_ when the transfer starts
+        break; // read from registers_ when the transfer starts
     case kTransferStart: {
         BlockTransfer transfer{};
         const auto address = [&](std::uint32_t low, std::uint32_t width) {
@@ -840,10 +960,10 @@ void GeState::handle_command(const GuestMemory &memory, std::uint32_t command, s
         static const bool trace = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
         if (trace)
             std::cout << "[fbtex] block transfer 0x" << std::hex << transfer.source << std::dec << " ("
-                      << transfer.source_x << "," << transfer.source_y << " row " << transfer.source_stride
-                      << ") -> 0x" << std::hex << transfer.destination << std::dec << " (" << transfer.destination_x
-                      << "," << transfer.destination_y << " row " << transfer.destination_stride << ") "
-                      << transfer.width << "x" << transfer.height << " x" << transfer.bytes_per_pixel << " bytes\n";
+                      << transfer.source_x << "," << transfer.source_y << " row " << transfer.source_stride << ") -> 0x"
+                      << std::hex << transfer.destination << std::dec << " (" << transfer.destination_x << ","
+                      << transfer.destination_y << " row " << transfer.destination_stride << ") " << transfer.width
+                      << "x" << transfer.height << " x" << transfer.bytes_per_pixel << " bytes\n";
         if (transfer_sink_) transfer_sink_(transfer);
         break;
     }
@@ -912,8 +1032,8 @@ std::vector<VramCopy> &vram_copies() {
 void note_vram_copy(std::uint32_t destination, std::uint32_t source, std::uint32_t size) {
     std::vector<VramCopy> &copies = vram_copies();
     copies.erase(std::remove_if(copies.begin(), copies.end(),
-                                [&](const VramCopy &copy) { return copy.destination == destination; }),
-                 copies.end());
+                     [&](const VramCopy &copy) { return copy.destination == destination; }),
+        copies.end());
     if (copies.size() >= 64u) copies.erase(copies.begin());
     copies.push_back({destination & 0x1FFFFFFFu, source & 0x1FFFFFFFu, size});
 }
@@ -1044,7 +1164,7 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     call.bone_matrices = nullptr;
     std::uint32_t stride = 0u;
     const bool triangles = primitive == PrimitiveType::Triangles || primitive == PrimitiveType::TriangleStrip ||
-                           primitive == PrimitiveType::TriangleFan;
+        primitive == PrimitiveType::TriangleFan;
     const bool one_morph = ((vertex_type_ >> 18u) & 7u) == 0u;
     const bool positioned = ((vertex_type_ >> 7u) & 3u) != 0u;
     if (raw_vertices_ && !call.through && triangles && one_morph && positioned && vertex_count != 0u) {
@@ -1057,8 +1177,8 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
         }
     }
     if (call.raw_vertices == nullptr || raw_also_decoded_)
-        stride = decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices,
-                                 bone_matrices_.data());
+        stride =
+            decode_vertices(memory, first_address, vertex_type_, vertex_count, call.vertices, bone_matrices_.data());
     if (split) perf::add_split(perf::Split::Decode, perf::split_ticks() - split_start);
     if (stride == 0u || (call.vertices.empty() && call.raw_vertices == nullptr)) return;
     // A prim leaves VADDR/IADDR alone but advances the pointer it consumed, so
@@ -1074,7 +1194,8 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     // distinct combination of vertex type, enables and material registers,
     // printed with every non-zero register lighting may read. Light positions
     // and colours are left out of the key because the game animates them.
-    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr; trace && lighting_enabled_ && !call.vertices.empty()) {
+    if (static const bool trace = std::getenv("MHP3RD_TRACE_LIGHTING") != nullptr;
+        trace && lighting_enabled_ && !call.vertices.empty()) {
         static std::map<std::vector<std::uint32_t>, std::uint64_t> seen;
         std::vector<std::uint32_t> key{vertex_type_};
         for (std::uint32_t command = 0x18u; command <= 0x1Fu; ++command) key.push_back(registers_[command]);

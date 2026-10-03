@@ -76,7 +76,8 @@ void ensure_main_stack(char **argv) {
     if (std::getenv(kMarker) != nullptr) return;
     const rlim_t target = limit.rlim_max == RLIM_INFINITY || limit.rlim_max >= kWanted ? kWanted : limit.rlim_max;
     if (target <= limit.rlim_cur) {
-        std::cerr << "warning: the stack is limited to " << (limit.rlim_cur >> 20) << " MiB and cannot be raised to 64 MiB\n";
+        std::cerr << "warning: the stack is limited to " << (limit.rlim_cur >> 20)
+                  << " MiB and cannot be raised to 64 MiB\n";
         return;
     }
     limit.rlim_cur = target;
@@ -103,21 +104,20 @@ std::uint64_t configured_max_dispatches() {
     return static_cast<std::uint64_t>(parsed);
 }
 
-constexpr const char *kUsage =
-    "usage: Yakumo [game_dir]\n"
-    "       Yakumo --install [image.iso [--in-place]]\n"
-    "       Yakumo --adhoc-server [port]\n"
-    "  game_dir        play from a directory holding EBOOT.ELF, disc.iso and ms0/\n"
-    "  --data-dir dir  keep settings, saves and the prepared game in dir\n"
-    "  --portable      keep them in data/ next to Yakumo (as portable.txt does)\n"
-    "  --copy-user-data copy the data of the installed Yakumo into the data\n"
-    "                  folder of this run (with --portable or --data-dir), then exit\n"
-    "  --install       run the setup again on screen, then play\n"
-    "  --install image set up from image.iso without the setup screens, then exit\n"
-    "  --in-place      use the image where it is instead of copying it\n"
-    "  --adhoc-server  run only the ad hoc server that Network > Host a session\n"
-    "                  starts, on TCP port (default 27312) and the next one up,\n"
-    "                  announced on the local network, until Ctrl+C\n";
+constexpr const char *kUsage = "usage: Yakumo [game_dir]\n"
+                               "       Yakumo --install [image.iso [--in-place]]\n"
+                               "       Yakumo --adhoc-server [port]\n"
+                               "  game_dir        play from a directory holding EBOOT.ELF, disc.iso and ms0/\n"
+                               "  --data-dir dir  keep settings, saves and the prepared game in dir\n"
+                               "  --portable      keep them in data/ next to Yakumo (as portable.txt does)\n"
+                               "  --copy-user-data copy the data of the installed Yakumo into the data\n"
+                               "                  folder of this run (with --portable or --data-dir), then exit\n"
+                               "  --install       run the setup again on screen, then play\n"
+                               "  --install image set up from image.iso without the setup screens, then exit\n"
+                               "  --in-place      use the image where it is instead of copying it\n"
+                               "  --adhoc-server  run only the ad hoc server that Network > Host a session\n"
+                               "                  starts, on TCP port (default 27312) and the next one up,\n"
+                               "                  announced on the local network, until Ctrl+C\n";
 
 struct Options {
     std::optional<std::filesystem::path> game_dir;
@@ -140,18 +140,25 @@ Options parse_options(const std::vector<std::string> &arguments) {
     for (std::size_t i = 1; i < arguments.size(); ++i) {
         const std::string &arg = arguments[i];
         if (arg == "--help" || arg == "-h") throw UsageError("");
-        if (arg == "--install") options.install = true;
-        else if (arg == "--in-place") options.in_place = true;
-        else if (arg == "--portable") options.portable = true;
-        else if (arg == "--copy-user-data") options.copy_user_data = true;
+        if (arg == "--install")
+            options.install = true;
+        else if (arg == "--in-place")
+            options.in_place = true;
+        else if (arg == "--portable")
+            options.portable = true;
+        else if (arg == "--copy-user-data")
+            options.copy_user_data = true;
         else if (arg == "--data-dir") {
             if (i + 1 >= arguments.size()) throw UsageError("--data-dir needs a directory");
             options.data_dir = mhp3rd::path_from_utf8(arguments[++i]);
-        }
-        else if (!arg.empty() && arg[0] == '-') throw UsageError("unknown option " + arg);
-        else if (options.install && !options.install_image) options.install_image = mhp3rd::install::path_from_utf8(arg);
-        else if (!options.install && !options.game_dir) options.game_dir = mhp3rd::path_from_utf8(arg);
-        else throw UsageError("unexpected argument " + arg);
+        } else if (!arg.empty() && arg[0] == '-')
+            throw UsageError("unknown option " + arg);
+        else if (options.install && !options.install_image)
+            options.install_image = mhp3rd::install::path_from_utf8(arg);
+        else if (!options.install && !options.game_dir)
+            options.game_dir = mhp3rd::path_from_utf8(arg);
+        else
+            throw UsageError("unexpected argument " + arg);
     }
     if (options.in_place && !options.install_image) throw UsageError("--in-place needs --install image.iso");
     if (options.install && options.game_dir) throw UsageError("--install does not take a game_dir");
@@ -183,7 +190,7 @@ GameFiles files_in_game_directory(const std::filesystem::path &game_dir) {
 bool has_game_data(const std::filesystem::path &game_dir) {
     std::error_code ec;
     return std::filesystem::exists(std::filesystem::symlink_status(game_dir / "EBOOT.ELF", ec)) ||
-           std::filesystem::exists(std::filesystem::symlink_status(game_dir / "disc.iso", ec));
+        std::filesystem::exists(std::filesystem::symlink_status(game_dir / "disc.iso", ec));
 }
 
 // profiles/mhp3rd/game in the checkout this was built from, for developer
@@ -200,8 +207,8 @@ std::filesystem::path checkout_game_directory() {
 // ms0 of an installation lives in the per-user data directory with the rest
 // of it. Saves a developer build made in the checkout before that stay in use
 // until ms0 exists in the data directory.
-std::filesystem::path installed_memory_stick(const std::filesystem::path &data_dir,
-                                             const std::filesystem::path &checkout_game_dir) {
+std::filesystem::path installed_memory_stick(
+    const std::filesystem::path &data_dir, const std::filesystem::path &checkout_game_dir) {
     const std::filesystem::path memory_stick = mhp3rd::memory_stick_directory(data_dir);
     std::error_code ec;
     if (!checkout_game_dir.empty() && !std::filesystem::exists(memory_stick, ec)) {
@@ -239,13 +246,12 @@ std::optional<GameFiles> locate_game(const Options &options) {
                     return files;
                 }
                 const std::string where = install::path_to_utf8(installed->disc_image);
-                const std::string message =
-                    installed->image_copied
-                        ? "The copy of the disc image Yakumo made is missing:\n" + where +
-                              "\n\nSet up again to restore it (Yakumo --install)."
-                        : "The disc image Yakumo was set up with is no longer at:\n" + where +
-                              "\n\nPut it back there, or set up again to choose where it is now "
-                              "(Yakumo --install).";
+                const std::string message = installed->image_copied
+                    ? "The copy of the disc image Yakumo made is missing:\n" + where +
+                        "\n\nSet up again to restore it (Yakumo --install)."
+                    : "The disc image Yakumo was set up with is no longer at:\n" + where +
+                        "\n\nPut it back there, or set up again to choose where it is now "
+                        "(Yakumo --install).";
                 if (!install::report_problem("Disc image not found", message, true)) return std::nullopt;
                 run_setup = true;
                 continue;
@@ -257,7 +263,8 @@ std::optional<GameFiles> locate_game(const Options &options) {
         auto ui = install::make_installer_ui();
         if (!ui) {
             std::cerr << "No game data found in " << install::path_to_utf8(data_dir)
-                      << (checkout_game_dir.empty() ? std::string() : " or " + install::path_to_utf8(checkout_game_dir)) << ".\n"
+                      << (checkout_game_dir.empty() ? std::string() : " or " + install::path_to_utf8(checkout_game_dir))
+                      << ".\n"
                       << "Set up from your disc image of " << install::kGameTitle << " (" << install::kDiscIdDisplay
                       << ") with:\n  Yakumo --install /path/to/image.iso\n";
             return std::nullopt;
@@ -272,8 +279,8 @@ int install_from_command_line(const Options &options) {
     const std::filesystem::path data_dir = install::user_data_directory();
     try {
         install::install(*options.install_image,
-                         options.in_place ? install::ImageStorage::InPlace : install::ImageStorage::Copy, data_dir,
-                         install::print_progress);
+            options.in_place ? install::ImageStorage::InPlace : install::ImageStorage::Copy, data_dir,
+            install::print_progress);
     } catch (const install::InstallError &e) {
         std::cerr << "Setup failed: " << e.what() << "\n";
         return 1;
@@ -286,10 +293,14 @@ int install_from_command_line(const Options &options) {
 const char *data_source_name(mhp3rd::install::DataSource source) {
     using mhp3rd::install::DataSource;
     switch (source) {
-    case DataSource::CommandLine: return "--data-dir";
-    case DataSource::Environment: return "MHP3RD_DATA_DIR";
-    case DataSource::Portable: return "portable";
-    case DataSource::PerUser: return "per-user";
+    case DataSource::CommandLine:
+        return "--data-dir";
+    case DataSource::Environment:
+        return "MHP3RD_DATA_DIR";
+    case DataSource::Portable:
+        return "portable";
+    case DataSource::PerUser:
+        return "per-user";
     }
     return "?";
 }
@@ -330,7 +341,9 @@ int prepare_data_directory(const Options &options) {
 
 std::atomic<bool> stop_server{false};
 
-extern "C" void on_stop_signal(int) { stop_server = true; }
+extern "C" void on_stop_signal(int) {
+    stop_server = true;
+}
 
 // The built-in ad hoc server without the game, for leaving it running.
 int run_adhoc_server(int argc, char **argv) {
@@ -365,8 +378,8 @@ int run_adhoc_server(int argc, char **argv) {
     std::cout << "Ad hoc server on TCP " << config.adhocctl_port << " and " << relay_port_for(config.adhocctl_port)
               << ", announced on the local network as \"" << name << "\".\nPlayers join with one of:\n";
     for (const LocalAddress &address : local_addresses())
-        std::cout << "  " << address.address << suffix << "   (" << address.network << ", " << address.interface
-                  << ")\n";
+        std::cout << "  " << address.address << suffix << "   (" << address.network << ", "
+                  << address.interface << ")\n";
     std::cout << "Ctrl+C stops it." << std::endl;
     std::signal(SIGINT, on_stop_signal);
     std::signal(SIGTERM, on_stop_signal);
@@ -425,7 +438,8 @@ int main(int argc, char **argv) {
         paths.disc_image = files->disc_image;
         paths.memory_stick = files->memory_stick;
         if (!std::filesystem::is_regular_file(executable))
-            throw psprecomp::Error("Missing " + mhp3rd::path_to_utf8(executable) + " (run profiles/mhp3rd/scripts/prepare_game.sh)");
+            throw psprecomp::Error(
+                "Missing " + mhp3rd::path_to_utf8(executable) + " (run profiles/mhp3rd/scripts/prepare_game.sh)");
 
         const std::string sha256 = psprecomp::sha256_file(executable);
         if (sha256 != mhp3rd::install::kExecutableSha256)
@@ -452,7 +466,8 @@ int main(int argc, char **argv) {
         std::cout << "Yakumo PSP bootstrap\n"
                   << "Executable: " << mhp3rd::path_to_utf8(executable) << "\n"
                   << "SHA-256:    " << sha256 << "\n"
-                  << "Disc image: " << (paths.disc_image.empty() ? "<none>" : mhp3rd::path_to_utf8(paths.disc_image)) << "\n"
+                  << "Disc image: " << (paths.disc_image.empty() ? "<none>" : mhp3rd::path_to_utf8(paths.disc_image))
+                  << "\n"
                   << "Entry:      " << psprecomp::hex32(elf.runtime_entry(mhp3rd::kLoadBase)) << "\n"
                   << "Functions:  " << runtime.function_count() << "\n";
         if (runtime.function_count() == 0u) {

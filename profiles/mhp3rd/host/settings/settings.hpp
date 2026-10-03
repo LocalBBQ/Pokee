@@ -53,39 +53,39 @@ enum class GpuCompat { Auto, On, Off };
 
 struct Settings {
     // Video
-    std::uint32_t internal_scale{2u};  // render resolution, multiples of 480x272 (272 lines each); 0: the window's
-    std::uint32_t window_scale{2u};    // windowed size, multiples of 480x272
+    std::uint32_t internal_scale{2u}; // render resolution, multiples of 480x272 (272 lines each); 0: the window's
+    std::uint32_t window_scale{2u};   // windowed size, multiples of 480x272
     bool fullscreen{};
     PresentMode present_mode{PresentMode::Fifo};
     Aspect aspect{Aspect::Original};
-    bool sharp_screen{};               // nearest instead of linear scaling to the window
-    bool sharp_textures{};             // nearest instead of linear texture sampling
-    bool texture_pack{true};           // draw an installed HD texture pack's images instead of the game's
-    std::string texture_pack_folder;   // a pack used where it is instead of textures/<disc id>; empty: none
-    bool unthrottled{};                // let emulated time run ahead of real time
-    bool fast_loading{true};           // ...but only while the game loads (kernel/fast_loading.hpp)
+    bool sharp_screen{};             // nearest instead of linear scaling to the window
+    bool sharp_textures{};           // nearest instead of linear texture sampling
+    bool texture_pack{true};         // draw an installed HD texture pack's images instead of the game's
+    std::string texture_pack_folder; // a pack used where it is instead of textures/<disc id>; empty: none
+    bool unthrottled{};              // let emulated time run ahead of real time
+    bool fast_loading{true};         // ...but only while the game loads (kernel/fast_loading.hpp)
     // The fast-forward bind: held, toggled, or doing nothing (kernel/fast_forward.hpp).
     fast_forward::Mode fast_forward{fast_forward::Mode::Hold};
-    std::uint32_t fast_forward_speed{fast_forward::kDefaultSpeed};  // times real time while it runs
+    std::uint32_t fast_forward_speed{fast_forward::kDefaultSpeed}; // times real time while it runs
     FrameRate frame_rate{FrameRate::Fps30};
-    bool frame_rate_auto{true};        // lower the frame rate rather than slow the game
+    bool frame_rate_auto{true}; // lower the frame rate rather than slow the game
     PerfDisplay perf{PerfDisplay::Off};
     GpuCompat gpu_compat{GpuCompat::Auto};
 
     // Text
-    std::string font;                  // the game's text font: path, "#face" for a collection; empty: the default
-    std::uint32_t font_weight{1u};     // columns the game's glyphs are thickened by, 0 to kMaxFontWeight
+    std::string font;              // the game's text font: path, "#face" for a collection; empty: the default
+    std::uint32_t font_weight{1u}; // columns the game's glyphs are thickened by, 0 to kMaxFontWeight
     // Draw the game's glyph atlas again at the internal resolution. Off by
     // default on every platform since settings.version 2 (#210, #212).
     bool crisp_text{};
     UiTextures ui_textures{UiTextures::Off};
 
     // Audio
-    std::uint32_t volume{100u};        // percent
+    std::uint32_t volume{100u}; // percent
     bool mute{};
 
     // Controls
-    bool confirm_south{};              // confirm (circle) on the south face button
+    bool confirm_south{}; // confirm (circle) on the south face button
     float dead_zone{0.15f};
     float trigger{0.25f};
     // How long an input that begins a chord waits for the rest of it, in
@@ -102,7 +102,7 @@ struct Settings {
     // keeps it there (camera/lock_on.hpp). Nothing happens until the bind is
     // pressed; off, the bind does nothing at all.
     bool lock_on{true};
-    bool lock_on_marker{true};         // a ring over the locked monster
+    bool lock_on_marker{true}; // a ring over the locked monster
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
     // Degrees per second at full deflection while a bow or a bowgun aims.
@@ -112,7 +112,7 @@ struct Settings {
     // Keyboard and mouse. With the mouse on, the window captures the pointer
     // while the game runs and the mouse turns the camera; Esc frees it.
     bool mouse{true};
-    float mouse_sensitivity{0.10f};    // degrees of camera turn per count of mouse motion
+    float mouse_sensitivity{0.10f}; // degrees of camera turn per count of mouse motion
     bool invert_mouse_x{};
     bool invert_mouse_y{};
     // Control presets (input/presets.hpp): the layout in use, which preset
@@ -124,44 +124,44 @@ struct Settings {
     // On-screen controls for a touch screen, shown once the screen is touched
     // and hidden again when a gamepad or the keyboard is used.
     bool touch_controls{true};
-    bool touch_dpad{true};             // the D-pad among them, for the game's menus
-    float touch_opacity{0.5f};         // 0.1-1
-    float touch_size{1.0f};            // 0.6-1.6 of the default size
-    float touch_camera_speed{180.0f};  // degrees the camera turns for a drag across the screen's height
+    bool touch_dpad{true};            // the D-pad among them, for the game's menus
+    float touch_opacity{0.5f};        // 0.1-1
+    float touch_size{1.0f};           // 0.6-1.6 of the default size
+    float touch_camera_speed{180.0f}; // degrees the camera turns for a drag across the screen's height
     TouchLayout touch_layout{TouchLayout::Psp};
     // The action layout's elements, kept on this device, and a short
     // vibration when one of its buttons is pressed.
     input::touch::ActionLayout touch_action{input::touch::default_action_layout()};
     bool touch_haptics{true};
-    NameEntry name_entry{NameEntry::Keyboard};  // on-screen keyboard, or the name below at once
-    std::string name{"Hunter"};        // the fixed name
+    NameEntry name_entry{NameEntry::Keyboard}; // on-screen keyboard, or the name below at once
+    std::string name{"Hunter"};                // the fixed name
 
     // Network (ad hoc play through a PSP ad hoc server)
-    bool adhoc{};                      // wireless switch on: the game may go on line
-    std::string adhoc_server;          // host or host:port of the server; empty: none
-    std::string adhoc_nickname;        // shown to other players; empty: the hunter name
-    std::string adhoc_mac;             // this player's virtual MAC, made up on first use
-    std::vector<std::string> adhoc_recent;  // sessions joined lately, the latest first
-    std::uint32_t adhoc_host_port{27312};   // the built-in server's adhocctl port; the relay is on the next
+    bool adhoc{};                          // wireless switch on: the game may go on line
+    std::string adhoc_server;              // host or host:port of the server; empty: none
+    std::string adhoc_nickname;            // shown to other players; empty: the hunter name
+    std::string adhoc_mac;                 // this player's virtual MAC, made up on first use
+    std::vector<std::string> adhoc_recent; // sessions joined lately, the latest first
+    std::uint32_t adhoc_host_port{27312};  // the built-in server's adhocctl port; the relay is on the next
 
     // Interface
-    bool menu_pause{true};             // opening the menu pauses the game
-    bool menu_pause_multiplayer{};     // ...also during ad hoc play, where a paused game stops answering its peers
-    bool menu_hint_seen{};             // the "Esc / L3+R3 opens the menu" hint was shown
-    std::string last_folder;           // where the setup's file browser was last used
-    std::string menu_tab;              // the menu's page when it last closed ("controls")
+    bool menu_pause{true};         // opening the menu pauses the game
+    bool menu_pause_multiplayer{}; // ...also during ad hoc play, where a paused game stops answering its peers
+    bool menu_hint_seen{};         // the "Esc / L3+R3 opens the menu" hint was shown
+    std::string last_folder;       // where the setup's file browser was last used
+    std::string menu_tab;          // the menu's page when it last closed ("controls")
 
     // Saves
-    bool backup_timestamp{true};       // a backup made from the menu goes to a new folder named by its time
-    bool backup_reminder{true};        // remind to back up the saves the first time a new release starts
-    std::string backup_reminded;       // the release that last showed the reminder (savedata::release_of)
+    bool backup_timestamp{true}; // a backup made from the menu goes to a new folder named by its time
+    bool backup_reminder{true};  // remind to back up the saves the first time a new release starts
+    std::string backup_reminded; // the release that last showed the reminder (savedata::release_of)
 
     // Layered armor (game/layered_armor.hpp): the hunter drawn in other armor
     // than it wears. Off, nothing of the game is touched. On, each armor part
     // with a piece chosen here is drawn as that piece, while the game keeps the
     // real one for everything else. The choices are the port's, never the save's.
     bool layered_armor{};
-    bool layered_all{};                // the choice lists all armor, not only the pieces owned
+    bool layered_all{}; // the choice lists all armor, not only the pieces owned
     // By part, in the game's order (chest, arms, waist, legs, head): the armor
     // piece's id, 0 for none (the bare part), or kLayeredReal for the piece worn.
     std::array<std::int32_t, 5> layered_pieces{-1, -1, -1, -1, -1};
@@ -170,8 +170,8 @@ struct Settings {
     // The free camera (camera/free_camera.hpp): off, nothing about the game
     // or its picture changes; on, a key or a gamepad chord detaches the view.
     bool free_camera{};
-    float free_camera_speed{400.0f};   // game units a second, before the fast and slow modifiers
-    bool free_camera_hide_hud{true};   // hide the game's HUD while it flies (gpu/game_hud.hpp)
+    float free_camera_speed{400.0f}; // game units a second, before the fast and slow modifiers
+    bool free_camera_hide_hud{true}; // hide the game's HUD while it flies (gpu/game_hud.hpp)
 };
 
 inline constexpr std::int32_t kLayeredReal = -1;

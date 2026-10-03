@@ -40,22 +40,22 @@ struct Snapshot {
     std::uint32_t points2{};
     std::uint32_t free_items{};
     std::uint32_t free_equipment{};
-    std::map<std::uint16_t, std::uint32_t> in_box;  // item id -> count
+    std::map<std::uint16_t, std::uint32_t> in_box; // item id -> count
     std::map<std::pair<std::uint8_t, std::uint16_t>, std::uint32_t> equipment_owned;
     debug::HeldCheats held;
-    std::string quest_note;  // why a quest cannot be started now; "" when it can
+    std::string quest_note; // why a quest cannot be started now; "" when it can
 };
 
 struct State {
     Screen screen{Screen::Page};
     bool focus{};
     std::string search;
-    bool resume{};     // close the menu: a quest was started
-    int group{};       // 0: all, then the item groups
-    int amount{3};     // index into kAmounts
+    bool resume{}; // close the menu: a quest was started
+    int group{};   // 0: all, then the item groups
+    int amount{3}; // index into kAmounts
     bool remove{};
-    int kind{};        // index into game::equipment_kinds()
-    std::vector<game::Item> items;  // the game's item list, read once
+    int kind{};                    // index into game::equipment_kinds()
+    std::vector<game::Item> items; // the game's item list, read once
     std::map<std::uint8_t, std::vector<std::string>> equipment_names;
     Snapshot snap;
 };
@@ -67,11 +67,12 @@ State &state() {
 
 constexpr std::array<std::uint32_t, 6> kAmounts{1u, 5u, 10u, 99u, 500u, 990u};
 constexpr std::array<game::ItemGroup, 5> kGroups{game::ItemGroup::Material, game::ItemGroup::Consumable,
-                                                  game::ItemGroup::Ammo, game::ItemGroup::Decoration,
-                                                  game::ItemGroup::Other};
+    game::ItemGroup::Ammo, game::ItemGroup::Decoration, game::ItemGroup::Other};
 constexpr std::uint32_t kMoneyStep = 100'000u;
 
-int cycle(int value, int delta, int count) { return ((value + delta) % count + count) % count; }
+int cycle(int value, int delta, int count) {
+    return ((value + delta) % count + count) % count;
+}
 
 std::string thousands(std::uint32_t value) {
     std::string digits = std::to_string(value);
@@ -106,11 +107,15 @@ void read_snapshot() {
         n.points1 = ram.load32(game::kPoints1);
         n.points2 = ram.load32(game::kPoints2);
         for (const game::ItemStack &stack : game::item_box(ram))
-            if (stack.id == 0u) ++n.free_items;
-            else n.in_box[stack.id] += stack.count;
+            if (stack.id == 0u)
+                ++n.free_items;
+            else
+                n.in_box[stack.id] += stack.count;
         for (const auto &piece : game::equipment_box(ram))
-            if (!piece) ++n.free_equipment;
-            else ++n.equipment_owned[{piece->kind, piece->id}];
+            if (!piece)
+                ++n.free_equipment;
+            else
+                ++n.equipment_owned[{piece->kind, piece->id}];
     });
 }
 
@@ -155,8 +160,7 @@ void page() {
     section("Developer tools");
     focus_once();
     info_row("Character", n.loaded ? n.name : std::string("None loaded"));
-    if (!debug::blocked_reason().empty())
-        info_row("Writes", "Off while " + debug::blocked_reason());
+    if (!debug::blocked_reason().empty()) info_row("Writes", "Off while " + debug::blocked_reason());
 
     section("Money and points");
     info_row("Zenny", thousands(n.money) + "z");
@@ -177,7 +181,7 @@ void page() {
             for (const std::uint32_t at : {game::kPoints1, game::kPoints2})
                 ram.store32(at, std::min(ram.load32(at) + kMoneyStep, game::kMostMoney));
             return "points now " + std::to_string(ram.load32(game::kPoints1)) + " Yukumo, " +
-                   std::to_string(ram.load32(game::kPoints2)) + " Guild";
+                std::to_string(ram.load32(game::kPoints2)) + " Guild";
         });
 
     section("Item box");
@@ -193,19 +197,19 @@ void page() {
             s.focus = true;
         }
     }
-    if (button_row("Fill materials",
-                   write_row("99 of every material the box does not hold yet, while it has free slots.")))
+    if (button_row(
+            "Fill materials", write_row("99 of every material the box does not hold yet, while it has free slots.")))
         debug::request("fill materials", [](debug::Ram &ram) {
-            return "added 99 of " + std::to_string(game::fill_materials(ram, game::kMostPerStack)) +
-                   " materials; " + std::to_string(game::free_item_slots(ram)) + " slots left";
+            return "added 99 of " + std::to_string(game::fill_materials(ram, game::kMostPerStack)) + " materials; " +
+                std::to_string(game::free_item_slots(ram)) + " slots left";
         });
 
     section("Equipment box");
-    info_row("Free slots##equipment",
-             std::to_string(n.free_equipment) + " of " + std::to_string(game::kEquipmentBoxSlots));
+    info_row(
+        "Free slots##equipment", std::to_string(n.free_equipment) + " of " + std::to_string(game::kEquipmentBoxSlots));
     if (value_row("Give equipment", "",
-                  write_row("Any weapon or armor piece, layered and collaboration sets included, new and at "
-                            "level 1. Equip it from the item box in the hunter's house."))) {
+            write_row("Any weapon or armor piece, layered and collaboration sets included, new and at "
+                      "level 1. Equip it from the item box in the hunter's house."))) {
         s.screen = Screen::Equipment;
         s.focus = true;
     }
@@ -237,8 +241,9 @@ void page() {
         held_row("Infinite health", held.health, "Keeps the hunter's health at its most, every frame.");
         held_row("Infinite stamina", held.stamina, "Keeps the hunter's stamina at its most, every frame.");
         held_row("Freeze the quest timer", held.timer, "The quest clock stops where it is.");
-        held_row("Monsters at 1 health", held.one_hit, "Every large monster's health is set to 1, so the next hit "
-                                                         "ends it.");
+        held_row("Monsters at 1 health", held.one_hit,
+            "Every large monster's health is set to 1, so the next hit "
+            "ends it.");
         if (changed) debug::set_held_cheats(held);
         // Each row needs an id of its own for the pad to move between them.
         int row = 0;
@@ -261,14 +266,14 @@ void items_screen(bool back) {
     section(s.remove ? "Remove items" : "Give items");
     focus_once();
     if (button_row(("Search: " + (s.search.empty() ? std::string("everything") : s.search) + "###search").c_str(),
-                   {false, {}, "Type part of a name."}))
+            {false, {}, "Type part of a name."}))
         open_search();
     static const char *const kGroupNames[] = {"All", "Materials", "Consumables", "Ammo", "Decorations", "Other"};
     if (const int d = choice_row("Group", kGroupNames[s.group])) s.group = cycle(s.group, d, 6);
     if (const int d = choice_row("Action", s.remove ? "Remove every stack" : "Give")) s.remove = !s.remove;
     if (!s.remove)
         if (const int d = choice_row("Amount", std::to_string(kAmounts[static_cast<std::size_t>(s.amount)]),
-                                     {false, {}, "How many to give. Stacks hold 99 each."}))
+                {false, {}, "How many to give. Stacks hold 99 each."}))
             s.amount = cycle(s.amount, d, static_cast<int>(kAmounts.size()));
     const std::string note = write_note();
     section("Items");
@@ -282,21 +287,21 @@ void items_screen(bool back) {
         ++shown;
         const std::string id = "##item" + std::to_string(item.id);
         const std::string detail = (count != 0u ? std::to_string(count) + " in box   " : std::string()) +
-                                   game::group_name(item.group) + "  #" + std::to_string(item.id);
+            game::group_name(item.group) + "  #" + std::to_string(item.id);
         if (list_row(id.c_str(), item.name, detail, ListIcon::None, count != 0u) && note.empty()) {
             const std::uint16_t item_id = item.id;
             const std::string name = item.name;
             if (s.remove) {
                 debug::request("remove " + name, [item_id, name](debug::Ram &ram) {
                     return "removed " + std::to_string(game::remove_item(ram, item_id)) + " " + name + " (#" +
-                           std::to_string(item_id) + ")";
+                        std::to_string(item_id) + ")";
                 });
             } else {
                 const std::uint32_t amount = kAmounts[static_cast<std::size_t>(s.amount)];
                 debug::request("give " + name, [item_id, name, amount](debug::Ram &ram) {
                     const std::uint32_t given = game::give_item(ram, item_id, amount);
                     return "gave " + std::to_string(given) + " of " + std::to_string(amount) + " " + name + " (#" +
-                           std::to_string(item_id) + "); box holds " + std::to_string(game::box_count(ram, item_id));
+                        std::to_string(item_id) + "); box holds " + std::to_string(game::box_count(ram, item_id));
                 });
             }
         }
@@ -318,7 +323,7 @@ void equipment_screen(bool back) {
     focus_once();
     if (const int d = choice_row("Kind", kind.label)) s.kind = cycle(s.kind, d, static_cast<int>(kinds.size()));
     if (button_row(("Search: " + (s.search.empty() ? std::string("everything") : s.search) + "###search").c_str(),
-                   {false, {}, "Type part of a name."}))
+            {false, {}, "Type part of a name."}))
         open_search();
     const std::string note = write_note();
     section(kind.label);
@@ -340,7 +345,7 @@ void equipment_screen(bool back) {
             debug::request("give " + name, [piece, name, label](debug::Ram &ram) {
                 const std::optional<std::uint32_t> slot = game::give_equipment(ram, piece.first, piece.second);
                 return slot ? "gave " + label + " " + name + " (kind " + std::to_string(piece.first) + ", #" +
-                                  std::to_string(piece.second) + ") in equipment box slot " + std::to_string(*slot)
+                        std::to_string(piece.second) + ") in equipment box slot " + std::to_string(*slot)
                             : "equipment box full: " + name + " not given";
             });
         }
@@ -359,7 +364,7 @@ void quests_screen(bool back) {
     section("Start a quest");
     focus_once();
     if (button_row(("Search: " + (s.search.empty() ? std::string("everything") : s.search) + "###search").c_str(),
-                   {false, {}, "Type part of a quest's name, a monster or an id."}))
+            {false, {}, "Type part of a quest's name, a monster or an id."}))
         open_search();
     std::string note = write_note();
     if (note.empty() && !s.snap.quest_note.empty()) note = "Not now: " + s.snap.quest_note;
@@ -376,14 +381,13 @@ void quests_screen(bool back) {
         if (q.stars != stars || static_cast<int>(hall) != board) {
             stars = q.stars;
             board = static_cast<int>(hall);
-            section(((hall ? "Guild Hall, " : "Village, ") + std::to_string(stars) +
-                     (stars == 1 ? " star" : " stars"))
-                        .c_str());
+            section(((hall ? "Guild Hall, " : "Village, ") + std::to_string(stars) + (stars == 1 ? " star" : " stars"))
+                    .c_str());
         }
         ++shown;
         const std::string monsters = debug::quests::monster_list(q);
         const std::string detail = (monsters.empty() ? std::string() : monsters + "   ") + "#" + id +
-                                   (q.fee != 0u ? "   fee " + thousands(q.fee) + "z" : std::string());
+            (q.fee != 0u ? "   fee " + thousands(q.fee) + "z" : std::string());
         if (list_row(("##quest" + id).c_str(), q.name, detail, ListIcon::None, false) && note.empty()) {
             debug::request_quest_start(q.id);
             s.screen = Screen::Page;
@@ -391,8 +395,10 @@ void quests_screen(bool back) {
             s.resume = true;
         }
     }
-    if (quests.empty()) paragraph("The game's quest lists could not be read.", colors::kDanger);
-    else if (shown == 0u) paragraph("No quest matches.", colors::kTextDim);
+    if (quests.empty())
+        paragraph("The game's quest lists could not be read.", colors::kDanger);
+    else if (shown == 0u)
+        paragraph("No quest matches.", colors::kTextDim);
     paragraph("A Hall quest brings the hunter back to the Hall. Event quests are not listed.", colors::kTextDim);
     if (!note.empty()) paragraph(note, colors::kDanger);
 }
@@ -402,15 +408,27 @@ void quests_screen(bool back) {
 void debug_page(bool back) {
     read_snapshot();
     switch (state().screen) {
-    case Screen::Items: items_screen(back); break;
-    case Screen::Equipment: equipment_screen(back); break;
-    case Screen::Quests: quests_screen(back); break;
-    default: page(); break;
+    case Screen::Items:
+        items_screen(back);
+        break;
+    case Screen::Equipment:
+        equipment_screen(back);
+        break;
+    case Screen::Quests:
+        quests_screen(back);
+        break;
+    default:
+        page();
+        break;
     }
 }
 
-bool debug_screen_open() { return state().screen != Screen::Page; }
+bool debug_screen_open() {
+    return state().screen != Screen::Page;
+}
 
-bool debug_page_resume() { return std::exchange(state().resume, false); }
+bool debug_page_resume() {
+    return std::exchange(state().resume, false);
+}
 
 } // namespace mhp3rd::ui

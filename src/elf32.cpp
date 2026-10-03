@@ -65,7 +65,7 @@ constexpr std::uint32_t kRMipsLo16 = 6u;
 
 std::uint32_t load_u32(const std::uint8_t *p) {
     return static_cast<std::uint32_t>(p[0]) | (static_cast<std::uint32_t>(p[1]) << 8u) |
-           (static_cast<std::uint32_t>(p[2]) << 16u) | (static_cast<std::uint32_t>(p[3]) << 24u);
+        (static_cast<std::uint32_t>(p[2]) << 16u) | (static_cast<std::uint32_t>(p[3]) << 24u);
 }
 
 std::uint16_t relocated_hi(std::uint32_t value) {
@@ -119,8 +119,10 @@ void Elf32Image::parse() {
     }
     if (header.ident[4] != 1u || header.ident[5] != 1u) throw Error("PSPRecomp requires ELF32 little-endian input");
     if (header.machine != 8u) throw Error("ELF machine is not MIPS/Allegrex");
-    if (header.phentsize != 0u && header.phentsize < sizeof(ProgramHeader32)) throw Error("Invalid ELF program header size");
-    if (header.shentsize != 0u && header.shentsize < sizeof(SectionHeader32)) throw Error("Invalid ELF section header size");
+    if (header.phentsize != 0u && header.phentsize < sizeof(ProgramHeader32))
+        throw Error("Invalid ELF program header size");
+    if (header.shentsize != 0u && header.shentsize < sizeof(SectionHeader32))
+        throw Error("Invalid ELF section header size");
     type_ = header.type;
     entry_ = header.entry;
 
@@ -159,20 +161,35 @@ void Elf32Image::parse() {
             const auto *end = static_cast<const char *>(std::memchr(start, '\0', max));
             if (end) name.assign(start, end);
         }
-        sections_.push_back({name, sh.type, sh.flags, sh.addr, sh.offset, sh.size, sh.link, sh.info, sh.addralign, sh.entsize});
+        sections_.push_back(
+            {name, sh.type, sh.flags, sh.addr, sh.offset, sh.size, sh.link, sh.info, sh.addralign, sh.entsize});
     }
 }
 
-std::uint32_t Elf32Image::entry() const noexcept { return entry_; }
+std::uint32_t Elf32Image::entry() const noexcept {
+    return entry_;
+}
 std::uint32_t Elf32Image::runtime_entry(std::uint32_t load_base) const noexcept {
     return is_psp_prx() ? load_base + entry_ : entry_;
 }
-std::uint16_t Elf32Image::type() const noexcept { return type_; }
-bool Elf32Image::is_psp_prx() const noexcept { return type_ == kElfTypePspPrx; }
-const std::vector<std::uint8_t> &Elf32Image::bytes() const noexcept { return bytes_; }
-const std::vector<ElfSegment> &Elf32Image::segments() const noexcept { return segments_; }
-const std::vector<ElfSection> &Elf32Image::sections() const noexcept { return sections_; }
-const std::string &Elf32Image::source_name() const noexcept { return source_name_; }
+std::uint16_t Elf32Image::type() const noexcept {
+    return type_;
+}
+bool Elf32Image::is_psp_prx() const noexcept {
+    return type_ == kElfTypePspPrx;
+}
+const std::vector<std::uint8_t> &Elf32Image::bytes() const noexcept {
+    return bytes_;
+}
+const std::vector<ElfSegment> &Elf32Image::segments() const noexcept {
+    return segments_;
+}
+const std::vector<ElfSection> &Elf32Image::sections() const noexcept {
+    return sections_;
+}
+const std::string &Elf32Image::source_name() const noexcept {
+    return source_name_;
+}
 
 std::vector<std::uint32_t> Elf32Image::segment_runtime_addresses(std::uint32_t load_base) const {
     std::vector<std::uint32_t> result;
@@ -276,8 +293,7 @@ RelocationStats Elf32Image::apply_relocations(GuestMemory &memory, std::uint32_t
                 ++stats.r_mips_32;
                 break;
             case kRMips26:
-                op = (op & 0xFC000000u) |
-                     (((op & 0x03FFFFFFu) + (relocate_to >> 2u)) & 0x03FFFFFFu);
+                op = (op & 0xFC000000u) | (((op & 0x03FFFFFFu) + (relocate_to >> 2u)) & 0x03FFFFFFu);
                 ++stats.r_mips_26;
                 break;
             case kRMipsHi16: {
@@ -336,8 +352,8 @@ std::vector<PspRelocationSite> Elf32Image::relocation_sites(std::uint32_t load_b
             const std::uint32_t patch_segment = (rel.info >> 8u) & 0xFFu;
             const std::uint32_t target_segment = (rel.info >> 16u) & 0xFFu;
             if (patch_segment >= segment_addresses.size() || target_segment >= segment_addresses.size()) continue;
-            sites.push_back({segment_addresses[patch_segment] + rel.offset,
-                             rel.info & 0x0Fu, patch_segment, target_segment});
+            sites.push_back(
+                {segment_addresses[patch_segment] + rel.offset, rel.info & 0x0Fu, patch_segment, target_segment});
         }
     }
     return sites;
@@ -357,9 +373,16 @@ std::optional<PspModuleInfo> Elf32Image::find_module_info(const GuestMemory &mem
     }
     const auto nul = std::find(std::begin(name), std::end(name), '\0');
     return PspModuleInfo{
-        memory.load16(addr), memory.load8(addr + 2u), memory.load8(addr + 3u), std::string(name, nul),
-        memory.load32(addr + 32u), memory.load32(addr + 36u), memory.load32(addr + 40u),
-        memory.load32(addr + 44u), memory.load32(addr + 48u), addr,
+        memory.load16(addr),
+        memory.load8(addr + 2u),
+        memory.load8(addr + 3u),
+        std::string(name, nul),
+        memory.load32(addr + 32u),
+        memory.load32(addr + 36u),
+        memory.load32(addr + 40u),
+        memory.load32(addr + 44u),
+        memory.load32(addr + 48u),
+        addr,
     };
 }
 
@@ -378,11 +401,13 @@ std::vector<PspImport> Elf32Image::scan_imports(const GuestMemory &memory, const
             throw Error("Corrupt PSP import table length at " + hex32(cursor));
         }
         const std::string library = memory.read_c_string(libname, 128u);
-        if (!memory.contains(nid_table, static_cast<std::size_t>(count) * 4u)) throw Error("PSP import NID table outside RAM");
-        if (!memory.contains(stub_table, static_cast<std::size_t>(count) * 8u)) throw Error("PSP import stub table outside RAM");
+        if (!memory.contains(nid_table, static_cast<std::size_t>(count) * 4u))
+            throw Error("PSP import NID table outside RAM");
+        if (!memory.contains(stub_table, static_cast<std::size_t>(count) * 8u))
+            throw Error("PSP import stub table outside RAM");
         for (std::uint16_t i = 0; i < count; ++i) {
             imports.push_back({library, memory.load32(nid_table + static_cast<std::uint32_t>(i) * 4u),
-                               stub_table + static_cast<std::uint32_t>(i) * 8u});
+                stub_table + static_cast<std::uint32_t>(i) * 8u});
         }
         cursor += table_bytes;
     }

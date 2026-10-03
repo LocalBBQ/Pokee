@@ -100,12 +100,14 @@ void draw_text(std::uint32_t *pixels, std::uint32_t x, std::uint32_t y, const ch
 std::uint32_t graph_row(float ms) {
     const float clamped = std::clamp(ms, 0.0f, kGraphRangeMs);
     return kGraphTop + kGraphHeight - 1u -
-           static_cast<std::uint32_t>(clamped / kGraphRangeMs * static_cast<float>(kGraphHeight - 1u));
+        static_cast<std::uint32_t>(clamped / kGraphRangeMs * static_cast<float>(kGraphHeight - 1u));
 }
 
 } // namespace
 
-std::uint32_t overlay_scale(std::uint32_t height) { return std::max(1u, height / 360u); }
+std::uint32_t overlay_scale(std::uint32_t height) {
+    return std::max(1u, height / 360u);
+}
 
 void draw_overlay(std::uint32_t *pixels) {
     std::fill(pixels, pixels + kOverlayWidth * kOverlayHeight, kBackground);
@@ -117,16 +119,16 @@ void draw_overlay(std::uint32_t *pixels) {
         std::snprintf(line, sizeof(line), "FPS %.1f GAME %.1f SPD %.0f%%", s.fps, s.game_fps, s.speed * 100.0);
         draw_text(pixels, kMargin, y, line);
         if (s.gpu_valid)
-            std::snprintf(line, sizeof(line), "FRAME %.1f MAX %.1f GPU %.1f", s.frame_avg_ms, s.frame_max_ms,
-                          s.gpu_avg_ms);
+            std::snprintf(
+                line, sizeof(line), "FRAME %.1f MAX %.1f GPU %.1f", s.frame_avg_ms, s.frame_max_ms, s.gpu_avg_ms);
         else
             std::snprintf(line, sizeof(line), "FRAME %.1f MAX %.1f MS", s.frame_avg_ms, s.frame_max_ms);
         draw_text(pixels, kMargin, y += kLineAdvance, line);
         std::snprintf(line, sizeof(line), "GUEST %.1f RENDER %.1f WAIT %.1f", s.guest_ms, s.render_ms, s.wait_ms);
         draw_text(pixels, kMargin, y += kLineAdvance, line);
         if (s.refresh_hz > 0.0f)
-            std::snprintf(line, sizeof(line), "%s %.0fHZ %uX%u", s.present_mode.c_str(), s.refresh_hz, s.width,
-                          s.height);
+            std::snprintf(
+                line, sizeof(line), "%s %.0fHZ %uX%u", s.present_mode.c_str(), s.refresh_hz, s.width, s.height);
         else
             std::snprintf(line, sizeof(line), "%s %uX%u", s.present_mode.c_str(), s.width, s.height);
         draw_text(pixels, kMargin, y += kLineAdvance, line);

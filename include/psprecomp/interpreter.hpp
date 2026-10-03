@@ -41,8 +41,7 @@ struct InterpreterStats {
 // Executes instructions from ctx.pc until control leaves the interpreted region
 // or `instruction_budget` instructions have run.  Passing zero uses the
 // configured default.
-InterpreterExit interpret_allegrex(Runtime &runtime, AllegrexContext &ctx,
-                                   std::uint64_t instruction_budget = 0u);
+InterpreterExit interpret_allegrex(Runtime &runtime, AllegrexContext &ctx, std::uint64_t instruction_budget = 0u);
 
 // Defaults to enabled; PSPRECOMP_NO_INTERPRETER=1 restores the strict
 // "No recompiled function registered" stop.

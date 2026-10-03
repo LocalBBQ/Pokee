@@ -49,8 +49,8 @@ struct Layout {
     // The D-pad, when shown: its centre and the reach of its arms.
     bool dpad_shown{};
     Circle dpad{};
-    float stick_radius{};    // the stick's reach from where the thumb landed
-    float stick_split{};     // x: fingers landing left of it are for the stick
+    float stick_radius{}; // the stick's reach from where the thumb landed
+    float stick_split{};  // x: fingers landing left of it are for the stick
     float width{};
     float height{};
 };
@@ -70,8 +70,8 @@ struct Layout {
 
 struct Stick {
     bool active{};
-    Point origin;   // where the stick is centred now
-    Point thumb;    // where the thumb is
+    Point origin; // where the stick is centred now
+    Point thumb;  // where the thumb is
 };
 
 class Controls {
@@ -106,7 +106,7 @@ private:
         bool used{};
         Role role{};
         Control control{};
-        bool over{};    // the finger is still over its control
+        bool over{}; // the finger is still over its control
         Point last;
     };
     static constexpr std::size_t kFingers = 10u;

@@ -57,26 +57,26 @@ struct MouseMotion {
 // keyboard, the mouse wheel and the gamepad while Experimental > Free camera
 // is on. Presses count once, from one take to the next; the rest is held.
 struct FreeCameraControls {
-    bool toggle{};      // F6, or Back (Select) + R3 on a gamepad
-    bool pause{};       // P, or Start: the photo mode's pause
-    bool reset{};       // R, or Y (north): back to where the game's camera is
-    int speed_steps{};  // mouse wheel, + and -, D-pad up and down
-    float right{};      // D and A, the left stick
-    float forward{};    // W and S, the left stick
-    float up{};         // E and Q, RB and LB
-    float look_x{};     // the right stick past its dead zone, -1..1, inverted as the camera settings say
+    bool toggle{};     // F6, or Back (Select) + R3 on a gamepad
+    bool pause{};      // P, or Start: the photo mode's pause
+    bool reset{};      // R, or Y (north): back to where the game's camera is
+    int speed_steps{}; // mouse wheel, + and -, D-pad up and down
+    float right{};     // D and A, the left stick
+    float forward{};   // W and S, the left stick
+    float up{};        // E and Q, RB and LB
+    float look_x{};    // the right stick past its dead zone, -1..1, inverted as the camera settings say
     float look_y{};
-    bool fast{};        // Left Shift, RT
-    bool slow{};        // Left Ctrl, LT
+    bool fast{}; // Left Shift, RT
+    bool slow{}; // Left Ctrl, LT
 };
 
 // The camera the game itself set, read back from the view matrix it uploads.
 // Only filled while MHP3RD_TRACE_CAMERA or MHP3RD_FIND_CAMERA is on.
 struct CameraReading {
     bool valid{};
-    float yaw{};    // degrees, from the direction the camera looks along
-    float pitch{};  // degrees
-    float turn{};   // degrees of yaw since the previous traced frame
+    float yaw{};   // degrees, from the direction the camera looks along
+    float pitch{}; // degrees
+    float turn{};  // degrees of yaw since the previous traced frame
     std::array<float, 3> position{};
     // The matrix itself, in the layout the game holds it in: the GE's twelve
     // uploaded floats expanded to a 4x4, which is byte for byte the matrix the
@@ -165,8 +165,8 @@ public:
     // interpolation the frame is shown by the presents that follow, between
     // this flip and the next, which count themselves (perf::count_present);
     // returns whether the flip itself presented the frame.
-    bool present(std::uint32_t display_address,
-                 std::optional<std::chrono::steady_clock::time_point> moment = std::nullopt);
+    bool present(
+        std::uint32_t display_address, std::optional<std::chrono::steady_clock::time_point> moment = std::nullopt);
     // Frame interpolation (Video > Frame rate; gpu/frame_pacing.hpp). The
     // kernel calls present_due() while the game's code runs, to make a
     // present that has fallen due, and present_until() while it waits for
@@ -199,7 +199,7 @@ public:
     // memory order, rows `stride` pixels apart), scaled to the target. Call
     // it at most once per presented frame.
     void upload_frame(std::uint32_t display_address, const std::uint8_t *pixels, std::uint32_t width,
-                      std::uint32_t height, std::uint32_t stride);
+        std::uint32_t height, std::uint32_t stride);
 
     // Writes the last rendered frame as a BMP; returns false if it could not be
     // read back. Used for screenshots without touching the window system.

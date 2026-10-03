@@ -49,7 +49,9 @@ Writer &writer() {
 
 } // namespace
 
-std::filesystem::path folder() { return install::user_data_directory() / "screenshots"; }
+std::filesystem::path folder() {
+    return install::user_data_directory() / "screenshots";
+}
 
 std::string file_name(std::chrono::system_clock::time_point when) {
     const std::tm tm = local_time(when);
@@ -71,7 +73,7 @@ std::filesystem::path free_path(const std::filesystem::path &directory, std::chr
 }
 
 bool write_png(const std::filesystem::path &path, const std::vector<std::uint8_t> &rgba, std::uint32_t width,
-               std::uint32_t height, std::string &error) {
+    std::uint32_t height, std::string &error) {
     const std::size_t pixels = static_cast<std::size_t>(width) * height;
     if (width == 0u || height == 0u || rgba.size() < pixels * 4u) {
         error = "no picture";
@@ -84,8 +86,8 @@ bool write_png(const std::filesystem::path &path, const std::vector<std::uint8_t
         rgb[i * 3u + 2u] = rgba[i * 4u + 2u];
     }
     int length = 0;
-    unsigned char *png = stbi_write_png_to_mem(rgb.data(), static_cast<int>(width * 3u), static_cast<int>(width),
-                                               static_cast<int>(height), 3, &length);
+    unsigned char *png = stbi_write_png_to_mem(
+        rgb.data(), static_cast<int>(width * 3u), static_cast<int>(width), static_cast<int>(height), 3, &length);
     if (png == nullptr) {
         error = "the picture could not be encoded";
         return false;
@@ -103,8 +105,8 @@ bool write_png(const std::filesystem::path &path, const std::vector<std::uint8_t
     return true;
 }
 
-void save_png_later(std::filesystem::path path, std::vector<std::uint8_t> rgba, std::uint32_t width,
-                    std::uint32_t height) {
+void save_png_later(
+    std::filesystem::path path, std::vector<std::uint8_t> rgba, std::uint32_t width, std::uint32_t height) {
     Writer &w = writer();
     const std::lock_guard lock(w.mutex);
     if (w.thread.joinable()) w.thread.join();

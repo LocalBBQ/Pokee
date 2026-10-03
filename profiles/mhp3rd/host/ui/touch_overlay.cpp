@@ -21,10 +21,12 @@ void draw_symbol(ImDrawList *list, Control control, ImVec2 c, float r, ImU32 ink
     const float s = r * 0.42f;
     switch (control) {
     case Control::Triangle:
-        list->AddTriangle({c.x, c.y - s}, {c.x + s * 0.95f, c.y + s * 0.65f}, {c.x - s * 0.95f, c.y + s * 0.65f}, ink,
-                          thickness);
+        list->AddTriangle(
+            {c.x, c.y - s}, {c.x + s * 0.95f, c.y + s * 0.65f}, {c.x - s * 0.95f, c.y + s * 0.65f}, ink, thickness);
         break;
-    case Control::Circle: list->AddCircle(c, s * 0.9f, ink, 0, thickness); break;
+    case Control::Circle:
+        list->AddCircle(c, s * 0.9f, ink, 0, thickness);
+        break;
     case Control::Cross:
         list->AddLine({c.x - s * 0.8f, c.y - s * 0.8f}, {c.x + s * 0.8f, c.y + s * 0.8f}, ink, thickness);
         list->AddLine({c.x + s * 0.8f, c.y - s * 0.8f}, {c.x - s * 0.8f, c.y + s * 0.8f}, ink, thickness);
@@ -36,23 +38,31 @@ void draw_symbol(ImDrawList *list, Control control, ImVec2 c, float r, ImU32 ink
         for (int i = -1; i <= 1; ++i)
             list->AddLine({c.x - s * 0.9f, c.y + i * s * 0.6f}, {c.x + s * 0.9f, c.y + i * s * 0.6f}, ink, thickness);
         break;
-    default: break;
+    default:
+        break;
     }
 }
 
 const char *label(Control control) {
     switch (control) {
-    case Control::L: return "L";
-    case Control::R: return "R";
-    case Control::Start: return "START";
-    case Control::Select: return "SELECT";
-    default: return nullptr;
+    case Control::L:
+        return "L";
+    case Control::R:
+        return "R";
+    case Control::Start:
+        return "START";
+    case Control::Select:
+        return "SELECT";
+    default:
+        return nullptr;
     }
 }
 
 using input::touch::Element;
 
-ImVec2 add(ImVec2 a, ImVec2 b, float k = 1.0f) { return {a.x + b.x * k, a.y + b.y * k}; }
+ImVec2 add(ImVec2 a, ImVec2 b, float k = 1.0f) {
+    return {a.x + b.x * k, a.y + b.y * k};
+}
 
 // A blade from the guard at `guard` along `d` (unit), `length` long, with its
 // grip behind: the attack's icon, and twice for the combined attack.
@@ -61,8 +71,8 @@ void blade(ImDrawList *list, ImVec2 guard, ImVec2 d, float length, ImU32 ink, fl
     const float w = length * 0.13f;
     const ImVec2 tip = add(guard, d, length);
     const ImVec2 shoulder = add(guard, d, length * 0.72f);
-    const ImVec2 points[] = {add(guard, p, w), add(shoulder, p, w * 0.8f), tip, add(shoulder, p, -w * 0.8f),
-                             add(guard, p, -w)};
+    const ImVec2 points[] = {
+        add(guard, p, w), add(shoulder, p, w * 0.8f), tip, add(shoulder, p, -w * 0.8f), add(guard, p, -w)};
     list->AddConvexPolyFilled(points, 5, ink);
     list->AddLine(add(guard, p, w * 3.0f), add(guard, p, -w * 3.0f), ink, t);
     const ImVec2 end = add(guard, d, -length * 0.42f);
@@ -87,19 +97,25 @@ void draw_icon(ImDrawList *list, Element element, ImVec2 c, float r, ImU32 ink, 
     const float s = r * 0.5f;
     constexpr float kRoot = 0.70710678f;
     switch (element) {
-    case Element::Attack: blade(list, add(c, {-kRoot, kRoot}, s * 0.35f), {kRoot, -kRoot}, s * 1.35f, ink, t); break;
-    case Element::Secondary: arrow_arc(list, c, s * 0.8f, 2.7f, 5.9f, ink, t * 1.3f); break;
+    case Element::Attack:
+        blade(list, add(c, {-kRoot, kRoot}, s * 0.35f), {kRoot, -kRoot}, s * 1.35f, ink, t);
+        break;
+    case Element::Secondary:
+        arrow_arc(list, c, s * 0.8f, 2.7f, 5.9f, ink, t * 1.3f);
+        break;
     case Element::Combo:
         blade(list, add(c, {-kRoot, kRoot}, s * 0.45f), {kRoot, -kRoot}, s * 1.2f, ink, t);
         blade(list, add(c, {kRoot, kRoot}, s * 0.45f), {-kRoot, -kRoot}, s * 1.2f, ink, t);
         break;
-    case Element::Evade: arrow_arc(list, c, s * 0.72f, -1.2f, 3.9f, ink, t * 1.3f); break;
+    case Element::Evade:
+        arrow_arc(list, c, s * 0.72f, -1.2f, 3.9f, ink, t * 1.3f);
+        break;
     case Element::Use: {
         list->AddLine({c.x, c.y - s * 0.8f}, {c.x, c.y + s * 0.15f}, ink, t * 1.2f);
-        list->AddTriangleFilled({c.x - s * 0.3f, c.y + s * 0.05f}, {c.x + s * 0.3f, c.y + s * 0.05f},
-                                {c.x, c.y + s * 0.42f}, ink);
+        list->AddTriangleFilled(
+            {c.x - s * 0.3f, c.y + s * 0.05f}, {c.x + s * 0.3f, c.y + s * 0.05f}, {c.x, c.y + s * 0.42f}, ink);
         const ImVec2 cup[] = {{c.x - s * 0.62f, c.y + s * 0.1f}, {c.x - s * 0.62f, c.y + s * 0.72f},
-                              {c.x + s * 0.62f, c.y + s * 0.72f}, {c.x + s * 0.62f, c.y + s * 0.1f}};
+            {c.x + s * 0.62f, c.y + s * 0.72f}, {c.x + s * 0.62f, c.y + s * 0.1f}};
         list->AddPolyline(cup, 4, ink, 0, t);
         break;
     }
@@ -123,40 +139,40 @@ void draw_icon(ImDrawList *list, Element element, ImVec2 c, float r, ImU32 ink, 
         list->AddCircle({c.x, c.y + s * 0.22f}, s * 0.55f, ink, 0, t * 1.1f);
         list->AddRectFilled({c.x - s * 0.28f, c.y - s * 0.46f}, {c.x + s * 0.28f, c.y - s * 0.3f}, ink, t * 0.4f);
         list->AddTriangleFilled({c.x - s * 0.1f, c.y - s * 0.44f}, {c.x - s * 0.45f, c.y - s * 0.82f},
-                                {c.x - s * 0.02f, c.y - s * 0.72f}, ink);
+            {c.x - s * 0.02f, c.y - s * 0.72f}, ink);
         list->AddTriangleFilled({c.x + s * 0.1f, c.y - s * 0.44f}, {c.x + s * 0.02f, c.y - s * 0.72f},
-                                {c.x + s * 0.45f, c.y - s * 0.82f}, ink);
+            {c.x + s * 0.45f, c.y - s * 0.82f}, ink);
         break;
     }
     case Element::DpadUp:
-        list->AddTriangleFilled({c.x, c.y - s * 0.6f}, {c.x + s * 0.62f, c.y + s * 0.42f},
-                                {c.x - s * 0.62f, c.y + s * 0.42f}, ink);
+        list->AddTriangleFilled(
+            {c.x, c.y - s * 0.6f}, {c.x + s * 0.62f, c.y + s * 0.42f}, {c.x - s * 0.62f, c.y + s * 0.42f}, ink);
         break;
     case Element::DpadDown:
-        list->AddTriangleFilled({c.x, c.y + s * 0.6f}, {c.x - s * 0.62f, c.y - s * 0.42f},
-                                {c.x + s * 0.62f, c.y - s * 0.42f}, ink);
+        list->AddTriangleFilled(
+            {c.x, c.y + s * 0.6f}, {c.x - s * 0.62f, c.y - s * 0.42f}, {c.x + s * 0.62f, c.y - s * 0.42f}, ink);
         break;
     case Element::Pause:
         for (int i = -1; i <= 1; ++i)
             list->AddLine({c.x - s * 0.7f, c.y + i * s * 0.45f}, {c.x + s * 0.7f, c.y + i * s * 0.45f}, ink, t);
         break;
     case Element::Start:
-        list->AddTriangleFilled({c.x - s * 0.4f, c.y - s * 0.6f}, {c.x + s * 0.62f, c.y},
-                                {c.x - s * 0.4f, c.y + s * 0.6f}, ink);
+        list->AddTriangleFilled(
+            {c.x - s * 0.4f, c.y - s * 0.6f}, {c.x + s * 0.62f, c.y}, {c.x - s * 0.4f, c.y + s * 0.6f}, ink);
         break;
     case Element::Select:
         list->AddRect({c.x - s * 0.7f, c.y - s * 0.62f}, {c.x + s * 0.25f, c.y + s * 0.3f}, ink, 0.0f, 0, t);
         list->AddRectFilled({c.x - s * 0.2f, c.y - s * 0.12f}, {c.x + s * 0.7f, c.y + s * 0.7f}, ink);
         break;
-    default: break;
+    default:
+        break;
     }
 }
 
 } // namespace
 
 void draw_action_element(ImDrawList *list, Element element, const input::touch::Placement &placement,
-                         const input::touch::Placed &placed, const input::touch::Point &stick_thumb,
-                         const ElementLook &look) {
+    const input::touch::Placed &placed, const input::touch::Point &stick_thumb, const ElementLook &look) {
     const float base = std::clamp(look.opacity, 0.1f, 1.0f) * (look.hidden ? 0.45f : 1.0f);
     const ImVec2 c{placed.centre.x, placed.centre.y};
     const float r = placed.radius;
@@ -168,7 +184,7 @@ void draw_action_element(ImDrawList *list, Element element, const input::touch::
         const ImVec2 max{c.x + placed.half_width, c.y + r};
         list->AddRectFilled(min, max, colour(0, 0, 0, base * 0.12f), r * 0.5f);
         list->AddRect(min, max, colour(255, 255, 255, base * (look.selected ? 0.9f : 0.3f)), r * 0.5f, 0,
-                      std::max(1.0f, t * 0.6f));
+            std::max(1.0f, t * 0.6f));
         // Chevrons at both ends, the swiped side lit.
         for (int side : {-1, 1}) {
             const ImU32 ink = colour(255, 255, 255, base * (look.swipe == side ? 1.0f : 0.45f));
@@ -192,7 +208,7 @@ void draw_action_element(ImDrawList *list, Element element, const input::touch::
             const ImVec2 tip = add(c, d, s);
             const ImVec2 p{-d.y, d.x};
             list->AddTriangleFilled(tip, add(add(tip, d, -r * 0.14f), p, r * 0.1f),
-                                    add(add(tip, d, -r * 0.14f), p, -r * 0.1f), colour(255, 255, 255, base * 0.6f));
+                add(add(tip, d, -r * 0.14f), p, -r * 0.1f), colour(255, 255, 255, base * 0.6f));
         }
         ImVec2 knob = c;
         if (look.held) {
@@ -211,7 +227,7 @@ void draw_action_element(ImDrawList *list, Element element, const input::touch::
         // The icons of the D-pad and Start and Select say what they press;
         // the others', or one rebound, need the PSP's name beside them.
         const bool plain = element == Element::DpadUp || element == Element::DpadDown || element == Element::Start ||
-                           element == Element::Select;
+            element == Element::Select;
         if (input::touch::rebindable(element) &&
             (!plain || placement.buttons != input::touch::default_action_layout().at(element).buttons)) {
             const std::string text = input::touch::buttons_label(placement.buttons);
@@ -247,8 +263,8 @@ void draw_touch_controls(const input::touch::Controls &controls, float opacity) 
     const input::touch::Layout &layout = controls.layout();
     const float base = std::clamp(opacity, 0.1f, 1.0f);
     // PSP colours for the symbols.
-    const ImU32 symbol_colours[] = {colour(64, 224, 176, base), colour(240, 96, 112, base),
-                                    colour(128, 160, 255, base), colour(232, 144, 208, base)};
+    const ImU32 symbol_colours[] = {colour(64, 224, 176, base), colour(240, 96, 112, base), colour(128, 160, 255, base),
+        colour(232, 144, 208, base)};
     for (std::size_t i = 0; i < input::touch::kControls; ++i) {
         const auto control = static_cast<Control>(i);
         const Circle &circle = layout.controls[i];
@@ -286,14 +302,16 @@ void draw_touch_controls(const input::touch::Controls &controls, float opacity) 
         for (const Arm &arm : arms) {
             const bool on = (held & arm.bit) != 0u;
             // The arm's rectangle from the centre square out to the reach.
-            const ImVec2 a{c.x + (arm.dx != 0.0f ? arm.dx * half : -half), c.y + (arm.dy != 0.0f ? arm.dy * half : -half)};
-            const ImVec2 b{c.x + (arm.dx != 0.0f ? arm.dx * reach : half), c.y + (arm.dy != 0.0f ? arm.dy * reach : half)};
+            const ImVec2 a{
+                c.x + (arm.dx != 0.0f ? arm.dx * half : -half), c.y + (arm.dy != 0.0f ? arm.dy * half : -half)};
+            const ImVec2 b{
+                c.x + (arm.dx != 0.0f ? arm.dx * reach : half), c.y + (arm.dy != 0.0f ? arm.dy * reach : half)};
             const ImVec2 low{std::min(a.x, b.x), std::min(a.y, b.y)};
             const ImVec2 high{std::max(a.x, b.x), std::max(a.y, b.y)};
             list->AddRectFilled(low, high, colour(0, 0, 0, base * (on ? 0.55f : 0.3f)), half * 0.25f);
             if (on) list->AddRectFilled(low, high, colour(255, 255, 255, base * 0.8f), half * 0.25f);
             list->AddRect({low.x - thickness, low.y - thickness}, {high.x + thickness, high.y + thickness},
-                          colour(0, 0, 0, base * 0.6f), half * 0.25f, 0, thickness);
+                colour(0, 0, 0, base * 0.6f), half * 0.25f, 0, thickness);
             list->AddRect(low, high, colour(255, 255, 255, base * (on ? 1.0f : 0.8f)), half * 0.25f, 0, thickness);
             // A small triangle pointing out along the arm.
             const float t = reach * 0.66f;
@@ -310,7 +328,7 @@ void draw_touch_controls(const input::touch::Controls &controls, float opacity) 
         const ImVec2 origin{stick.origin.x, stick.origin.y};
         list->AddCircleFilled(origin, layout.stick_radius, colour(0, 0, 0, base * 0.3f));
         list->AddCircle(origin, layout.stick_radius, colour(255, 255, 255, base * 0.7f), 0,
-                        std::max(1.5f, layout.stick_radius * 0.04f));
+            std::max(1.5f, layout.stick_radius * 0.04f));
         const input::touch::Point push = controls.stick();
         const ImVec2 knob{origin.x + push.x * layout.stick_radius, origin.y + push.y * layout.stick_radius};
         list->AddCircleFilled(knob, layout.stick_radius * 0.45f, colour(255, 255, 255, base * 0.6f));

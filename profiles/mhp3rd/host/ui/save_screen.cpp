@@ -66,22 +66,22 @@ struct Imported {
 struct State {
     Stage stage{Stage::Closed};
     std::unique_ptr<FileBrowser> browser;
-    fs::path last_folder;  // where the browser opens next time
+    fs::path last_folder; // where the browser opens next time
     fs::path picked;
     std::vector<Found> found;
     std::size_t other_games{};
     std::vector<Imported> imported;
     fs::path backup_dir;
     sd::ExportResult exported;
-    fs::path backup_target;         // the folder chosen for a backup
+    fs::path backup_target; // the folder chosen for a backup
     std::vector<std::string> backup_conflicts;
     sd::BackupResult backed_up;
-    bool review_backed_up{};  // a backup was made from the import's review
-    bool reminding{};         // the screens run as the backup reminder, before the game
-    std::string reminder_reason;  // why the reminder shows; empty: a new release
-    bool focus{};           // focus the first row of a new stage
-    bool restart{};         // the player chose to restart
-    bool focus_row{};       // focus the Import row when the screen closes
+    bool review_backed_up{};     // a backup was made from the import's review
+    bool reminding{};            // the screens run as the backup reminder, before the game
+    std::string reminder_reason; // why the reminder shows; empty: a new release
+    bool focus{};                // focus the first row of a new stage
+    bool restart{};              // the player chose to restart
+    bool focus_row{};            // focus the Import row when the screen closes
 };
 
 State &state() {
@@ -89,11 +89,17 @@ State &state() {
     return s;
 }
 
-float px(float value) { return std::round(value * Layer::get().scale()); }
+float px(float value) {
+    return std::round(value * Layer::get().scale());
+}
 
-fs::path savedata_root() { return sd::memory_stick() / "PSP" / "SAVEDATA"; }
+fs::path savedata_root() {
+    return sd::memory_stick() / "PSP" / "SAVEDATA";
+}
 
-std::string utf8(const fs::path &path) { return install::path_to_utf8(path); }
+std::string utf8(const fs::path &path) {
+    return install::path_to_utf8(path);
+}
 
 // The default place for backups, beside the rest of Yakumo's data.
 fs::path backups_directory() {
@@ -111,7 +117,7 @@ void sandbox_note() {
     ImGui::Indent(px(16.0f));
     paragraph("The Flatpak can read your folders but write only to its own data folder and to Downloads. Pick "
               "Downloads or the backups folder; Open the backups folder shows where that is.",
-              colors::kTextDim);
+        colors::kTextDim);
     ImGui::Unindent(px(16.0f));
 }
 
@@ -143,7 +149,9 @@ void close() {
 }
 
 #if defined(MHP3RD_ANDROID_APP)
-fs::path transfer_folder(const char *name) { return sd::memory_stick().parent_path() / "transfer" / name; }
+fs::path transfer_folder(const char *name) {
+    return sd::memory_stick().parent_path() / "transfer" / name;
+}
 #endif
 
 // A backup of every save of this game into a new folder named by the time,
@@ -180,8 +188,8 @@ bool back_up_now() {
     s.backup_target = sd::backup_folder(backups_directory(), now);
     s.backed_up = sd::back_up_saves(sd::memory_stick(), s.backup_target, false);
 #endif
-    std::cout << "[saves] back up to " << utf8(s.backup_target) << ": "
-              << (s.backed_up.ok ? "done" : s.backed_up.error) << std::endl;
+    std::cout << "[saves] back up to " << utf8(s.backup_target) << ": " << (s.backed_up.ok ? "done" : s.backed_up.error)
+              << std::endl;
     return true;
 }
 
@@ -206,8 +214,10 @@ void open_picker(Stage stage) {
         return;
     }
     if (stage == Stage::ChooseBackup) {
-        if (back_up_now()) go(Stage::BackedUp);
-        else go(Stage::Backup);
+        if (back_up_now())
+            go(Stage::BackedUp);
+        else
+            go(Stage::Backup);
         return;
     }
     const fs::path local = transfer_folder("export");
@@ -258,8 +268,8 @@ void open_browser(Stage stage) {
     } else {
         options.choose_folder = "Back up to this folder";
     }
-    s.browser = std::make_unique<FileBrowser>(s.last_folder.empty() ? FileBrowser::home() : s.last_folder,
-                                              std::move(options));
+    s.browser =
+        std::make_unique<FileBrowser>(s.last_folder.empty() ? FileBrowser::home() : s.last_folder, std::move(options));
     go(stage);
 #endif
 }
@@ -319,8 +329,8 @@ void run_import() {
 void finish_backup(bool replace) {
     State &s = state();
     s.backed_up = sd::back_up_saves(sd::memory_stick(), s.backup_target, replace);
-    std::cout << "[saves] back up to " << utf8(s.backup_target) << ": "
-              << (s.backed_up.ok ? "done" : s.backed_up.error) << std::endl;
+    std::cout << "[saves] back up to " << utf8(s.backup_target) << ": " << (s.backed_up.ok ? "done" : s.backed_up.error)
+              << std::endl;
     go(Stage::BackedUp);
 }
 
@@ -330,8 +340,8 @@ void finish_backup(bool replace) {
 void start_backup(const fs::path &target) {
     State &s = state();
     const bool timestamp = settings::current().backup_timestamp;
-    s.backup_target = sd::backup_folder(target, timestamp ? std::optional(std::chrono::system_clock::now())
-                                                          : std::nullopt);
+    s.backup_target =
+        sd::backup_folder(target, timestamp ? std::optional(std::chrono::system_clock::now()) : std::nullopt);
     s.backup_conflicts = timestamp ? std::vector<std::string>{} : sd::backup_conflicts(sd::memory_stick(), target);
     if (!s.backup_conflicts.empty()) {
         go(Stage::ConfirmBackup);
@@ -346,9 +356,9 @@ bool browse(bool back) {
     paragraph(s.stage == Stage::ChooseImport ? "Import: open a save folder (ULJM05800, ULJM05800QST), or choose a "
                                                "folder that holds them, such as a memory stick's PSP/SAVEDATA. You "
                                                "can also drop the folder on the window."
-              : s.stage == Stage::ChooseExport ? "Export: choose the folder to copy your saves to."
-                                               : "Back up: choose the folder the backup goes to.",
-              colors::kTextDim);
+            : s.stage == Stage::ChooseExport ? "Export: choose the folder to copy your saves to."
+                                             : "Back up: choose the folder the backup goes to.",
+        colors::kTextDim);
     ImGui::Unindent(px(16.0f));
     // A folder dropped on the window is chosen at once, as in the browser.
     std::optional<fs::path> dropped = Layer::get().take_dropped_file();
@@ -407,11 +417,11 @@ void review_screen(bool back) {
     if (s.found.empty())
         paragraph("No saves of Monster Hunter Portable 3rd were found in this folder. Choose a save folder such as "
                   "ULJM05800, or the PSP/SAVEDATA folder that holds it.",
-                  colors::kDanger);
+            colors::kDanger);
     if (s.other_games > 0)
         paragraph(std::to_string(s.other_games) + (s.other_games == 1 ? " save belongs" : " saves belong") +
-                      " to other games and " + (s.other_games == 1 ? "is" : "are") + " left out.",
-                  colors::kTextDim);
+                " to other games and " + (s.other_games == 1 ? "is" : "are") + " left out.",
+            colors::kTextDim);
     ImGui::Unindent(px(16.0f));
 
     for (std::size_t i = 0; i < s.found.size(); ++i) {
@@ -439,24 +449,25 @@ void review_screen(bool back) {
         if (!s.review_backed_up)
             paragraph("Back up your saves before you import. A save the import replaces is kept, but a backup of "
                       "your own is the sure way back if anything goes wrong.",
-                      colors::kAccent);
+                colors::kAccent);
         else if (s.backed_up.ok)
-            paragraph("Backed up " + names_text(s.backed_up.saved) + " to " + utf8(s.backed_up.folder) + ".",
-                      colors::kGood);
+            paragraph(
+                "Backed up " + names_text(s.backed_up.saved) + " to " + utf8(s.backed_up.folder) + ".", colors::kGood);
         else
             paragraph("Not backed up: " + s.backed_up.error, colors::kDanger);
         ImGui::Unindent(px(16.0f));
         // One label throughout, so the row keeps its focus after a backup.
         if (button_row("Back up now",
-                       {false, {},
+                {false, {},
 #if defined(MHP3RD_ANDROID_APP)
-                        "Copies " + names_text(current) + " to a new folder, named by the date and time, in a "
+                    "Copies " + names_text(current) +
+                        " to a new folder, named by the date and time, in a "
                         "folder you pick. Nothing is moved or deleted."
 #else
-                        "Copies " + names_text(current) + " to a new folder in " + utf8(backups_directory()) +
-                            ", named by the date and time. Nothing is moved or deleted."
+                    "Copies " + names_text(current) + " to a new folder in " + utf8(backups_directory()) +
+                        ", named by the date and time. Nothing is moved or deleted."
 #endif
-                       }))
+                }))
             s.review_backed_up = back_up_now() || s.review_backed_up;
 #if !defined(MHP3RD_ANDROID_APP)
         if (s.review_backed_up && s.backed_up.ok &&
@@ -465,13 +476,14 @@ void review_screen(bool back) {
 #endif
     }
     if (importable > 0) {
-        const std::string label =
-            replacing > 0 ? "Replace and import" : importable == 1 ? "Import this save" : "Import these saves";
+        const std::string label = replacing > 0 ? "Replace and import"
+            : importable == 1                   ? "Import this save"
+                                                : "Import these saves";
         std::string description = "Copies the save" + std::string(importable == 1 ? "" : "s") + " into Yakumo.";
         if (replacing > 0)
             description += " The save" + std::string(replacing == 1 ? " it replaces is" : "s they replace are") +
-                           " not deleted: " + (replacing == 1 ? "it moves" : "they move") +
-                           " to the saves folder's .backup folder.";
+                " not deleted: " + (replacing == 1 ? "it moves" : "they move") +
+                " to the saves folder's .backup folder.";
         if (button_row(label.c_str(), {false, {}, description}, replacing > 0 ? colors::kAccentBright : colors::kText))
             run_import();
     }
@@ -494,8 +506,8 @@ void imported_screen(bool back) {
         ImGui::PushID(static_cast<int>(i));
         if (i == 0) focus_first();
         info_row(sd::save_label(item.name).c_str(),
-                 item.result.ok ? (item.result.backup.empty() ? "Imported" : "Imported; the old save was kept")
-                                : "Not imported: " + item.result.error);
+            item.result.ok ? (item.result.backup.empty() ? "Imported" : "Imported; the old save was kept")
+                           : "Not imported: " + item.result.error);
         ImGui::PopID();
     }
     ImGui::Indent(px(16.0f));
@@ -506,8 +518,9 @@ void imported_screen(bool back) {
                   "saving would replace the imported save with the game you are playing.");
     ImGui::Unindent(px(16.0f));
     ImGui::Dummy({0.0f, px(12.0f)});
-    if (any && button_row("Restart now", {false, {}, "Closes the game and starts it again at the title screen."},
-                          colors::kAccentBright)) {
+    if (any &&
+        button_row("Restart now", {false, {}, "Closes the game and starts it again at the title screen."},
+            colors::kAccentBright)) {
         s.restart = true;
         close();
     }
@@ -524,14 +537,13 @@ void exported_screen(bool back) {
     focus_first();
     if (s.exported.ok) {
         std::string names;
-        for (const std::string &name : s.exported.exported)
-            names += (names.empty() ? "" : ", ") + sd::save_label(name);
+        for (const std::string &name : s.exported.exported) names += (names.empty() ? "" : ", ") + sd::save_label(name);
         info_row("Exported", names);
         info_row("To", utf8(s.exported.folder));
         ImGui::Indent(px(16.0f));
         paragraph("The folder is laid out like a memory stick: copy its PSP folder to the root of a PSP's memory "
                   "stick, or import it from this menu on another machine.",
-                  colors::kTextDim);
+            colors::kTextDim);
         ImGui::Unindent(px(16.0f));
     } else {
         info_row("Not exported", s.exported.error);
@@ -553,22 +565,21 @@ void backup_screen(bool back) {
     ImGui::Indent(px(16.0f));
     paragraph(names.empty() ? "There is no save to back up yet."
                             : "Copies " + names_text(names) + " to a folder. To restore a backup, import it.",
-              names.empty() ? colors::kDanger : colors::kTextDim);
+        names.empty() ? colors::kDanger : colors::kTextDim);
     ImGui::Unindent(px(16.0f));
     focus_first();
     if (toggle_row("Add a timestamp to the backup name", settings.backup_timestamp,
-                   {false, {},
-                    "On: every backup is a new folder named by its date and time, such as 2026-09-19_19-05-12, "
-                    "holding the save folders. Off: the save folders go straight into the folder you choose, and "
-                    "an earlier backup there is replaced after asking."})) {
+            {false, {},
+                "On: every backup is a new folder named by its date and time, such as 2026-09-19_19-05-12, "
+                "holding the save folders. Off: the save folders go straight into the folder you choose, and "
+                "an earlier backup there is replaced after asking."})) {
         settings.backup_timestamp = !settings.backup_timestamp;
         settings::save();
     }
 #if !defined(MHP3RD_ANDROID_APP)
     // An Android app's own folders are out of the player's reach: there a
     // backup always goes to a folder picked in the system's picker.
-    if (button_row("Back up to the backups folder",
-                   {names.empty(), {}, "Into " + utf8(backups_directory()) + "."})) {
+    if (button_row("Back up to the backups folder", {names.empty(), {}, "Into " + utf8(backups_directory()) + "."})) {
         std::error_code ec;
         fs::create_directories(backups_directory(), ec);
         start_backup(backups_directory());
@@ -592,7 +603,7 @@ void confirm_backup_screen(bool back) {
     section("Replace the earlier backup?");
     ImGui::Indent(px(16.0f));
     paragraph(utf8(s.backup_target) + " already holds a backup of " + names_text(s.backup_conflicts) +
-              ". Backing up again replaces it with your saves as they are now.");
+        ". Backing up again replaces it with your saves as they are now.");
     ImGui::Unindent(px(16.0f));
     focus_first();
     if (button_row("Cancel", {false, {}, "Keep the earlier backup."})) go(Stage::Backup);
@@ -613,7 +624,7 @@ void backed_up_screen(bool back) {
         info_row("To", utf8(s.backed_up.folder));
         ImGui::Indent(px(16.0f));
         paragraph("Your saves stay where they are; this is a copy. To restore it, import it from System, Saves.",
-                  colors::kTextDim);
+            colors::kTextDim);
         ImGui::Unindent(px(16.0f));
     } else {
         info_row("Not backed up", s.backed_up.error);
@@ -640,35 +651,33 @@ void reminder_screen(bool back) {
     const std::vector<std::string> names = sd::saves_to_back_up(sd::memory_stick());
     section("Back up your saves");
     ImGui::Indent(px(16.0f));
-    paragraph(s.reminder_reason.empty()
-                  ? "This is the first start of Yakumo " + sd::release_of(kYakumoVersion) +
-                        ". Before you play, make a copy of your saves: a new version, an import or a crash while "
-                        "saving could damage them, and a backup is the only way to get them back."
-                  : s.reminder_reason);
+    paragraph(s.reminder_reason.empty() ? "This is the first start of Yakumo " + sd::release_of(kYakumoVersion) +
+                ". Before you play, make a copy of your saves: a new version, an import or a crash while "
+                "saving could damage them, and a backup is the only way to get them back."
+                                        : s.reminder_reason);
     ImGui::Unindent(px(16.0f));
     info_row("Saves", names.empty() ? std::string("None yet") : names_text(names));
     info_row("Saves folder", utf8(savedata_root()));
     ImGui::Dummy({0.0f, px(12.0f)});
     focus_first();
     if (button_row("Back up now",
-                   {names.empty(), {},
+            {names.empty(), {},
 #if defined(MHP3RD_ANDROID_APP)
-                    "Copies your saves to a new folder, named by the date and time, in a folder you pick. Nothing "
-                    "is moved or deleted."
+                "Copies your saves to a new folder, named by the date and time, in a folder you pick. Nothing "
+                "is moved or deleted."
 #else
-                    "Copies your saves to a new folder in " + utf8(backups_directory()) +
-                        ", named by the date and time. Nothing is moved or deleted."
+                "Copies your saves to a new folder in " + utf8(backups_directory()) +
+                    ", named by the date and time. Nothing is moved or deleted."
 #endif
-                   },
-                   colors::kAccentBright)) {
+            },
+            colors::kAccentBright)) {
         if (back_up_now()) go(Stage::BackedUp);
     }
     if (button_row("Continue without a backup",
-                   {false, {}, "Start the game. You can back up at any time in the menu: System, Back up saves."}))
+            {false, {}, "Start the game. You can back up at any time in the menu: System, Back up saves."}))
         close();
     ImGui::Indent(px(16.0f));
-    paragraph("This reminder shows once after each update. Turn it off in the menu: System, Saves.",
-              colors::kTextDim);
+    paragraph("This reminder shows once after each update. Turn it off in the menu: System, Saves.", colors::kTextDim);
     ImGui::Unindent(px(16.0f));
 }
 
@@ -692,67 +701,92 @@ void save_rows() {
     }
 #if defined(MHP3RD_ANDROID_APP)
     // Android's picker offers no storage's root and no Download folder itself.
-    if (button_row("Import save…", {!available, {},
-                                     "Copy a save from PPSSPP, a memory stick or an export: pick its PSP folder, or "
-                                     "a folder holding it or the save folders. A save it replaces is kept."}))
+    if (button_row("Import save…",
+            {!available, {},
+                "Copy a save from PPSSPP, a memory stick or an export: pick its PSP folder, or "
+                "a folder holding it or the save folders. A save it replaces is kept."}))
         open_browser(Stage::ChooseImport);
-    if (button_row("Export save…", {!available, {},
-                                     "Copy your game data and downloaded quests to a folder you pick (Android does "
-                                     "not offer Download itself: make or pick a folder in it)."}))
+    if (button_row("Export save…",
+            {!available, {},
+                "Copy your game data and downloaded quests to a folder you pick (Android does "
+                "not offer Download itself: make or pick a folder in it)."}))
         open_browser(Stage::ChooseExport);
 #else
-    if (button_row("Import save…", {!available, {},
-                                     "Copy a save from a PSP memory stick, PPSSPP or another installation: choose "
-                                     "its folder (ULJM05800, ULJM05800QST) or the PSP/SAVEDATA folder that holds "
-                                     "it. A save it replaces is kept, not deleted."}))
+    if (button_row("Import save…",
+            {!available, {},
+                "Copy a save from a PSP memory stick, PPSSPP or another installation: choose "
+                "its folder (ULJM05800, ULJM05800QST) or the PSP/SAVEDATA folder that holds "
+                "it. A save it replaces is kept, not deleted."}))
         open_browser(Stage::ChooseImport);
-    if (button_row("Export save…", {!available, {},
-                                     "Copy your game data and downloaded quests to a folder you choose, to take them "
-                                     "to a PSP or another machine."}))
+    if (button_row("Export save…",
+            {!available, {},
+                "Copy your game data and downloaded quests to a folder you choose, to take them "
+                "to a PSP or another machine."}))
         open_browser(Stage::ChooseExport);
 #endif
-    if (button_row("Back up saves…", {!available, {},
-                                      "Copy all of this game's saves, the install data included, to the backups "
-                                      "folder or a folder you choose."}))
+    if (button_row("Back up saves…",
+            {!available, {},
+                "Copy all of this game's saves, the install data included, to the backups "
+                "folder or a folder you choose."}))
         go(Stage::Backup);
     settings::Settings &settings = settings::current();
     if (toggle_row("Remind me to back up after updates", settings.backup_reminder,
-                   {false, {},
-                    "On: the first time a new version of Yakumo starts, it asks you to back up your saves, with a "
-                    "button that does it for you."})) {
+            {false, {},
+                "On: the first time a new version of Yakumo starts, it asks you to back up your saves, with a "
+                "button that does it for you."})) {
         settings.backup_reminder = !settings.backup_reminder;
         settings::save();
     }
 #if !defined(MHP3RD_ANDROID_APP)
     if (button_row("Open the saves folder",
-                   {!available, {}, "Show the folder the game saves to (PSP/SAVEDATA) in the file manager."}))
+            {!available, {}, "Show the folder the game saves to (PSP/SAVEDATA) in the file manager."}))
         open_folder(sd::memory_stick() / "PSP" / "SAVEDATA");
     if (button_row("Open the backups folder", {false, {}, "Show " + utf8(backups_directory()) + "."}))
         open_folder(backups_directory());
 #endif
 }
 
-bool save_screen_open() { return state().stage != Stage::Closed; }
+bool save_screen_open() {
+    return state().stage != Stage::Closed;
+}
 
 bool save_screen(bool back) {
     State &s = state();
     switch (s.stage) {
-    case Stage::Closed: return false;
+    case Stage::Closed:
+        return false;
     case Stage::ChooseImport:
     case Stage::ChooseExport:
-    case Stage::ChooseBackup: return browse(back);
-    case Stage::Backup: backup_screen(back); break;
-    case Stage::ConfirmBackup: confirm_backup_screen(back); break;
-    case Stage::BackedUp: backed_up_screen(back); break;
-    case Stage::Review: review_screen(back); break;
-    case Stage::Imported: imported_screen(back); break;
-    case Stage::Exported: exported_screen(back); break;
-    case Stage::Reminder: reminder_screen(back); break;
+    case Stage::ChooseBackup:
+        return browse(back);
+    case Stage::Backup:
+        backup_screen(back);
+        break;
+    case Stage::ConfirmBackup:
+        confirm_backup_screen(back);
+        break;
+    case Stage::BackedUp:
+        backed_up_screen(back);
+        break;
+    case Stage::Review:
+        review_screen(back);
+        break;
+    case Stage::Imported:
+        imported_screen(back);
+        break;
+    case Stage::Exported:
+        exported_screen(back);
+        break;
+    case Stage::Reminder:
+        reminder_screen(back);
+        break;
     }
     return true;
 }
 
-bool take_restart_request() { return std::exchange(state().restart, false); }
+bool take_restart_request() {
+    return std::exchange(state().restart, false);
+}
 
 namespace {
 
@@ -820,9 +854,8 @@ bool run_backup_reminder() {
     const bool window_open = layer.run(
         [&] {
             const bool back = layer.take_back() ||
-                              ImGui::IsKeyPressed(layer.confirm_south() ? ImGuiKey_GamepadFaceRight
-                                                                        : ImGuiKey_GamepadFaceDown,
-                                                  false);
+                ImGui::IsKeyPressed(
+                    layer.confirm_south() ? ImGuiKey_GamepadFaceRight : ImGuiKey_GamepadFaceDown, false);
             begin_panel("##backup", "Yakumo", "Paused", true);
             begin_content();
             const bool open = save_screen(back);

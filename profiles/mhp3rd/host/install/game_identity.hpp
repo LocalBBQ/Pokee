@@ -16,7 +16,6 @@ inline constexpr const char *kParamSfoPathOnDisc = "PSP_GAME/PARAM.SFO";
 inline constexpr const char *kEncryptedExecutableSha256 =
     "79e25f3512d56e0f7bf5c48351d7d0d255269675ffc8811ac5599322bb66945e";
 // SHA-256 of the executable the recompiled code was generated from.
-inline constexpr const char *kExecutableSha256 =
-    "55c0598436c0753b04331f8e95d406f832d9217806e3a896fed0e88b33637d8c";
+inline constexpr const char *kExecutableSha256 = "55c0598436c0753b04331f8e95d406f832d9217806e3a896fed0e88b33637d8c";
 
 } // namespace mhp3rd::install

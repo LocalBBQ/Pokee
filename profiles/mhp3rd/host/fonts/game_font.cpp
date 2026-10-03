@@ -129,7 +129,7 @@ public:
         close();
 #if defined(_WIN32)
         file_ = CreateFileW(path.wstring().c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
+            FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file_ == INVALID_HANDLE_VALUE) return false;
         LARGE_INTEGER size{};
         if (!GetFileSizeEx(file_, &size) || size.QuadPart <= 0) return close(), false;
@@ -140,7 +140,7 @@ public:
 #else
         const int fd = ::open(path.c_str(), O_RDONLY);
         if (fd < 0) return false;
-        struct stat info {};
+        struct stat info{};
         if (fstat(fd, &info) != 0 || info.st_size <= 0) {
             ::close(fd);
             return false;
@@ -186,8 +186,8 @@ std::string utf16be_to_utf8(const char *bytes, int length) {
     for (int i = 0; i + 1 < length; i += 2) {
         char32_t c = (static_cast<unsigned char>(bytes[i]) << 8u) | static_cast<unsigned char>(bytes[i + 1]);
         if (c >= 0xD800u && c < 0xDC00u && i + 3 < length) {
-            const char32_t low = (static_cast<unsigned char>(bytes[i + 2]) << 8u) |
-                                 static_cast<unsigned char>(bytes[i + 3]);
+            const char32_t low =
+                (static_cast<unsigned char>(bytes[i + 2]) << 8u) | static_cast<unsigned char>(bytes[i + 3]);
             c = 0x10000u + ((c - 0xD800u) << 10u) + (low - 0xDC00u);
             i += 2;
         }
@@ -214,12 +214,12 @@ std::string utf16be_to_utf8(const char *bytes, int length) {
 std::string face_name(const stbtt_fontinfo &info) {
     int length = 0;
     for (const int language : {0x409, 0x411, 0x804, 0x404, 0x412}) {
-        if (const char *name = stbtt_GetFontNameString(&info, &length, STBTT_PLATFORM_ID_MICROSOFT,
-                                                       STBTT_MS_EID_UNICODE_BMP, language, 4))
+        if (const char *name = stbtt_GetFontNameString(
+                &info, &length, STBTT_PLATFORM_ID_MICROSOFT, STBTT_MS_EID_UNICODE_BMP, language, 4))
             return utf16be_to_utf8(name, length);
     }
-    if (const char *name = stbtt_GetFontNameString(&info, &length, STBTT_PLATFORM_ID_MAC, STBTT_MAC_EID_ROMAN,
-                                                   STBTT_MAC_LANG_ENGLISH, 4))
+    if (const char *name = stbtt_GetFontNameString(
+            &info, &length, STBTT_PLATFORM_ID_MAC, STBTT_MAC_EID_ROMAN, STBTT_MAC_LANG_ENGLISH, 4))
         return std::string(name, static_cast<std::size_t>(length));
     return {};
 }
@@ -243,13 +243,13 @@ struct Face {
     std::string name;
     std::string path;
     int index{};
-    float scale{};  // pixels per font unit
-    float em{};     // pixels per em
+    float scale{}; // pixels per font unit
+    float em{};    // pixels per em
 };
 
 // How far the face's letters reach above and below the baseline, in ems.
 void measure(const Face &face, float &above, float &below) {
-    const float units = stbtt_ScaleForMappingEmToPixels(&face.info, 1.0f);  // em per unit
+    const float units = stbtt_ScaleForMappingEmToPixels(&face.info, 1.0f); // em per unit
     above = below = 0.0f;
     for (const char32_t *c = kSizingSample; *c != 0; ++c) {
         const int glyph = stbtt_FindGlyphIndex(&face.info, static_cast<int>(*c));
@@ -267,8 +267,8 @@ int pick_baseline(const Face &face) {
     measure(face, above, below);
     if (above + below <= 0.0f) return kBaseline;
     const float rows = static_cast<float>(kInkBottom - kInkTop);
-    return std::clamp(kInkTop + static_cast<int>(std::lround(rows * above / (above + below))), kInkTop + 10,
-                      kInkBottom - 3);
+    return std::clamp(
+        kInkTop + static_cast<int>(std::lround(rows * above / (above + below))), kInkTop + 10, kInkBottom - 3);
 }
 
 // Picks the em size: as large as kMaxEm allows while the sample's tallest
@@ -313,21 +313,21 @@ std::unique_ptr<Face> load_face(const std::string &path, int index, std::string 
 struct Layout {
     const Face *face{};
     int glyph{};
-    int bold{};        // columns of horizontal emboldening
+    int bold{}; // columns of horizontal emboldening
     float scale_x{};
     float scale_y{};
     GlyphMetrics metrics;
-    int natural_x0{};  // box of the unshifted bitmap, to place shifted ones
+    int natural_x0{}; // box of the unshifted bitmap, to place shifted ones
     int natural_y0{};
 };
 
 struct State {
     bool loaded{};
-    std::unique_ptr<Face> chosen;    // null: the fallback is used for everything
+    std::unique_ptr<Face> chosen; // null: the fallback is used for everything
     std::unique_ptr<Face> fallback;
     std::string problem;
     int bold{};
-    int baseline{kBaseline};  // row of the cell the baselines are on
+    int baseline{kBaseline}; // row of the cell the baselines are on
     std::unordered_map<std::uint32_t, Layout> layouts;
     std::unordered_map<std::uint64_t, GlyphBitmap> bitmaps;
     std::atomic<std::uint64_t> generation{};
@@ -381,7 +381,8 @@ void load(State &s) {
                      "MHP3RD_FONT=<path to a .ttf, .otf or .ttc>\n";
         return;
     }
-    std::cout << "Fonts: game text from " << used->name << " (" << used->path << "), " << used->em << " px em, baseline " << s.baseline;
+    std::cout << "Fonts: game text from " << used->name << " (" << used->path << "), " << used->em
+              << " px em, baseline " << s.baseline;
     if (s.chosen && s.fallback) std::cout << "; missing glyphs from " << s.fallback->name;
     std::cout << "\n";
 }
@@ -429,7 +430,7 @@ Layout lay_out(State &s, std::uint32_t code) {
         const int height = y1 - y0;
         if (width <= kMaxWidth && height <= kMaxHeight) break;
         const float fit = std::min(static_cast<float>(kMaxWidth) / static_cast<float>(std::max(width, 1)),
-                                   static_cast<float>(kMaxHeight) / static_cast<float>(std::max(height, 1)));
+            static_cast<float>(kMaxHeight) / static_cast<float>(std::max(height, 1)));
         scale *= std::min(fit, 0.97f);
     }
     layout.scale_x = scale;
@@ -484,8 +485,8 @@ bool font_extension(const std::filesystem::path &path) {
     return extension == ".ttf" || extension == ".otf" || extension == ".ttc" || extension == ".otc";
 }
 
-void add_file(const std::filesystem::path &path, bool user_folder, std::vector<FontChoice> &out,
-              std::set<std::string> &names) {
+void add_file(
+    const std::filesystem::path &path, bool user_folder, std::vector<FontChoice> &out, std::set<std::string> &names) {
     MappedFile file;
     if (!file.open(path)) return;
     const int count = std::max(stbtt_GetNumberOfFonts(file.data()), 1);
@@ -513,8 +514,8 @@ void add_file(const std::filesystem::path &path, bool user_folder, std::vector<F
     }
 }
 
-void scan_folder(const std::filesystem::path &folder, bool user_folder, std::vector<FontChoice> &out,
-                 std::set<std::string> &names) {
+void scan_folder(
+    const std::filesystem::path &folder, bool user_folder, std::vector<FontChoice> &out, std::set<std::string> &names) {
     std::error_code ec;
     if (folder.empty() || !std::filesystem::is_directory(folder, ec)) return;
     std::size_t files = 0;
@@ -576,14 +577,16 @@ bool ready() {
     return s.chosen || s.fallback;
 }
 
-GlyphMetrics metrics(std::uint32_t code) { return layout_for(loaded_state(), code).metrics; }
+GlyphMetrics metrics(std::uint32_t code) {
+    return layout_for(loaded_state(), code).metrics;
+}
 
 GlyphBitmap render(std::uint32_t code, float shift_x, float shift_y) {
     State &s = loaded_state();
     const int sx = std::clamp(static_cast<int>(shift_x * 64.0f), 0, 63);
     const int sy = std::clamp(static_cast<int>(shift_y * 64.0f), 0, 63);
     const std::uint64_t key = (static_cast<std::uint64_t>(code) << 12u) | (static_cast<std::uint64_t>(sx) << 6u) |
-                              static_cast<std::uint64_t>(sy);
+        static_cast<std::uint64_t>(sy);
     if (const auto found = s.bitmaps.find(key); found != s.bitmaps.end()) return found->second;
 
     const Layout &layout = layout_for(s, code);
@@ -592,8 +595,8 @@ GlyphBitmap render(std::uint32_t code, float shift_x, float shift_y) {
         const float fx = static_cast<float>(sx) / 64.0f;
         const float fy = static_cast<float>(sy) / 64.0f;
         int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-        stbtt_GetGlyphBitmapBoxSubpixel(&layout.face->info, layout.glyph, layout.scale_x, layout.scale_y, fx, fy, &x0,
-                                        &y0, &x1, &y1);
+        stbtt_GetGlyphBitmapBoxSubpixel(
+            &layout.face->info, layout.glyph, layout.scale_x, layout.scale_y, fx, fy, &x0, &y0, &x1, &y1);
         bitmap.width = std::max(x1 - x0, 0);
         bitmap.height = std::max(y1 - y0, 0);
         bitmap.x = x0 - layout.natural_x0;
@@ -601,7 +604,7 @@ GlyphBitmap render(std::uint32_t code, float shift_x, float shift_y) {
         bitmap.pixels.assign(static_cast<std::size_t>(bitmap.width) * static_cast<std::size_t>(bitmap.height), 0u);
         if (!bitmap.pixels.empty())
             stbtt_MakeGlyphBitmapSubpixel(&layout.face->info, bitmap.pixels.data(), bitmap.width, bitmap.height,
-                                          bitmap.width, layout.scale_x, layout.scale_y, fx, fy, layout.glyph);
+                bitmap.width, layout.scale_x, layout.scale_y, fx, fy, layout.glyph);
         if (layout.bold > 0 && !bitmap.pixels.empty()) embolden(bitmap, layout.bold);
     }
     return s.bitmaps.emplace(key, std::move(bitmap)).first->second;
@@ -650,7 +653,7 @@ void draw_pass(const Layout &layout, std::int32_t x64, std::int32_t y64, int sca
     if (bitmap.width == 0 || bitmap.height == 0) return;
     bitmap.pixels.assign(static_cast<std::size_t>(bitmap.width) * static_cast<std::size_t>(bitmap.height), 0u);
     stbtt_MakeGlyphBitmapSubpixel(&layout.face->info, bitmap.pixels.data(), bitmap.width, bitmap.height, bitmap.width,
-                                  sx, sy, fx, fy, layout.glyph);
+        sx, sy, fx, fy, layout.glyph);
     if (layout.bold > 0) embolden(bitmap, layout.bold * scale);
     for (int row = 0; row < bitmap.height; ++row) {
         const int y = whole_y + y0 + row;
@@ -658,8 +661,8 @@ void draw_pass(const Layout &layout, std::int32_t x64, std::int32_t y64, int sca
         for (int column = 0; column < bitmap.width; ++column) {
             const int x = whole_x + x0 + column;
             if (x < 0 || x >= size) continue;
-            const std::uint8_t ink = static_cast<std::uint8_t>(
-                bitmap.pixels[static_cast<std::size_t>(row) * bitmap.width + column] >> 4u);
+            const std::uint8_t ink =
+                static_cast<std::uint8_t>(bitmap.pixels[static_cast<std::size_t>(row) * bitmap.width + column] >> 4u);
             std::uint8_t &at = cell[static_cast<std::size_t>(y) * size + x];
             at = std::max(at, ink);
         }
@@ -698,15 +701,19 @@ std::vector<std::uint8_t> glyph_cell(std::uint32_t code, int scale) {
     std::vector<std::uint8_t> cell(static_cast<std::size_t>(size) * static_cast<std::size_t>(size), 0u);
     if (layout.face == nullptr || layout.metrics.width == 0) return cell;
     for (int i = 0; i < passes.count; ++i)
-        draw_pass(layout, passes.x64[static_cast<std::size_t>(i)], passes.y64[static_cast<std::size_t>(i)], scale,
-                  cell);
+        draw_pass(
+            layout, passes.x64[static_cast<std::size_t>(i)], passes.y64[static_cast<std::size_t>(i)], scale, cell);
     if (cached) passes.cells[static_cast<std::size_t>(scale)] = cell;
     return cell;
 }
 
-void set_game_atlas(std::uint32_t object) { atlas_object() = object; }
+void set_game_atlas(std::uint32_t object) {
+    atlas_object() = object;
+}
 
-std::uint32_t game_atlas() { return atlas_object(); }
+std::uint32_t game_atlas() {
+    return atlas_object();
+}
 
 static void (*reload_hook)() = nullptr;
 
@@ -719,9 +726,13 @@ void reload() {
     if (reload_hook != nullptr) reload_hook();
 }
 
-void set_reload_hook(void (*hook)()) { reload_hook = hook; }
+void set_reload_hook(void (*hook)()) {
+    reload_hook = hook;
+}
 
-std::uint64_t generation() { return state().generation.load(); }
+std::uint64_t generation() {
+    return state().generation.load();
+}
 
 void start_catalog() {
     Catalog &c = catalog_state();
@@ -759,7 +770,9 @@ std::string fallback_name() {
     return s.fallback ? s.fallback->name : std::string();
 }
 
-std::string problem() { return loaded_state().problem; }
+std::string problem() {
+    return loaded_state().problem;
+}
 
 void parse_value(const std::string &value, std::string &path, int &face) {
     path = value;

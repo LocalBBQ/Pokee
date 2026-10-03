@@ -20,9 +20,13 @@ std::string lower(std::string text) {
     return text;
 }
 
-std::string utf8(const fs::path &path) { return path_to_utf8(path); }
+std::string utf8(const fs::path &path) {
+    return path_to_utf8(path);
+}
 
-std::string name_of(const fs::path &path) { return utf8(path.filename()); }
+std::string name_of(const fs::path &path) {
+    return utf8(path.filename());
+}
 
 bool is_folder(const fs::path &path) {
     std::error_code ec;
@@ -54,7 +58,7 @@ fs::path child(const fs::path &parent, const std::string &name) {
     fs::path found;
     std::error_code ec;
     for (fs::directory_iterator it(parent, fs::directory_options::skip_permission_denied, ec);
-         !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        !ec && it != fs::directory_iterator(); it.increment(ec)) {
         const std::string entry = name_of(it->path());
         if (lower(entry) != wanted || !is_folder(it->path())) continue;
         if (entry == name) return it->path();
@@ -82,12 +86,12 @@ bool skipped(const std::string &name) {
 bool is_image(const fs::path &path) {
     const std::string extension = lower(utf8(path.extension()));
     return extension == ".png" || extension == ".dds" || extension == ".ktx2" || extension == ".zim" ||
-           extension == ".jpg" || extension == ".jpeg";
+        extension == ".jpg" || extension == ".jpeg";
 }
 
 struct PackFile {
     fs::path path;
-    std::string relative;  // generic form
+    std::string relative; // generic form
     std::uint64_t size{};
 };
 
@@ -169,7 +173,7 @@ fs::path find_pack(const fs::path &chosen, const std::string &game_id, std::stri
         std::vector<fs::path> candidates;
         std::error_code ec;
         for (fs::directory_iterator it(parent, fs::directory_options::skip_permission_denied, ec);
-             !ec && it != fs::directory_iterator(); it.increment(ec)) {
+            !ec && it != fs::directory_iterator(); it.increment(ec)) {
             if (is_folder(it->path()) && is_file(it->path() / "textures.ini")) candidates.push_back(it->path());
         }
         std::sort(candidates.begin(), candidates.end());
@@ -194,8 +198,8 @@ std::string friendly(const std::string &error) {
 
 } // namespace
 
-TexturePackLocation texture_pack_location(const fs::path &textures_root, const std::string &game_id,
-                                          const std::string &in_place) {
+TexturePackLocation texture_pack_location(
+    const fs::path &textures_root, const std::string &game_id, const std::string &in_place) {
     if (const std::optional<std::string> variable = environment_utf8("MHP3RD_TEXTURE_PACK")) {
         const std::string &value = *variable;
         const std::string l = lower(value);
@@ -215,11 +219,12 @@ TexturePackCheck check_texture_pack(const fs::path &chosen, const std::string &g
         bool zipped = false;
         std::error_code ec;
         for (fs::directory_iterator it(chosen, fs::directory_options::skip_permission_denied, ec);
-             !ec && it != fs::directory_iterator(); it.increment(ec))
+            !ec && it != fs::directory_iterator(); it.increment(ec))
             zipped = zipped || lower(utf8(it->path().extension())) == ".zip";
         check.problem = "No texture pack for " + game_id +
-                        " was found here. Choose the folder that holds textures.ini, or one that holds it in "
-                        "textures/" + game_id + ", " + game_id + " or PSP/TEXTURES/" + game_id + ".";
+            " was found here. Choose the folder that holds textures.ini, or one that holds it in "
+            "textures/" +
+            game_id + ", " + game_id + " or PSP/TEXTURES/" + game_id + ".";
         if (zipped) check.problem += " A .zip file is not read: unpack it first.";
         return check;
     }
@@ -231,12 +236,12 @@ TexturePackCheck check_texture_pack(const fs::path &chosen, const std::string &g
     if (lower(folder_name) != lower(game_id) && !lists(games, game_id)) {
         if (looks_like_game_id(folder_name)) {
             check.problem = "This pack is for " + folder_name + ", and its textures.ini does not list " + game_id +
-                            " under [games], so its textures would not match this release.";
+                " under [games], so its textures would not match this release.";
             return check;
         }
         if (!games.empty()) {
             check.problem = "This pack's textures.ini lists other games under [games] (" + games.front() +
-                            (games.size() > 1u ? ", …" : "") + ") but not " + game_id + ".";
+                (games.size() > 1u ? ", …" : "") + ") but not " + game_id + ".";
             return check;
         }
     } else if (lower(folder_name) != lower(game_id) && looks_like_game_id(folder_name)) {
@@ -283,8 +288,10 @@ InstalledTexturePack summarize_texture_pack(const fs::path &folder, const std::s
         installed.bytes += file.size;
     }
     TexturePackInfo info;
-    if (TexturePack::inspect(folder, game_id, info, error)) installed.keys = info.keys;
-    else installed.problem = error;
+    if (TexturePack::inspect(folder, game_id, info, error))
+        installed.keys = info.keys;
+    else
+        installed.problem = error;
     return installed;
 }
 
@@ -383,8 +390,8 @@ void TexturePackCopy::run(fs::path source) {
         progress_.files = i + 1u;
     }
     if (error.empty() && !cancel_) {
-        std::cout << "[texpack] copied " << files.size() << " files (" << (done >> 20u) << " MB) to "
-                  << utf8(staging_) << std::endl;
+        std::cout << "[texpack] copied " << files.size() << " files (" << (done >> 20u) << " MB) to " << utf8(staging_)
+                  << std::endl;
         state_ = State::Done;
         return;
     }
@@ -401,7 +408,7 @@ void TexturePackCopy::run(fs::path source) {
 }
 
 bool install_staged_texture_pack(const fs::path &staging, const fs::path &textures_root, const std::string &game_id,
-                                 const fs::path &backup_dir, fs::path &backup, std::string &error) {
+    const fs::path &backup_dir, fs::path &backup, std::string &error) {
     backup.clear();
     const fs::path destination = textures_root / game_id;
     std::error_code ec;

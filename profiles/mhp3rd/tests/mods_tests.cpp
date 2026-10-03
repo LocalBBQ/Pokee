@@ -49,8 +49,8 @@ void write(const fs::path &path, const std::string &text) {
 
 void write(const fs::path &path, const Bytes &bytes) {
     fs::create_directories(path.parent_path());
-    std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(bytes.data()),
-                                                static_cast<std::streamsize>(bytes.size()));
+    std::ofstream(path, std::ios::binary)
+        .write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
 void put32(Bytes &bytes, std::size_t at, std::uint32_t value) {
@@ -73,12 +73,12 @@ struct Scratch {
     fs::path root;
     Scratch() {
         root = fs::temp_directory_path() /
-               ("yakumo_mods_tests_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+            ("yakumo_mods_tests_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         fs::create_directories(root);
     }
     ~Scratch() {
         std::error_code ec;
-        fs::remove_all(root, ec);  // only this test's own scratch folder
+        fs::remove_all(root, ec); // only this test's own scratch folder
     }
 };
 
@@ -86,7 +86,8 @@ void test_ini() {
     const IniFile ini = IniFile::parse("\xEF\xBB\xBF; comment\r\n[MOD INFO]\r\nName=\"A mod\"\r\nFiles=\"a;b; c;;\"\r\n"
                                        "ModList=\"x;y\r\nVersion=HD\r\n# another\r\n[sub]\r\nType = Patch \r\n");
     check(ini.get("mod info", "name") == "A mod", "ini: quoted value, section and key without case");
-    check(split_list(ini.get("MOD INFO", "Files")) == std::vector<std::string>{"a", "b", "c"}, "ini: list split and trimmed");
+    check(split_list(ini.get("MOD INFO", "Files")) == std::vector<std::string>{"a", "b", "c"},
+        "ini: list split and trimmed");
     check(ini.get("MOD INFO", "ModList") == "x;y", "ini: a quote left open runs to the end of the line");
     check(ini.get("MOD INFO", "Version") == "HD", "ini: unquoted value");
     check(ini.get("sub", "Type") == "Patch", "ini: spaces around = are trimmed");
@@ -102,28 +103,31 @@ void make_mod(const fs::path &folder, const std::string &info, const std::vector
 void test_format(const fs::path &root) {
     const p3::ModFolderFormat format(6043u);
     const fs::path mods = root / "format";
-    make_mod(mods / "file_hd", "Name=\"File HD\"\nAuthor=\"Someone\"\nFiles=\"a.pac;B.PAC\"\nTarget=\"0601;05d2\"\n"
-                               "Type=\"File\"\nVersion=\"HD\"\nDescription=\"Line one.\\Line two.\"\n",
-             {"a.pac", "b.pac"});
+    make_mod(mods / "file_hd",
+        "Name=\"File HD\"\nAuthor=\"Someone\"\nFiles=\"a.pac;B.PAC\"\nTarget=\"0601;05d2\"\n"
+        "Type=\"File\"\nVersion=\"HD\"\nDescription=\"Line one.\\Line two.\"\n",
+        {"a.pac", "b.pac"});
     std::optional<Mod> mod = format.read(mods / "file_hd");
     check(mod && mod->unusable.empty() && mod->changes.size() == 2u, "format: a file mod for the HD version");
     check(mod && mod->changes[1].file == 0x5D2 && mod->changes[1].kind == FileChange::Kind::Replace,
-          "format: targets are hex file ids; file names match without case");
+        "format: targets are hex file ids; file names match without case");
     check(mod && mod->description == "Line one.\nLine two." && mod->author == "Someone", "format: description lines");
 
     make_mod(mods / "psp", "Name=\"PSP\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nType=\"File\"\n", {"a.pac"});
     mod = format.read(mods / "psp");
     check(mod && !mod->unusable.empty(), "format: no Version means the PSP version, which cannot be used");
 
-    make_mod(mods / "both", "Name=\"Both\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nFilesHD=\"h.pac\"\nTargetHD=\"0602\"\n"
-                            "Type=\"Patch\"\nVersion=\"BOTH\"\n",
-             {"a.pac", "h.pac"});
+    make_mod(mods / "both",
+        "Name=\"Both\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nFilesHD=\"h.pac\"\nTargetHD=\"0602\"\n"
+        "Type=\"Patch\"\nVersion=\"BOTH\"\n",
+        {"a.pac", "h.pac"});
     mod = format.read(mods / "both");
     check(mod && mod->unusable.empty() && mod->changes.size() == 1u && mod->changes[0].file == 0x602 &&
-              mod->changes[0].kind == FileChange::Kind::Patch && mod->changes[0].source.filename() == "h.pac",
-          "format: BOTH uses FilesHD and TargetHD");
+            mod->changes[0].kind == FileChange::Kind::Patch && mod->changes[0].source.filename() == "h.pac",
+        "format: BOTH uses FilesHD and TargetHD");
 
-    make_mod(mods / "count", "Files=\"a.pac;b.pac\"\nTarget=\"0601\"\nType=\"File\"\nVersion=\"HD\"\n", {"a.pac", "b.pac"});
+    make_mod(
+        mods / "count", "Files=\"a.pac;b.pac\"\nTarget=\"0601\"\nType=\"File\"\nVersion=\"HD\"\n", {"a.pac", "b.pac"});
     check(!format.read(mods / "count")->unusable.empty(), "format: files and targets must pair up");
     make_mod(mods / "missing", "Files=\"gone.pac\"\nTarget=\"0601\"\nType=\"File\"\nVersion=\"HD\"\n");
     check(!format.read(mods / "missing")->unusable.empty(), "format: a missing file makes the mod unusable");
@@ -134,24 +138,26 @@ void test_format(const fs::path &root) {
     make_mod(mods / "pack", "Name=\"Pack\"\nType=\"Pack\"\nModList=\"file_hd;both\n");
     mod = format.read(mods / "pack");
     check(mod && mod->members == std::vector<std::string>{"file_hd", "both"}, "format: a pack lists its mods");
-    make_mod(mods / "pseudo", "Name=\"Pseudo\"\nType=\"PseudoPack\"\nVersion=\"HD\"\nSubModList=\"one;two;three\"\n"
-                              "[one]\nFiles=\"a.pac\"\nTarget=\"0010\"\nType=\"File\"\n[two]\nFiles=\"p.bin\"\n"
-                              "Target=\"0011\"\nType=\"Patch\"\n[three]\nFiles=\"c.bin\"\nType=\"Code\"\n",
-             {"a.pac", "p.bin", "c.bin"});
+    make_mod(mods / "pseudo",
+        "Name=\"Pseudo\"\nType=\"PseudoPack\"\nVersion=\"HD\"\nSubModList=\"one;two;three\"\n"
+        "[one]\nFiles=\"a.pac\"\nTarget=\"0010\"\nType=\"File\"\n[two]\nFiles=\"p.bin\"\n"
+        "Target=\"0011\"\nType=\"Patch\"\n[three]\nFiles=\"c.bin\"\nType=\"Code\"\n",
+        {"a.pac", "p.bin", "c.bin"});
     mod = format.read(mods / "pseudo");
     check(mod && mod->unusable.empty() && mod->changes.size() == 2u && mod->notes.size() == 1u,
-          "format: a pseudo pack takes its file and patch parts and reports the rest");
+        "format: a pseudo pack takes its file and patch parts and reports the rest");
     make_mod(mods / "set", "Name=\"Set\"\nType=\"EquipSET\"\nFiles=\"h.pac;null;b.pac;null;l.pac\"\n",
-             {"h.pac", "b.pac", "l.pac"});
+        {"h.pac", "b.pac", "l.pac"});
     mod = format.read(mods / "set");
-    check(mod && mod->slots.size() == 3u && mod->slots[1].label == "Body", "format: an armour set has a slot per piece");
+    check(
+        mod && mod->slots.size() == 3u && mod->slots[1].label == "Body", "format: an armour set has a slot per piece");
     check(mod && mod->slots.size() == 3u && mod->slots[0].part == "HEAD" && mod->slots[1].part == "BODY" &&
-              mod->slots[2].part == "LEGS",
-          "format: a set's slots say which piece each stands in for, past the null ones");
+            mod->slots[2].part == "LEGS",
+        "format: a set's slots say which piece each stands in for, past the null ones");
     make_mod(mods / "weapon", "Name=\"GS\"\nType=\"EquipGS\"\nFiles=\"w.pac\"\nAnimation=\"w.json\"\n", {"w.pac"});
     mod = format.read(mods / "weapon");
     check(mod && mod->slots.size() == 1u && mod->type == "Great Sword" && !mod->notes.empty(),
-          "format: a weapon model, its animations reported");
+        "format: a weapon model, its animations reported");
     check(mod && mod->slots.size() == 1u && mod->slots[0].part == "GS", "format: a weapon slot names its class");
     write(mods / "withpreview" / "PREVIEW.PNG", "x");
     make_mod(mods / "withpreview", "Name=\"P\"\nType=\"Pack\"\nModList=\"a\"\n");
@@ -163,7 +169,7 @@ void test_format(const fs::path &root) {
     write(mods / "raw" / "files" / "readme.txt", "x");
     mod = format.read(mods / "raw");
     check(mod && mod->changes.size() == 2u && mod->changes[1].kind == FileChange::Kind::Patch,
-          "format: a folder of files named by file id");
+        "format: a folder of files named by file id");
     fs::create_directories(mods / "empty");
     check(!format.read(mods / "empty"), "format: a folder with neither is not a mod");
     check(format.file_name(0x601) == "0601" && format.parse_file("0x5d2") == 0x5D2u, "format: file id spelling");
@@ -173,11 +179,12 @@ void test_library(const fs::path &root) {
     const p3::ModFolderFormat format(6043u);
     const fs::path mods = root / "library";
     make_mod(mods / "a", "Name=\"A\"\nFiles=\"x.pac;y.pac\"\nTarget=\"0001;0002\"\nType=\"File\"\nVersion=\"HD\"\n",
-             {"x.pac", "y.pac"});
+        {"x.pac", "y.pac"});
     make_mod(mods / "b", "Name=\"B\"\nFiles=\"x.pac\"\nTarget=\"0001\"\nType=\"File\"\nVersion=\"HD\"\n", {"x.pac"});
-    make_mod(mods / "c", "Name=\"C\"\nFiles=\"p.bin\"\nTarget=\"0001\"\nType=\"Patch\"\nVersion=\"HD\"\n"
-                         "Depends=\"d\"\n",
-             {"p.bin"});
+    make_mod(mods / "c",
+        "Name=\"C\"\nFiles=\"p.bin\"\nTarget=\"0001\"\nType=\"Patch\"\nVersion=\"HD\"\n"
+        "Depends=\"d\"\n",
+        {"p.bin"});
     make_mod(mods / "d", "Name=\"D\"\nFiles=\"p.bin\"\nTarget=\"0003\"\nType=\"Patch\"\nVersion=\"HD\"\n", {"p.bin"});
     make_mod(mods / "pack", "Name=\"Pack\"\nType=\"Pack\"\nModList=\"a;b\"\n");
     make_mod(mods / "code", "Name=\"Code\"\nFiles=\"c.bin\"\nType=\"Code\"\nVersion=\"HD\"\n", {"c.bin"});
@@ -195,8 +202,8 @@ void test_library(const fs::path &root) {
     // The mods seen first, in name order, get the lower ranks: b is above a.
     check(r.replacements.at(1).mod == "b" && r.replacements.at(2).mod == "a", "library: the higher mod wins a file");
     check(r.conflicts.size() == 1u && r.conflicts[0].file == 1u && r.conflicts[0].winner == "b" &&
-              r.conflicts[0].overridden == std::vector<std::string>{"a"},
-          "library: the conflict is reported");
+            r.conflicts[0].overridden == std::vector<std::string>{"a"},
+        "library: the conflict is reported");
     library.move("a", +1);
     r = library.resolve();
     check(r.replacements.at(1).mod == "a", "library: raising a mod makes it win");
@@ -205,9 +212,10 @@ void test_library(const fs::path &root) {
     check(library.enabled("d"), "library: turning a mod on turns on what it depends on");
     r = library.resolve();
     check(r.patches.at(1).size() == 1u && r.patches.at(3).size() == 1u, "library: patches are collected");
-    const auto conflict = std::find_if(r.conflicts.begin(), r.conflicts.end(), [](const auto &c) { return c.file == 1u; });
+    const auto conflict =
+        std::find_if(r.conflicts.begin(), r.conflicts.end(), [](const auto &c) { return c.file == 1u; });
     check(conflict != r.conflicts.end() && conflict->patched_by == std::vector<std::string>{"c"},
-          "library: a patch on another mod's replacement is shown");
+        "library: a patch on another mod's replacement is shown");
 
     library.set_enabled("code", true);
     check(!library.enabled("code"), "library: a mod that cannot be used stays off");
@@ -221,7 +229,7 @@ void test_library(const fs::path &root) {
     again.load_choices(root / "mods.ini");
     again.scan(mods);
     check(again.enabled("b") && !again.enabled("a") && again.resolve().same_files(library.resolve()),
-          "library: saved choices come back");
+        "library: saved choices come back");
     again.set_master(false);
     check(again.resolve().empty(), "library: the master switch turns every mod off");
     (void)top;
@@ -230,7 +238,7 @@ void test_library(const fs::path &root) {
     bool accept = true;
     int activations = 0;
     ModSession session(format, {mods, root / "session.ini", nullptr},
-                       {[&](const Resolution &) { return accept; }, [&](const Resolution &) { ++activations; }});
+        {[&](const Resolution &) { return accept; }, [&](const Resolution &) { ++activations; }});
     session.start();
     session.library().set_enabled("b", true);
     session.commit();
@@ -262,7 +270,7 @@ void test_import(const fs::path &root) {
     check(c.mods[0].replaces, "import: an installed mod of the same name is noticed");
     result = import_mods(c, mods);
     check(result.backups.size() == 2u && fs::exists(result.backups[0] / "mine.txt"),
-          "import: the replaced mod moves to .backup, nothing is deleted");
+        "import: the replaced mod moves to .backup, nothing is deleted");
     c = check_import(mods / "m1", format, mods);
     check(c.mods.empty() && !c.problem.empty(), "import: not from inside the mods folder");
     c = check_import(root / "nothing", format, mods);
@@ -294,7 +302,7 @@ void test_cipher() {
     Bytes zero = plain;
     p3::encrypt(zero, 0u, 0u);
     Bytes seeded = plain;
-    p3::encrypt(seeded, 0x10000u, 0u);  // low half 0: its default seed
+    p3::encrypt(seeded, 0x10000u, 0u); // low half 0: its default seed
     check(zero != seeded, "cipher: each half has its own default seed");
     const std::uint8_t psmf[] = {'P', 'S', 'M', 'F', '0'};
     check(p3::verbatim_magic(psmf) && !p3::verbatim_magic(std::span(psmf, 3)), "cipher: verbatim entries by magic");
@@ -344,12 +352,12 @@ Bytes game_reads(p3::ArchiveView &view, const p3::Directory &directory, std::uin
 
 void test_archive(const fs::path &root) {
     const Archive a = make_archive();
-    const std::optional<p3::Directory> parsed = p3::Directory::parse(std::span(a.bytes).first(2u * p3::kBlock),
-                                                                     a.bytes.size());
+    const std::optional<p3::Directory> parsed =
+        p3::Directory::parse(std::span(a.bytes).first(2u * p3::kBlock), a.bytes.size());
     check(parsed && parsed->blocks == a.directory.blocks && parsed->sizes == a.directory.sizes,
-          "archive: the directory parses");
+        "archive: the directory parses");
     check(parsed && parsed->encode() == Bytes(a.bytes.begin(), a.bytes.begin() + 2 * p3::kBlock),
-          "archive: and encodes back to the same bytes");
+        "archive: and encodes back to the same bytes");
     const p3::Directory &disc = *parsed;
     const auto raw = [&a](std::uint64_t offset, std::span<std::uint8_t> out) -> std::size_t {
         if (offset >= a.bytes.size()) return 0u;
@@ -376,14 +384,14 @@ void test_archive(const fs::path &root) {
     r.replacements[1] = {"m", root / "archive" / "grown"};
     r.replacements[4] = {"m", root / "archive" / "small"};
     r.patches[2] = {{"m", root / "archive" / "patch"}};
-    FileOverlay overlay({[&view](FileId file) { return view.original(file); },
-                         [&disc](FileId file) { return disc.size(file); },
-                         [](FileId, Bytes &bytes, const fs::path &path) { return p3::apply_patch(bytes, path); }});
+    FileOverlay overlay(
+        {[&view](FileId file) { return view.original(file); }, [&disc](FileId file) { return disc.size(file); },
+            [](FileId, Bytes &bytes, const fs::path &path) { return p3::apply_patch(bytes, path); }});
     overlay.set(r);
     const auto layout = std::make_shared<const p3::Layout>(p3::Layout::build(disc, overlay.sizes()));
     const p3::Directory &d = layout->directory;
     check(d.blocks[2] == disc.blocks[2] + 1u && d.blocks.back() == disc.blocks.back() + 1u,
-          "archive: a grown entry moves the ones after it");
+        "archive: a grown entry moves the ones after it");
     check(d.size(1) == 5000u && d.size(4) == 700u, "archive: the size table takes the new sizes");
     view.set(layout, &overlay);
     check(view.size() == disc.archive_bytes() + p3::kBlock, "archive: the archive grows");
@@ -402,7 +410,7 @@ void test_archive(const fs::path &root) {
     Bytes piecewise(static_cast<std::size_t>(d.size(1)));
     for (std::size_t at = 0; at < piecewise.size(); at += 1024u)
         view.read(static_cast<std::uint64_t>(d.blocks[1]) * p3::kBlock + at,
-                  std::span(piecewise).subspan(at, std::min<std::size_t>(1024u, piecewise.size() - at)));
+            std::span(piecewise).subspan(at, std::min<std::size_t>(1024u, piecewise.size() - at)));
     p3::decrypt(piecewise, d.blocks[1], 0u);
     check(piecewise == grown, "archive: reading in pieces gives the same bytes");
 
@@ -410,7 +418,7 @@ void test_archive(const fs::path &root) {
     // no exact size is padded.
     const p3::Layout padded = p3::Layout::build(disc, {{2u, 100u}});
     check(padded.padded.contains(2u) && padded.directory.size(2) == 3u * p3::kBlock && !padded.moved(disc),
-          "archive: a size the table cannot hold is padded to the blocks");
+        "archive: a size the table cannot hold is padded to the blocks");
 }
 
 void test_patches(const fs::path &root) {
@@ -426,19 +434,19 @@ void test_patches(const fs::path &root) {
         append32(patch, static_cast<std::uint32_t>(payload.size()) | (run ? 0x80000000u : 0u));
         patch.insert(patch.end(), payload.begin(), payload.end());
     };
-    block(0x0A055E80u + 64u + 0x100u + 4u, {1, 2, 3, 4});  // data section
-    block(0x4A055E80u + 64u, {9, 9, 9, 9});                // code, through the uncached mirror
-    block(0x08801000u, {5, 6});                            // elsewhere in memory
-    block(0x08900000u, {7}, true);                         // code to run
+    block(0x0A055E80u + 64u + 0x100u + 4u, {1, 2, 3, 4}); // data section
+    block(0x4A055E80u + 64u, {9, 9, 9, 9});               // code, through the uncached mirror
+    block(0x08801000u, {5, 6});                           // elsewhere in memory
+    block(0x08900000u, {7}, true);                        // code to run
     append32(patch, 0xFFFFFFFFu);
     append32(patch, 0u);
-    block(0x0A055E80u + 64u, {0xEE});  // after the end marker: ignored
+    block(0x0A055E80u + 64u, {0xEE}); // after the end marker: ignored
     write(root / "patches" / "p", patch);
     PatchOutcome outcome = p3::apply_patch(overlay, root / "patches" / "p");
     check(overlay[64u + 0x100u + 4u] == 1u && overlay[64u + 0x103u + 4u] == 4u, "patch: an overlay's data by address");
     check(overlay[64u] == 9u, "patch: its code, through a mirror address");
     check(outcome.applied == 2u && outcome.after_load.size() == 1u && outcome.after_load[0].address == 0x08801000u,
-          "patch: memory outside the overlay is written after it loads");
+        "patch: memory outside the overlay is written after it loads");
     check(outcome.problems.size() == 2u, "patch: code to run and code changed are reported");
 
     Bytes data = pattern(256, 5);
@@ -446,11 +454,11 @@ void test_patches(const fs::path &root) {
     block(0x20u, {0xAB, 0xCD});
     block(0x08801000u, {1});
     block(0x1000u, {1});
-    write(root / "patches" / "q", patch);  // no end marker, as the manager installs it
+    write(root / "patches" / "q", patch); // no end marker, as the manager installs it
     outcome = p3::apply_patch(data, root / "patches" / "q");
     check(data[0x20] == 0xABu && data[0x21] == 0xCDu && outcome.applied == 1u, "patch: an offset into a data file");
     check(outcome.problems.size() == 2u && outcome.after_load.empty(),
-          "patch: memory writes and blocks past the end of a data file are refused");
+        "patch: memory writes and blocks past the end of a data file are refused");
 }
 
 int check_disc(const char *image) {
@@ -469,7 +477,7 @@ int check_disc(const char *image) {
     };
     const auto load = [](const Bytes &b, std::size_t at) {
         return static_cast<std::uint32_t>(b[at]) | static_cast<std::uint32_t>(b[at + 1]) << 8u |
-               static_cast<std::uint32_t>(b[at + 2]) << 16u | static_cast<std::uint32_t>(b[at + 3]) << 24u;
+            static_cast<std::uint32_t>(b[at + 2]) << 16u | static_cast<std::uint32_t>(b[at + 3]) << 24u;
     };
     const Bytes primary = sector(16, 1);
     std::uint32_t lba = load(primary, 156 + 2);
@@ -501,13 +509,13 @@ int check_disc(const char *image) {
     check(directory.has_value(), "disc: DATA.BIN's directory parses");
     if (!directory) return 1;
     std::printf("     %zu entries, %zu exact sizes, %u directory blocks, %zu trailer bytes\n", directory->entries(),
-                directory->sizes.size(), directory->directory_blocks, directory->trailer.size());
+        directory->sizes.size(), directory->directory_blocks, directory->trailer.size());
     const Bytes encoded = directory->encode();
     check(encoded == Bytes(head.begin(), head.begin() + static_cast<std::ptrdiff_t>(encoded.size())),
-          "disc: the directory encodes back to the bytes on the disc");
+        "disc: the directory encodes back to the bytes on the disc");
     const p3::Layout grown = p3::Layout::build(*directory, {{0x0FEEu, directory->size(0x0FEE) + 300u * 1024u}});
     check(grown.moved(*directory) && grown.directory.blocks[0x0FEF] == directory->blocks[0x0FEF] + 150u,
-          "disc: growing an entry moves the ones after it");
+        "disc: growing an entry moves the ones after it");
     return failures == 0 ? 0 : 1;
 }
 

@@ -38,10 +38,12 @@ std::vector<Entry> entries_of(const Table &table, std::span<const Chord> reserve
 
 } // namespace
 
-void Resolver::reset() { *this = Resolver{}; }
+void Resolver::reset() {
+    *this = Resolver{};
+}
 
 PadState Resolver::update(const Table &table, const std::function<bool(Binding)> &held, std::uint64_t now_ms,
-                          unsigned window_ms, std::span<const Chord> reserved) {
+    unsigned window_ms, std::span<const Chord> reserved) {
     events_.clear();
     const std::vector<Entry> entries = entries_of(table, reserved);
     const auto entry_of = [&](const Chord &c) -> const Entry * {
@@ -62,8 +64,10 @@ PadState Resolver::update(const Table &table, const std::function<bool(Binding)>
     std::vector<Binding> released;
     for (const Binding b : inputs) {
         const auto was = std::find_if(held_.begin(), held_.end(), [&](const Held &h) { return h.input == b; });
-        if (held(b)) now_held.push_back(was != held_.end() ? *was : Held{b, now_ms, false});
-        else if (was != held_.end()) released.push_back(b);
+        if (held(b))
+            now_held.push_back(was != held_.end() ? *was : Held{b, now_ms, false});
+        else if (was != held_.end())
+            released.push_back(b);
     }
     held_ = std::move(now_held);
     const auto find_held = [&](Binding b) -> Held * {
@@ -150,8 +154,8 @@ PadState Resolver::update(const Table &table, const std::function<bool(Binding)>
         for (const Binding b : e.chord.held()) ok = ok && free_input(b);
         if (ok) order.push_back(&e);
     }
-    std::stable_sort(order.begin(), order.end(),
-                     [](const Entry *a, const Entry *b) { return a->chord.size() > b->chord.size(); });
+    std::stable_sort(
+        order.begin(), order.end(), [](const Entry *a, const Entry *b) { return a->chord.size() > b->chord.size(); });
     std::vector<Binding> taken;
     const auto is_taken = [&](Binding b) { return std::find(taken.begin(), taken.end(), b) != taken.end(); };
     for (const Entry *e : order) {
@@ -220,8 +224,10 @@ std::uint32_t LeadIn::apply(std::uint32_t buttons, std::uint32_t requested, bool
     std::uint32_t out = buttons;
     if (pending_ != 0u) {
         out |= kLeadButton;
-        if (held_reads_ < kLeadReads) out &= ~pending_;
-        else out |= pending_;
+        if (held_reads_ < kLeadReads)
+            out &= ~pending_;
+        else
+            out |= pending_;
     }
     if (advance) {
         held_reads_ = (out & kLeadButton) != 0u ? held_reads_ + 1u : 0u;

@@ -17,7 +17,7 @@ struct ExecutableRange {
 
 struct FunctionAnalysis {
     std::uint32_t entry{};
-    std::set<std::uint32_t> labels; // all decoded instruction addresses (delay slots excluded)
+    std::set<std::uint32_t> labels;       // all decoded instruction addresses (delay slots excluded)
     std::set<std::uint32_t> entry_labels; // function entry and basic-block/return continuations
     std::set<std::uint32_t> direct_calls;
     std::set<std::uint32_t> indirect_call_sites;
@@ -35,12 +35,9 @@ struct ProgramAnalysis {
     std::size_t overlapping_label_count{};
 };
 
-[[nodiscard]] bool is_executable_address(const std::vector<ExecutableRange> &ranges,
-                                         std::uint32_t address) noexcept;
+[[nodiscard]] bool is_executable_address(const std::vector<ExecutableRange> &ranges, std::uint32_t address) noexcept;
 
-[[nodiscard]] ProgramAnalysis analyze_program(const Elf32Image &elf,
-                                              const GuestMemory &memory,
-                                              std::uint32_t load_base,
-                                              std::size_t max_instructions_per_function = 131072u);
+[[nodiscard]] ProgramAnalysis analyze_program(const Elf32Image &elf, const GuestMemory &memory, std::uint32_t load_base,
+    std::size_t max_instructions_per_function = 131072u);
 
 } // namespace psprecomp

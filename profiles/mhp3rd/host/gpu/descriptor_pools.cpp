@@ -23,14 +23,29 @@ constexpr std::uint32_t kMaxHeadroom = 16u;
 std::string describe_result(VkResult result) {
     const char *name = nullptr;
     switch (result) {
-    case VK_SUCCESS: name = "VK_SUCCESS"; break;
-    case VK_ERROR_OUT_OF_HOST_MEMORY: name = "VK_ERROR_OUT_OF_HOST_MEMORY"; break;
-    case VK_ERROR_OUT_OF_DEVICE_MEMORY: name = "VK_ERROR_OUT_OF_DEVICE_MEMORY"; break;
-    case VK_ERROR_FRAGMENTED_POOL: name = "VK_ERROR_FRAGMENTED_POOL"; break;
-    case VK_ERROR_OUT_OF_POOL_MEMORY: name = "VK_ERROR_OUT_OF_POOL_MEMORY"; break;
-    case VK_ERROR_FRAGMENTATION: name = "VK_ERROR_FRAGMENTATION"; break;
-    case VK_ERROR_DEVICE_LOST: name = "VK_ERROR_DEVICE_LOST"; break;
-    default: break;
+    case VK_SUCCESS:
+        name = "VK_SUCCESS";
+        break;
+    case VK_ERROR_OUT_OF_HOST_MEMORY:
+        name = "VK_ERROR_OUT_OF_HOST_MEMORY";
+        break;
+    case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+        name = "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+        break;
+    case VK_ERROR_FRAGMENTED_POOL:
+        name = "VK_ERROR_FRAGMENTED_POOL";
+        break;
+    case VK_ERROR_OUT_OF_POOL_MEMORY:
+        name = "VK_ERROR_OUT_OF_POOL_MEMORY";
+        break;
+    case VK_ERROR_FRAGMENTATION:
+        name = "VK_ERROR_FRAGMENTATION";
+        break;
+    case VK_ERROR_DEVICE_LOST:
+        name = "VK_ERROR_DEVICE_LOST";
+        break;
+    default:
+        break;
     }
     const std::string number = std::to_string(static_cast<int>(result));
     return name != nullptr ? std::string(name) + " (" + number + ")" : "VkResult " + number;
@@ -49,9 +64,8 @@ DescriptorPools::Driver DescriptorPools::vulkan(VkDevice device, VkDescriptorSet
         info.pSetLayouts = &layout;
         return vkAllocateDescriptorSets(device, &info, &set);
     };
-    driver.free = [device](VkDescriptorPool pool, VkDescriptorSet set) {
-        vkFreeDescriptorSets(device, pool, 1u, &set);
-    };
+    driver.free = [device](
+                      VkDescriptorPool pool, VkDescriptorSet set) { vkFreeDescriptorSets(device, pool, 1u, &set); };
     return driver;
 }
 
@@ -85,13 +99,13 @@ bool DescriptorPools::add_pool(std::uint32_t sets, std::string &error) {
     const VkResult result = driver_.create_pool(info, handle);
     if (result != VK_SUCCESS) {
         error = "vkCreateDescriptorPool for the " + options_.name + " (" + std::to_string(sets) +
-                " sets) failed with " + describe_result(result);
+            " sets) failed with " + describe_result(result);
         return false;
     }
     pools_.push_back({handle, sets, 0u, false});
     if (pools_.size() > 1u)
-        std::cout << "[render] " << options_.name << ": pool " << pools_.size() << " of at most "
-                  << options_.max_pools << " made, for " << sets << " sets (" << owner_.size() << " in use)\n";
+        std::cout << "[render] " << options_.name << ": pool " << pools_.size() << " of at most " << options_.max_pools
+                  << " made, for " << sets << " sets (" << owner_.size() << " in use)\n";
     return true;
 }
 
@@ -130,8 +144,8 @@ VkDescriptorSet DescriptorPools::allocate(std::string &error) {
             if (pool.used < pool.sets) {
                 headroom_ = std::min(headroom_ * 2u, kMaxHeadroom);
                 std::cout << "[render] " << options_.name << ": the driver refused a set from pool " << index + 1u
-                          << " with " << pool.used << " of " << pool.sets << " sets in use ("
-                          << describe_result(result) << "); new pools get " << headroom_ << "x the room\n";
+                          << " with " << pool.used << " of " << pool.sets << " sets in use (" << describe_result(result)
+                          << "); new pools get " << headroom_ << "x the room\n";
             }
         }
         if (pools_.size() >= options_.max_pools) break;
@@ -143,7 +157,7 @@ VkDescriptorSet DescriptorPools::allocate(std::string &error) {
         current_ = pools_.size() - 1u;
     }
     error = "vkAllocateDescriptorSets for the " + options_.name + " failed with " +
-            describe_result(last != VK_SUCCESS ? last : VK_ERROR_OUT_OF_POOL_MEMORY) + ": " + summary();
+        describe_result(last != VK_SUCCESS ? last : VK_ERROR_OUT_OF_POOL_MEMORY) + ": " + summary();
     return VK_NULL_HANDLE;
 }
 
@@ -175,10 +189,9 @@ std::size_t DescriptorPools::capacity() const noexcept {
 }
 
 std::string DescriptorPools::summary() const {
-    std::string text = options_.name + ": " + std::to_string(owner_.size()) + " in use (peak " +
-                       std::to_string(peak_) + ") in " + std::to_string(pools_.size()) + " pool" +
-                       (pools_.size() == 1u ? "" : "s") + " of at most " + std::to_string(options_.max_pools) +
-                       ", " + std::to_string(capacity()) + " sets in all";
+    std::string text = options_.name + ": " + std::to_string(owner_.size()) + " in use (peak " + std::to_string(peak_) +
+        ") in " + std::to_string(pools_.size()) + " pool" + (pools_.size() == 1u ? "" : "s") + " of at most " +
+        std::to_string(options_.max_pools) + ", " + std::to_string(capacity()) + " sets in all";
     std::size_t refused = 0u;
     for (const Pool &pool : pools_) refused += pool.refused ? 1u : 0u;
     if (refused != 0u) text += ", " + std::to_string(refused) + " refused by the driver";

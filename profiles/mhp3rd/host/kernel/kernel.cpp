@@ -44,34 +44,58 @@ bool trace_enabled() {
     return enabled;
 }
 
-void native_thread_exit(Runtime &, AllegrexContext &ctx) { kernel().thread_exit_stub(ctx); }
-void native_interrupt_return(Runtime &, AllegrexContext &ctx) { kernel().interrupt_return_stub(ctx); }
-void native_idle(Runtime &, AllegrexContext &ctx) { kernel().idle_stub(ctx); }
-void native_guest_call_return(Runtime &, AllegrexContext &ctx) { kernel().guest_call_return_stub(ctx); }
-void native_starvation(Runtime &, AllegrexContext &ctx) { kernel().on_starvation(ctx); }
+void native_thread_exit(Runtime &, AllegrexContext &ctx) {
+    kernel().thread_exit_stub(ctx);
+}
+void native_interrupt_return(Runtime &, AllegrexContext &ctx) {
+    kernel().interrupt_return_stub(ctx);
+}
+void native_idle(Runtime &, AllegrexContext &ctx) {
+    kernel().idle_stub(ctx);
+}
+void native_guest_call_return(Runtime &, AllegrexContext &ctx) {
+    kernel().guest_call_return_stub(ctx);
+}
+void native_starvation(Runtime &, AllegrexContext &ctx) {
+    kernel().on_starvation(ctx);
+}
 
 const char *status_name(ThreadStatus status) {
     switch (status) {
-    case ThreadStatus::Dormant: return "dormant";
-    case ThreadStatus::Ready: return "ready";
-    case ThreadStatus::Running: return "running";
-    case ThreadStatus::Waiting: return "waiting";
-    case ThreadStatus::Dead: return "dead";
+    case ThreadStatus::Dormant:
+        return "dormant";
+    case ThreadStatus::Ready:
+        return "ready";
+    case ThreadStatus::Running:
+        return "running";
+    case ThreadStatus::Waiting:
+        return "waiting";
+    case ThreadStatus::Dead:
+        return "dead";
     }
     return "?";
 }
 
 const char *wait_name(WaitType type) {
     switch (type) {
-    case WaitType::None: return "none";
-    case WaitType::Delay: return "delay";
-    case WaitType::Sleep: return "sleep";
-    case WaitType::Semaphore: return "sema";
-    case WaitType::EventFlag: return "eventflag";
-    case WaitType::Mutex: return "mutex";
-    case WaitType::VBlank: return "vblank";
-    case WaitType::ThreadEnd: return "thread-end";
-    case WaitType::Host: return "host";
+    case WaitType::None:
+        return "none";
+    case WaitType::Delay:
+        return "delay";
+    case WaitType::Sleep:
+        return "sleep";
+    case WaitType::Semaphore:
+        return "sema";
+    case WaitType::EventFlag:
+        return "eventflag";
+    case WaitType::Mutex:
+        return "mutex";
+    case WaitType::VBlank:
+        return "vblank";
+    case WaitType::ThreadEnd:
+        return "thread-end";
+    case WaitType::Host:
+        return "host";
     }
     return "?";
 }
@@ -163,7 +187,7 @@ void Kernel::start_loader_thread(AllegrexContext &ctx, std::uint32_t entry, std:
 }
 
 std::int32_t Kernel::create_thread(const std::string &name, std::uint32_t entry, std::uint32_t priority,
-                                   std::uint32_t stack_size, std::uint32_t attributes, std::uint32_t gp) {
+    std::uint32_t stack_size, std::uint32_t attributes, std::uint32_t gp) {
     if (entry == 0u || (entry & 3u) != 0u) return static_cast<std::int32_t>(error::kIllegalEntry);
     if (priority == 0u || priority > 0x7Fu) return static_cast<std::int32_t>(error::kIllegalPriority);
     if (stack_size < 0x200u) return static_cast<std::int32_t>(error::kIllegalStackSize);
@@ -185,13 +209,13 @@ std::int32_t Kernel::create_thread(const std::string &name, std::uint32_t entry,
     const SceUID uid = thread->uid;
     threads_.emplace(uid, std::move(thread));
     if (trace_enabled())
-        std::cerr << "[kernel] create thread uid=" << uid << " name=" << name
-                  << " entry=" << psprecomp::hex32(entry) << " prio=" << psprecomp::hex32(priority) << "\n";
+        std::cerr << "[kernel] create thread uid=" << uid << " name=" << name << " entry=" << psprecomp::hex32(entry)
+                  << " prio=" << psprecomp::hex32(priority) << "\n";
     return uid;
 }
 
-std::int32_t Kernel::start_thread(AllegrexContext &ctx, SceUID uid, std::uint32_t argument_size,
-                                  std::uint32_t argument_address) {
+std::int32_t Kernel::start_thread(
+    AllegrexContext &ctx, SceUID uid, std::uint32_t argument_size, std::uint32_t argument_address) {
     Thread *thread = find_thread(uid);
     if (thread == nullptr) return static_cast<std::int32_t>(error::kUnknownThid);
     if (thread->status != ThreadStatus::Dormant) return static_cast<std::int32_t>(error::kNotDormant);
@@ -205,8 +229,7 @@ std::int32_t Kernel::start_thread(AllegrexContext &ctx, SceUID uid, std::uint32_
     std::uint32_t argument_copy = 0u;
     if (argument_address != 0u && argument_size != 0u) {
         sp -= align_up(argument_size, 0x10u);
-        for (std::uint32_t i = 0; i < argument_size; ++i)
-            memory.store8(sp + i, memory.load8(argument_address + i));
+        for (std::uint32_t i = 0; i < argument_size; ++i) memory.store8(sp + i, memory.load8(argument_address + i));
         argument_copy = sp;
     }
     context.set_gpr(4, argument_size);
@@ -219,16 +242,15 @@ std::int32_t Kernel::start_thread(AllegrexContext &ctx, SceUID uid, std::uint32_
     thread->wakeup_count = 0u;
     thread->exit_status = 0;
     make_ready(*thread);
-    if (trace_enabled())
-        std::cerr << "[kernel] start thread uid=" << uid << " name=" << thread->name << "\n";
+    if (trace_enabled()) std::cerr << "[kernel] start thread uid=" << uid << " name=" << thread->name << "\n";
     return 0;
 }
 
 void Kernel::exit_current_thread(AllegrexContext &ctx, std::int32_t status, bool delete_thread) {
     Thread *thread = current_thread();
     if (trace_enabled())
-        std::cerr << "[kernel] exit thread uid=" << current_uid_
-                  << " name=" << (thread != nullptr ? thread->name : "?") << " status=" << status << "\n";
+        std::cerr << "[kernel] exit thread uid=" << current_uid_ << " name=" << (thread != nullptr ? thread->name : "?")
+                  << " status=" << status << "\n";
     if (thread != nullptr) {
         thread->exit_status = status;
         thread->status = ThreadStatus::Dormant;
@@ -304,8 +326,10 @@ void Kernel::save_current(const AllegrexContext &ctx, ThreadStatus status) {
     Thread *thread = current_thread();
     if (thread == nullptr) return;
     thread->context = ctx;
-    if (status == ThreadStatus::Ready) make_ready(*thread);
-    else thread->status = status;
+    if (status == ThreadStatus::Ready)
+        make_ready(*thread);
+    else
+        thread->status = status;
 }
 
 void Kernel::switch_to(AllegrexContext &ctx, Thread &thread) {
@@ -417,12 +441,12 @@ void Kernel::schedule(AllegrexContext &ctx) {
         if (!next || idle_vblanks_ > kIdleVBlankLimit) {
             std::string report = "PSP scheduler deadlock: no runnable thread";
             for (const auto &[uid, thread] : threads_) {
-                report += "\n  uid=" + std::to_string(uid) + " name=" + thread->name + " status=" +
-                          status_name(thread->status);
+                report += "\n  uid=" + std::to_string(uid) + " name=" + thread->name +
+                    " status=" + status_name(thread->status);
                 if (thread->status == ThreadStatus::Waiting)
                     report += std::string(" wait=") + wait_name(thread->wait.type) +
-                              " object=" + std::to_string(thread->wait.object) +
-                              " resume=" + psprecomp::hex32(thread->context.pc);
+                        " object=" + std::to_string(thread->wait.object) +
+                        " resume=" + psprecomp::hex32(thread->context.pc);
             }
             psprecomp::set_runtime_thread_identity(kIdleIdentity, "idle");
             ctx.pc = kIdleStub;
@@ -478,12 +502,10 @@ bool Kernel::pace_to_real_time() {
         pacing_virtual_base_ = now_us_;
         return true;
     }
-    const std::int64_t real_us =
-        std::chrono::duration_cast<std::chrono::microseconds>(now - pacing_real_base_).count();
+    const std::int64_t real_us = std::chrono::duration_cast<std::chrono::microseconds>(now - pacing_real_base_).count();
     const std::int64_t virtual_us = static_cast<std::int64_t>(now_us_ - pacing_virtual_base_);
     const std::int64_t ahead_us =
-        fast ? static_cast<std::int64_t>(static_cast<double>(virtual_us) / speed) - real_us
-             : virtual_us - real_us;
+        fast ? static_cast<std::int64_t>(static_cast<double>(virtual_us) / speed) - real_us : virtual_us - real_us;
     // Ahead of real time: wait. More than a tenth of a second behind (a slow
     // frame, a load): drop the debt instead of racing to make it up.
     constexpr std::int64_t kMinSleepUs = 1000;
@@ -559,8 +581,8 @@ void Kernel::process_timers() {
         memory.store32(kVTimerClockScratch + 12u, static_cast<std::uint32_t>(current >> 32u));
         InterruptCall call{};
         call.function = timer.handler;
-        call.arguments = {static_cast<std::uint32_t>(timer_uid), kVTimerClockScratch, kVTimerClockScratch + 8u,
-                          timer.common};
+        call.arguments = {
+            static_cast<std::uint32_t>(timer_uid), kVTimerClockScratch, kVTimerClockScratch + 8u, timer.common};
         // The handler returns the delay until the next call, measured from the
         // schedule it fired at; 0 stops it.
         call.on_return = [timer_uid, schedule](std::uint32_t next) {
@@ -610,14 +632,16 @@ void Kernel::remove_waiter(Thread &thread) {
 
 std::string Kernel::describe_threads() const {
     std::string report = "threads (virtual time " + std::to_string(now_us_ / 1000u) + " ms, vblanks " +
-                         std::to_string(vblank_count_) + "):";
+        std::to_string(vblank_count_) + "):";
     for (const auto &[uid, thread] : threads_) {
-        report += "\n  uid=" + std::to_string(uid) + " " + thread->name + " prio=" + psprecomp::hex32(thread->priority) +
-                  " " + status_name(thread->status);
+        report += "\n  uid=" + std::to_string(uid) + " " + thread->name +
+            " prio=" + psprecomp::hex32(thread->priority) + " " + status_name(thread->status);
         if (thread->status == ThreadStatus::Waiting) {
-            report += std::string(" wait=") + wait_name(thread->wait.type) + " object=" + std::to_string(thread->wait.object);
+            report +=
+                std::string(" wait=") + wait_name(thread->wait.type) + " object=" + std::to_string(thread->wait.object);
             if (thread->wait.type == WaitType::EventFlag) {
-                report += " bits=" + psprecomp::hex32(thread->wait.value) + " mode=" + psprecomp::hex32(thread->wait.mode);
+                report +=
+                    " bits=" + psprecomp::hex32(thread->wait.value) + " mode=" + psprecomp::hex32(thread->wait.mode);
                 const auto flag = event_flags.find(thread->wait.object);
                 if (flag != event_flags.end()) report += " pattern=" + psprecomp::hex32(flag->second.pattern);
             }
@@ -627,7 +651,8 @@ std::string Kernel::describe_threads() const {
                 if (sema != semaphores.end())
                     report += " count=" + std::to_string(sema->second.count) + " name=" + sema->second.name;
             }
-            if (thread->wait.deadline_us) report += " deadline=" + std::to_string(*thread->wait.deadline_us / 1000u) + "ms";
+            if (thread->wait.deadline_us)
+                report += " deadline=" + std::to_string(*thread->wait.deadline_us / 1000u) + "ms";
         }
         if (thread->status != ThreadStatus::Dormant) report += " pc=" + psprecomp::hex32(thread->context.pc);
     }
@@ -700,8 +725,10 @@ void Kernel::release_event_flag_waiters(SceUID uid) {
             continue;
         }
         if (thread->wait.out_address != 0u) runtime_->memory().store32(thread->wait.out_address, flag.pattern);
-        if ((thread->wait.mode & 0x10u) != 0u) flag.pattern = 0u;
-        else if ((thread->wait.mode & 0x20u) != 0u) flag.pattern &= ~thread->wait.value;
+        if ((thread->wait.mode & 0x10u) != 0u)
+            flag.pattern = 0u;
+        else if ((thread->wait.mode & 0x20u) != 0u)
+            flag.pattern &= ~thread->wait.value;
         it = flag.waiters.erase(it);
         wake(*thread, 0u);
     }
@@ -728,8 +755,8 @@ std::uint64_t Kernel::vtimer_value(const VTimer &timer) const noexcept {
 // ---------------------------------------------------------------------------
 // Memory
 
-std::int32_t Kernel::allocate_block(const std::string &name, std::uint32_t type, std::uint32_t size,
-                                    std::uint32_t address_or_alignment) {
+std::int32_t Kernel::allocate_block(
+    const std::string &name, std::uint32_t type, std::uint32_t size, std::uint32_t address_or_alignment) {
     if (size == 0u) return static_cast<std::int32_t>(error::kIllegalArgument);
     std::uint32_t alignment = kMemoryGranularity;
     if ((type == 3u || type == 4u) && address_or_alignment != 0u) {
@@ -784,8 +811,8 @@ std::int32_t Kernel::allocate_block(const std::string &name, std::uint32_t type,
     const SceUID uid = allocate_uid();
     blocks_.emplace(uid, MemoryBlock{name, *address, aligned_size});
     if (trace_enabled())
-        std::cerr << "[kernel] alloc " << name << " size=" << psprecomp::hex32(size)
-                  << " -> " << psprecomp::hex32(*address) << " uid=" << uid << "\n";
+        std::cerr << "[kernel] alloc " << name << " size=" << psprecomp::hex32(size) << " -> "
+                  << psprecomp::hex32(*address) << " uid=" << uid << "\n";
     return uid;
 }
 
@@ -795,7 +822,7 @@ std::int32_t Kernel::free_block(SceUID uid) {
     FreeRange freed{found->second.address, found->second.size};
     blocks_.erase(found);
     auto position = std::lower_bound(free_ranges_.begin(), free_ranges_.end(), freed,
-                                     [](const FreeRange &a, const FreeRange &b) { return a.address < b.address; });
+        [](const FreeRange &a, const FreeRange &b) { return a.address < b.address; });
     position = free_ranges_.insert(position, freed);
     // Coalesce with neighbours.
     if (position + 1 != free_ranges_.end() && position->address + position->size == (position + 1)->address) {
@@ -823,7 +850,9 @@ std::uint32_t Kernel::free_memory() const noexcept {
 // ---------------------------------------------------------------------------
 // Interrupts
 
-void Kernel::queue_interrupt(InterruptCall call) { pending_interrupts_.push_back(std::move(call)); }
+void Kernel::queue_interrupt(InterruptCall call) {
+    pending_interrupts_.push_back(std::move(call));
+}
 
 void Kernel::notify_callback(SceUID callback, std::uint32_t argument) {
     const auto found = callbacks.find(callback);
@@ -921,12 +950,12 @@ void Kernel::interrupt_return_stub(AllegrexContext &ctx) {
 }
 
 void Kernel::thread_exit_stub(AllegrexContext &ctx) {
-    exit_current_thread(ctx, static_cast<std::int32_t>(ctx.gpr[2]), current_thread() != nullptr &&
-                                                                         current_thread()->name == "module_start");
+    exit_current_thread(ctx, static_cast<std::int32_t>(ctx.gpr[2]),
+        current_thread() != nullptr && current_thread()->name == "module_start");
 }
 
 void Kernel::call_guest(AllegrexContext &ctx, std::uint32_t function, const std::array<std::uint32_t, 4> &arguments,
-                        GuestCallReturn on_return) {
+    GuestCallReturn on_return) {
     guest_calls_[current_uid_].push_back(GuestCall{ctx.gpr[31], std::move(on_return)});
     for (std::uint32_t i = 0; i < 4u; ++i) ctx.set_gpr(4u + i, arguments[i]);
     ctx.set_gpr(31, kGuestCallReturnStub);

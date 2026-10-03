@@ -14,7 +14,7 @@
 // matrices. The renderer records the draws and replays them.
 namespace mhp3rd::gpu::interpolation {
 
-using Matrix = std::array<float, 16>;  // column-major, as in DrawCall
+using Matrix = std::array<float, 16>; // column-major, as in DrawCall
 
 // What matching and blending need to know about one draw.
 struct DrawSummary {
@@ -28,7 +28,7 @@ struct DrawSummary {
     std::uint32_t texture_address{};
     std::uint32_t count{};
     PrimitiveType primitive{};
-    std::uint32_t target{};  // framebuffer address drawn into
+    std::uint32_t target{}; // framebuffer address drawn into
     // Filled by summarize() while the draw's matrices are at hand, so that
     // matching a frame need not read them again: the identity's hash, and
     // the translation column of view times world. `prepared` says they are
@@ -42,7 +42,7 @@ struct DrawSummary {
     // blended; 2D and interface draws, orthographic ones, clears and
     // render-to-texture passes are shown as the frame drew them.
     bool eligible{};
-    bool skinned{};  // the vertices were blended by bone matrices
+    bool skinned{}; // the vertices were blended by bone matrices
     Matrix world{};
     Matrix view{};
     Matrix projection{};
@@ -71,8 +71,8 @@ struct Matching {
     // same mesh drawn more than once) it may have been mistaken for.
     std::uint32_t rejected{};
     std::uint32_t rejected_shared{};
-    float max_own_motion{};  // the largest own motion among the pairs kept
-    float max_rejected_motion{};  // the largest among those given up
+    float max_own_motion{};      // the largest own motion among the pairs kept
+    float max_rejected_motion{}; // the largest among those given up
     // Draws of a mesh drawn more than once that were given a nearer partner
     // than the one drawing order gave them (CutThresholds::nearest_instances).
     std::uint32_t repaired{};
@@ -98,9 +98,9 @@ struct Matching {
 
 // Thresholds for telling a camera cut or a scene change from motion.
 struct CutThresholds {
-    float min_matched_fraction{0.5f};   // of the newer frame's eligible draws
+    float min_matched_fraction{0.5f}; // of the newer frame's eligible draws
     float max_camera_angle_degrees{30.0f};
-    float max_camera_distance{200.0f};  // world units the camera moves in one frame
+    float max_camera_distance{200.0f}; // world units the camera moves in one frame
     // Motion that continues the previous pair's is not a cut even past the
     // limits above: the analog camera turns up to 720 degrees a second, 24
     // degrees a game frame in yaw alone, and more on a diagonal, with the eye
@@ -140,8 +140,8 @@ public:
     // Each call is taken to follow the previous one (the pair before shares
     // `older` with this pair's newer frame): a pair that was blended lets the
     // next one continue its motion.
-    const Matching &match(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
-                          const CutThresholds &thresholds);
+    const Matching &match(
+        const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer, const CutThresholds &thresholds);
     // Forgets the previous pair, when the next call does not follow it.
     void forget_motion() noexcept { previous_blended_ = false; }
 
@@ -171,8 +171,8 @@ private:
     static Key key_of(const DrawSummary &draw) noexcept;
     // Pairs the instances of each mesh drawn more than once by distance
     // (CutThresholds::nearest_instances), once the camera's motion is known.
-    void pair_nearest_instances(const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer,
-                                const CutThresholds &thresholds);
+    void pair_nearest_instances(
+        const std::vector<DrawSummary> &older, const std::vector<DrawSummary> &newer, const CutThresholds &thresholds);
 
 public:
     // The identity's hash and eye-space translation of a draw, as summarize()
@@ -181,12 +181,11 @@ public:
     static std::array<float, 3> eye_translation_of(const DrawSummary &draw) noexcept;
 
 private:
-
     std::vector<Slot> slots_;
-    std::vector<std::int32_t> next_;  // for each newer draw, the next with its key
-    std::vector<std::uint8_t> shared_;  // for each older draw: its key had several newer draws
-    std::vector<std::int32_t> older_slot_;  // for each older draw: its key's slot, or -1
-    std::vector<std::int32_t> older_next_;  // for each older draw, the next with its key
+    std::vector<std::int32_t> next_;       // for each newer draw, the next with its key
+    std::vector<std::uint8_t> shared_;     // for each older draw: its key had several newer draws
+    std::vector<std::int32_t> older_slot_; // for each older draw: its key's slot, or -1
+    std::vector<std::int32_t> older_next_; // for each older draw, the next with its key
     // Scratch for pair_nearest_instances.
     struct Candidate {
         float distance;
@@ -239,12 +238,12 @@ inline constexpr float kMaxScrollStep = 0.1f;
 // would cut across the arc and pull distant scenery in.
 struct RigidMotion {
     bool valid{};
-    float angle{};                      // radians
+    float angle{}; // radians
     std::array<float, 3> axis{0.0f, 1.0f, 0.0f};
-    std::array<float, 3> centre{};      // on the axis, nearest the origin
-    std::array<float, 3> slide{};       // along the axis
+    std::array<float, 3> centre{}; // on the axis, nearest the origin
+    std::array<float, 3> slide{};  // along the axis
     std::array<float, 3> translation{};
-    Matrix inverse{};                   // of the whole motion
+    Matrix inverse{}; // of the whole motion
 };
 [[nodiscard]] RigidMotion rigid_motion(const Matrix &m) noexcept;
 // The motion a fraction `t` of the way: 0 is the identity, 1 the motion.
@@ -255,7 +254,6 @@ struct RigidMotion {
 // motion is blended in the older frame's eye space and the camera's motion
 // is followed along its arcs. A draw that stays put in eye space, like the
 // character the camera follows, stays put.
-[[nodiscard]] Matrix blend_eye(const Matrix &older, const Matrix &newer, const RigidMotion &camera,
-                               float t) noexcept;
+[[nodiscard]] Matrix blend_eye(const Matrix &older, const Matrix &newer, const RigidMotion &camera, float t) noexcept;
 
 } // namespace mhp3rd::gpu::interpolation

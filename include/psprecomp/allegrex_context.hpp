@@ -30,7 +30,6 @@ struct alignas(16) AllegrexContext {
     std::array<float, 128> vfpu{};
     std::array<std::uint32_t, 16> vfpu_ctrl{};
 
-
     [[nodiscard]] PSPRECOMP_CONTEXT_FORCEINLINE std::uint32_t fpr_bits(std::uint32_t index) const noexcept {
         return index < fpr.size() ? std::bit_cast<std::uint32_t>(fpr[index]) : 0u;
     }
@@ -46,8 +45,10 @@ struct alignas(16) AllegrexContext {
     }
 
     PSPRECOMP_CONTEXT_FORCEINLINE void set_fpu_condition(bool value) noexcept {
-        if (value) fcr31 |= (1u << 23u);
-        else fcr31 &= ~(1u << 23u);
+        if (value)
+            fcr31 |= (1u << 23u);
+        else
+            fcr31 &= ~(1u << 23u);
     }
 
     static std::int32_t clamp_fpu_word(double value) noexcept {
@@ -77,22 +78,37 @@ struct alignas(16) AllegrexContext {
 
         double converted{};
         switch (mode) {
-        case 0u: converted = std::floor(static_cast<double>(value) + 0.5); break; // ROUND.W.S
-        case 1u: converted = std::trunc(static_cast<double>(value)); break;       // TRUNC.W.S
-        case 2u: converted = std::ceil(static_cast<double>(value)); break;        // CEIL.W.S
-        case 3u: converted = std::floor(static_cast<double>(value)); break;       // FLOOR.W.S
+        case 0u:
+            converted = std::floor(static_cast<double>(value) + 0.5);
+            break; // ROUND.W.S
+        case 1u:
+            converted = std::trunc(static_cast<double>(value));
+            break; // TRUNC.W.S
+        case 2u:
+            converted = std::ceil(static_cast<double>(value));
+            break; // CEIL.W.S
+        case 3u:
+            converted = std::floor(static_cast<double>(value));
+            break; // FLOOR.W.S
         default:
             switch (fcr31 & 3u) {
-            case 0u: converted = round_ties_to_even(static_cast<double>(value)); break;
-            case 1u: converted = std::trunc(static_cast<double>(value)); break;
-            case 2u: converted = std::ceil(static_cast<double>(value)); break;
-            default: converted = std::floor(static_cast<double>(value)); break;
+            case 0u:
+                converted = round_ties_to_even(static_cast<double>(value));
+                break;
+            case 1u:
+                converted = std::trunc(static_cast<double>(value));
+                break;
+            case 2u:
+                converted = std::ceil(static_cast<double>(value));
+                break;
+            default:
+                converted = std::floor(static_cast<double>(value));
+                break;
             }
             break;
         }
         return static_cast<std::uint32_t>(clamp_fpu_word(converted));
     }
-
 
     // Generated ROUND/TRUNC/CEIL/FLOOR instructions carry a literal conversion
     // mode. Make it a template parameter so the hot AOT path has no mode switch;
@@ -131,7 +147,8 @@ struct alignas(16) AllegrexContext {
         return static_cast<std::size_t>(matrix * 16u + y * 4u + x);
     }
 
-    PSPRECOMP_CONTEXT_FORCEINLINE void set_vfpu_scalar_bits(std::uint32_t scalar_register, std::uint32_t value) noexcept {
+    PSPRECOMP_CONTEXT_FORCEINLINE void set_vfpu_scalar_bits(
+        std::uint32_t scalar_register, std::uint32_t value) noexcept {
         if (scalar_register < 128u) {
             vfpu[vfpu_scalar_index(scalar_register)] = std::bit_cast<float>(value);
         } else if (scalar_register < 144u) {
@@ -139,7 +156,8 @@ struct alignas(16) AllegrexContext {
         }
     }
 
-    [[nodiscard]] PSPRECOMP_CONTEXT_FORCEINLINE std::uint32_t vfpu_scalar_bits(std::uint32_t scalar_register) const noexcept {
+    [[nodiscard]] PSPRECOMP_CONTEXT_FORCEINLINE std::uint32_t vfpu_scalar_bits(
+        std::uint32_t scalar_register) const noexcept {
         if (scalar_register < 128u) {
             return std::bit_cast<std::uint32_t>(vfpu[vfpu_scalar_index(scalar_register)]);
         }
@@ -187,8 +205,7 @@ struct alignas(16) AllegrexContext {
             constexpr std::size_t index = vfpu_scalar_index(VectorRegister & 0x7Fu);
             destination[0] = vfpu[index];
         } else {
-            constexpr std::uint32_t row = Length == 3u ? ((VectorRegister >> 6u) & 1u)
-                                                        : ((VectorRegister >> 5u) & 2u);
+            constexpr std::uint32_t row = Length == 3u ? ((VectorRegister >> 6u) & 1u) : ((VectorRegister >> 5u) & 2u);
             constexpr bool transpose = ((VectorRegister >> 5u) & 1u) != 0u;
             constexpr std::uint32_t matrix_base = ((VectorRegister << 2u) & 0x70u);
             constexpr std::uint32_t column = VectorRegister & 3u;
@@ -220,15 +237,21 @@ struct alignas(16) AllegrexContext {
         const float o3 = Length >= 4u ? value[3] : 0.0f;
         const float original[4]{o0, o1, o2, o3};
         static constexpr float constants[8] = {
-            0.0f, 1.0f, 2.0f, 0.5f, 3.0f, 1.0f / 3.0f, 0.25f, 1.0f / 6.0f,
+            0.0f,
+            1.0f,
+            2.0f,
+            0.5f,
+            3.0f,
+            1.0f / 3.0f,
+            0.25f,
+            1.0f / 6.0f,
         };
         auto lane_value = [&](std::uint32_t i) {
             const std::uint32_t lane = (prefix >> (i * 2u)) & 3u;
             const bool absolute = ((prefix >> (8u + i)) & 1u) != 0u;
             const bool use_constant = ((prefix >> (12u + i)) & 1u) != 0u;
             const bool negate = ((prefix >> (16u + i)) & 1u) != 0u;
-            float out = use_constant ? constants[lane + (absolute ? 4u : 0u)]
-                                     : (lane < Length ? original[lane] : 0.0f);
+            float out = use_constant ? constants[lane + (absolute ? 4u : 0u)] : (lane < Length ? original[lane] : 0.0f);
             if (!use_constant && absolute) out = std::fabs(out);
             if (negate) out = std::bit_cast<float>(std::bit_cast<std::uint32_t>(out) ^ 0x80000000u);
             return out;
@@ -252,8 +275,7 @@ struct alignas(16) AllegrexContext {
             constexpr std::size_t index = vfpu_scalar_index(VectorRegister & 0x7Fu);
             vfpu[index] = source[0];
         } else {
-            constexpr std::uint32_t row = Length == 3u ? ((VectorRegister >> 6u) & 1u)
-                                                        : ((VectorRegister >> 5u) & 2u);
+            constexpr std::uint32_t row = Length == 3u ? ((VectorRegister >> 6u) & 1u) : ((VectorRegister >> 5u) & 2u);
             constexpr bool transpose = ((VectorRegister >> 5u) & 1u) != 0u;
             constexpr std::uint32_t matrix_base = ((VectorRegister << 2u) & 0x70u);
             constexpr std::uint32_t column = VectorRegister & 3u;
@@ -277,12 +299,14 @@ struct alignas(16) AllegrexContext {
     PSPRECOMP_CONTEXT_FORCEINLINE void write_vfpu_vector_with_destination_prefix_ct(const float *source) noexcept {
         static_assert(Length >= 1u && Length <= 4u);
         const std::uint32_t destination_prefix = vfpu_ctrl[2];
-        float value[4]{source[0], Length >= 2u ? source[1] : 0.0f,
-                       Length >= 3u ? source[2] : 0.0f, Length >= 4u ? source[3] : 0.0f};
+        float value[4]{source[0], Length >= 2u ? source[1] : 0.0f, Length >= 3u ? source[2] : 0.0f,
+            Length >= 4u ? source[3] : 0.0f};
         auto saturate_lane = [&](std::uint32_t i) {
             const std::uint32_t saturation = (destination_prefix >> (i * 2u)) & 3u;
-            if (saturation == 1u) value[i] = std::fmin(1.0f, std::fmax(0.0f, value[i]));
-            else if (saturation == 3u) value[i] = std::fmin(1.0f, std::fmax(-1.0f, value[i]));
+            if (saturation == 1u)
+                value[i] = std::fmin(1.0f, std::fmax(0.0f, value[i]));
+            else if (saturation == 3u)
+                value[i] = std::fmin(1.0f, std::fmax(-1.0f, value[i]));
         };
         saturate_lane(0u);
         if constexpr (Length >= 2u) saturate_lane(1u);
@@ -293,18 +317,21 @@ struct alignas(16) AllegrexContext {
             constexpr std::size_t i0 = vfpu_vector_lane_index(VectorRegister, Length, 0u);
             vfpu[i0] = value[0];
         }
-        if constexpr (Length >= 2u) if ((destination_prefix & (1u << 9u)) == 0u) {
-            constexpr std::size_t i1 = vfpu_vector_lane_index(VectorRegister, Length, 1u);
-            vfpu[i1] = value[1];
-        }
-        if constexpr (Length >= 3u) if ((destination_prefix & (1u << 10u)) == 0u) {
-            constexpr std::size_t i2 = vfpu_vector_lane_index(VectorRegister, Length, 2u);
-            vfpu[i2] = value[2];
-        }
-        if constexpr (Length >= 4u) if ((destination_prefix & (1u << 11u)) == 0u) {
-            constexpr std::size_t i3 = vfpu_vector_lane_index(VectorRegister, Length, 3u);
-            vfpu[i3] = value[3];
-        }
+        if constexpr (Length >= 2u)
+            if ((destination_prefix & (1u << 9u)) == 0u) {
+                constexpr std::size_t i1 = vfpu_vector_lane_index(VectorRegister, Length, 1u);
+                vfpu[i1] = value[1];
+            }
+        if constexpr (Length >= 3u)
+            if ((destination_prefix & (1u << 10u)) == 0u) {
+                constexpr std::size_t i2 = vfpu_vector_lane_index(VectorRegister, Length, 2u);
+                vfpu[i2] = value[2];
+            }
+        if constexpr (Length >= 4u)
+            if ((destination_prefix & (1u << 11u)) == 0u) {
+                constexpr std::size_t i3 = vfpu_vector_lane_index(VectorRegister, Length, 3u);
+                vfpu[i3] = value[3];
+            }
         eat_vfpu_prefixes();
     }
 
@@ -313,8 +340,7 @@ struct alignas(16) AllegrexContext {
             destination[0] = vfpu[vfpu_scalar_index(vector_register & 0x7Fu)];
             return;
         }
-        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u)
-                                               : ((vector_register >> 5u) & 2u);
+        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u) : ((vector_register >> 5u) & 2u);
         const bool transpose = ((vector_register >> 5u) & 1u) != 0u;
         const std::uint32_t matrix_base = ((vector_register << 2u) & 0x70u);
         const std::uint32_t column = vector_register & 3u;
@@ -339,7 +365,14 @@ struct alignas(16) AllegrexContext {
         float original[4]{};
         for (std::uint32_t i = 0; i < length && i < 4u; ++i) original[i] = value[i];
         static constexpr float constants[8] = {
-            0.0f, 1.0f, 2.0f, 0.5f, 3.0f, 1.0f / 3.0f, 0.25f, 1.0f / 6.0f,
+            0.0f,
+            1.0f,
+            2.0f,
+            0.5f,
+            3.0f,
+            1.0f / 3.0f,
+            0.25f,
+            1.0f / 6.0f,
         };
         for (std::uint32_t i = 0; i < length && i < 4u; ++i) {
             const std::uint32_t lane = (prefix >> (i * 2u)) & 3u;
@@ -358,8 +391,8 @@ struct alignas(16) AllegrexContext {
         }
     }
 
-    void read_vfpu_vector_with_source_prefix(float *destination, std::uint32_t vector_register,
-                                             std::uint32_t length, std::uint32_t control_index) const noexcept {
+    void read_vfpu_vector_with_source_prefix(float *destination, std::uint32_t vector_register, std::uint32_t length,
+        std::uint32_t control_index) const noexcept {
         read_vfpu_vector(destination, vector_register, length);
         apply_vfpu_source_prefix(destination, length, control_index);
     }
@@ -369,8 +402,7 @@ struct alignas(16) AllegrexContext {
             vfpu[vfpu_scalar_index(vector_register & 0x7Fu)] = source[0];
             return;
         }
-        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u)
-                                               : ((vector_register >> 5u) & 2u);
+        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u) : ((vector_register >> 5u) & 2u);
         const bool transpose = ((vector_register >> 5u) & 1u) != 0u;
         const std::uint32_t matrix_base = ((vector_register << 2u) & 0x70u);
         const std::uint32_t column = vector_register & 3u;
@@ -387,8 +419,8 @@ struct alignas(16) AllegrexContext {
         }
     }
 
-    void write_vfpu_vector_with_destination_prefix(const float *source, std::uint32_t vector_register,
-                                                   std::uint32_t length) noexcept {
+    void write_vfpu_vector_with_destination_prefix(
+        const float *source, std::uint32_t vector_register, std::uint32_t length) noexcept {
         float value[4]{};
         const std::uint32_t destination_prefix = vfpu_ctrl[2];
         for (std::uint32_t i = 0; i < length && i < 4u; ++i) {
@@ -401,8 +433,7 @@ struct alignas(16) AllegrexContext {
             }
         }
 
-        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u)
-                                               : ((vector_register >> 5u) & 2u);
+        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u) : ((vector_register >> 5u) & 2u);
         const bool transpose = ((vector_register >> 5u) & 1u) != 0u;
         const std::uint32_t matrix_base = ((vector_register << 2u) & 0x70u);
         const std::uint32_t column = vector_register & 3u;
@@ -413,9 +444,8 @@ struct alignas(16) AllegrexContext {
             }
             const std::size_t index = length == 1u
                 ? vfpu_scalar_index(vector_register & 0x7Fu)
-                : (transpose
-                    ? static_cast<std::size_t>(matrix_base + column + ((row + i) & 3u) * 4u)
-                    : static_cast<std::size_t>(matrix_base + column * 4u + ((row + i) & 3u)));
+                : (transpose ? static_cast<std::size_t>(matrix_base + column + ((row + i) & 3u) * 4u)
+                             : static_cast<std::size_t>(matrix_base + column * 4u + ((row + i) & 3u)));
             vfpu[index] = value[i];
         }
         eat_vfpu_prefixes();
@@ -424,14 +454,12 @@ struct alignas(16) AllegrexContext {
     [[nodiscard]] static constexpr std::size_t vfpu_vector_lane_index(
         std::uint32_t vector_register, std::uint32_t length, std::uint32_t lane) noexcept {
         if (length == 1u) return vfpu_scalar_index(vector_register & 0x7Fu);
-        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u)
-                                               : ((vector_register >> 5u) & 2u);
+        const std::uint32_t row = length == 3u ? ((vector_register >> 6u) & 1u) : ((vector_register >> 5u) & 2u);
         const bool transpose = ((vector_register >> 5u) & 1u) != 0u;
         const std::uint32_t matrix_base = ((vector_register << 2u) & 0x70u);
         const std::uint32_t column = vector_register & 3u;
-        return transpose
-            ? static_cast<std::size_t>(matrix_base + column + ((row + lane) & 3u) * 4u)
-            : static_cast<std::size_t>(matrix_base + column * 4u + ((row + lane) & 3u));
+        return transpose ? static_cast<std::size_t>(matrix_base + column + ((row + lane) & 3u) * 4u)
+                         : static_cast<std::size_t>(matrix_base + column * 4u + ((row + lane) & 3u));
     }
 
     [[nodiscard]] static constexpr std::uint32_t vfpu_expand_half_bits(std::uint16_t half) noexcept {
@@ -499,25 +527,21 @@ struct alignas(16) AllegrexContext {
             if (half_fraction == 0x0400u) {
                 half_fraction = 0u;
                 ++half_exponent;
-                if (half_exponent >= 31u)
-                    return static_cast<std::uint16_t>(sign | 0x7C00u);
+                if (half_exponent >= 31u) return static_cast<std::uint16_t>(sign | 0x7C00u);
             }
-            return static_cast<std::uint16_t>(
-                sign | (half_exponent << 10u) | half_fraction);
+            return static_cast<std::uint16_t>(sign | (half_exponent << 10u) | half_fraction);
         }
 
         if (unbiased < -25) return sign;
         const std::uint32_t significand = 0x00800000u | fraction;
         const std::uint32_t shift = static_cast<std::uint32_t>(13 + (-14 - unbiased));
         const std::uint32_t half_fraction = round_half_up(significand, shift);
-        if (half_fraction >= 0x0400u)
-            return static_cast<std::uint16_t>(sign | 0x0400u);
+        if (half_fraction >= 0x0400u) return static_cast<std::uint16_t>(sign | 0x0400u);
         return static_cast<std::uint16_t>(sign | half_fraction);
     }
 
-    void execute_vfpu_vf2h(std::uint32_t destination_register,
-                            std::uint32_t source_register,
-                            std::uint32_t source_length) noexcept {
+    void execute_vfpu_vf2h(
+        std::uint32_t destination_register, std::uint32_t source_register, std::uint32_t source_length) noexcept {
         if (source_length == 0u || source_length > 4u) return;
 
         // VF2H applies S through a four-lane view, allowing prefix constants
@@ -528,11 +552,11 @@ struct alignas(16) AllegrexContext {
 
         std::uint32_t packed[2]{};
         packed[0] = static_cast<std::uint32_t>(vfpu_shrink_to_half_bits(source[0])) |
-                    (static_cast<std::uint32_t>(vfpu_shrink_to_half_bits(source[1])) << 16u);
+            (static_cast<std::uint32_t>(vfpu_shrink_to_half_bits(source[1])) << 16u);
         const std::uint32_t destination_length = source_length <= 2u ? 1u : 2u;
         if (destination_length == 2u) {
             packed[1] = static_cast<std::uint32_t>(vfpu_shrink_to_half_bits(source[2])) |
-                        (static_cast<std::uint32_t>(vfpu_shrink_to_half_bits(source[3])) << 16u);
+                (static_cast<std::uint32_t>(vfpu_shrink_to_half_bits(source[3])) << 16u);
         }
 
         float result[2]{
@@ -542,9 +566,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(result, destination_register, destination_length);
     }
 
-    void execute_vfpu_vh2f(std::uint32_t destination_register,
-                            std::uint32_t source_register,
-                            std::uint32_t source_length) noexcept {
+    void execute_vfpu_vh2f(
+        std::uint32_t destination_register, std::uint32_t source_register, std::uint32_t source_length) noexcept {
         if (source_length == 0u || source_length > 4u) return;
 
         float source[4]{};
@@ -562,19 +585,15 @@ struct alignas(16) AllegrexContext {
         const std::uint32_t destination_length = source_length == 1u ? 2u : 4u;
         if (destination_length == 4u) {
             const std::uint32_t second_word = std::bit_cast<std::uint32_t>(source[1]);
-            result[2] = std::bit_cast<float>(
-                vfpu_expand_half_bits(static_cast<std::uint16_t>(second_word)));
-            result[3] = std::bit_cast<float>(
-                vfpu_expand_half_bits(static_cast<std::uint16_t>(second_word >> 16u)));
+            result[2] = std::bit_cast<float>(vfpu_expand_half_bits(static_cast<std::uint16_t>(second_word)));
+            result[3] = std::bit_cast<float>(vfpu_expand_half_bits(static_cast<std::uint16_t>(second_word >> 16u)));
         }
 
         write_vfpu_vector_with_destination_prefix(result, destination_register, destination_length);
     }
 
-    void execute_vfpu_vx2i(std::uint32_t destination_register,
-                            std::uint32_t source_register,
-                            std::uint32_t source_length,
-                            std::uint32_t operation) noexcept {
+    void execute_vfpu_vx2i(std::uint32_t destination_register, std::uint32_t source_register,
+        std::uint32_t source_length, std::uint32_t operation) noexcept {
         if (source_length == 0u || source_length > 4u || operation > 3u) return;
 
         float source[4]{};
@@ -616,8 +635,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(result, destination_register, destination_length);
     }
 
-    template <std::uint32_t DestinationScalarRegister, std::uint32_t SourceRegister,
-              std::uint32_t TargetRegister, std::uint32_t Length>
+    template <std::uint32_t DestinationScalarRegister, std::uint32_t SourceRegister, std::uint32_t TargetRegister,
+        std::uint32_t Length>
     PSPRECOMP_CONTEXT_FORCEINLINE void execute_vfpu_vdot_ct() noexcept {
         static_assert(Length >= 1u && Length <= 4u);
         float source[4]{};
@@ -628,15 +647,12 @@ struct alignas(16) AllegrexContext {
         apply_vfpu_source_prefix_ct<4u, 0u>(source);
         apply_vfpu_source_prefix_ct<4u, 1u>(target);
         const float result[1]{
-            source[0] * target[0] + source[1] * target[1] +
-            source[2] * target[2] + source[3] * target[3]
-        };
+            source[0] * target[0] + source[1] * target[1] + source[2] * target[2] + source[3] * target[3]};
         write_vfpu_vector_with_destination_prefix_ct<DestinationScalarRegister, 1u>(result);
     }
 
-    void execute_vfpu_vdot(std::uint32_t destination_scalar_register,
-                            std::uint32_t source_register, std::uint32_t target_register,
-                            std::uint32_t length) noexcept {
+    void execute_vfpu_vdot(std::uint32_t destination_scalar_register, std::uint32_t source_register,
+        std::uint32_t target_register, std::uint32_t length) noexcept {
         if (length == 0u || length > 4u) return;
 
         // VDOT initializes the lanes beyond the encoded vector size to zero,
@@ -657,9 +673,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(result, destination_scalar_register, 1u);
     }
 
-    void execute_vfpu_vhdp(std::uint32_t destination_scalar_register,
-                           std::uint32_t source_register, std::uint32_t target_register,
-                           std::uint32_t length) noexcept {
+    void execute_vfpu_vhdp(std::uint32_t destination_scalar_register, std::uint32_t source_register,
+        std::uint32_t target_register, std::uint32_t length) noexcept {
         if (length == 0u || length > 4u) return;
 
         // VHDP is a four-lane dot product in which the final encoded source
@@ -675,9 +690,7 @@ struct alignas(16) AllegrexContext {
         const std::uint32_t forced_lane = length - 1u;
         const std::uint32_t swizzle_shift = forced_lane * 2u;
         const std::uint32_t rewritten_source_prefix =
-            (vfpu_ctrl[0] & ~(3u << swizzle_shift)) |
-            (1u << swizzle_shift) |
-            (1u << (12u + forced_lane));
+            (vfpu_ctrl[0] & ~(3u << swizzle_shift)) | (1u << swizzle_shift) | (1u << (12u + forced_lane));
 
         const std::uint32_t original_source_prefix = vfpu_ctrl[0];
         vfpu_ctrl[0] = rewritten_source_prefix;
@@ -695,10 +708,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(result, destination_scalar_register, 1u);
     }
 
-    void execute_vfpu_horizontal(std::uint32_t destination_scalar_register,
-                                 std::uint32_t source_register,
-                                 std::uint32_t source_length,
-                                 bool average) noexcept {
+    void execute_vfpu_horizontal(std::uint32_t destination_scalar_register, std::uint32_t source_register,
+        std::uint32_t source_length, bool average) noexcept {
         if (source_length == 0u || source_length > 4u) return;
 
         // The horizontal instructions use a four-lane view even for shorter
@@ -725,8 +736,7 @@ struct alignas(16) AllegrexContext {
                 0x0000FF55u, // triple: 1/3
                 0x0000FFAAu, // quad:   1/4
             };
-            vfpu_ctrl[1] = (original_target_prefix & ~0x00000FFFu) |
-                           average_prefix[source_length - 1u];
+            vfpu_ctrl[1] = (original_target_prefix & ~0x00000FFFu) | average_prefix[source_length - 1u];
         }
         apply_vfpu_source_prefix(weights, 4u, 1u);
         vfpu_ctrl[1] = original_target_prefix;
@@ -742,9 +752,8 @@ struct alignas(16) AllegrexContext {
         return (bits & 0x7F800000u) == 0x7F800000u;
     }
 
-    [[nodiscard]] static std::uint32_t vfpu_minmax_bits(std::uint32_t source_bits,
-                                                        std::uint32_t target_bits,
-                                                        bool maximum) noexcept {
+    [[nodiscard]] static std::uint32_t vfpu_minmax_bits(
+        std::uint32_t source_bits, std::uint32_t target_bits, bool maximum) noexcept {
         const float source = std::bit_cast<float>(source_bits);
         const float target = std::bit_cast<float>(target_bits);
         if (vfpu_is_nan_or_inf_bits(source_bits) || vfpu_is_nan_or_inf_bits(target_bits)) {
@@ -752,10 +761,8 @@ struct alignas(16) AllegrexContext {
             const auto target_signed = static_cast<std::int32_t>(target_bits);
             const bool both_negative = source_signed < 0 && target_signed < 0;
             const std::int32_t selected = maximum
-                ? (both_negative ? std::min(target_signed, source_signed)
-                                 : std::max(target_signed, source_signed))
-                : (both_negative ? std::max(target_signed, source_signed)
-                                 : std::min(target_signed, source_signed));
+                ? (both_negative ? std::min(target_signed, source_signed) : std::max(target_signed, source_signed))
+                : (both_negative ? std::max(target_signed, source_signed) : std::min(target_signed, source_signed));
             return static_cast<std::uint32_t>(selected);
         }
 
@@ -766,9 +773,8 @@ struct alignas(16) AllegrexContext {
         return std::bit_cast<std::uint32_t>(selected);
     }
 
-    void execute_vfpu_cross_quat(std::uint32_t destination_register,
-                                 std::uint32_t source_register, std::uint32_t target_register,
-                                 std::uint32_t length) noexcept {
+    void execute_vfpu_cross_quat(std::uint32_t destination_register, std::uint32_t source_register,
+        std::uint32_t target_register, std::uint32_t length) noexcept {
         if (length == 0u || length > 4u) return;
 
         float source[4]{};
@@ -789,22 +795,17 @@ struct alignas(16) AllegrexContext {
             vfpu_ctrl[1] = (vfpu_ctrl[1] & ~kSwizzleAndNegateMask) | 0x000200B1u;
             apply_vfpu_source_prefix(target, 4u, 1u);
             apply_vfpu_source_prefix(source, 4u, 0u);
-            result[2] = source[0] * target[0] + source[1] * target[1] +
-                        source[2] * target[2] + source[3] * target[3];
+            result[2] = source[0] * target[0] + source[1] * target[1] + source[2] * target[2] + source[3] * target[3];
         } else if (length == 4u) { // VQMUL.Q
-            result[0] = source[0] * target[3] + source[1] * target[2] -
-                        source[2] * target[1] + source[3] * target[0];
-            result[1] = -source[0] * target[2] + source[1] * target[3] +
-                         source[2] * target[0] + source[3] * target[1];
-            result[2] = source[0] * target[1] - source[1] * target[0] +
-                        source[2] * target[3] + source[3] * target[2];
+            result[0] = source[0] * target[3] + source[1] * target[2] - source[2] * target[1] + source[3] * target[0];
+            result[1] = -source[0] * target[2] + source[1] * target[3] + source[2] * target[0] + source[3] * target[1];
+            result[2] = source[0] * target[1] - source[1] * target[0] + source[2] * target[3] + source[3] * target[2];
 
             // Forced T view: [-T.x, -T.y, -T.z, T.w], retaining constants/abs.
             vfpu_ctrl[1] = (vfpu_ctrl[1] & ~kSwizzleAndNegateMask) | 0x000700E4u;
             apply_vfpu_source_prefix(target, 4u, 1u);
             apply_vfpu_source_prefix(source, 4u, 0u);
-            result[3] = source[0] * target[0] + source[1] * target[1] +
-                        source[2] * target[2] + source[3] * target[3];
+            result[3] = source[0] * target[0] + source[1] * target[1] + source[2] * target[2] + source[3] * target[3];
         } else if (length == 2u) {
             result[0] = 0.0f;
             // Pair form can source lane 2 through S-prefix swizzling.
@@ -830,9 +831,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(result, destination_register, length);
     }
 
-    void execute_vfpu_vminmax(std::uint32_t destination_register,
-                              std::uint32_t source_register, std::uint32_t target_register,
-                              std::uint32_t length, bool maximum) noexcept {
+    void execute_vfpu_vminmax(std::uint32_t destination_register, std::uint32_t source_register,
+        std::uint32_t target_register, std::uint32_t length, bool maximum) noexcept {
         if (length == 0u || length > 4u) return;
 
         float source[4]{};
@@ -850,23 +850,20 @@ struct alignas(16) AllegrexContext {
             const std::uint32_t target_swizzle = (target_prefix >> (lane * 2u)) & 3u;
             const bool source_constant = ((source_prefix >> (12u + lane)) & 1u) != 0u;
             const bool target_constant = ((target_prefix >> (12u + lane)) & 1u) != 0u;
-            if ((!source_constant && source_swizzle >= length) ||
-                (!target_constant && target_swizzle >= length)) {
+            if ((!source_constant && source_swizzle >= length) || (!target_constant && target_swizzle >= length)) {
                 // VFPU min/max wires an invalid swizzle to an exact +0 result.
                 result[lane] = 0.0f;
                 continue;
             }
             const std::uint32_t selected = vfpu_minmax_bits(
-                std::bit_cast<std::uint32_t>(source[lane]),
-                std::bit_cast<std::uint32_t>(target[lane]), maximum);
+                std::bit_cast<std::uint32_t>(source[lane]), std::bit_cast<std::uint32_t>(target[lane]), maximum);
             result[lane] = std::bit_cast<float>(selected);
         }
         write_vfpu_vector_with_destination_prefix(result, destination_register, length);
     }
 
-    void execute_vfpu_compare3(std::uint32_t destination_register,
-                               std::uint32_t source_register, std::uint32_t target_register,
-                               std::uint32_t length, std::uint32_t operation) noexcept {
+    void execute_vfpu_compare3(std::uint32_t destination_register, std::uint32_t source_register,
+        std::uint32_t target_register, std::uint32_t length, std::uint32_t operation) noexcept {
         if (length == 0u || length > 4u || operation < 5u || operation > 7u) return;
 
         float source[4]{};
@@ -884,8 +881,7 @@ struct alignas(16) AllegrexContext {
             const std::uint32_t target_swizzle = (target_prefix >> (lane * 2u)) & 3u;
             const bool source_constant = ((source_prefix >> (12u + lane)) & 1u) != 0u;
             const bool target_constant = ((target_prefix >> (12u + lane)) & 1u) != 0u;
-            if ((!source_constant && source_swizzle >= length) ||
-                (!target_constant && target_swizzle >= length)) {
+            if ((!source_constant && source_swizzle >= length) || (!target_constant && target_swizzle >= length)) {
                 result[lane] = 0.0f;
                 continue;
             }
@@ -897,29 +893,30 @@ struct alignas(16) AllegrexContext {
                     const std::uint32_t target_bits = std::bit_cast<std::uint32_t>(target[lane]);
                     const std::int64_t source_magnitude = static_cast<std::int64_t>(source_bits & 0x7FFFFFFFu);
                     const std::int64_t target_magnitude = static_cast<std::int64_t>(target_bits & 0x7FFFFFFFu);
-                    const std::int64_t ordered_source = (source_bits & 0x80000000u) != 0u
-                        ? -source_magnitude : source_magnitude;
-                    const std::int64_t ordered_target = (target_bits & 0x80000000u) != 0u
-                        ? -target_magnitude : target_magnitude;
+                    const std::int64_t ordered_source =
+                        (source_bits & 0x80000000u) != 0u ? -source_magnitude : source_magnitude;
+                    const std::int64_t ordered_target =
+                        (target_bits & 0x80000000u) != 0u ? -target_magnitude : target_magnitude;
                     result[lane] = ordered_source > ordered_target ? 1.0f
-                                 : ordered_source < ordered_target ? -1.0f : 0.0f;
+                        : ordered_source < ordered_target          ? -1.0f
+                                                                   : 0.0f;
                 } else {
-                    result[lane] = difference > 0.0f ? 1.0f
-                                 : difference < 0.0f ? -1.0f : 0.0f;
+                    result[lane] = difference > 0.0f ? 1.0f : difference < 0.0f ? -1.0f : 0.0f;
                 }
             } else if (operation == 6u) { // VSGE
-                result[lane] = (!std::isnan(source[lane]) && !std::isnan(target[lane]) &&
-                                source[lane] >= target[lane]) ? 1.0f : 0.0f;
+                result[lane] = (!std::isnan(source[lane]) && !std::isnan(target[lane]) && source[lane] >= target[lane])
+                    ? 1.0f
+                    : 0.0f;
             } else { // VSLT
-                result[lane] = (!std::isnan(source[lane]) && !std::isnan(target[lane]) &&
-                                source[lane] < target[lane]) ? 1.0f : 0.0f;
+                result[lane] = (!std::isnan(source[lane]) && !std::isnan(target[lane]) && source[lane] < target[lane])
+                    ? 1.0f
+                    : 0.0f;
             }
         }
         write_vfpu_vector_with_destination_prefix(result, destination_register, length);
     }
 
-    template <std::uint32_t SourceRegister, std::uint32_t TargetRegister,
-              std::uint32_t Length, std::uint32_t Condition>
+    template <std::uint32_t SourceRegister, std::uint32_t TargetRegister, std::uint32_t Length, std::uint32_t Condition>
     PSPRECOMP_CONTEXT_FORCEINLINE void execute_vfpu_vcmp_ct() noexcept {
         static_assert(Length >= 1u && Length <= 4u);
         static_assert(Condition < 16u);
@@ -929,22 +926,38 @@ struct alignas(16) AllegrexContext {
         read_vfpu_vector_with_source_prefix_ct<TargetRegister, Length, 1u>(target);
 
         auto compare_lane = [](float sv, float tv) -> bool {
-            if constexpr (Condition == 0u) return false;
-            else if constexpr (Condition == 1u) return sv == tv;
-            else if constexpr (Condition == 2u) return sv < tv;
-            else if constexpr (Condition == 3u) return sv <= tv;
-            else if constexpr (Condition == 4u) return true;
-            else if constexpr (Condition == 5u) return sv != tv;
-            else if constexpr (Condition == 6u) return sv >= tv;
-            else if constexpr (Condition == 7u) return sv > tv;
-            else if constexpr (Condition == 8u) return sv == 0.0f;
-            else if constexpr (Condition == 9u) return std::isnan(sv);
-            else if constexpr (Condition == 10u) return std::isinf(sv);
-            else if constexpr (Condition == 11u) return std::isnan(sv) || std::isinf(sv);
-            else if constexpr (Condition == 12u) return sv != 0.0f;
-            else if constexpr (Condition == 13u) return !std::isnan(sv);
-            else if constexpr (Condition == 14u) return !std::isinf(sv);
-            else return !(std::isnan(sv) || std::isinf(sv));
+            if constexpr (Condition == 0u)
+                return false;
+            else if constexpr (Condition == 1u)
+                return sv == tv;
+            else if constexpr (Condition == 2u)
+                return sv < tv;
+            else if constexpr (Condition == 3u)
+                return sv <= tv;
+            else if constexpr (Condition == 4u)
+                return true;
+            else if constexpr (Condition == 5u)
+                return sv != tv;
+            else if constexpr (Condition == 6u)
+                return sv >= tv;
+            else if constexpr (Condition == 7u)
+                return sv > tv;
+            else if constexpr (Condition == 8u)
+                return sv == 0.0f;
+            else if constexpr (Condition == 9u)
+                return std::isnan(sv);
+            else if constexpr (Condition == 10u)
+                return std::isinf(sv);
+            else if constexpr (Condition == 11u)
+                return std::isnan(sv) || std::isinf(sv);
+            else if constexpr (Condition == 12u)
+                return sv != 0.0f;
+            else if constexpr (Condition == 13u)
+                return !std::isnan(sv);
+            else if constexpr (Condition == 14u)
+                return !std::isinf(sv);
+            else
+                return !(std::isnan(sv) || std::isinf(sv));
         };
 
         const bool r0 = compare_lane(source[0], target[0]);
@@ -957,19 +970,28 @@ struct alignas(16) AllegrexContext {
         if constexpr (Length >= 4u) lane_bits |= static_cast<std::uint32_t>(r3) << 3u;
         bool any = r0;
         bool all = r0;
-        if constexpr (Length >= 2u) { any = any || r1; all = all && r1; }
-        if constexpr (Length >= 3u) { any = any || r2; all = all && r2; }
-        if constexpr (Length >= 4u) { any = any || r3; all = all && r3; }
+        if constexpr (Length >= 2u) {
+            any = any || r1;
+            all = all && r1;
+        }
+        if constexpr (Length >= 3u) {
+            any = any || r2;
+            all = all && r2;
+        }
+        if constexpr (Length >= 4u) {
+            any = any || r3;
+            all = all && r3;
+        }
 
         constexpr std::uint32_t affected = ((1u << Length) - 1u) | (1u << 4u) | (1u << 5u);
-        const std::uint32_t update = lane_bits | (static_cast<std::uint32_t>(any) << 4u) |
-            (static_cast<std::uint32_t>(all) << 5u);
+        const std::uint32_t update =
+            lane_bits | (static_cast<std::uint32_t>(any) << 4u) | (static_cast<std::uint32_t>(all) << 5u);
         vfpu_ctrl[3] = (vfpu_ctrl[3] & ~affected) | (update & affected);
         eat_vfpu_prefixes();
     }
 
-    void execute_vfpu_vcmp(std::uint32_t source_register, std::uint32_t target_register,
-                            std::uint32_t length, std::uint32_t condition) noexcept {
+    void execute_vfpu_vcmp(std::uint32_t source_register, std::uint32_t target_register, std::uint32_t length,
+        std::uint32_t condition) noexcept {
         if (length == 0u || length > 4u) return;
 
         float source[4]{};
@@ -985,22 +1007,54 @@ struct alignas(16) AllegrexContext {
             const float t = target[lane];
             bool result = false;
             switch (condition & 15u) {
-            case 0u: result = false; break;                         // FL
-            case 1u: result = s == t; break;                        // EQ
-            case 2u: result = s < t; break;                         // LT
-            case 3u: result = s <= t; break;                        // LE
-            case 4u: result = true; break;                          // TR
-            case 5u: result = s != t; break;                        // NE
-            case 6u: result = s >= t; break;                        // GE
-            case 7u: result = s > t; break;                         // GT
-            case 8u: result = s == 0.0f; break;                     // EZ
-            case 9u: result = std::isnan(s); break;                 // EN
-            case 10u: result = std::isinf(s); break;                // EI
-            case 11u: result = std::isnan(s) || std::isinf(s); break; // ES
-            case 12u: result = s != 0.0f; break;                    // NZ
-            case 13u: result = !std::isnan(s); break;               // NN
-            case 14u: result = !std::isinf(s); break;               // NI
-            default: result = !(std::isnan(s) || std::isinf(s)); break; // NS
+            case 0u:
+                result = false;
+                break; // FL
+            case 1u:
+                result = s == t;
+                break; // EQ
+            case 2u:
+                result = s < t;
+                break; // LT
+            case 3u:
+                result = s <= t;
+                break; // LE
+            case 4u:
+                result = true;
+                break; // TR
+            case 5u:
+                result = s != t;
+                break; // NE
+            case 6u:
+                result = s >= t;
+                break; // GE
+            case 7u:
+                result = s > t;
+                break; // GT
+            case 8u:
+                result = s == 0.0f;
+                break; // EZ
+            case 9u:
+                result = std::isnan(s);
+                break; // EN
+            case 10u:
+                result = std::isinf(s);
+                break; // EI
+            case 11u:
+                result = std::isnan(s) || std::isinf(s);
+                break; // ES
+            case 12u:
+                result = s != 0.0f;
+                break; // NZ
+            case 13u:
+                result = !std::isnan(s);
+                break; // NN
+            case 14u:
+                result = !std::isinf(s);
+                break; // NI
+            default:
+                result = !(std::isnan(s) || std::isinf(s));
+                break; // NS
             }
             if (result) lane_bits |= 1u << lane;
             any = any || result;
@@ -1010,14 +1064,14 @@ struct alignas(16) AllegrexContext {
         // CC lanes x/y/z/w occupy bits 0..3; bit 4 is ANY and bit 5
         // is ALL.  A narrower comparison preserves untouched lane bits.
         const std::uint32_t affected = ((1u << length) - 1u) | (1u << 4u) | (1u << 5u);
-        const std::uint32_t update = lane_bits | (static_cast<std::uint32_t>(any) << 4u) |
-            (static_cast<std::uint32_t>(all) << 5u);
+        const std::uint32_t update =
+            lane_bits | (static_cast<std::uint32_t>(any) << 4u) | (static_cast<std::uint32_t>(all) << 5u);
         vfpu_ctrl[3] = (vfpu_ctrl[3] & ~affected) | (update & affected);
         eat_vfpu_prefixes();
     }
 
-    template <std::uint32_t DestinationRegister, std::uint32_t SourceRegister,
-              std::uint32_t Length, std::uint32_t ConditionIndex, bool MoveIfFalse>
+    template <std::uint32_t DestinationRegister, std::uint32_t SourceRegister, std::uint32_t Length,
+        std::uint32_t ConditionIndex, bool MoveIfFalse>
     PSPRECOMP_CONTEXT_FORCEINLINE void execute_vfpu_vcmov_ct() noexcept {
         static_assert(Length >= 1u && Length <= 4u);
         static_assert(ConditionIndex < 8u);
@@ -1049,9 +1103,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix_ct<DestinationRegister, Length>(destination);
     }
 
-    void execute_vfpu_vcmov(std::uint32_t destination_register, std::uint32_t source_register,
-                             std::uint32_t length, std::uint32_t condition_index,
-                             bool move_if_false) noexcept {
+    void execute_vfpu_vcmov(std::uint32_t destination_register, std::uint32_t source_register, std::uint32_t length,
+        std::uint32_t condition_index, bool move_if_false) noexcept {
         if (length == 0u || length > 4u) return;
 
         float source[4]{};
@@ -1081,8 +1134,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(destination, destination_register, length);
     }
 
-    template <std::uint32_t DestinationRegister, std::uint32_t SourceRegister,
-              std::uint32_t TargetScalarRegister, std::uint32_t Length>
+    template <std::uint32_t DestinationRegister, std::uint32_t SourceRegister, std::uint32_t TargetScalarRegister,
+        std::uint32_t Length>
     PSPRECOMP_CONTEXT_FORCEINLINE void execute_vfpu_vscl_ct() noexcept {
         static_assert(Length >= 1u && Length <= 4u);
         float source[4]{};
@@ -1104,7 +1157,7 @@ struct alignas(16) AllegrexContext {
     }
 
     void execute_vfpu_vscl(std::uint32_t destination_register, std::uint32_t source_register,
-                            std::uint32_t target_scalar_register, std::uint32_t length) noexcept {
+        std::uint32_t target_scalar_register, std::uint32_t length) noexcept {
         if (length == 0u || length > 4u) return;
 
         float source[4]{};
@@ -1124,7 +1177,7 @@ struct alignas(16) AllegrexContext {
         float target[4]{};
         target[0] = std::bit_cast<float>(vfpu_scalar_bits(target_scalar_register & 0x7Fu));
         const std::uint32_t original_target_prefix = vfpu_ctrl[1];
-        vfpu_ctrl[1] = original_target_prefix & ~0xFFu;  // every output lane selects lane 0
+        vfpu_ctrl[1] = original_target_prefix & ~0xFFu; // every output lane selects lane 0
         apply_vfpu_source_prefix(target, length, 1u);
         vfpu_ctrl[1] = original_target_prefix;
 
@@ -1135,17 +1188,15 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(result, destination_register, length);
     }
 
-    void execute_vfpu_vrot(std::uint32_t destination_register, std::uint32_t source_register,
-                           std::uint32_t length, std::uint32_t immediate) noexcept {
+    void execute_vfpu_vrot(std::uint32_t destination_register, std::uint32_t source_register, std::uint32_t length,
+        std::uint32_t immediate) noexcept {
         float source[4]{};
         read_vfpu_vector_with_source_prefix(source, source_register, 1u, 0u);
-        const float original_source =
-            std::bit_cast<float>(vfpu_scalar_bits(source_register & 0x7Fu));
+        const float original_source = std::bit_cast<float>(vfpu_scalar_bits(source_register & 0x7Fu));
         constexpr float half_pi = 1.57079632679489661923f;
         float sine = std::sin(source[0] * half_pi);
         const float original_cosine = std::cos(original_source * half_pi);
-        if ((immediate & 0x10u) != 0u)
-            sine = std::bit_cast<float>(std::bit_cast<std::uint32_t>(sine) ^ 0x80000000u);
+        if ((immediate & 0x10u) != 0u) sine = std::bit_cast<float>(std::bit_cast<std::uint32_t>(sine) ^ 0x80000000u);
 
         const std::uint32_t sine_lane = (immediate >> 2u) & 3u;
         const std::uint32_t cosine_lane = immediate & 3u;
@@ -1176,8 +1227,8 @@ struct alignas(16) AllegrexContext {
         write_vfpu_vector_with_destination_prefix(value, destination_register, length);
     }
 
-    void execute_vfpu_vocp(std::uint32_t destination_register, std::uint32_t source_register,
-                           std::uint32_t length) noexcept {
+    void execute_vfpu_vocp(
+        std::uint32_t destination_register, std::uint32_t source_register, std::uint32_t length) noexcept {
         if (length == 0u || length > 4u) return;
 
         const std::uint32_t source_prefix = vfpu_ctrl[0];
@@ -1204,8 +1255,7 @@ struct alignas(16) AllegrexContext {
         for (std::uint32_t lane = 0u; lane < length; ++lane) {
             // Hardware produces a positive NaN for a NaN source instead of
             // adding the forced T constant.
-            result[lane] = std::isnan(source[lane]) ? std::fabs(source[lane])
-                                                     : target[lane] + source[lane];
+            result[lane] = std::isnan(source[lane]) ? std::fabs(source[lane]) : target[lane] + source[lane];
 
             // Invalid swizzles are retained as zero based on the original
             // prefixes, even though VOCP rewrites T to constants internally.
@@ -1213,8 +1263,7 @@ struct alignas(16) AllegrexContext {
             const std::uint32_t target_swizzle = (target_prefix >> (lane * 2u)) & 3u;
             const bool source_constant = ((source_prefix >> (12u + lane)) & 1u) != 0u;
             const bool target_constant = ((target_prefix >> (12u + lane)) & 1u) != 0u;
-            if ((source_swizzle >= length && !source_constant) ||
-                (target_swizzle >= length && !target_constant)) {
+            if ((source_swizzle >= length && !source_constant) || (target_swizzle >= length && !target_constant)) {
                 result[lane] = 0.0f;
             }
         }
@@ -1227,9 +1276,13 @@ struct alignas(16) AllegrexContext {
         const std::uint32_t column = matrix_register & 3u;
         bool transpose = ((matrix_register >> 5u) & 1u) != 0u;
         std::uint32_t row = 0u;
-        if (side == 1u) { transpose = false; row = (matrix_register >> 5u) & 3u; }
-        else if (side == 2u || side == 4u) row = (matrix_register >> 5u) & 2u;
-        else if (side == 3u) row = (matrix_register >> 6u) & 1u;
+        if (side == 1u) {
+            transpose = false;
+            row = (matrix_register >> 5u) & 3u;
+        } else if (side == 2u || side == 4u)
+            row = (matrix_register >> 5u) & 2u;
+        else if (side == 3u)
+            row = (matrix_register >> 6u) & 1u;
         const std::size_t base = static_cast<std::size_t>(matrix * 16u);
         for (std::uint32_t j = 0; j < side; ++j) {
             for (std::uint32_t i = 0; i < side; ++i) {
@@ -1246,9 +1299,13 @@ struct alignas(16) AllegrexContext {
         const std::uint32_t column = matrix_register & 3u;
         bool transpose = ((matrix_register >> 5u) & 1u) != 0u;
         std::uint32_t row = 0u;
-        if (side == 1u) { transpose = false; row = (matrix_register >> 5u) & 3u; }
-        else if (side == 2u || side == 4u) row = (matrix_register >> 5u) & 2u;
-        else if (side == 3u) row = (matrix_register >> 6u) & 1u;
+        if (side == 1u) {
+            transpose = false;
+            row = (matrix_register >> 5u) & 3u;
+        } else if (side == 2u || side == 4u)
+            row = (matrix_register >> 5u) & 2u;
+        else if (side == 3u)
+            row = (matrix_register >> 6u) & 1u;
         const std::size_t base = static_cast<std::size_t>(matrix * 16u);
         for (std::uint32_t j = 0; j < side; ++j) {
             for (std::uint32_t i = 0; i < side; ++i) {
@@ -1260,10 +1317,8 @@ struct alignas(16) AllegrexContext {
         }
     }
 
-    void execute_vfpu_vmscl(std::uint32_t destination_matrix_register,
-                            std::uint32_t source_matrix_register,
-                            std::uint32_t target_scalar_register,
-                            std::uint32_t side) noexcept {
+    void execute_vfpu_vmscl(std::uint32_t destination_matrix_register, std::uint32_t source_matrix_register,
+        std::uint32_t target_scalar_register, std::uint32_t side) noexcept {
         if (side == 0u || side > 4u) return;
 
         float source[16]{};
@@ -1308,17 +1363,18 @@ struct alignas(16) AllegrexContext {
             }
             const std::uint32_t saturation = (destination_prefix >> (column * 2u)) & 3u;
             float &value = result[last_row * 4u + column];
-            if (saturation == 1u) value = std::fmin(1.0f, std::fmax(0.0f, value));
-            else if (saturation == 3u) value = std::fmin(1.0f, std::fmax(-1.0f, value));
+            if (saturation == 1u)
+                value = std::fmin(1.0f, std::fmax(0.0f, value));
+            else if (saturation == 3u)
+                value = std::fmin(1.0f, std::fmax(-1.0f, value));
         }
 
         write_vfpu_matrix(result, destination_matrix_register, side);
         eat_vfpu_prefixes();
     }
 
-    void execute_vfpu_vmmov(std::uint32_t destination_matrix_register,
-                            std::uint32_t source_matrix_register,
-                            std::uint32_t side) noexcept {
+    void execute_vfpu_vmmov(
+        std::uint32_t destination_matrix_register, std::uint32_t source_matrix_register, std::uint32_t side) noexcept {
         if (side == 0u || side > 4u) return;
 
         float source[16]{};
@@ -1337,17 +1393,18 @@ struct alignas(16) AllegrexContext {
                 continue;
             }
             const std::uint32_t saturation = (destination_prefix >> (column * 2u)) & 3u;
-            if (saturation == 1u) value = std::fmin(1.0f, std::fmax(0.0f, value));
-            else if (saturation == 3u) value = std::fmin(1.0f, std::fmax(-1.0f, value));
+            if (saturation == 1u)
+                value = std::fmin(1.0f, std::fmax(0.0f, value));
+            else if (saturation == 3u)
+                value = std::fmin(1.0f, std::fmax(-1.0f, value));
         }
 
         write_vfpu_matrix(source, destination_matrix_register, side);
         eat_vfpu_prefixes();
     }
 
-    void execute_vfpu_matrix_init(std::uint32_t destination_matrix_register,
-                                  std::uint32_t side,
-                                  std::uint32_t operation) noexcept {
+    void execute_vfpu_matrix_init(
+        std::uint32_t destination_matrix_register, std::uint32_t side, std::uint32_t operation) noexcept {
         if (side == 0u || side > 4u) return;
         if (operation != 3u && operation != 6u && operation != 7u) return;
 
@@ -1356,8 +1413,7 @@ struct alignas(16) AllegrexContext {
         read_vfpu_matrix(previous_destination, destination_matrix_register, side);
         for (std::uint32_t row = 0u; row < side; ++row) {
             for (std::uint32_t column = 0u; column < side; ++column) {
-                matrix[row * 4u + column] = operation == 7u ? 1.0f
-                    : (operation == 3u && row == column ? 1.0f : 0.0f);
+                matrix[row * 4u + column] = operation == 7u ? 1.0f : (operation == 3u && row == column ? 1.0f : 0.0f);
             }
         }
 
@@ -1392,9 +1448,9 @@ struct alignas(16) AllegrexContext {
         const std::uint32_t matrix = (matrix_register >> 2u) & 7u;
         const std::uint32_t column = matrix_register & 3u;
         const bool transpose = ((matrix_register >> 5u) & 1u) != 0u;
-        const std::uint32_t row = side == 3u ? ((matrix_register >> 6u) & 1u)
-                                             : (side == 1u ? ((matrix_register >> 5u) & 3u)
-                                                          : ((matrix_register >> 5u) & 2u));
+        const std::uint32_t row = side == 3u
+            ? ((matrix_register >> 6u) & 1u)
+            : (side == 1u ? ((matrix_register >> 5u) & 3u) : ((matrix_register >> 5u) & 2u));
         const std::size_t base = static_cast<std::size_t>(matrix * 16u);
         for (std::uint32_t j = 0; j < side; ++j) {
             for (std::uint32_t i = 0; i < side; ++i) {
@@ -1413,24 +1469,22 @@ struct alignas(16) AllegrexContext {
         vfpu_ctrl[2] = 0u;
     }
 
-    [[nodiscard]] bool execute_signed_add(std::uint32_t destination, std::uint32_t source_a,
-                                          std::uint32_t source_b) noexcept {
+    [[nodiscard]] bool execute_signed_add(
+        std::uint32_t destination, std::uint32_t source_a, std::uint32_t source_b) noexcept {
         const std::int64_t result = static_cast<std::int64_t>(static_cast<std::int32_t>(gpr[source_a & 31u])) +
-                                    static_cast<std::int64_t>(static_cast<std::int32_t>(gpr[source_b & 31u]));
-        if (result < std::numeric_limits<std::int32_t>::min() ||
-            result > std::numeric_limits<std::int32_t>::max()) {
+            static_cast<std::int64_t>(static_cast<std::int32_t>(gpr[source_b & 31u]));
+        if (result < std::numeric_limits<std::int32_t>::min() || result > std::numeric_limits<std::int32_t>::max()) {
             return false;
         }
         set_gpr(destination, static_cast<std::uint32_t>(static_cast<std::int32_t>(result)));
         return true;
     }
 
-    [[nodiscard]] bool execute_signed_sub(std::uint32_t destination, std::uint32_t source_a,
-                                          std::uint32_t source_b) noexcept {
+    [[nodiscard]] bool execute_signed_sub(
+        std::uint32_t destination, std::uint32_t source_a, std::uint32_t source_b) noexcept {
         const std::int64_t result = static_cast<std::int64_t>(static_cast<std::int32_t>(gpr[source_a & 31u])) -
-                                    static_cast<std::int64_t>(static_cast<std::int32_t>(gpr[source_b & 31u]));
-        if (result < std::numeric_limits<std::int32_t>::min() ||
-            result > std::numeric_limits<std::int32_t>::max()) {
+            static_cast<std::int64_t>(static_cast<std::int32_t>(gpr[source_b & 31u]));
+        if (result < std::numeric_limits<std::int32_t>::min() || result > std::numeric_limits<std::int32_t>::max()) {
             return false;
         }
         set_gpr(destination, static_cast<std::uint32_t>(static_cast<std::int32_t>(result)));

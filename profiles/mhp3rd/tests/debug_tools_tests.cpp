@@ -30,7 +30,7 @@ void check(bool condition, const char *message) {
 }
 
 constexpr std::uint32_t kBase = 0x08800000u;
-constexpr std::size_t kSize = 0x02000000u;  // up to 0x0A800000
+constexpr std::size_t kSize = 0x02000000u; // up to 0x0A800000
 
 // Writes a text table the way the game lays one out: offsets from the table
 // start, an end marker, then the strings.
@@ -41,7 +41,7 @@ void write_table(Ram &ram, std::uint32_t at, const std::vector<std::string> &str
         ram.store32(at + i * 4u, text);
         for (std::size_t c = 0; c <= strings[i].size(); ++c)
             ram.store8(at + text + static_cast<std::uint32_t>(c),
-                       c < strings[i].size() ? static_cast<std::uint8_t>(strings[i][c]) : 0u);
+                c < strings[i].size() ? static_cast<std::uint8_t>(strings[i][c]) : 0u);
         text += static_cast<std::uint32_t>(strings[i].size() + 1u);
     }
     ram.store32(at + count * 4u, 0xFFFFFFFFu);
@@ -66,11 +66,11 @@ void write_item(Ram &ram, std::uint16_t id, std::uint8_t category, std::uint8_t 
 }
 
 void write_items(Ram &ram) {
-    write_item(ram, 1, 0, 1, 0);    // Guide: a book
-    write_item(ram, 2, 0, 10, 8);   // Tonic: used from the pouch
-    write_item(ram, 3, 0, 99, 0);   // Ore: a material
-    write_item(ram, 4, 0, 99, 0);   // Scale: a material
-    write_item(ram, 5, 1, 60, 0);   // Round: ammo
+    write_item(ram, 1, 0, 1, 0);  // Guide: a book
+    write_item(ram, 2, 0, 10, 8); // Tonic: used from the pouch
+    write_item(ram, 3, 0, 99, 0); // Ore: a material
+    write_item(ram, 4, 0, 99, 0); // Scale: a material
+    write_item(ram, 5, 1, 60, 0); // Round: ammo
 }
 
 void test_text() {
@@ -93,25 +93,25 @@ void test_items() {
     const std::vector<game::Item> items = game::item_list(ram);
     check(items.size() == 5u && items[0].id == 1u, "every named item but the empty id 0");
     check(items[0].group == game::ItemGroup::Other && items[1].group == game::ItemGroup::Consumable &&
-              items[2].group == game::ItemGroup::Material && items[4].group == game::ItemGroup::Ammo,
-          "items are grouped from their records");
+            items[2].group == game::ItemGroup::Material && items[4].group == game::ItemGroup::Ammo,
+        "items are grouped from their records");
 
     check(game::free_item_slots(ram) == game::kItemBoxSlots, "an empty box");
     check(game::give_item(ram, 3, 150) == 150u, "150 go in");
     check(game::box_count(ram, 3) == 150u && game::free_item_slots(ram) == game::kItemBoxSlots - 2u,
-          "as a full stack of 99 and one of 51");
+        "as a full stack of 99 and one of 51");
     check(game::give_item(ram, 3, 50) == 50u && game::box_count(ram, 3) == 200u &&
-              game::free_item_slots(ram) == game::kItemBoxSlots - 3u,
-          "the part stack is topped up before a new one starts");
+            game::free_item_slots(ram) == game::kItemBoxSlots - 3u,
+        "the part stack is topped up before a new one starts");
     check(game::remove_item(ram, 3) == 200u && game::box_count(ram, 3) == 0u &&
-              game::free_item_slots(ram) == game::kItemBoxSlots,
-          "remove takes every stack");
+            game::free_item_slots(ram) == game::kItemBoxSlots,
+        "remove takes every stack");
     check(game::give_item(ram, 0, 5) == 0u, "id 0 is never given");
 
     game::give_item(ram, 4, 1);
     check(game::fill_materials(ram, 99) == 1u && game::box_count(ram, 3) == 99u && game::box_count(ram, 4) == 1u &&
-              game::box_count(ram, 2) == 0u,
-          "fill adds only the materials the box lacks");
+            game::box_count(ram, 2) == 0u,
+        "fill adds only the materials the box lacks");
 
     // A full box takes nothing more.
     for (std::uint32_t i = 0; i < game::kItemBoxSlots; ++i) ram.store16(game::kItemBox + i * 4u, 9u);
@@ -124,7 +124,7 @@ void test_equipment() {
     check(game::equipment_kind(0) != nullptr && game::equipment_kind(0)->name_table == 31, "chest names in table 31");
     check(game::equipment_kind(99) == nullptr && !game::give_equipment(ram, 99, 1), "an unknown kind is refused");
     check(game::equipment_names(ram, 0).size() == 3u && game::equipment_names(ram, 0)[2] == "Test Suit",
-          "a kind's names come from its table");
+        "a kind's names come from its table");
     // Slot 0 in use.
     ram.store8(game::kEquipmentBox, 1u);
     ram.store8(game::kEquipmentBox + 1u, 5u);
@@ -133,7 +133,7 @@ void test_equipment() {
     const std::uint32_t at = game::kEquipmentBox + game::kEquipmentRecord;
     check(slot && *slot == 1u, "given into the first free slot");
     check(ram.load8(at) == 1u && ram.load8(at + 1u) == 0u && ram.load16(at + 2u) == 2u && ram.load16(at + 6u) == 0u,
-          "a new piece: used, its kind and id, no decorations");
+        "a new piece: used, its kind and id, no decorations");
     check(ram.load16(game::kEquipmentBox + 6u) == 0x1234u, "the slot in use is untouched");
     check(game::free_equipment_slots(ram) == game::kEquipmentBoxSlots - 2u, "two slots used");
     const auto box = game::equipment_box(ram);
@@ -156,13 +156,12 @@ void test_money_and_name() {
 
 // The quest overlay's header in the task slot.
 void load_overlay(Ram &ram, const char *name) {
-    ram.store32(game::kTaskSlot, 0x336F574Du);  // "MWo3"
+    ram.store32(game::kTaskSlot, 0x336F574Du); // "MWo3"
     ram.store32(game::kTaskSlot + 8u, game::kTaskSlot);
     const std::size_t copied = std::min<std::size_t>(32u, std::strlen(name));
     for (std::size_t i = 0; i < copied; ++i)
         ram.store8(game::kTaskSlot + 32u + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(name[i]));
-    for (std::size_t i = copied; i < 32u; ++i)
-        ram.store8(game::kTaskSlot + 32u + static_cast<std::uint32_t>(i), 0u);
+    for (std::size_t i = copied; i < 32u; ++i) ram.store8(game::kTaskSlot + 32u + static_cast<std::uint32_t>(i), 0u);
 }
 
 void test_quest() {
@@ -204,7 +203,7 @@ void test_quest() {
     check(r.load16(monster + game::kMonsterHealth) == 1u, "monsters at 1 health");
     check(r.load16(companion + game::kMonsterHealth) == 0u, "the companion is not touched");
 
-    r.store32(game::kQuestTimeLeft, 89'970u);  // the game counted a second down
+    r.store32(game::kQuestTimeLeft, 89'970u); // the game counted a second down
     held_cheats_frame(r, all);
     check(r.load32(game::kQuestTimeLeft) == 90'000u, "the clock is held where it was frozen");
     held_cheats_frame(r, HeldCheats{});
@@ -238,7 +237,7 @@ std::vector<std::uint8_t> quest_list(const std::vector<FakeQuest> &quests) {
         for (const std::string &text : quests[i].text) {
             file.insert(file.end(), text.begin(), text.end());
             file.push_back(0u);
-            while (file.size() % 4u != 0u) file.push_back(0u);  // the game pads some strings
+            while (file.size() % 4u != 0u) file.push_back(0u); // the game pads some strings
         }
         // Binary data after the strings, which is not text.
         file.push_back(0x90u);
@@ -258,41 +257,41 @@ void test_quest_lists() {
     const std::vector<quests::Quest> parsed = quests::parse_quest_list(level3);
     check(parsed.size() == 3u, "every record of a list is read");
     check(parsed.size() == 3u && parsed[1].id == 304u && parsed[1].stars == 3u && parsed[1].fee == 150u &&
-              parsed[1].reward == 500u && parsed[1].time_limit == 90'000u,
-          "a record's id, stars, fee, reward and time");
+            parsed[1].reward == 500u && parsed[1].time_limit == 90'000u,
+        "a record's id, stars, fee, reward and time");
     check(parsed.size() == 3u && parsed[1].name == "Carnival" && parsed[1].objective == "Slay 10" &&
-              parsed[1].monsters == "Bulldrome\nBullfango" && parsed[1].client == "Seeker",
-          "a record's strings, past the padding and not into the data after them");
+            parsed[1].monsters == "Bulldrome\nBullfango" && parsed[1].client == "Seeker",
+        "a record's strings, past the padding and not into the data after them");
     quests::Quest spaced;
     spaced.monsters = "Deviljho\n Tigrex\n\nNargacuga";
     check(quests::monster_list(spaced) == "Deviljho, Tigrex, Nargacuga", "monsters on one line, empty lines left out");
     check(quests::parse_quest_list(std::vector<std::uint8_t>{8u, 0u, 0u, 0u, 1u, 0u, 0u, 0u}).empty(),
-          "bytes that are not a list give no quests");
+        "bytes that are not a list give no quests");
     check(quests::parse_quest_list(std::vector<std::uint8_t>{}).empty(), "nothing gives no quests");
 
     check(quests::village_quest(101u) && quests::village_quest(699u), "village ids");
     check(!quests::village_quest(10301u) && !quests::village_quest(100u) && !quests::village_quest(0u),
-          "Hall ids and non-ids are not village quests");
+        "Hall ids and non-ids are not village quests");
     check(quests::hall_quest(10101u) && quests::hall_quest(10840u) && !quests::hall_quest(301u) &&
-              !quests::hall_quest(20101u) && !quests::hall_quest(40101u) && !quests::hall_quest(10900u),
-          "Hall ids; training and event ids are neither");
+            !quests::hall_quest(20101u) && !quests::hall_quest(40101u) && !quests::hall_quest(10900u),
+        "Hall ids; training and event ids are neither");
 
     std::map<std::uint32_t, std::vector<std::uint8_t>> archive;
     archive[quests::kFirstQuestList + 2u] = level3;
     archive[quests::kFirstQuestList] = quest_list({{101, 1, 0u, {"First", "Deliver"}}, {10101, 1, 0u, {"Hall One"}}});
     archive[quests::kFirstQuestList + 7u] = quest_list({{10801, 8, 0u, {"Hall Eight"}}});
-    const std::vector<quests::Quest> village = quests::board_quests(
-        [&](std::uint32_t entry) -> std::optional<std::vector<std::uint8_t>> {
+    const std::vector<quests::Quest> village =
+        quests::board_quests([&](std::uint32_t entry) -> std::optional<std::vector<std::uint8_t>> {
             const auto found = archive.find(entry);
             if (found == archive.end()) return std::nullopt;
             return found->second;
         });
     check(village.size() == 6u && village[0].id == 101u && village[1].id == 301u && village[2].id == 304u &&
-              village[3].id == 10101u && village[4].id == 10301u && village[5].id == 10801u,
-          "the village's quests by level, then the Hall's by level");
+            village[3].id == 10101u && village[4].id == 10301u && village[5].id == 10801u,
+        "the village's quests by level, then the Hall's by level");
     check(village.size() == 6u && village[2].board() == quests::Board::Village &&
-              village[3].board() == quests::Board::Hall,
-          "each quest's board");
+            village[3].board() == quests::Board::Hall,
+        "each quest's board");
 }
 
 void test_quest_start() {
@@ -307,7 +306,7 @@ void test_quest_start() {
     const auto map = [&](const char *name) {
         for (std::size_t i = 0; i < 32u; ++i)
             ram.store8(quests::kMapSlot + 32u + static_cast<std::uint32_t>(i),
-                       i < std::strlen(name) ? static_cast<std::uint8_t>(name[i]) : 0u);
+                i < std::strlen(name) ? static_cast<std::uint8_t>(name[i]) : 0u);
     };
     map("P_v00a00d.ovl");
     const std::uint32_t character = 0x09F4F450u;
@@ -325,16 +324,16 @@ void test_quest_start() {
     game::set_money(ram, 1'000u);
     check(quests::start_blocked(ram).empty(), "walking in the village: a quest can start");
 
-    ram.store32(next, 0x2Bu);  // a menu is open
+    ram.store32(next, 0x2Bu); // a menu is open
     check(!quests::start_blocked(ram).empty(), "not with a menu open");
     std::string line = quests::start(ram, carnival);
     check(line.rfind("not started", 0) == 0u && game::money(ram) == 1'000u &&
-              ram.load16(character + quests::kQuestIdOffset) == 1u,
-          "refused with a menu open, and nothing written");
+            ram.load16(character + quests::kQuestIdOffset) == 1u,
+        "refused with a menu open, and nothing written");
     ram.store32(next, 0u);
-    map("P_v00a02d.ovl");  // the hunter's house
+    map("P_v00a02d.ovl"); // the hunter's house
     check(!quests::start_blocked(ram).empty(), "not from the other village areas");
-    map("P_v00a01d.ovl");  // the Guild Hall
+    map("P_v00a01d.ovl"); // the Guild Hall
     check(quests::start_blocked(ram).empty(), "from the Guild Hall");
     map("P_v00a00d.ovl");
 
@@ -351,10 +350,10 @@ void test_quest_start() {
     check(game::money(ram) == 850u, "the counter's fee is paid");
     check(ram.load16(character + quests::kQuestIdOffset) == 304u, "the quest's id is the accepted one");
     check(ram.load8(character + quests::kGateOffset) == quests::kVillageGate &&
-              ram.load8(character + quests::kGateFlagOffset) == 1u,
-          "the village gate and its flag");
+            ram.load8(character + quests::kGateFlagOffset) == 1u,
+        "the village gate and its flag");
     check(ram.load32(next) == quests::kSceneQuest && ram.load32(next + 0x28u) == 0xFFFFFFFFu,
-          "the next scene is the quest");
+        "the next scene is the quest");
     check(ram.load32(scene + quests::kSceneFlags) == (0x100u | quests::kSceneEnd), "the village is asked to end");
     check(!quests::start_blocked(ram).empty(), "and cannot be asked twice");
 
@@ -365,8 +364,8 @@ void test_quest_start() {
     const quests::Quest hall{10304u, 3u, 200u, 2'400u, 90'000u, "Field Trip", {}, "Great Jaggi", {}};
     line = quests::start(ram, hall);
     check(line.rfind("started", 0) == 0u && ram.load16(character + quests::kQuestIdOffset) == 10304u &&
-              ram.load8(character + quests::kGateOffset) == quests::kHallGate && game::money(ram) == 650u,
-          "a Hall quest starts by the Hall's gate");
+            ram.load8(character + quests::kGateOffset) == quests::kHallGate && game::money(ram) == 650u,
+        "a Hall quest starts by the Hall's gate");
 
     load_overlay(ram, "game_task.ovl");
     check(quests::start_blocked(ram) == "a quest is already running", "no start during a quest");

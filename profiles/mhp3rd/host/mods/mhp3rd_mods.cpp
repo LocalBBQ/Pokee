@@ -51,13 +51,13 @@ struct State {
     std::unique_ptr<ArchiveView> view;
     std::unique_ptr<FileOverlay> overlay;
     std::unique_ptr<ModSession> session;
-    std::shared_ptr<const Layout> layout;  // null: the disc's own archive
+    std::shared_ptr<const Layout> layout; // null: the disc's own archive
     bool serving{};
-    bool switched_live{};                  // a change was applied while running
-    std::optional<Resolution> waiting;     // a switch waiting for a file's load to end
-    std::optional<FileId> partial;         // a file the game has begun but not finished reading
-    std::set<FileId> loaded_code;          // overlays read in full with memory writes due
-    std::set<FileId> reported;             // files whose problems were logged
+    bool switched_live{};              // a change was applied while running
+    std::optional<Resolution> waiting; // a switch waiting for a file's load to end
+    std::optional<FileId> partial;     // a file the game has begun but not finished reading
+    std::set<FileId> loaded_code;      // overlays read in full with memory writes due
+    std::set<FileId> reported;         // files whose problems were logged
     std::vector<std::string> problems;
 };
 
@@ -84,8 +84,7 @@ std::string mod_name(const std::string &id) {
 // Sizes the files would have with `resolution`, as the layout needs them.
 std::map<FileId, std::uint64_t> sizes_for(const Resolution &resolution) {
     State &s = state();
-    FileOverlay sizing(FileOverlay::Game{
-        {}, [&s](FileId file) { return s.directory->size(file); }, {}});
+    FileOverlay sizing(FileOverlay::Game{{}, [&s](FileId file) { return s.directory->size(file); }, {}});
     sizing.set(resolution);
     return sizing.sizes();
 }
@@ -111,8 +110,8 @@ void log_resolution(const Resolution &resolution, const Layout *layout) {
     if (!trace()) return;
     for (const auto &[file, source] : resolution.replacements) {
         std::cout << "[mods]   " << s.format.file_name(file) << " <- " << to_utf8(source.path) << " ("
-                  << mod_name(source.mod) << ", " << (layout ? layout->directory.size(file) : 0u) << " bytes, the disc's "
-                  << s.directory->size(file) << ")";
+                  << mod_name(source.mod) << ", " << (layout ? layout->directory.size(file) : 0u)
+                  << " bytes, the disc's " << s.directory->size(file) << ")";
         if (layout != nullptr && layout->padded.contains(file)) std::cout << ", padded with zeros to its blocks";
         std::cout << "\n";
     }
@@ -211,9 +210,9 @@ void attach_disc(IsoImage *disc) {
     head.resize(raw_read(0u, head));
     std::vector<std::uint8_t> first(head);
     p3rd::decrypt(first, 0u, 0u);
-    const std::uint32_t blocks = first.size() >= 4u ? static_cast<std::uint32_t>(first[0] | first[1] << 8u |
-                                                                                 first[2] << 16u | first[3] << 24u)
-                                                    : 0u;
+    const std::uint32_t blocks = first.size() >= 4u
+        ? static_cast<std::uint32_t>(first[0] | first[1] << 8u | first[2] << 16u | first[3] << 24u)
+        : 0u;
     if (blocks > 0u && blocks < 512u) {
         std::vector<std::uint8_t> encrypted(static_cast<std::size_t>(blocks) * p3rd::kBlock);
         encrypted.resize(raw_read(0u, encrypted));
@@ -225,8 +224,7 @@ void attach_disc(IsoImage *disc) {
     }
     s.format.set_entries(static_cast<std::uint32_t>(s.directory->entries()));
     s.view = std::make_unique<ArchiveView>(*s.directory, &raw_read);
-    s.overlay = std::make_unique<FileOverlay>(FileOverlay::Game{
-        [&s](FileId file) { return s.view->original(file); },
+    s.overlay = std::make_unique<FileOverlay>(FileOverlay::Game{[&s](FileId file) { return s.view->original(file); },
         [&s](FileId file) { return s.directory->size(file); },
         [](FileId, std::vector<std::uint8_t> &bytes, const fs::path &patch) {
             return p3rd::apply_patch(bytes, patch);
@@ -249,9 +247,13 @@ void attach_disc(IsoImage *disc) {
                   << "; choices in " << to_utf8(paths.choices) << "\n";
 }
 
-std::optional<DiscRange> data_bin_on_disc() { return state().range; }
+std::optional<DiscRange> data_bin_on_disc() {
+    return state().range;
+}
 
-bool serving() { return state().serving; }
+bool serving() {
+    return state().serving;
+}
 
 std::uint64_t data_bin_size() {
     State &s = state();
@@ -279,7 +281,8 @@ std::size_t read_data_bin(std::uint64_t offset, std::span<std::uint8_t> out) {
         static const bool trace_reads = std::getenv("MHP3RD_TRACE_DATA_BIN") != nullptr;
         if (trace_reads) std::cout << "[mods] data " << s.format.file_name(file) << " (" << d.size(file) << " bytes)\n";
         const std::uint64_t file_end = static_cast<std::uint64_t>(d.blocks[file]) * p3rd::kBlock + d.size(file);
-        if (end < file_end) s.partial = file;
+        if (end < file_end)
+            s.partial = file;
         else if (s.overlay->touches(file)) {
             const auto content = s.overlay->content(file);
             if (content && !content->after_load.empty()) s.loaded_code.insert(file);
@@ -303,8 +306,8 @@ std::size_t read_data_bin(std::uint64_t offset, std::span<std::uint8_t> out) {
                     source += (source.empty() ? "patched by " : ", patched by ") + mod_name(patch.mod);
             }
             std::cout << "[mods] read " << s.format.file_name(file) << " +" << from << " "
-                      << std::min<std::uint64_t>(end, start + d.span(file)) - (start + from) << " of "
-                      << d.size(file) << " bytes: " << source << "\n";
+                      << std::min<std::uint64_t>(end, start + d.span(file)) - (start + from) << " of " << d.size(file)
+                      << " bytes: " << source << "\n";
         }
     }
     return count;
@@ -321,8 +324,7 @@ void code_loaded(psprecomp::Runtime &runtime) {
         // Only if that overlay is the one in its slot now.
         auto &memory = runtime.memory();
         bool present = true;
-        for (std::uint32_t i = 0; i < 8u && present; ++i)
-            present = memory.load8(image->load + i) == content->bytes[i];
+        for (std::uint32_t i = 0; i < 8u && present; ++i) present = memory.load8(image->load + i) == content->bytes[i];
         if (!present) continue;
         for (const MemoryWrite &write : content->after_load) {
             memory.copy_in(write.address, write.bytes);
@@ -334,7 +336,9 @@ void code_loaded(psprecomp::Runtime &runtime) {
     s.loaded_code.clear();
 }
 
-ModSession *session() { return state().session.get(); }
+ModSession *session() {
+    return state().session.get();
+}
 
 std::string pending_note() {
     State &s = state();
@@ -348,6 +352,8 @@ std::string pending_note() {
     return {};
 }
 
-const std::vector<std::string> &problems() { return state().problems; }
+const std::vector<std::string> &problems() {
+    return state().problems;
+}
 
 } // namespace mhp3rd::mods

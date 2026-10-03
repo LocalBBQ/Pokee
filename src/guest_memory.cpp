@@ -53,22 +53,17 @@ bool overlaps_watch(std::uint32_t address, std::size_t length) {
     const std::uint64_t first_end = static_cast<std::uint64_t>(canonical_address) + length;
     const std::uint64_t watch_end = static_cast<std::uint64_t>(canonical_watch) + watch.size;
     return static_cast<std::uint64_t>(canonical_address) < watch_end &&
-           static_cast<std::uint64_t>(canonical_watch) < first_end;
+        static_cast<std::uint64_t>(canonical_watch) < first_end;
 }
 
-void log_write_watch(std::uint32_t address, std::size_t length, const char *operation,
-                     std::uint64_t old_value, std::uint64_t new_value) {
+void log_write_watch(std::uint32_t address, std::size_t length, const char *operation, std::uint64_t old_value,
+    std::uint64_t new_value) {
     if (!overlaps_watch(address, length)) return;
-    std::cerr << "[watch-write] uid=" << runtime_thread_uid()
-              << " name=" << runtime_thread_name()
-              << " pc=" << hex32(runtime_dispatch_pc())
-              << " op=" << operation
-              << " address=" << hex32(address)
-              << " size=" << length
-              << " old=0x" << std::hex << old_value
-              << " new=0x" << new_value << std::dec << "\n";
+    std::cerr << "[watch-write] uid=" << runtime_thread_uid() << " name=" << runtime_thread_name()
+              << " pc=" << hex32(runtime_dispatch_pc()) << " op=" << operation << " address=" << hex32(address)
+              << " size=" << length << " old=0x" << std::hex << old_value << " new=0x" << new_value << std::dec << "\n";
 }
-}  // namespace
+} // namespace
 
 // Re-points the write watch while the guest runs, so a tool that has just found
 // an address of interest can watch it in the same run instead of hoping it
@@ -84,12 +79,13 @@ void set_write_watch(std::uint32_t address, std::uint32_t size) {
     }
     watch.address = address;
     watch.size = size == 0u ? 4u : size;
-    std::cerr << "[watch-write] now watching 0x" << std::hex << watch.address << std::dec << " for "
-              << watch.size << " bytes\n";
+    std::cerr << "[watch-write] now watching 0x" << std::hex << watch.address << std::dec << " for " << watch.size
+              << " bytes\n";
 }
 
 GuestMemory::GuestMemory(std::uint32_t size_bytes)
-    : vram_(kVramSize, 0u), bytes_(size_bytes, 0u), write_watch_enabled_(std::getenv("PSPRECOMP_WATCH_WRITE") != nullptr) {
+    : vram_(kVramSize, 0u), bytes_(size_bytes, 0u),
+      write_watch_enabled_(std::getenv("PSPRECOMP_WATCH_WRITE") != nullptr) {
     if (size_bytes != 32u * 1024u * 1024u && size_bytes != 64u * 1024u * 1024u) {
         throw Error("PSP RAM size must be 32 MiB or 64 MiB");
     }
@@ -101,12 +97,15 @@ GuestMemory::GuestMemory(std::uint32_t size_bytes)
     ram_limit32_ = size_bytes - 4u;
 }
 
-std::uint32_t GuestMemory::size() const noexcept { return static_cast<std::uint32_t>(bytes_.size()); }
-std::uint32_t GuestMemory::vram_size() const noexcept { return static_cast<std::uint32_t>(vram_.size()); }
+std::uint32_t GuestMemory::size() const noexcept {
+    return static_cast<std::uint32_t>(bytes_.size());
+}
+std::uint32_t GuestMemory::vram_size() const noexcept {
+    return static_cast<std::uint32_t>(vram_.size());
+}
 
 bool GuestMemory::is_vram_window(std::uint32_t canonical_address) const noexcept {
-    return canonical_address >= kVramPhysicalBase &&
-           canonical_address < kVramPhysicalBase + kVramAddressSpan;
+    return canonical_address >= kVramPhysicalBase && canonical_address < kVramPhysicalBase + kVramAddressSpan;
 }
 
 std::size_t GuestMemory::vram_offset(std::uint32_t canonical_address) const noexcept {
@@ -116,10 +115,8 @@ std::size_t GuestMemory::vram_offset(std::uint32_t canonical_address) const noex
 bool GuestMemory::contains(std::uint32_t address, std::size_t length) const noexcept {
     const std::uint32_t c = canonical(address);
     const std::uint64_t end = static_cast<std::uint64_t>(c) + static_cast<std::uint64_t>(length);
-    if (is_vram_window(c) && end <= static_cast<std::uint64_t>(kVramPhysicalBase) + kVramAddressSpan)
-        return true;
-    if (c >= kPhysicalBase && end <= static_cast<std::uint64_t>(kPhysicalBase) + bytes_.size())
-        return true;
+    if (is_vram_window(c) && end <= static_cast<std::uint64_t>(kVramPhysicalBase) + kVramAddressSpan) return true;
+    if (c >= kPhysicalBase && end <= static_cast<std::uint64_t>(kPhysicalBase) + bytes_.size()) return true;
     return false;
 }
 
@@ -128,8 +125,7 @@ GuestMemory::ResolvedAddress GuestMemory::resolve(std::uint32_t address, std::si
         throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address));
     }
     const std::uint32_t c = canonical(address);
-    if (is_vram_window(c))
-        return {Region::Vram, vram_offset(c)};
+    if (is_vram_window(c)) return {Region::Vram, vram_offset(c)};
     return {Region::Ram, static_cast<std::size_t>(c - kPhysicalBase)};
 }
 
@@ -185,12 +181,12 @@ std::uint16_t GuestMemory::aot_load16_slow(std::uint32_t address) const {
         const std::size_t offset = vram_offset(c);
         if (offset + 2u <= vram_.size())
             return static_cast<std::uint16_t>(vram_[offset]) |
-                   static_cast<std::uint16_t>(static_cast<std::uint16_t>(vram_[offset + 1u]) << 8u);
+                static_cast<std::uint16_t>(static_cast<std::uint16_t>(vram_[offset + 1u]) << 8u);
     } else if (c >= kPhysicalBase) {
         const std::size_t offset = static_cast<std::size_t>(c - kPhysicalBase);
         if (offset + 2u <= bytes_.size())
             return static_cast<std::uint16_t>(bytes_[offset]) |
-                   static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes_[offset + 1u]) << 8u);
+                static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes_[offset + 1u]) << 8u);
     }
     return load16(address);
 }
@@ -208,10 +204,9 @@ std::uint32_t GuestMemory::aot_load32_slow(std::uint32_t address) const {
         offset = static_cast<std::size_t>(c - kPhysicalBase);
     }
     if (data != nullptr && offset + 4u <= data->size()) {
-        return static_cast<std::uint32_t>((*data)[offset]) |
-               (static_cast<std::uint32_t>((*data)[offset + 1u]) << 8u) |
-               (static_cast<std::uint32_t>((*data)[offset + 2u]) << 16u) |
-               (static_cast<std::uint32_t>((*data)[offset + 3u]) << 24u);
+        return static_cast<std::uint32_t>((*data)[offset]) | (static_cast<std::uint32_t>((*data)[offset + 1u]) << 8u) |
+            (static_cast<std::uint32_t>((*data)[offset + 2u]) << 16u) |
+            (static_cast<std::uint32_t>((*data)[offset + 3u]) << 24u);
     }
     return load32(address);
 }
@@ -228,9 +223,15 @@ std::uint32_t GuestMemory::aot_load_word_right(std::uint32_t address, std::uint3
 }
 
 void GuestMemory::aot_store8_slow(std::uint32_t address, std::uint8_t value) {
-    if (write_watch_enabled_) { store8(address, value); return; }
+    if (write_watch_enabled_) {
+        store8(address, value);
+        return;
+    }
     const std::uint32_t c = canonical(address);
-    if (is_vram_window(c)) { vram_[vram_offset(c)] = value; return; }
+    if (is_vram_window(c)) {
+        vram_[vram_offset(c)] = value;
+        return;
+    }
     if (c >= kPhysicalBase && c - kPhysicalBase < bytes_.size()) {
         bytes_[static_cast<std::size_t>(c - kPhysicalBase)] = value;
         return;
@@ -238,12 +239,20 @@ void GuestMemory::aot_store8_slow(std::uint32_t address, std::uint8_t value) {
     store8(address, value);
 }
 void GuestMemory::aot_store16_slow(std::uint32_t address, std::uint16_t value) {
-    if (write_watch_enabled_) { store16(address, value); return; }
+    if (write_watch_enabled_) {
+        store16(address, value);
+        return;
+    }
     const std::uint32_t c = canonical(address);
     std::vector<std::uint8_t> *data = nullptr;
     std::size_t offset = 0u;
-    if (is_vram_window(c)) { data = &vram_; offset = vram_offset(c); }
-    else if (c >= kPhysicalBase) { data = &bytes_; offset = static_cast<std::size_t>(c - kPhysicalBase); }
+    if (is_vram_window(c)) {
+        data = &vram_;
+        offset = vram_offset(c);
+    } else if (c >= kPhysicalBase) {
+        data = &bytes_;
+        offset = static_cast<std::size_t>(c - kPhysicalBase);
+    }
     if (data != nullptr && offset + 2u <= data->size()) {
         (*data)[offset] = static_cast<std::uint8_t>(value & 0xFFu);
         (*data)[offset + 1u] = static_cast<std::uint8_t>((value >> 8u) & 0xFFu);
@@ -252,12 +261,20 @@ void GuestMemory::aot_store16_slow(std::uint32_t address, std::uint16_t value) {
     store16(address, value);
 }
 void GuestMemory::aot_store32_slow(std::uint32_t address, std::uint32_t value) {
-    if (write_watch_enabled_) { store32(address, value); return; }
+    if (write_watch_enabled_) {
+        store32(address, value);
+        return;
+    }
     const std::uint32_t c = canonical(address);
     std::vector<std::uint8_t> *data = nullptr;
     std::size_t offset = 0u;
-    if (is_vram_window(c)) { data = &vram_; offset = vram_offset(c); }
-    else if (c >= kPhysicalBase) { data = &bytes_; offset = static_cast<std::size_t>(c - kPhysicalBase); }
+    if (is_vram_window(c)) {
+        data = &vram_;
+        offset = vram_offset(c);
+    } else if (c >= kPhysicalBase) {
+        data = &bytes_;
+        offset = static_cast<std::size_t>(c - kPhysicalBase);
+    }
     if (data != nullptr && offset + 4u <= data->size()) {
         (*data)[offset] = static_cast<std::uint8_t>(value & 0xFFu);
         (*data)[offset + 1u] = static_cast<std::uint8_t>((value >> 8u) & 0xFFu);
@@ -280,8 +297,7 @@ void GuestMemory::aot_store_word_right(std::uint32_t address, std::uint32_t valu
     aot_store32(aligned, (value << shift) | (memory_word & (0x00FFFFFFu >> (24u - shift))));
 }
 
-void GuestMemory::aot_copy_lz_match(std::uint32_t destination, std::uint32_t source,
-                                    std::uint32_t length) {
+void GuestMemory::aot_copy_lz_match(std::uint32_t destination, std::uint32_t source, std::uint32_t length) {
     if (length == 0u) return;
 
     const std::uint32_t canonical_destination = canonical(destination);
@@ -308,8 +324,7 @@ void GuestMemory::aot_copy_lz_match(std::uint32_t destination, std::uint32_t sou
     }
 
     auto &data = region_bytes(destination_resolved.region);
-    if (destination_resolved.offset + length > data.size() ||
-        source_resolved.offset + length > data.size() ||
+    if (destination_resolved.offset + length > data.size() || source_resolved.offset + length > data.size() ||
         source_resolved.offset >= destination_resolved.offset) {
         bytewise_copy();
         return;
@@ -334,8 +349,7 @@ void GuestMemory::aot_copy_lz_match(std::uint32_t destination, std::uint32_t sou
 }
 
 std::uint8_t *GuestMemory::raw_pointer(std::uint32_t address, std::size_t length) noexcept {
-    return const_cast<std::uint8_t *>(
-        static_cast<const GuestMemory *>(this)->raw_pointer(address, length));
+    return const_cast<std::uint8_t *>(static_cast<const GuestMemory *>(this)->raw_pointer(address, length));
 }
 
 const std::uint8_t *GuestMemory::raw_pointer(std::uint32_t address, std::size_t length) const noexcept {
@@ -365,14 +379,13 @@ std::uint8_t GuestMemory::load8(std::uint32_t address) const {
 std::uint16_t GuestMemory::load16(std::uint32_t address) const {
     if (const std::uint8_t *source = raw_pointer(address, 2u)) return read_le16(source);
     return static_cast<std::uint16_t>(load8(address)) |
-           static_cast<std::uint16_t>(static_cast<std::uint16_t>(load8(address + 1u)) << 8u);
+        static_cast<std::uint16_t>(static_cast<std::uint16_t>(load8(address + 1u)) << 8u);
 }
 std::uint32_t GuestMemory::load32(std::uint32_t address) const {
     if (const std::uint8_t *source = raw_pointer(address, 4u)) return read_le32(source);
-    return static_cast<std::uint32_t>(load8(address)) |
-           (static_cast<std::uint32_t>(load8(address + 1u)) << 8u) |
-           (static_cast<std::uint32_t>(load8(address + 2u)) << 16u) |
-           (static_cast<std::uint32_t>(load8(address + 3u)) << 24u);
+    return static_cast<std::uint32_t>(load8(address)) | (static_cast<std::uint32_t>(load8(address + 1u)) << 8u) |
+        (static_cast<std::uint32_t>(load8(address + 2u)) << 16u) |
+        (static_cast<std::uint32_t>(load8(address + 3u)) << 24u);
 }
 std::uint32_t GuestMemory::load_word_left(std::uint32_t address, std::uint32_t existing) const {
     const std::uint32_t shift = (address & 3u) * 8u;
@@ -439,7 +452,7 @@ void GuestMemory::copy_in(std::uint32_t address, std::span<const std::uint8_t> s
         auto &data = region_bytes(r.region);
         const std::size_t chunk = std::min(source.size() - copied, data.size() - r.offset);
         std::copy_n(source.begin() + static_cast<std::ptrdiff_t>(copied), chunk,
-                    data.begin() + static_cast<std::ptrdiff_t>(r.offset));
+            data.begin() + static_cast<std::ptrdiff_t>(r.offset));
         copied += chunk;
     }
 }
@@ -453,13 +466,12 @@ void GuestMemory::copy_out(std::uint32_t address, std::span<std::uint8_t> destin
         const auto &data = region_bytes(r.region);
         const std::size_t chunk = std::min(destination.size() - copied, data.size() - r.offset);
         std::copy_n(data.begin() + static_cast<std::ptrdiff_t>(r.offset), chunk,
-                    destination.begin() + static_cast<std::ptrdiff_t>(copied));
+            destination.begin() + static_cast<std::ptrdiff_t>(copied));
         copied += chunk;
     }
 }
 void GuestMemory::zero(std::uint32_t address, std::size_t length) {
-    if (!contains(address, length))
-        throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address));
+    if (!contains(address, length)) throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address));
     log_write_watch(address, length, "zero", 0u, 0u);
     std::size_t cleared = 0u;
     while (cleared < length) {
@@ -481,7 +493,11 @@ std::string GuestMemory::read_c_string(std::uint32_t address, std::size_t max_le
     }
     throw Error("Unterminated guest string at " + hex32(address));
 }
-const std::vector<std::uint8_t> &GuestMemory::bytes() const noexcept { return bytes_; }
-const std::vector<std::uint8_t> &GuestMemory::vram_bytes() const noexcept { return vram_; }
+const std::vector<std::uint8_t> &GuestMemory::bytes() const noexcept {
+    return bytes_;
+}
+const std::vector<std::uint8_t> &GuestMemory::vram_bytes() const noexcept {
+    return vram_;
+}
 
 } // namespace psprecomp

@@ -19,7 +19,7 @@ namespace {
 // (0x0882D150) builds them again only when the field of view differs from the
 // one they were last built with, kept at +0x10.
 constexpr std::uint32_t kAspectConstant = 0x08969F74u;
-constexpr std::uint32_t kGameAspectBits = 0x3FE1E1E2u;  // 480/272
+constexpr std::uint32_t kGameAspectBits = 0x3FE1E1E2u; // 480/272
 // The culling planes put the frustum's side corners at depth 1.5 times the far
 // distance, with the sides at cot(fov/2) times it; the top and bottom are
 // divided by the aspect ratio as well. That leaves the vertical field of view
@@ -27,8 +27,8 @@ constexpr std::uint32_t kGameAspectBits = 0x3FE1E1E2u;  // 480/272
 // the usual field of view, and the horizontal one just the same. Beyond that
 // the depth factor shrinks so both stay inside the planes.
 constexpr std::uint32_t kCullDepthConstant = 0x08969ED4u;
-constexpr std::uint32_t kGameCullDepthBits = 0xBFC00000u;  // -1.5
-constexpr float kCullBudget = 4.0f;  // cot^2(0.8722 / 2) is 4.6: some margin kept
+constexpr std::uint32_t kGameCullDepthBits = 0xBFC00000u; // -1.5
+constexpr float kCullBudget = 4.0f;                       // cot^2(0.8722 / 2) is 4.6: some margin kept
 constexpr std::uint32_t kCameraPointer = 0x08A2F958u;
 constexpr std::uint32_t kNear = 0x00u;
 constexpr std::uint32_t kFar = 0x04u;
@@ -77,13 +77,15 @@ std::uint32_t camera_address(const psprecomp::GuestMemory &memory) {
     const float aspect = load_float(memory, address + kAspect);
     const float fov = load_float(memory, address + kFieldOfView);
     const bool plausible = std::isfinite(near_plane) && std::isfinite(far_plane) && near_plane > 0.0f &&
-                           far_plane > near_plane && aspect > 0.25f && aspect < 8.0f && fov > 0.01f && fov < 3.1f;
+        far_plane > near_plane && aspect > 0.25f && aspect < 8.0f && fov > 0.01f && fov < 3.1f;
     return plausible ? address : 0u;
 }
 
 } // namespace
 
-std::span<const CodeWord> game_aspect_signature() { return kSignature; }
+std::span<const CodeWord> game_aspect_signature() {
+    return kSignature;
+}
 
 bool prepare_game_aspect(psprecomp::Runtime &runtime) {
     state = State{};
@@ -117,8 +119,10 @@ void game_aspect_frame(psprecomp::Runtime &runtime, float aspect) {
 
     if (!state.changed || wanted != state.applied) {
         store_float(memory, kAspectConstant, wanted);
-        if (own) memory.store32(kCullDepthConstant, kGameCullDepthBits);
-        else store_float(memory, kCullDepthConstant, -std::min(1.5f, kCullBudget / wanted));
+        if (own)
+            memory.store32(kCullDepthConstant, kGameCullDepthBits);
+        else
+            store_float(memory, kCullDepthConstant, -std::min(1.5f, kCullBudget / wanted));
         state.applied = wanted;
         std::cout << "[aspect] the game's view is " << wanted << " wide to 1 high\n";
     }

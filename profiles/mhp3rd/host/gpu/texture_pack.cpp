@@ -118,21 +118,26 @@ std::uint32_t hash_bits_per_texel(TextureFormat format) {
     case TextureFormat::Rgba5650:
     case TextureFormat::Rgba5551:
     case TextureFormat::Rgba4444:
-    case TextureFormat::Clut16: return 16u;
+    case TextureFormat::Clut16:
+        return 16u;
     case TextureFormat::Rgba8888:
-    case TextureFormat::Clut32: return 32u;
+    case TextureFormat::Clut32:
+        return 32u;
     case TextureFormat::Clut4:
-    case TextureFormat::Dxt1: return 4u;
+    case TextureFormat::Dxt1:
+        return 4u;
     case TextureFormat::Clut8:
     case TextureFormat::Dxt3:
-    case TextureFormat::Dxt5: return 8u;
-    default: return 0u;
+    case TextureFormat::Dxt5:
+        return 8u;
+    default:
+        return 0u;
     }
 }
 
 bool is_paletted(TextureFormat format) {
     return format == TextureFormat::Clut4 || format == TextureFormat::Clut8 || format == TextureFormat::Clut16 ||
-           format == TextureFormat::Clut32;
+        format == TextureFormat::Clut32;
 }
 
 std::uint32_t data_hash(const std::uint8_t *data, std::size_t size, TexturePackHash hash) {
@@ -161,13 +166,13 @@ std::vector<std::uint8_t> read_file(const std::filesystem::path &path) {
 std::string format_texture_pack_key(const TexturePackKey &key) {
     char text[32];
     std::snprintf(text, sizeof(text), "%016llx%08x", static_cast<unsigned long long>(key.cache_key),
-                  static_cast<unsigned>(key.data_hash));
+        static_cast<unsigned>(key.data_hash));
     return text;
 }
 
 bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &texture, std::uint16_t max_seen_v,
-                              const TexturePackOptions &options, TexturePackKey &key, std::uint32_t &covered_width,
-                              std::uint32_t &covered_height) {
+    const TexturePackOptions &options, TexturePackKey &key, std::uint32_t &covered_width,
+    std::uint32_t &covered_height) {
     const std::uint32_t bits = hash_bits_per_texel(texture.format);
     if (bits == 0u || texture.width == 0u || texture.height == 0u) return false;
 
@@ -181,8 +186,8 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
 
     std::uint32_t width = texture.width;
     std::uint32_t height = texture.height;
-    const std::uint64_t range_key = static_cast<std::uint64_t>(address) << 32u |
-                                    static_cast<std::uint64_t>(width) << 16u | height;
+    const std::uint64_t range_key =
+        static_cast<std::uint64_t>(address) << 32u | static_cast<std::uint64_t>(width) << 16u | height;
     if (const auto range = options.hash_ranges.find(range_key); range != options.hash_ranges.end()) {
         // The pack replaces only this part of the texture.
         width = range->second.first;
@@ -210,9 +215,9 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
         const std::uint32_t texels = buffer_width * height + (width - buffer_width);
         std::uint32_t size = static_cast<std::uint32_t>(static_cast<float>(bits * texels / 8u) * reduce);
         if (texture.format == TextureFormat::Dxt1 && texture.width == 128u) {
-            const std::uint32_t skip = texture.height == 64u    ? options.skip_last_dxt1_blocks_128x64
-                                       : texture.height == 128u ? options.skip_last_dxt1_blocks_128x128
-                                                                : 0u;
+            const std::uint32_t skip = texture.height == 64u ? options.skip_last_dxt1_blocks_128x64
+                : texture.height == 128u                     ? options.skip_last_dxt1_blocks_128x128
+                                                             : 0u;
             size -= std::min(size, skip * 8u);
         }
         const std::uint8_t *data = memory.raw_pointer(address, size);
@@ -232,7 +237,7 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
 
     // Dimension word: log2 height in bits 8-11, log2 width in bits 0-3.
     const std::uint32_t dimension = static_cast<std::uint32_t>(std::countr_zero(texture.height)) << 8u |
-                                    static_cast<std::uint32_t>(std::countr_zero(texture.width));
+        static_cast<std::uint32_t>(std::countr_zero(texture.width));
     std::uint64_t cache_key = options.ignore_address ? 0u : static_cast<std::uint64_t>(address & 0x3FFFFFFFu) << 32u;
     cache_key |= dimension;
     if (is_paletted(texture.format)) {
@@ -241,8 +246,8 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
         const std::uint32_t entry_bytes = texture.clut_format == 3u ? 4u : 2u;
         const std::uint32_t base_bytes = ((texture.clut_format_word >> 16u) & 0x1Fu) * 16u * entry_bytes;
         const std::uint32_t clut_bytes = std::min(texture.clut_load_bytes + base_bytes, texture.clut_max_bytes);
-        const std::uint8_t *clut = clut_bytes != 0u ? memory.raw_pointer(texture.clut_address & 0x0FFFFFF0u, clut_bytes)
-                                                    : nullptr;
+        const std::uint8_t *clut =
+            clut_bytes != 0u ? memory.raw_pointer(texture.clut_address & 0x0FFFFFF0u, clut_bytes) : nullptr;
         std::uint32_t clut_hash = XXH32(clut, clut != nullptr ? clut_bytes : 0u, kClutSeed);
         // The CLUT format command word itself, command byte and all, is mixed in.
         clut_hash ^= texture.clut_format_word;
@@ -253,8 +258,8 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
     return true;
 }
 
-std::unique_ptr<TexturePack> TexturePack::open(const std::filesystem::path &directory, const std::string &game_id,
-                                               std::string &error) {
+std::unique_ptr<TexturePack> TexturePack::open(
+    const std::filesystem::path &directory, const std::string &game_id, std::string &error) {
     std::unique_ptr<TexturePack> pack = parse(directory, game_id, error);
     if (!pack) return nullptr;
     const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4u, 1u, 2u);
@@ -262,8 +267,8 @@ std::unique_ptr<TexturePack> TexturePack::open(const std::filesystem::path &dire
     return pack;
 }
 
-bool TexturePack::inspect(const std::filesystem::path &directory, const std::string &game_id, TexturePackInfo &info,
-                          std::string &error) {
+bool TexturePack::inspect(
+    const std::filesystem::path &directory, const std::string &game_id, TexturePackInfo &info, std::string &error) {
     info = {};
     const std::unique_ptr<TexturePack> pack = parse(directory, game_id, error);
     if (!pack) return false;
@@ -298,8 +303,8 @@ std::vector<std::string> texture_pack_games(const std::filesystem::path &ini) {
     return games;
 }
 
-std::unique_ptr<TexturePack> TexturePack::parse(const std::filesystem::path &directory, const std::string &game_id,
-                                                std::string &error) {
+std::unique_ptr<TexturePack> TexturePack::parse(
+    const std::filesystem::path &directory, const std::string &game_id, std::string &error) {
     std::unique_ptr<TexturePack> pack(new TexturePack());
     pack->directory_ = directory;
     std::error_code ec;
@@ -307,7 +312,8 @@ std::unique_ptr<TexturePack> TexturePack::parse(const std::filesystem::path &dir
         error = "no texture pack folder at " + path_to_utf8(directory);
         return nullptr;
     }
-    if (std::filesystem::exists(directory / "textures.zip", ec) && !std::filesystem::exists(directory / "textures.ini", ec)) {
+    if (std::filesystem::exists(directory / "textures.zip", ec) &&
+        !std::filesystem::exists(directory / "textures.ini", ec)) {
         error = "zipped packs (textures.zip) are not supported; unpack it into " + path_to_utf8(directory);
         return nullptr;
     }
@@ -385,8 +391,10 @@ bool TexturePack::load_ini(const std::filesystem::path &path, bool is_override, 
             const std::string option = lower(name);
             if (option == "hash") {
                 const std::string kind = lower(value);
-                if (kind == "xxh64") options_.hash = TexturePackHash::Xxh64;
-                else if (kind == "xxh32") options_.hash = TexturePackHash::Xxh32;
+                if (kind == "xxh64")
+                    options_.hash = TexturePackHash::Xxh64;
+                else if (kind == "xxh32")
+                    options_.hash = TexturePackHash::Xxh32;
                 else if (!value.empty() || !is_override) {
                     // "quick" was the format's first hash; packs made with it
                     // are rare, and it is not implemented here.
@@ -436,16 +444,19 @@ bool TexturePack::load_ini(const std::filesystem::path &path, bool is_override, 
                 std::cerr << "[texpack] ignoring hash range " << name << " = " << value << "\n";
                 continue;
             }
-            options_.hash_ranges[static_cast<std::uint64_t>(address) << 32u |
-                                 static_cast<std::uint64_t>(width) << 16u | height] = {new_width, new_height};
+            options_.hash_ranges[static_cast<std::uint64_t>(address) << 32u | static_cast<std::uint64_t>(width) << 16u |
+                height] = {new_width, new_height};
         } else if (section == "filtering") {
             TexturePackKey key;
             int level = 0;
             if (!parse_key(name, key, level)) continue;
             const std::string mode = lower(value);
-            if (mode == "nearest") filters_[key] = ReplacementFilter::Nearest;
-            else if (mode == "linear") filters_[key] = ReplacementFilter::Linear;
-            else if (mode == "auto") filters_[key] = ReplacementFilter::Auto;
+            if (mode == "nearest")
+                filters_[key] = ReplacementFilter::Nearest;
+            else if (mode == "linear")
+                filters_[key] = ReplacementFilter::Linear;
+            else if (mode == "auto")
+                filters_[key] = ReplacementFilter::Auto;
         } else if (section == "reducehashranges") {
             const std::vector<std::string> size = split(name, ',');
             std::uint32_t width = 0u, height = 0u;
@@ -489,12 +500,12 @@ typename Map::const_iterator TexturePack::lookup(const Map &map, const TexturePa
     const bool with_address = !options_.ignore_address;
     const TexturePackKey candidates[] = {
         key,
-        {low, 0u},                  // dimension and palette only
-        {key.cache_key, 0u},        // address, dimension and palette
-        {low, key.data_hash},       // any address
-        {high, key.data_hash},      // address and data, any palette
-        {high, 0u},                 // address only
-        {0u, key.data_hash},        // data only
+        {low, 0u},             // dimension and palette only
+        {key.cache_key, 0u},   // address, dimension and palette
+        {low, key.data_hash},  // any address
+        {high, key.data_hash}, // address and data, any palette
+        {high, 0u},            // address only
+        {0u, key.data_hash},   // data only
     };
     const bool allowed[] = {true, true, with_address, true, with_address, with_address, true};
     for (std::size_t i = 0; i < std::size(candidates); ++i) {
@@ -504,8 +515,8 @@ typename Map::const_iterator TexturePack::lookup(const Map &map, const TexturePa
     return map.end();
 }
 
-std::shared_ptr<Replacement> TexturePack::find(const GuestMemory &memory, const TextureState &texture,
-                                               std::uint16_t max_seen_v) {
+std::shared_ptr<Replacement> TexturePack::find(
+    const GuestMemory &memory, const TextureState &texture, std::uint16_t max_seen_v) {
     TexturePackKey key;
     std::uint32_t covered_width = 0u, covered_height = 0u;
     if (!compute_texture_pack_key(memory, texture, max_seen_v, options_, key, covered_width, covered_height))
@@ -516,9 +527,9 @@ std::shared_ptr<Replacement> TexturePack::find(const GuestMemory &memory, const 
         std::cout << "[texpack] 0x" << std::hex << texture.address << std::dec << " " << texture.width << "x"
                   << texture.height << " fmt=" << static_cast<int>(texture.format) << " key "
                   << format_texture_pack_key(key)
-                  << (found                        ? " -> " + entry->second
-                      : entry != entries_.end()    ? " (kept by the pack)"
-                                                   : " (not in the pack)")
+                  << (found                            ? " -> " + entry->second
+                             : entry != entries_.end() ? " (kept by the pack)"
+                                                       : " (not in the pack)")
                   << "\n";
     }
     if (!found) return nullptr;
@@ -566,7 +577,7 @@ std::filesystem::path TexturePack::resolve(const std::string &name) {
         folded_scanned_ = true;
         std::error_code ec;
         for (auto it = std::filesystem::recursive_directory_iterator(directory_, ec);
-             !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+            !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
             if (!it->is_regular_file(ec)) continue;
             const std::u8string relative = std::filesystem::relative(it->path(), directory_, ec).generic_u8string();
             folded_names_.emplace(lower(std::string(relative.begin(), relative.end())), it->path());
@@ -604,14 +615,14 @@ void TexturePack::decode(Replacement &replacement) {
         if (!folded.empty()) bytes = read_file(folded);
     }
     int width = 0, height = 0, channels = 0;
-    stbi_uc *image = bytes.empty() ? nullptr
-                                   : stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width,
-                                                           &height, &channels, 4);
+    stbi_uc *image = bytes.empty()
+        ? nullptr
+        : stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width, &height, &channels, 4);
     if (image == nullptr || width <= 0 || height <= 0 || width > kMaxImageSide || height > kMaxImageSide) {
         std::cerr << "[texpack] cannot use " << replacement.name << ": "
-                  << (bytes.empty() ? "missing or unreadable"
-                      : image == nullptr ? stbi_failure_reason()
-                                         : "too large")
+                  << (bytes.empty()             ? "missing or unreadable"
+                             : image == nullptr ? stbi_failure_reason()
+                                                : "too large")
                   << "\n";
         if (image != nullptr) stbi_image_free(image);
         replacement.state.store(Replacement::State::Failed, std::memory_order_release);
@@ -630,8 +641,8 @@ void TexturePack::decode(Replacement &replacement) {
     std::vector<std::uint8_t> pixels(static_cast<std::size_t>(full_width) * full_height * 4u, 0u);
     for (int row = 0; row < height && static_cast<std::uint32_t>(row) < full_height; ++row)
         std::memcpy(pixels.data() + static_cast<std::size_t>(row) * full_width * 4u,
-                    image + static_cast<std::size_t>(row) * static_cast<std::size_t>(width) * 4u,
-                    static_cast<std::size_t>(std::min<std::uint32_t>(static_cast<std::uint32_t>(width), full_width)) * 4u);
+            image + static_cast<std::size_t>(row) * static_cast<std::size_t>(width) * 4u,
+            static_cast<std::size_t>(std::min<std::uint32_t>(static_cast<std::uint32_t>(width), full_width)) * 4u);
     stbi_image_free(image);
 
     replacement.width = full_width;
@@ -669,7 +680,7 @@ TextureDumper::~TextureDumper() {
 }
 
 void TextureDumper::dump(const GuestMemory &memory, const TextureState &texture, std::uint16_t max_seen_v,
-                         const TexturePackOptions &options, const std::uint32_t *pixels) {
+    const TexturePackOptions &options, const std::uint32_t *pixels) {
     TexturePackKey key;
     std::uint32_t covered_width = 0u, covered_height = 0u;
     if (!compute_texture_pack_key(memory, texture, max_seen_v, options, key, covered_width, covered_height)) return;
@@ -686,7 +697,7 @@ void TextureDumper::dump(const GuestMemory &memory, const TextureState &texture,
     job.pixels.resize(static_cast<std::size_t>(covered_width) * covered_height);
     for (std::uint32_t row = 0; row < covered_height; ++row)
         std::memcpy(job.pixels.data() + static_cast<std::size_t>(row) * covered_width,
-                    pixels + static_cast<std::size_t>(row) * texture.width, covered_width * 4u);
+            pixels + static_cast<std::size_t>(row) * texture.width, covered_width * 4u);
     jobs_.push_back(std::move(job));
     wake_.notify_one();
 }
@@ -705,8 +716,7 @@ void TextureDumper::writer_main() {
         if (std::filesystem::exists(job.path, ec)) continue;
         int length = 0;
         unsigned char *png = stbi_write_png_to_mem(reinterpret_cast<const unsigned char *>(job.pixels.data()),
-                                                   static_cast<int>(job.width * 4u), static_cast<int>(job.width),
-                                                   static_cast<int>(job.height), 4, &length);
+            static_cast<int>(job.width * 4u), static_cast<int>(job.width), static_cast<int>(job.height), 4, &length);
         if (png == nullptr) continue;
         std::ofstream out(job.path, std::ios::binary);
         out.write(reinterpret_cast<const char *>(png), length);

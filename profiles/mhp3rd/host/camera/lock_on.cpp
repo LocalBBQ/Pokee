@@ -45,8 +45,8 @@ constexpr float kManualFade = 0.7f;
 // How the yaw follows: a share of the rest each update (30 a second), at
 // least kSmallestStep and at most kLargestStep units.
 constexpr float kYawShare = 0.2f;
-constexpr int kSmallestStep = 48;   // about a quarter of a degree
-constexpr int kLargestStep = 2048;  // 11.25 degrees
+constexpr int kSmallestStep = 48;  // about a quarter of a degree
+constexpr int kLargestStep = 2048; // 11.25 degrees
 // And the pitch: the eye rises or sinks by half the monster's elevation as
 // seen from the look-at point, at most kPitchUp or kPitchDown from where it
 // was at the lock, a share of the rest each update.
@@ -62,7 +62,7 @@ constexpr float kPitchHighest = 60.0f;
 constexpr float kNear = 300.0f;
 constexpr float kNearBlend = 400.0f;
 // Past this much of a turn to go, the turn keeps the way it was going.
-constexpr int kHalfTurnBand = 28672;  // 157.5 degrees
+constexpr int kHalfTurnBand = 28672; // 157.5 degrees
 // A first tap that no camera update took in this many flips is dropped.
 constexpr unsigned kTapFrames = 6u;
 
@@ -74,7 +74,7 @@ struct State {
     std::uint32_t target{};
     std::vector<std::uint32_t> visited;
     float manual{};
-    int turning{};  // the way the last step went: +1, -1 or 0
+    int turning{}; // the way the last step went: +1, -1 or 0
     bool pitch_known{};
     float base_pitch{};
     float pitch{};
@@ -96,19 +96,24 @@ Vec3 load_vec(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     return {load_float(memory, address), load_float(memory, address + 4u), load_float(memory, address + 8u)};
 }
 
-bool finite(const Vec3 &v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); }
+bool finite(const Vec3 &v) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
 
 bool on_quest(const psprecomp::GuestMemory &memory) {
     if (memory.raw_pointer(kTaskSlot, 64u) == nullptr || memory.load32(kTaskSlot) != kOverlayMagic ||
         memory.load32(kTaskSlot + 8u) != kTaskSlot)
         return false;
     for (std::size_t i = 0; i < kQuestOverlay.size(); ++i)
-        if (memory.load8(kTaskSlot + 32u + static_cast<std::uint32_t>(i)) != static_cast<std::uint8_t>(kQuestOverlay[i]))
+        if (memory.load8(kTaskSlot + 32u + static_cast<std::uint32_t>(i)) !=
+            static_cast<std::uint8_t>(kQuestOverlay[i]))
             return false;
     return memory.load8(kTaskSlot + 32u + static_cast<std::uint32_t>(kQuestOverlay.size())) == 0u;
 }
 
-float horizontal(const Vec3 &from, const Vec3 &to) { return std::hypot(to.x - from.x, to.z - from.z); }
+float horizontal(const Vec3 &from, const Vec3 &to) {
+    return std::hypot(to.x - from.x, to.z - from.z);
+}
 
 const LockMonster *find(const std::vector<LockMonster> &monsters, std::uint32_t address) {
     for (const LockMonster &m : monsters)
@@ -135,7 +140,7 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
         if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
-        if (most <= 0 || health <= 0) continue;  // a companion, not spawned yet, or dead
+        if (most <= 0 || health <= 0) continue; // a companion, not spawned yet, or dead
         if ((memory.load32(at + kFlags) & kOtherArea) != 0u) continue;
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
@@ -156,8 +161,7 @@ int yaw_difference(std::uint16_t from, std::uint16_t to) {
 }
 
 std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monsters, const Vec3 &look_at,
-                                          std::uint16_t camera_yaw, std::optional<std::uint32_t> current,
-                                          const std::vector<std::uint32_t> &visited) {
+    std::uint16_t camera_yaw, std::optional<std::uint32_t> current, const std::vector<std::uint32_t> &visited) {
     if (monsters.empty()) return std::nullopt;
     if (!current) {
         const LockMonster *best = nullptr;
@@ -167,7 +171,8 @@ std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monste
             const int off = yaw_difference(camera_yaw, yaw_towards(look_at, m.position));
             const bool in_view = std::abs(static_cast<float>(off)) * 360.0f / kUnitsPerTurn <= kInView;
             const float distance = horizontal(look_at, m.position);
-            if (best == nullptr || (in_view && !best_in_view) || (in_view == best_in_view && distance < best_distance)) {
+            if (best == nullptr || (in_view && !best_in_view) ||
+                (in_view == best_in_view && distance < best_distance)) {
                 best = &m;
                 best_in_view = in_view;
                 best_distance = distance;
@@ -196,11 +201,11 @@ std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, floa
     int rest = yaw_difference(current, wanted);
     if (std::abs(rest) <= kSmallestStep) return wanted;
     if (std::abs(rest) > kHalfTurnBand && sign != 0 && (rest > 0) != (sign > 0))
-        rest += sign > 0 ? 65536 : -65536;  // the long way, as before
+        rest += sign > 0 ? 65536 : -65536; // the long way, as before
     const int way = rest > 0 ? 1 : -1;
     const float share = static_cast<float>(std::abs(rest)) * kYawShare * weight;
     const int step = std::clamp(static_cast<int>(std::lround(share)), kSmallestStep,
-                                std::max(kSmallestStep, static_cast<int>(static_cast<float>(kLargestStep) * weight)));
+        std::max(kSmallestStep, static_cast<int>(static_cast<float>(kLargestStep) * weight)));
     return static_cast<std::uint16_t>(current + way * std::min(step, std::abs(rest)));
 }
 
@@ -264,8 +269,8 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     if (!camera.player_pitch && state.pitch_known) {
         const float distance = std::max(horizontal(camera.look_at, aim), 1.0f);
         const float elevation = std::atan2(aim.y - camera.look_at.y, distance) * kDegrees;
-        const float goal = std::clamp(state.base_pitch - elevation * kPitchFollow, state.base_pitch - kPitchDown,
-                                      state.base_pitch + kPitchUp);
+        const float goal = std::clamp(
+            state.base_pitch - elevation * kPitchFollow, state.base_pitch - kPitchDown, state.base_pitch + kPitchUp);
         state.pitch += (std::clamp(goal, kPitchLowest, kPitchHighest) - state.pitch) * kPitchShare;
         out.pitch = state.pitch;
     } else {
@@ -280,7 +285,9 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     return out;
 }
 
-void lock_on_suspend(bool suspended) { state.suspended = suspended; }
+void lock_on_suspend(bool suspended) {
+    state.suspended = suspended;
+}
 
 void lock_on_frame(const psprecomp::GuestMemory &memory) {
     if (state.suspended) state.tap_age = 0u;
@@ -292,8 +299,10 @@ void lock_on_frame(const psprecomp::GuestMemory &memory) {
         const std::vector<LockMonster> monsters = lock_on_monsters(memory);
         const std::optional<std::uint32_t> next =
             lock_on_pick(monsters, {}, 0u, std::optional(state.target), state.visited);
-        if (next) lock(*next, "moved to");
-        else lock_on_release("");
+        if (next)
+            lock(*next, "moved to");
+        else
+            lock_on_release("");
     }
     if (state.tap && ++state.tap_age > kTapFrames) {
         // No follow camera took it: the village, a cutscene, aiming.
@@ -308,9 +317,13 @@ void lock_on_frame(const psprecomp::GuestMemory &memory) {
     if (find(monsters, state.target) == nullptr) lock_on_release("Lock-on: the monster is gone");
 }
 
-bool lock_on_wanted() { return state.tap || state.locked; }
+bool lock_on_wanted() {
+    return state.tap || state.locked;
+}
 
-LockOnStatus lock_on_status() { return {state.locked, state.locked ? state.target : 0u}; }
+LockOnStatus lock_on_status() {
+    return {state.locked, state.locked ? state.target : 0u};
+}
 
 std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory) {
     if (!state.locked || memory.raw_pointer(kCameraObject, 4u) == nullptr) return std::nullopt;
@@ -324,12 +337,12 @@ std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory 
     float clip[4]{};
     for (int row = 0; row < 4; ++row)
         for (int col = 0; col < 4; ++col)
-            eye[row] += load_float(memory, camera + kViewMatrix + static_cast<std::uint32_t>((col * 4 + row) * 4)) *
-                        point[col];
+            eye[row] +=
+                load_float(memory, camera + kViewMatrix + static_cast<std::uint32_t>((col * 4 + row) * 4)) * point[col];
     for (int row = 0; row < 4; ++row)
         for (int col = 0; col < 4; ++col)
-            clip[row] += load_float(memory, camera + kProjection + static_cast<std::uint32_t>((col * 4 + row) * 4)) *
-                         eye[col];
+            clip[row] +=
+                load_float(memory, camera + kProjection + static_cast<std::uint32_t>((col * 4 + row) * 4)) * eye[col];
     if (!std::isfinite(clip[0]) || !std::isfinite(clip[1]) || !std::isfinite(clip[3]) || clip[3] <= 1.0f)
         return std::nullopt;
     const float x = (clip[0] / clip[3] + 1.0f) * 0.5f;
@@ -353,6 +366,8 @@ void lock_on_reset() {
     state = State{};
 }
 
-std::string lock_on_take_note() { return std::exchange(state.note, std::string()); }
+std::string lock_on_take_note() {
+    return std::exchange(state.note, std::string());
+}
 
 } // namespace mhp3rd::camera
