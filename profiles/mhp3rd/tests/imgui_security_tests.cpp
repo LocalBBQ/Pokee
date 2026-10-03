@@ -38,6 +38,11 @@ void* bounded_allocate(std::size_t size, void*) {
 void bounded_free(void* data, void*) { std::free(data); }
 void rejected_abort(int) { std::_Exit(unpublished() && allocation_calls == (fail_allocation ? 1 : 0) ? 86 : 87); }
 [[noreturn]] void rejected_texture(int mode) {
+#ifdef _MSC_VER
+    // The Microsoft Debug CRT displays a modal dialog before raising SIGABRT.
+    // Expected fatal cases must reach our handler without unattended UI/reporting.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
     std::signal(SIGABRT, rejected_abort);
     ImGui::SetAllocatorFunctions(bounded_allocate, bounded_free);
     ImTextureData tex;
