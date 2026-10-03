@@ -43,6 +43,22 @@ ctest --test-dir out/mhp3rd
 
 Bound game runs with a timeout and inspect logs and captures. For regressions, compare a known-good build and your change with the same scripted input and game state. Measure performance changes before and after rather than relying on impressions. See [TESTING.md](docs/TESTING.md) for testing workflows and the profile README's [Diagnostics](profiles/mhp3rd/README.md#diagnostics) section for tracing options.
 
+## Python tooling
+
+Install the pinned development tools in a virtual environment (Python 3.9 or newer):
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements/dev.txt
+.venv/bin/ruff check .
+```
+
+On Windows use `.venv\Scripts\python.exe` and `.venv\Scripts\ruff.exe`. Activating the environment also lets you run `python` and `ruff` directly.
+
+Ruff checks first-party Python under `scripts/`, `profiles/mhp3rd/tools/` and `profiles/mhp3rd/tests/`. `ruff.toml` explicitly excludes vendored code, generated code, game directories, overlays and build outputs, including when a path is passed explicitly. The initial rule set checks Pyflakes diagnostics (`F`), syntax errors (`E9`) and bare `except` clauses (`E722`). Python formatting, import ordering and broad style rules are not enforced at this stage. The configuration requires the exact version pinned in `requirements/dev.txt`.
+
+The `Python lint (Ruff)` job runs the same configuration on public GitHub-hosted CI for pull requests and pushes to main or release branches. Findings fail the job; review and fix them before requesting a merge. The check needs no game data or build. Changes to branch protection and checks for C++ formatting, clang-tidy, Cppcheck and sanitizers are separate stages in [#249](https://github.com/TeamGDB/Yakumo/issues/249).
+
 ## Submitting a pull request
 
 1. Work on a branch or fork and open a pull request against `main`. Never push directly to `main`.
