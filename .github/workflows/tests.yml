@@ -1,0 +1,63 @@
+name: Unit tests
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'release/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            generator: Ninja
+          - os: macos-14
+            generator: Ninja
+          - os: windows-2022
+            generator: Visual Studio 17 2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Configure headless tests
+        run: >-
+          cmake -S . -B out/ci -G "${{ matrix.generator }}"
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPSPRECOMP_PROFILE=mhp3rd
+          -DPSPRECOMP_BUILD_TESTS=ON
+          -DMHP3RD_RENDERER=OFF
+          -DMHP3RD_FFMPEG=OFF
+          -DPSPRECOMP_MSVC_MP_JOBS=1
+
+      - name: Build test executables
+        run: cmake --build out/ci --config Debug --target psprecomp_test_binaries -j2
+
+      - name: Run tests
+        run: ctest --test-dir out/ci -C Debug --output-on-failure --no-tests=error --timeout 120 --output-junit test-results.xml
+
+      - name: Upload test diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-diagnostics-${{ matrix.os }}
+          path: |
+            out/ci/test-results.xml
+            out/ci/Testing/Temporary/*.log
+            out/ci/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
+          retention-days: 7

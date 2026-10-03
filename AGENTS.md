@@ -67,7 +67,7 @@ The [profile README](profiles/mhp3rd/README.md) covers player settings, environm
 - **Tracing.**
   - `MHP3RD_TRACE_*` variables log one subsystem each: GE, material and lighting registers, save data, fonts, pad, audio, ATRAC, MPEG, ad hoc, I/O, kernel.
   - All the variables are listed under *Diagnostics* in the [profile README](profiles/mhp3rd/README.md#diagnostics).
-- **Unit tests.** `cmake --build out/mhp3rd --target psprecomp_tests mhp3rd_savedata_tests && ctest --test-dir out/mhp3rd`.
+- **Unit tests.** `cmake --build out/mhp3rd --target psprecomp_test_binaries -j2 && ctest --test-dir out/mhp3rd`.
 - **Manual smoke test.** [TESTING.md](docs/TESTING.md), about fifteen minutes. [COMPATIBILITY.md](docs/COMPATIBILITY.md) records results per platform, always with the commit that was tested.
 
 ## Local test setup

@@ -37,7 +37,7 @@ Choose checks that exercise the behavior you changed. [TESTING.md](docs/TESTING.
 For the unit-test targets:
 
 ```sh
-cmake --build out/mhp3rd --target psprecomp_tests mhp3rd_savedata_tests -j2
+cmake --build out/mhp3rd --target psprecomp_test_binaries -j2
 ctest --test-dir out/mhp3rd
 ```
 

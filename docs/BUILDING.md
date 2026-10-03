@@ -207,7 +207,7 @@ MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo 
 
 ### Tests and diagnostics
 
-- `cmake --build out/mhp3rd --target psprecomp_tests mhp3rd_savedata_tests`, then `ctest --test-dir out/mhp3rd`, builds and runs the unit tests of the recompiler framework and of the save-data format. Neither needs game data.
+- `cmake --build out/mhp3rd --target psprecomp_test_binaries`, then `ctest --test-dir out/mhp3rd`, builds and runs all registered unit tests of the recompiler framework and selected profile. These need no game data; see [TESTING.md](TESTING.md) for the headless CI configuration.
 - [TESTING.md](TESTING.md) is the manual smoke test: about fifteen minutes through every part of the game that works.
 - `MHP3RD_PERF=1`, or F3 in the game, shows the performance overlay. The `MHP3RD_TRACE_*` variables log individual subsystems. All of them are listed under *Diagnostics* in the [profile README](../profiles/mhp3rd/README.md#diagnostics).
 - `MHP3RD_NO_RENDER=1` runs without a window, which is useful for quick boot checks in scripts. Bound such runs with `timeout`.

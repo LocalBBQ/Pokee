@@ -171,3 +171,14 @@ if(NOT PSPRECOMP_PROFILE STREQUAL "")
     endif()
     add_subdirectory("${PSPRECOMP_PROFILE_DIR}" "profiles/${PSPRECOMP_PROFILE}")
 endif()
+
+# Build the executables registered with CTest without building the game or
+# overlays. Test names match their executable targets in the framework/profile.
+if(PSPRECOMP_BUILD_TESTS)
+    get_property(_psprecomp_test_targets DIRECTORY PROPERTY TESTS)
+    if(NOT PSPRECOMP_PROFILE STREQUAL "")
+        get_property(_psprecomp_profile_tests DIRECTORY "${PSPRECOMP_PROFILE_DIR}" PROPERTY TESTS)
+        list(APPEND _psprecomp_test_targets ${_psprecomp_profile_tests})
+    endif()
+    add_custom_target(psprecomp_test_binaries DEPENDS ${_psprecomp_test_targets})
+endif()

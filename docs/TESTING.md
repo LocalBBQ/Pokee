@@ -3,11 +3,20 @@
 ## Automated
 
 - **Framework tests** run with `ctest --test-dir out/framework` and need no game data.
+- **Unit-test CI** runs the framework and headless profile tests on standard GitHub-hosted Linux, macOS and Windows runners for pull requests, pushes to `main` and release branches, and manual dispatch. The workflow in `.github/workflows/tests.yml` builds only `psprecomp_test_binaries` in Debug mode, then runs CTest with failure output and a per-test timeout. Failed jobs upload test logs and JUnit results when available. It uses no game data, generated game corpus, overlays or GPU. FFmpeg is disabled to avoid downloading and building application-only audio/video dependencies. The Vulkan descriptor-pool test is excluded from this renderer-disabled configuration. Android device tests and Steam Deck gameplay still require separate testing.
 - **CodeQL security analysis** uses GitHub's default setup for C/C++, Java/Kotlin and Python, with the extended query suite, local and remote input sources, and standard GitHub-hosted runners. C/C++ analysis uses no-build extraction, so it needs no game data, generated corpus or overlay rebuild. Configuration is managed under the repository's security settings, not a committed workflow. Review results under *Security and quality → Code scanning*; a successful scan does not replace builds or gameplay tests. GitHub Code Quality is a separate paid product and is left disabled.
-- **Builds on every platform** in CI — planned in [#15](https://github.com/TeamGDB/Yakumo/issues/15).
+- **Full application builds on every platform** — further work tracked in [#15](https://github.com/TeamGDB/Yakumo/issues/15). Unit-test CI does not build playable releases; release packaging remains a separate process.
 - **Regression tests on your own copy of the game**, replaying recorded input and comparing frames against reference images — planned in [#16](https://github.com/TeamGDB/Yakumo/issues/16).
 
-Until those exist, changes are checked by playing, with the smoke test below.
+Unit tests do not replace gameplay checks. Use the smoke test below for changes that affect the game.
+
+To reproduce the headless CI configuration from a clean checkout without game data:
+
+```sh
+cmake -S . -B out/ci -DCMAKE_BUILD_TYPE=Debug -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF -DPSPRECOMP_MSVC_MP_JOBS=1
+cmake --build out/ci --config Debug --target psprecomp_test_binaries -j2
+ctest --test-dir out/ci -C Debug --output-on-failure --no-tests=error --timeout 120
+```
 
 For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report privately. Dependabot alerts and security updates cover supported dependency manifests; libraries downloaded by CMake or vendored in the profile still need separate version and advisory checks. Secret scanning and push protection are enabled for this public repository.
 
