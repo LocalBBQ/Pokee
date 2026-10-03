@@ -48,7 +48,7 @@ class ArchiveSecurityTests(unittest.TestCase):
             self.assertEqual((root / "output" / "SAFE.BIN").read_bytes(), b"test")
 
     def test_iso_rejects_archive_path_components(self):
-        for name in (b"../escape", b"..", b"/absolute", b"dir\\escape", b"C:escape", b"bad\x00name"):
+        for name in (b"../escape", b"..", b"/absolute", b"dir\\escape", b"C:escape", b"bad\x00name", b"CON", b"LPT1.BIN"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
                 iso = Path(temporary) / "synthetic.iso"
                 iso.write_bytes(image_with_entry(record(name)))

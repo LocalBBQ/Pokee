@@ -5,7 +5,8 @@ from pathlib import Path
 
 def archive_component(name):
     """Accept one portable filename, never a path supplied by an archive."""
-    if (not name or name in (".", "..") or any(c in name for c in '/\\:')
+    reserved = {"CON", "PRN", "AUX", "NUL"} | {f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)}
+    if (name.split(".", 1)[0].upper() in reserved or not name or name in (".", "..") or any(c in name for c in '/\\:')
             or any(ord(c) < 32 or ord(c) == 127 for c in name)
             or name.endswith((".", " "))):
         raise ValueError(f"unsafe archive filename: {name!r}")

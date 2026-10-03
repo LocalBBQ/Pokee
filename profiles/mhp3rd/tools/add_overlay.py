@@ -39,6 +39,8 @@ def parse_header(data, base):
         raise SystemExit(f"image loads at {load:#010x}, not at {base:#010x}")
     name = data[32:HEADER_BYTES].split(b"\0")[0].decode("ascii", "replace")
     name = re.sub(r"\W", "_", os.path.splitext(name)[0])
+    if not re.fullmatch(r"[A-Za-z0-9_]+", name):
+        raise SystemExit("overlay name must normalize to a nonempty ASCII identifier")
     return name, HEADER_BYTES + code_size + data_size, code_size
 
 
