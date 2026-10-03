@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(cmake/BuildLock.cmake)
+include(cmake/Sanitizers.cmake)
 
 # A compiler cache turns a lost .ninja_deps, a clean or a regenerated corpus
 # into seconds of cache hits instead of a full rebuild of the generated units.

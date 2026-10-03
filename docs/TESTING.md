@@ -26,6 +26,26 @@ ctest --test-dir out/ci -C Debug --output-on-failure --no-tests=error --timeout 
 
 For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report privately. Dependabot alerts and security updates cover supported dependency manifests; libraries downloaded by CMake or vendored in the profile still need separate version and advisory checks. Secret scanning and push protection are enabled for this public repository.
 
+### Native ASan and UBSan
+
+The separate `.github/workflows/sanitizers.yml` job uses Ubuntu 24.04 and the versioned Clang 18 toolchain packages (including compiler-rt and llvm-symbolizer). Distribution security updates remain available; the job prints the effective compiler version. Normal builds keep `PSPRECOMP_SANITIZERS=OFF`. The opt-in configuration instruments compilation and linking of the framework, profile test sources and dependency implementations with `-fsanitize=address,undefined`, debug information, frame pointers and `-O1`. UBSan recovery is disabled; ASan/UBSan reports and detected leaks fail the check. Sanitizer failures use direct nonzero exits instead of SIGABRT, so the existing negative tests cannot mistake a report for an expected assertion abort. No suppressions or test exclusions are configured.
+
+Reproduce it on native Linux with Clang 18 installed:
+
+```sh
+cmake -S . -B out/sanitizers -G Ninja -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_BUILD_TYPE=Debug -DPSPRECOMP_SANITIZERS=ON -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF
+export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:abort_on_error=0:exitcode=99
+export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1:abort_on_error=0:exitcode=98
+export ASAN_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-18
+python3 scripts/ci/check_sanitizers.py out/sanitizers
+cmake --build out/sanitizers --target psprecomp_test_binaries -j2
+ctest --test-dir out/sanitizers --output-on-failure --no-tests=error --timeout 120
+```
+
+The instrumentation check creates and removes a temporary CMake project using the same sanitizer module and configured compiler. Heap use-after-free, signed overflow and a leaked allocation must each produce their specific sanitizer diagnostic and a failing exit status. The complete headless native suite includes parser, allocation, PNG, both font libraries and ImGui boundary regressions using public synthetic inputs. Failures retain CTest, configure and probe logs as CI artifacts for seven days.
+
+ASan typically adds about 2x execution time according to [the Clang documentation](https://releases.llvm.org/18.1.8/tools/clang/docs/AddressSanitizer.html); memory and build overhead vary by test. This configuration targets native Linux Clang 18 or newer only. Windows, macOS, Android, Vulkan, audio/FFmpeg, generated guest code, overlay libraries and full gameplay are not validated by this job. Sanitizers observe executed paths and do not prove unexecuted code safe; see [UBSan's documented checks and recovery policy](https://releases.llvm.org/18.1.8/tools/clang/docs/UndefinedBehaviorSanitizer.html).
+
 ### Switching CodeQL from default to advanced setup
 
 GitHub default setup blocks result uploads from advanced workflows. When deploying the committed CodeQL workflow, disable default setup under the repository's security settings, then dispatch the `CodeQL` workflow on `main`. Confirm that all four language analyses complete and Java resolves the Android/SDL calls before retiring the previous default configuration. Keep default setup active while reviewing this migration; local Java compilation alone does not verify CodeQL database quality or SARIF uploads. The language categories remain `/language:actions`, `/language:c-cpp`, `/language:java-kotlin` and `/language:python`; existing alert history must be checked after the first advanced scan.
