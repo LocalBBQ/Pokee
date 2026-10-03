@@ -4470,11 +4470,13 @@ void ImFontAtlasPackDiscardRect(ImFontAtlas* atlas, ImFontAtlasRectId id)
 // FIXME-NEWFONTS: Expose other glyph padding settings for custom alteration (e.g. drop shadows). See #7962
 ImFontAtlasRectId ImFontAtlasPackAddRect(ImFontAtlas* atlas, int w, int h, ImFontAtlasRectEntry* overwrite_entry)
 {
-    IM_ASSERT(w > 0 && w <= 0xFFFF);
-    IM_ASSERT(h > 0 && h <= 0xFFFF);
+    // Reject invalid rectangles before narrowing to ImTextureRect or adding padding.
+    // Glyph metrics and custom-rectangle requests must obey these limits in Release too.
+    const int pack_padding = atlas->TexGlyphPadding;
+    if (w <= 0 || w > 0xFFFF || h <= 0 || h > 0xFFFF || pack_padding < 0 || pack_padding > 0x10000 - w || pack_padding > 0x10000 - h)
+        return ImFontAtlasRectId_Invalid;
 
     ImFontAtlasBuilder* builder = (ImFontAtlasBuilder*)atlas->Builder;
-    const int pack_padding = atlas->TexGlyphPadding;
     builder->MaxRectSize.x = ImMax(builder->MaxRectSize.x, w);
     builder->MaxRectSize.y = ImMax(builder->MaxRectSize.y, h);
 
@@ -4824,8 +4826,12 @@ static bool ImGui_ImplStbTrueType_FontBakedLoadGlyph(ImFontAtlas* atlas, ImFontC
     const bool is_visible = (x0 != x1 && y0 != y1);
     if (is_visible)
     {
-        const int w = (x1 - x0 + oversample_h - 1);
-        const int h = (y1 - y0 + oversample_v - 1);
+        const ImS64 bitmap_w = (ImS64)x1 - (ImS64)x0 + (ImS64)oversample_h - 1;
+        const ImS64 bitmap_h = (ImS64)y1 - (ImS64)y0 + (ImS64)oversample_v - 1;
+        if (bitmap_w <= 0 || bitmap_w > 0xFFFF || bitmap_h <= 0 || bitmap_h > 0xFFFF)
+            return false;
+        const int w = (int)bitmap_w;
+        const int h = (int)bitmap_h;
         ImFontAtlasRectId pack_id = ImFontAtlasPackAddRect(atlas, w, h);
         if (pack_id == ImFontAtlasRectId_Invalid)
         {

@@ -6,6 +6,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <limits>
+#include <string>
 #ifdef _WIN32
 #include <process.h>
 #else
@@ -97,6 +98,26 @@ void texture_checks() {
         check(atlas.Build(), "default font atlas builds with bounded allocator");
         check(atlas.TexData && atlas.TexData->GetSizeInBytes() > 0 && atlas.TexData->GetSizeInBytes() <= 1024 * 1024,
               "default glyph rasterization uses bounded texture");
+        const int packed_count = atlas.Builder->RectsPackedCount;
+        const ImVec2i max_rect = atlas.Builder->MaxRectSize;
+        check(ImFontAtlasPackAddRect(&atlas, 0, 1) == ImFontAtlasRectId_Invalid, "zero rectangle rejected");
+        check(ImFontAtlasPackAddRect(&atlas, -1, 1) == ImFontAtlasRectId_Invalid, "negative rectangle rejected");
+        check(ImFontAtlasPackAddRect(&atlas, 1, 65536) == ImFontAtlasRectId_Invalid, "oversized rectangle rejected before narrowing");
+        const int old_padding = atlas.TexGlyphPadding;
+        atlas.TexGlyphPadding = std::numeric_limits<int>::max();
+        check(ImFontAtlasPackAddRect(&atlas, 2, 2) == ImFontAtlasRectId_Invalid, "padding addition overflow rejected");
+        atlas.TexGlyphPadding = -1;
+        check(ImFontAtlasPackAddRect(&atlas, 2, 2) == ImFontAtlasRectId_Invalid, "negative padding rejected");
+        atlas.TexGlyphPadding = old_padding;
+        check(atlas.Builder->RectsPackedCount == packed_count && atlas.Builder->MaxRectSize.x == max_rect.x &&
+              atlas.Builder->MaxRectSize.y == max_rect.y, "rejected rectangle preserves packing state");
+        const ImFontAtlasRectId packed = ImFontAtlasPackAddRect(&atlas, 4, 3);
+        check(packed != ImFontAtlasRectId_Invalid, "normal custom rectangle packs");
+        if (packed != ImFontAtlasRectId_Invalid) {
+            const ImTextureRect* rect = ImFontAtlasPackGetRect(&atlas, packed);
+            check(rect->w == 4 && rect->h == 3 && rect->x + rect->w <= atlas.TexData->Width &&
+                  rect->y + rect->h <= atlas.TexData->Height, "packed rectangle lies inside allocated texture");
+        }
     }
     check(largest_request <= 1024u * 1024u, "normal tests never request a large allocation");
     ImGui::SetAllocatorFunctions(old_alloc, old_free, old_user_data);

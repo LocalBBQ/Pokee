@@ -55,7 +55,7 @@ Third-party source, binary dependencies, shader code and notices stay beside the
 
 | Component | Used by | License | How it is included |
 | --- | --- | --- | --- |
-| [Dear ImGui](https://github.com/ocornut/imgui) 1.92.9b | mhp3rd profile: in-game menu and setup screens | MIT | Copy in `profiles/mhp3rd/third_party/imgui` with its `LICENSE.txt`; local 64-bit debug texture-ID format and font bitmap validation fixes are recorded in its README |
+| [Dear ImGui](https://github.com/ocornut/imgui) 1.92.9b | mhp3rd profile: in-game menu and setup screens | MIT | Copy in `profiles/mhp3rd/third_party/imgui` with its `LICENSE.txt`; local debug texture-ID formatting, checked texture allocation glyph rectangle validation and font bitmap validation patches are recorded in its README |
 | [tiny-AES-c](https://github.com/kokke/tiny-AES-c) | mhp3rd profile: installer and save data | Unlicense (public domain) | Unmodified copy in `profiles/mhp3rd/third_party/tiny_aes` with its `UNLICENSE` |
 | [stb_truetype](https://github.com/nothings/stb) 1.26 | mhp3rd profile: game text | MIT or public domain | Single header, `profiles/mhp3rd/third_party/stb_truetype.h`, notice at its end; independently written local checks for bitmap dimensions, strides, coordinate conversion, SDF/rasterizer allocation failure and baked-glyph bounds |
 | [stb_image](https://github.com/nothings/stb) 2.30 and stb_image_write 1.16 | mhp3rd profile: texture pack images (PNG only) | MIT or public domain | Single headers from commit `2c980bb`, `profiles/mhp3rd/third_party/stb_image.h` and `stb_image_write.h`, notices at their ends; local patches check 16-bit channel conversion and PNG row-copy sizes, and validate PNG writer dimensions, strides and buffer growth with allocation-failure cleanup |
