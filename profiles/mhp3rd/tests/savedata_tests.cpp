@@ -31,6 +31,7 @@ int failures = 0;
 
 void check(bool condition, const char *what) {
     std::printf("%s %s\n", condition ? "ok  " : "FAIL", what);
+    std::fflush(stdout);
     if (!condition) ++failures;
 }
 
@@ -214,7 +215,8 @@ void test_transfer() {
     check(check_save_folder(damaged, key).ok(), "the undamaged copy passes");
     {
         auto sfo_bytes = file_bytes(damaged / "PARAM.SFO");
-        const auto title = std::search(sfo_bytes.begin(), sfo_bytes.end(), std::begin("Title"), std::end("Title") - 1);
+        const std::string title_text = "Title";
+        const auto title = std::search(sfo_bytes.begin(), sfo_bytes.end(), title_text.begin(), title_text.end());
         if (title != sfo_bytes.end()) *title = 't';
         std::ofstream(damaged / "PARAM.SFO", std::ios::binary)
             .write(reinterpret_cast<const char *>(sfo_bytes.data()), static_cast<std::streamsize>(sfo_bytes.size()));
