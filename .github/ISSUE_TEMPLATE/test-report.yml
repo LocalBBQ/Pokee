@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         Thanks for testing. Run through [the smoke test](https://github.com/TeamGDB/Yakumo/blob/main/docs/TESTING.md) and fill this in. Please do not attach or link any part of the game, including screenshots of copyrighted assets beyond what is needed to show a problem.
+        Do not attach saves. Remove personal information from logs. Report security vulnerabilities [privately](https://github.com/TeamGDB/Yakumo/security/advisories/new).
   - type: input
     id: commit
     attributes:
@@ -26,6 +27,7 @@ body:
         - Linux (ARM64)
         - Steam Deck
         - Windows
+        - Android
         - Other
     validations:
       required: true
@@ -80,5 +82,5 @@ body:
     id: log
     attributes:
       label: Console output
-      description: The last lines of the console, especially if the game stopped.
+      description: The last lines of the console, especially if the game stopped. Remove personal paths, user names, device addresses and other private information.
       render: shell
