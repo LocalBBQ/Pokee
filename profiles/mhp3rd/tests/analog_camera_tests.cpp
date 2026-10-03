@@ -177,8 +177,16 @@ void test_ownership() {
     check(baseline(), "returning after a scene change discards stale pitch");
     mhp3rd::settings::current().right_stick = mhp3rd::settings::RightStick::DPad;
     const auto before = f.snapshot();
-    f.frame(1.0f, 1.0f);
-    check(before == f.snapshot() && !game_camera_driving(), "D-pad mapping disables analog integration");
+    if constexpr (mhp3rd::settings::kPlatform == mhp3rd::settings::Platform::Android) {
+        // A physical stick mapping must not turn off the phone's touch camera.
+        add_motion(Source::Touch, 10.0f, 0.0f);
+        f.frame(0.0f, 0.0f);
+        check(before != f.snapshot() && game_camera_driving(),
+              "D-pad mapping preserves Android touch camera integration");
+    } else {
+        f.frame(1.0f, 1.0f);
+        check(before == f.snapshot() && !game_camera_driving(), "D-pad mapping disables analog integration");
+    }
 }
 
 void test_dispatch_and_write_extent() {
