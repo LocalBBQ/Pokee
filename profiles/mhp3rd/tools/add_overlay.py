@@ -50,11 +50,11 @@ def main(argv):
     parser.add_argument("-j", "--jobs", type=int, default=2, help="parallel build jobs (default 2)")
     parser.add_argument("--no-build", action="store_true", help="recompile only; print the target")
     parser.add_argument("build_dir")
-    parser.add_argument("dump_path")
+    parser.add_argument("dump_path", type=argparse.FileType("rb"))
     parser.add_argument("base_text")
     options = parser.parse_args(argv[1:])
     build_dir = os.path.abspath(options.build_dir)
-    dump_path = os.path.abspath(options.dump_path)
+    dump_path = os.path.abspath(options.dump_path.name)
     base = int(options.base_text, 0)
     if base < 0 or base > 0xFFFFFFFF or base % 4:
         parser.error("base address must be an aligned 32-bit unsigned address")
@@ -62,17 +62,23 @@ def main(argv):
         parser.error("jobs must be positive")
     base_text = f"0x{base:08X}"
     recompiler = "psp_recomp.exe" if os.name == "nt" else "./psp_recomp"
-    with open(dump_path, "rb") as handle:
+    with options.dump_path as handle:
         data = handle.read()
     name, image_size, code_size = parse_header(data, base)
     # Only the header and the code identify the image: the game writes into the
     # data section of a loaded overlay.
     digest = fnv1a64(data[:HEADER_BYTES + code_size])
     prefix = f"ovl{base:08X}_{name}_{digest:016X}"
-    target = os.path.join(OVERLAY_DIR, prefix)
+    overlay_root = os.path.realpath(OVERLAY_DIR)
+    target = os.path.realpath(os.path.join(overlay_root, prefix))
+    if not target.startswith(overlay_root + os.sep):
+        parser.error("overlay directory escapes the corpus root")
     os.makedirs(target, exist_ok=True)
 
-    elf_path = os.path.join(target, "overlay.elf")
+    elf_path = os.path.realpath(os.path.join(target, "overlay.elf"))
+    metadata_path = os.path.realpath(os.path.join(target, "meta.txt"))
+    if not elf_path.startswith(target + os.sep) or not metadata_path.startswith(target + os.sep):
+        parser.error("overlay output file escapes its corpus directory")
     subprocess.run([sys.executable, os.path.join(PROFILE_DIR, "tools", "wrap_overlay.py"),
                     dump_path, base_text, elf_path], check=True)
     subprocess.run([recompiler, elf_path, "--auto", target,
@@ -81,7 +87,7 @@ def main(argv):
     # the library entry point. The build does not need an explicit reconfigure:
     # the CONFIGURE_DEPENDS glob over overlays/*/meta.txt notices the new
     # directory and reruns CMake on its own.
-    with open(os.path.join(target, "meta.txt"), "w") as out:
+    with open(metadata_path, "w") as out:
         out.write(f"base=0x{base:08X}\nname={name}\nsize={image_size}\ncode_size={code_size}\n"
                   f"hash=0x{digest:016X}\nsource={os.path.basename(dump_path)}\n")
 

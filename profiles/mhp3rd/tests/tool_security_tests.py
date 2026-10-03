@@ -104,6 +104,39 @@ class ArchiveSecurityTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), b"test")
             self.assertEqual(size, 4)
 
+    def test_overlay_outputs_cannot_follow_symlinks_outside_corpus(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build = root / "build"
+            build.mkdir()
+            header = bytearray(64)
+            header[:4] = b"MWo3"
+            struct.pack_into("<4I", header, 4, 0, 0x08800000, 0, 0)
+            header[32:36] = b"demo"
+            dump = root / "dump.bin"
+            dump.write_bytes(header)
+            corpus = root / "overlays"
+            corpus.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            prefix = f"ovl08800000_demo_{add_overlay.fnv1a64(header):016X}"
+            target = corpus / prefix
+            try:
+                target.symlink_to(outside, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f"symlinks unavailable: {error}")
+            with patch.object(add_overlay, "OVERLAY_DIR", str(corpus)), patch.object(add_overlay.subprocess, "run") as run:
+                with self.assertRaises(SystemExit):
+                    add_overlay.main(["add_overlay", "--no-build", str(build), str(dump), "0x08800000"])
+                run.assert_not_called()
+                target.unlink()
+                target.mkdir()
+                (target / "meta.txt").symlink_to(outside / "meta.txt")
+                with self.assertRaises(SystemExit):
+                    add_overlay.main(["add_overlay", "--no-build", str(build), str(dump), "0x08800000"])
+                run.assert_not_called()
+            self.assertFalse((outside / "meta.txt").exists())
+
     def test_overlay_command_paths_cannot_be_interpreted_as_options(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
