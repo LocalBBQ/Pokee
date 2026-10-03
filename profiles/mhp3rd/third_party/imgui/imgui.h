@@ -3586,6 +3586,7 @@ struct ImTextureData
     // - If GetPixels() functions asserts while being called by your render loop, it could be caused by calling ImFontAtlas::Clear()/ClearFonts()?
     ImTextureData()     { memset((void*)this, 0, sizeof(*this)); Status = ImTextureStatus_Destroyed; TexID = ImTextureID_Invalid; }
     ~ImTextureData()    { DestroyPixels(); }
+    // Local policy: positive dimensions and total bytes <= INT_MAX; invalid input or allocation failure terminates.
     IMGUI_API void      Create(ImTextureFormat format, int w, int h);
     IMGUI_API void      DestroyPixels();
     void*               GetPixels()                 { IM_ASSERT(Pixels != NULL); return Pixels; }

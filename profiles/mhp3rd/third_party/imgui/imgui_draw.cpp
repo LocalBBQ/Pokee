@@ -2493,16 +2493,33 @@ const char* ImTextureDataGetFormatName(ImTextureFormat format)
 void ImTextureData::Create(ImTextureFormat format, int w, int h)
 {
     IM_ASSERT(Status == ImTextureStatus_Destroyed);
+    // The void API and atlas builders require creation to succeed: callers immediately
+    // write pixels. Fail explicitly in every build rather than expose a partial texture.
+    // Keep all sizes representable by the existing int GetSizeInBytes()/GetPitch() API.
+    const int bytes_per_pixel = format == ImTextureFormat_RGBA32 ? 4 : format == ImTextureFormat_Alpha8 ? 1 : 0;
+    if (bytes_per_pixel == 0 || w <= 0 || h <= 0 || w > INT_MAX / bytes_per_pixel || h > INT_MAX / (w * bytes_per_pixel))
+    {
+        fprintf(stderr, "ImGui: invalid or oversized texture dimensions.\n");
+        abort();
+    }
+    const size_t size = (size_t)w * (size_t)h * (size_t)bytes_per_pixel;
+    unsigned char* pixels = (unsigned char*)IM_ALLOC(size);
+    if (pixels == NULL)
+    {
+        fprintf(stderr, "ImGui: texture allocation failed.\n");
+        abort();
+    }
+    memset(pixels, 0, size);
+
+    // Publish only after validation and allocation, preserving old state on failure.
     DestroyPixels();
     Format = format;
     Status = ImTextureStatus_WantCreate;
     Width = w;
     Height = h;
-    BytesPerPixel = ImTextureDataGetFormatBytesPerPixel(format);
+    BytesPerPixel = bytes_per_pixel;
     UseColors = false;
-    Pixels = (unsigned char*)IM_ALLOC(Width * Height * BytesPerPixel);
-    IM_ASSERT(Pixels != NULL);
-    memset(Pixels, 0, Width * Height * BytesPerPixel);
+    Pixels = pixels;
     UsedRect.x = UsedRect.y = UsedRect.w = UsedRect.h = 0;
     UpdateRect.x = UpdateRect.y = (unsigned short)~0;
     UpdateRect.w = UpdateRect.h = 0;
