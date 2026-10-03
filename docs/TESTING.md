@@ -354,7 +354,7 @@ out-of-bounds access that must fail the runner.
 
 The current baseline review covers:
 
-- `invalidContainer`, `host/kernel/kernel.cpp:805`: a reviewed false positive.
+- `invalidContainer`, `Kernel::free_block` in `host/kernel/kernel.cpp`: a reviewed false positive.
   `free_block` erases `position + 1`; `position` is before that element and
   remains valid under the [C++ vector erase rules](https://eel.is/c++draft/vector.modifiers#4).
   The runner waives only this diagnostic, file, line and a SHA-256 fingerprint
