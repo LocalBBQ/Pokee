@@ -213,6 +213,7 @@ set(MHP3RD_HOST_SOURCES
     host/hle/hle_io.cpp
     host/hle/hle_system.cpp
     host/hle/hle_media.cpp
+    host/audio/guest_pcm.cpp
     host/hle/hle_atrac.cpp
     host/hle/hle_mpeg.cpp
     host/fonts/game_font.cpp
@@ -854,3 +855,14 @@ foreach(meta IN LISTS MHP3RD_OVERLAY_METADATA)
 endforeach()
 list(LENGTH MHP3RD_OVERLAY_METADATA MHP3RD_OVERLAY_COUNT)
 message(STATUS "mhp3rd: ${MHP3RD_OVERLAY_COUNT} overlay librar(ies) in ${MHP3RD_OVERLAY_DIR}")
+
+# Guest PCM staging validates the full mapped range before allocating.
+add_executable(mhp3rd_guest_pcm_tests
+    tests/guest_pcm_tests.cpp
+    host/audio/guest_pcm.cpp)
+target_include_directories(mhp3rd_guest_pcm_tests PRIVATE "${MHP3RD_PROFILE_DIR}/host")
+target_link_libraries(mhp3rd_guest_pcm_tests PRIVATE psprecomp_core)
+set_target_properties(mhp3rd_guest_pcm_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhp3rd_guest_pcm_tests COMMAND mhp3rd_guest_pcm_tests)
+endif()

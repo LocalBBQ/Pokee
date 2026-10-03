@@ -13,6 +13,7 @@
 #include "platform/utf8_path.hpp"
 
 #include "audio/audio_sink.hpp"
+#include "audio/guest_pcm.hpp"
 #include "audio/sas_core.hpp"
 
 #include "psprecomp/common.hpp"
@@ -760,27 +761,17 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
     const std::uint32_t frames = state.samples;
     // Format 0x10 is mono: one sample per frame instead of a stereo pair.
     const bool mono = (state.format & 0x10u) != 0u;
-    const std::size_t words = frames * (mono ? 1u : 2u);
 
     if (buffer != 0u && frames != 0u) {
         static std::vector<std::int16_t> staging;
-        staging.resize(frames * 2u);
-        if (const std::uint8_t *source = rt.memory().raw_pointer(buffer, words * 2u)) {
-            for (std::uint32_t frame = 0; frame < frames; ++frame) {
-                const std::size_t index = mono ? frame : frame * 2u;
-                const auto sample = static_cast<std::int16_t>(source[index * 2u] | (source[index * 2u + 1u] << 8));
-                staging[frame * 2u] = sample;
-                staging[frame * 2u + 1u] = mono ? sample
-                                                : static_cast<std::int16_t>(source[(index + 1u) * 2u] |
-                                                                            (source[(index + 1u) * 2u + 1u] << 8));
-            }
+        if (audio::stage_guest_pcm(rt.memory(), buffer, frames, mono, staging)) {
             // How loud the buffer is after the channel's volume, worked out
             // as the sink mixes it (0x8000 is full volume): 0 means the sink
             // would add nothing but zeros.
             const std::int32_t gains[2] = {static_cast<std::int32_t>(std::min<std::uint32_t>(left, 0x8000u)),
                                            static_cast<std::int32_t>(std::min<std::uint32_t>(right, 0x8000u))};
             int peak = 0;
-            for (std::size_t i = 0; i < frames * 2u; ++i)
+            for (std::size_t i = 0; i < staging.size(); ++i)
                 peak = std::max(peak, std::abs((static_cast<std::int32_t>(staging[i]) * gains[i & 1u]) >> 15));
             load_trace::note_audio_peak(peak);
             // While a load runs faster than real time its silence is dropped:
