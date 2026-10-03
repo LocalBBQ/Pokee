@@ -42,6 +42,8 @@ A maintainer directly involved in a dispute should leave the decision to another
 
 ## GitHub reports
 
+To report a violation of this code, open the affected issue, pull request or comment's three-dot menu and select **Report content**. If **Report to repository admins** is available, choose a reason and submit the report there. Repository administrators review these reports. Availability depends on GitHub's reporting permissions for your account and the repository.
+
 Content that violates GitHub's own rules can also be reported through GitHub's reporting tools. Avoid posting personal information or sensitive details in public discussions about an incident.
 
 For repository contribution rules, see [CONTRIBUTING.md](CONTRIBUTING.md). For security vulnerability reports, see [SECURITY.md](SECURITY.md).
