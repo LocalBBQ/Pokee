@@ -60,6 +60,9 @@ overlay_*.bin
 # Editor and agent tooling
 .claude/
 
+# Maintainer-specific devices, addresses and test paths
+/LOCAL_TESTING.md
+
 # IDE files
 .vs/
 .vscode/

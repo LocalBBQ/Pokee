@@ -41,6 +41,12 @@ Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`).
 - **Unit tests.** `cmake --build out/mhp3rd --target psprecomp_tests mhp3rd_savedata_tests && ctest --test-dir out/mhp3rd`.
 - **Manual smoke test.** [TESTING.md](docs/TESTING.md), about fifteen minutes. [COMPATIBILITY.md](docs/COMPATIBILITY.md) records results per platform, always with the commit that was tested.
 
+## Local test setup
+
+If [LOCAL_TESTING.md](LOCAL_TESTING.md) exists at the repository root, read it before testing on the maintainer's devices. It describes the local macOS and Android emulator setup, SSH access to Windows and Steam Deck, developer launchers, and the available prebuilt overlays. The file is intentionally ignored by Git: keep device addresses, personal paths and machine-specific notes there, never in committed documentation. Its absence is normal in a fresh checkout; use the public build and testing guides instead.
+
+Reuse compatible prebuilt overlays for development and release packaging. Rebuild them only when a change requires it; check the runtime headers and overlay compatibility first. On the maintainer's Steam Deck, use the developer installation for tests and leave the release installation and Steam shortcuts alone unless asked to change them.
+
 ## Lessons that cost real time
 
 - **Trace the hardware; don't recall it.** GE register numbers, PSP struct layouts and HLE semantics taken from memory have been wrong, and each wrong guess cost a debugging session. Add or use a `MHP3RD_TRACE_*` switch and read what the game actually does.
