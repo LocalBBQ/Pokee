@@ -1,5 +1,7 @@
 // Real Vulkan/SDL/ImGui contracts with public synthetic buffers, no game data.
 #include "gpu/vulkan_renderer.hpp"
+#include "camera_probe.hpp"
+#include <cmath>
 #include "hle/hle_common.hpp"
 #include "audio/audio_sink.hpp"
 #include "settings/settings.hpp"
@@ -585,6 +587,62 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    psprecomp::Runtime runtime(32u * 1024u * 1024u);
+    auto &memory = runtime.memory();
+    gpu::DrawCall scene{};
+    scene.primitive = gpu::PrimitiveType::Triangles;
+    scene.has_vertex_color = true;
+    scene.target.color_address = 0x04000000;
+    scene.target.color_stride = 512;
+    scene.target.color_format = 3;
+    scene.viewport.x_scale = 240;
+    scene.viewport.y_scale = -136;
+    scene.viewport.x_offset = 240;
+    scene.viewport.y_offset = 136;
+    for (auto matrix : {&scene.world, &scene.view, &scene.projection, &scene.texture_matrix}) {
+        matrix->fill(0);
+        (*matrix)[0] = (*matrix)[5] = (*matrix)[10] = (*matrix)[15] = 1;
+    }
+    for (auto position : {std::array<float, 4>{-.2f, -.2f, 0, 1}, {.2f, -.2f, 0, 1}, {0, .2f, 0, 1}}) {
+        gpu::Vertex vertex{};
+        vertex.position = position;
+        vertex.color = 0xffffffff;
+        scene.vertices.push_back(vertex);
+    }
+    float previous{};
+    const std::array<float, 9> yaws{0, 5, 10, 18, 26, 34, 42, 50, 58};
+    for (std::size_t frame = 0; frame < yaws.size(); ++frame) {
+        const float yaw = yaws[frame];
+        const float radians = yaw * 0.017453292519943295f;
+        scene.view[0] = scene.view[10] = std::cos(radians);
+        scene.view[2] = std::sin(radians);
+        scene.view[8] = -std::sin(radians);
+        memory.store32(0x08000020, std::bit_cast<std::uint32_t>(yaw));
+        memory.store32(0x08000024, std::bit_cast<std::uint32_t>(yaw - previous));
+        memory.store32(0x08000028, std::bit_cast<std::uint32_t>(static_cast<float>(frame)));
+        memory.store32(0x08000040, 30000 + static_cast<int>(yaw * 100));
+        memory.store32(0x08000080, std::bit_cast<std::uint32_t>(scene.view[2]));
+        renderer.begin_frame();
+        renderer.submit(scene, memory);
+        expect(renderer.present(0x04000000), "synthetic camera scene presents");
+        const auto measured = renderer.camera();
+        expect(measured.valid && std::fabs(measured.yaw - yaw) < .01f &&
+                std::fabs(measured.turn - (yaw - previous)) < .01f,
+            "camera measurement recovers known view yaw and per-frame turn");
+        probe::camera_frame(runtime, 0);
+        previous = yaw;
+    }
+    std::ifstream output(sandbox / "camera-candidates.txt");
+    const std::string text{std::istreambuf_iterator<char>(output), {}};
+    expect(text.find("yaw float angle 0x8000020") != std::string::npos,
+        "camera detector retains a float angle that tracks measured turn");
+    expect(text.find("yaw float rate 0x8000024") != std::string::npos,
+        "camera detector retains a rate proportional to measured turn");
+    expect(text.find("yaw float angle 0x8000028") == std::string::npos,
+        "camera detector rejects a counter that stops tracking changed turn rate");
+}
+
 void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     SDL_VirtualJoystickDesc desc{};
     SDL_INIT_INTERFACE(&desc);
@@ -897,11 +955,13 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
 }
 
 }
-int main() {
+int run_contracts() {
     const auto sandbox = std::filesystem::temp_directory_path() /
         ("yakumo-renderer-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(sandbox);
     install::set_data_directory_override(sandbox);
+    SDL_setenv_unsafe("MHP3RD_FIND_CAMERA", "1", 1);
+    SDL_setenv_unsafe("MHP3RD_FIND_CAMERA_OUT", (sandbox / "camera-candidates.txt").string().c_str(), 1);
     auto &settings = settings::current();
     settings.internal_scale = 1;
     settings.window_scale = 1;
@@ -920,6 +980,7 @@ int main() {
     media_renderer_contracts(fixture, renderer);
     render_contracts(renderer);
     primitive_contracts(renderer);
+    camera_probe_contracts(renderer, sandbox);
     keyboard_contracts(renderer);
     input_capture_contracts(renderer);
     widget_and_browser_contracts(renderer, sandbox);
@@ -932,4 +993,13 @@ int main() {
     std::filesystem::remove_all(sandbox);
     std::cout << (failures ? "FAIL" : "PASS") << ": renderer/UI (" << failures << " failures)\n";
     return failures ? 1 : 0;
+}
+
+int main() {
+    try {
+        return run_contracts();
+    } catch (const std::exception &error) {
+        std::cerr << "FAIL: test fixture exception: " << error.what() << '\n';
+        return 1;
+    }
 }
