@@ -711,6 +711,13 @@ struct ProtocolPeer {
                 static_cast<int>(bytes.size()),
             "public protocol record sent completely");
     }
+    bool closed() {
+        return wait_until([&] {
+            char buffer[256];
+            const auto got = ::recv(socket, buffer, sizeof(buffer), 0);
+            return got == 0 || (got < 0 && !mhp3rd::adhoc::net::would_block(mhp3rd::adhoc::net::socket_error()));
+        });
+    }
     std::string read(std::size_t size) {
         std::string bytes;
         check(wait_until([&] {
@@ -809,6 +816,20 @@ void network_contracts() {
             break;
         }
     check(server_port != 0, "public loopback relay starts");
+    {
+        ProtocolPeer unknown(relay_port_for(server_port));
+        auto record = relay::init(relay::kInitPdp, macB, 19000, {}, 0);
+        record[0] = static_cast<char>(0xff);
+        unknown.send(record);
+        check(unknown.closed(), "unknown relay initialization closes the connection");
+        ProtocolPeer oversized(relay_port_for(server_port));
+        oversized.send(relay::init(relay::kInitPdp, macB, 19001, {}, 0) +
+            relay::pdp_header(macA, 10000, static_cast<unsigned>(relay::kPdpBlockMax * 2 + 1)));
+        check(oversized.closed(), "oversized datagram header is rejected without waiting for its body");
+        ProtocolPeer stray(relay_port_for(server_port));
+        stray.send(relay::init(relay::kInitPtpAccept, macB, 19002, macA, 19003));
+        check(stray.closed(), "accept without a matching pending connection is rejected");
+    }
     settings.adhoc = true;
     settings.adhoc_server = "127.0.0.1:" + std::to_string(server_port);
     f.string(Fixture::text + 4, "ULJM05800");
