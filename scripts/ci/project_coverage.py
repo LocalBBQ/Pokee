@@ -12,7 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOTS = ('include/psprecomp/', 'src/', 'tools/', 'scripts/',
-                'profiles/mhp3rd/host/', 'profiles/mhp3rd/tools/', 'profiles/mhp3rd/packaging/')
+                'profiles/mhp3rd/host/', 'profiles/mhp3rd/tools/', 'profiles/mhp3rd/packaging/',
+                'profiles/mhp3rd/cmake/', 'profiles/mhp3rd/scripts/')
 EXCLUDED = {'third_party', 'generated', 'game', 'overlays', 'overlay_corpora', 'out', 'build'}
 KINDS = {'.c': 'native', '.cc': 'native', '.cpp': 'native', '.cxx': 'native',
          '.h': 'native', '.hh': 'native', '.hpp': 'native', '.hxx': 'native',
@@ -22,7 +23,8 @@ KINDS = {'.c': 'native', '.cc': 'native', '.cpp': 'native', '.cxx': 'native',
 
 def source_kind(name):
     path = Path(name)
-    if name == 'CMakeLists.txt' or name.startswith('cmake/') and path.suffix == '.cmake':
+    if name in {'CMakeLists.txt', 'Makefile', 'profiles/mhp3rd/CMakeLists.txt'} \
+            or name.startswith('cmake/') and path.suffix == '.cmake':
         return 'build'
     if not name.startswith(SOURCE_ROOTS) or EXCLUDED.intersection(path.parts):
         return None
