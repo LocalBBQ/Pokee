@@ -533,6 +533,21 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     expect(weighted_deferred == 8 && pixel() == 0xff2255cc,
         "single-weight raw skinning and animated bone replay preserve lit interior color");
     draw.bone_matrices = nullptr;
+    draw.raw_vertices = nullptr;
+    draw.raw_count = draw.raw_stride = 0;
+    int cooked_deferred{};
+    for (int frame = 0; frame < 8; ++frame) {
+        for (std::size_t i = 0; i < positions.size(); ++i)
+            draw.vertices[i].position[0] = positions[i][0] + static_cast<float>(frame) * 0.005f;
+        const auto moment = std::chrono::steady_clock::now();
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        if (!renderer.present(0x04000000, moment)) ++cooked_deferred;
+        renderer.present_until(moment + std::chrono::milliseconds(33));
+    }
+    expect(cooked_deferred == 8 && pixel() == 0xff2255cc,
+        "CPU-skinned vertex replay interpolates animated decoded positions without changing material color");
     renderer.pause_interpolation();
     renderer.set_frame_rate(settings::FrameRate::Fps30);
     renderer.set_frame_rate_auto(true);
