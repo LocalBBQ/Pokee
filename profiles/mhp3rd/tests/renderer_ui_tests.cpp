@@ -2029,6 +2029,73 @@ void touch_event_contracts(gpu::VulkanRenderer &renderer) {
     player.touch_layout = original;
 }
 
+void scripted_mouse_contracts(gpu::VulkanRenderer &renderer) {
+    const auto saved = settings::current();
+    auto &player = settings::current();
+    player.mouse = true;
+    player.controls.keys = {};
+    player.controls.pad = {};
+    player.controls.keys[static_cast<int>(input::Action::Triangle)][0].inputs[0] = input::mouse_button(1);
+    ui::Layer::get().set_interactive(false);
+    renderer.set_scripted_input(true);
+    renderer.set_pointer_free(false);
+    renderer.set_game_input(true);
+    renderer.pump_events();
+    expect(renderer.mouse_captured(), "scripted game captures logical mouse without taking the physical pointer");
+    static_cast<void>(renderer.take_mouse_motion());
+    auto motion = [&](std::uint32_t device, float x, float y) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_MOUSE_MOTION;
+        event.motion.windowID = SDL_GetWindowID(renderer.window());
+        event.motion.which = device;
+        event.motion.xrel = x;
+        event.motion.yrel = y;
+        expect(SDL_PushEvent(&event), "mouse motion event queues");
+        renderer.pump_events();
+    };
+    motion(0, 90, 80);
+    const auto ignored = renderer.take_mouse_motion();
+    expect(ignored.x == 0 && ignored.y == 0, "scripted run rejects unrelated physical-device mouse motion");
+    motion(gpu::kScriptedMouse, 7, -3);
+    const auto moved = renderer.take_mouse_motion();
+    expect(moved.x == 7 && moved.y == -3, "scripted captured mouse retains exact relative counts");
+    const auto consumed = renderer.take_mouse_motion();
+    expect(consumed.x == 0 && consumed.y == 0, "mouse motion is consumed once");
+    auto button = [&](std::uint32_t device, bool down) {
+        SDL_Event event{};
+        event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+        event.button.windowID = SDL_GetWindowID(renderer.window());
+        event.button.which = device;
+        event.button.button = 1;
+        event.button.down = down;
+        expect(SDL_PushEvent(&event), "mouse button event queues");
+        renderer.pump_events();
+        renderer.sample_pad();
+    };
+    button(0, true);
+    expect((renderer.pad().buttons & 0x1000) == 0, "unrelated device cannot press scripted PSP mouse binding");
+    button(gpu::kScriptedMouse, true);
+    expect((renderer.pad().buttons & 0x1000) != 0, "scripted mouse button drives exact PSP Triangle binding");
+    button(0, false);
+    expect((renderer.pad().buttons & 0x1000) == 0, "mouse release clears held state across device identity");
+    button(gpu::kScriptedMouse, true);
+    motion(gpu::kScriptedMouse, 2, 4);
+    renderer.set_pointer_free(true);
+    renderer.pump_events();
+    renderer.sample_pad();
+    const auto freed = renderer.take_mouse_motion();
+    expect(!renderer.mouse_captured() && (renderer.pad().buttons & 0x1000) == 0 && freed.x == 0 && freed.y == 0,
+        "freeing pointer drops held buttons and accumulated motion without a camera jump");
+    motion(gpu::kScriptedMouse, 50, 60);
+    const auto ungrabbed = renderer.take_mouse_motion();
+    expect(ungrabbed.x == 0 && ungrabbed.y == 0, "uncaptured scripted mouse motion does not reach game");
+    renderer.set_game_input(false);
+    renderer.set_scripted_input(false);
+    renderer.set_pointer_free(false);
+    player = saved;
+    settings::save();
+}
+
 void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     SDL_VirtualJoystickDesc desc{};
     SDL_INIT_INTERFACE(&desc);
@@ -2711,6 +2778,7 @@ int run_contracts() {
     bindings_editor_contracts(renderer);
     touch_editor_contracts(renderer);
     touch_event_contracts(renderer);
+    scripted_mouse_contracts(renderer);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
     renderer.shutdown();
