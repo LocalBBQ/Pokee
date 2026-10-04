@@ -816,6 +816,43 @@ void screenshot_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::
     }
     expect(!renderer.window_capture_pending() && !std::filesystem::exists(sandbox / "missing-directory" / "window.bmp"),
         "failed window capture is consumed once without creating an invalid destination");
+    renderer.set_perf_overlay(true);
+    const auto overlay_window = sandbox / "public-overlay-window.bmp";
+    renderer.capture_window(overlay_window);
+    for (int i = 0; i < 3 && renderer.window_capture_pending(); ++i) {
+        layer.begin_frame();
+        layer.end_frame();
+        expect(renderer.present(0x04110000), "performance overlay is drawn during actual game presentation");
+    }
+    const auto overlay_frame = sandbox / "public-overlay-frame.bmp";
+    expect(renderer.capture_frame(overlay_frame), "frame capture includes the enabled performance overlay");
+    for (const auto &overlay_path : {overlay_frame, overlay_window}) {
+        std::ifstream overlay_in(overlay_path, std::ios::binary);
+        const std::vector<std::uint8_t> overlay{
+            std::istreambuf_iterator<char>(overlay_in), std::istreambuf_iterator<char>()};
+        expect(overlay.size() >= 54, "performance overlay capture exists for both framebuffer and swapchain");
+        if (overlay.size() < 54) continue;
+        auto dimension = [&](std::size_t at) {
+            return static_cast<std::uint32_t>(overlay[at]) | (static_cast<std::uint32_t>(overlay[at + 1]) << 8) |
+                (static_cast<std::uint32_t>(overlay[at + 2]) << 16) |
+                (static_cast<std::uint32_t>(overlay[at + 3]) << 24);
+        };
+        const auto w = dimension(18), h = dimension(22);
+        const auto row = (w * 3 + 3) & ~3u;
+        const auto inset = 4 * std::max(1u, h / 360);
+        const auto corner = 54 + static_cast<std::size_t>(h - 1 - inset) * row + inset * 3;
+        const auto outside = 54 + static_cast<std::size_t>(h / 2) * row + (w / 2) * 3;
+        expect(corner + 2 < overlay.size() && overlay[corner] == 16 && overlay[corner + 1] == 16 &&
+                overlay[corner + 2] == 16,
+            "performance overlay paints its documented dark background in captured GPU/frame corner");
+        expect(outside + 2 < overlay.size() && overlay[outside] == 255 && overlay[outside + 1] == 0 &&
+                overlay[outside + 2] == 255,
+            "performance overlay leaves the scene outside its rectangle unchanged");
+    }
+    renderer.set_perf_overlay(false);
+    layer.begin_frame();
+    layer.end_frame();
+    renderer.present_ui(true);
 }
 
 class MediaFixture {
