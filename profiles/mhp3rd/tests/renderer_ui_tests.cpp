@@ -1,5 +1,6 @@
 // Real Vulkan/SDL/ImGui contracts with public synthetic buffers, no game data.
 #include "gpu/vulkan_renderer.hpp"
+#include "gpu/screenshot.hpp"
 #include "camera_probe.hpp"
 #include "camera/free_camera.hpp"
 #include "game/equipment_models.hpp"
@@ -179,12 +180,22 @@ void free_camera_lifecycle_contracts() {
     const auto status = camera::free_camera_status();
     expect(status.moved_draws == 1 && status.other_draws == 1,
         "frame end publishes exact moved and untouched draw counts");
+    ui::draw_over_game();
+    auto *camera_window = ImGui::FindWindowByName("##freecam");
+    expect(camera_window && camera_window->Active && camera_window->DrawList->VtxBuffer.Size > 0,
+        "active free camera draws its real status indicator over the game");
+    ui::Layer::get().renderer().present_ui(true);
     request = {};
     request.pause = true;
     request.speed_steps = 100;
     camera::free_camera_update(runtime, request, 0);
     expect(camera::free_camera_status().paused && camera::free_camera_status().speed == settings::kMaxFreeCameraSpeed,
         "photo pause and maximum speed clamp apply");
+    ui::draw_over_game();
+    camera_window = ImGui::FindWindowByName("##freecam");
+    expect(camera_window && camera_window->Active && camera_window->DrawList->VtxBuffer.Size > 0,
+        "photo mode keeps the free-camera status visible");
+    ui::Layer::get().renderer().present_ui(true);
     request.speed_steps = -100;
     camera::free_camera_update(runtime, request, 0);
     expect(!camera::free_camera_status().paused && camera::free_camera_status().speed == settings::kMinFreeCameraSpeed,
@@ -2813,6 +2824,34 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(settings::current().internal_scale == original_resolution &&
             renderer.target_size() == std::array<std::uint32_t, 2>{480, 272},
         "resolution menu restores native offscreen target dimensions");
+    const auto before_video_reset = settings::current();
+    settings::current().sharp_screen = !settings::defaults().sharp_screen;
+    settings::current().sharp_textures = !settings::defaults().sharp_textures;
+    settings::current().aspect = settings::Aspect::Stretch;
+    change_video("Restore video defaults", ImGuiKey_Space);
+    const auto &video_defaults = settings::defaults();
+    const auto &reset_video = settings::current();
+    expect(reset_video.internal_scale == video_defaults.internal_scale &&
+            reset_video.window_scale == video_defaults.window_scale &&
+            reset_video.fullscreen == video_defaults.fullscreen && reset_video.aspect == video_defaults.aspect &&
+            reset_video.sharp_screen == video_defaults.sharp_screen &&
+            reset_video.sharp_textures == video_defaults.sharp_textures &&
+            reset_video.frame_rate == video_defaults.frame_rate &&
+            reset_video.fast_forward == video_defaults.fast_forward && reset_video.perf == video_defaults.perf,
+        "video defaults restore resolution, dimensions, filters, timing and performance settings");
+    expect(renderer.target_size() == std::array<std::uint32_t, 2>{960, 544},
+        "restoring video defaults applies their real double-resolution target");
+    settings::current() = before_video_reset;
+    renderer.set_internal_scale(before_video_reset.internal_scale);
+    renderer.set_window_scale(before_video_reset.window_scale);
+    renderer.set_aspect(before_video_reset.aspect);
+    renderer.set_sharp_screen(before_video_reset.sharp_screen);
+    renderer.set_sharp_textures(before_video_reset.sharp_textures);
+    renderer.set_texture_pack(before_video_reset.texture_pack);
+    renderer.set_present_mode(before_video_reset.present_mode);
+    renderer.set_frame_rate(before_video_reset.frame_rate);
+    renderer.set_frame_rate_auto(before_video_reset.frame_rate_auto);
+    renderer.set_perf_overlay(false);
     auto page = [&] {
         ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
         frame();
@@ -3087,6 +3126,32 @@ int run_contracts() {
     primitive_contracts(renderer);
     screenshot_contracts(renderer, sandbox);
     held_frame_contracts(renderer, sandbox);
+    const auto screenshot_path = ui::take_screenshot();
+    screenshot::finish_writes();
+    std::ifstream png_input(screenshot_path, std::ios::binary);
+    const std::vector<unsigned char> png{std::istreambuf_iterator<char>(png_input), std::istreambuf_iterator<char>()};
+    expect(!screenshot_path.empty() && png.size() > 24 && png[0] == 137 && png[1] == 'P' && png[2] == 'N' &&
+            png[3] == 'G' && png[16] == 0 && png[17] == 0 && png[18] == 1 && png[19] == 224 && png[20] == 0 &&
+            png[21] == 0 && png[22] == 1 && png[23] == 16,
+        "UI screenshot saves an actual PNG with the native game frame dimensions");
+    screenshot::finish_writes();
+    const auto screenshot_directory = screenshot::folder();
+    std::filesystem::remove_all(screenshot_directory);
+    {
+        std::ofstream blocked(screenshot_directory);
+        blocked << "Not a directory";
+    }
+    std::ostringstream screenshot_log;
+    auto *original_log = std::cout.rdbuf(screenshot_log.rdbuf());
+    const auto failed_capture = ui::take_screenshot();
+    screenshot::finish_writes();
+    std::cout.rdbuf(original_log);
+    std::cout << screenshot_log.str();
+    expect(!failed_capture.empty() && !std::filesystem::exists(failed_capture) &&
+            std::filesystem::is_regular_file(screenshot_directory) &&
+            screenshot_log.str().find("[screenshot] not saved:") != std::string::npos,
+        "queued UI screenshot reports asynchronous write failure and preserves the blocking file");
+    std::filesystem::remove(screenshot_directory);
     camera_probe_contracts(renderer, sandbox);
     free_camera_lifecycle_contracts();
     keyboard_contracts(renderer);
