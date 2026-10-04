@@ -36,8 +36,11 @@ class CoveragePipelineTests(unittest.TestCase):
                   'import sys\nfrom pathlib import Path\n'
                   'sys.path.insert(0, str(Path(__file__).resolve().parents[3]))\nimport owned.archive\n')
             write('scripts/ci/test_probe.py',
-                  'import sys\nfrom pathlib import Path\n'
-                  'sys.path.insert(0, str(Path(__file__).resolve().parents[2]))\nimport owned.unit\n')
+                  'import sys\nimport unittest\nfrom pathlib import Path\n'
+                  'sys.path.insert(0, str(Path(__file__).resolve().parents[2]))\nimport owned.unit\n'
+                  'class Probe(unittest.TestCase):\n'
+                  '    def test_public_value(self):\n'
+                  '        self.assertEqual(owned.unit.VALUE, 1)\n')
             # This fixture isolates collection from native compilation. Real
             # report parsing/gating has separate real-Git integration tests.
             write('scripts/ci/project_coverage.py',
