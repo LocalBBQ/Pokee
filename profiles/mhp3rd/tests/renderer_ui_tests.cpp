@@ -398,6 +398,14 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     int deferred{};
     for (int frame = 0; frame < 16; ++frame) {
         draw.world[12] = static_cast<float>(frame) * 0.002f;
+        draw.lighting_enabled = frame >= 8;
+        draw.lighting.material_update = 1;
+        draw.lighting.ambient_color = 0x00ffffff;
+        draw.lighting.lights[0].enabled = true;
+        draw.lighting.lights[0].type = static_cast<std::uint32_t>(frame % 3);
+        draw.lighting.lights[0].position = {0, 0, 1};
+        draw.lighting.lights[0].direction = {0, 0, -1};
+        draw.environment_version = static_cast<std::uint64_t>(frame + 1);
         const auto moment = std::chrono::steady_clock::now();
         renderer.begin_frame();
         renderer.submit(clear, memory);
@@ -428,6 +436,7 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.set_frame_rate(settings::FrameRate::Fps30);
     renderer.set_frame_rate_auto(true);
     draw.world[12] = 0;
+    draw.lighting_enabled = false;
     draw.depth.test_enabled = true;
     for (std::uint32_t function : {0u, 1u}) {
         draw.depth.function = function;
