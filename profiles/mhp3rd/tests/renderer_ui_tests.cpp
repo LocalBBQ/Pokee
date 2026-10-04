@@ -2948,10 +2948,52 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(settings::current().control_preset == initial_preset && settings::current().controls == initial_controls,
         "preset selector round trip restores the original bindings");
     change_video("Save as a new preset", ImGuiKey_Space);
-    const auto custom_preset = settings::current().control_preset;
+    auto custom_preset = settings::current().control_preset;
     expect(!custom_preset.shipped && settings::current().user_presets.size() == initial_user_presets.size() + 1 &&
             settings::current().controls == initial_controls,
         "saving a custom preset preserves bindings and creates one independent layout");
+    const auto menu_original_scale = settings::current().window_scale;
+    renderer.set_window_scale(2);
+    SDL_Event editing_device{};
+    editing_device.type = SDL_EVENT_KEY_DOWN;
+    editing_device.key.windowID = SDL_GetWindowID(renderer.window());
+    editing_device.key.key = SDLK_F24;
+    editing_device.key.scancode = SDL_SCANCODE_F24;
+    editing_device.key.down = true;
+    SDL_PushEvent(&editing_device);
+    renderer.pump_events();
+    editing_device.type = SDL_EVENT_KEY_UP;
+    editing_device.key.down = false;
+    SDL_PushEvent(&editing_device);
+    renderer.pump_events();
+    auto edit_menu_text = [&](const char *id, const char *text) {
+        change_video(id, ImGuiKey_Enter);
+        expect(ImGui::GetCurrentContext()->ActiveId != 0 && !ui::text_input_open(),
+            "keyboard activation edits the actual menu text field in place");
+        auto &io = ImGui::GetIO();
+        const auto shortcut = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+        io.AddKeyEvent(shortcut, true);
+        io.AddKeyEvent(ImGuiKey_A, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_A, false);
+        io.AddKeyEvent(shortcut, false);
+        frame();
+        io.AddInputCharactersUTF8(text);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Enter, true);
+        frame();
+        io.AddKeyEvent(ImGuiKey_Enter, false);
+        frame();
+    };
+    edit_menu_text("##preset_name", "Public#=Name");
+    expect(settings::current().control_preset.user == "PublicName" &&
+            settings::find_user_preset(settings::current(), "PublicName") != nullptr,
+        "preset text field filters settings syntax and renames the selected real layout");
+    custom_preset = settings::current().control_preset;
+    edit_menu_text("##preset_name", "Default");
+    expect(
+        settings::current().control_preset == custom_preset, "preset rename rejects a shipped preset's reserved name");
+    renderer.set_window_scale(menu_original_scale);
     change_video("Delete this preset", ImGuiKey_Space);
     activate_confirmation("Cancel");
     expect(settings::current().control_preset == custom_preset &&
