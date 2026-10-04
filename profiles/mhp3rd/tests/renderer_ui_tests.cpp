@@ -2755,6 +2755,9 @@ int run_contracts() {
         return 1;
     }
     auto &renderer = *selected;
+    if (const char *compat = std::getenv("MHP3RD_GPU_COMPAT"); compat && std::string_view(compat) == "on")
+        expect(renderer.gpu_compat_status().rfind("On", 0) == 0,
+            "compatibility variant initializes the actual conservative renderer path");
     auto &diagnostic_memory = fixture.runtime.memory();
     diagnostic_memory.store32(0x08000140, std::bit_cast<std::uint32_t>(6.25f));
     diagnostic_memory.store32(0x08000144, std::bit_cast<std::uint32_t>(6.25f));

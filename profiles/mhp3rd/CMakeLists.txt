@@ -1010,6 +1010,12 @@ if(MHP3RD_RENDERER_TESTS)
     if(PSPRECOMP_BUILD_TESTS)
         add_test(NAME mhp3rd_renderer_ui_tests COMMAND mhp3rd_renderer_ui_tests)
         set_tests_properties(mhp3rd_renderer_ui_tests PROPERTIES TIMEOUT 90)
+        # Exercise the documented conservative path even when Auto keeps it off.
+        add_custom_target(mhp3rd_renderer_ui_compat_tests DEPENDS mhp3rd_renderer_ui_tests)
+        add_test(NAME mhp3rd_renderer_ui_compat_tests COMMAND mhp3rd_renderer_ui_tests)
+        set_tests_properties(mhp3rd_renderer_ui_compat_tests PROPERTIES
+            TIMEOUT 90
+            ENVIRONMENT "MHP3RD_GPU_COMPAT=on")
         # The same public buffers also check shader decode and direct index expansion
         # against independently specified host vertices in the diagnostic paths.
         add_custom_target(mhp3rd_renderer_ui_checked_tests DEPENDS mhp3rd_renderer_ui_tests)
