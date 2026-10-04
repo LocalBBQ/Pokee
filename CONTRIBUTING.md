@@ -32,6 +32,27 @@ If you have a device-specific setup, keep its paths, addresses and launch instru
 
 ## Testing changes
 
+Every behavior change must include automated tests for the changed contract.
+Bug fixes include a regression that fails before the fix and passes afterward;
+new features exercise successful behavior and relevant failure/boundary cases.
+Use synthetic public inputs, deterministic assertions and bounded execution.
+Do not replace behavioral tests with implementation-shaped mocks or increase
+coverage by removing untested sources, weakening assertions or exclusions.
+
+Run the full relevant suites before requesting review. CI runs the full public
+platform suites on branches and pull requests, with an additional 80% changed
+executable-line coverage requirement for measured native and Python sources.
+Changed Java files without a coverage mapping also fail the gate; see the
+rollout status below for remaining coverage gaps. A diff coverage check
+complements full suite testing; it does not replace regression checks outside
+the diff.
+
+Documentation-only and purely mechanical changes need appropriate verification
+rather than artificial code tests. When hardware/game data makes automation
+unavailable, add tests for the separable logic and document the remaining manual
+scenario, evidence and coverage gap in the pull request. Do not claim unmeasured
+code is covered. See [COVERAGE.md](docs/COVERAGE.md) for scope and rollout.
+
 Choose checks that exercise the behavior you changed. [TESTING.md](docs/TESTING.md) describes automated checks and manual smoke tests; [COMPATIBILITY.md](docs/COMPATIBILITY.md) records verified platform results.
 
 On macOS/Linux with Make, the root `Makefile` provides shortcuts to the existing
@@ -61,14 +82,17 @@ Apple SDK flags for clang-tidy. These targets use their existing separate
 only after that directory has been configured following the build guide; reuse
 compatible generated objects and overlays as usual.
 
-`make coverage` runs native tests with Clang coverage in its own build directory
-and produces percentages and an HTML report for the compiled first-party
-headless subset. See [the coverage scope and limitations](docs/TESTING.md#native-c-coverage)
-before interpreting the result as project coverage.
+`make coverage` runs native suites with Clang coverage in its own build
+directory, including the public application stub and tools. Install the pinned
+Python collector with `make coverage-tools`, then run `make project-coverage`
+for the native/Python inventory and 80% diff check. `make java-test` adds Android
+Java reports when Maven, Java and the pinned SDL source are available. See
+[COVERAGE.md](docs/COVERAGE.md) for full-renderer CI, commands and remaining gaps.
 
 Make is optional. Windows users can use the direct CMake/Python commands below
 and in the testing guide; the convenience recipes require a POSIX shell and
-Unix-style virtual environment paths. Hosted CI retains its existing commands.
+Unix-style virtual environment paths. The Linux coverage job uses these recipes;
+the desktop/Android native jobs retain direct CMake commands.
 
 For the unit-test targets:
 

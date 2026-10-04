@@ -9,7 +9,7 @@
 - **Archive-tool security regressions** run with `python3 profiles/mhp3rd/tests/tool_security_tests.py` and in the desktop CI jobs. Synthetic ISO records and overlay names exercise traversal rejection, existing symlink escapes, malformed directory records and cycles, and overlay command argument handling; they use no game data.
 - **Framework tests** run with `ctest --test-dir out/framework` and need no game data.
 - **Python lint CI** (`Python lint (Ruff)` in `.github/workflows/tooling.yml`) runs pinned Ruff correctness checks on all first-party Python scripts, tools and tests without game data or native builds. It fails on findings and excludes vendored/generated sources, game directories, overlays and build outputs. The same local command is documented in [CONTRIBUTING.md](../CONTRIBUTING.md#python-tooling); Python formatting is not enforced.
-- **Unit-test CI** runs the framework and headless profile tests on standard GitHub-hosted Linux, macOS and Windows runners for pull requests, pushes to `main` and release branches, and manual dispatch. The workflow in `.github/workflows/tests.yml` builds only `psprecomp_test_binaries` in Debug mode, then runs CTest with failure output and a per-test timeout. Failed jobs upload test logs and JUnit results when available. It uses no game data, generated game corpus, overlays or GPU. FFmpeg is disabled to avoid downloading and building application-only audio/video dependencies. The Vulkan descriptor-pool test is excluded from this renderer-disabled configuration. Android CI also cross-compiles the same targets with NDK 28.2 for `arm64-v8a` and `x86_64` at API 29 (Android 10). The x86_64 binaries run through ADB on a hardware-accelerated Android emulator, including the framework's synthetic code-generation checks. The runner deploys the shared C++ runtime, records each test's exit status and logs, applies a per-test timeout, and uploads diagnostics on failure. ARM64 is a compile check only. APK packaging, Java/JNI integration, Vulkan, gameplay and real Android devices still require separate testing, as does Steam Deck gameplay.
+- **Unit-test CI** runs the framework and headless profile tests on standard GitHub-hosted Linux, macOS and Windows runners for pull requests, every pushed branch, and manual dispatch. The workflow in `.github/workflows/tests.yml` builds only `psprecomp_test_binaries` in Debug mode, then runs CTest with failure output and a per-test timeout. Failed jobs upload test logs and JUnit results when available. It uses no game data, generated game corpus, overlays or GPU. FFmpeg is disabled to avoid downloading and building application-only audio/video dependencies. The Vulkan descriptor-pool test is excluded from this renderer-disabled configuration. Android CI also cross-compiles the same targets with NDK 28.2 for `arm64-v8a` and `x86_64` at API 29 (Android 10). The x86_64 binaries run through ADB on a hardware-accelerated Android emulator, including the framework's synthetic code-generation checks. The runner deploys the shared C++ runtime, records each test's exit status and logs, applies a per-test timeout, and uploads diagnostics on failure. ARM64 is a compile check only. APK packaging, Java/JNI integration, Vulkan, gameplay and real Android devices still require separate testing, as does Steam Deck gameplay.
 - **CodeQL security analysis** is defined by `.github/workflows/codeql.yml` using advanced setup for Actions, C/C++, Java/Kotlin and Python, with the extended query suite and local as well as default remote input sources on standard GitHub-hosted runners. C/C++ uses no-build extraction, so it needs no game data, generated corpus or overlay rebuild. Java uses a manual `javac --release 11` compilation of Yakumo's Android wrapper with Android API 35 and the release-pinned SDL3 dependency. SDL Java classes are prepared before CodeQL initialization; the traced app compilation resolves them through its classpath. No native code, emulator, APK, game data or overlays are needed for Java analysis. Review results under *Security and quality → Code scanning*; a successful scan does not replace builds or gameplay tests. GitHub Code Quality is a separate product and remains disabled.
 - **Full application builds on every platform** — further work tracked in [#15](https://github.com/TeamGDB/Yakumo/issues/15). Unit-test CI does not build playable releases; release packaging remains a separate process.
 - **Regression tests on your own copy of the game**, replaying recorded input and comparing frames against reference images — planned in [#16](https://github.com/TeamGDB/Yakumo/issues/16).
@@ -28,42 +28,46 @@ For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and report p
 
 ### Native C++ coverage
 
-`make coverage` configures a separate Debug/headless build in `out/coverage`,
-builds only the native test executables, runs the full registered suite and
-merges fresh Clang source-based profiles. No game data, application build or
-overlay build is required. Normal builds keep `PSPRECOMP_COVERAGE=OFF`; coverage
-and sanitizers use separate build directories.
+`make coverage` uses a separate instrumented Debug build in `out/coverage`,
+compiles public native tests, the application with an empty generated-code
+registry and the command-line tools, runs the full registered suite and merges
+fresh Clang profiles. It never compiles local game-derived generated units or
+rebuilds overlays. Normal builds keep `PSPRECOMP_COVERAGE=OFF`; coverage and
+sanitizers use separate build directories.
 
-On Ubuntu 24.04 install `clang-18`, `llvm-18`, `libclang-rt-18-dev`, Ninja and
-CMake. On macOS use the Xcode Clang compiler and its matching `xcrun llvm-cov`
-and `xcrun llvm-profdata`. `COVERAGE_CXX` selects the compiler, but the report
-tools must match its profile format. Windows/cross-compilation are not supported
-by this optional coverage target.
+The project coverage workflow runs on every branch and PR. It enables the
+Vulkan renderer and system FFmpeg, builds the pinned SDL dependency, and
+collects native, Python and Android Java reports. It runs the complete suites
+before requiring **80% coverage of changed executable lines**; the overall
+percentage has no minimum. The `project-coverage` artifact includes per-language
+HTML reports, native LCOV, the JSON/Markdown source inventory and diagnostics.
+See [COVERAGE.md](COVERAGE.md) for commands, comparison bases and remaining gaps.
 
-The `.github/workflows/coverage.yml` job uses Linux Clang 18. Its summary shows
-weighted percentages for executable lines, functions and branches. The
-`native-coverage` artifact contains `coverage-results/summary.json`,
-`summary.md`, `report.txt`, merged profiles and the browsable `html/index.html`.
-Locally these are under `out/coverage/coverage-results/`. The runner removes its
-previous report/profile directory before each test run to prevent stale hits.
-Missing instrumentation, test failures and report failures fail the job; no
-coverage-percentage threshold is imposed until a baseline has been reviewed.
-LLVM can report zero-hash unused inline stub mappings when another translation
-unit emits that function. The runner accepts only zero-hash stubs whose emitted
-function mapping is also present in the export, retaining the diagnostics and
-names in the report. Other mismatches or missing emitted mappings fail reporting.
+On Linux use Clang/LLVM 18 and compiler-rt; on macOS use Xcode Clang and its
+matching `xcrun llvm-cov`/`llvm-profdata`. `COVERAGE_CXX` selects the compiler,
+but report tools must match its profile format. Native coverage currently
+supports neither Windows nor cross-compilation. Headless native tests still
+run on all supported desktop runners and on the Android x86_64 emulator.
 
-The denominator includes only Git-tracked first-party production C/C++ files
-under `include/psprecomp/`, `src/` and `profiles/mhp3rd/host/` represented in the
-test binaries. Test code, vendor sources, generated/game code and Python are
-excluded. Tracked production files absent from the coverage mapping are listed
-in `unrepresented_first_party_files`; their executable-line counts are unknown,
-so they are not silently counted as fully covered or assigned invented counts.
-This measures the compiled headless subset, not the whole project. Renderer,
-audio and platform paths absent from these binaries remain unmeasured; child
-processes that abort before flushing their profiles can also lose hits.
+The native denominator includes tracked first-party production C/C++ under
+`include/psprecomp/`, `src/`, `tools/` and `profiles/mhp3rd/host/` that have a
+coverage mapping in the application, tools or test binaries. Vendor sources,
+test code, generated/game code and Python are excluded. Unmapped sources stay
+visible with unknown executable-line counts; absent platform paths and child
+processes that abort without flushing profiles remain gaps. Compiling renderer
+and audio mappings does not establish GPU/audio behavior coverage. The report
+does not claim the entire project has been tested.
+
+The runner clears previous native reports/profiles before testing. Missing
+instrumentation, test failures and collection failures fail the job. LLVM can
+report unused zero-hash inline stubs when another translation unit emits the
+function; only stubs whose emitted mapping exists are accepted, with retained
+diagnostics. Nonzero mismatches and missing emitted mappings fail reporting.
+Collection uses one LLVM export/rendering worker: LLVM 18's parallel debug
+export has aborted with an invalid free in CI. The serial mode retains the
+same binaries and mappings and still fails on unreviewed diagnostics.
 See [Clang's coverage guide](https://clang.llvm.org/docs/SourceBasedCodeCoverage.html)
-for what each metric measures and how source-based profiles work.
+for the source-based metrics.
 
 ### Native ASan and UBSan
 

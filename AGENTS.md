@@ -16,6 +16,7 @@ Read the documents relevant to the task before changing code, testing, packaging
 | [BUILDING.md](docs/BUILDING.md) | Platform prerequisites, build steps, incremental work and reuse across checkouts |
 | [BUILD_SYSTEM.md](docs/BUILD_SYSTEM.md) | Build locks, Ninja dependency logs, compiler caching and expensive rebuilds |
 | [FORMATTING.md](docs/FORMATTING.md) | C++ style, pinned formatter, scoped commands and enforcement |
+| [COVERAGE.md](docs/COVERAGE.md) | Coverage scope, full-suite/diff policy and remaining test gaps |
 | [TESTING.md](docs/TESTING.md) | Automated checks, manual smoke tests and subsystem regression checks |
 | [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Verified behavior and remaining problems by platform, with tested commits |
 | [RELEASING.md](docs/RELEASING.md) | Release branches, stable/test policy, packaging, artifact checks and publishing; `release/X.Y` branches are retained for patch releases |
@@ -40,6 +41,7 @@ The [profile README](profiles/mhp3rd/README.md) covers player settings, environm
 - **Branch and pull request.** Never push to `main`. Pull requests are merged by rebase; keep a clean, reviewable commit series.
 - **No game data, ever.** Disc images, `EBOOT`/`DATA.BIN` contents, the generated code (`profiles/mhp3rd/generated/`), overlay corpora, and saves stay local; they are ignored by Git. The same goes for anything personal: home paths, user names, machine names, addresses.
 - **Write it yourself.** Read public documentation and other projects to understand the PSP, file formats and protocols. Never copy, paste or line-by-line translate code from a project whose licence is incompatible with this repository's MIT licence. Constants, offsets and format facts are fine. Record where intentionally included third-party code comes from; see [SOURCE_PROVENANCE.md](docs/SOURCE_PROVENANCE.md).
+- **Tests accompany behavior changes.** Add regression tests for fixes and success/failure/boundary tests for new behavior. Run the full relevant suites; changed executable lines must reach 80% coverage. Record hardware/game-data gaps and manual evidence. Documentation and mechanical changes need suitable verification rather than artificial tests. Follow [CONTRIBUTING.md](CONTRIBUTING.md#testing-changes) and [COVERAGE.md](docs/COVERAGE.md).
 - **Say what you did not verify.** A pull request lists what was tested, on which platform, and what was not.
 
 ## Building without waiting hours
