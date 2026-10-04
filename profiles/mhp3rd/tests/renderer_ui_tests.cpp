@@ -16,6 +16,7 @@
 #include "ui/touch_editor.hpp"
 #include "ui/touch_overlay.hpp"
 #include "imgui_internal.h"
+#include "backends/imgui_impl_sdl3.h"
 #include <fstream>
 #include "imgui.h"
 #include <SDL3/SDL.h>
@@ -170,6 +171,22 @@ void keyboard_contracts(gpu::VulkanRenderer &renderer) {
         "printable ASCII boundaries");
     expect(ui::hunter_name_character(U'A') && ui::hunter_name_character(U'9') && !ui::hunter_name_character(U'%'),
         "hunter name allowed set");
+    request.initial = "A\xc3\xa9\xe2\x82\xac\xf0\x9f\x98\x80";
+    request.allowed = [](char32_t) { return true; };
+    request.max_length = 4;
+    ui::open_text_input(request, [&](auto text) { result = std::move(text); });
+    frame();
+    ImGui::GetIO().AddInputCharactersUTF8("Z");
+    frame();
+    press(ImGuiKey_Enter);
+    expect(result == request.initial,
+        "UTF-8 one/two/three/four-byte characters roundtrip and character limit rejects overflow");
+    ui::open_text_input(request, [&](auto text) { result = std::move(text); });
+    frame();
+    press(ImGuiKey_Backspace);
+    press(ImGuiKey_Enter);
+    expect(result == "A\xc3\xa9\xe2\x82\xac", "backspace removes one Unicode character rather than one byte");
+
     layer.set_interactive(false);
 }
 
@@ -505,6 +522,152 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
+    SDL_VirtualJoystickDesc desc{};
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+    desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+    desc.name = "Yakumo synthetic test gamepad";
+    const auto id = SDL_AttachVirtualJoystick(&desc);
+    expect(id != 0, "synthetic SDL gamepad attaches");
+    if (!id) return;
+    auto *pad = SDL_OpenGamepad(id);
+    expect(pad != nullptr, "virtual joystick is recognized as a gamepad");
+    if (!pad) {
+        SDL_DetachVirtualJoystick(id);
+        return;
+    }
+    auto *joystick = SDL_GetGamepadJoystick(pad);
+    ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, &pad, 1);
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    auto frame = [&] {
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        layer.begin_frame();
+        ui::text_input_frame();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto press = [&](SDL_GamepadButton button) {
+        expect(SDL_SetJoystickVirtualButton(joystick, button, true), "virtual gamepad button presses");
+        frame();
+        expect(SDL_GetGamepadButton(pad, button), "SDL gamepad observes virtual pressed state");
+        expect(SDL_SetJoystickVirtualButton(joystick, button, false), "virtual gamepad button releases");
+        frame();
+    };
+    frame();
+    frame();
+    std::optional<std::string> result;
+    ui::TextInputRequest request;
+    request.title = "Gamepad keyboard contract";
+    request.max_length = 16;
+    ui::open_text_input(request, [&](auto text) { result = std::move(text); });
+    frame();
+    frame();
+    expect(layer.gamepad_armed(), "released virtual gamepad arms keyboard input");
+    const auto confirm = layer.confirm_south() ? SDL_GAMEPAD_BUTTON_SOUTH : SDL_GAMEPAD_BUTTON_EAST;
+    const auto back = layer.confirm_south() ? SDL_GAMEPAD_BUTTON_EAST : SDL_GAMEPAD_BUTTON_SOUTH;
+    press(confirm);                 // q
+    press(SDL_GAMEPAD_BUTTON_WEST); // Shift once
+    press(confirm);                 // Q, resets shift
+    press(SDL_GAMEPAD_BUTTON_WEST);
+    press(SDL_GAMEPAD_BUTTON_WEST);  // Caps lock
+    press(confirm);                  // Q
+    press(SDL_GAMEPAD_BUTTON_WEST);  // Shift off
+    press(back);                     // delete last Q
+    press(SDL_GAMEPAD_BUTTON_NORTH); // space
+    press(SDL_GAMEPAD_BUTTON_BACK);  // symbol page
+    press(SDL_GAMEPAD_BUTTON_DPAD_DOWN);
+    press(SDL_GAMEPAD_BUTTON_DPAD_UP);
+    press(confirm); // !
+    press(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+    press(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+    press(SDL_GAMEPAD_BUTTON_START);
+    if (result != "qQ !" || ui::text_input_open())
+        std::cerr << "virtual result=" << result.value_or("<empty>") << " open=" << ui::text_input_open() << "\n";
+    expect(result == "qQ !" && !ui::text_input_open(),
+        "gamepad keyboard shift/caps/delete/space/symbols/cursor/accept contract");
+    layer.begin_binding_capture(ui::Layer::Capture::Pad);
+    press(SDL_GAMEPAD_BUTTON_SOUTH);
+    auto captured = layer.take_captured_binding();
+    expect(captured && captured->inputs[0] == input::pad(input::PadInput::South),
+        "real SDL pad capture records released button");
+    ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
+    SDL_CloseGamepad(pad);
+    expect(SDL_DetachVirtualJoystick(id), "virtual test device detaches");
+    renderer.pump_events();
+    layer.set_interactive(false);
+}
+
+void focused_widget_contracts(gpu::VulkanRenderer &renderer) {
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    int value = 9, mode = 0, delta{};
+    bool on{};
+    auto frame = [&](bool disabled = false) {
+        layer.begin_frame();
+        ui::begin_panel("##focused-contract", "Focused contracts", "", false);
+        ui::begin_content();
+        ui::focus_next_row();
+        if (mode == 0)
+            ui::slider_row("Bounded slider", value, 0, 10, 3, "%d", {disabled, "", "Slider contract", true});
+        else if (mode == 1) {
+            if (ui::toggle_row("Toggle", on, {disabled})) on = !on;
+        } else
+            delta = ui::choice_row("Choice", "Public choice", {disabled});
+        ui::info_row("Information", "Public fixture");
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto press = [&](ImGuiKey key, bool disabled = false) {
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame(disabled);
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame(disabled);
+    };
+    frame();
+    frame();
+    press(ImGuiKey_RightArrow);
+    expect(value == 10, "slider step clamps at upper bound");
+    press(ImGuiKey_LeftArrow);
+    expect(value == 7, "slider keyboard uses configured step");
+    value = 1;
+    press(ImGuiKey_LeftArrow);
+    expect(value == 0, "slider step clamps at lower bound");
+    press(ImGuiKey_RightArrow, true);
+    expect(value == 0, "disabled focused slider ignores keyboard changes");
+    mode = 1;
+    frame();
+    press(ImGuiKey_RightArrow);
+    expect(on, "right enables focused toggle");
+    press(ImGuiKey_RightArrow);
+    expect(on, "right on enabled toggle is idempotent");
+    press(ImGuiKey_LeftArrow);
+    expect(!on, "left disables focused toggle");
+    press(ImGuiKey_RightArrow, true);
+    expect(!on, "disabled toggle ignores keyboard changes");
+    mode = 2;
+    frame();
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, true);
+    frame();
+    expect(delta == 1, "choice keyboard right returns next delta");
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, false);
+    frame();
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
+    frame();
+    expect(delta == -1, "choice keyboard left returns previous delta");
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, false);
+    frame();
+    layer.set_interactive(false);
+}
+
 // One finite key gesture terminates each modal. The enclosing CTest timeout
 // bounds the real UI event loop if a regression ignores this gesture.
 template <class Fn> auto with_escape(gpu::VulkanRenderer &renderer, Fn work) {
@@ -682,6 +845,7 @@ int main() {
     settings.fullscreen = false;
     settings.frame_rate = settings::FrameRate::Fps30;
     SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     MediaFixture fixture;
     auto *selected = active_renderer();
     if (!selected) {
@@ -696,8 +860,10 @@ int main() {
     keyboard_contracts(renderer);
     input_capture_contracts(renderer);
     widget_and_browser_contracts(renderer, sandbox);
+    focused_widget_contracts(renderer);
     menu_contracts(renderer);
     setup_screen_contracts(renderer, sandbox);
+    virtual_gamepad_contracts(renderer);
     audio_device_contracts();
     renderer.shutdown();
     std::filesystem::remove_all(sandbox);
