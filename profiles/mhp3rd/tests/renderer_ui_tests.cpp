@@ -2157,6 +2157,74 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
             "visiting each page retains menu without requesting quit");
     }
     expect(settings::current().volume == volume, "rendering all settings pages leaves volume unchanged");
+    auto change_video = [&](const char *label, ImGuiKey key) {
+        auto focus = [&]() {
+            for (auto *window : ImGui::GetCurrentContext()->Windows) {
+                if (std::string(window->Name).find("##menu/content") == std::string::npos) continue;
+                ImGui::FocusWindow(window);
+                ImGui::SetFocusID(window->GetID(label), window);
+                ImGui::SetNavCursorVisible(true);
+                ImGui::SetScrollY(window, 0);
+            }
+        };
+        focus();
+        frame();
+        focus();
+        frame();
+        focus();
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    const auto initial_sharp_screen = settings::current().sharp_screen;
+    const auto initial_sharp_textures = settings::current().sharp_textures;
+    const auto initial_aspect = settings::current().aspect;
+    change_video("Scaling filter", ImGuiKey_RightArrow);
+    expect(settings::current().sharp_screen != initial_sharp_screen, "video menu changes actual scaling filter");
+    change_video("Scaling filter", ImGuiKey_LeftArrow);
+    expect(settings::current().sharp_screen == initial_sharp_screen, "scaling filter round trip restores setting");
+    change_video("Texture filter", ImGuiKey_RightArrow);
+    expect(settings::current().sharp_textures != initial_sharp_textures, "video menu changes actual texture filter");
+    change_video("Texture filter", ImGuiKey_LeftArrow);
+    expect(settings::current().sharp_textures == initial_sharp_textures, "texture filter round trip restores setting");
+    change_video("Aspect ratio", ImGuiKey_RightArrow);
+    expect(settings::current().aspect != initial_aspect, "video menu cycles renderer aspect ratio");
+    change_video("Aspect ratio", ImGuiKey_LeftArrow);
+    expect(settings::current().aspect == initial_aspect, "aspect ratio round trip restores renderer setting");
+    auto page = [&] {
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
+        frame();
+    };
+    auto &sink = audio::AudioSink::instance();
+    sink.initialize();
+    expect(sink.has_device(), "audio menu has an isolated dummy device");
+    const auto saved_mute = settings::current().mute;
+    settings::current().volume = 50;
+    settings::current().mute = false;
+    page();
+    change_video("Volume", ImGuiKey_RightArrow);
+    expect(settings::current().volume == 55, "audio menu volume steps by exactly five percent");
+    change_video("Volume", ImGuiKey_LeftArrow);
+    expect(settings::current().volume == 50, "audio menu volume reverse step restores gain setting");
+    change_video("Mute", ImGuiKey_RightArrow);
+    expect(settings::current().mute, "audio menu mute enables zero gain");
+    change_video("Mute", ImGuiKey_LeftArrow);
+    expect(!settings::current().mute, "audio menu mute restores gain without losing volume");
+    change_video("Restore audio defaults", ImGuiKey_Space);
+    expect(settings::current().volume == settings::defaults().volume &&
+            settings::current().mute == settings::defaults().mute,
+        "audio defaults restore shipped gain and mute state");
+    settings::current().volume = volume;
+    settings::current().mute = saved_mute;
+    page();
+    const auto original_confirm = settings::current().confirm_south;
+    change_video("Confirm button", ImGuiKey_RightArrow);
+    expect(settings::current().confirm_south != original_confirm, "controls menu switches confirm convention");
+    change_video("Confirm button", ImGuiKey_LeftArrow);
+    expect(settings::current().confirm_south == original_confirm, "confirm convention round trip restores setting");
     SDL_Event escape{};
     escape.type = SDL_EVENT_KEY_DOWN;
     escape.key.windowID = SDL_GetWindowID(renderer.window());
