@@ -2502,6 +2502,24 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(settings::current().confirm_south != original_confirm, "controls menu switches confirm convention");
     change_video("Confirm button", ImGuiKey_LeftArrow);
     expect(settings::current().confirm_south == original_confirm, "confirm convention round trip restores setting");
+    auto toggle_setting = [&](const char *label, bool settings::Settings::*field) {
+        const bool original = settings::current().*field;
+        change_video(label, ImGuiKey_Space);
+        expect(settings::current().*field != original, "control menu toggle changes its own setting");
+        change_video(label, ImGuiKey_Space);
+        expect(settings::current().*field == original, "control menu toggle round trip restores its own setting");
+    };
+    toggle_setting("Analog camera", &settings::Settings::analog_camera);
+    toggle_setting("Lock-on", &settings::Settings::lock_on);
+    toggle_setting("Lock-on marker", &settings::Settings::lock_on_marker);
+    toggle_setting("Invert camera horizontally", &settings::Settings::invert_camera_x);
+    toggle_setting("Invert camera vertically", &settings::Settings::invert_camera_y);
+    toggle_setting("Mouse", &settings::Settings::mouse);
+    toggle_setting("Invert mouse horizontally", &settings::Settings::invert_mouse_x);
+    toggle_setting("Invert mouse vertically", &settings::Settings::invert_mouse_y);
+    toggle_setting("On-screen controls", &settings::Settings::touch_controls);
+    toggle_setting("Free camera", &settings::Settings::free_camera);
+
     SDL_Event escape{};
     escape.type = SDL_EVENT_KEY_DOWN;
     escape.key.windowID = SDL_GetWindowID(renderer.window());
