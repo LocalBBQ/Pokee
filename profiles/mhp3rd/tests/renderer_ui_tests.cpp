@@ -1208,7 +1208,8 @@ void file_browser_boundary_contracts(gpu::VulkanRenderer &renderer, const std::f
         ui::begin_content();
         if (focus) {
             ImGuiWindow *target = ImGui::GetCurrentWindow();
-            if (index >= 0 || std::string_view(focus) == "##parent" || std::string_view(focus) == "##choose") {
+            if ((index >= 0 && std::string_view(focus) != "##place") || std::string_view(focus) == "##parent" ||
+                std::string_view(focus) == "##choose") {
                 for (auto *window : ImGui::GetCurrentContext()->Windows)
                     if (std::string_view(window->Name).find("##browser-cases") != std::string_view::npos &&
                         std::string_view(window->Name).find("/entries") != std::string_view::npos)
@@ -1261,6 +1262,61 @@ void file_browser_boundary_contracts(gpu::VulkanRenderer &renderer, const std::f
     expect(frame(removed) == ui::FileBrowser::Result::Browsing &&
             frame(removed, nullptr, -1, true) == ui::FileBrowser::Result::Browsing && removed.folder() == base,
         "browser error state remains usable and Back recovers to existing parent");
+    ui::FileBrowser all_files(base);
+    frame(all_files);
+    pick(all_files, "##all");
+    expect(pick(all_files, "##entry", 0) == ui::FileBrowser::Result::Chosen && all_files.chosen() == base / "other.txt",
+        "all-files switch permits choosing a normally filtered file");
+    ui::FileBrowser gamepad_filter(base);
+    frame(gamepad_filter);
+    SDL_VirtualJoystickDesc filter_pad_desc{};
+    SDL_INIT_INTERFACE(&filter_pad_desc);
+    filter_pad_desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    filter_pad_desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    filter_pad_desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    filter_pad_desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+    filter_pad_desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+    filter_pad_desc.name = "Yakumo public browser test gamepad";
+    const auto filter_pad_id = SDL_AttachVirtualJoystick(&filter_pad_desc);
+    auto *filter_pad = filter_pad_id ? SDL_OpenGamepad(filter_pad_id) : nullptr;
+    expect(filter_pad != nullptr, "browser shortcut fixture opens a real virtual SDL gamepad");
+    if (filter_pad) {
+        ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, &filter_pad, 1);
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        frame(gamepad_filter);
+        frame(gamepad_filter);
+        auto *filter_joystick = SDL_GetGamepadJoystick(filter_pad);
+        expect(SDL_SetJoystickVirtualButton(filter_joystick, SDL_GAMEPAD_BUTTON_NORTH, true),
+            "browser shortcut presses actual virtual north button");
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        frame(gamepad_filter);
+        expect(SDL_SetJoystickVirtualButton(filter_joystick, SDL_GAMEPAD_BUTTON_NORTH, false),
+            "browser shortcut releases virtual north button");
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        frame(gamepad_filter);
+        expect(pick(gamepad_filter, "##entry", 0) == ui::FileBrowser::Result::Chosen &&
+                gamepad_filter.chosen() == base / "other.txt",
+            "gamepad filter shortcut also exposes a normally hidden file");
+        ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
+        SDL_CloseGamepad(filter_pad);
+    }
+    if (filter_pad_id) SDL_DetachVirtualJoystick(filter_pad_id);
+    renderer.pump_events();
+    ui::FileBrowser home_place(base);
+    frame(home_place);
+    pick(home_place, "##place", 0);
+    expect(home_place.folder() == ui::FileBrowser::home() && home_place.chosen().empty(),
+        "Home place navigates to the existing home folder without choosing it");
+    ui::FileBrowser missing(base / "does-not-exist");
+    expect(missing.folder() == ui::FileBrowser::home(), "missing initial folder safely falls back to home");
+    ui::FileBrowser trailing(std::filesystem::path(base.string() + "/"));
+    expect(trailing.folder() == base, "initial trailing separator normalizes without changing the directory");
+    ui::FileBrowser root(base.root_path());
+    expect(frame(root, nullptr, -1, true) == ui::FileBrowser::Result::Cancelled,
+        "Back at filesystem root cancels instead of reopening the same directory");
     expect(ui::human_size(1'000'000'000) == "1.0 GB", "file size GB threshold uses documented display unit");
     layer.set_interactive(false);
 }
@@ -3255,6 +3311,7 @@ int run_contracts() {
     diagnostic_memory.store32(0x08000144, std::bit_cast<std::uint32_t>(6.25f));
     diagnostic_memory.store32(0x08000160, 1150);
     diagnostic_memory.store32(0x08000164, 1150);
+    expect(ui::take_screenshot().empty(), "UI screenshot without a presented game target reports no picture");
     media_renderer_contracts(fixture, renderer);
     render_contracts(renderer);
     primitive_contracts(renderer);
