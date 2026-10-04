@@ -121,6 +121,22 @@ void control_flow() {
     execute(ge, m, {command(0x10, 0), command(0x14), command(0x08, 12), command(0xff)});
     expect(ge.unhandled_command_count() == 3, "ORIGIN-relative jump skips intervening command");
 }
+void bounded_list_and_offset_contracts() {
+    psprecomp::GuestMemory memory;
+    GeState state;
+    bool finished = true;
+    store(memory, list, {command(0x10, 0x080000), command(0x08, 0x001004)});
+    expect(state.execute(memory, list, 0, finished) == list + 4 && !finished,
+        "self-jumping display list exhausts its instruction budget without hanging or claiming END");
+    floats(memory, vertices, 10, 20, 30);
+    DrawCall result;
+    state.set_draw_sink([&](const DrawCall &draw) { result = draw; });
+    execute(state, memory,
+        {command(0x10, 0x080000), command(0x13, 0x40), command(0x12, 3u << 7),
+            command(1, (vertices - 0x4000) & 0xffffff), command(4, 1)});
+    expect(result.vertices.size() == 1 && result.vertices[0].position == std::array<float, 4>{10, 20, 30, 1},
+        "OFFSET_ADDR adds to BASE when resolving actual vertex memory");
+}
 void vertex_formats() {
     psprecomp::GuestMemory m;
     std::vector<Vertex> out;
@@ -407,6 +423,7 @@ int main() {
     std::ostringstream diagnostics;
     auto *original_output = checked ? std::cout.rdbuf(diagnostics.rdbuf()) : nullptr;
     control_flow();
+    bounded_list_and_offset_contracts();
     vertex_formats();
     mirrored_vram_vertices_and_indices();
     draws();
