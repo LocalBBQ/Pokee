@@ -785,6 +785,114 @@ void vector_contracts() {
     step(runtime, cpu, 0xFC000000u);
     check(cpu.vfpu_ctrl[2] == 0u, "VFLUSH must consume ordinary prefixes");
 }
+void diagnostic_contracts() {
+    const auto captured_run = [](psprecomp::Runtime &runtime, std::uint32_t address) {
+        std::ostringstream diagnostics;
+        auto *original = std::cerr.rdbuf(diagnostics.rdbuf());
+        try {
+            runtime.run(address, 2);
+        } catch (...) {
+            std::cerr.rdbuf(original);
+            throw;
+        }
+        std::cerr.rdbuf(original);
+        return diagnostics.str();
+    };
+    {
+        Environment trace("PSPRECOMP_TRACE_PC", "0x08804000");
+        Environment words("PSPRECOMP_TRACE_MEM", "1");
+        Environment dispatch("PSPRECOMP_TRACE", "1");
+        psprecomp::Runtime runtime;
+        runtime.register_function(base, next, "public_traced");
+        runtime.register_function(base + 4, stop, "public_stop");
+        runtime.cpu().gpr[4] = scratch;
+        runtime.cpu().gpr[5] = scratch + 0x40;
+        runtime.memory().copy_in(scratch, std::array<std::uint8_t, 4>{'a', 'b', 'c', 0});
+        runtime.memory().copy_in(scratch + 0x40, std::array<std::uint8_t, 4>{'d', 'e', 'f', 0});
+        auto output = captured_run(runtime, base);
+        check(output.find("[trace-pc] 0x08804000 public_traced") != std::string::npos &&
+                output.find("a0str=\"abc\"") != std::string::npos &&
+                output.find("a1str=\"def\"") != std::string::npos &&
+                output.find("a0mem=0x00636261") != std::string::npos &&
+                output.find("a1mem=0x00666564") != std::string::npos &&
+                output.find("[dispatch]") != std::string::npos && runtime.cpu().gpr[2] == 1,
+            "PC diagnostics must report bounded strings/words without changing execution");
+        runtime.memory().copy_in(scratch, std::vector<std::uint8_t>(256, 'x'));
+        runtime.cpu().gpr[5] = 0;
+        output = captured_run(runtime, base);
+        check(runtime.cpu().gpr[2] == 2 && output.find("public_traced") != std::string::npos,
+            "Unterminated diagnostic strings must not abort guest execution");
+    }
+    {
+        // These are existing diagnostic trigger addresses, with independent
+        // zero-filled RAM records rather than any game's heap or file contents.
+        Environment heap("PSPRECOMP_HEAP_DIAG", "1");
+        psprecomp::Runtime runtime;
+        constexpr std::uint32_t callback = 0x089345B0;
+        constexpr std::uint32_t manager = 0x08BC6500;
+        runtime.memory().store32(manager + 8, scratch);
+        runtime.memory().store32(scratch, 16);
+        runtime.memory().store32(scratch + 12, 1);
+        runtime.register_function(callback, stop, "synthetic_heap_callback");
+        const auto output = captured_run(runtime, callback);
+        check(output.find("[heapdiag-free] index=0") != std::string::npos &&
+                output.find("size=0x00000010") != std::string::npos &&
+                output.find("invalid=0x00000001") != std::string::npos && runtime.stopped(),
+            "Heap diagnostic must report valid blocks and stop traversal at an invalid link");
+    }
+    {
+        Environment files("PSPRECOMP_FILE_OBJECT_DIAG", "1");
+        Environment stop_null("PSPRECOMP_FILE_OBJECT_STOP_ON_NULL", "1");
+        psprecomp::Runtime runtime;
+        constexpr std::uint32_t null_seek = 0x08938F7C;
+        runtime.register_function(null_seek, next, "synthetic_null_seek");
+        auto output = captured_run(runtime, null_seek);
+        check(runtime.stopped() && runtime.cpu().gpr[2] == 0 &&
+                runtime.stop_reason().find("before null seek") != std::string::npos &&
+                output.find("[fileobj]") != std::string::npos,
+            "Null-file diagnostic stop must precede the guest callback");
+        runtime.cpu().gpr[4] = scratch;
+        runtime.memory().store32(scratch, 42);
+        runtime.register_function(null_seek + 4, stop, "synthetic_stop");
+        output = captured_run(runtime, null_seek);
+        check(runtime.cpu().gpr[2] == 1 && runtime.stop_reason().find("completed") != std::string::npos,
+            "A valid file object must not trigger the null-file stop");
+        constexpr std::uint32_t file_open = 0x08938F04;
+        runtime.register_function(file_open, stop, "synthetic_file_open");
+        runtime.memory().copy_in(scratch, std::array<std::uint8_t, 5>{'f', 'i', 'l', 'e', 0});
+        output = captured_run(runtime, file_open);
+        check(output.find("path=\"file\"") != std::string::npos,
+            "File diagnostic must report a valid bounded guest path");
+    }
+    {
+        Environment world("PSPRECOMP_WORLD_STREAM_DIAG", "1");
+        Environment stop_callback("PSPRECOMP_WORLD_STREAM_STOP_AT_CALLBACK", "1");
+        Environment request("PSPRECOMP_REQUEST_ALLOC_DIAG", "1");
+        psprecomp::Runtime runtime;
+        constexpr std::uint32_t callback = 0x089563C0;
+        runtime.cpu().gpr[4] = scratch;
+        runtime.cpu().gpr[5] = scratch + 0x200;
+        runtime.register_function(callback, next, "synthetic_world_callback");
+        const auto output = captured_run(runtime, callback);
+        check(runtime.cpu().gpr[2] == 0 && runtime.stopped() &&
+                runtime.stop_reason().find("stop at callback") != std::string::npos &&
+                output.find("[worlddiag]") != std::string::npos,
+            "World-stream stop must preserve CPU state before the guest callback");
+        for (auto address : {0x08939590u, 0x089395D4u, 0x0893961Cu, 0x089396D8u, 0x089397CCu, 0x08956258u}) {
+            runtime.cpu().gpr[16] = scratch;
+            runtime.cpu().gpr[18] = scratch + 0x200;
+            runtime.cpu().gpr[2] = scratch + 0x200;
+            runtime.memory().store32(scratch + 0x200 + 8, 123);
+            runtime.register_function(address, stop, "synthetic_allocation");
+            const auto allocation = captured_run(runtime, address);
+            check(allocation.find("[reqalloc]") != std::string::npos && runtime.stopped(),
+                "Request diagnostics must report guest fields without requiring a real allocator");
+            if (address == 0x089396D8u || address == 0x089397CCu || address == 0x08956258u)
+                check(allocation.find("size=123") != std::string::npos,
+                    "Request diagnostic must preserve the actual requested size");
+        }
+    }
+}
 void guest_memory_contracts(bool armed) {
     using Memory = psprecomp::GuestMemory;
     bool invalid_size = false;
@@ -937,6 +1045,7 @@ int main(int argc, char **argv) {
         tool_contracts();
         elf_contracts();
         dispatch_contracts();
+        diagnostic_contracts();
         integer_contracts();
         memory_contracts();
         floating_contracts();
