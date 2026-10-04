@@ -28,6 +28,7 @@
 #include "kernel/fast_forward.hpp"
 #include "settings/settings.hpp"
 #include "ui/layer.hpp"
+#include "ui/input_script.hpp"
 #include "ui/text_input.hpp"
 #include "ui/widgets.hpp"
 #include "ui/file_browser.hpp"
@@ -3357,8 +3358,169 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     layer.set_interactive(false);
 }
 
+struct ScriptEvents {
+    int key_down{}, key_up{}, mouse_down{}, mouse_up{}, finger_down{}, finger_move{}, finger_up{};
+    int text{}, drops{};
+    std::string typed, dropped;
+};
+bool watch_script(void *data, SDL_Event *event) {
+    auto &seen = *static_cast<ScriptEvents *>(data);
+    switch (event->type) {
+    case SDL_EVENT_KEY_DOWN:
+        if (event->key.key == SDLK_F13) ++seen.key_down;
+        break;
+    case SDL_EVENT_KEY_UP:
+        if (event->key.key == SDLK_F13) ++seen.key_up;
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        ++seen.mouse_down;
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        ++seen.mouse_up;
+        break;
+    case SDL_EVENT_FINGER_DOWN:
+        ++seen.finger_down;
+        break;
+    case SDL_EVENT_FINGER_MOTION:
+        ++seen.finger_move;
+        break;
+    case SDL_EVENT_FINGER_UP:
+        ++seen.finger_up;
+        break;
+    case SDL_EVENT_TEXT_INPUT:
+        ++seen.text;
+        seen.typed = event->text.text;
+        break;
+    case SDL_EVENT_DROP_FILE:
+        ++seen.drops;
+        seen.dropped = event->drop.data;
+        break;
+    default:
+        break;
+    }
+    return true;
 }
-int run_contracts() {
+void input_script_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox, bool live_input) {
+    auto &layer = ui::Layer::get();
+    expect(layer.attach(renderer), "script fixture attaches the actual UI layer");
+    layer.set_interactive(false);
+    renderer.set_game_input(true);
+    auto &controls = settings::current().controls;
+    controls.keys = {};
+    controls.pad = {};
+    controls.keys[static_cast<int>(input::Action::Triangle)][0].inputs[0] = input::key(SDL_SCANCODE_F13);
+    controls.keys[static_cast<int>(input::Action::Circle)][0].inputs[0] = input::mouse_button(1);
+    controls.pad[static_cast<int>(input::Action::Square)][0].inputs[0] = input::pad(input::PadInput::South);
+    settings::current().mouse = true;
+    renderer.set_pointer_free(false);
+    renderer.pump_events();
+    renderer.sample_pad();
+    static_cast<void>(renderer.take_mouse_motion());
+    ScriptEvents events;
+    SDL_AddEventWatch(watch_script, &events);
+    std::ostringstream log;
+    auto *original = std::cout.rdbuf(log.rdbuf());
+    auto tick = [&] {
+        ui::script::tick();
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        renderer.sample_pad();
+        layer.begin_frame();
+        ImGui::TextUnformatted("Synthetic script contract");
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    tick();
+    expect(events.key_down == 1 && events.mouse_down == 1 && (renderer.pad().buttons & 0xb000) == 0xb000,
+        "scripted key, mouse and virtual pad map to exact PSP Triangle/Circle/Square bits");
+    const auto motion = renderer.take_mouse_motion();
+    expect(motion.x == 7 && motion.y == -3, "script mouse preserves exact relative counts");
+    auto *pad = renderer.gamepad();
+    expect(pad && SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX) == 32767,
+        "script clamps an out-of-range positive axis to the SDL maximum");
+    tick(); // unmapped joystick attaches, duplicate attach is idempotent
+    SDL_Joystick *unmapped = nullptr;
+    int count = 0;
+    auto *ids = SDL_GetJoysticks(&count);
+    for (int i = 0; i < count; ++i)
+        if (const char *name = SDL_GetJoystickNameForID(ids[i]);
+            name && std::string_view(name) == "Public script joystick")
+            unmapped = SDL_OpenJoystick(ids[i]);
+    SDL_free(ids);
+    expect(unmapped != nullptr, "script creates its named unmapped virtual joystick");
+    tick();
+    expect(events.key_up == 1 && events.mouse_up == 1 && (renderer.pad().buttons & 0xb000) == 0,
+        "scheduled releases clear all three held inputs after exactly two frames");
+    if (unmapped) {
+        expect(SDL_GetJoystickButton(unmapped, 2) && SDL_GetJoystickHat(unmapped, 0) == 3 &&
+                SDL_GetJoystickAxis(unmapped, 1) == -32767,
+            "unmapped script joystick applies button, diagonal hat and clamped negative axis");
+    }
+    tick();
+    tick();
+    if (unmapped) {
+        expect(!SDL_GetJoystickButton(unmapped, 2) && SDL_GetJoystickHat(unmapped, 0) == SDL_HAT_CENTERED,
+            "unmapped joystick button and hat release at their scheduled frame");
+        SDL_CloseJoystick(unmapped);
+    }
+    for (int i = 6; i <= 15; ++i) tick();
+    expect(events.finger_down == 3 && events.finger_move == 4 && events.finger_up == 3,
+        "explicit finger, hold and three-frame swipe emit balanced touch lifecycles");
+    expect(events.mouse_down == 2 && events.mouse_up == 2,
+        "drag emits one balanced pointer press/release in addition to click");
+    expect(events.text == 1 && events.typed == "Public UTF-8 text",
+        "script text event retains its complete owned payload");
+    expect(events.drops == 1 && events.dropped == (sandbox / "synthetic.zip").string() &&
+            layer.take_dropped_file() == sandbox / "synthetic.zip" && !layer.take_dropped_file(),
+        "script drop publishes the synthetic path exactly once");
+    std::ifstream image(sandbox / "script-window.bmp", std::ios::binary);
+    std::array<char, 2> magic{};
+    image.read(magic.data(), magic.size());
+    expect(magic == std::array<char, 2>{'B', 'M'}, "script shot writes an actual BMP window capture");
+    expect(std::filesystem::exists(sandbox / "frame_9.bmp"), "unnamed shot uses its actual frame number");
+    if (live_input) {
+        const auto live = sandbox / "live.txt";
+        {
+            std::ofstream append(live, std::ios::app);
+            append << "0:text Live complete\n0:text Partial";
+        }
+        for (int i = 16; i <= 20; ++i) tick();
+        expect(events.text == 2 && events.typed == "Live complete", "live reader ignores an incomplete trailing line");
+        {
+            std::ofstream append(live, std::ios::app);
+            append << " finished\n";
+        }
+        for (int i = 21; i <= 30; ++i) tick();
+        expect(events.text == 3 && events.typed == "Partial finished", "live reader consumes the completed line once");
+        {
+            std::ofstream replace(live);
+            replace << "0:text Reset\n";
+        }
+        for (int i = 31; i <= 40; ++i) tick();
+        expect(events.text == 4 && events.typed == "Reset", "truncating the live file resets its byte offset");
+        {
+            std::ofstream append(live, std::ios::app);
+            append << "0:quit\n";
+        }
+        for (int i = 41; i < 50; ++i) tick();
+        ui::script::tick();
+        expect(!renderer.pump_events(), "live quit terminates the actual renderer event loop");
+    } else {
+        renderer.request_quit();
+        expect(!renderer.pump_events(), "static script fixture closes through the renderer quit API");
+    }
+    SDL_RemoveEventWatch(watch_script, &events);
+    std::cout.rdbuf(original);
+    std::cout << log.str();
+    for (const char *diagnostic : {"unknown key", "unknown mouse button", "unknown button", "unknown axis",
+             "no test joystick 99", "unknown joystick action", "hold needs a finger", "swipe needs a finger",
+             "drag needs two positions", "unknown action"})
+        expect(log.str().find(diagnostic) != std::string::npos, "malformed script action produces its diagnostic");
+    expect(log.str().find("startup ignored") == std::string::npos, "live file ignores lines present before attachment");
+}
+
+}
+int run_contracts(int scripts) {
     const auto sandbox = std::filesystem::temp_directory_path() /
         ("yakumo-renderer-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(sandbox);
@@ -3381,6 +3543,28 @@ int run_contracts() {
     settings.frame_rate = settings::FrameRate::Fps30;
     SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (scripts) {
+        const auto live = sandbox / "live.txt";
+        {
+            std::ofstream initial(live);
+            initial << "0:text startup ignored\n";
+        }
+        if (scripts == 1)
+            SDL_setenv_unsafe("MHP3RD_INPUT_LIVE", live.string().c_str(), 1);
+        else
+            SDL_unsetenv_unsafe("MHP3RD_INPUT_LIVE");
+        SDL_setenv_unsafe("MHP3RD_SCREENSHOT_DIR", sandbox.string().c_str(), 1);
+        const auto script = std::string("bad; ;1:key F13 2;1:mouse 7 -3;1:click left 2;1:pad a+invalid 2;") +
+            "1:axis leftx 2;2:joy 4 attach Public script joystick;2:joy 4 attach;"
+            "3:joy 4 button 2 2;3:joy 4 hat 3 2;3:joy 4 axis 1 -2;6:joy 4 nonsense;7:joy 4 detach;"
+            "2:finger 3 down .1 .2;3:finger 3 move .2 .3;4:finger 3 up;5:hold 4 .3 .4 2;"
+            "6:swipe 5 .1 .2 .6 .7 3;5:drag .1 .2 .3 .4 2;"
+            "8:text Public UTF-8 text;8:drop " +
+            (sandbox / "synthetic.zip").string() +
+            ";8:shot script-window;9:shot;10:key NoSuchKey;10:click invalid;10:axis invalid 1;"
+            "10:joy 99 button 0;10:hold 1;10:swipe 1;10:drag 1;10:pointer malformed;10:unknown;";
+        SDL_setenv_unsafe("MHP3RD_INPUT_SCRIPT", script.c_str(), 1);
+    }
     MediaFixture fixture;
     auto *selected = active_renderer();
     if (!selected) {
@@ -3389,6 +3573,13 @@ int run_contracts() {
         return 1;
     }
     auto &renderer = *selected;
+    if (scripts) {
+        input_script_contracts(renderer, sandbox, scripts == 1);
+        renderer.shutdown();
+        std::filesystem::remove_all(sandbox);
+        std::cout << (failures ? "FAIL" : "PASS") << ": input script (" << failures << " failures)\n";
+        return failures ? 1 : 0;
+    }
     if (const char *compat = std::getenv("MHP3RD_GPU_COMPAT"); compat && std::string_view(compat) == "on")
         expect(renderer.gpu_compat_status().rfind("On", 0) == 0,
             "compatibility variant initializes the actual conservative renderer path");
@@ -3462,9 +3653,9 @@ int run_contracts() {
     return failures ? 1 : 0;
 }
 
-int main() {
+int main(int argc, char **argv) {
     try {
-        return run_contracts();
+        return run_contracts(argc > 1 ? (std::string_view(argv[1]) == "--input-script" ? 1 : 2) : 0);
     } catch (const std::exception &error) {
         std::cerr << "FAIL: test fixture exception: " << error.what() << '\n';
         return 1;
