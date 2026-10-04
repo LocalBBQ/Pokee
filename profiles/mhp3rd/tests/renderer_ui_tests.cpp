@@ -14,6 +14,8 @@
 #include "save_data/savedata_store.hpp"
 #include "save_data/save_transfer.hpp"
 #include "input/gamepad_devices.hpp"
+#include "input/touch_controls.hpp"
+#include "input/touch_action.hpp"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -1496,6 +1498,91 @@ void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
         "camera detector rejects a counter that stops tracking changed turn rate");
 }
 
+void touch_event_contracts(gpu::VulkanRenderer &renderer) {
+    auto &player = settings::current();
+    const auto enabled = player.touch_controls;
+    const auto original = player.touch_layout;
+    player.touch_controls = true;
+    player.touch_layout = settings::TouchLayout::Psp;
+    renderer.set_game_input(true);
+    int width{}, height{};
+    expect(SDL_GetWindowSize(renderer.window(), &width, &height), "touch fixture reads real SDL window dimensions");
+    auto finger = [&](SDL_EventType type, std::uint64_t id, input::touch::Point at) {
+        SDL_Event event{};
+        event.type = type;
+        event.tfinger.windowID = SDL_GetWindowID(renderer.window());
+        event.tfinger.touchID = 1;
+        event.tfinger.fingerID = id;
+        event.tfinger.timestamp = SDL_GetTicksNS();
+        event.tfinger.x = at.x / static_cast<float>(width);
+        event.tfinger.y = at.y / static_cast<float>(height);
+        event.tfinger.pressure = 1;
+        expect(SDL_PushEvent(&event), "synthetic normalized SDL finger event queues");
+        renderer.pump_events();
+    };
+    auto draw_overlay = [&] {
+        auto &layer = ui::Layer::get();
+        layer.begin_frame();
+        if (player.touch_layout == settings::TouchLayout::Psp)
+            ui::draw_touch_controls(renderer.touch_controls(), 0.6f);
+        else
+            ui::draw_action_controls(renderer.action_touch_controls(), 0.6f, SDL_GetTicks());
+        layer.end_frame();
+        expect(ImGui::GetDrawData() && ImGui::GetDrawData()->TotalVtxCount > 0,
+            "held touch controls generate real ImGui overlay geometry");
+        renderer.present_ui(true);
+    };
+    const auto psp = renderer.touch_controls().layout();
+    const auto cross = psp.controls[static_cast<std::size_t>(input::touch::Control::Cross)].centre;
+    finger(SDL_EVENT_FINGER_DOWN, 1, cross);
+    expect(renderer.touch_controls_visible() && renderer.touch_controls().held(input::touch::Control::Cross),
+        "SDL touch-down shows overlay and holds actual PSP cross control");
+    draw_overlay();
+    finger(SDL_EVENT_FINGER_CANCELED, 1, cross);
+    expect(!renderer.touch_controls().held(input::touch::Control::Cross), "finger cancellation releases PSP control");
+    const input::touch::Point camera{width * 0.60f, height * 0.5f};
+    finger(SDL_EVENT_FINGER_DOWN, 2, camera);
+    finger(SDL_EVENT_FINGER_MOTION, 2, {camera.x + width * 0.04f, camera.y + height * 0.02f});
+    const auto motion = renderer.take_touch_motion();
+    expect(motion.x > 0 && motion.y > 0, "SDL finger motion accumulates normalized camera drag");
+    expect(renderer.take_touch_motion().x == 0, "touch drag is consumed once");
+    finger(SDL_EVENT_FINGER_UP, 2, camera);
+    const auto menu = psp.controls[static_cast<std::size_t>(input::touch::Control::Menu)].centre;
+    finger(SDL_EVENT_FINGER_DOWN, 3, menu);
+    finger(SDL_EVENT_FINGER_UP, 3, menu);
+    expect(renderer.take_touch_menu() && !renderer.take_touch_menu(), "touch menu tap is delivered exactly once");
+    player.touch_layout = settings::TouchLayout::Action;
+    const auto attack = renderer.action_touch_controls().placed(input::touch::Element::Attack).centre;
+    finger(SDL_EVENT_FINGER_DOWN, 4, attack);
+    expect(renderer.action_touch_controls().held(input::touch::Element::Attack),
+        "action layout processes real SDL attack finger");
+    draw_overlay();
+    finger(SDL_EVENT_FINGER_UP, 4, attack);
+    expect(!renderer.action_touch_controls().held(input::touch::Element::Attack), "action attack releases on up");
+    finger(SDL_EVENT_FINGER_DOWN, 5, attack);
+    renderer.set_game_input(false);
+    expect(!renderer.touch_controls_visible() && !renderer.action_touch_controls().held(input::touch::Element::Attack),
+        "losing game input hides overlay and releases action fingers");
+    renderer.set_game_input(true);
+    finger(SDL_EVENT_FINGER_DOWN, 6, attack);
+    SDL_Event keyboard{};
+    keyboard.type = SDL_EVENT_KEY_DOWN;
+    keyboard.key.windowID = SDL_GetWindowID(renderer.window());
+    keyboard.key.key = SDLK_K;
+    keyboard.key.scancode = SDL_SCANCODE_K;
+    keyboard.key.down = true;
+    expect(SDL_PushEvent(&keyboard), "keyboard takeover event queues");
+    renderer.pump_events();
+    expect(!renderer.touch_controls_visible() && !renderer.action_touch_controls().held(input::touch::Element::Attack),
+        "keyboard takeover releases touch controls");
+    keyboard.type = SDL_EVENT_KEY_UP;
+    keyboard.key.down = false;
+    SDL_PushEvent(&keyboard);
+    renderer.pump_events();
+    player.touch_controls = enabled;
+    player.touch_layout = original;
+}
+
 void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     SDL_VirtualJoystickDesc desc{};
     SDL_INIT_INTERFACE(&desc);
@@ -1920,6 +2007,7 @@ int run_contracts() {
     texture_pack_screen_contracts(renderer, sandbox);
     save_screen_contracts(renderer, sandbox);
     mods_screen_contracts(renderer, sandbox, fixture.runtime);
+    touch_event_contracts(renderer);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
     renderer.shutdown();
