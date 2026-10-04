@@ -2505,9 +2505,11 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     auto toggle_setting = [&](const char *label, bool settings::Settings::*field) {
         const bool original = settings::current().*field;
         change_video(label, ImGuiKey_Space);
-        expect(settings::current().*field != original, "control menu toggle changes its own setting");
+        expect(settings::current().*field != original,
+            (std::string(label) + " control menu toggle changes its own setting").c_str());
         change_video(label, ImGuiKey_Space);
-        expect(settings::current().*field == original, "control menu toggle round trip restores its own setting");
+        expect(settings::current().*field == original,
+            (std::string(label) + " control menu toggle round trip restores its own setting").c_str());
     };
     toggle_setting("Analog camera", &settings::Settings::analog_camera);
     toggle_setting("Lock-on", &settings::Settings::lock_on);
@@ -2519,6 +2521,42 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     toggle_setting("Invert mouse vertically", &settings::Settings::invert_mouse_y);
     toggle_setting("On-screen controls", &settings::Settings::touch_controls);
     toggle_setting("Free camera", &settings::Settings::free_camera);
+    auto slider_setting = [&](const char *label, float settings::Settings::*field, float step) {
+        const float original = settings::current().*field;
+        change_video(label, ImGuiKey_RightArrow);
+        expect(std::abs(settings::current().*field - original - step) < 0.0001f,
+            (std::string(label) + " menu slider applies its documented increment").c_str());
+        change_video(label, ImGuiKey_LeftArrow);
+        expect(std::abs(settings::current().*field - original) < 0.0001f,
+            (std::string(label) + " menu slider round trip restores its exact setting").c_str());
+    };
+    slider_setting("Stick dead zone", &settings::Settings::dead_zone, 0.01f);
+    slider_setting("Trigger point", &settings::Settings::trigger, 0.05f);
+    slider_setting("Camera speed", &settings::Settings::camera_speed, 10);
+    slider_setting("Aim speed", &settings::Settings::aim_speed, 5);
+    slider_setting("Mouse sensitivity", &settings::Settings::mouse_sensitivity, 0.01f);
+    slider_setting("Controls opacity", &settings::Settings::touch_opacity, 0.05f);
+    slider_setting("Controls size", &settings::Settings::touch_size, 0.05f);
+    slider_setting("Touch camera speed", &settings::Settings::touch_camera_speed, 10);
+    const auto original_camera = settings::current().right_stick;
+    change_video("Camera stick", ImGuiKey_RightArrow);
+    expect(settings::current().right_stick == settings::RightStick::DPad, "camera selector advances to D-pad mode");
+    slider_setting("Camera stick D-pad point", &settings::Settings::right_stick_zone, 0.05f);
+    change_video("Camera stick", ImGuiKey_LeftArrow);
+    expect(settings::current().right_stick == original_camera, "camera selector round trip restores camera mode");
+    toggle_setting("D-pad", &settings::Settings::touch_dpad);
+    const auto original_layout = settings::current().touch_layout;
+    change_video("Layout", ImGuiKey_RightArrow);
+    expect(settings::current().touch_layout == settings::TouchLayout::Action, "touch selector activates Action layout");
+    toggle_setting("Haptic feedback", &settings::Settings::touch_haptics);
+    change_video("Layout", ImGuiKey_LeftArrow);
+    expect(settings::current().touch_layout == original_layout, "touch layout round trip restores PSP controls");
+    change_video("Free camera", ImGuiKey_Space);
+    expect(settings::current().free_camera, "experimental free-camera settings enable dependent rows");
+    slider_setting("Free camera speed", &settings::Settings::free_camera_speed, 50);
+    toggle_setting("Hide the HUD while flying", &settings::Settings::free_camera_hide_hud);
+    change_video("Free camera", ImGuiKey_Space);
+    expect(!settings::current().free_camera, "experimental free-camera setting restores disabled mode");
 
     SDL_Event escape{};
     escape.type = SDL_EVENT_KEY_DOWN;
