@@ -372,6 +372,47 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         expect((pixel() & 0xffffff) == blended[equation],
             "blend add/subtract/reverse/min/max preserve specified operands");
     }
+    draw.blend.equation = 0;
+    draw.blend.destination_factor = 10;
+    draw.blend.fixed_destination = 0;
+    for (auto &v : draw.vertices) v.color = 0x80404040;
+    const std::array<int, 6> source_blended{0, 64, 32, 32, 64, 0};
+    for (std::uint32_t factor = 0; factor < source_blended.size(); ++factor) {
+        draw.blend.source_factor = factor;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        const auto color = pixel();
+        expect(std::abs(static_cast<int>(color & 255) - source_blended[factor]) <= 1 &&
+                ((color >> 8) & 255) == (color & 255) && ((color >> 16) & 255) == (color & 255),
+            "source blend factor gives documented gray RGB within one UNORM rounding step");
+    }
+    draw.blend.source_factor = 10;
+    draw.blend.fixed_source = 0;
+    for (auto &v : clear.vertices) v.color = 0x20404040;
+    const std::array<int, 6> destination_blended{16, 48, 32, 32, 8, 56};
+    for (std::uint32_t factor = 0; factor < destination_blended.size(); ++factor) {
+        draw.blend.destination_factor = factor;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect(std::abs(static_cast<int>(pixel() & 255) - destination_blended[factor]) <= 1,
+            "destination blend factor scales retained framebuffer by documented operand");
+    }
+    draw.blend.source_factor = draw.blend.destination_factor = 10;
+    draw.blend.fixed_source = 0x808080;
+    draw.blend.fixed_destination = 0x7f7f7f;
+    for (auto &v : clear.vertices) v.color = 0xff202020;
+    renderer.begin_frame();
+    renderer.submit(clear, memory);
+    renderer.submit(draw, memory);
+    renderer.present(0x04000000);
+    expect(std::abs(static_cast<int>(pixel() & 255) - 48) <= 1,
+        "complementary fixed constants independently mix source gray64 and destination gray32");
+    for (auto &v : clear.vertices) v.color = 0xff000000;
+    for (auto &v : draw.vertices) v.color = 0xff2255cc;
     draw.blend.enabled = false;
     draw.viewport.scissor_x2 = 200;
     renderer.begin_frame();
@@ -452,14 +493,15 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     draw.projection[10] = draw.projection[15] = 1;
     draw.projection[11] = draw.projection[14] = 0;
     draw.depth.test_enabled = true;
-    for (std::uint32_t function : {0u, 1u}) {
+    const std::array<bool, 8> depth_accepted{false, true, false, true, true, true, false, false};
+    for (std::uint32_t function = 0; function < depth_accepted.size(); ++function) {
         draw.depth.function = function;
         renderer.begin_frame();
         renderer.submit(clear, memory);
         renderer.submit(draw, memory);
         renderer.present(0x04000000);
-        expect(
-            (pixel() & 0xffffff) == (function == 1 ? 0x2255ccu : 0u), "depth never/always governs fragment visibility");
+        expect((pixel() & 0xffffff) == (depth_accepted[function] ? 0x2255ccu : 0u),
+            "depth comparison tests exact ordering against the cleared far plane");
     }
     draw.depth.test_enabled = false;
 
