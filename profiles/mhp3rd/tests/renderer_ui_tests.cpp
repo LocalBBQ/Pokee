@@ -3982,7 +3982,7 @@ void input_script_contracts(
     gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox, bool live_input, SDL_Joystick *competitor) {
     const auto competitor_id = competitor ? SDL_GetJoystickID(competitor) : 0;
     expect(renderer.gamepad() && SDL_GetGamepadID(renderer.gamepad()) == competitor_id,
-        "the first real virtual controller initially owns game input");
+        "the first isolated virtual controller initially owns game input");
     auto &layer = ui::Layer::get();
     expect(layer.attach(renderer), "script fixture attaches the actual UI layer");
     layer.set_interactive(false);
@@ -4141,6 +4141,8 @@ int run_contracts(int scripts) {
     settings.frame_rate = settings::FrameRate::Fps30;
     SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    // Keep attached hardware out of this process's deterministic virtual-pad fixtures.
+    SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT, "0x0000/0x0000");
     if (scripts == 1 || scripts == 2) {
         const auto live = sandbox / "live.txt";
         {
@@ -4165,6 +4167,7 @@ int run_contracts(int scripts) {
     }
     SDL_Joystick *competitor = nullptr;
     if (scripts == 1 || scripts == 2) {
+        SDL_setenv_unsafe("MHP3RD_PAD_FOLLOW", "1", 1);
         expect(SDL_InitSubSystem(SDL_INIT_GAMEPAD), "competing controller initializes its real SDL subsystem");
         SDL_VirtualJoystickDesc competitor_desc{};
         SDL_INIT_INTERFACE(&competitor_desc);
