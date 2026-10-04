@@ -3,7 +3,7 @@ name: Unit tests
 on:
   pull_request:
   push:
-    branches: [main, 'release/**']
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
@@ -48,7 +48,9 @@ jobs:
         run: cmake --build out/ci --config Debug --target psprecomp_test_binaries -j2
 
       - name: Test archive and overlay tools
-        run: python3 profiles/mhp3rd/tests/tool_security_tests.py
+        run: |
+          python3 profiles/mhp3rd/tests/tool_security_tests.py
+          python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 
       - name: Run tests
         run: ctest --test-dir out/ci -C Debug --output-on-failure --no-tests=error --timeout 120 --output-junit test-results.xml

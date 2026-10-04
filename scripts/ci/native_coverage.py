@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / 'out/coverage'
-ROOTS = ('include/psprecomp/', 'src/', 'profiles/mhp3rd/host/')
+ROOTS = ('include/psprecomp/', 'src/', 'tools/', 'profiles/mhp3rd/host/')
 EXCLUDED = {'third_party', 'generated', 'game', 'overlays', 'overlay_corpora', 'out', 'build'}
 SUFFIXES = {'.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx'}
 
@@ -97,23 +97,42 @@ def main():
     subprocess.run(['ctest', '--test-dir', str(BUILD), '--output-on-failure',
                     '--no-tests=error', '--timeout', '120', '--output-junit',
                     str(output / 'test-results.xml')], env=environment, check=True)
+    # Exercise public CLI contracts and flush zero counters for the complete
+    # application/tool mappings. No game data or interactive window is needed.
+    cli_cases = [([str(BUILD / 'bin/Yakumo'), '--help'], 0),
+                 ([str(BUILD / 'bin/Yakumo'), '--not-a-yakumo-option'], 2),
+                 ([str(BUILD / 'psp_analyze')], 2),
+                 ([str(BUILD / 'psp_recomp')], 2),
+                 ([str(BUILD / 'dump_function')], 2)]
+    for command, expected in cli_cases:
+        result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=10)
+        if result.returncode != expected or 'usage:' not in (result.stdout + result.stderr).lower():
+            raise RuntimeError(f'CLI contract failed: {Path(command[0]).name}: {result.returncode}')
+        objects.add(command[0])
     profiles = sorted(str(path) for path in raw.glob('*.profraw'))
     if not profiles:
         raise SystemExit('No raw profiles; coverage instrumentation did not run')
     merged = output / 'tests.profdata'
-    subprocess.run(profdata + ['merge', '-sparse', *profiles, '-o', str(merged)], check=True)
+    # Keep zero-count records for code compiled into the application but not
+    # yet exercised; sparse merging can lose alternative same-name hashes.
+    subprocess.run(profdata + ['merge', *profiles, '-o', str(merged)], check=True)
     binaries = sorted(objects)
     arguments = [binaries[0]]
     for binary in binaries[1:]:
         arguments += ['-object', binary]
-    arguments += [f'-instr-profile={merged}']
+    # LLVM 18's parallel summary/debug export has aborted inside its thread
+    # pool with an invalid free in CI. Serialize reporting without dropping
+    # binaries, mappings or the strict mismatch validation.
+    arguments += [f'-instr-profile={merged}', '-num-threads=1']
     result = subprocess.run(cov + ['export', *arguments], capture_output=True, text=True, check=True)
+    (output / 'export-diagnostics.txt').write_text(result.stderr)
     export = json.loads(result.stdout)
     stubs = []
     if result.stderr:
         debug = subprocess.run(cov + ['export', *arguments, '-summary-only', '-dump'],
-                               capture_output=True, text=True, check=True)
+                               capture_output=True, text=True)
         (output / 'llvm-diagnostics.txt').write_text(debug.stderr)
+        debug.check_returncode()
         emitted = {function['name'] for function in export['data'][0]['functions'] if function['regions']}
         stubs = reviewed_zero_hash_stubs(debug.stderr, emitted)
     tracked = tracked_sources()
@@ -131,11 +150,14 @@ def main():
     if not files or not totals(files)['lines']['count']:
         raise SystemExit('No first-party executable lines in the coverage report')
     files.sort(key=lambda file: file['filename'])
-    summary = {'scope': 'First-party production C++ represented in headless native test binaries',
+    summary = {'scope': 'First-party production C++ represented in public application, tools and native tests',
                'tests': len(database['tests']), 'files': files, 'totals': totals(files),
                'reviewed_zero_hash_stub_mappings': stubs,
                'unrepresented_first_party_files': sorted(tracked - {file['filename'] for file in files})}
     (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+    with (output / 'coverage.info').open('w') as stream:
+        subprocess.run(cov + ['export', *arguments, *sources, '-format=lcov'],
+                       stdout=stream, check=True)
     with (output / 'report.txt').open('w') as stream:
         report = subprocess.run(cov + ['report', *arguments, *sources], stdout=stream,
                                 stderr=subprocess.PIPE, text=True, check=True)

@@ -247,9 +247,15 @@ void server_and_client() {
     bad.send(ctl::login(Mac{}, "Nobody", kProduct));
     check(bad.closed(), "a login with an empty MAC is refused");
 
-    const ServerStatus status = server.status();
-    wait_until([&] { return server.status().players.size() == 2u; }, 1000);
-    check(server.status().players.size() == 2u && status.relayed_packets >= 4u, "the status lists players and traffic");
+    check(wait_until(
+              [&] {
+                  // Players and traffic are published together by the server thread.
+                  // Inspect the same fresh snapshot rather than retaining pre-wait data.
+                  const ServerStatus status = server.status();
+                  return status.players.size() == 2u && status.relayed_packets >= 4u;
+              },
+              1000),
+        "the status lists players and traffic");
 
     server.stop();
     check(wait_until([&] { return a.server_state() == ServerState::Connecting; }),
@@ -316,12 +322,27 @@ void discovery(std::uint16_t port) {
 // A process that hosts, with a player in a group and discovery running, and
 // then leaves main(): with `tidy`, after shutting the network down as the
 // game does; without, leaving everything to exit, which must not abort either.
-int exit_while_hosting(bool tidy) {
-    static Server server; // destroyed by exit() while its thread runs, unless tidy
+int exit_while_hosting(bool tidy, bool owned = false) {
+    // Match HostState in host.cpp: discovery may ask for the player count
+    // until process exit, so its server must remain alive for that interval.
+    static Server *process_server = new Server;
+    struct OwnedHost {
+        Server server;
+        ~OwnedHost() {
+            // An owner that frees its server must first join callback users.
+            Discovery::get().shutdown();
+            Client::get().shutdown();
+        }
+    };
+    Server &server = owned ? []() -> Server & {
+        static OwnedHost owned_host;
+        return owned_host.server;
+    }()
+        : *process_server;
     const std::uint16_t port = start_server(server);
     if (port == 0u) return 3;
     Discovery::get().start_listening();
-    Discovery::get().start_announcing(port, [] {
+    Discovery::get().start_announcing(port, [&server] {
         Announcement info;
         info.name = "Exiting host";
         info.product = kProduct;
@@ -351,6 +372,7 @@ int exit_while_hosting(bool tidy) {
 bool exits_cleanly(const char *self, const char *mode) {
     const std::string command = std::string("\"") + self + "\" " + mode;
     const int status = std::system(command.c_str());
+    if (status != 0) std::cerr << "child mode " << mode << " returned status " << status << std::endl;
     return status == 0;
 }
 
@@ -360,7 +382,10 @@ int main(int argc, char **argv) {
     WinsockSession winsock;
     if (argc > 1 && std::string(argv[1]) == "--exit-while-hosting") return exit_while_hosting(false);
     if (argc > 1 && std::string(argv[1]) == "--exit-after-shutdown") return exit_while_hosting(true);
+    if (argc > 1 && std::string(argv[1]) == "--exit-with-owned-server") return exit_while_hosting(false, true);
     check(exits_cleanly(argv[0], "--exit-after-shutdown"), "a hosting process that shuts down exits with 0");
+    check(exits_cleanly(argv[0], "--exit-with-owned-server"),
+        "an owned host joins callback users before freeing its server");
     // The race this guards against, a thread using what exit() already
     // destroyed, does not show every time.
     bool clean = true;

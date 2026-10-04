@@ -2,7 +2,12 @@ set(MHP3RD_PROFILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # The AOT corpus is derived from the user's executable and is not committed.
 # Until scripts/generate.sh has produced it, link an empty registry instead.
-file(GLOB MHP3RD_GENERATED CONFIGURE_DEPENDS "${MHP3RD_PROFILE_DIR}/generated/*.cpp")
+if(PSPRECOMP_COVERAGE)
+    # Public coverage never compiles the user's game-derived corpus.
+    set(MHP3RD_GENERATED)
+else()
+    file(GLOB MHP3RD_GENERATED CONFIGURE_DEPENDS "${MHP3RD_PROFILE_DIR}/generated/*.cpp")
+endif()
 if(MHP3RD_GENERATED)
     list(LENGTH MHP3RD_GENERATED MHP3RD_GENERATED_COUNT)
     message(STATUS "mhp3rd: ${MHP3RD_GENERATED_COUNT} generated AOT units")
@@ -149,6 +154,9 @@ if(MHP3RD_RENDERER)
             third_party/imgui/backends/imgui_impl_vulkan.cpp)
         message(STATUS "mhp3rd: Vulkan renderer enabled")
     else()
+        if(PSPRECOMP_COVERAGE)
+            message(FATAL_ERROR "Requested renderer coverage requires SDL3, Vulkan and glslang")
+        endif()
         message(STATUS "mhp3rd: renderer disabled (SDL3, Vulkan or glslang not found)")
         set(MHP3RD_RENDERER OFF)
     endif()

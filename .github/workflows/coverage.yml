@@ -1,9 +1,9 @@
-name: Native coverage
+name: Project coverage
 
 on:
   pull_request:
   push:
-    branches: [main, 'release/**']
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   coverage:
-    name: Native C++ coverage (Linux Clang 18)
+    name: Project coverage and 80% diff (Linux Clang 18)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -23,19 +23,65 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
       - name: Install versioned coverage toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends clang-18 llvm-18 libclang-rt-18-dev ninja-build
-      - name: Measure coverage
-        run: make coverage
+          sudo apt-get install --no-install-recommends clang-18 llvm-18 libclang-rt-18-dev ninja-build glslang-tools libvulkan-dev libavcodec-dev libavutil-dev pkg-config
+      - name: Install pinned Python coverage collector
+        run: make coverage-tools
+      - name: Set up Java for Android contract tests
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Run Android Java contracts with coverage
+        run: |
+          set -euo pipefail
+          source profiles/mhp3rd/packaging/linux/sources.sh
+          mkdir -p out/java-test-deps
+          curl --fail --location --retry 3 "$SDL3_URL" -o out/java-test-deps/sdl.tar.gz
+          echo "$SDL3_SHA256  out/java-test-deps/sdl.tar.gz" | sha256sum --check --strict
+          tar -xzf out/java-test-deps/sdl.tar.gz -C out/java-test-deps
+          make java-test SDL_SOURCE="$PWD/out/java-test-deps/SDL3-$SDL3_VERSION"
+      - name: Build the pinned SDL dependency for full application coverage
+        run: |
+          source profiles/mhp3rd/packaging/linux/sources.sh
+          cmake -S "out/java-test-deps/SDL3-$SDL3_VERSION" -B out/coverage-sdl -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+            -DSDL_TESTS=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF \
+            -DSDL_UNIX_CONSOLE_BUILD=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/out/coverage-sdl/install"
+          cmake --build out/coverage-sdl --parallel 2
+          cmake --install out/coverage-sdl
+      - name: Measure coverage and enforce changed-line threshold
+        env:
+          COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
+        run: >-
+          make project-coverage
+          CMAKE_ARGS="-DMHP3RD_RENDERER=ON -DMHP3RD_FFMPEG=system
+          -DCMAKE_PREFIX_PATH=$PWD/out/coverage-sdl/install"
+      - name: Publish coverage inventory
+        if: always()
+        run: |
+          if [ -f out/project-coverage/summary.md ]; then
+            cat out/project-coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Upload coverage reports and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: native-coverage
+          name: project-coverage
           path: |
             out/coverage/coverage-results/
+            out/python-coverage/
+            out/project-coverage/
+            out/java-coverage/report/
+            out/java-coverage/surefire-reports/
             out/coverage/Testing/Temporary/*.log
             out/coverage/CMakeFiles/CMakeConfigureLog.yaml
           if-no-files-found: error
