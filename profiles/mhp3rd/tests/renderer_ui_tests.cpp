@@ -459,7 +459,13 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         for (std::size_t axis = 0; axis < 3; ++axis)
             raw[i * 4 + axis + 1] = std::bit_cast<std::uint32_t>(positions[i][axis]);
     }
+    // CHECK_GPU_DECODE also needs independently specified decoded reference vertices.
     draw.vertices.clear();
+    for (const auto &position : positions) {
+        auto decoded = vertex(position[0], position[1]);
+        decoded.position[2] = position[2];
+        draw.vertices.push_back(decoded);
+    }
     draw.raw_vertices = reinterpret_cast<const std::uint8_t *>(raw.data());
     draw.raw_count = 3;
     draw.raw_stride = 16;
@@ -500,6 +506,7 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     int weighted_deferred{};
     for (int frame = 0; frame < 8; ++frame) {
         bones[9] = static_cast<float>(frame) * 0.004f;
+        for (std::size_t i = 0; i < positions.size(); ++i) draw.vertices[i].position[0] = positions[i][0] + bones[9];
         const auto moment = std::chrono::steady_clock::now();
         renderer.begin_frame();
         renderer.submit(clear, memory);

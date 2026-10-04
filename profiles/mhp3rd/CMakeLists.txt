@@ -1010,5 +1010,13 @@ if(MHP3RD_RENDERER_TESTS)
     if(PSPRECOMP_BUILD_TESTS)
         add_test(NAME mhp3rd_renderer_ui_tests COMMAND mhp3rd_renderer_ui_tests)
         set_tests_properties(mhp3rd_renderer_ui_tests PROPERTIES TIMEOUT 90)
+        # The same public buffers also check shader decode and direct index expansion
+        # against independently specified host vertices in the diagnostic paths.
+        add_custom_target(mhp3rd_renderer_ui_checked_tests DEPENDS mhp3rd_renderer_ui_tests)
+        add_test(NAME mhp3rd_renderer_ui_checked_tests COMMAND mhp3rd_renderer_ui_tests)
+        set_tests_properties(mhp3rd_renderer_ui_checked_tests PROPERTIES
+            TIMEOUT 90
+            ENVIRONMENT "MHP3RD_CHECK_DIRECT_VERTICES=1;MHP3RD_CHECK_GPU_DECODE=1"
+            FAIL_REGULAR_EXPRESSION "\\[gpu-decode-check\\].*differs;\\[direct-check\\] draw.*differ")
     endif()
 endif()
