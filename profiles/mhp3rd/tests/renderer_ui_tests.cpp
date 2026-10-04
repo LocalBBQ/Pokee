@@ -1,6 +1,11 @@
 // Real Vulkan/SDL/ImGui contracts with public synthetic buffers, no game data.
 #include "gpu/vulkan_renderer.hpp"
 #include "camera_probe.hpp"
+#include "mods/mhp3rd_mods.hpp"
+#include "mods/mhp3rd_data_bin.hpp"
+#include "kernel/iso_image.hpp"
+#include "ui/mods_screen.hpp"
+#include <algorithm>
 #include <cmath>
 #include <sstream>
 #include "hle/hle_common.hpp"
@@ -588,6 +593,113 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    // Construct a tiny ISO9660 image and archive entirely from public bytes.
+    // It contains one eight-byte entry and no game executable or assets.
+    constexpr std::size_t block = 2048;
+    std::vector<std::uint8_t> image(25 * block);
+    auto store = [&](std::size_t offset, std::uint32_t value) {
+        for (int byte = 0; byte < 4; ++byte) image[offset + byte] = value >> (byte * 8);
+    };
+    auto record = [&](std::size_t offset, const std::string &name, std::uint32_t lba, std::uint32_t size,
+                      bool directory) {
+        image[offset] = static_cast<std::uint8_t>((33 + name.size() + 1) & ~1u);
+        store(offset + 2, lba);
+        store(offset + 10, size);
+        image[offset + 25] = directory ? 2 : 0;
+        image[offset + 32] = static_cast<std::uint8_t>(name.size());
+        std::copy(name.begin(), name.end(), image.begin() + offset + 33);
+    };
+    image[16 * block] = 1;
+    std::copy_n("CD001", 5, image.begin() + 16 * block + 1);
+    image[16 * block + 6] = 1;
+    record(16 * block + 156, std::string(1, '\0'), 20, block, true);
+    record(20 * block, "PSP_GAME", 21, block, true);
+    record(21 * block, "USRDIR", 22, block, true);
+    record(22 * block, "DATA.BIN;1", 23, block * 2, false);
+    mods::p3rd::Directory directory;
+    directory.directory_blocks = 1;
+    directory.blocks = {1, 2};
+    directory.sizes = {{0, 8}};
+    directory.trailer.resize(block - 16);
+    mods::p3rd::encrypt(directory.trailer, 0, 16);
+    const auto header = directory.encode();
+    expect(header.size() == block, "synthetic archive directory fills exactly one block");
+    std::copy(header.begin(), header.end(), image.begin() + 23 * block);
+    std::vector<std::uint8_t> entry(block);
+    std::copy_n("PUBLIC!!", 8, entry.begin());
+    mods::p3rd::encrypt(entry, 1, 0);
+    std::copy(entry.begin(), entry.end(), image.begin() + 24 * block);
+    const auto iso_path = sandbox / "public-mod-fixture.iso";
+    {
+        std::ofstream out(iso_path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(image.data()), image.size());
+    }
+    const auto folder = sandbox / "mods" / "Public";
+    std::filesystem::create_directories(folder);
+    std::ofstream(folder / "mod.ini")
+        << "[MOD INFO]\nName=Public contract\nAuthor=Test fixture\nDescription=Synthetic eight-byte replacement\nType=File\nVersion=HD\nFiles=replacement.bin\nTarget=0000\n";
+    std::ofstream(folder / "replacement.bin", std::ios::binary) << "CHANGED!";
+    IsoImage disc(iso_path);
+    mods::attach_disc(&disc);
+    auto *session = mods::session();
+    expect(session && session->library().mods().size() == 1, "public synthetic archive creates a real mod session");
+    if (!session || session->library().mods().empty()) {
+        mods::attach_disc(nullptr);
+        return;
+    }
+    const auto id = session->library().mods().front().id;
+    expect(!session->library().enabled(id), "new public mod starts disabled");
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    ImVec2 click{};
+    auto frame = [&](bool back = false, bool scroll = false) {
+        layer.begin_frame();
+        ui::begin_panel("##mods-contract", "Mod contract", "", false);
+        ui::begin_content();
+        ui::mods_page(back);
+        const auto min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+        click = {(min.x + max.x) * .5f, (min.y + max.y) * .5f};
+        if (scroll) ImGui::SetScrollHereY(1);
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    frame(false, true);
+    frame(false, true);
+    frame();
+    ImGui::GetIO().AddMousePosEvent(click.x, click.y);
+    ImGui::GetIO().AddMouseButtonEvent(0, true);
+    frame();
+    ImGui::GetIO().AddMouseButtonEvent(0, false);
+    frame();
+    expect(ui::mods_screen_open(), "selecting installed mod opens real details screen");
+    frame();
+    frame();
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, true);
+    frame();
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, false);
+    frame();
+    expect(session->library().enabled(id) && mods::serving(),
+        "details toggle activates public replacement through real session");
+    std::array<std::uint8_t, 8> bytes{};
+    expect(mods::read_data_bin(block, bytes) == bytes.size(), "active UI mod serves replacement bytes");
+    mods::p3rd::decrypt(bytes, 1, 0);
+    expect(std::string(bytes.begin(), bytes.end()) == "CHANGED!", "replacement selected in UI reaches archive reads");
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, true);
+    frame();
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_LeftArrow, false);
+    frame();
+    expect(!session->library().enabled(id) && !mods::serving(), "details toggle restores original archive");
+    frame(true);
+    expect(!ui::mods_screen_open() && !ui::take_mods_restart_request(),
+        "back closes mod details without requesting restart");
+    layer.set_interactive(false);
+    mods::attach_disc(nullptr);
+}
+
 void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
     psprecomp::Runtime runtime(32u * 1024u * 1024u);
     auto &memory = runtime.memory();
@@ -1022,6 +1134,7 @@ int run_contracts() {
     focused_widget_contracts(renderer);
     menu_contracts(renderer);
     setup_screen_contracts(renderer, sandbox);
+    mods_screen_contracts(renderer, sandbox);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
     renderer.shutdown();
