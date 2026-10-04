@@ -1528,19 +1528,30 @@ void bindings_editor_contracts(gpu::VulkanRenderer &renderer) {
         ui::begin_content();
         if (kind) {
             auto *window = ImGui::GetCurrentWindow();
+            const std::string target(kind);
+            const bool combo =
+                target == "new" || target == "button" || target == "done" || target == "remove" || target == "name";
+            const bool picker = target == "button" || target == "done";
             ImGui::PushID("bindings");
-            ImGui::PushID(index);
-            if (std::string(kind) == "chip") {
+            if (combo) ImGui::PushID("combos");
+            if (target != "new") ImGui::PushID(combo ? static_cast<int>(input::kActions) : index);
+            if (picker) ImGui::PushID("picker");
+            if (target == "button") ImGui::PushID(slot);
+            if (target == "chip") {
                 ImGui::PushID("keys");
                 ImGui::PushID(slot);
             }
             const auto id = window->GetID(kind);
-            if (std::string(kind) == "chip") {
+            if (target == "chip") {
                 ImGui::PopID();
                 ImGui::PopID();
             }
+            if (target == "button") ImGui::PopID();
+            if (picker) ImGui::PopID();
+            if (target != "new") ImGui::PopID();
+            if (combo) ImGui::PopID();
             ImGui::PopID();
-            ImGui::PopID();
+            if (combo) ImGui::SetScrollY(window->ScrollMax.y);
             ImGui::FocusWindow(window);
             ImGui::SetFocusID(id, window);
             ImGui::SetNavCursorVisible(true);
@@ -1600,6 +1611,21 @@ void bindings_editor_contracts(gpu::VulkanRenderer &renderer) {
     expect(player.controls.keys[index] == input::layout(input::Preset::Default).keys[index],
         "reset chip restores shipped movement bindings exactly");
     expect(!ui::bindings_summary(action).empty(), "restored action has meaningful binding summary");
+    activate("new", 0, ImGuiKey_Space);
+    expect(player.controls.combos.size() == 1 && player.controls.combos[0].buttons == 0,
+        "New combination creates exactly one empty custom action");
+    activate("button", 0x1000, ImGuiKey_Space);
+    activate("button", 0x2000, ImGuiKey_Space);
+    expect(player.controls.combos.size() == 1 && player.controls.combos[0].buttons == 0x3000,
+        "combination picker selects exact Triangle plus Circle PSP bits");
+    activate("done", 0, ImGuiKey_Space);
+    activate("name", 0, ImGuiKey_Space);
+    activate("button", 0x2000, ImGuiKey_Space);
+    expect(
+        player.controls.combos[0].buttons == 0x1000, "reopened combination picker toggles one PSP bit independently");
+    activate("done", 0, ImGuiKey_Space);
+    activate("remove", 0, ImGuiKey_Space);
+    expect(player.controls.combos.empty(), "remove chip deletes custom combination and its bindings");
     player = saved;
     settings::save();
     layer.set_interactive(false);
