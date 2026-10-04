@@ -1237,6 +1237,38 @@ void mods_screen_contracts(
         "imported mods stay disabled");
     frame(true);
     expect(!ui::mods_screen_open(), "back closes import result");
+    frame(false, false, "Import mod…");
+    frame(false, false, "Import mod…");
+    press(ImGuiKey_Space);
+    std::ofstream(incoming / "replacement.bin", std::ios::binary) << "SECOND!!";
+    expect(SDL_PushEvent(&drop), "replacement mod drop queues");
+    renderer.pump_events();
+    frame();
+    frame();
+    frame(false, false, "Import this mod");
+    frame(false, false, "Import this mod");
+    press(ImGuiKey_Space);
+    frame();
+    bool mod_backup{};
+    for (const auto &backup : std::filesystem::recursive_directory_iterator(sandbox / "mods" / ".backup")) {
+        if (backup.path().filename() == "replacement.bin") mod_backup = true;
+    }
+    expect(mod_backup && session->library().mods().size() == 2,
+        "reimport replaces existing mod while preserving old public bytes in backup");
+    frame(true);
+    for (const auto &mod : session->library().mods()) session->library().set_enabled(mod.id, true);
+    session->commit();
+    frame();
+    expect(!session->wanted().conflicts.empty(), "two enabled public file mods expose actual same-file conflict");
+    frame(false, false, "Use mods");
+    press(ImGuiKey_Space);
+    expect(!session->library().master() && !mods::serving(),
+        "master off restores unmodified archive despite enabled mods");
+    frame(false, false, "Use mods");
+    press(ImGuiKey_Space);
+    expect(session->library().master(), "master toggle restores enabled mod policy");
+    for (const auto &mod : session->library().mods()) session->library().set_enabled(mod.id, false);
+    session->commit();
     const auto gear_folder = sandbox / "mods" / "ZEquipment";
     std::filesystem::create_directories(gear_folder);
     std::ofstream(gear_folder / "mod.ini") << "[MOD INFO]\nName=Public equipment\nType=EquipHEAD\nFiles=helmet.bin\n";
