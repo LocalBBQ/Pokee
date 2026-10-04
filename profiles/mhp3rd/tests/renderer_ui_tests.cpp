@@ -1180,6 +1180,76 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+void file_browser_boundary_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    const auto base = sandbox / "browser-boundaries";
+    std::filesystem::create_directories(base / "Child");
+    std::ofstream(base / "visible.ISO") << "PUBLIC";
+    std::ofstream(base / "other.txt") << "OTHER";
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    auto frame = [&](ui::FileBrowser &browser, const char *focus = nullptr, int index = -1, bool back = false) {
+        layer.begin_frame();
+        ui::begin_panel("##browser-cases", "Public browser boundaries", "", false);
+        ui::begin_content();
+        if (focus) {
+            ImGuiWindow *target = ImGui::GetCurrentWindow();
+            if (index >= 0 || std::string_view(focus) == "##parent" || std::string_view(focus) == "##choose") {
+                for (auto *window : ImGui::GetCurrentContext()->Windows)
+                    if (std::string_view(window->Name).find("##browser-cases") != std::string_view::npos &&
+                        std::string_view(window->Name).find("/entries") != std::string_view::npos)
+                        target = window;
+            }
+            const auto id = index < 0 ? target->GetID(focus) : ImHashStr(focus, 0, target->GetID(index));
+            ImGui::FocusWindow(target);
+            ImGui::SetFocusID(id, target);
+            ImGui::SetNavCursorVisible(true);
+        }
+        const auto result = browser.frame(back);
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+        return result;
+    };
+    auto pick = [&](ui::FileBrowser &browser, const char *id, int index = -1) {
+        frame(browser, id, index);
+        frame(browser, id, index);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
+        const auto pressed = frame(browser, id, index);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, false);
+        const auto released = frame(browser);
+        return pressed == ui::FileBrowser::Result::Chosen ? pressed : released;
+    };
+    ui::FileBrowser file(base);
+    frame(file);
+    expect(pick(file, "##entry", 1) == ui::FileBrowser::Result::Chosen && file.chosen() == base / "visible.ISO",
+        "browser case-insensitive ISO filter selects exact public file through actual row");
+    ui::FileBrowser::Options folders;
+    folders.choose_folder = "Choose this public directory";
+    folders.choose_on_open = [](const auto &path) { return path.filename() == "Child"; };
+    ui::FileBrowser directory(base, folders);
+    frame(directory);
+    expect(pick(directory, "##entry", 0) == ui::FileBrowser::Result::Chosen && directory.chosen() == base / "Child" &&
+            directory.folder() == base,
+        "choosable directory returns its path without entering it");
+    ui::FileBrowser choose_here(base, folders);
+    frame(choose_here);
+    expect(pick(choose_here, "##choose") == ui::FileBrowser::Result::Chosen && choose_here.chosen() == base,
+        "choose-current-folder row returns exact current directory");
+    ui::FileBrowser removed(base);
+    frame(removed);
+    std::filesystem::remove(base / "Child");
+    pick(removed, "##entry", 0);
+    expect(removed.folder() == base / "Child" && removed.chosen().empty(),
+        "directory removed after listing reports navigation failure without choosing nonexistent data");
+    expect(frame(removed) == ui::FileBrowser::Result::Browsing &&
+            frame(removed, nullptr, -1, true) == ui::FileBrowser::Result::Browsing && removed.folder() == base,
+        "browser error state remains usable and Back recovers to existing parent");
+    expect(ui::human_size(1'000'000'000) == "1.0 GB", "file size GB threshold uses documented display unit");
+    layer.set_interactive(false);
+}
+
 template <class Fn> auto with_escape(gpu::VulkanRenderer &renderer, Fn work) {
     const auto window = SDL_GetWindowID(renderer.window());
     std::jthread input([window] {
@@ -2859,6 +2929,7 @@ int run_contracts() {
     keyboard_contracts(renderer);
     input_capture_contracts(renderer);
     widget_and_browser_contracts(renderer, sandbox);
+    file_browser_boundary_contracts(renderer, sandbox);
     focused_widget_contracts(renderer);
     menu_contracts(renderer);
     setup_screen_contracts(renderer, sandbox);
