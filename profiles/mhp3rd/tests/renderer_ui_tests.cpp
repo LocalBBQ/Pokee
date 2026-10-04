@@ -482,6 +482,32 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     }
     expect(raw_deferred == 8 && pixel() == 0xff2255cc,
         "raw vertex replay schedules all frames and preserves decoded lit color");
+    std::array<std::uint32_t, 15> weighted{};
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+        weighted[i * 5] = std::bit_cast<std::uint32_t>(1.0f);
+        weighted[i * 5 + 1] = 0xff2255cc;
+        for (std::size_t axis = 0; axis < 3; ++axis)
+            weighted[i * 5 + axis + 2] = std::bit_cast<std::uint32_t>(positions[i][axis]);
+    }
+    std::array<float, 96> bones{};
+    for (std::size_t bone = 0; bone < 8; ++bone) bones[bone * 12] = bones[bone * 12 + 4] = bones[bone * 12 + 8] = 1;
+    draw.raw_vertices = reinterpret_cast<const std::uint8_t *>(weighted.data());
+    draw.raw_stride = 20;
+    draw.vertex_type |= 3u << 9;
+    draw.bone_matrices = bones.data();
+    int weighted_deferred{};
+    for (int frame = 0; frame < 8; ++frame) {
+        bones[9] = static_cast<float>(frame) * 0.004f;
+        const auto moment = std::chrono::steady_clock::now();
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        if (!renderer.present(0x04000000, moment)) ++weighted_deferred;
+        renderer.present_until(moment + std::chrono::milliseconds(33));
+    }
+    expect(weighted_deferred == 8 && pixel() == 0xff2255cc,
+        "single-weight raw skinning and animated bone replay preserve lit interior color");
+    draw.bone_matrices = nullptr;
     renderer.pause_interpolation();
     renderer.set_frame_rate(settings::FrameRate::Fps30);
     renderer.set_frame_rate_auto(true);
@@ -1115,6 +1141,7 @@ void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
         ui::begin_footer();
         ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
         ui::end_panel();
+        if (ui::text_input_open()) ui::text_input_frame();
         layer.end_frame();
         renderer.present_ui(false);
     };
@@ -1186,6 +1213,47 @@ void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
         "imported mods stay disabled");
     frame(true);
     expect(!ui::mods_screen_open(), "back closes import result");
+    const auto gear_folder = sandbox / "mods" / "ZEquipment";
+    std::filesystem::create_directories(gear_folder);
+    std::ofstream(gear_folder / "mod.ini") << "[MOD INFO]\nName=Public equipment\nType=EquipHEAD\nFiles=helmet.bin\n";
+    std::ofstream(gear_folder / "helmet.bin", std::ios::binary) << "PUBLIC!!";
+    session->rescan();
+    const auto gear = std::find_if(session->library().mods().begin(), session->library().mods().end(),
+        [](const auto &mod) { return mod.name == "Public equipment"; });
+    expect(gear != session->library().mods().end() && gear->slots.size() == 1,
+        "public equipment mod exposes one real armor slot");
+    if (gear != session->library().mods().end()) {
+        const auto gear_id = gear->id;
+        for (int move = 0; move < 3; ++move) session->library().move(gear_id, -1);
+        session->commit();
+        frame(false, true);
+        frame(false, true);
+        frame();
+        ImGui::GetIO().AddMousePosEvent(click.x, click.y);
+        ImGui::GetIO().AddMouseButtonEvent(0, true);
+        frame();
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
+        frame();
+        expect(ui::mods_screen_open(), "equipment row opens details");
+        frame(false, false, "Replaces (Head armour)");
+        frame(false, false, "Replaces (Head armour)");
+        press(ImGuiKey_Space);
+        expect(ui::text_input_open(), "equipment replacement opens filtered hex editor");
+        ImGui::GetIO().AddInputCharactersUTF8("0000");
+        press(ImGuiKey_Enter);
+        frame();
+        const auto chosen = session->library().choice(gear_id);
+        expect(chosen.slots.size() == 1 && chosen.slots[0] == mods::FileId{0},
+            "equipment hex editor stores exact public file id");
+        frame(false, false, "Use my current armor");
+        press(ImGuiKey_Space);
+        expect(session->library().choice(gear_id).slots[0] == mods::FileId{0},
+            "absent game hunter leaves configured armor slot unchanged");
+        frame(false, false, "No armor");
+        press(ImGuiKey_Space);
+        frame(true);
+        expect(!ui::mods_screen_open(), "Back closes equipment details");
+    }
     layer.set_interactive(false);
     mods::attach_disc(nullptr);
 }
