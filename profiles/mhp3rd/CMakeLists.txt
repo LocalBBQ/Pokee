@@ -1029,6 +1029,10 @@ if(MHP3RD_RENDERER_TESTS)
         add_custom_target(mhp3rd_ui_backend_lifecycle_tests DEPENDS mhp3rd_renderer_ui_tests)
         add_test(NAME mhp3rd_ui_backend_lifecycle_tests COMMAND mhp3rd_renderer_ui_tests --ui-lifecycle)
         set_tests_properties(mhp3rd_ui_backend_lifecycle_tests PROPERTIES TIMEOUT 45)
+        add_custom_target(mhp3rd_renderer_texture_cache_tests DEPENDS mhp3rd_renderer_ui_tests)
+        add_test(NAME mhp3rd_renderer_texture_cache_tests COMMAND mhp3rd_renderer_ui_tests --texture-cache)
+        set_tests_properties(mhp3rd_renderer_texture_cache_tests PROPERTIES TIMEOUT 45
+            ENVIRONMENT "MHP3RD_TEXTURE_CACHE_LIMIT=2")
         # Exercise the documented conservative path even when Auto keeps it off.
         add_custom_target(mhp3rd_renderer_ui_compat_tests DEPENDS mhp3rd_renderer_ui_tests)
         add_test(NAME mhp3rd_renderer_ui_compat_tests COMMAND mhp3rd_renderer_ui_tests)

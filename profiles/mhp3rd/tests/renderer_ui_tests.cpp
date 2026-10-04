@@ -4186,6 +4186,13 @@ int run_contracts(int scripts) {
         return 1;
     }
     auto &renderer = *selected;
+    if (scripts == 4) {
+        primitive_contracts(renderer);
+        renderer.shutdown();
+        std::filesystem::remove_all(sandbox);
+        std::cout << (failures ? "FAIL" : "PASS") << ": bounded texture cache (" << failures << " failures)\n";
+        return failures ? 1 : 0;
+    }
     if (scripts == 3) {
         ui_backend_lifecycle_contracts(renderer, sandbox);
         renderer.shutdown();
@@ -4286,6 +4293,8 @@ int main(int argc, char **argv) {
                 mode = 2;
             else if (std::string_view(argv[1]) == "--ui-lifecycle")
                 mode = 3;
+            else if (std::string_view(argv[1]) == "--texture-cache")
+                mode = 4;
             else {
                 std::cerr << "FAIL: unknown test mode\n";
                 return 2;
