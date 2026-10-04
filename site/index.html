@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#170f0d">
+    <meta
+      name="description"
+      content="Yakumo is an open-source native port of Monster Hunter Portable 3rd HD Ver. powered by ahead-of-time PSP recompilation."
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Yakumo — a native MHP3rd HD port">
+    <meta
+      property="og:description"
+      content="Hunt natively on Windows, Linux, Steam Deck, macOS and Android. Bring your own legally obtained game copy."
+    >
+    <meta property="og:image" content="https://teamgdb.github.io/Yakumo/assets/social-preview.png">
+    <meta property="og:url" content="https://teamgdb.github.io/Yakumo/">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="canonical" href="https://teamgdb.github.io/Yakumo/">
+    <link rel="icon" type="image/svg+xml" href="assets/emblem.svg">
+    <link rel="stylesheet" href="styles.css">
+    <title>Yakumo — a native MHP3rd HD port</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" data-header>
+      <div class="nav-shell">
+        <a class="brand" href="#top" aria-label="Yakumo home">
+          <img src="assets/emblem.svg" alt="" width="42" height="42">
+          <span>Yakumo</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="sr-only">Open navigation</span>
+          <span></span><span></span><span></span>
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary navigation">
+          <a href="#features">Features</a>
+          <a href="#download">Download</a>
+          <a href="#technology">How it works</a>
+          <a href="https://github.com/TeamGDB/Yakumo/tree/main/docs">Docs</a>
+          <div class="nav-socials" aria-label="Community links">
+            <a class="social-link" href="https://github.com/TeamGDB/Yakumo" aria-label="Yakumo on GitHub" title="GitHub">
+              <span class="social-icon social-icon-github" aria-hidden="true"></span>
+            </a>
+            <a class="social-link" href="https://discord.gg/XbQSE3b4m" aria-label="Join the Yakumo Discord" title="Discord">
+              <span class="social-icon social-icon-discord" aria-hidden="true"></span>
+            </a>
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-grid wrap">
+          <div class="hero-copy">
+            <img class="hero-logo" src="assets/logo.svg" alt="Yakumo" width="680" height="200">
+            <h1>The hunt, rebuilt for modern hardware.</h1>
+            <p class="hero-lead">
+              Yakumo translates the PSP game code ahead of time, compiles it for your machine,
+              and supplies a native Vulkan-powered runtime around it.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" id="release-button" href="https://github.com/TeamGDB/Yakumo/releases/latest">
+                Download stable release
+              </a>
+              <a class="button button-secondary" href="https://github.com/TeamGDB/Yakumo">View on GitHub</a>
+            </div>
+            <p class="hero-note">
+              Available for Windows, Linux, Steam Deck, macOS and Android.
+              <span id="release-version" aria-live="polite"></span>
+            </p>
+          </div>
+
+          <figure class="hero-video">
+            <div class="hero-video-frame">
+              <video controls autoplay muted loop playsinline preload="metadata" poster="assets/social-preview.png" aria-label="Yakumo gameplay preview">
+                <source src="assets/alpha-video.mp4" type="video/mp4">
+                Your browser does not support embedded video.
+              </video>
+            </div>
+            <figcaption>
+              Screenshots and other depictions of the original game may be used solely to document or demonstrate
+              <strong>Yakumo's</strong> functionality. All depicted third-party game content remains the property of its respective rights holders.
+            </figcaption>
+          </figure>
+        </div>
+
+        <div class="hero-stats wrap">
+          <div><strong>Playable</strong><span>Village, hunts and saves</span></div>
+          <div><strong>Visual and QoL enhancements</strong><span>Sharper visuals, flexible controls and smoother play</span></div>
+          <div><strong>Higher Framerates</strong><span>Optional frame interpolation for smoother play</span></div>
+        </div>
+      </section>
+
+      <section class="section features" id="features">
+        <div class="wrap">
+          <div class="section-heading">
+            <p class="section-kicker">Built to play</p>
+            <h2>A complete native hunting setup.</h2>
+            <p>
+              From first-run installation to multiplayer, Yakumo replaces the PSP system around the game
+              while preserving its timing, save format and feel.
+            </p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-card">
+              <span>01</span>
+              <h3>Native recompilation</h3>
+              <p>Yakumo recompiles the game's PSP code ahead of time into a native executable for modern hardware.</p>
+            </article>
+
+            <article class="feature-card">
+              <span>02</span>
+              <h3>Modern presentation</h3>
+              <p>Vulkan rendering, adjustable resolution, flexible aspect ratios, music, movies and frame interpolation.</p>
+            </article>
+
+            <article class="feature-card">
+              <span>03</span>
+              <h3>Complete controls</h3>
+              <p>Gamepad, keyboard, mouse and touch input with presets, rebinding, chords and analog aiming.</p>
+            </article>
+
+            <article class="feature-card">
+              <span>04</span>
+              <h3>Built for long hunts</h3>
+              <p>PSP-format saves and backups, ad hoc multiplayer, HD texture packs, mods and layered armor.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section download" id="download">
+        <div class="wrap download-layout">
+          <div class="download-copy">
+            <p class="section-kicker">Choose your platform</p>
+            <h2>Bring your game.<br>Yakumo handles the rest.</h2>
+            <p>
+              Download a prebuilt release, start Yakumo, and select the disc image from your own legally
+              obtained copy. The guided setup verifies and prepares it locally.
+            </p>
+            <div class="legal-chip">
+              <img src="assets/emblem.svg" alt="" width="36" height="36">
+              <span><strong>No game data is included.</strong> Yakumo is the software, not the game.</span>
+            </div>
+          </div>
+
+          <div class="platform-picker">
+            <div class="platform-tabs" role="tablist" aria-label="Platforms">
+              <button id="tab-windows" type="button" role="tab" aria-selected="true" aria-controls="panel-windows" tabindex="0">Windows</button>
+              <button id="tab-linux" type="button" role="tab" aria-selected="false" aria-controls="panel-linux" tabindex="-1">Linux</button>
+              <button id="tab-macos" type="button" role="tab" aria-selected="false" aria-controls="panel-macos" tabindex="-1">macOS</button>
+              <button id="tab-android" type="button" role="tab" aria-selected="false" aria-controls="panel-android" tabindex="-1">Android</button>
+            </div>
+
+            <div class="platform-panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows">
+              <div class="platform-name"><span>01</span><h3>Windows</h3><small>x86-64</small></div>
+              <ol>
+                <li>Download the Windows ZIP from the latest stable release.</li>
+                <li>Extract the complete folder and run <code>Yakumo.exe</code>.</li>
+                <li>Choose your disc image in the first-run setup.</li>
+              </ol>
+              <p>Normal and portable packages keep your data exactly where you expect it.</p>
+            </div>
+
+            <div class="platform-panel" id="panel-linux" role="tabpanel" aria-labelledby="tab-linux" hidden>
+              <div class="platform-name"><span>02</span><h3>Linux &amp; Steam Deck</h3><small>x86-64</small></div>
+              <ol>
+                <li>Download the Flatpak bundle or portable tarball.</li>
+                <li>Install it and start Yakumo once in Desktop Mode.</li>
+                <li>Add Yakumo to Steam for the best Game Mode experience.</li>
+              </ol>
+              <p>Native Vulkan and the Deck's built-in controls are supported.</p>
+            </div>
+
+            <div class="platform-panel" id="panel-macos" role="tabpanel" aria-labelledby="tab-macos" hidden>
+              <div class="platform-name"><span>03</span><h3>macOS</h3><small>Apple Silicon</small></div>
+              <ol>
+                <li>Download the macOS disk image.</li>
+                <li>Drag Yakumo into Applications.</li>
+                <li>Allow the unsigned app once, then complete setup.</li>
+              </ol>
+              <p>Requires macOS 13 or newer and uses Vulkan through MoltenVK.</p>
+            </div>
+
+            <div class="platform-panel" id="panel-android" role="tabpanel" aria-labelledby="tab-android" hidden>
+              <div class="platform-name"><span>04</span><h3>Android</h3><small>arm64</small></div>
+              <ol>
+                <li>Download the arm64 APK and allow its installation.</li>
+                <li>Pick your disc image through Android's file picker.</li>
+                <li>Play with touch controls or a connected gamepad.</li>
+              </ol>
+              <p>Requires Android 10 or later, a 64-bit device and Vulkan 1.1.</p>
+            </div>
+
+            <div class="platform-actions">
+              <a class="button button-primary" href="https://github.com/TeamGDB/Yakumo/releases/latest">Open latest release</a>
+              <a class="text-link" href="https://github.com/TeamGDB/Yakumo/releases">View test builds</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section technology" id="technology">
+        <div class="wrap">
+          <div class="section-heading split-heading">
+            <div>
+              <p class="section-kicker">Under the hood</p>
+              <h2>Native by design.</h2>
+            </div>
+            <p>
+              Yakumo is built around static recompilation. It is neither a traditional emulator nor a
+              decompilation: the original machine code becomes C++, while a purpose-built runtime supplies
+              the PSP services the game expects.
+            </p>
+          </div>
+
+          <div class="process">
+            <article>
+              <span>01</span>
+              <h3>Analyze and translate</h3>
+              <p>Yakumo analyzes the game's PSP machine code and translates it into portable C++ ahead of time.</p>
+            </article>
+            <article>
+              <span>02</span>
+              <h3>Compile natively</h3>
+              <p>The translated code is compiled for the host machine as a native executable and libraries.</p>
+            </article>
+            <article>
+              <span>03</span>
+              <h3>Supply the PSP system</h3>
+              <p>Yakumo provides the kernel, renderer, audio, input, saves and networking around the game.</p>
+            </article>
+          </div>
+
+          <a class="architecture-link" href="https://github.com/TeamGDB/Yakumo/blob/main/docs/ARCHITECTURE.md">
+            <span>Read the architecture guide</span>
+            <strong aria-hidden="true">↗</strong>
+          </a>
+        </div>
+      </section>
+
+      <section class="section community" id="community">
+        <div class="wrap community-card">
+          <div>
+            <p class="section-kicker">Built in the open</p>
+            <h2>Help shape the next hunt.</h2>
+            <p>
+              Test a release, report what you find, improve the runtime or join the conversation.
+              Every useful result moves Yakumo forward.
+            </p>
+          </div>
+          <div class="community-links">
+            <a href="https://github.com/TeamGDB/Yakumo/issues">Report an issue <span>↗</span></a>
+            <a href="https://github.com/TeamGDB/Yakumo/blob/main/CONTRIBUTING.md">Contribute <span>↗</span></a>
+            <a href="https://discord.gg/XbQSE3b4m">Join Discord <span>↗</span></a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-main">
+        <a class="footer-brand" href="#top"><img src="assets/emblem.svg" alt="" width="44" height="44"><span>Yakumo</span></a>
+        <p>
+          An independent open-source project. Not affiliated with or endorsed by CAPCOM or Sony.
+          Monster Hunter and related properties belong to their respective owners.
+        </p>
+        <div class="footer-links">
+          <a href="https://github.com/TeamGDB/Yakumo/blob/main/LICENSE">MIT License</a>
+        </div>
+      </div>
+      <div class="wrap footer-bottom">
+        <span>Yakumo provides software only. Bring your own legally obtained game copy.</span>
+        <span>© <span id="year">2026</span> TeamGDB</span>
+      </div>
+    </footer>
+
+    <script src="script.js" defer></script>
+  </body>
+</html>
