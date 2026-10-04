@@ -240,6 +240,26 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff2255cc, "transformed triangle uses matrices and PSP viewport");
+    // Feed the PSP byte layout directly to the shader vertex decoder.
+    std::array<std::uint32_t, 12> raw{};
+    const std::array<std::array<float, 3>, 3> positions{{{-0.8f, -0.8f, 0}, {0.8f, -0.8f, 0}, {0, 0.8f, 0}}};
+    for (std::size_t i = 0; i < positions.size(); ++i) {
+        raw[i * 4] = 0xff2255cc;
+        for (std::size_t axis = 0; axis < 3; ++axis)
+            raw[i * 4 + axis + 1] = std::bit_cast<std::uint32_t>(positions[i][axis]);
+    }
+    draw.vertices.clear();
+    draw.raw_vertices = reinterpret_cast<const std::uint8_t *>(raw.data());
+    draw.raw_count = 3;
+    draw.raw_stride = 16;
+    draw.vertex_type = (7u << 2) | (3u << 7);
+    renderer.begin_frame();
+    renderer.submit(clear, memory);
+    renderer.submit(draw, memory);
+    renderer.present(0x04000000);
+    expect(pixel() == 0xff2255cc, "raw PSP vertices decode color and float positions on the GPU");
+    draw.raw_vertices = nullptr;
+    draw.raw_count = draw.raw_stride = 0;
     draw.through = true;
     draw.primitive = gpu::PrimitiveType::Sprites;
     draw.vertices = {vertex(60, 60), vertex(420, 230)};
@@ -520,6 +540,11 @@ void setup_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
     expect(
         !with_escape(renderer, [&] { return setup->choose_storage(sandbox / "synthetic.iso", {1ULL << 60}, sandbox); }),
         "storage selection handles insufficient capacity and cancels");
+    const auto previous_folder = settings::current().last_folder;
+    settings::current().last_folder = "/";
+    expect(!with_escape(renderer, [&] { return setup->choose_image(); }),
+        "image browser at filesystem root cancels without selecting a disc");
+    settings::current().last_folder = previous_folder;
     std::atomic<int> stages{};
     setup->run_task("Synthetic preparation", [&] {
         setup->progress("Checking", 0, 0);
@@ -569,6 +594,23 @@ void setup_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
                renderer, [&] { return ui::ask_choice("Synthetic choice", "Public fixture", "First", "Second"); }) ==
             ui::ChoiceAnswer::Closed,
         "choice back reports closed instead of selecting an option");
+    int wrapper_calls{};
+    expect(ui::run_with_progress("Public work",
+               [&](const ui::ReportProgress &progress) {
+                   progress("Public stage", 1, 2);
+                   ++wrapper_calls;
+                   SDL_Delay(70);
+               }) &&
+            wrapper_calls == 1,
+        "public progress wrapper invokes worker exactly once");
+    bool wrapper_error{};
+    try {
+        ui::run_with_progress(
+            "Public failure", [](const ui::ReportProgress &) { throw install::InstallError("public worker error"); });
+    } catch (const install::InstallError &error) {
+        wrapper_error = std::string(error.what()) == "public worker error";
+    }
+    expect(wrapper_error, "public progress wrapper preserves failure and restores interaction mode");
     renderer.pump_events();
     layer.set_interactive(false);
 }
