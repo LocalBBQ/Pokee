@@ -547,6 +547,20 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff11cc77, "rewriting texture bytes invalidates cache on next display list");
+    const auto ui_textures = settings::current().ui_textures;
+    settings::current().ui_textures = settings::UiTextures::Mmpx;
+    renderer.set_internal_scale(2);
+    for (int frame = 0; frame < 2; ++frame) {
+        renderer.begin_frame();
+        renderer.begin_display_list();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect(renderer.target_size() == std::array<std::uint32_t, 2>{960, 544} && pixel() == 0xff11cc77,
+            "MMPX upscaled UI texture and cached copy preserve uniform source pixel");
+    }
+    settings::current().ui_textures = ui_textures;
+    renderer.set_internal_scale(1);
     // Sample an offscreen framebuffer as a texture before its bytes reach RAM.
     clear.vertices[0].color = clear.vertices[1].color = 0xffff00ff;
     draw.target.color_address = 0x04110000;
