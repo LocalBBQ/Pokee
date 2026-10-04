@@ -1177,6 +1177,7 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
     frame(false);
     frame(false);
     ImGui::GetIO().AddMousePosEvent(click.x, click.y);
+    frame(false); // Let ImGui process pointer motion before the independent press/release frames.
     ImGui::GetIO().AddMouseButtonEvent(0, true);
     frame(false);
     ImGui::GetIO().AddMouseButtonEvent(0, false);
