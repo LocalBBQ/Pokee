@@ -1,5 +1,6 @@
 #include "psprecomp/decoder.hpp"
 #include "psprecomp/common.hpp"
+#include "psprecomp/elf32.hpp"
 #include "psprecomp/interpreter.hpp"
 #include "psprecomp/runtime.hpp"
 
@@ -212,6 +213,147 @@ void dispatch_contracts() {
     psprecomp::set_runtime_heartbeat_hook(nullptr, 0);
     check(heartbeat_hits > 0 && runtime.stop_reason() == "completed public dispatch contract",
         "Heartbeat must not alter successful guest dispatch");
+}
+void elf_contracts() {
+    const auto write = [](std::vector<std::uint8_t> &bytes, std::size_t offset, std::uint32_t value,
+                           unsigned width = 4u) {
+        for (unsigned index = 0; index < width; ++index)
+            bytes[offset + index] = static_cast<std::uint8_t>(value >> (index * 8u));
+    };
+    const auto image = [&] {
+        std::vector<std::uint8_t> bytes(320, 0);
+        bytes[0] = 0x7F;
+        bytes[1] = 'E';
+        bytes[2] = 'L';
+        bytes[3] = 'F';
+        bytes[4] = 1;
+        bytes[5] = 1;
+        bytes[6] = 1;
+        write(bytes, 16, 2, 2);
+        write(bytes, 18, 8, 2);
+        write(bytes, 20, 1);
+        write(bytes, 24, base);
+        write(bytes, 28, 52);
+        write(bytes, 40, 52, 2);
+        write(bytes, 42, 32, 2);
+        write(bytes, 44, 1, 2);
+        write(bytes, 46, 40, 2);
+        write(bytes, 52, 1);
+        write(bytes, 56, 128);
+        write(bytes, 60, base);
+        write(bytes, 64, base);
+        write(bytes, 68, 16);
+        write(bytes, 72, 32);
+        write(bytes, 76, 5);
+        write(bytes, 80, 16);
+        write(bytes, 128, 0x12345678u);
+        return bytes;
+    };
+    const auto rejects = [&](std::vector<std::uint8_t> bytes, const char *diagnostic) {
+        try {
+            (void)psprecomp::Elf32Image::from_bytes(std::move(bytes), "public malformed fixture");
+        } catch (const psprecomp::Error &error) {
+            check(std::string(error.what()).find(diagnostic) != std::string::npos, "ELF rejection diagnostic changed");
+            return;
+        }
+        check(false, "Malformed ELF was accepted");
+    };
+    rejects({}, "Truncated");
+    rejects({'~', 'P', 'S', 'P'}, "Encrypted");
+    rejects({0, 'P', 'B', 'P'}, "PBP");
+    auto bad = image();
+    bad[0] = 0;
+    rejects(bad, "Not an ELF");
+    bad = image();
+    bad[4] = 2;
+    rejects(bad, "ELF32");
+    bad = image();
+    write(bad, 18, 3, 2);
+    rejects(bad, "MIPS");
+    bad = image();
+    write(bad, 42, 31, 2);
+    rejects(bad, "program header size");
+    bad = image();
+    write(bad, 46, 39, 2);
+    rejects(bad, "section header size");
+    bad = image();
+    write(bad, 28, 319);
+    rejects(bad, "Truncated");
+    bad = image();
+    write(bad, 56, 320);
+    rejects(bad, "Truncated");
+    auto bytes = image();
+    auto elf = psprecomp::Elf32Image::from_bytes(bytes, "public fixture");
+    psprecomp::GuestMemory memory;
+    check(elf.runtime_entry() == base && !elf.is_psp_prx() && elf.entry() == base && elf.type() == 2u &&
+            elf.source_name() == "public fixture" && elf.bytes() == bytes,
+        "Executable identity changed");
+    memory.store32(base + 16, 0xFFFFFFFFu);
+    elf.load_into(memory);
+    check(memory.load32(base) == 0x12345678u && memory.load32(base + 16) == 0,
+        "ELF segment must preserve file data and zero BSS");
+    check(elf.read_word_at_vaddr(base) == 0x12345678u, "Virtual ELF word read changed");
+    bool absent = false;
+    try {
+        (void)elf.read_word_at_vaddr(base + 64);
+    } catch (const psprecomp::Error &) {
+        absent = true;
+    }
+    check(absent, "Unmapped virtual ELF read must fail");
+    bad = image();
+    write(bad, 72, 8);
+    auto short_segment = psprecomp::Elf32Image::from_bytes(bad);
+    absent = false;
+    try {
+        short_segment.load_into(memory);
+    } catch (const psprecomp::Error &) {
+        absent = true;
+    }
+    check(absent, "Segment cannot have file data larger than memory");
+    bad = image();
+    write(bad, 52, 0);
+    auto no_load = psprecomp::Elf32Image::from_bytes(bad);
+    absent = false;
+    try {
+        no_load.load_into(memory);
+    } catch (const psprecomp::Error &) {
+        absent = true;
+    }
+    check(absent, "Executable without PT_LOAD must fail");
+    bytes = image();
+    write(bytes, 16, psprecomp::kElfTypePspPrx, 2);
+    write(bytes, 24, 4);
+    write(bytes, 60, 0);
+    write(bytes, 64, 0);
+    write(bytes, 32, 192);
+    write(bytes, 48, 1, 2);
+    write(bytes, 196, psprecomp::kSectionTypePspRel);
+    write(bytes, 208, 256);
+    write(bytes, 212, 40);
+    const std::array<std::pair<std::uint32_t, std::uint32_t>, 5> rels{
+        {{0, 0x102u}, {0, 0x10002u}, {1, 4u}, {0, 15u}, {0, 5u}}};
+    for (unsigned index = 0; index < rels.size(); ++index) {
+        write(bytes, 256 + index * 8, rels[index].first);
+        write(bytes, 260 + index * 8, rels[index].second);
+    }
+    auto prx = psprecomp::Elf32Image::from_bytes(bytes);
+    check(prx.is_psp_prx() && prx.runtime_entry() == base + 4 && prx.segment_runtime_address(0) == base,
+        "PRX addresses must relocate against load base");
+    auto stats = prx.load_and_relocate(memory);
+    check(stats.total == 5u && stats.invalid == 4u && stats.unsupported == 1u,
+        "Malformed relocation records must be counted without patching memory");
+    check(memory.load32(base) == 0x12345678u, "Invalid relocations must preserve original instruction");
+    check(prx.section_runtime_address(prx.sections()[0]) == base, "PRX section address must relocate");
+    (void)prx.relocation_sites();
+    write(bytes, 212, 39);
+    auto malformed_relocations = psprecomp::Elf32Image::from_bytes(bytes);
+    absent = false;
+    try {
+        (void)malformed_relocations.apply_relocations(memory);
+    } catch (const psprecomp::Error &) {
+        absent = true;
+    }
+    check(absent, "Mis-sized relocation section must be rejected");
 }
 void integer_contracts() {
     psprecomp::Runtime runtime;
@@ -492,6 +634,7 @@ void floating_contracts() {
 }
 int main() {
     try {
+        elf_contracts();
         dispatch_contracts();
         integer_contracts();
         memory_contracts();
