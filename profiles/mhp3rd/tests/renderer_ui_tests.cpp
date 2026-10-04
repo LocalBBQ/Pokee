@@ -547,6 +547,39 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff11cc77, "rewriting texture bytes invalidates cache on next display list");
+    draw.texture.clut_address = 0x0800a000;
+    draw.texture.clut_format = 3;
+    draw.texture.clut_mask = 255;
+    draw.texture.clut_load_bytes = draw.texture.clut_max_bytes = 1024;
+    memory.store32(draw.texture.clut_address + 4, 0xffff00ff);
+    const std::array<std::uint32_t, 4> packed{0xf81f, 0xfc1f, 0xff0f, 0xffff00ff};
+    for (std::uint32_t format = 0; format < 8; ++format) {
+        draw.texture.format = static_cast<gpu::TextureFormat>(format);
+        for (std::uint32_t i = 0; i < 4; ++i) memory.store32(draw.texture.address + i * 4, 0);
+        if (format < 3) {
+            for (std::uint32_t i = 0; i < 4; ++i)
+                memory.store16(draw.texture.address + i * 2, static_cast<std::uint16_t>(packed[format]));
+        } else if (format == 3) {
+            for (std::uint32_t i = 0; i < 4; ++i) memory.store32(draw.texture.address + i * 4, packed[format]);
+        } else if (format == 4) {
+            memory.store8(draw.texture.address, 0x11);
+            memory.store8(draw.texture.address + 1, 0x11);
+        } else if (format == 5) {
+            for (std::uint32_t i = 0; i < 4; ++i) memory.store8(draw.texture.address + i, 1);
+        } else if (format == 6) {
+            for (std::uint32_t i = 0; i < 4; ++i) memory.store16(draw.texture.address + i * 2, 1);
+        } else {
+            for (std::uint32_t i = 0; i < 4; ++i) memory.store32(draw.texture.address + i * 4, 1);
+        }
+        renderer.begin_frame();
+        renderer.begin_display_list();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect(pixel() == 0xffff00ff, "real GPU texture path decodes each direct and indexed PSP format");
+    }
+    draw.texture.format = gpu::TextureFormat::Rgba8888;
+    for (std::uint32_t i = 0; i < 4; ++i) memory.store32(draw.texture.address + i * 4, 0xff11cc77);
     const auto ui_textures = settings::current().ui_textures;
     settings::current().ui_textures = settings::UiTextures::Mmpx;
     renderer.set_internal_scale(2);
