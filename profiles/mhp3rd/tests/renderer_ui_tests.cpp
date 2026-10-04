@@ -673,6 +673,71 @@ void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::fil
         "successful copy enables installed texture pack");
     frame(true);
     expect(!ui::texture_pack_screen_open(), "back closes texture import result");
+    auto choose = [&](const std::filesystem::path &source, const char *action) {
+        frame(false, "Import texture pack…");
+        press(ImGuiKey_Space);
+        const std::string chosen = source.string();
+        drop.drop.data = chosen.c_str();
+        expect(SDL_PushEvent(&drop), "additional texture source drop queues");
+        renderer.pump_events();
+        frame();
+        bool ready{};
+        for (int settle = 0; settle < 100 && !ready; ++settle) {
+            SDL_Delay(5);
+            ready = frame(false, action);
+        }
+        expect(ready, "texture review offers the requested public action");
+        frame(false, action); // Apply explicit focus after review's default-focus request.
+    };
+    choose(pack, "Use it where it is");
+    press(ImGuiKey_Space);
+    frame();
+    expect(settings::current().texture_pack_folder == pack.string(),
+        "in-place import selects source without changing installed copy");
+    expect(std::filesystem::is_regular_file(sandbox / "textures" / "NPJB40001" / "red.png"),
+        "in-place import preserves installed PNG");
+    frame(true);
+
+    choose(pack, "Copy and replace");
+    press(ImGuiKey_Space);
+    for (int settle = 0; settle < 100 && ui::texture_pack_import_busy(); ++settle) {
+        SDL_Delay(5);
+        frame();
+    }
+    frame();
+    expect(!ui::texture_pack_import_busy() && settings::current().texture_pack_folder.empty(),
+        "replacement restores installed source after copying");
+    bool backed_up{};
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(sandbox / "textures" / ".backup")) {
+        if (entry.path().filename() == "red.png") backed_up = true;
+    }
+    expect(backed_up, "replacement retains old public PNG in backup");
+    frame(true);
+
+    const auto invalid = sandbox / "InvalidTextures";
+    std::filesystem::create_directories(invalid);
+    std::ofstream(invalid / "textures.ini") << "[options]\nhash = unsupported\n";
+    choose(invalid, "Choose another folder");
+    press(ImGuiKey_Space);
+    expect(ui::texture_pack_screen_open() && !ui::texture_pack_import_busy(),
+        "rejected pack returns to browser without starting copy");
+    // Back ascends folders first; finish with the review's explicit Cancel row.
+    const std::string rejected = invalid.string();
+    drop.drop.data = rejected.c_str();
+    expect(SDL_PushEvent(&drop), "rejected pack can be selected again");
+    renderer.pump_events();
+    frame();
+    bool can_cancel{};
+    for (int settle = 0; settle < 100 && !can_cancel; ++settle) {
+        SDL_Delay(5);
+        can_cancel = frame(false, "Cancel");
+    }
+    expect(can_cancel, "invalid texture review provides Cancel");
+    frame(false, "Cancel");
+    press(ImGuiKey_Space);
+    expect(!ui::texture_pack_screen_open(), "cancel closes rejected texture review");
+    expect(settings::current().texture_pack_folder.empty() && settings::current().texture_pack,
+        "invalid import leaves successful installed selection intact");
     settings::current().texture_pack = false;
     renderer.set_texture_pack(false);
     layer.set_interactive(false);
@@ -966,9 +1031,9 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     press(back);                     // delete last Q
     press(SDL_GAMEPAD_BUTTON_NORTH); // space
     press(SDL_GAMEPAD_BUTTON_BACK);  // symbol page
+    press(confirm);                  // !
     press(SDL_GAMEPAD_BUTTON_DPAD_DOWN);
     press(SDL_GAMEPAD_BUTTON_DPAD_UP);
-    press(confirm); // !
     press(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
     press(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
     press(SDL_GAMEPAD_BUTTON_START);
