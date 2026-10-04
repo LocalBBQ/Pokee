@@ -1,6 +1,10 @@
 """Synthetic archive and command-argument regressions; no game data required."""
 
 import io
+import os
+import re
+import shutil
+import subprocess
 from pathlib import Path
 import struct
 import sys
@@ -11,6 +15,7 @@ from unittest.mock import patch
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 import add_overlay
+import embed_shaders
 import databin
 import wrap_overlay
 import extract_iso
@@ -319,6 +324,80 @@ class ArchiveBehaviorTests(unittest.TestCase):
             with patch("sys.stderr", new=io.StringIO()):
                 self.assertEqual(wrap_overlay.main(["wrap"]), 2)
                 self.assertEqual(wrap_overlay.main(["wrap", str(raw), "0x08804001", str(elf)]), 1)
+
+
+class BuildToolContracts(unittest.TestCase):
+    def test_overlay_header_identity_and_errors(self):
+        self.assertEqual(add_overlay.fnv1a64(b""), 0xCBF29CE484222325)
+        self.assertEqual(add_overlay.fnv1a64(b"hello"), 0xA430D84680AABD0B)
+        header = bytearray(64)
+        header[:4] = b"MWo3"
+        struct.pack_into("<4I", header, 4, 7, 0x08800000, 8, 16)
+        header[32:45] = b"demo-task.bin"
+        self.assertEqual(add_overlay.parse_header(header, 0x08800000), ("demo_task", 88, 8))
+        with self.assertRaises(SystemExit):
+            add_overlay.parse_header(b"invalid", 0x08800000)
+        with self.assertRaises(SystemExit):
+            add_overlay.parse_header(header, 0x08804000)
+        header[32:] = bytes(32)
+        with self.assertRaises(SystemExit):
+            add_overlay.parse_header(header, 0x08800000)
+
+    def test_overlay_generates_public_corpus_without_building_library(self):
+        recompiler = os.environ.get("PSPRECOMP_TEST_RECOMP")
+        if not recompiler or not Path(recompiler).is_file():
+            self.skipTest("set PSPRECOMP_TEST_RECOMP to run the real public overlay workflow")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            header = bytearray(64)
+            header[:4] = b"MWo3"
+            struct.pack_into("<4I", header, 4, 7, 0x08800000, 8, 4)
+            header[32:40] = b"demo.bin"
+            dump = root / "synthetic.bin"
+            dump.write_bytes(header + struct.pack("<III", 0x03E00008, 0, 123))
+            corpus = root / "corpus"
+            with patch.object(add_overlay, "OVERLAY_DIR", str(corpus)), patch("sys.stdout", new=io.StringIO()) as output:
+                self.assertEqual(add_overlay.main(["add_overlay", "--no-build", str(Path(recompiler).parent),
+                                                   str(dump), "0x08800000"]), 0)
+            target = next(corpus.iterdir())
+            metadata = (target / "meta.txt").read_text()
+            self.assertIn("name=demo\nsize=76\ncode_size=8\n", metadata)
+            self.assertIn("source=synthetic.bin\n", metadata)
+            self.assertIn(f"target: overlay_{target.name}", output.getvalue())
+            self.assertTrue((target / f"{target.name}_registry.cpp").is_file())
+            elf = (target / "overlay.elf").read_bytes()
+            self.assertEqual(elf[:4], b"\x7fELF")
+            self.assertEqual(elf[84:160], dump.read_bytes())
+
+    def test_shader_usage_and_real_compilation_variants(self):
+        with patch("sys.stderr", new=io.StringIO()):
+            self.assertEqual(embed_shaders.main(["embed_shaders"]), 2)
+        compiler = shutil.which("glslangValidator")
+        if not compiler:
+            self.skipTest("glslangValidator unavailable for actual SPIR-V compilation")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "public.vert"
+            source.write_text("#version 450\nvoid main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }\n")
+            binary = embed_shaders.compile_shader(compiler, str(source), [])
+            self.assertEqual(binary[:4], bytes.fromhex("03022307"))
+            self.assertEqual(len(binary) % 4, 0)
+            destination = root / "nested" / "shaders.inc"
+            with patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(embed_shaders.main(["embed_shaders", compiler, str(destination),
+                                                     f"kPlain={source}", f"kDefined=A,,B@{source}"]), 0)
+            emitted = destination.read_text()
+            self.assertIn("constexpr std::uint32_t kPlain[]", emitted)
+            self.assertIn("constexpr std::uint32_t kDefined[]", emitted)
+            words = re.findall(r"0x([0-9a-f]{8})u", emitted)
+            self.assertEqual(int(words[0], 16), 0x07230203)
+            self.assertEqual(len(words), len(binary) // 2)
+            source.write_text("this is not valid GLSL")
+            with patch.object(embed_shaders.tempfile, "tempdir", str(root)):
+                before = set(root.glob("*.spv"))
+                with self.assertRaises(subprocess.CalledProcessError):
+                    embed_shaders.compile_shader(compiler, str(source), [])
+                self.assertEqual(set(root.glob("*.spv")), before)
 
 if __name__ == "__main__":
     unittest.main()
