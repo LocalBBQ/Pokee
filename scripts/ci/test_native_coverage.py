@@ -1,11 +1,32 @@
 """Guard the coverage denominator and first-party ownership policy."""
 
+import contextlib
+import io
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from native_coverage import production_source, reviewed_zero_hash_stubs, totals
+import native_coverage
+from native_coverage import production_source, reviewed_zero_hash_stubs, totals, write_summary
 
 
 class CoveragePolicyTests(unittest.TestCase):
+    def test_summary_does_not_write_to_environment_selected_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'coverage-results').mkdir()
+            unrelated = root / 'unrelated.txt'
+            unrelated.write_text('Keep this file unchanged.\n')
+            with mock.patch.object(native_coverage, 'BUILD', root), \
+                    mock.patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(unrelated)}), \
+                    contextlib.redirect_stdout(io.StringIO()) as stream:
+                write_summary('Measured coverage\n')
+            self.assertEqual(unrelated.read_text(), 'Keep this file unchanged.\n')
+            self.assertEqual((root / 'coverage-results/summary.md').read_text(), 'Measured coverage\n')
+            self.assertIn('Measured coverage', stream.getvalue())
+
     def test_only_production_sources(self):
         for path in ('src/runtime.cpp', 'include/psprecomp/guest_memory.hpp',
                      'profiles/mhp3rd/host/kernel/kernel.cpp'):

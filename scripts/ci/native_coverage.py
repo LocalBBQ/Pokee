@@ -61,6 +61,12 @@ def reviewed_zero_hash_stubs(diagnostics, emitted_names):
     return names
 
 
+def write_summary(markdown):
+    """Keep report writes local; the workflow owns GitHub summary publication."""
+    (BUILD / 'coverage-results' / 'summary.md').write_text(markdown)
+    print(markdown)
+
+
 def main():
     if sys.platform == 'darwin':
         cov, profdata = ['xcrun', 'llvm-cov'], ['xcrun', 'llvm-profdata']
@@ -181,11 +187,7 @@ def main():
                  'each function also has an emitted mapping in the exported data. '
                  'Diagnostics are retained. Any nonzero mismatch or missing emitted mapping fails the report.']
     markdown = '\n'.join(text) + '\n'
-    (output / 'summary.md').write_text(markdown)
-    print(markdown)
-    if os.environ.get('GITHUB_STEP_SUMMARY'):
-        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
-            stream.write(markdown)
+    write_summary(markdown)
 
 
 if __name__ == '__main__':

@@ -81,6 +81,9 @@ jobs:
       - name: Publish coverage inventory
         if: always()
         run: |
+          if [ -f out/coverage/coverage-results/summary.md ]; then
+            cat out/coverage/coverage-results/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ -f out/project-coverage/summary.md ]; then
             cat out/project-coverage/summary.md >> "$GITHUB_STEP_SUMMARY"
           fi
