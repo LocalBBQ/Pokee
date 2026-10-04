@@ -81,7 +81,9 @@ class AndroidRunnerTests(unittest.TestCase):
         self.assertIn("'arg with spaces'", commands[0])
         self.assertIn("'quote'\"'\"'s'", commands[0])
         self.assertEqual(calls[-1], ['shell', 'rm -rf /data/local/tmp/yakumo-unit-tests'])
-        self.assertEqual(len([call for call in calls if call[0] == 'push']), 4)
+        self.assertEqual(len([call for call in calls if call[0] == 'push']), 5)
+        self.assertIn('PSPRECOMP_TEST_NIDS_CSV=/data/local/tmp/yakumo-unit-tests/nids.csv', commands[0])
+        self.assertTrue(any(call[0] == 'push' and call[-1].endswith('/nids.csv') for call in calls))
 
     def test_success_and_bridge_timeout_have_different_statuses(self):
         self.assertEqual(self.run_suite(self.tests[:1]), 0)

@@ -6,6 +6,7 @@
 #include "settings/settings.hpp"
 #include "fonts/game_font.hpp"
 #include "install/user_data.hpp"
+#include <cstdlib>
 #include <cstring>
 #include "hle/utility_dialog.hpp"
 #include <thread>
@@ -78,7 +79,8 @@ public:
     Fixture() {
         kernel = mhp3rd::Kernel{};
         kernel.install(runtime, 0x08801000u, 0x08820000u);
-        runtime.nids().load_csv(PSPRECOMP_TEST_NIDS_CSV);
+        const char *csv_path = std::getenv("PSPRECOMP_TEST_NIDS_CSV");
+        runtime.nids().load_csv(csv_path ? csv_path : PSPRECOMP_TEST_NIDS_CSV);
         for (const auto &symbol : runtime.nids().all()) nids[{symbol.library, symbol.name}] = symbol.nid;
         mhp3rd::HleRegistrar hle(runtime);
         mhp3rd::register_threadman(hle);
