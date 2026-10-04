@@ -955,7 +955,7 @@ target_link_libraries(mhp3rd_kernel_hle_tests PRIVATE mhp3rd_test_host)
 set_target_properties(mhp3rd_kernel_hle_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhp3rd_kernel_hle_tests COMMAND mhp3rd_kernel_hle_tests)
-    set_tests_properties(mhp3rd_kernel_hle_tests PROPERTIES TIMEOUT 60 ENVIRONMENT "MHP3RD_NO_RENDER=1")
+    set_tests_properties(mhp3rd_kernel_hle_tests PROPERTIES TIMEOUT 60 ENVIRONMENT "MHP3RD_NO_RENDER=1;MHP3RD_TRACE_OSK=1")
 endif()
 
 add_executable(mhp3rd_media_tests

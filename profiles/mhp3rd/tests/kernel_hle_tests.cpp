@@ -3,6 +3,9 @@
 #include "adhoc/server.hpp"
 #include "adhoc/sockets.hpp"
 #include "settings/settings.hpp"
+#include "fonts/game_font.hpp"
+#include "install/user_data.hpp"
+#include <cstring>
 #include "hle/utility_dialog.hpp"
 #include <thread>
 #include "kernel/kernel.hpp"
@@ -14,6 +17,7 @@
 #include <initializer_list>
 #include <map>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -69,6 +73,7 @@ public:
     mhp3rd::Kernel &kernel = mhp3rd::kernel();
     psprecomp::AllegrexContext &ctx = runtime.cpu();
     std::map<std::pair<std::string, std::string>, std::uint32_t> nids;
+    unsigned return_address = 0x08822000u;
     Fixture() {
         kernel = mhp3rd::Kernel{};
         kernel.install(runtime, 0x08801000u, 0x08820000u);
@@ -92,7 +97,7 @@ public:
         for (unsigned i = 0; i < 8; ++i) ctx.set_gpr(i + 4, 0);
         unsigned i = 0;
         for (const auto value : args) ctx.set_gpr(i++ + 4, value);
-        ctx.set_gpr(31, 0x08822000u);
+        ctx.set_gpr(31, return_address);
         runtime.invoke_import(library, nids.at({library, name}), ctx);
         return ctx.gpr[2];
     }
@@ -106,6 +111,43 @@ public:
     }
 };
 
+void common_hle_contracts() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    f.string(Fixture::text, "prefix-suffix");
+    check(mhp3rd::read_cstring(memory, 0).empty(), "null guest string is empty");
+    check(mhp3rd::read_cstring(memory, Fixture::text, 6) == "prefix", "guest string obeys maximum length");
+    memory.store8(Fixture::output, 0x5a);
+    mhp3rd::write_cstring(memory, Fixture::output, "ignored", 0);
+    mhp3rd::write_cstring(memory, 0, "ignored", 8);
+    check(memory.load8(Fixture::output) == 0x5a, "zero capacity leaves guest memory untouched");
+    mhp3rd::write_cstring(memory, Fixture::output, "longer", 4);
+    check(mhp3rd::read_cstring(memory, Fixture::output) == "lon" && memory.load8(Fixture::output + 3) == 0,
+        "guest string truncation always includes terminator");
+    mhp3rd::write_cstring(memory, Fixture::output, "longer", 1);
+    check(memory.load8(Fixture::output) == 0, "one-byte capacity writes an empty terminated string");
+    mhp3rd::store64(memory, Fixture::output, 0xfedcba9876543210ull);
+    check(memory.load32(Fixture::output) == 0x76543210 && memory.load32(Fixture::output + 4) == 0xfedcba98,
+        "64-bit store uses little-endian word ordering");
+    f.ctx.set_gpr(6, 0x76543210);
+    f.ctx.set_gpr(7, 0xfedcba98);
+    check(mhp3rd::arg64(f.ctx, 2) == 0xfedcba9876543210ull, "EABI paired arguments preserve all 64 bits");
+    mhp3rd::HleRegistrar hle(f.runtime);
+    check(!hle.try_add("missing-public-library", "missing-public-name", [](auto &, auto &) {}) && hle.count() == 0,
+        "unknown optional binding leaves registrar empty");
+    bool rejected = false;
+    try {
+        hle.add("missing-public-library", "missing-public-name", [](auto &, auto &) {});
+    } catch (const psprecomp::Error &error) {
+        rejected = std::string(error.what()).find("missing from configs/nids.csv") != std::string::npos;
+    }
+    check(rejected, "required unknown binding reports its registry error");
+    const auto nid = f.nids.at({"ThreadManForUser", "sceKernelGetThreadId"});
+    hle.add("ThreadManForUser", "sceKernelGetThreadId", [](auto &, auto &ctx) { ctx.set_gpr(2, 0x12345678); });
+    check(hle.count() == 1 && hle.bound("ThreadManForUser", nid) && !hle.bound("missing-public-library", nid),
+        "registrar tracks exact library and NID identity");
+    check(f.thread("sceKernelGetThreadId") == 0x12345678, "registered handler runs through actual import dispatch");
+}
 void scheduler_contracts() {
     Fixture f;
     auto &k = f.kernel;
@@ -1052,12 +1094,363 @@ void thread_end_and_dispatch_contracts() {
         "exit HLE preserves dormant thread status");
     check(f.call("Kernel_Library", "sceKernelGetThreadId") == static_cast<unsigned>(loader),
         "kernel library identity shares scheduler state");
+    const auto exhausted = f.kernel.allocate_block("exhausted", 0, f.kernel.free_memory(), 0);
+    check(exhausted > 0 &&
+            static_cast<unsigned>(f.kernel.create_thread("no-stack", 0x08824000, 0x30, 4096, 0, 0)) ==
+                mhp3rd::error::kNoMemory,
+        "thread creation rejects unavailable stack memory");
+    check(f.kernel.free_block(exhausted) == 0, "stack exhaustion fixture restores all available memory");
+}
+void scheduler_deadlock_contracts() {
+    Fixture f;
+    const auto dormant = f.kernel.create_thread("not-started", 0x08824000, 0x30, 4096, 0, 0);
+    check(dormant > 0, "deadlock fixture retains a dormant thread");
+    f.thread("sceKernelSleepThread");
+    check(f.runtime.stopped() && f.ctx.pc == mhp3rd::kIdleStub,
+        "permanent sleep without runnable threads eventually stops in idle");
+    const auto &reason = f.runtime.stop_reason();
+    check(reason.find("PSP scheduler deadlock: no runnable thread") != std::string::npos &&
+            reason.find("not-started status=dormant") != std::string::npos &&
+            reason.find("status=waiting wait=sleep") != std::string::npos &&
+            reason.find("resume=") != std::string::npos,
+        "deadlock diagnostic identifies dormant and waiting threads with resume address");
+}
+void utility_and_savedata_contracts() {
+    struct Capture {
+        std::ostringstream output;
+        std::streambuf *previous = std::cout.rdbuf(output.rdbuf());
+        ~Capture() { std::cout.rdbuf(previous); }
+    } capture;
+    Fixture f;
+    PublicFiles files;
+    mhp3rd::HleRegistrar hle(f.runtime);
+    mhp3rd::register_utility(hle, files.root / "ms");
+    auto call = [&](const char *name, std::initializer_list<unsigned> args = {}) {
+        return f.call("sceUtility", name, args);
+    };
+    auto &memory = f.runtime.memory();
+    constexpr unsigned params = Fixture::text + 0x1000, field = params + 0x800, data = params + 0x1000,
+                       aux = data + 0x1000;
+    check(call("sceUtilityOskShutdownStart") == mhp3rd::kErrorUtilityInvalidStatus, "inactive OSK cannot shut down");
+    memory.store32(params, 0x40);
+    memory.store32(params + 0x30, 1);
+    memory.store32(params + 0x34, field);
+    memory.store32(field + 0x24, 8);
+    memory.store32(field + 0x28, data);
+    mhp3rd::settings::current().name = "A\xc3\xa9\xe6\x97\xa5\xf0\x9f\x98\x80Z";
+    auto finish_osk = [&] {
+        check(call("sceUtilityOskGetStatus") == 1 && call("sceUtilityOskGetStatus") == 2 &&
+                call("sceUtilityOskGetStatus") == 3,
+            "headless OSK converges init/visible/quit");
+        check(
+            memory.load32(field + 0x2c) == 2 && memory.load32(params + 0x1c) == 0 && memory.load32(params + 0x38) == 3,
+            "OSK publishes changed result and shared state");
+        check(call("sceUtilityOskShutdownStart") == 0 && call("sceUtilityOskGetStatus") == 4 &&
+                call("sceUtilityOskGetStatus") == 0,
+            "OSK shutdown converges to none");
+    };
+    check(call("sceUtilityOskInitStart", {params}) == 0 &&
+            call("sceUtilityOskInitStart", {params}) == mhp3rd::kErrorUtilityInvalidStatus,
+        "OSK cannot start a second active request");
+    finish_osk();
+    const std::array<unsigned, 7> units{'A', 0xe9, 0x65e5, 0xd83d, 0xde00, 'Z', 0};
+    for (unsigned i = 0; i < units.size(); ++i)
+        check(memory.load16(data + i * 2) == units[i], "UTF-8 fixed name converted to expected UTF-16 units");
+    memory.store32(field + 0x24, 5);
+    check(call("sceUtilityOskInitStart", {params}) == 0 && call("sceUtilityOskGetStatus") == 1 &&
+            call("sceUtilityOskUpdate") == 0 && call("sceUtilityOskGetStatus") == 3,
+        "Update can deliver headless answer");
+    check(memory.load16(data + 6) == 0, "insufficient room never splits surrogate pair");
+    check(call("sceUtilityOskShutdownStart") == 0 && call("sceUtilityOskGetStatus") == 4 &&
+            call("sceUtilityOskGetStatus") == 0,
+        "updated OSK shuts down");
+    memory.store32(field + 0x24, 8);
+    memory.store32(field + 0x30, 2);
+    check(call("sceUtilityOskInitStart", {params}) == 0, "limited name request starts");
+    finish_osk();
+    check(memory.load16(data + 4) == 0, "explicit output limit clamps text length");
+    memory.store32(field + 0x30, 0);
+    memory.store32(field + 0x20, aux);
+    for (unsigned i = 0; i < units.size(); ++i) memory.store16(aux + i * 2, static_cast<std::uint16_t>(units[i]));
+    check(call("sceUtilityOskInitStart", {params}) == 0, "existing text request starts");
+    finish_osk();
+    for (unsigned i = 0; i < units.size(); ++i)
+        check(memory.load16(data + i * 2) == units[i], "initial UTF-16 text round trips through host answer");
+    memory.store32(params + 0x30, 0);
+    check(call("sceUtilityOskInitStart", {params}) == 0 && call("sceUtilityOskGetStatus") == 1 &&
+            call("sceUtilityOskGetStatus") == 2 && call("sceUtilityOskGetStatus") == 3,
+        "zero-field OSK still reaches quit");
+    check(call("sceUtilityOskShutdownStart") == 0 && call("sceUtilityOskGetStatus") == 4 &&
+            call("sceUtilityOskGetStatus") == 0,
+        "zero-field OSK cleans up");
+    if (std::getenv("MHP3RD_TRACE_OSK") != nullptr) {
+        const auto diagnostic = capture.output.str();
+        check(diagnostic.find("[osk-trace] InitStart") != std::string::npos &&
+                diagnostic.find("field+") != std::string::npos &&
+                diagnostic.find("[osk-trace] Update") != std::string::npos &&
+                diagnostic.find("[osk-trace] ShutdownStart") != std::string::npos,
+            "OSK diagnostics describe request fields and complete lifecycle");
+        check(diagnostic.size() < 32768, "OSK trace stays bounded for synthetic requests");
+    }
+    check(call("sceUtilityMsgDialogShutdownStart") == mhp3rd::kErrorUtilityInvalidStatus,
+        "inactive message dialog rejects shutdown");
+    memory.store32(params, 0x244);
+    memory.store32(params + 0x34, 1);
+    f.string(params + 0x3c, "public synthetic question");
+    memory.store32(params + 0x23c, 0x110);
+    check(call("sceUtilityMsgDialogInitStart", {params}) == 0 && memory.load32(params + 0x240) == 1 &&
+            memory.load32(params + 0x1c) == 0,
+        "message question answers yes with successful result");
+    check(call("sceUtilityMsgDialogGetStatus") == 1 && call("sceUtilityMsgDialogUpdate") == 0 &&
+            call("sceUtilityMsgDialogGetStatus") == 3 && call("sceUtilityMsgDialogShutdownStart") == 0 &&
+            call("sceUtilityMsgDialogGetStatus") == 4 && call("sceUtilityMsgDialogGetStatus") == 0,
+        "message dialog obeys complete lifecycle");
+    memory.store32(params, 0x40);
+    memory.store32(params + 0x34, 0);
+    memory.store32(params + 0x38, 0x1234);
+    memory.store32(params + 0x240, 0xfeed);
+    check(call("sceUtilityMsgDialogInitStart", {params}) == 0 && memory.load32(params + 0x240) == 0xfeed &&
+            call("sceUtilityMsgDialogShutdownStart") == 0,
+        "short error dialog preserves absent button field and allows early shutdown");
+    check(call("sceUtilityMsgDialogGetStatus") == 4 && call("sceUtilityMsgDialogGetStatus") == 0,
+        "early message shutdown still converges");
+    for (unsigned i = 0; i < 0x600; i += 4) memory.store32(params + i, 0);
+    memory.store32(params, 0x600);
+    f.string(params + 0x3c, "PUB000001");
+    f.string(params + 0x4c, "SLOT0");
+    f.string(params + 0x64, "DATA.DAT");
+    memory.store32(params + 0x74, data);
+    memory.store32(params + 0x78, 64);
+    memory.store32(params + 0x7c, 12);
+    f.string(data, "public save!");
+    f.string(params + 0x80, "Public title");
+    f.string(params + 0x100, "Synthetic slot");
+    f.string(params + 0x180, "No game content");
+    auto request = [&](unsigned mode) {
+        memory.store32(params + 0x30, mode);
+        check(call("sceUtilitySavedataInitStart", {params}) == 0, "save dialog acknowledges request");
+        const auto result = memory.load32(params + 0x1c);
+        check(call("sceUtilitySavedataGetStatus") == 1 && call("sceUtilitySavedataUpdate") == 0 &&
+                call("sceUtilitySavedataGetStatus") == 3 && call("sceUtilitySavedataShutdownStart") == 0 &&
+                call("sceUtilitySavedataGetStatus") == 4 && call("sceUtilitySavedataGetStatus") == 0,
+            "save success/error lifecycle always converges");
+        return result;
+    };
+    check(call("sceUtilitySavedataShutdownStart") == mhp3rd::kErrorUtilityInvalidStatus && request(0) == 0x80110307u,
+        "missing save reports no data");
+    memory.store32(params + 0x74, 0);
+    check(request(0) == 0x80110308u && request(1) == 0x80110388u, "load/save require guest buffer");
+    memory.store32(params + 0x74, data);
+    memory.store32(params + 0x584, aux);
+    memory.store32(params + 0x588, 4);
+    memory.store32(params + 0x58c, 8);
+    f.string(aux, "ICON");
+    check(request(1) == 0 && std::filesystem::exists(files.root / "ms/PSP/SAVEDATA/PUB000001SLOT0/DATA.DAT"),
+        "autosave writes public PSP layout");
+    check(std::filesystem::file_size(files.root / "ms/PSP/SAVEDATA/PUB000001SLOT0/ICON0.PNG") == 4,
+        "icon data clamps requested size to guest capacity");
+    f.string(data, "overwritten");
+    memory.store32(params + 0x78, 5);
+    check(request(2) == 0 && memory.load32(params + 0x7c) == 5 && mhp3rd::read_cstring(memory, data, 5) == "publi" &&
+            mhp3rd::read_cstring(memory, params + 0x80) == "Public title",
+        "load truncates payload and restores metadata");
+    memory.store32(params + 0x78, 64);
+    memory.store32(params + 0x5d0, aux + 0x100);
+    memory.store32(params + 0x5d4, aux + 0x200);
+    memory.store32(params + 0x5d8, aux + 0x300);
+    f.string(aux + 0x200, "PUB000001");
+    f.string(aux + 0x210, "SLOT0");
+    check(request(8) == 0 && memory.load32(aux + 0x100) == 0x8000 &&
+            mhp3rd::read_cstring(memory, aux + 0x10c) == "1 GB" && memory.load32(aux + 0x300) >= 1,
+        "sizes reports free-space geometry and needed clusters");
+    f.string(aux + 0x210, "MISSING");
+    check(request(8) == 0x801103c7u, "sizes reports absent slot");
+    memory.store32(params + 0x5d4, 0);
+    memory.store32(params + 0x7c, 2 * 1024 * 1024);
+    check(request(8) == 0 && mhp3rd::read_cstring(memory, aux + 0x308).find("MB") != std::string::npos,
+        "needed-space formatting supports megabytes");
+    memory.store32(params + 0x7c, 12);
+    memory.store32(params + 0x60, aux + 0x400);
+    f.string(aux + 0x400, "MISSING");
+    f.string(aux + 0x414, "SLOT0");
+    check(request(4) == 0 && mhp3rd::read_cstring(memory, params + 0x4c) == "SLOT0",
+        "list load chooses first existing slot");
+    check(request(6) == 0 && request(6) == 0x80110347u && request(4) == 0x80110307u,
+        "list delete removes selected save and missing list paths report correct error");
+    f.string(aux + 0x400, "SLOT1");
+    memory.store8(aux + 0x414, 0);
+    f.string(data, "public save!");
+    check(request(5) == 0 && mhp3rd::read_cstring(memory, params + 0x4c) == "SLOT1",
+        "list save chooses first provided slot");
+    memory.store32(params + 0x60, 0);
+    for (auto mode : {7u, 9u, 10u}) {
+        check(request(3) == 0 && request(mode) == 0 && request(mode) == 0x80110347u,
+            "delete variants remove one slot and report missing data");
+    }
+    f.string(params + 0x4c, "<>");
+    check(request(5) == 0 && std::filesystem::exists(files.root / "ms/PSP/SAVEDATA/PUB000001/DATA.DAT"),
+        "empty-save-name marker maps to game directory");
+    check(request(11) == 0x80110308u && request(99) == 0x80110308u, "unsupported save mode reports parameter error");
+    f.string(params + 0x4c, "SECURE");
+    for (unsigned i = 0; i < 16; ++i) memory.store8(params + 0x5dc + i, static_cast<std::uint8_t>(i + 1));
+    check(request(1) == 0 && request(0) == 0 && memory.load32(params + 0x7c) == 16 &&
+            mhp3rd::read_cstring(memory, data, 12) == "public save!",
+        "synthetic secure save encrypts and decrypts through HLE");
+    {
+        std::ofstream corrupt(
+            files.root / "ms/PSP/SAVEDATA/PUB000001SECURE/DATA.DAT", std::ios::binary | std::ios::trunc);
+        corrupt << "broken";
+    }
+    check(request(0) == 0x80110306u, "corrupted encrypted save reports broken data");
+    const auto blocked = files.root / "blocked";
+    {
+        std::ofstream block(blocked);
+        block << "not a directory";
+    }
+    mhp3rd::register_savedata(hle, blocked);
+    check(request(1) == 0x80110385u, "non-directory memory stick reports save access error");
+}
+
+// An independently authored minimal sfnt with one square glyph, no external font.
+static std::array<unsigned char, 640> contract_font() {
+    std::array<unsigned char, 640> data{};
+    auto u16 = [&](int at, unsigned value) {
+        data[at] = static_cast<unsigned char>(value >> 8);
+        data[at + 1] = static_cast<unsigned char>(value);
+    };
+    auto u32 = [&](int at, unsigned value) {
+        u16(at, value >> 16);
+        u16(at + 2, value);
+    };
+    u32(0, 0x00010000);
+    u16(4, 7);
+    const char *tags[] = {"cmap", "head", "hhea", "hmtx", "maxp", "loca", "glyf"};
+    const unsigned offsets[] = {128, 416, 480, 528, 544, 560, 576};
+    const unsigned lengths[] = {274, 54, 36, 8, 6, 12, 34};
+    for (int i = 0; i < 7; ++i) {
+        std::memcpy(data.data() + 12 + i * 16, tags[i], 4);
+        u32(20 + i * 16, offsets[i]);
+        u32(24 + i * 16, lengths[i]);
+    }
+    u16(130, 1);
+    u16(132, 3);
+    u16(134, 1);
+    u32(136, 12);
+    u16(142, 262); // Format 0 cmap with a public square at glyph 1.
+    for (unsigned code = 0x21; code < 0x7f; ++code) data[146 + code] = 1;
+    u16(434, 20);
+    u16(466, 1); // units per em, long loca offsets.
+    u16(484, 20);
+    u16(514, 2);
+    u16(528, 20);
+    u16(532, 20); // ascent and horizontal metrics.
+    u16(548, 2);
+    u32(564, 0);
+    u32(568, 34);
+    u16(576, 1);
+    u16(582, 20);
+    u16(584, 20);                                  // contour and bounding box.
+    u16(586, 3);                                   // last point of the four-point contour; no instructions.
+    for (int i = 0; i < 4; ++i) data[590 + i] = 1; // on-curve, signed deltas.
+    u16(596, 20);
+    u16(600, static_cast<unsigned>(-20));
+    u16(606, 20);
+    return data;
+}
+void font_contracts() {
+    Fixture f;
+    PublicFiles files;
+    const auto bytes = contract_font();
+    const auto path = files.root / "square.ttf";
+    {
+        std::ofstream output(path, std::ios::binary);
+        output.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    auto &settings = mhp3rd::settings::current();
+    settings.font = path.string();
+    settings.font_weight = 0;
+    mhp3rd::fonts::reload();
+    check(mhp3rd::fonts::ready() && mhp3rd::fonts::metrics('A').found, "independently authored square font loads");
+    mhp3rd::HleRegistrar hle(f.runtime);
+    mhp3rd::register_font(hle);
+    auto call = [&](const char *name, std::initializer_list<unsigned> args = {}) {
+        return f.call("sceLibFont", name, args);
+    };
+    auto &memory = f.runtime.memory();
+    constexpr unsigned info = Fixture::output, image = info + 256, pixels = info + 512;
+    check(call("sceFontNewLib", {info, info + 128}) == 0xf0f000 && memory.load32(info + 128) == 0,
+        "font library returns stable handle and success output");
+    check(call("sceFontGetNumFontList", {0xf0f000, info + 128}) == 1 && memory.load32(info + 128) == 0,
+        "one host font is exposed");
+    check(call("sceFontFindOptimumFont", {0xf0f000, info, info + 128}) == 0 && memory.load32(info + 128) == 0,
+        "optimum search selects host font index");
+    const auto font = call("sceFontOpen", {0xf0f000, 0, 0, info + 128});
+    check(font == 0xf0f100 && memory.load32(info + 128) == 0, "font opens with ready handle");
+    check(call("sceFontGetFontInfo", {font, info}) == 0 && memory.load16(info + 80) == 20 &&
+            memory.load16(info + 82) == 20 && memory.load32(info + 84) == 0x10000,
+        "font info reports safe cell dimensions and glyph count");
+    check(call("sceFontGetFontInfo", {font, 0}) == 0 && call("sceFontGetCharInfo", {font, 'A', 0}) == 0,
+        "font info APIs accept absent output");
+    check(call("sceFontGetCharInfo", {font, 'A', info}) == 0 && memory.load32(info) > 0 && memory.load32(info) <= 20 &&
+            memory.load32(info + 4) <= 20 && memory.load32(info + 16) == memory.load32(info) * 64,
+        "glyph metrics agree in pixels and 26.6 fixed point");
+    for (unsigned format = 0; format < 5; ++format) {
+        const unsigned stride = format < 2 ? 10 : format == 2 ? 20 : format == 3 ? 60 : 80;
+        memory.store32(image, format);
+        memory.store32(image + 4, 0);
+        memory.store32(image + 8, 15 * 64);
+        memory.store16(image + 12, 20);
+        memory.store16(image + 14, 20);
+        memory.store16(image + 16, static_cast<std::uint16_t>(stride));
+        memory.store32(image + 20, pixels);
+        for (unsigned i = 0; i < stride * 20; ++i) memory.store8(pixels + i, 0);
+        check(call("sceFontGetCharGlyphImage", {font, 'A', image}) == 0, "glyph image call supports all pixel formats");
+        bool ink = false;
+        std::vector<std::uint8_t> before(stride * 20);
+        for (unsigned i = 0; i < before.size(); ++i) {
+            before[i] = memory.load8(pixels + i);
+            ink |= before[i] != 0;
+        }
+        check(ink, "synthetic square produces observable ink");
+        check(call("sceFontGetCharGlyphImage", {font, 'A', image}) == 0, "second glyph pass succeeds");
+        for (unsigned i = 0; i < before.size(); ++i)
+            check(memory.load8(pixels + i) == before[i], "repeated ink pass is idempotent");
+        memory.store32(image + 4, 0xffffffe0u);
+        memory.store32(image + 8, 0xffffffe0u);
+        check(call("sceFontGetCharGlyphImage", {font, 'A', image}) == 0,
+            "negative fractional positions clip without invalid memory access");
+    }
+    memory.store32(image + 20, 0);
+    check(call("sceFontGetCharGlyphImage", {font, 'A', image}) == 0 &&
+            call("sceFontGetCharGlyphImage", {font, 'A', 0}) == 0,
+        "missing glyph buffer/image safely ignored");
+    constexpr unsigned atlas = 0x08b00000u, table = atlas + 22168;
+    memory.store8(atlas + 276, 20);
+    memory.store8(atlas + 277, 20);
+    memory.store16(atlas + 286, 12 * 11 * 8);
+    f.return_address = 0x088ea3a4;
+    f.ctx.set_gpr(17, atlas);
+    call("sceFontGetCharGlyphImage", {font, 'A', 0});
+    check(mhp3rd::fonts::game_atlas() == atlas, "synthetic recognized atlas object is recorded");
+    memory.store16(table, 1);
+    memory.store16(table + 0x1000, 2);
+    memory.store16(table + (0xfff0 - 1) * 2, 3);
+    mhp3rd::fonts::reload();
+    check(memory.load16(table) == 0xffff && memory.load16(table + 0x1000) == 0xffff &&
+            memory.load16(table + (0xfff0 - 1) * 2) == 0xffff,
+        "font reload invalidates complete recognized guest glyph map");
+    check(call("sceFontClose", {font}) == 0 && call("sceFontDoneLib", {0xf0f000}) == 0,
+        "font and library close successfully");
+    mhp3rd::fonts::set_reload_hook(nullptr);
 }
 
 }
 int main() {
     try {
+        PublicFiles environment;
+        mhp3rd::install::set_data_directory_override(environment.root / "data");
         memory_contracts();
+        common_hle_contracts();
         scheduler_contracts();
         thread_end_and_dispatch_contracts();
         semaphore_contracts();
@@ -1069,6 +1462,9 @@ int main() {
         io_contracts();
         network_contracts();
         system_contracts();
+        scheduler_deadlock_contracts();
+        utility_and_savedata_contracts();
+        font_contracts();
         std::cout << "kernel/HLE contracts passed\n";
         return 0;
     } catch (const std::exception &error) {
