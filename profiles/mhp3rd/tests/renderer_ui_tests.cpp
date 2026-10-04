@@ -292,6 +292,15 @@ void keyboard_contracts(gpu::VulkanRenderer &renderer) {
 }
 
 void primitive_contracts(gpu::VulkanRenderer &renderer) {
+    const bool trace_fb = std::getenv("MHP3RD_TRACE_FB_TEXTURES") != nullptr;
+    const bool trace_3d = std::getenv("MHP3RD_TRACE_3D") != nullptr;
+    std::ostringstream trace;
+    struct RestoreTrace {
+        std::streambuf *previous;
+        ~RestoreTrace() {
+            if (previous) std::cout.rdbuf(previous);
+        }
+    } restore{trace_fb || trace_3d ? std::cout.rdbuf(trace.rdbuf()) : nullptr};
     psprecomp::GuestMemory memory;
     gpu::DrawCall clear{};
     clear.primitive = gpu::PrimitiveType::Sprites;
@@ -770,6 +779,24 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.read_back_framebuffer(draw.target.color_address, memory);
     expect(memory.load32(draw.target.color_address + (150 * 512 + 240) * 4) == 0xffff00ff,
         "sampled framebuffer readback stores exact rendered color at guest stride");
+
+    if (restore.previous) {
+        std::cout.rdbuf(restore.previous);
+        restore.previous = nullptr;
+        const auto text = trace.str();
+        // Keep all existing diagnostics visible to CTest's comparison failure patterns.
+        std::cout << text;
+        if (trace_fb)
+            expect(text.find("[fbtex]") != std::string::npos && text.find("texture 0x4000000") != std::string::npos &&
+                    text.find("drawn to 0x4110000") != std::string::npos &&
+                    text.find("stride=512") != std::string::npos,
+                "framebuffer diagnostic identifies the real synthetic source, destination and stride");
+        if (trace_3d)
+            expect(text.find("[3d] draw#") != std::string::npos && text.find("world =") != std::string::npos &&
+                    text.find("proj  =") != std::string::npos && text.find("clip=(") != std::string::npos &&
+                    text.find("scissor=(") != std::string::npos,
+                "3D diagnostic reports matrix, clip-space and viewport contracts for actual transformed draws");
+    }
 }
 
 void screenshot_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {

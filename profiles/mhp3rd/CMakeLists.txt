@@ -1028,7 +1028,7 @@ if(MHP3RD_RENDERER_TESTS)
         add_test(NAME mhp3rd_renderer_ui_checked_tests COMMAND mhp3rd_renderer_ui_tests)
         set_tests_properties(mhp3rd_renderer_ui_checked_tests PROPERTIES
             TIMEOUT 90
-            ENVIRONMENT "MHP3RD_CHECK_DIRECT_VERTICES=1;MHP3RD_CHECK_GPU_DECODE=1;MHP3RD_CHECK_REPLAY=1"
+            ENVIRONMENT "MHP3RD_CHECK_DIRECT_VERTICES=1;MHP3RD_CHECK_GPU_DECODE=1;MHP3RD_CHECK_REPLAY=1;MHP3RD_TRACE_FB_TEXTURES=1;MHP3RD_TRACE_3D=1"
             PASS_REGULAR_EXPRESSION "replay check at frame.*: 0 of"
             FAIL_REGULAR_EXPRESSION "FAIL:;\\[gpu-decode-check\\].*differs;\\[direct-check\\] draw.*differ;replay check at frame.*: [1-9][0-9]* of")
     endif()
