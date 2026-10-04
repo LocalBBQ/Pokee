@@ -60,7 +60,7 @@ jobs:
           cmake --install out/coverage-sdl
       - name: Measure coverage and enforce changed-line threshold
         env:
-          COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
+          COVERAGE_BASE: ${{ github.event.pull_request.base.sha || (github.event.forced && 'origin/main') || github.event.before || 'origin/main' }}
         run: >-
           make project-coverage
           CMAKE_ARGS="-DMHP3RD_RENDERER=ON -DMHP3RD_FFMPEG=system

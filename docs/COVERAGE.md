@@ -20,7 +20,8 @@ artificial tests. Record hardware-dependent gaps and manual evidence in the PR.
 This change is a draft implementation. Public native/Android suites and project
 coverage run on pull requests and every pushed branch. Pull requests compare
 against their base commit; pushes compare against the previous branch commit,
-falling back to `origin/main` for a new branch. The diff gate is an additional
+falling back to `origin/main` for a new branch or a force push whose previous
+history may no longer be fetched. The diff gate is an additional
 check after full native and Python suites; it does not select a reduced suite.
 
 Install the pinned collector with `make coverage-tools`, then run
