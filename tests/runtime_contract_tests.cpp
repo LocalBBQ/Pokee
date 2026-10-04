@@ -11,6 +11,8 @@
 #include <sstream>
 #include <optional>
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <stdexcept>
 
@@ -213,6 +215,154 @@ void dispatch_contracts() {
     psprecomp::set_runtime_heartbeat_hook(nullptr, 0);
     check(heartbeat_hits > 0 && runtime.stop_reason() == "completed public dispatch contract",
         "Heartbeat must not alter successful guest dispatch");
+}
+static std::string shell_quote(const std::filesystem::path &path) {
+#ifdef _WIN32
+    std::string value = path.string();
+    std::string escaped = "\"";
+    for (const char c : value) escaped += c == '"' ? "\\\"" : std::string(1, c);
+    return escaped + "\"";
+#else
+    std::string value = path.string();
+    std::string escaped = "'";
+    for (const char c : value) escaped += c == '\'' ? "'\\''" : std::string(1, c);
+    return escaped + "'";
+#endif
+}
+
+// std::system runs the line through `cmd /c` on Windows, and cmd strips the
+// outermost quote pair when the line starts with one.  A build directory such
+// as "Nova pasta (4)" then splits at the first space and the tool is not found.
+// Wrapping the whole line in one more quote pair is the documented workaround.
+static std::string shell_command(const std::string &command) {
+#ifdef _WIN32
+    return "\"" + command + "\"";
+#else
+    return command;
+#endif
+}
+
+void tool_contracts() {
+#if defined(PSPRECOMP_ANALYZE_PATH) && !defined(__ANDROID__)
+    const auto root = std::filesystem::temp_directory_path() / "psprecomp_public_tool_contract";
+    std::filesystem::create_directories(root);
+    const auto fixture = root / "synthetic.elf";
+    std::vector<std::uint32_t> words;
+    for (unsigned function : {0u, 2u, 3u, 4u, 6u, 7u, 0xAu, 0xBu, 0xFu, 0x10u, 0x11u, 0x12u, 0x13u, 0x16u, 0x17u, 0x18u,
+             0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x20u, 0x21u, 0x22u, 0x23u, 0x24u, 0x25u, 0x26u, 0x27u, 0x2Au, 0x2Bu,
+             0x2Cu, 0x2Du, 0x2Eu, 0x2Fu})
+        words.push_back(r(8, 9, 10, 0, function));
+    for (unsigned opcode : {9u, 10u, 11u, 12u, 13u, 14u, 15u, 0x20u, 0x21u, 0x22u, 0x23u, 0x24u, 0x25u, 0x26u, 0x28u,
+             0x29u, 0x2Au, 0x2Bu, 0x2Eu, 0x2Fu, 0x31u, 0x39u})
+        words.push_back(i(opcode, 8, 9, 4));
+    for (unsigned fn : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 12u, 13u, 14u, 15u, 36u})
+        words.push_back((0x11u << 26u) | r(16, 9, 8, 10, fn));
+    for (unsigned opcode : {0x18u, 0x19u, 0x1Bu})
+        for (unsigned operation = 0; operation < 8; ++operation) {
+            auto word = (opcode << 26u) | (operation << 23u) | (1u << 16u) | 2u;
+            if (psprecomp::decode_allegrex(word).kind != psprecomp::OpcodeKind::Vfpu) words.push_back(word);
+        }
+    for (unsigned group = 0; group < 22; ++group)
+        for (unsigned op = 0; op < 32; ++op) {
+            auto word = (0x34u << 26u) | (group << 21u) | (op << 16u) | 2u;
+            auto kind = psprecomp::decode_allegrex(word).kind;
+            if (kind != psprecomp::OpcodeKind::Vfpu && kind != psprecomp::OpcodeKind::Unsupported)
+                words.push_back(word);
+        }
+    for (unsigned group : {0u, 4u, 16u, 20u, 28u, 29u})
+        for (unsigned op : {0u, 3u, 6u, 7u}) {
+            auto word = (0x3Cu << 26u) | (group << 21u) | (op << 16u) | 0x8082u;
+            if (psprecomp::decode_allegrex(word).kind != psprecomp::OpcodeKind::Vfpu) words.push_back(word);
+        }
+    words.push_back(r(31, 0, 0, 0, 8));
+    words.push_back(0);
+    std::vector<std::uint8_t> bytes(84u + words.size() * 4u, 0);
+    const auto write = [&](std::size_t offset, std::uint32_t value, unsigned width = 4) {
+        for (unsigned index = 0; index < width; ++index)
+            bytes[offset + index] = static_cast<std::uint8_t>(value >> (index * 8));
+    };
+    bytes[0] = 0x7F;
+    bytes[1] = 'E';
+    bytes[2] = 'L';
+    bytes[3] = 'F';
+    bytes[4] = 1;
+    bytes[5] = 1;
+    bytes[6] = 1;
+    write(16, 2, 2);
+    write(18, 8, 2);
+    write(20, 1);
+    write(24, base);
+    write(28, 52);
+    write(40, 52, 2);
+    write(42, 32, 2);
+    write(44, 1, 2);
+    write(46, 40, 2);
+    write(52, 1);
+    write(56, 84);
+    write(60, base);
+    write(64, base);
+    write(68, static_cast<std::uint32_t>(words.size() * 4));
+    write(72, static_cast<std::uint32_t>(words.size() * 4));
+    write(76, 5);
+    write(80, 16);
+    for (unsigned index = 0; index < words.size(); ++index) write(84 + index * 4, words[index]);
+    {
+        std::ofstream file(fixture, std::ios::binary);
+        file.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    const auto invoke = [&](const std::filesystem::path &tool, const std::vector<std::filesystem::path> &arguments,
+                            const std::filesystem::path &output) {
+        std::string command = shell_quote(tool);
+        for (const auto &argument : arguments) command += ' ' + shell_quote(argument);
+        command += " > " + shell_quote(output) + " 2>&1";
+        return std::system(shell_command(command).c_str());
+    };
+    const auto text = [](const std::filesystem::path &path) {
+        std::ifstream file(path);
+        return std::string(std::istreambuf_iterator<char>(file), {});
+    };
+    const auto report = root / "report.json";
+    check(invoke(PSPRECOMP_ANALYZE_PATH, {fixture, report, "0x08804000"}, root / "analyze.log") == 0,
+        "Analyzer rejected synthetic instruction corpus");
+    check(text(report).find("\"entry_runtime\": \"0x08804000\"") != std::string::npos &&
+            std::filesystem::exists(root / "report_functions_auto.csv"),
+        "Analyzer must publish structured report and automatic functions");
+    check(invoke(PSPRECOMP_DUMP_PATH, {fixture, "08804000", "1"}, root / "dump.log") == 0 &&
+            text(root / "dump.log").find("0x08804000") != std::string::npos,
+        "Disassembler must print requested guest address");
+    const auto csv = root / "functions.csv";
+    const auto cpp = root / "generated.cpp";
+    {
+        std::ofstream file(csv);
+        file << "name,address,size\npublic_instruction_corpus,0x08804000," << words.size() * 4 << "\n";
+    }
+    check(invoke(PSPRECOMP_RECOMP_PATH, {fixture, csv, cpp}, root / "recomp.log") == 0,
+        "Manual code generation rejected supported synthetic corpus");
+    check(text(cpp).find("public_instruction_corpus") != std::string::npos &&
+            text(cpp).find("register_function") != std::string::npos,
+        "Manual generator must register emitted guest function");
+#if defined(PSPRECOMP_TEST_COMPILER_PATH)
+    // The generated public corpus must be accepted as C++ by the same host
+    // compiler as this test, without rebuilding any game-derived code.
+    std::string compile = shell_quote(PSPRECOMP_TEST_COMPILER_PATH);
+#if defined(_MSC_VER)
+    compile += " /nologo /std:c++20 /Zs /I" + shell_quote(PSPRECOMP_TEST_INCLUDE_PATH) + " " + shell_quote(cpp);
+#else
+    compile += " -std=c++20 -fsyntax-only -I" + shell_quote(PSPRECOMP_TEST_INCLUDE_PATH) + " " + shell_quote(cpp);
+#endif
+    compile += " > " + shell_quote(root / "compile.log") + " 2>&1";
+    if (std::system(shell_command(compile).c_str()) != 0) {
+        std::cerr << text(root / "compile.log");
+        check(false, "Generated supported instruction corpus must compile as valid C++");
+    }
+#endif
+    check(invoke(PSPRECOMP_ANALYZE_PATH, {root / "absent.elf", report}, root / "error.log") != 0 &&
+            text(root / "error.log").find("Cannot open PSP executable") != std::string::npos,
+        "Analyzer missing-file diagnostic changed");
+    check(invoke(PSPRECOMP_RECOMP_PATH, {fixture, root / "absent.csv", cpp}, root / "error.log") != 0,
+        "Missing function map must not generate silently");
+    std::filesystem::remove_all(root);
+#endif
 }
 void elf_contracts() {
     const auto write = [](std::vector<std::uint8_t> &bytes, std::size_t offset, std::uint32_t value,
@@ -634,6 +784,7 @@ void floating_contracts() {
 }
 int main() {
     try {
+        tool_contracts();
         elf_contracts();
         dispatch_contracts();
         integer_contracts();

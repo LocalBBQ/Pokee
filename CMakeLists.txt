@@ -195,6 +195,14 @@ endif()
 if(PSPRECOMP_BUILD_TESTS)
     add_executable(psprecomp_runtime_contract_tests tests/runtime_contract_tests.cpp)
     target_link_libraries(psprecomp_runtime_contract_tests PRIVATE psprecomp_core)
+    add_dependencies(psprecomp_runtime_contract_tests psp_analyze psp_recomp dump_function)
+    target_compile_definitions(psprecomp_runtime_contract_tests PRIVATE
+        PSPRECOMP_ANALYZE_PATH="$<TARGET_FILE:psp_analyze>"
+        PSPRECOMP_RECOMP_PATH="$<TARGET_FILE:psp_recomp>"
+        PSPRECOMP_DUMP_PATH="$<TARGET_FILE:dump_function>"
+        PSPRECOMP_TEST_COMPILER_PATH="${CMAKE_CXX_COMPILER}"
+        PSPRECOMP_TEST_INCLUDE_PATH="${PROJECT_SOURCE_DIR}/include")
     add_test(NAME psprecomp_runtime_contract_tests COMMAND psprecomp_runtime_contract_tests)
+    set_tests_properties(psprecomp_runtime_contract_tests PROPERTIES TIMEOUT 60)
     add_dependencies(psprecomp_test_binaries psprecomp_runtime_contract_tests)
 endif()
