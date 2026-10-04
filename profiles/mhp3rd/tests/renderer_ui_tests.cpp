@@ -60,6 +60,33 @@ void expect(bool ok, const char *what) {
         std::cerr << "FAIL: " << what << '\n';
     }
 }
+void unavailable_renderer_contracts(const std::filesystem::path &sandbox) {
+    gpu::VulkanRenderer unavailable;
+    expect(!unavailable.available() && unavailable.window() == nullptr && !unavailable.pump_events(),
+        "uninitialized renderer has no device or event window");
+    expect(unavailable.frames_presented() == 0 && unavailable.draws_submitted() == 0 &&
+            unavailable.device_name().empty() && unavailable.device_summary().empty(),
+        "uninitialized renderer reports no submitted work or fabricated device identity");
+    const auto idle_pad = unavailable.pad();
+    expect(idle_pad.buttons == 0 && idle_pad.analog_x == 128 && idle_pad.analog_y == 128 && idle_pad.right_x == 128 &&
+            idle_pad.right_y == 128,
+        "unavailable renderer supplies the neutral PSP controller state");
+    std::string ui_error;
+    expect(!unavailable.initialize_ui(ui_error) && !ui_error.empty(),
+        "UI initialization without a device fails with a diagnostic");
+    expect(!unavailable.gpu_decode() && !unavailable.check_gpu_decode() && unavailable.gpu_compat_status() == "Off" &&
+            unavailable.gpu_problem().empty(),
+        "unavailable device enables no GPU decoding or compatibility capabilities");
+    std::vector<std::uint8_t> pixels;
+    std::uint32_t width = 0, height = 0;
+    const auto absent = sandbox / "unavailable-frame.bmp";
+    expect(!unavailable.present(0x04000000) && !unavailable.read_frame(pixels, width, height) &&
+            !unavailable.capture_frame(absent) && !std::filesystem::exists(absent),
+        "unavailable renderer refuses presenting and capture without writing an empty image");
+    unavailable.shutdown();
+    unavailable.shutdown();
+    expect(!unavailable.available(), "repeated shutdown of an uninitialized renderer is safe");
+}
 void render_contracts(gpu::VulkanRenderer &renderer) {
     psprecomp::GuestMemory memory;
     constexpr std::uint32_t framebuffer = 0x04000000;
@@ -3371,6 +3398,7 @@ int run_contracts() {
     diagnostic_memory.store32(0x08000160, 1150);
     diagnostic_memory.store32(0x08000164, 1150);
     expect(ui::take_screenshot().empty(), "UI screenshot without a presented game target reports no picture");
+    unavailable_renderer_contracts(sandbox);
     media_renderer_contracts(fixture, renderer);
     render_contracts(renderer);
     primitive_contracts(renderer);
@@ -3421,6 +3449,14 @@ int run_contracts() {
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
     renderer.shutdown();
+    renderer.shutdown();
+    std::vector<std::uint8_t> stopped_pixels;
+    std::uint32_t stopped_width = 0, stopped_height = 0;
+    expect(!renderer.available() && !renderer.pump_events() && !renderer.present(0x04000000) &&
+            !renderer.read_frame(stopped_pixels, stopped_width, stopped_height) &&
+            !renderer.capture_frame(sandbox / "stopped-frame.bmp") &&
+            !std::filesystem::exists(sandbox / "stopped-frame.bmp"),
+        "real renderer teardown removes availability and prevents new presentation or captures");
     std::filesystem::remove_all(sandbox);
     std::cout << (failures ? "FAIL" : "PASS") << ": renderer/UI (" << failures << " failures)\n";
     return failures ? 1 : 0;
