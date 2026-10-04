@@ -5,6 +5,11 @@
 #include "camera/free_camera.hpp"
 #include "game/equipment_models.hpp"
 #include "game/game_data.hpp"
+#include "game/guest_ram.hpp"
+#include "game/layered_armor.hpp"
+#include "ui/layered_armor_screen.hpp"
+#include "ui/font_menu.hpp"
+#include "fonts/game_font.hpp"
 #include "mods/mhp3rd_mods.hpp"
 #include "mods/mhp3rd_data_bin.hpp"
 #include "kernel/iso_image.hpp"
@@ -3358,6 +3363,210 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     layer.set_interactive(false);
 }
 
+void layered_armor_ui_contracts(gpu::VulkanRenderer &renderer, psprecomp::Runtime &runtime) {
+    auto &layer = ui::Layer::get();
+    expect(layer.attach(renderer), "layered fixture attaches the real UI");
+    layer.set_interactive(true);
+    const auto saved = settings::current();
+    settings::current().layered_armor = false;
+    settings::current().layered_all = false;
+    settings::current().layered_pieces.fill(game::layered::kReal);
+    auto frame = [&](const char *focus = nullptr, bool back = false) {
+        layer.begin_frame();
+        ui::begin_panel("##layered-contract", "Public layered armor", "", false);
+        ui::begin_content();
+        if (focus) {
+            auto *w = ImGui::GetCurrentWindow();
+            ImGui::FocusWindow(w);
+            ImGui::SetFocusID(w->GetID(focus), w);
+            ImGui::SetNavCursorVisible(true);
+        }
+        if (ui::layered_armor_screen_open())
+            ui::layered_armor_screen(back);
+        else
+            ui::layered_armor_row();
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto select = [&](const char *id) {
+        frame(id);
+        frame(id);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
+        frame(id);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, false);
+        frame();
+    };
+    select("Layered armor");
+    expect(ui::layered_armor_screen_open(), "layered menu opens before any hunter frame is attached");
+    frame();
+    frame(nullptr, true);
+    expect(!ui::layered_armor_screen_open(), "back closes unloaded layered page");
+    auto &memory = runtime.memory();
+    game::attach(runtime);
+    select("Layered armor");
+    select("Head##layered4");
+    expect(settings::current().layered_pieces[4] == game::layered::kReal,
+        "unloaded hunter cannot choose a disabled armor part");
+    frame(nullptr, true);
+    memory.store16(game::kCharacter, 'P');
+    memory.store8(game::kCharacter + game::kCharacterSex, 0);
+    memory.store8(game::kCharacter + game::kCharacterInnerWear, 0);
+    const auto worn = game::kCharacter + game::kCharacterArmor + 4 * game::kEquipmentRecord;
+    memory.store8(worn, 1);
+    memory.store8(worn + 1, 4);
+    memory.store16(worn + 2, 1);
+    memory.store8(game::kEquipmentBox, 1);
+    memory.store8(game::kEquipmentBox + 1, 4);
+    memory.store16(game::kEquipmentBox + 2, 2);
+    constexpr std::uint32_t table = game::kTextBlock + 0x1000;
+    memory.store32(game::kTextBlock + 29 * 4, 0x1000);
+    const std::array<std::string, 4> names{"", "Public worn head", "Public owned head", "Public unowned head"};
+    std::uint32_t offset = 20;
+    for (unsigned id = 0; id < names.size(); ++id) {
+        memory.store32(table + id * 4, offset);
+        for (char c : names[id]) memory.store8(table + offset++, static_cast<unsigned char>(c));
+        memory.store8(table + offset++, 0);
+        memory.store8(game::kHeadData + id * game::kArmorRecord + 4, 1);
+    }
+    memory.store32(table + 16, 0xffffffff);
+    game::GuestRam guest(memory);
+    const auto offers = game::layered::offers(guest, 4, false);
+    expect(offers.size() == 2 && offers[0].id == 1 && offers[0].worn && offers[1].id == 2 && offers[1].owned,
+        "synthetic loaded hunter offers only its independently named worn and owned armor");
+    std::vector<std::uint8_t> before;
+    for (std::uint32_t at = game::kCharacter; at < game::kEquipmentBox + game::kEquipmentRecord; ++at)
+        before.push_back(memory.load8(at));
+    select("Layered armor");
+    select("Layered armor");
+    expect(settings::current().layered_armor, "page toggles the real layered-armor setting");
+    select("Head##layered4");
+    select("##nothing");
+    expect(settings::current().layered_pieces[4] == 0, "Nothing stores exactly the bare-part choice");
+    select("Head##layered4");
+    select("##piece2");
+    expect(settings::current().layered_pieces[4] == 2, "owned armor list selects its exact public piece id");
+    select("Head##layered4");
+    select("##real");
+    expect(settings::current().layered_pieces[4] == game::layered::kReal,
+        "Real equipment restores the sentinel rather than copying worn armor");
+    select("List all armor");
+    expect(settings::current().layered_all, "all-armor toggle changes the list policy");
+    select("Head##layered4");
+    frame();
+    select("##piece3");
+    expect(settings::current().layered_pieces[4] == 3, "all-armor list allows a wearable unowned piece");
+    select("Show the real equipment everywhere");
+    expect(std::all_of(settings::current().layered_pieces.begin(), settings::current().layered_pieces.end(),
+               [](auto p) { return p == game::layered::kReal; }),
+        "reset restores every part to its real equipment independently");
+    select("Head##layered4");
+    frame(nullptr, true);
+    select("Chest##layered0");
+    frame();
+    frame(nullptr, true);
+    frame(nullptr, true);
+    expect(!ui::layered_armor_screen_open(), "piece-list back returns to page and page back closes it");
+    for (unsigned i = 0; i < before.size(); ++i)
+        expect(
+            memory.load8(game::kCharacter + i) == before[i], "layered UI never modifies the hunter or equipment box");
+    memory.store16(game::kCharacter, 0);
+    memory.store8(worn, 0);
+    memory.store8(game::kEquipmentBox, 0);
+    settings::current() = saved;
+    settings::save();
+    layer.set_interactive(false);
+}
+
+void font_menu_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    const auto saved = settings::current();
+    auto frame = [&](const char *focus = nullptr, int font_index = -1, bool back = false) {
+        layer.begin_frame();
+        ui::begin_panel("##font-contract", "Public font selection", "", false);
+        ui::begin_content();
+        if (focus) {
+            auto *w = ImGui::GetCurrentWindow();
+            if (font_index >= 0) ImGui::PushID(font_index);
+            const auto id = w->GetID(focus);
+            if (font_index >= 0) ImGui::PopID();
+            ImGui::FocusWindow(w);
+            ImGui::SetFocusID(id, w);
+            ImGui::SetNavCursorVisible(true);
+        }
+        if (ui::font_list_open())
+            ui::font_list(back);
+        else
+            ui::font_rows();
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto select = [&](const char *id, int index = -1, ImGuiKey key = ImGuiKey_Space) {
+        frame(id, index);
+        frame(id, index);
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame(id, index);
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    settings::current().font = (sandbox / "unreadable-public-font.ttf").string();
+    fonts::reload();
+    frame();
+    expect(!fonts::problem().empty(), "missing chosen font reports its actual fallback diagnostic");
+    select("Font");
+    expect(ui::font_list_open(), "font selector opens even when current path is not in the catalog");
+    frame(nullptr, -1, true);
+    expect(!ui::font_list_open() && !settings::current().font.empty(),
+        "back closes font catalog without changing an unreadable chosen path");
+    select("Font");
+    const auto generation = fonts::generation();
+    select("##default");
+    expect(!ui::font_list_open() && settings::current().font.empty() && fonts::generation() == generation + 1 &&
+            fonts::problem().empty(),
+        "choosing Default clears the override and reloads the actual font once");
+    bool done = false;
+    std::vector<fonts::FontChoice> choices;
+    for (int wait = 0; wait < 500 && !done; ++wait) {
+        choices = fonts::catalog(done);
+        if (!done) SDL_Delay(10);
+    }
+    expect(done && !choices.empty(), "bounded installed-font discovery finds a real usable host font");
+    if (!choices.empty()) {
+        select("Font");
+        select("##font", 0);
+        expect(!ui::font_list_open() && settings::current().font == choices[0].value && fonts::problem().empty() &&
+                fonts::active_name() == choices[0].name,
+            "catalog selection applies its exact face path and real displayed identity");
+        const auto glyph = fonts::render(U'A', 0, 0);
+        expect(glyph.width > 0 && glyph.height > 0 &&
+                std::any_of(glyph.pixels.begin(), glyph.pixels.end(), [](auto a) { return a != 0; }),
+            "selected face rasterizes a visible real glyph for the game's text");
+        settings::current().font_weight = settings::kMaxFontWeight;
+        const auto before_weight = fonts::generation();
+        select("Weight", -1, ImGuiKey_RightArrow);
+        expect(settings::current().font_weight == 0 && fonts::generation() == before_weight + 1,
+            "font weight wraps maximum to regular and reloads glyphs once");
+        select("Weight", -1, ImGuiKey_LeftArrow);
+        expect(settings::current().font_weight == settings::kMaxFontWeight,
+            "reverse font weight wraps regular back to maximum");
+        const auto crisp = settings::current().crisp_text;
+        select("Sharp text");
+        expect(settings::current().crisp_text != crisp, "sharp-text row changes actual crisp glyph policy");
+        select("Sharp text");
+        expect(settings::current().crisp_text == crisp, "sharp-text round trip restores its policy");
+    }
+    settings::current() = saved;
+    settings::save();
+    fonts::reload();
+    layer.set_interactive(false);
+}
+
 struct ScriptEvents {
     int key_down{}, key_up{}, mouse_down{}, mouse_up{}, finger_down{}, finger_move{}, finger_up{};
     int text{}, drops{};
@@ -3590,6 +3799,7 @@ int run_contracts(int scripts) {
     diagnostic_memory.store32(0x08000164, 1150);
     expect(ui::take_screenshot().empty(), "UI screenshot without a presented game target reports no picture");
     unavailable_renderer_contracts(sandbox);
+    layered_armor_ui_contracts(renderer, fixture.runtime);
     media_renderer_contracts(fixture, renderer);
     render_contracts(renderer);
     primitive_contracts(renderer);
@@ -3629,6 +3839,7 @@ int run_contracts(int scripts) {
     file_browser_boundary_contracts(renderer, sandbox);
     focused_widget_contracts(renderer);
     menu_contracts(renderer);
+    font_menu_contracts(renderer, sandbox);
     setup_screen_contracts(renderer, sandbox);
     texture_pack_screen_contracts(renderer, sandbox);
     save_screen_contracts(renderer, sandbox);
