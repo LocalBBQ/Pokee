@@ -1,6 +1,7 @@
 // Real Vulkan/SDL/ImGui contracts with public synthetic buffers, no game data.
 #include "gpu/vulkan_renderer.hpp"
 #include "camera_probe.hpp"
+#include "camera/free_camera.hpp"
 #include "mods/mhp3rd_mods.hpp"
 #include "mods/mhp3rd_data_bin.hpp"
 #include "kernel/iso_image.hpp"
@@ -123,6 +124,75 @@ void render_contracts(gpu::VulkanRenderer &renderer) {
     expect(
         !renderer.device_name().empty() && !renderer.device_summary().empty(), "real Vulkan device identity reported");
 }
+void free_camera_lifecycle_contracts() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    auto &player = settings::current();
+    player.free_camera = true;
+    player.free_camera_speed = 100.0f;
+    camera::FreeCameraRequest request;
+    request.toggle = true;
+    camera::free_camera_update(runtime, request, 0.1f);
+    expect(!camera::free_camera_active(), "free camera rejects absent game camera");
+    constexpr std::uint32_t object = 0x08900000u;
+    memory.store32(0x08A2F958u, object);
+    auto store = [&](std::uint32_t offset, float value) {
+        memory.store32(object + offset, std::bit_cast<std::uint32_t>(value));
+    };
+    store(0, 30.0f);
+    store(4, 65000.0f);
+    store(8, 480.0f / 272.0f);
+    store(12, 0.8722222f);
+    const auto original = camera::view_of_pose({{10, 20, 30}, 0, 0});
+    for (std::uint32_t i = 0; i < original.size(); ++i) store(0xf50u + i * 4, original[i]);
+    camera::free_camera_update(runtime, request, 0.1f);
+    expect(camera::free_camera_active() && !camera::free_camera_status().paused,
+        "valid public camera object starts free camera unpaused");
+    request = {};
+    request.input.forward = 1;
+    camera::free_camera_update(runtime, request, 0.1f);
+    auto hook = camera::free_camera_view_hook(memory);
+    expect(bool(hook), "active camera installs view hook");
+    gpu::DrawCall moved, other;
+    moved.view = original;
+    other.view = original;
+    other.view[12] += 99;
+    if (hook) {
+        hook(moved);
+        hook(other);
+    }
+    const auto pose = camera::pose_of_view(moved.view);
+    expect(pose && std::abs(pose->eye[2] - 40.0f) < 0.001f,
+        "free camera moves matching game view by speed times elapsed seconds");
+    expect(other.view[12] == original[12] + 99, "unrelated view remains unchanged");
+    camera::free_camera_frame_end(runtime);
+    const auto status = camera::free_camera_status();
+    expect(status.moved_draws == 1 && status.other_draws == 1,
+        "frame end publishes exact moved and untouched draw counts");
+    request = {};
+    request.pause = true;
+    request.speed_steps = 100;
+    camera::free_camera_update(runtime, request, 0);
+    expect(camera::free_camera_status().paused && camera::free_camera_status().speed == settings::kMaxFreeCameraSpeed,
+        "photo pause and maximum speed clamp apply");
+    request.speed_steps = -100;
+    camera::free_camera_update(runtime, request, 0);
+    expect(!camera::free_camera_status().paused && camera::free_camera_status().speed == settings::kMinFreeCameraSpeed,
+        "second pause resumes and minimum speed clamps");
+    request = {};
+    request.reset = true;
+    camera::free_camera_update(runtime, request, 0);
+    moved.view = original;
+    camera::free_camera_view_hook(memory)(moved);
+    expect(camera::same_uploaded(moved.view, original), "reset restores original game pose");
+    player.free_camera = false;
+    camera::free_camera_update(runtime, {}, 0);
+    expect(!camera::free_camera_active() && !camera::free_camera_status().paused,
+        "disabling free camera leaves active and photo state");
+    expect(player.free_camera_speed == settings::kMinFreeCameraSpeed,
+        "leaving persists chosen camera speed in sandbox settings");
+}
+
 void keyboard_contracts(gpu::VulkanRenderer &renderer) {
     auto &layer = ui::Layer::get();
     expect(layer.attach(renderer), "real ImGui Vulkan layer attaches");
@@ -1323,6 +1393,7 @@ int run_contracts() {
     render_contracts(renderer);
     primitive_contracts(renderer);
     camera_probe_contracts(renderer, sandbox);
+    free_camera_lifecycle_contracts();
     keyboard_contracts(renderer);
     input_capture_contracts(renderer);
     widget_and_browser_contracts(renderer, sandbox);
