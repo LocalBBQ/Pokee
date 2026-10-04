@@ -24,6 +24,12 @@ checking out or executing project code. Branch/PR coverage jobs remain read-only
 The badge becomes available after the first successful main run and can be
 cached for several minutes. Its link documents scope and unmeasured files here.
 
+If the badge reports `resource not found`, first check that the data branch and
+its `coverage.json` still exist, then check the **Update main coverage badge**
+job in the latest successful main coverage run. Do not replace the endpoint with
+a hard-coded percentage. A missing branch is recreated by the next successful
+main publication; restored JSON and the badge image can remain cached briefly.
+
 ## Current implementation and rollout
 
 Public native/Android suites and project
