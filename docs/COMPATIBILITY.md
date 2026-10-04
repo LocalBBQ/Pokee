@@ -63,6 +63,21 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
 | Android 10 emulator (API 29, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
 
+## Coverage-expansion device checks (2026-10-04)
+
+These bounded checks validate the coverage-expansion branch; they do not replace the full manual gameplay matrix above. Compatible generated code and prebuilt overlays were reused.
+
+| Platform | Tested commit | Native tests | Inspected game captures |
+| --- | --- | --- | --- |
+| macOS, Apple M1 / MoltenVK | `1dc7dac` | 41/41 | Title and Video menu |
+| Windows, MSVC / Vulkan | `1dc7dac` | 41/41 | Copied-save village and Video menu; stable 100% game speed |
+| Steam Deck, SteamOS / RADV | `7e00ebc` | 49/49, including Vulkan and SDL UI variants | Continue menu and Video menu; 30 game fps and 100% speed |
+| Android 10 emulator, arm64 / SwiftShader | Native tests: `d5290c0`; application: `1dc7dac` | 40/40 | Title and Video menu |
+
+Application sources are identical between these commits: the later commits correct deterministic test-controller isolation and deployment of the public NID CSV to Android test fixtures. The controller fixtures also passed separately on macOS after the correction.
+
+Game runs used isolated or copied save data and finite deadlines. Captures were inspected, and test processes stopped. macOS used 32 compatible overlays and disabled audio/FFmpeg; Android is an emulator with audio/FFmpeg disabled. Hunts, multiplayer, audio quality and long-session stability were not checked in this pass. The Steam Deck developer binary was installed with a rollback copy; the release installation was unchanged.
+
 ## Updating this page
 
 Run through [the smoke test](TESTING.md) on the platform, then change the cells you checked in the same pull request as the fix, or in a pull request of their own. Add a row to *Tested hardware* with the commit you tested. A result without a commit cannot be compared with anything later, so it does not go in the table.
