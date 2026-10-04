@@ -2,6 +2,7 @@
 #include "gpu/vulkan_renderer.hpp"
 #include "camera_probe.hpp"
 #include <cmath>
+#include <sstream>
 #include "hle/hle_common.hpp"
 #include "audio/audio_sink.hpp"
 #include "settings/settings.hpp"
@@ -610,6 +611,11 @@ void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
         vertex.color = 0xffffffff;
         scene.vertices.push_back(vertex);
     }
+    std::ostringstream detector_trace;
+    struct RestoreOutput {
+        std::streambuf *previous;
+        ~RestoreOutput() { std::cout.rdbuf(previous); }
+    } restore{std::cout.rdbuf(detector_trace.rdbuf())};
     float previous{};
     const std::array<float, 9> yaws{0, 5, 10, 18, 26, 34, 42, 50, 58};
     for (std::size_t frame = 0; frame < yaws.size(); ++frame) {
@@ -623,6 +629,10 @@ void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
         memory.store32(0x08000028, std::bit_cast<std::uint32_t>(static_cast<float>(frame)));
         memory.store32(0x08000040, 30000 + static_cast<int>(yaw * 100));
         memory.store32(0x08000080, std::bit_cast<std::uint32_t>(scene.view[2]));
+        memory.store16(0x08000180, static_cast<std::uint16_t>(30000 + frame * 1150));
+        memory.store16(
+            0x08000182, static_cast<std::uint16_t>(frame < 3 ? 100 + frame * 1150 : 2400 + (frame - 2) * 333));
+
         renderer.begin_frame();
         renderer.submit(scene, memory);
         expect(renderer.present(0x04000000), "synthetic camera scene presents");
@@ -633,6 +643,18 @@ void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
         probe::camera_frame(runtime, 0);
         previous = yaw;
     }
+    expect(memory.load32(0x08000120) == std::bit_cast<std::uint32_t>(1.25f) &&
+            memory.load32(0x08000124) == std::bit_cast<std::uint32_t>(-2.5f),
+        "diagnostic float poke parses and writes multiple values");
+    expect(memory.load32(0x08000140) == std::bit_cast<std::uint32_t>(6.5f) &&
+            memory.load32(0x08000144) == std::bit_cast<std::uint32_t>(6.5f),
+        "diagnostic float finder writes explicitly selected matching copies");
+    expect(memory.load32(0x08000160) == static_cast<std::uint32_t>(-7) &&
+            memory.load32(0x08000164) == static_cast<std::uint32_t>(-7),
+        "diagnostic integer finder writes signed replacement to selected copies");
+    expect(detector_trace.str().find("[find-step] 2 fields moved by exactly 1150") != std::string::npos &&
+            detector_trace.str().find("[find-step] 1 left") != std::string::npos,
+        "step detector retains wrapped fixed-step angle and rejects inconsistent field");
     std::ifstream output(sandbox / "camera-candidates.txt");
     const std::string text{std::istreambuf_iterator<char>(output), {}};
     expect(text.find("yaw float angle 0x8000020") != std::string::npos,
@@ -961,6 +983,14 @@ int run_contracts() {
     std::filesystem::create_directories(sandbox);
     install::set_data_directory_override(sandbox);
     SDL_setenv_unsafe("MHP3RD_FIND_CAMERA", "1", 1);
+    SDL_setenv_unsafe("MHP3RD_POKE_FLOAT", "0x08000120:1.25,0x08000124:-2.5,broken", 1);
+    SDL_setenv_unsafe("MHP3RD_FIND_FLOAT", "6.25", 1);
+    SDL_setenv_unsafe("MHP3RD_POKE_FOUND", "6.5", 1);
+    SDL_setenv_unsafe("MHP3RD_FIND_INT32", "1150", 1);
+    SDL_setenv_unsafe("MHP3RD_POKE_INT32", "-7", 1);
+    SDL_setenv_unsafe("MHP3RD_POKE_WHICH", "all", 1);
+    SDL_setenv_unsafe("MHP3RD_FIND_STEP", "1150", 1);
+
     SDL_setenv_unsafe("MHP3RD_FIND_CAMERA_OUT", (sandbox / "camera-candidates.txt").string().c_str(), 1);
     auto &settings = settings::current();
     settings.internal_scale = 1;
@@ -977,6 +1007,11 @@ int run_contracts() {
         return 1;
     }
     auto &renderer = *selected;
+    auto &diagnostic_memory = fixture.runtime.memory();
+    diagnostic_memory.store32(0x08000140, std::bit_cast<std::uint32_t>(6.25f));
+    diagnostic_memory.store32(0x08000144, std::bit_cast<std::uint32_t>(6.25f));
+    diagnostic_memory.store32(0x08000160, 1150);
+    diagnostic_memory.store32(0x08000164, 1150);
     media_renderer_contracts(fixture, renderer);
     render_contracts(renderer);
     primitive_contracts(renderer);
