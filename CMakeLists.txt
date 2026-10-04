@@ -206,5 +206,8 @@ if(PSPRECOMP_BUILD_TESTS)
         PSPRECOMP_TEST_GENERATOR="${CMAKE_GENERATOR}")
     add_test(NAME psprecomp_runtime_contract_tests COMMAND psprecomp_runtime_contract_tests)
     set_tests_properties(psprecomp_runtime_contract_tests PROPERTIES TIMEOUT 60)
+    add_test(NAME psprecomp_memory_watch_contracts COMMAND psprecomp_runtime_contract_tests --memory-watch)
+    set_tests_properties(psprecomp_memory_watch_contracts PROPERTIES TIMEOUT 60
+        ENVIRONMENT "PSPRECOMP_WATCH_WRITE=0x08804000;PSPRECOMP_WATCH_WRITE_SIZE=4;PSPRECOMP_TRACE_VRAM_READS=1")
     add_dependencies(psprecomp_test_binaries psprecomp_runtime_contract_tests)
 endif()

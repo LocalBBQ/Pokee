@@ -4,6 +4,7 @@
 #include "psprecomp/interpreter.hpp"
 #include "psprecomp/runtime.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -15,6 +16,10 @@
 #include <fstream>
 #include <limits>
 #include <stdexcept>
+
+namespace psprecomp {
+void set_write_watch(std::uint32_t address, std::uint32_t size);
+}
 
 namespace {
 constexpr std::uint32_t base = 0x08804000u;
@@ -780,6 +785,111 @@ void vector_contracts() {
     step(runtime, cpu, 0xFC000000u);
     check(cpu.vfpu_ctrl[2] == 0u, "VFLUSH must consume ordinary prefixes");
 }
+void guest_memory_contracts(bool armed) {
+    using Memory = psprecomp::GuestMemory;
+    bool invalid_size = false;
+    try {
+        Memory invalid(1);
+    } catch (const psprecomp::Error &) {
+        invalid_size = true;
+    }
+    check(invalid_size, "Unsupported PSP RAM size must be rejected");
+    Memory memory;
+    check(memory.size() == 32u * 1024u * 1024u && memory.vram_size() == 2u * 1024u * 1024u,
+        "RAM and EDRAM physical sizes changed");
+    const Memory &read_only = memory;
+    const auto rejects = [&](auto operation) {
+        bool rejected = false;
+        try {
+            operation();
+        } catch (const psprecomp::Error &) {
+            rejected = true;
+        }
+        check(rejected, "Invalid guest memory range must raise an error");
+    };
+    const auto vram = Memory::kVramPhysicalBase;
+    const auto wrap = vram + Memory::kVramSize - 1;
+    for (auto address : {base, vram, wrap}) {
+        memory.aot_store8(address, 0x12);
+        check(memory.aot_load8(address) == 0x12, "AOT byte store/load must preserve bits");
+        memory.aot_store16(address, 0x3456);
+        check(memory.aot_load16(address) == 0x3456, "AOT halfword store/load must preserve EDRAM wrapping");
+        memory.aot_store32(address, 0x12345678);
+        check(memory.aot_load32(address) == 0x12345678, "AOT word store/load must preserve EDRAM wrapping");
+    }
+    check(read_only.raw_pointer(wrap, 4) == nullptr && memory.raw_pointer(0, 1) == nullptr,
+        "Guest-contiguous mirrored EDRAM is not host-contiguous");
+    const std::array<std::uint8_t, 6> crossing{1, 2, 3, 4, 5, 6};
+    memory.copy_in(wrap - 2, crossing);
+    std::array<std::uint8_t, 6> copied{};
+    memory.copy_out(wrap - 2, copied);
+    check(copied == crossing, "Bulk guest copies must span EDRAM mirror boundaries");
+    memory.zero(wrap - 2, copied.size());
+    memory.copy_out(wrap - 2, copied);
+    check(copied == std::array<std::uint8_t, 6>{}, "Zeroing must span EDRAM mirror boundaries");
+    rejects([&] { memory.copy_in(0, crossing); });
+    rejects([&] { memory.copy_out(0, copied); });
+    rejects([&] { memory.zero(0, 1); });
+    for (auto address : {0u, base + memory.size() - 1, vram + Memory::kVramAddressSpan - 1}) {
+        rejects([&] { static_cast<void>(memory.aot_load32(address)); });
+        rejects([&] { memory.aot_store32(address, 1); });
+    }
+    rejects([&] { static_cast<void>(memory.aot_load8(0)); });
+    rejects([&] { static_cast<void>(memory.aot_load16(0)); });
+    rejects([&] { memory.aot_store8(0, 1); });
+    rejects([&] { memory.aot_store16(0, 1); });
+    memory.copy_in(base, std::array<std::uint8_t, 4>{'t', 'e', 's', 't'});
+    rejects([&] { static_cast<void>(memory.read_c_string(base, 4)); });
+    memory.store8(base + 4, 0);
+    check(memory.read_c_string(base, 5) == "test", "Guest string must stop at its bounded terminator");
+    for (unsigned offset = 0; offset < 4; ++offset) {
+        constexpr std::array<std::uint32_t, 4> left{0x78BBCCDD, 0x5678CCDD, 0x345678DD, 0x12345678};
+        constexpr std::array<std::uint32_t, 4> right{0x12345678, 0xAA123456, 0xAABB1234, 0xAABBCC12};
+        memory.store32(vram, 0x12345678);
+        check(memory.aot_load_word_left(vram + offset, 0xAABBCCDD) == left[offset] &&
+                memory.aot_load_word_right(vram + offset, 0xAABBCCDD) == right[offset],
+            "Unaligned AOT word loads must merge byte lanes in little-endian order");
+        memory.aot_store_word_left(vram + offset, 0xAABBCCDD);
+        check(memory.aot_load_word_left(vram + offset, 0) == (0xAABBCCDDu & (0xFFFFFFFFu << ((3 - offset) * 8))),
+            "Unaligned left word store must retain selected source lanes");
+        memory.aot_store_word_right(vram + offset, 0xAABBCCDD);
+        check(memory.aot_load_word_right(vram + offset, 0) == (0xAABBCCDDu & (0xFFFFFFFFu >> (offset * 8))),
+            "Unaligned right word store must retain selected source lanes");
+    }
+    memory.store8(base, 'a');
+    memory.aot_copy_lz_match(base + 1, base, 12);
+    std::array<std::uint8_t, 13> repeated{};
+    memory.copy_out(base, repeated);
+    check(std::all_of(repeated.begin(), repeated.end(), [](auto byte) { return byte == 'a'; }),
+        "Overlapping LZ copy must use freshly produced bytes");
+    memory.aot_copy_lz_match(0, 0, 0);
+    rejects([&] { memory.aot_copy_lz_match(base, base + 1, 1); });
+    memory.store8(wrap - 1, 'z');
+    memory.aot_copy_lz_match(wrap, wrap - 1, 5);
+    memory.copy_out(wrap - 1, copied);
+    check(std::all_of(copied.begin(), copied.end(), [](auto byte) { return byte == 'z'; }),
+        "Overlapping LZ copy must retain bytewise EDRAM mirror semantics");
+    std::ostringstream diagnostics;
+    auto *original = std::cerr.rdbuf(diagnostics.rdbuf());
+    psprecomp::set_write_watch(base, 0);
+    memory.aot_store8(base, 0x12);
+    memory.aot_store16(base, 0x3456);
+    memory.aot_store32(base, 0x12345678);
+    std::cerr.rdbuf(original);
+    if (armed) {
+        check(diagnostics.str().find("now watching") != std::string::npos &&
+                diagnostics.str().find("op=store8") != std::string::npos &&
+                diagnostics.str().find("op=store16") != std::string::npos &&
+                diagnostics.str().find("op=store32") != std::string::npos,
+            "Armed write watch must observe all AOT store widths");
+    } else {
+        check(diagnostics.str().find("not armed at start-up") != std::string::npos,
+            "Unarmed write watch must explain why observation cannot be enabled");
+    }
+    memory.memory_barrier();
+    check(memory.bytes().size() == memory.size() && memory.vram_bytes().size() == memory.vram_size(),
+        "Backing spans must represent exact physical RAM sizes");
+}
 void floating_contracts() {
     psprecomp::Runtime runtime;
     psprecomp::AllegrexContext cpu{};
@@ -817,8 +927,13 @@ void floating_contracts() {
     check(cpu.fpr_bits(10) == 0x7FC00000u, "Infinity times zero must produce architectural quiet NaN");
 }
 }
-int main() {
+int main(int argc, char **argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--memory-watch") {
+            guest_memory_contracts(true);
+            return 0;
+        }
+        guest_memory_contracts(false);
         tool_contracts();
         elf_contracts();
         dispatch_contracts();
