@@ -2,6 +2,8 @@
 #include "gpu/vulkan_renderer.hpp"
 #include "camera_probe.hpp"
 #include "camera/free_camera.hpp"
+#include "game/equipment_models.hpp"
+#include "game/game_data.hpp"
 #include "mods/mhp3rd_mods.hpp"
 #include "mods/mhp3rd_data_bin.hpp"
 #include "kernel/iso_image.hpp"
@@ -1085,7 +1087,8 @@ void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::fil
     layer.set_interactive(false);
 }
 
-void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+void mods_screen_contracts(
+    gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox, psprecomp::Runtime &runtime) {
     // Construct a tiny ISO9660 image and archive entirely from public bytes.
     // It contains one eight-byte entry and no game executable or assets.
     constexpr std::size_t block = 2048;
@@ -1272,6 +1275,27 @@ void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
             "absent game hunter leaves configured armor slot unchanged");
         frame(false, false, "No armor");
         press(ImGuiKey_Space);
+        auto &ram = runtime.memory();
+        ram.store16(game::kCharacter, 0xff34); // Public one-letter hunter.
+        ram.store8(game::kCharacter + game::kCharacterSex, 0);
+        ram.store8(game::kCharacter + game::kCharacterInnerWear, 0);
+        const auto worn = game::kCharacter + game::kCharacterArmor + 4 * game::kEquipmentRecord;
+        ram.store8(worn, 1);
+        ram.store8(worn + 1, 4);
+        ram.store16(worn + 2, 1);
+        ram.store16(game::kArmorFileBase + 8, 10);
+        ram.store16(game::kArmorFileBase + 10, 20);
+        ram.store16(game::kHeadData + game::kArmorRecord, 3);
+        ram.store8(game::kHeadData + game::kArmorRecord + 4, 0x0f);
+        frame(false, false, "Use my current armor");
+        press(ImGuiKey_Space);
+        expect(session->library().choice(gear_id).slots[0] == mods::FileId{13} && session->library().enabled(gear_id),
+            "loaded synthetic hunter selects exact worn head model and enables mod");
+        frame(false, false, "No armor");
+        press(ImGuiKey_Space);
+        expect(session->library().choice(gear_id).slots[0] == mods::FileId{10},
+            "No armor selects synthetic bare head base model");
+        ram.store16(game::kCharacter, 0);
         frame(true);
         expect(!ui::mods_screen_open(), "Back closes equipment details");
     }
@@ -1779,7 +1803,7 @@ int run_contracts() {
     setup_screen_contracts(renderer, sandbox);
     texture_pack_screen_contracts(renderer, sandbox);
     save_screen_contracts(renderer, sandbox);
-    mods_screen_contracts(renderer, sandbox);
+    mods_screen_contracts(renderer, sandbox, fixture.runtime);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
     renderer.shutdown();
