@@ -2177,6 +2177,77 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     expect(sample().analog_x == 255, "swapped sticks move PSP analog from virtual right axis");
     SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
     sample();
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -32768);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
+    player.free_camera = true;
+    renderer.set_scripted_key(SDL_SCANCODE_F6, true);
+    sample();
+    expect(renderer.take_free_camera_controls().toggle, "scripted F6 requests one free-camera toggle");
+    sample();
+    expect(!renderer.take_free_camera_controls().toggle, "held free-camera toggle does not repeat");
+    renderer.set_scripted_key(SDL_SCANCODE_F6, false);
+    renderer.set_free_camera(true);
+    for (const auto key : {SDL_SCANCODE_D, SDL_SCANCODE_W, SDL_SCANCODE_E, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_P,
+             SDL_SCANCODE_R, SDL_SCANCODE_EQUALS})
+        renderer.set_scripted_key(key, true);
+    sample();
+    const auto flying = renderer.take_free_camera_controls();
+    expect(flying.right == 1 && flying.forward == 1 && flying.up == 1 && flying.fast && !flying.slow && flying.pause &&
+            flying.reset && flying.speed_steps == 1,
+        "flying free camera receives held motion plus independent pause/reset/speed press edges");
+    sample();
+    const auto held = renderer.take_free_camera_controls();
+    expect(held.right == 1 && held.forward == 1 && held.up == 1 && !held.pause && !held.reset && held.speed_steps == 0,
+        "taking camera controls consumes press edges while preserving held movement");
+    for (const auto key : {SDL_SCANCODE_A, SDL_SCANCODE_S, SDL_SCANCODE_Q, SDL_SCANCODE_LCTRL})
+        renderer.set_scripted_key(key, true);
+    sample();
+    const auto opposing = renderer.take_free_camera_controls();
+    expect(opposing.right == 0 && opposing.forward == 0 && opposing.up == 0 && opposing.fast && opposing.slow,
+        "opposing camera motion keys cancel while fast and slow modifiers stay independent");
+    for (const auto key : {SDL_SCANCODE_D, SDL_SCANCODE_W, SDL_SCANCODE_E, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_P,
+             SDL_SCANCODE_R, SDL_SCANCODE_EQUALS, SDL_SCANCODE_A, SDL_SCANCODE_S, SDL_SCANCODE_Q, SDL_SCANCODE_LCTRL})
+        renderer.set_scripted_key(key, false);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 32767);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, true);
+    sample();
+    const auto pad_flying = renderer.take_free_camera_controls();
+    expect(pad_flying.right == 1 && pad_flying.up == 1 && pad_flying.look_x == -1,
+        "virtual gamepad supplies shaped free-camera movement, shoulder elevation and inverted look");
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false);
+    player.free_camera = false;
+    renderer.set_free_camera(false);
+    sample();
+    const auto off = renderer.take_free_camera_controls();
+    expect(!off.toggle && off.right == 0 && off.look_x == 0 && !off.fast,
+        "disabled free camera clears all held and pressed control state");
+    player.lock_on = true;
+    player.controls.keys[static_cast<int>(input::Action::Screenshot)][0].inputs[0] = input::key(SDL_SCANCODE_F12);
+    player.controls.keys[static_cast<int>(input::Action::HideHud)][0].inputs[0] = input::key(SDL_SCANCODE_F11);
+    player.controls.keys[static_cast<int>(input::Action::LockOn)][0].inputs[0] = input::key(SDL_SCANCODE_F7);
+    static_cast<void>(renderer.take_screenshot_request());
+    static_cast<void>(renderer.take_hide_hud_toggle());
+    static_cast<void>(renderer.take_lock_on_press());
+    renderer.set_scripted_key(SDL_SCANCODE_F12, true);
+    renderer.set_scripted_key(SDL_SCANCODE_F11, true);
+    sample();
+    expect(renderer.take_screenshot_request() && renderer.take_hide_hud_toggle(),
+        "custom screenshot and HUD bindings each produce one host request");
+    sample();
+    expect(!renderer.take_screenshot_request() && !renderer.take_hide_hud_toggle(),
+        "holding host request keys does not repeat consumed presses");
+    renderer.set_scripted_key(SDL_SCANCODE_F12, false);
+    renderer.set_scripted_key(SDL_SCANCODE_F11, false);
+    renderer.set_scripted_key(SDL_SCANCODE_F7, true);
+    sample();
+    expect(!renderer.take_lock_on_press(), "lock-on tap is not emitted before physical release");
+    renderer.set_scripted_key(SDL_SCANCODE_F7, false);
+    sample();
+    expect(renderer.take_lock_on_press() && !renderer.take_lock_on_press(),
+        "released lock-on binding produces a single consumable tap");
     player = saved_settings;
     settings::save();
     renderer.set_game_input(false);
