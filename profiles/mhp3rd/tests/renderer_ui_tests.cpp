@@ -1166,6 +1166,16 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     controller_frame();
     SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
     controller_frame();
+    // Reusing the same physical button is rejected for the next face control.
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    controller_frame();
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    controller_frame();
+    activate("Back one step");
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    controller_frame();
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    controller_frame();
     // One real answer, then deliberately skip controls absent from this fixture.
     for (int step = 1; step < 20; ++step) activate("Skip this one");
     activate("Save and use this layout");
@@ -1176,6 +1186,17 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     const std::string saved{std::istreambuf_iterator<char>(mappings), std::istreambuf_iterator<char>()};
     expect(saved.find("a:b0") != std::string::npos && saved.find("Yakumo synthetic test gamepad") != std::string::npos,
         "saved SDL mapping contains exact virtual device name and recorded bottom button");
+    activate("Set up this controller again");
+    controller_frame(nullptr, true); // Back cancels the wizard, leaving its list open.
+    expect(ui::controllers_screen_open() && input::devices::info(id)->saved,
+        "cancelled setup keeps controller screen and previous mapping");
+    activate("Remove my layout");
+    expect(input::devices::info(id) && !input::devices::info(id)->saved,
+        "removing virtual controller layout clears saved mapping");
+    std::ifstream removed(file);
+    const std::string remaining{std::istreambuf_iterator<char>(removed), std::istreambuf_iterator<char>()};
+    expect(remaining.find("Yakumo synthetic test gamepad") == std::string::npos,
+        "removed mapping no longer appears in sandbox database");
     controller_frame(nullptr, true);
     expect(!ui::controllers_screen_open(), "back closes controller screen after successful wizard");
     ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
