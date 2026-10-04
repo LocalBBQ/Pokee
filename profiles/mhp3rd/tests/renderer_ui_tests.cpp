@@ -24,6 +24,7 @@
 #include "audio/audio_sink.hpp"
 #include "adhoc/client.hpp"
 #include "adhoc/server.hpp"
+#include "adhoc/session.hpp"
 #include "kernel/fast_forward.hpp"
 #include "settings/settings.hpp"
 #include "ui/layer.hpp"
@@ -3083,6 +3084,34 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     }
     network_client.stop();
     synthetic_server.stop();
+    if (session_port) {
+        settings::current().adhoc = false;
+        settings::current().adhoc_nickname = "Public UI fixture";
+        settings::current().adhoc_host_port = session_port;
+        change_video("Host a session###hosting", ImGuiKey_Space);
+        expect(adhoc_hosting() && adhoc_host_status().adhocctl_port == session_port && settings::current().adhoc,
+            "host menu starts the owned server on its configured port and enables ad hoc play");
+        if (adhoc_hosting()) {
+            network_client.start({adhoc_server_address(), "Public UI fixture", {2, 3, 4, 5, 6, 7}, "ULJM05800"});
+            expect(wait_network([&] { return network_client.server_state() == adhoc::ServerState::Online; }),
+                "synthetic local player logs into the UI-hosted session");
+            network_client.join("MHP3Q000");
+            expect(wait_network([&] {
+                const auto status = adhoc_host_status();
+                return network_client.in_group() && status.players.size() == 1 && status.players[0].group;
+            }),
+                "owned host publishes its real player and guild hall");
+            frame();
+            const auto hosted_state = adhoc_host_status();
+            expect(adhoc_session_active() && hosted_state.players.size() == 1 &&
+                    hosted_state.players[0].nickname == "Public UI fixture",
+                "hosted status page keeps the real active session and player identity intact");
+            change_video("Stop hosting###hosting", ImGuiKey_Space);
+            expect(!adhoc_hosting() && !adhoc_host_status().running, "stop-hosting menu shuts down its owned server");
+        }
+        adhoc_host_stop();
+        network_client.stop();
+    }
     settings::current() = before_network;
 
     change_video("Network overlay", ImGuiKey_Space);
@@ -3154,6 +3183,35 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     layer.end_frame();
     renderer.present_ui(true);
     expect(!ui::touch_editor_open(), "back closes touch editor");
+    for (const bool setup : {false, true}) {
+        ui::open_menu_over_game();
+        frame();
+        frame();
+        expect(settings::current().menu_tab == "system", "reopened menu restores its previous System page");
+        change_video(setup ? "Set up game data again…" : "Quit game", ImGuiKey_Space);
+        activate_confirmation(setup ? "Close and set up" : "Quit");
+        expect(!ui::menu_over_game() && ui::take_quit_request() && !ui::take_quit_request(),
+            "confirmed system action closes menu and publishes exactly one quit request");
+        if (setup) expect(install::setup_requested_on_exit(), "confirmed setup publishes the isolated restart request");
+    }
+    const auto menu_window_id = SDL_GetWindowID(renderer.window());
+    std::jthread close_paused_menu([menu_window_id] {
+        SDL_Delay(180);
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.windowID = menu_window_id;
+        event.key.key = SDLK_ESCAPE;
+        event.key.scancode = SDL_SCANCODE_ESCAPE;
+        event.key.down = true;
+        SDL_PushEvent(&event);
+        SDL_Delay(120);
+        event.type = SDL_EVENT_KEY_UP;
+        event.key.down = false;
+        SDL_PushEvent(&event);
+    });
+    expect(ui::run_menu() && !ui::take_quit_request(), "bounded paused menu resumes on keyboard back without quitting");
+    close_paused_menu.join();
+    renderer.pump_events();
     layer.set_interactive(false);
 }
 
