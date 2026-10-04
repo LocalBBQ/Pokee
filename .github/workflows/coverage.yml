@@ -33,7 +33,7 @@ jobs:
       - name: Install versioned coverage toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends clang-18 llvm-18 libclang-rt-18-dev ninja-build glslang-tools libvulkan-dev libavcodec-dev libavutil-dev pkg-config mesa-vulkan-drivers fonts-dejavu-core xvfb xauth libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev
+          sudo apt-get install --no-install-recommends clang-18 llvm-18 libclang-rt-18-dev ninja-build glslang-tools libvulkan-dev libavcodec-dev libavutil-dev pkg-config mesa-vulkan-drivers fonts-dejavu-core xvfb xauth libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev
       - name: Install pinned Python coverage collector
         run: make coverage-tools
       - name: Set up Java for Android contract tests
