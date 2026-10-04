@@ -1001,10 +1001,13 @@ void held_frame_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::
     int initial_w = 0, initial_h = 0;
     SDL_GetWindowSize(renderer.window(), &initial_w, &initial_h);
     renderer.set_window_scale(2);
+    // SDL window resize requests are asynchronous on window systems such as X11.
+    expect(SDL_SyncWindow(renderer.window()), "window scale request reaches its final native state");
     int large_w = 0, large_h = 0;
     SDL_GetWindowSize(renderer.window(), &large_w, &large_h);
     expect(large_w == 960 && large_h == 544, "window scale applies documented PSP logical dimensions");
     renderer.set_window_scale(1);
+    expect(SDL_SyncWindow(renderer.window()), "window scale restoration reaches its final native state");
     int restored_w = 0, restored_h = 0;
     SDL_GetWindowSize(renderer.window(), &restored_w, &restored_h);
     expect(restored_w == initial_w && restored_h == initial_h, "window scale round trip restores initial logical size");
