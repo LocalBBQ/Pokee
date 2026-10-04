@@ -1513,6 +1513,88 @@ void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
         "camera detector rejects a counter that stops tracking changed turn rate");
 }
 
+void touch_editor_contracts(gpu::VulkanRenderer &renderer) {
+    auto &player = settings::current();
+    const auto saved_layout = player.touch_action;
+    const auto saved_opacity = player.touch_opacity;
+    const auto saved_size = player.touch_size;
+    const auto saved_haptics = player.touch_haptics;
+    player.touch_action = input::touch::default_action_layout();
+    player.touch_opacity = 0.5f;
+    player.touch_size = 1;
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    ui::open_touch_editor();
+    auto frame = [&](const char *focused = nullptr) {
+        layer.begin_frame();
+        if (focused) {
+            if (auto *window = ImGui::FindWindowByName("##touch_editor")) {
+                ImGui::FocusWindow(window);
+                ImGui::SetFocusID(window->GetID(focused), window);
+                ImGui::SetNavCursorVisible(true);
+            }
+        }
+        ui::touch_editor_frame(false);
+        layer.end_frame();
+        renderer.present_ui(true);
+    };
+    auto activate = [&](const char *label, ImGuiKey key = ImGuiKey_Space) {
+        frame(label);
+        frame(label);
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame(label);
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    frame();
+    activate("Opacity", ImGuiKey_RightArrow);
+    expect(std::abs(player.touch_opacity - 0.55f) < 0.001f, "touch editor opacity advances exactly five percent");
+    activate("Size of all", ImGuiKey_RightArrow);
+    expect(std::abs(player.touch_size - 1.05f) < 0.001f, "touch editor global size advances exactly five percent");
+    const auto before_haptic = player.touch_haptics;
+    activate("Haptic feedback");
+    expect(player.touch_haptics != before_haptic, "touch editor haptic option toggles");
+    activate("Panel", ImGuiKey_RightArrow);
+    activate("Panel", ImGuiKey_LeftArrow);
+    const auto &controls = renderer.action_touch_controls();
+    const auto at = controls.placed(input::touch::Element::Attack).centre;
+    const auto before = player.touch_action.at(input::touch::Element::Attack);
+    ImGui::GetIO().AddMousePosEvent(at.x, at.y);
+    frame();
+    ImGui::GetIO().AddMouseButtonEvent(0, true);
+    frame();
+    ImGui::GetIO().AddMousePosEvent(at.x - 20, at.y - 15);
+    frame();
+    ImGui::GetIO().AddMouseButtonEvent(0, false);
+    frame();
+    const auto moved = player.touch_action.at(input::touch::Element::Attack);
+    expect(moved.x != before.x && moved.y != before.y,
+        "mouse drag moves selected attack placement in safe-area coordinates");
+    activate("Size", ImGuiKey_RightArrow);
+    expect(player.touch_action.at(input::touch::Element::Attack).size > moved.size,
+        "selected touch element size increases");
+    activate("Presses", ImGuiKey_RightArrow);
+    expect(player.touch_action.at(input::touch::Element::Attack).buttons != moved.buttons,
+        "selected touch element rebinds to a different PSP chord");
+    activate("Shown");
+    expect(!player.touch_action.at(input::touch::Element::Attack).shown, "selected touch element can be hidden");
+    activate("Reset this element");
+    expect(player.touch_action.at(input::touch::Element::Attack) ==
+            input::touch::default_action_layout().at(input::touch::Element::Attack),
+        "element reset restores complete default placement and binding");
+    activate("Choose another");
+    activate("Reset the whole layout");
+    expect(player.touch_action == input::touch::default_action_layout(), "whole layout reset restores every element");
+    activate("Done");
+    expect(!ui::touch_editor_open(), "Done closes touch editor");
+    player.touch_action = saved_layout;
+    player.touch_opacity = saved_opacity;
+    player.touch_size = saved_size;
+    player.touch_haptics = saved_haptics;
+    settings::save();
+    layer.set_interactive(false);
+}
+
 void touch_event_contracts(gpu::VulkanRenderer &renderer) {
     auto &player = settings::current();
     const auto enabled = player.touch_controls;
@@ -2022,6 +2104,7 @@ int run_contracts() {
     texture_pack_screen_contracts(renderer, sandbox);
     save_screen_contracts(renderer, sandbox);
     mods_screen_contracts(renderer, sandbox, fixture.runtime);
+    touch_editor_contracts(renderer);
     touch_event_contracts(renderer);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
