@@ -2775,6 +2775,44 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(settings::current().aspect != initial_aspect, "video menu cycles renderer aspect ratio");
     change_video("Aspect ratio", ImGuiKey_LeftArrow);
     expect(settings::current().aspect == initial_aspect, "aspect ratio round trip restores renderer setting");
+    auto cycle_setting = [&](const char *label, auto field, bool toggle = false) {
+        const auto original = settings::current().*field;
+        change_video(label, toggle ? ImGuiKey_Space : ImGuiKey_RightArrow);
+        expect(
+            settings::current().*field != original, (std::string(label) + " menu advances its selected mode").c_str());
+        change_video(label, toggle ? ImGuiKey_Space : ImGuiKey_LeftArrow);
+        expect(
+            settings::current().*field == original, (std::string(label) + " menu restores its selected mode").c_str());
+    };
+    cycle_setting("UI textures", &settings::Settings::ui_textures);
+    cycle_setting("Game speed", &settings::Settings::unthrottled);
+    cycle_setting("Fast loading", &settings::Settings::fast_loading, true);
+    cycle_setting("Fast-forward", &settings::Settings::fast_forward);
+    cycle_setting("Performance", &settings::Settings::perf);
+    if (settings::overridden_by("video.gpu_compat")) {
+        const auto locked_compat = settings::current().gpu_compat;
+        change_video("GPU compatibility", ImGuiKey_RightArrow);
+        expect(settings::current().gpu_compat == locked_compat,
+            "explicit compatibility environment override locks its menu selector");
+    } else {
+        cycle_setting("GPU compatibility", &settings::Settings::gpu_compat);
+    }
+    const auto original_rate = settings::current().frame_rate;
+    change_video("Frame rate", ImGuiKey_RightArrow);
+    expect(settings::current().frame_rate == settings::FrameRate::Fps45,
+        "frame-rate menu advances from thirty to forty-five");
+    cycle_setting("Lower when behind", &settings::Settings::frame_rate_auto);
+    change_video("Frame rate", ImGuiKey_LeftArrow);
+    expect(settings::current().frame_rate == original_rate, "frame-rate menu restores thirty fps");
+    const auto original_resolution = settings::current().internal_scale;
+    change_video("Resolution", ImGuiKey_RightArrow);
+    expect(settings::current().internal_scale == original_resolution + 1 &&
+            renderer.target_size() == std::array<std::uint32_t, 2>{960, 544},
+        "resolution menu resizes the actual offscreen target to twice PSP dimensions");
+    change_video("Resolution", ImGuiKey_LeftArrow);
+    expect(settings::current().internal_scale == original_resolution &&
+            renderer.target_size() == std::array<std::uint32_t, 2>{480, 272},
+        "resolution menu restores native offscreen target dimensions");
     auto page = [&] {
         ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
         frame();
@@ -2895,6 +2933,33 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     toggle_setting("Hide the HUD while flying", &settings::Settings::free_camera_hide_hud);
     change_video("Free camera", ImGuiKey_Space);
     expect(!settings::current().free_camera, "experimental free-camera setting restores disabled mode");
+
+    const auto before_control_reset = settings::current();
+    settings::current().dead_zone = 0.4f;
+    settings::current().trigger = 0.9f;
+    settings::current().camera_speed = 420;
+    settings::current().aim_speed = 220;
+    settings::current().mouse_sensitivity = 0.8f;
+    settings::current().touch_size = 1.4f;
+    settings::current().touch_opacity = 0.4f;
+    settings::current().free_camera_speed = 450;
+    settings::current().name = "Public test hunter";
+    change_video("Save as a new preset", ImGuiKey_Space);
+    const auto retained_preset = settings::current().control_preset.user;
+    change_video("Restore control defaults", ImGuiKey_Space);
+    const auto &defaults = settings::defaults();
+    const auto &reset_controls = settings::current();
+    expect(reset_controls.dead_zone == defaults.dead_zone && reset_controls.trigger == defaults.trigger &&
+            reset_controls.camera_speed == defaults.camera_speed && reset_controls.aim_speed == defaults.aim_speed &&
+            reset_controls.mouse_sensitivity == defaults.mouse_sensitivity && reset_controls.name == defaults.name &&
+            reset_controls.touch_size == defaults.touch_size &&
+            reset_controls.touch_opacity == defaults.touch_opacity &&
+            reset_controls.free_camera_speed == defaults.free_camera_speed &&
+            reset_controls.control_preset == defaults.control_preset && reset_controls.controls == defaults.controls,
+        "control defaults restore modified analog, mouse, touch, camera, name and shipped bindings");
+    expect(settings::find_user_preset(settings::current(), retained_preset) != nullptr,
+        "control defaults keep the player's independently saved presets");
+    settings::current() = before_control_reset;
 
     page();
     const bool original_tracing = adhoc::Client::tracing();
