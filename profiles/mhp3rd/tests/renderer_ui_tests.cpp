@@ -2762,6 +2762,35 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     sample();
     expect(renderer.take_lock_on_press() && !renderer.take_lock_on_press(),
         "released lock-on binding produces a single consumable tap");
+    auto secondary_desc = desc;
+    secondary_desc.name = "Public secondary test gamepad";
+    const auto secondary_id = SDL_AttachVirtualJoystick(&secondary_desc);
+    auto *secondary = secondary_id ? SDL_OpenJoystick(secondary_id) : nullptr;
+    expect(secondary != nullptr, "second actual virtual gamepad connects independently");
+    renderer.pump_events();
+    expect(renderer.gamepad() && SDL_GetGamepadID(renderer.gamepad()) == id,
+        "connecting a second ordinary pad does not steal the first player's input");
+    if (secondary) {
+        const char *follow = std::getenv("MHP3RD_PAD_FOLLOW");
+        const bool follows = !follow || std::string_view(follow) != "0";
+        SDL_SetJoystickVirtualButton(secondary, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        sample();
+        expect(renderer.gamepad() && SDL_GetGamepadID(renderer.gamepad()) == (follows ? secondary_id : id),
+            "ordinary pad button follows documented active-controller or fixed-first policy");
+        SDL_SetJoystickVirtualButton(secondary, SDL_GAMEPAD_BUTTON_SOUTH, false);
+        sample();
+        SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        sample();
+        expect(renderer.gamepad() && SDL_GetGamepadID(renderer.gamepad()) == id,
+            "pressing the first pad returns game input to its original owner");
+        SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+        sample();
+        SDL_CloseJoystick(secondary);
+        SDL_DetachVirtualJoystick(secondary_id);
+        renderer.pump_events();
+        expect(renderer.gamepad() && SDL_GetGamepadID(renderer.gamepad()) == id,
+            "disconnecting the secondary pad preserves the connected first pad");
+    }
     player = saved_settings;
     settings::save();
     renderer.set_game_input(false);
@@ -3870,6 +3899,43 @@ void terminal_audio_menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(!renderer.pump_events(), "terminal renderer quit API closes its real event loop");
 }
 
+void ui_backend_lifecycle_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    auto &layer = ui::Layer::get();
+    expect(layer.attach(renderer), "UI lifecycle attaches the real SDL/ImGui backend");
+    auto draw = [&](const char *file) {
+        const auto path = sandbox / file;
+        renderer.capture_window(path);
+        layer.begin_frame();
+        ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, ImGui::GetIO().DisplaySize, IM_COL32(230, 20, 60, 255));
+        layer.end_frame();
+        renderer.present_ui(false);
+        std::ifstream input(path, std::ios::binary);
+        const std::vector<unsigned char> pixels{
+            std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+        if (pixels.size() < 54) {
+            expect(false, "UI lifecycle creates an actual captured window");
+            return;
+        }
+        const auto word = [&](std::size_t at) {
+            return std::uint32_t(pixels[at]) | std::uint32_t(pixels[at + 1]) << 8 |
+                std::uint32_t(pixels[at + 2]) << 16 | std::uint32_t(pixels[at + 3]) << 24;
+        };
+        const auto width = word(18), height = word(22), stride = (width * 3 + 3) & ~3u;
+        const auto at = word(10) + std::size_t(height / 2) * stride + width / 2 * 3;
+        expect(at + 2 < pixels.size() && pixels[at] == 60 && pixels[at + 1] == 20 && pixels[at + 2] == 230,
+            "real UI Vulkan pipeline preserves the exact independent BGR center pixel");
+    };
+    draw("before-backend-shutdown.bmp");
+    renderer.shutdown_ui();
+    renderer.shutdown_ui();
+    expect(renderer.available(), "repeated UI-only shutdown keeps the actual Vulkan device available");
+    std::string error;
+    expect(renderer.initialize_ui(error) && error.empty(), "UI backend reinitializes with its existing ImGui context");
+    draw("after-backend-restart.bmp");
+    renderer.shutdown_ui();
+    renderer.shutdown_ui();
+}
+
 struct ScriptEvents {
     int key_down{}, key_up{}, mouse_down{}, mouse_up{}, finger_down{}, finger_move{}, finger_up{};
     int text{}, drops{};
@@ -3912,7 +3978,11 @@ bool watch_script(void *data, SDL_Event *event) {
     }
     return true;
 }
-void input_script_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox, bool live_input) {
+void input_script_contracts(
+    gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox, bool live_input, SDL_Joystick *competitor) {
+    const auto competitor_id = competitor ? SDL_GetJoystickID(competitor) : 0;
+    expect(renderer.gamepad() && SDL_GetGamepadID(renderer.gamepad()) == competitor_id,
+        "the first real virtual controller initially owns game input");
     auto &layer = ui::Layer::get();
     expect(layer.attach(renderer), "script fixture attaches the actual UI layer");
     layer.set_interactive(false);
@@ -3948,6 +4018,18 @@ void input_script_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
     const auto motion = renderer.take_mouse_motion();
     expect(motion.x == 7 && motion.y == -3, "script mouse preserves exact relative counts");
     auto *pad = renderer.gamepad();
+    expect(pad && SDL_GetGamepadID(pad) != competitor_id &&
+            std::string_view(SDL_GetGamepadName(pad)) == "Yakumo input script",
+        "script controller takes priority over an already connected ordinary controller");
+    if (competitor) {
+        SDL_SetJoystickVirtualButton(competitor, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        expect(renderer.gamepad() == pad, "ordinary pad press cannot steal an active scripted run");
+        SDL_SetJoystickVirtualButton(competitor, SDL_GAMEPAD_BUTTON_SOUTH, false);
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+    }
     expect(pad && SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX) == 32767,
         "script clamps an out-of-range positive axis to the SDL maximum");
     tick(); // unmapped joystick attaches, duplicate attach is idempotent
@@ -4021,6 +4103,10 @@ void input_script_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
         renderer.request_quit();
         expect(!renderer.pump_events(), "static script fixture closes through the renderer quit API");
     }
+    if (competitor) {
+        SDL_CloseJoystick(competitor);
+        SDL_DetachVirtualJoystick(competitor_id);
+    }
     SDL_RemoveEventWatch(watch_script, &events);
     std::cout.rdbuf(original);
     std::cout << log.str();
@@ -4055,7 +4141,7 @@ int run_contracts(int scripts) {
     settings.frame_rate = settings::FrameRate::Fps30;
     SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-    if (scripts) {
+    if (scripts == 1 || scripts == 2) {
         const auto live = sandbox / "live.txt";
         {
             std::ofstream initial(live);
@@ -4077,6 +4163,21 @@ int run_contracts(int scripts) {
             "10:joy 99 button 0;10:hold 1;10:swipe 1;10:drag 1;10:pointer malformed;10:unknown;";
         SDL_setenv_unsafe("MHP3RD_INPUT_SCRIPT", script.c_str(), 1);
     }
+    SDL_Joystick *competitor = nullptr;
+    if (scripts == 1 || scripts == 2) {
+        expect(SDL_InitSubSystem(SDL_INIT_GAMEPAD), "competing controller initializes its real SDL subsystem");
+        SDL_VirtualJoystickDesc competitor_desc{};
+        SDL_INIT_INTERFACE(&competitor_desc);
+        competitor_desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        competitor_desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+        competitor_desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+        competitor_desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+        competitor_desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+        competitor_desc.name = "Public script competing controller";
+        const auto competitor_id = SDL_AttachVirtualJoystick(&competitor_desc);
+        competitor = competitor_id ? SDL_OpenJoystick(competitor_id) : nullptr;
+        expect(competitor != nullptr, "script fixture attaches a competing actual SDL controller");
+    }
     MediaFixture fixture;
     auto *selected = active_renderer();
     if (!selected) {
@@ -4085,8 +4186,15 @@ int run_contracts(int scripts) {
         return 1;
     }
     auto &renderer = *selected;
+    if (scripts == 3) {
+        ui_backend_lifecycle_contracts(renderer, sandbox);
+        renderer.shutdown();
+        std::filesystem::remove_all(sandbox);
+        std::cout << (failures ? "FAIL" : "PASS") << ": UI lifecycle (" << failures << " failures)\n";
+        return failures ? 1 : 0;
+    }
     if (scripts) {
-        input_script_contracts(renderer, sandbox, scripts == 1);
+        input_script_contracts(renderer, sandbox, scripts == 1, competitor);
         renderer.shutdown();
         std::filesystem::remove_all(sandbox);
         std::cout << (failures ? "FAIL" : "PASS") << ": input script (" << failures << " failures)\n";
@@ -4176,6 +4284,8 @@ int main(int argc, char **argv) {
                 mode = 1;
             else if (std::string_view(argv[1]) == "--input-script-static")
                 mode = 2;
+            else if (std::string_view(argv[1]) == "--ui-lifecycle")
+                mode = 3;
             else {
                 std::cerr << "FAIL: unknown test mode\n";
                 return 2;
