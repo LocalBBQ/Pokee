@@ -8,6 +8,9 @@
 #include "ui/mods_screen.hpp"
 #include "ui/texture_pack_screen.hpp"
 #include "ui/controllers_screen.hpp"
+#include "ui/save_screen.hpp"
+#include "save_data/savedata_store.hpp"
+#include "save_data/save_transfer.hpp"
 #include "input/gamepad_devices.hpp"
 #include <algorithm>
 #include <cmath>
@@ -666,6 +669,107 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+void save_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    namespace sd = savedata;
+    const auto previous = sd::memory_stick();
+    const auto target = sandbox / "PublicMemoryStick";
+    const auto source = sandbox / "PublicSaveSource";
+    sd::set_memory_stick(target);
+    sd::Block key{};
+    for (std::size_t i = 0; i < key.size(); ++i) key[i] = static_cast<std::uint8_t>(i + 1);
+    sd::remember_game_key("ULJM05800", key);
+    sd::SaveFiles files{"ULJM05800", "", "MHP3RD.BIN", key};
+    sd::SaveContents content;
+    content.data.assign(2048, 0x5a);
+    content.title = "Public synthetic save";
+    std::string error;
+    expect(sd::write_save(source, files, content, error), "synthetic encrypted public save writes");
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    auto frame = [&](const char *focused = nullptr, bool back = false) {
+        layer.begin_frame();
+        ui::begin_panel("##save-contract", "Public saves", "", false);
+        ui::begin_content();
+        if (focused) {
+            auto *window = ImGui::GetCurrentWindow();
+            const auto focus = window->GetID(focused);
+            ImGui::FocusWindow(window);
+            ImGui::SetFocusID(focus, window);
+            ImGui::SetNavCursorVisible(true);
+        }
+        if (ui::save_screen_open())
+            ui::save_screen(back);
+        else
+            ui::save_rows();
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto activate = [&](const char *label) {
+        frame(label);
+        frame(label);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
+        frame(label);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, false);
+        frame();
+    };
+    auto drop = [&](const std::filesystem::path &path) {
+        const std::string chosen = path.string();
+        SDL_Event event{};
+        event.type = SDL_EVENT_DROP_FILE;
+        event.drop.windowID = SDL_GetWindowID(renderer.window());
+        event.drop.data = chosen.c_str();
+        expect(SDL_PushEvent(&event), "public save folder drop queues");
+        renderer.pump_events();
+        frame();
+        frame();
+    };
+    frame();
+    activate("Import save…");
+    expect(ui::save_screen_open(), "save import opens folder browser");
+    drop(source);
+    activate("Import this save");
+    const auto imported = sd::load_save(target, files);
+    expect(imported.status == sd::LoadStatus::Ok && imported.contents.data == content.data,
+        "real UI import preserves exact decrypted synthetic payload");
+    activate("Later");
+    expect(!ui::save_screen_open() && !ui::take_restart_request(), "Later closes without restart request");
+    content.data.assign(2048, 0xa5);
+    expect(sd::write_save(source, files, content, error), "replacement public save writes");
+    activate("Import save…");
+    drop(source);
+    activate("Back up now");
+    activate("Replace and import");
+    expect(sd::load_save(target, files).contents.data == content.data,
+        "replacement imports second exact synthetic payload");
+    bool backup{};
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(sd::savedata_root(target) / ".backup")) {
+        if (entry.path().filename() == "MHP3RD.BIN") backup = true;
+    }
+    expect(backup, "replacement keeps prior encrypted public save in backup");
+    activate("Restart now");
+    expect(ui::take_restart_request() && !ui::take_restart_request(), "restart request is delivered exactly once");
+    const auto destination = sandbox / "PublicSaveExport";
+    std::filesystem::create_directories(destination);
+    activate("Export save…");
+    drop(destination);
+    bool exported{};
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(destination)) {
+        if (entry.path().filename() == "MHP3RD.BIN") exported = true;
+    }
+    expect(exported, "real export UI creates portable encrypted save");
+    frame(nullptr, true);
+    expect(!ui::save_screen_open(), "Back closes save export result");
+    activate("Back up saves…");
+    activate("Back up to the backups folder");
+    activate("Done");
+    expect(!ui::save_screen_open(), "backup UI completes and returns to menu");
+    sd::set_memory_stick(previous);
+    layer.set_interactive(false);
+}
+
 void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
     const auto pack = sandbox / "PublicTextures";
     std::filesystem::create_directories(pack);
@@ -1484,6 +1588,7 @@ int run_contracts() {
     menu_contracts(renderer);
     setup_screen_contracts(renderer, sandbox);
     texture_pack_screen_contracts(renderer, sandbox);
+    save_screen_contracts(renderer, sandbox);
     mods_screen_contracts(renderer, sandbox);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
