@@ -26,7 +26,7 @@ cached for several minutes. Its link documents scope and unmeasured files here.
 
 ## Current implementation and rollout
 
-This change is a draft implementation. Public native/Android suites and project
+Public native/Android suites and project
 coverage run on pull requests and every pushed branch. Pull requests compare
 against their base commit; pushes compare against the previous branch commit,
 falling back to `origin/main` for a new branch or a force push whose previous
@@ -102,7 +102,12 @@ owned server's callback users are joined before destruction.
 Android Java tests run under Robolectric on API 29 and 35. They check landscape
 orientation, document selection/cancellation, tree URIs, folder listing and
 cursor cleanup, denied document access, safe JNI defaults and message-box
-buttons/keyboard handling. JaCoCo instruments the original application bytecode
+buttons/keyboard handling. Additional contracts cover cutout insets independently
+of system bars, the cutout window policy during unavailable native startup,
+narrow/wide button-bar layouts, Enter key release, missing keyboard defaults,
+UI-thread haptic feedback and a missing relaunch entry. Android system insets
+are supplied by a narrow synthetic window-root fixture; no physical display or
+native SDL startup is claimed. JaCoCo instruments the original application bytecode
 before Robolectric transforms it and restores the classes before reporting;
 SDL and test classes are excluded from the application coverage denominator.
 These JVM tests complement the native Android emulator suite and do not claim

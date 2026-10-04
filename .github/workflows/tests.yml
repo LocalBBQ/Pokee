@@ -34,6 +34,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Java for compiler contract tests
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Configure headless tests
         run: >-
           cmake -S . -B out/ci -G "${{ matrix.generator }}"

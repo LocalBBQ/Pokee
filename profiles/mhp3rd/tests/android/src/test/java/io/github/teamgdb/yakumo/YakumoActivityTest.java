@@ -9,6 +9,14 @@ import android.database.MatrixCursor;
 import android.net.Uri;
 import android.os.Looper;
 import android.os.Bundle;
+import android.os.Build;
+import android.graphics.Rect;
+import android.graphics.Insets;
+import android.view.DisplayCutout;
+import android.view.WindowInsets;
+import android.view.HapticFeedbackConstants;
+import android.view.WindowManager;
+import android.widget.LinearLayout;
 import android.app.AlertDialog;
 import android.provider.DocumentsContract;
 import android.view.KeyEvent;
@@ -28,6 +36,9 @@ import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowAlertDialog;
 import org.robolectric.shadows.ShadowContentResolver;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implements;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.shadows.ShadowViewRootImpl;
 import org.robolectric.annotation.ConscryptMode;
 import org.robolectric.util.ReflectionHelpers;
 import java.util.concurrent.FutureTask;
@@ -150,6 +161,122 @@ public class YakumoActivityTest {
         dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK));
         assertFalse(dialog.isShowing());
         assertEquals(9, ((int[]) ReflectionHelpers.getField(activity, "messageboxSelection"))[0]);
+    }
+
+    /** SDL's documented library-load failure keeps Android lifecycle tests public. */
+    public static class MissingNativeLibraryActivity extends YakumoActivity {
+        @Override public void loadLibraries() {
+            throw new UnsatisfiedLinkError("Synthetic unavailable SDL native library");
+        }
+    }
+
+    @Test
+    public void startupAppliesCutoutPolicyEvenWhenNativeLibraryIsUnavailable() {
+        ReflectionHelpers.setStaticField(SDLActivity.class, "mActivityCreated", false);
+        ReflectionHelpers.setStaticField(SDLActivity.class, "mSDLMainFinished", false);
+        MissingNativeLibraryActivity activity =
+            Robolectric.buildActivity(MissingNativeLibraryActivity.class).create().get();
+        assertEquals(Build.VERSION.SDK_INT >= 30
+            ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES,
+            activity.getWindow().getAttributes().layoutInDisplayCutoutMode);
+        assertTrue("SDL must report unavailable native startup", ShadowAlertDialog.getLatestAlertDialog().isShowing());
+        ShadowAlertDialog.getLatestAlertDialog().dismiss();
+        ReflectionHelpers.setStaticField(SDLActivity.class, "mActivityCreated", false);
+        ReflectionHelpers.setStaticField(SDLActivity.class, "mSDLMainFinished", false);
+    }
+
+    /** Synthetic OS insets isolate cutout handling from a physical display. */
+    @Implements(className = "android.view.ViewRootImpl", isInAndroidSdk = false)
+    public static class InsetsViewShadow extends ShadowViewRootImpl {
+        static WindowInsets rootInsets;
+        @Implementation protected WindowInsets getWindowInsets(boolean forceConstruct) {
+            return rootInsets != null ? rootInsets : new WindowInsets.Builder().build();
+        }
+    }
+
+    @Test
+    @Config(shadows = InsetsViewShadow.class)
+    public void cutoutUsesPhysicalInsetsAndIgnoresSystemBars() {
+        YakumoActivity activity = Robolectric.buildActivity(YakumoActivity.class).get();
+        ReflectionHelpers.setStaticField(SDLActivity.class, "mSingleton", activity);
+        try {
+            InsetsViewShadow.rootInsets = null;
+            assertArrayEquals(new int[4], YakumoActivity.cutoutInsets());
+            InsetsViewShadow.rootInsets = new WindowInsets.Builder().build();
+            activity.getWindowManager().addView(activity.getWindow().getDecorView(), new WindowManager.LayoutParams());
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertArrayEquals(new int[4], YakumoActivity.cutoutInsets());
+            DisplayCutout cutout = new DisplayCutout(new Rect(11, 12, 13, 14),
+                java.util.Collections.singletonList(new Rect(0, 0, 11, 100)));
+            WindowInsets.Builder builder = new WindowInsets.Builder().setDisplayCutout(cutout);
+            if (Build.VERSION.SDK_INT >= 30) {
+                builder.setInsets(WindowInsets.Type.displayCutout(), Insets.of(11, 12, 13, 14));
+                builder.setInsets(WindowInsets.Type.systemBars(), Insets.of(31, 32, 33, 34));
+            }
+            InsetsViewShadow.rootInsets = builder.build();
+            assertSame(InsetsViewShadow.rootInsets, activity.getWindow().getDecorView().getRootWindowInsets());
+            assertArrayEquals(new int[]{11, 12, 13, 14}, YakumoActivity.cutoutInsets());
+        } finally {
+            activity.getWindowManager().removeViewImmediate(activity.getWindow().getDecorView());
+            InsetsViewShadow.rootInsets = null;
+        }
+    }
+
+    @Test
+    public void messageBoxStacksNarrowButtonsAndHandlesEnterOnlyOnRelease() {
+        YakumoActivity activity = Robolectric.buildActivity(YakumoActivity.class).get();
+        Bundle args = new Bundle();
+        args.putString("title", "Public layout contract");
+        args.putString("message", "A bounded message");
+        args.putIntArray("buttonFlags", new int[]{1, 2});
+        args.putIntArray("buttonIds", new int[]{17, 19});
+        args.putStringArray("buttonTexts", new String[]{"Continue with selected settings", "Cancel installation"});
+        activity.messageboxCreateAndShow(args);
+        AlertDialog dialog = ShadowAlertDialog.getLatestAlertDialog();
+        Button button = findButton(dialog.getWindow().getDecorView(), "Continue with selected settings");
+        LinearLayout bar = (LinearLayout) button.getParent();
+        int height = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        bar.measure(View.MeasureSpec.makeMeasureSpec(120, View.MeasureSpec.EXACTLY), height);
+        assertEquals(LinearLayout.VERTICAL, bar.getOrientation());
+        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, button.getLayoutParams().width);
+        bar.measure(View.MeasureSpec.makeMeasureSpec(4000, View.MeasureSpec.EXACTLY), height);
+        assertEquals(LinearLayout.HORIZONTAL, bar.getOrientation());
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, button.getLayoutParams().width);
+        dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
+        assertTrue("Key down must not dismiss the dialog", dialog.isShowing());
+        dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER));
+        assertFalse(dialog.isShowing());
+        assertEquals(17, ((int[]) ReflectionHelpers.getField(activity, "messageboxSelection"))[0]);
+        args.putIntArray("buttonFlags", new int[]{0, 0});
+        activity.messageboxCreateAndShow(args);
+        dialog = ShadowAlertDialog.getLatestAlertDialog();
+        dialog.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER));
+        assertTrue("No default means Enter cannot choose a button", dialog.isShowing());
+        dialog.dismiss();
+    }
+
+    @Test
+    public void hapticTickPostsVirtualKeyFeedback() {
+        YakumoActivity activity = Robolectric.buildActivity(YakumoActivity.class).get();
+        ReflectionHelpers.setStaticField(SDLActivity.class, "mSingleton", activity);
+        View view = activity.getWindow().getDecorView();
+        activity.getWindowManager().addView(view, new WindowManager.LayoutParams());
+        try {
+            YakumoActivity.hapticTick();
+            Shadows.shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(HapticFeedbackConstants.VIRTUAL_KEY, Shadows.shadowOf(view).lastHapticFeedbackPerformed());
+        } finally {
+            activity.getWindowManager().removeViewImmediate(view);
+        }
+    }
+
+    @Test
+    public void relaunchWithoutLauncherDoesNotStartAnotherActivity() {
+        YakumoActivity activity = Robolectric.buildActivity(YakumoActivity.class).get();
+        ReflectionHelpers.setStaticField(SDLActivity.class, "mSingleton", activity);
+        YakumoActivity.relaunch();
+        assertNull(Shadows.shadowOf(activity).getNextStartedActivity());
     }
 
     private Button findButton(View view, String text) {

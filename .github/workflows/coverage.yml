@@ -120,7 +120,15 @@ jobs:
         run: |
           set -euo pipefail
           api="repos/$GH_REPO/git"
-          parent=$(gh api "$api/ref/heads/coverage-badges" --jq .object.sha 2>/dev/null || true)
+          if parent=$(gh api "$api/ref/heads/coverage-badges" --jq .object.sha 2>/dev/null); then
+            if [[ ! "$parent" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Invalid badge parent commit" >&2
+              exit 1
+            fi
+          else
+            # gh can print an error JSON to stdout even when the request fails.
+            parent=""
+          fi
           tree=$(jq -n --arg content "$BADGE_JSON" \
             '{tree: [{path: "coverage.json", mode: "100644", type: "blob", content: $content}]}' \
             | gh api --method POST "$api/trees" --input - --jq .sha)
