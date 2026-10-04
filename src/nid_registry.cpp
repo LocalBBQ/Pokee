@@ -139,7 +139,8 @@ void NidRegistry::load_csv(const std::filesystem::path &path) {
         const char *end = begin + nid_text.size();
         if (nid_text.starts_with("0x") || nid_text.starts_with("0X")) begin += 2;
         const auto result = std::from_chars(begin, end, nid, 16);
-        if (result.ec != std::errc{}) throw Error("Invalid NID at CSV line " + std::to_string(line_number));
+        if (result.ec != std::errc{} || result.ptr != end)
+            throw Error("Invalid NID at CSV line " + std::to_string(line_number));
         add(std::move(library), nid, std::move(name));
     }
 }

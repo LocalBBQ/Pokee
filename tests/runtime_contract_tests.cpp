@@ -1,5 +1,6 @@
 #include "psprecomp/decoder.hpp"
 #include "psprecomp/common.hpp"
+#include "psprecomp/deflate.hpp"
 #include "psprecomp/elf32.hpp"
 #include "psprecomp/interpreter.hpp"
 #include "psprecomp/program_analysis.hpp"
@@ -857,6 +858,100 @@ void vector_contracts() {
     step(runtime, cpu, 0xFC000000u);
     check(cpu.vfpu_ctrl[2] == 0u, "VFLUSH must consume ordinary prefixes");
 }
+void format_contracts() {
+    {
+        const auto root = std::filesystem::temp_directory_path() / "psprecomp_public_nid_contract";
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root);
+        const auto csv = root / std::filesystem::path(u8"nids-\u00e9.csv");
+        psprecomp::NidRegistry registry;
+        registry.add("Public", 1, "original");
+        registry.add("Public", 1, "replacement");
+        check(registry.resolve("Public", 1) == "replacement" && !registry.resolve("Absent", 1),
+            "NID definitions must replace matching keys and preserve library identity");
+        const auto write_csv = [&](const char *contents) {
+            std::ofstream file(csv);
+            file << contents;
+        };
+        write_csv("# comment\n\nPublic,0X00000002,two\nPublic,00000003,three\n");
+        registry.load_csv(csv);
+        check(registry.resolve("Public", 2) == "two" && registry.resolve("Public", 3) == "three",
+            "NID CSV must accept hexadecimal prefixes and ignore comments/empty lines");
+        const auto symbols = registry.all();
+        check(std::is_sorted(symbols.begin(), symbols.end(),
+                  [](const auto &a, const auto &b) {
+                      return a.library < b.library || (a.library == b.library && a.nid < b.nid);
+                  }),
+            "NID enumeration must be deterministic by library and identifier");
+        for (const auto &[contents, diagnostic] : {std::pair{"broken\n", "Invalid NID CSV line 1"},
+                 std::pair{"# comment\nPublic,not_hex,name\n", "Invalid NID at CSV line 2"},
+                 std::pair{"Public,0x123junk,name\n", "Invalid NID at CSV line 1"},
+                 std::pair{"Public,100000000,name\n", "Invalid NID at CSV line 1"}}) {
+            write_csv(contents);
+            bool rejected = false;
+            try {
+                registry.load_csv(csv);
+            } catch (const psprecomp::Error &error) {
+                rejected = std::string(error.what()).find(diagnostic) != std::string::npos;
+            }
+            check(rejected, "Malformed NID CSV must identify its failing line");
+        }
+        std::filesystem::remove(csv);
+        bool absent = false;
+        try {
+            registry.load_csv(csv);
+        } catch (const psprecomp::Error &error) {
+            absent = std::string(error.what()).find("Cannot open NID CSV") != std::string::npos;
+        }
+        check(absent, "Missing Unicode CSV path must retain the intended diagnostic");
+        std::filesystem::remove_all(root);
+    }
+    {
+        psprecomp::GuestMemory memory;
+        const auto decode = [&](std::span<const std::uint8_t> input, unsigned capacity) {
+            memory.zero(base, 256);
+            memory.zero(scratch, 5000);
+            memory.copy_in(base, input);
+            return psprecomp::inflate_raw_deflate(memory, scratch, capacity, base);
+        };
+        const std::array<std::uint8_t, 12> stored{0, 1, 0, 0xFE, 0xFF, 'A', 1, 1, 0, 0xFE, 0xFF, 'B'};
+        auto result = decode(stored, 2);
+        check(result.status == psprecomp::RawDeflateStatus::Ok && result.output_size == 2 &&
+                result.input_consumed == stored.size() && memory.load16(scratch) == 0x4241,
+            "Stored blocks must concatenate and terminate exactly at BFINAL");
+        const std::array<std::uint8_t, 5> empty{1, 0, 0, 0xFF, 0xFF};
+        result = decode(empty, 0);
+        check(result.status == psprecomp::RawDeflateStatus::Ok && result.output_size == 0 && result.input_consumed == 5,
+            "Empty stored block must fit a zero-capacity output");
+        result = decode(stored, 0);
+        check(result.status == psprecomp::RawDeflateStatus::OutputOverflow && result.output_size == 0,
+            "Stored-block overflow must not write a partial block");
+        for (const auto &invalid : {std::vector<std::uint8_t>{7}, std::vector<std::uint8_t>{1, 1, 0, 0, 0},
+                 std::vector<std::uint8_t>{0xFD, 0}})
+            check(decode(invalid, 5000).status == psprecomp::RawDeflateStatus::InvalidData,
+                "Reserved blocks, inconsistent stored lengths and excessive HLIT must be rejected");
+        check(psprecomp::inflate_raw_deflate(memory, scratch, 1, 0).status == psprecomp::RawDeflateStatus::InvalidData,
+            "Unmapped compressed input must return InvalidData");
+        const auto end = psprecomp::GuestMemory::kPhysicalBase + memory.size() - 1;
+        memory.store8(end, 1);
+        check(
+            psprecomp::inflate_raw_deflate(memory, scratch, 1, end).status == psprecomp::RawDeflateStatus::InvalidData,
+            "Truncated stored header must return InvalidData at the RAM boundary");
+        // Independently generated with Python zlib.compressobj(wbits=-15) for
+        // exactly 4096 'a' bytes; dynamic Huffman framing is RFC 1951.
+        const std::array<std::uint8_t, 22> dynamic{
+            0xED, 0xC1, 1, 0x0D, 0, 0, 0, 0xC2, 0xA0, 0xAC, 0xEF, 0x5F, 0xC2, 0x1E, 0x0E, 0x28, 0, 0, 0, 0xE0, 0xDD, 0};
+        result = decode(dynamic, 4096);
+        std::vector<std::uint8_t> actual(4096);
+        memory.copy_out(scratch, actual);
+        check(result.status == psprecomp::RawDeflateStatus::Ok && result.output_size == 4096 &&
+                result.input_consumed == dynamic.size() &&
+                std::all_of(actual.begin(), actual.end(), [](auto byte) { return byte == 'a'; }),
+            "Dynamic Huffman repeat codes and overlapping matches must reconstruct exact independent plaintext");
+        check(decode(dynamic, 4).status == psprecomp::RawDeflateStatus::OutputOverflow,
+            "Dynamic match expansion must respect output capacity");
+    }
+}
 void diagnostic_contracts() {
     const auto captured_run = [](psprecomp::Runtime &runtime, std::uint32_t address) {
         std::ostringstream diagnostics;
@@ -1118,6 +1213,7 @@ int main(int argc, char **argv) {
         elf_contracts();
         dispatch_contracts();
         diagnostic_contracts();
+        format_contracts();
         integer_contracts();
         memory_contracts();
         floating_contracts();
