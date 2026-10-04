@@ -254,6 +254,19 @@ void invalid_and_keys() {
     expect(texture_key(memory, t) != large, "large texture key notices sampled pixel");
     t.address = 0;
     expect(texture_key(memory, t) == texture_key(memory, t), "unmapped key safely deterministic");
+    for (auto format : {TextureFormat::Dxt1, TextureFormat::Dxt3, TextureFormat::Dxt5}) {
+        t = state(format, 4, 4);
+        for (unsigned byte = 0; byte < 16; ++byte) memory.store8(pixels + byte, 0);
+        const auto before = texture_key(memory, t);
+        const unsigned bytes = format == TextureFormat::Dxt1 ? 8 : 16;
+        memory.store8(pixels + bytes - 1, 0x7f);
+        expect(texture_key(memory, t) != before,
+            "compressed cache key observes the final byte of each independently sized DXT block");
+        const auto inside = texture_key(memory, t);
+        memory.store8(pixels + bytes + 3, 0x55);
+        expect(
+            texture_key(memory, t) == inside, "compressed cache key excludes bytes outside its declared DXT payload");
+    }
 }
 }
 int main() {

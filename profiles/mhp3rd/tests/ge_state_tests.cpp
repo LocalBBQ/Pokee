@@ -417,6 +417,20 @@ void matrices_transfer_copy() {
         !find_vram_copy(0x080b0000, source, destination) && find_vram_copy(0x080b0000 + 64 * 64, source, destination),
         "copy history bounded to most recent64");
 }
+void checked_decode_progress_contract() {
+    psprecomp::GuestMemory memory;
+    floats(memory, vertices, 12.5f, -4.25f, 7.75f);
+    std::vector<Vertex> decoded;
+    bool exact = true;
+    // The documented comparison counter logs each 100000 actual decodes.
+    // Keep the work finite and verify every decoded payload, not only the log.
+    for (unsigned run = 0; run < 100000; ++run)
+        exact = (decode_vertices(memory, vertices, 3u << 7, 1, decoded) == 12 && decoded.size() == 1 &&
+                    decoded[0].position == std::array<float, 4>{12.5f, -4.25f, 7.75f, 1}) &&
+            exact;
+    expect(exact, "comparison progress batch preserves all independently specified vertices");
+}
+
 }
 int main() {
     const bool checked = std::getenv("MHP3RD_CHECK_DECODE") != nullptr;
@@ -430,6 +444,7 @@ int main() {
     registers();
     matrices_transfer_copy();
     if (checked) {
+        checked_decode_progress_contract();
         std::cout.rdbuf(original_output);
         std::cout << diagnostics.str();
         expect(diagnostics.str().find("[material] cmd=0x53 value=0x7") != std::string::npos,
@@ -440,6 +455,8 @@ int main() {
         expect(diagnostics.str().find("[fbtex] block transfer 0x4006000") != std::string::npos &&
                 diagnostics.str().find("[fbtex] unhandled GE command 0xff") != std::string::npos,
             "framebuffer trace identifies block transfers and ignored commands");
+        expect(diagnostics.str().find("[decode-check] 100000 runs compared, 0 differed") != std::string::npos,
+            "comparison progress reports its real bounded successful milestone");
         expect(diagnostics.str().find(" differs over ") == std::string::npos,
             "fast and scalar decoding agree exactly across format and skinning contracts");
     }

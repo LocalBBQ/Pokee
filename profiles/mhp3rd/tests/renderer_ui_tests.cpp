@@ -2,6 +2,7 @@
 #include "gpu/vulkan_renderer.hpp"
 #include "gpu/screenshot.hpp"
 #include "gpu/texture_pack.hpp"
+#include "gpu/game_hud.hpp"
 #include "camera_probe.hpp"
 #include "camera/free_camera.hpp"
 #include "game/equipment_models.hpp"
@@ -2290,6 +2291,18 @@ void touch_editor_contracts(gpu::VulkanRenderer &renderer) {
             input::touch::default_action_layout().at(input::touch::Element::Attack),
         "element reset restores complete default placement and binding");
     activate("Choose another");
+    const auto pause_at = controls.placed(input::touch::Element::Pause).centre;
+    ImGui::GetIO().AddMousePosEvent(pause_at.x, pause_at.y);
+    frame();
+    ImGui::GetIO().AddMouseButtonEvent(0, true);
+    frame();
+    ImGui::GetIO().AddMouseButtonEvent(0, false);
+    frame();
+    const auto pause_before = player.touch_action.at(input::touch::Element::Pause).shown;
+    activate("Shown");
+    expect(pause_before && player.touch_action.at(input::touch::Element::Pause).shown == pause_before,
+        "Pause element cannot be hidden because it opens the editor itself");
+    activate("Choose another");
     activate("Reset the whole layout");
     expect(player.touch_action == input::touch::default_action_layout(), "whole layout reset restores every element");
     activate("Done");
@@ -3011,6 +3024,25 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     } else {
         cycle_setting("GPU compatibility", &settings::Settings::gpu_compat);
     }
+    const auto original_window_scale = settings::current().window_scale;
+    change_video("Window size", ImGuiKey_RightArrow);
+    expect(settings::current().window_scale == original_window_scale + 1,
+        "window-size selector increases the actual reversible host window scale");
+    change_video("Window size", ImGuiKey_LeftArrow);
+    expect(settings::current().window_scale == original_window_scale, "window-size selector restores its scale");
+    const auto original_pack = settings::current().texture_pack;
+    change_video("Texture pack", ImGuiKey_RightArrow);
+    expect(settings::current().texture_pack != original_pack, "video texture-pack row toggles actual pack policy");
+    change_video("Texture pack", ImGuiKey_LeftArrow);
+    expect(settings::current().texture_pack == original_pack, "texture-pack policy round trip restores its state");
+    if (renderer.supports_present_mode(settings::PresentMode::Immediate) ||
+        renderer.supports_present_mode(settings::PresentMode::Mailbox)) {
+        const auto original_mode = settings::current().present_mode;
+        change_video("Vsync", ImGuiKey_RightArrow);
+        expect(settings::current().present_mode != original_mode, "Vsync selector chooses a supported alternative");
+        change_video("Vsync", ImGuiKey_LeftArrow);
+        expect(settings::current().present_mode == original_mode, "Vsync selector restores FIFO policy");
+    }
     const auto original_rate = settings::current().frame_rate;
     change_video("Frame rate", ImGuiKey_RightArrow);
     expect(settings::current().frame_rate == settings::FrameRate::Fps45,
@@ -3018,6 +3050,30 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     cycle_setting("Lower when behind", &settings::Settings::frame_rate_auto);
     change_video("Frame rate", ImGuiKey_LeftArrow);
     expect(settings::current().frame_rate == original_rate, "frame-rate menu restores thirty fps");
+    for (int step = 0; step < 5; ++step) change_video("Frame rate", ImGuiKey_RightArrow);
+    expect(settings::current().frame_rate == settings::FrameRate::Display,
+        "frame-rate selector reaches actual display-refresh mode");
+    change_video("Frame rate", ImGuiKey_RightArrow);
+    expect(settings::current().frame_rate == original_rate, "all six frame-rate choices wrap back to thirty");
+    const auto original_fast_mode = settings::current().fast_forward;
+    const auto original_fast_speed = settings::current().fast_forward_speed;
+    change_video("Fast-forward speed", ImGuiKey_RightArrow);
+    expect(settings::current().fast_forward_speed == original_fast_speed + 1,
+        "fast-forward speed increments by exactly one multiplier");
+    change_video("Fast-forward speed", ImGuiKey_LeftArrow);
+    change_video("Fast-forward", ImGuiKey_LeftArrow);
+    expect(settings::current().fast_forward == fast_forward::Mode::Off, "reverse mode step selects fast-forward Off");
+    change_video("Fast-forward speed", ImGuiKey_RightArrow);
+    expect(settings::current().fast_forward_speed == original_fast_speed,
+        "disabled speed row cannot change a multiplier while fast-forward is Off");
+    change_video("Fast-forward", ImGuiKey_RightArrow);
+    expect(settings::current().fast_forward == original_fast_mode, "fast-forward mode round trip restores Hold");
+    change_video("Game speed", ImGuiKey_RightArrow);
+    const auto unlimited = settings::current().unthrottled;
+    change_video("Fast-forward", ImGuiKey_RightArrow);
+    expect(unlimited && settings::current().fast_forward == original_fast_mode,
+        "Unlimited game speed disables independent fast-forward mode selection");
+    change_video("Game speed", ImGuiKey_LeftArrow);
     const auto original_resolution = settings::current().internal_scale;
     change_video("Resolution", ImGuiKey_RightArrow);
     expect(settings::current().internal_scale == original_resolution + 1 &&
@@ -3137,6 +3193,65 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     edit_menu_text("##preset_name", "Default");
     expect(
         settings::current().control_preset == custom_preset, "preset rename rejects a shipped preset's reserved name");
+    SDL_VirtualJoystickDesc name_pad_desc{};
+    SDL_INIT_INTERFACE(&name_pad_desc);
+    name_pad_desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    name_pad_desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    name_pad_desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    name_pad_desc.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+    name_pad_desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+    name_pad_desc.name = "Public preset editor controller";
+    const auto name_pad_id = SDL_AttachVirtualJoystick(&name_pad_desc);
+    auto *name_pad = name_pad_id ? SDL_OpenJoystick(name_pad_id) : nullptr;
+    expect(name_pad != nullptr, "preset editor has a real virtual gamepad");
+    if (name_pad) {
+        renderer.pump_events();
+        SDL_SetJoystickVirtualButton(name_pad, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        SDL_SetJoystickVirtualButton(name_pad, SDL_GAMEPAD_BUTTON_SOUTH, false);
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        expect(ui::Layer::get().input_device() == ui::InputDevice::Gamepad,
+            "real pad events select the menu's gamepad editing mode");
+        change_video("##preset_name", ImGuiKey_Enter);
+        expect(ui::text_input_open(), "gamepad activation opens the actual preset-name onscreen keyboard");
+        ui::cancel_text_input();
+        frame();
+        frame();
+        expect(settings::current().control_preset == custom_preset,
+            "cancelled gamepad preset editor preserves the selected name");
+        change_video("##preset_name", ImGuiKey_Enter);
+        expect(ui::text_input_open(), "preset onscreen keyboard reopens after cancellation and refocus");
+        for (std::size_t character = 0; character < custom_preset.user.size(); ++character) {
+            ImGui::GetIO().AddKeyEvent(ImGuiKey_Backspace, true);
+            frame();
+            ImGui::GetIO().AddKeyEvent(ImGuiKey_Backspace, false);
+            frame();
+        }
+        ImGui::GetIO().AddInputCharactersUTF8("Pad#=Name");
+        frame();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, false);
+        frame();
+        frame();
+        expect(!ui::text_input_open() && settings::current().control_preset.user == "PadName" &&
+                settings::find_user_preset(settings::current(), "PadName"),
+            "accepted gamepad editor filters syntax and renames the actual saved preset");
+        custom_preset = settings::current().control_preset;
+        SDL_CloseJoystick(name_pad);
+        SDL_DetachVirtualJoystick(name_pad_id);
+        renderer.pump_events();
+        editing_device.type = SDL_EVENT_KEY_DOWN;
+        editing_device.key.down = true;
+        SDL_PushEvent(&editing_device);
+        renderer.pump_events();
+        editing_device.type = SDL_EVENT_KEY_UP;
+        editing_device.key.down = false;
+        SDL_PushEvent(&editing_device);
+        renderer.pump_events();
+    }
     renderer.set_window_scale(menu_original_scale);
     change_video("Delete this preset", ImGuiKey_Space);
     activate_confirmation("Cancel");
@@ -3376,6 +3491,13 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     change_video("Network overlay", ImGuiKey_Space);
     page();
     page();
+    change_video("Take a screenshot", ImGuiKey_Space);
+    screenshot::finish_writes();
+    unsigned menu_screenshots = 0;
+    if (std::filesystem::is_directory(screenshot::folder()))
+        for (const auto &entry : std::filesystem::directory_iterator(screenshot::folder()))
+            if (entry.path().extension() == ".png") ++menu_screenshots;
+    expect(menu_screenshots == 1, "System screenshot action saves exactly one real PNG in the isolated folder");
     toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
     toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
     for (const char *action : {"Quit game", "Set up game data again…"}) {
@@ -3425,6 +3547,17 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(fast_window && !fast_window->Active, "released fast-forward removes its status indicator");
     settings::current().fast_forward = saved_fast_mode;
     settings::current().fast_forward_speed = saved_fast_speed;
+    const auto hidden_before = gpu::hud::hidden();
+    gpu::hud::toggle();
+    expect(gpu::hud::hidden() != hidden_before && gpu::hud::note_seconds_left() > 0,
+        "HUD switch publishes a real transient status note");
+    frame();
+    auto *hud_note = ImGui::FindWindowByName("##hud_note");
+    expect(hud_note && hud_note->Active && hud_note->DrawList->VtxBuffer.Size > 0,
+        "HUD status change draws its actual fading note over the game");
+    gpu::hud::toggle();
+    expect(gpu::hud::hidden() == hidden_before, "HUD switch round trip restores its previous policy");
+    frame();
     ui::set_lock_on_marker(std::array<float, 2>{0.5f, 0.5f});
     ui::show_note("Synthetic status note");
     frame();
@@ -3676,6 +3809,65 @@ void font_menu_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::p
     settings::save();
     fonts::reload();
     layer.set_interactive(false);
+}
+
+void terminal_audio_menu_contracts(gpu::VulkanRenderer &renderer) {
+    // AudioSink is deliberately a one-shot singleton: after the existing
+    // shutdown contract it cannot be reopened in this process.
+    auto &sink = audio::AudioSink::instance();
+    expect(!sink.has_device(), "terminal menu fixture uses the genuinely shut-down audio sink");
+    const auto volume = settings::current().volume;
+    ui::open_menu_over_game();
+    auto frame = [&] {
+        ui::draw_over_game();
+        renderer.present_ui(true);
+    };
+    frame();
+    frame();
+    for (int tab = 0; tab < 2; ++tab) {
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
+        frame();
+    }
+    auto focus = [&] {
+        for (auto *window : ImGui::GetCurrentContext()->Windows)
+            if (std::string_view(window->Name).find("##menu/content") != std::string_view::npos) {
+                ImGui::FocusWindow(window);
+                ImGui::SetFocusID(window->GetID("Volume"), window);
+                ImGui::SetNavCursorVisible(true);
+                ImGui::SetScrollY(window, 0);
+            }
+    };
+    focus();
+    frame();
+    focus();
+    frame();
+    focus();
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, true);
+    frame();
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_RightArrow, false);
+    frame();
+    expect(settings::current().volume == volume && !sink.has_device(),
+        "audio menu disables gain editing after actual device teardown");
+    SDL_Event back{};
+    back.type = SDL_EVENT_KEY_DOWN;
+    back.key.windowID = SDL_GetWindowID(renderer.window());
+    back.key.key = SDLK_ESCAPE;
+    back.key.scancode = SDL_SCANCODE_ESCAPE;
+    back.key.down = true;
+    SDL_PushEvent(&back);
+    renderer.pump_events();
+    SDL_Delay(110);
+    frame();
+    back.type = SDL_EVENT_KEY_UP;
+    back.key.down = false;
+    SDL_PushEvent(&back);
+    renderer.pump_events();
+    expect(!ui::menu_over_game() && settings::current().menu_tab == "audio" && !ui::take_quit_request(),
+        "closing terminal Audio page persists its tab and resumes without a quit request");
+    renderer.request_quit();
+    expect(!renderer.pump_events(), "terminal renderer quit API closes its real event loop");
 }
 
 struct ScriptEvents {
@@ -3961,6 +4153,7 @@ int run_contracts(int scripts) {
     scripted_mouse_contracts(renderer);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
+    terminal_audio_menu_contracts(renderer);
     renderer.shutdown();
     renderer.shutdown();
     std::vector<std::uint8_t> stopped_pixels;
