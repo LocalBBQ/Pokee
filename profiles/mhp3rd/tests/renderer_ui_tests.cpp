@@ -881,6 +881,65 @@ void screenshot_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::
     renderer.present_ui(true);
 }
 
+void held_frame_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    auto window_pixel = [&](const std::filesystem::path &path) {
+        renderer.capture_window(path);
+        expect(renderer.present(0x04110000), "held-frame contract presents actual guest framebuffer");
+        std::ifstream in(path, std::ios::binary);
+        const std::vector<std::uint8_t> bmp{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+        if (bmp.size() < 54) {
+            expect(false, "held-frame window capture exists");
+            return std::uint32_t{0};
+        }
+        auto u32 = [&](std::size_t at) {
+            return static_cast<std::uint32_t>(bmp[at]) | (static_cast<std::uint32_t>(bmp[at + 1]) << 8) |
+                (static_cast<std::uint32_t>(bmp[at + 2]) << 16) | (static_cast<std::uint32_t>(bmp[at + 3]) << 24);
+        };
+        const auto w = u32(18), h = u32(22), row = (w * 3 + 3) & ~3u;
+        const auto at = 54 + static_cast<std::size_t>(h / 2) * row + (w / 2) * 3;
+        if (at + 2 >= bmp.size()) {
+            expect(false, "held-frame BMP dimensions describe its pixels");
+            return std::uint32_t{0};
+        }
+        return static_cast<std::uint32_t>(bmp[at + 2]) | (static_cast<std::uint32_t>(bmp[at + 1]) << 8) |
+            (static_cast<std::uint32_t>(bmp[at]) << 16);
+    };
+    const std::array<std::uint8_t, 4> green{0, 255, 0, 255}, magenta{255, 0, 255, 255};
+    renderer.hold_frame(true);
+    renderer.hold_frame(true);
+    renderer.upload_frame(0x04110000, green.data(), 1, 1, 1);
+    expect(window_pixel(sandbox / "held-magenta.bmp") == 0xff00ff,
+        "holding frame preserves original magenta window after guest framebuffer becomes green");
+    std::vector<std::uint8_t> pixels;
+    std::uint32_t w = 0, h = 0;
+    expect(
+        renderer.read_frame(pixels, w, h) && pixels.size() >= 4 && pixels[0] == 0 && pixels[1] == 255 && pixels[2] == 0,
+        "held presentation does not prevent guest target update/readback");
+    renderer.hold_frame(false);
+    renderer.hold_frame(false);
+    expect(window_pixel(sandbox / "released-green.bmp") == 0x00ff00,
+        "releasing held frame displays the current guest framebuffer");
+    renderer.upload_frame(0x04110000, magenta.data(), 1, 1, 1);
+    expect(renderer.present(0x04110000), "held-frame contract restores original synthetic scene");
+    int initial_w = 0, initial_h = 0;
+    SDL_GetWindowSize(renderer.window(), &initial_w, &initial_h);
+    renderer.set_window_scale(2);
+    int large_w = 0, large_h = 0;
+    SDL_GetWindowSize(renderer.window(), &large_w, &large_h);
+    expect(large_w == 960 && large_h == 544, "window scale applies documented PSP logical dimensions");
+    renderer.set_window_scale(1);
+    int restored_w = 0, restored_h = 0;
+    SDL_GetWindowSize(renderer.window(), &restored_w, &restored_h);
+    expect(restored_w == initial_w && restored_h == initial_h, "window scale round trip restores initial logical size");
+    renderer.set_fullscreen(false);
+    expect((SDL_GetWindowFlags(renderer.window()) & SDL_WINDOW_FULLSCREEN) == 0,
+        "windowed display setting preserves normal window state");
+    renderer.set_present_mode(settings::PresentMode::Fifo);
+    expect(renderer.display_refresh() >= 0 && renderer.draws_submitted() > 0 && !renderer.quit_requested(),
+        "live renderer reports nonnegative refresh, actual draws and no quit request");
+    renderer.pump_events();
+}
+
 class MediaFixture {
 public:
     psprecomp::Runtime runtime{64u * 1024u * 1024u};
@@ -2767,6 +2826,7 @@ int run_contracts() {
     render_contracts(renderer);
     primitive_contracts(renderer);
     screenshot_contracts(renderer, sandbox);
+    held_frame_contracts(renderer, sandbox);
     camera_probe_contracts(renderer, sandbox);
     free_camera_lifecycle_contracts();
     keyboard_contracts(renderer);
