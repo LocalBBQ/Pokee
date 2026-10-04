@@ -15,6 +15,15 @@ artificial tests. Record hardware-dependent gaps and manual evidence in the PR.
 - Keep unmeasured source files visible. Never present coverage of a tested
   subset as coverage of the entire project.
 
+The README coverage badge shows the combined measured source-line percentage
+from the latest successful coverage run on `main`, not PR diff coverage. Its
+gold and dark colors match the other badges. CI publishes only a Shields endpoint
+JSON to the `coverage-badges` data branch; keep that branch. Publication runs in
+a separate job with repository write access only on pushes to `main`, without
+checking out or executing project code. Branch/PR coverage jobs remain read-only.
+The badge becomes available after the first successful main run and can be
+cached for several minutes. Its link documents scope and unmeasured files here.
+
 ## Current implementation and rollout
 
 This change is a draft implementation. Public native/Android suites and project
