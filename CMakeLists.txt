@@ -201,7 +201,9 @@ if(PSPRECOMP_BUILD_TESTS)
         PSPRECOMP_RECOMP_PATH="$<TARGET_FILE:psp_recomp>"
         PSPRECOMP_DUMP_PATH="$<TARGET_FILE:dump_function>"
         PSPRECOMP_TEST_COMPILER_PATH="${CMAKE_CXX_COMPILER}"
-        PSPRECOMP_TEST_INCLUDE_PATH="${PROJECT_SOURCE_DIR}/include")
+        PSPRECOMP_TEST_INCLUDE_PATH="${PROJECT_SOURCE_DIR}/include"
+        PSPRECOMP_TEST_CMAKE_PATH="${CMAKE_COMMAND}"
+        PSPRECOMP_TEST_GENERATOR="${CMAKE_GENERATOR}")
     add_test(NAME psprecomp_runtime_contract_tests COMMAND psprecomp_runtime_contract_tests)
     set_tests_properties(psprecomp_runtime_contract_tests PROPERTIES TIMEOUT 60)
     add_dependencies(psprecomp_test_binaries psprecomp_runtime_contract_tests)

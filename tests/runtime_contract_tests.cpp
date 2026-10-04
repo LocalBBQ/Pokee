@@ -341,17 +341,25 @@ void tool_contracts() {
     check(text(cpp).find("public_instruction_corpus") != std::string::npos &&
             text(cpp).find("register_function") != std::string::npos,
         "Manual generator must register emitted guest function");
-#if defined(PSPRECOMP_TEST_COMPILER_PATH)
-    // The generated public corpus must be accepted as C++ by the same host
-    // compiler as this test, without rebuilding any game-derived code.
-    std::string compile = shell_quote(PSPRECOMP_TEST_COMPILER_PATH);
-#if defined(_MSC_VER)
-    compile += " /nologo /std:c++20 /Zs /I" + shell_quote(PSPRECOMP_TEST_INCLUDE_PATH) + " " + shell_quote(cpp);
-#else
-    compile += " -std=c++20 -fsyntax-only -I" + shell_quote(PSPRECOMP_TEST_INCLUDE_PATH) + " " + shell_quote(cpp);
-#endif
-    compile += " > " + shell_quote(root / "compile.log") + " 2>&1";
-    if (std::system(shell_command(compile).c_str()) != 0) {
+#if defined(PSPRECOMP_TEST_CMAKE_PATH)
+    // Compile an object target through CMake so MSVC receives its normal SDK
+    // environment too. The fixture never links or executes a game corpus.
+    {
+        std::ofstream file(root / "CMakeLists.txt");
+        file << "cmake_minimum_required(VERSION 3.24)\nproject(public_codegen LANGUAGES CXX)\n"
+             << "add_library(public_codegen OBJECT generated.cpp)\n"
+             << "target_compile_features(public_codegen PRIVATE cxx_std_20)\n"
+             << "target_include_directories(public_codegen PRIVATE \"${PSPRECOMP_INCLUDE_ROOT}\")\n";
+    }
+    check(invoke(PSPRECOMP_TEST_CMAKE_PATH,
+              {"-S", root, "-B", root / "compile", "-G", PSPRECOMP_TEST_GENERATOR,
+                  std::string("-DCMAKE_CXX_COMPILER=") + PSPRECOMP_TEST_COMPILER_PATH,
+                  std::string("-DPSPRECOMP_INCLUDE_ROOT=") + PSPRECOMP_TEST_INCLUDE_PATH},
+              root / "configure.log") == 0,
+        "Public generated-code compile fixture failed to configure");
+    if (invoke(PSPRECOMP_TEST_CMAKE_PATH,
+            {"--build", root / "compile", "--config", "Debug", "--target", "public_codegen", "-j2"},
+            root / "compile.log") != 0) {
         std::cerr << text(root / "compile.log");
         check(false, "Generated supported instruction corpus must compile as valid C++");
     }
