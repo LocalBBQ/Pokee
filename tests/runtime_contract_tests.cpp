@@ -274,6 +274,22 @@ void tool_contracts() {
             auto word = (0x3Cu << 26u) | (group << 21u) | (op << 16u) | 0x8082u;
             if (psprecomp::decode_allegrex(word).kind != psprecomp::OpcodeKind::Vfpu) words.push_back(word);
         }
+    // Conditional targets coincide with fallthrough, so every emitted branch
+    // and delay-slot shape remains reachable without jumping outside the fixture.
+    const auto branch = [&](std::uint32_t word) {
+        words.push_back(word);
+        words.push_back(i(9, 0, 9, 1));
+    };
+    for (unsigned opcode : {4u, 5u, 6u, 7u, 0x14u, 0x15u, 0x16u, 0x17u})
+        branch(i(opcode, 8, opcode == 6u || opcode == 7u || opcode == 0x16u || opcode == 0x17u ? 0u : 9u, 1));
+    for (unsigned operation : {0u, 1u, 2u, 3u, 16u, 17u, 18u, 19u}) branch(i(1, 8, operation, 1));
+    for (unsigned opcode : {0x11u, 0x12u})
+        for (unsigned operation = 0; operation < 4; ++operation) branch(i(opcode, 8, operation, 1));
+    for (unsigned format : {0u, 2u, 4u, 6u}) words.push_back((0x11u << 26u) | r(format, 9, 31, 0, 0));
+    words.push_back((0x11u << 26u) | r(20, 0, 8, 10, 32));
+    for (unsigned condition = 0; condition < 16; ++condition)
+        words.push_back((0x11u << 26u) | r(16, 9, 8, 0, 0x30u + condition));
+    for (unsigned format : {3u, 7u}) words.push_back((0x12u << 26u) | r(format, 9, 0, 0, 0));
     words.push_back(r(31, 0, 0, 0, 8));
     words.push_back(0);
     std::vector<std::uint8_t> bytes(84u + words.size() * 4u, 0);
@@ -341,13 +357,24 @@ void tool_contracts() {
     check(text(cpp).find("public_instruction_corpus") != std::string::npos &&
             text(cpp).find("register_function") != std::string::npos,
         "Manual generator must register emitted guest function");
+    const auto automatic = root / "automatic";
+    check(invoke(PSPRECOMP_RECOMP_PATH, {fixture, "--auto", automatic, "0x08804000", "2048"}, root / "automatic.log") ==
+            0,
+        "Automatic generation rejected supported synthetic instruction corpus");
+    check(std::filesystem::exists(automatic / "generated_registry.cpp"),
+        "Automatic generator must emit registration table");
+    check(invoke(PSPRECOMP_RECOMP_PATH, {fixture, "--auto", automatic, "0x08804000", "2048"},
+              root / "automatic-repeat.log") == 0 &&
+            text(root / "automatic-repeat.log").find("rewritten units:   0") != std::string::npos,
+        "Repeated automatic generation must preserve unchanged units");
 #if defined(PSPRECOMP_TEST_CMAKE_PATH)
     // Compile an object target through CMake so MSVC receives its normal SDK
     // environment too. The fixture never links or executes a game corpus.
     {
         std::ofstream file(root / "CMakeLists.txt");
         file << "cmake_minimum_required(VERSION 3.24)\nproject(public_codegen LANGUAGES CXX)\n"
-             << "add_library(public_codegen OBJECT generated.cpp)\n"
+             << "file(GLOB automatic_sources automatic/*.cpp)\n"
+             << "add_library(public_codegen OBJECT generated.cpp ${automatic_sources})\n"
              << "target_compile_features(public_codegen PRIVATE cxx_std_20)\n"
              << "target_include_directories(public_codegen PRIVATE \"${PSPRECOMP_INCLUDE_ROOT}\")\n";
     }
