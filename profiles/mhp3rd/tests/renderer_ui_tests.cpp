@@ -671,6 +671,78 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         "sampled framebuffer readback stores exact rendered color at guest stride");
 }
 
+void screenshot_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    std::vector<std::uint8_t> pixels;
+    std::uint32_t width = 0, height = 0;
+    expect(renderer.read_frame(pixels, width, height), "screenshot source framebuffer is available");
+    const auto path = sandbox / "public-frame.bmp";
+    expect(renderer.capture_frame(path), "GPU framebuffer capture writes an isolated BMP");
+    std::ifstream in(path, std::ios::binary);
+    const std::vector<std::uint8_t> bmp{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    auto u32 = [&](std::size_t at) {
+        return static_cast<std::uint32_t>(bmp[at]) | (static_cast<std::uint32_t>(bmp[at + 1]) << 8) |
+            (static_cast<std::uint32_t>(bmp[at + 2]) << 16) | (static_cast<std::uint32_t>(bmp[at + 3]) << 24);
+    };
+    const auto stride = (width * 3 + 3) & ~3u;
+    const bool header = bmp.size() == 54 + stride * height && bmp.size() >= 54 && bmp[0] == 'B' && bmp[1] == 'M';
+    expect(header, "BMP contains exactly the public 24-bit header and padded image bytes");
+    if (header) {
+        expect(u32(2) == bmp.size() && u32(10) == 54 && u32(14) == 40 && u32(18) == width && u32(22) == height &&
+                bmp[26] == 1 && bmp[28] == 24,
+            "BMP header records framebuffer dimensions, size, offset and 24-bit pixels");
+        bool equal = true;
+        for (std::uint32_t y = 0; y < height; ++y) {
+            for (std::uint32_t x = 0; x < width; ++x) {
+                const auto src = (static_cast<std::size_t>(y) * width + x) * 4;
+                const auto dst = 54 + static_cast<std::size_t>(height - 1 - y) * stride + x * 3;
+                equal = equal && bmp[dst] == pixels[src + 2] && bmp[dst + 1] == pixels[src + 1] &&
+                    bmp[dst + 2] == pixels[src];
+            }
+        }
+        expect(equal, "every captured BMP pixel matches independent framebuffer readback with bottom-up BGR rows");
+    }
+    expect(!renderer.capture_frame(sandbox / "missing-directory" / "frame.bmp"),
+        "framebuffer capture reports a destination failure without claiming success");
+    const auto window_path = sandbox / "public-window.bmp";
+    renderer.capture_window(window_path);
+    expect(renderer.window_capture_pending(), "window capture queues one actual swapchain readback");
+    auto &layer = ui::Layer::get();
+    for (int i = 0; i < 3 && renderer.window_capture_pending(); ++i) {
+        layer.begin_frame();
+        layer.end_frame();
+        renderer.present_ui(true);
+    }
+    expect(!renderer.window_capture_pending() && std::filesystem::is_regular_file(window_path) &&
+            std::filesystem::file_size(window_path) > 54,
+        "bounded presentation consumes window capture and writes pixel data");
+    std::ifstream window_in(window_path, std::ios::binary);
+    const std::vector<std::uint8_t> window_bmp{
+        std::istreambuf_iterator<char>(window_in), std::istreambuf_iterator<char>()};
+    if (window_bmp.size() >= 54) {
+        auto window_u32 = [&](std::size_t at) {
+            return static_cast<std::uint32_t>(window_bmp[at]) | (static_cast<std::uint32_t>(window_bmp[at + 1]) << 8) |
+                (static_cast<std::uint32_t>(window_bmp[at + 2]) << 16) |
+                (static_cast<std::uint32_t>(window_bmp[at + 3]) << 24);
+        };
+        const auto w = window_u32(18), h = window_u32(22);
+        const auto row = (w * 3 + 3) & ~3u;
+        expect(w > 0 && h > 0 && window_bmp.size() == 54 + static_cast<std::size_t>(row) * h,
+            "window BMP dimensions match its exact padded byte count");
+        const auto center = 54 + static_cast<std::size_t>(h / 2) * row + (w / 2) * 3;
+        expect(center + 2 < window_bmp.size() && window_bmp[center] == 255 && window_bmp[center + 1] == 0 &&
+                window_bmp[center + 2] == 255,
+            "swapchain BMP channel conversion preserves the rendered magenta pixel");
+    }
+    renderer.capture_window(sandbox / "missing-directory" / "window.bmp");
+    for (int i = 0; i < 3 && renderer.window_capture_pending(); ++i) {
+        layer.begin_frame();
+        layer.end_frame();
+        renderer.present_ui(true);
+    }
+    expect(!renderer.window_capture_pending() && !std::filesystem::exists(sandbox / "missing-directory" / "window.bmp"),
+        "failed window capture is consumed once without creating an invalid destination");
+}
+
 class MediaFixture {
 public:
     psprecomp::Runtime runtime{64u * 1024u * 1024u};
@@ -2300,6 +2372,7 @@ int run_contracts() {
     media_renderer_contracts(fixture, renderer);
     render_contracts(renderer);
     primitive_contracts(renderer);
+    screenshot_contracts(renderer, sandbox);
     camera_probe_contracts(renderer, sandbox);
     free_camera_lifecycle_contracts();
     keyboard_contracts(renderer);
