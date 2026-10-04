@@ -538,6 +538,17 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         "opposite cull winding admits exactly one orientation of the same transformed triangle");
     draw.culling_enabled = false;
 
+    for (const bool degenerate : {true, false}) {
+        draw.indices = degenerate ? std::vector<std::uint16_t>{0, 1, 0} : std::vector<std::uint16_t>{2, 0, 1};
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect((pixel() & 0xffffff) == (degenerate ? 0 : 0x2255cc),
+            "decoded indexed geometry obeys repeated versus reordered vertex indices");
+    }
+    draw.indices.clear();
+
     // Feed the PSP byte layout directly to the shader vertex decoder.
     std::array<std::uint32_t, 12> raw{};
     const std::array<std::array<float, 3>, 3> positions{{{-0.8f, -0.8f, -1}, {0.8f, -0.8f, -1}, {0, 0.8f, -1}}};
@@ -562,6 +573,21 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff2255cc, "raw PSP vertices decode color and float positions on the GPU");
+    for (const std::uint32_t index_type : {1u, 2u}) {
+        draw.vertex_type = (7u << 2) | (3u << 7) | (index_type << 11);
+        for (const bool degenerate : {true, false}) {
+            draw.indices = degenerate ? std::vector<std::uint16_t>{0, 1, 0} : std::vector<std::uint16_t>{2, 0, 1};
+            renderer.begin_frame();
+            renderer.submit(clear, memory);
+            renderer.submit(draw, memory);
+            renderer.present(0x04000000);
+            expect((pixel() & 0xffffff) == (degenerate ? 0 : 0x2255cc),
+                "raw indexed geometry obeys normalized PSP byte/word index order and repeated-index degeneracy");
+        }
+    }
+    draw.indices.clear();
+    draw.vertex_type = (7u << 2) | (3u << 7);
+
     draw.projection[10] = -1.020202f;
     draw.projection[11] = -1;
     draw.projection[14] = -0.2020202f;
