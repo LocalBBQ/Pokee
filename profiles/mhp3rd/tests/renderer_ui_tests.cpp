@@ -1532,10 +1532,12 @@ void bindings_editor_contracts(gpu::VulkanRenderer &renderer) {
             const bool combo =
                 target == "new" || target == "button" || target == "done" || target == "remove" || target == "name";
             const bool picker = target == "button" || target == "done";
+            const bool conflict = target == "keep" || target == "fix";
             ImGui::PushID("bindings");
             if (combo) ImGui::PushID("combos");
             if (target != "new") ImGui::PushID(combo ? static_cast<int>(input::kActions) : index);
             if (picker) ImGui::PushID("picker");
+            if (conflict) ImGui::PushID(0);
             if (target == "button") ImGui::PushID(slot);
             if (target == "chip") {
                 ImGui::PushID("keys");
@@ -1548,6 +1550,7 @@ void bindings_editor_contracts(gpu::VulkanRenderer &renderer) {
             }
             if (target == "button") ImGui::PopID();
             if (picker) ImGui::PopID();
+            if (conflict) ImGui::PopID();
             if (target != "new") ImGui::PopID();
             if (combo) ImGui::PopID();
             ImGui::PopID();
@@ -1621,11 +1624,29 @@ void bindings_editor_contracts(gpu::VulkanRenderer &renderer) {
     activate("done", 0, ImGuiKey_Space);
     activate("name", 0, ImGuiKey_Space);
     activate("button", 0x2000, ImGuiKey_Space);
-    expect(
-        player.controls.combos[0].buttons == 0x1000, "reopened combination picker toggles one PSP bit independently");
+    expect(player.controls.combos.size() == 1 && player.controls.combos[0].buttons == 0x1000,
+        "reopened combination picker toggles one PSP bit independently");
     activate("done", 0, ImGuiKey_Space);
     activate("remove", 0, ImGuiKey_Space);
     expect(player.controls.combos.empty(), "remove chip deletes custom combination and its bindings");
+    player.controls.keys = {};
+    player.controls.pad = {};
+    const auto other = static_cast<int>(input::Action::StickDown);
+    player.controls.keys[index][0].inputs[0] = input::key(SDL_SCANCODE_F9);
+    player.controls.keys[other][0] = player.controls.keys[index][0];
+    frame();
+    expect(ui::bindings_conflicts() > 0, "identical physical inputs expose conflict warnings");
+    activate("fix", 0, ImGuiKey_Space);
+    expect(input::count(player.controls.keys[other]) == 0 && input::count(player.controls.keys[index]) == 1,
+        "Fix removes conflicting action binding while preserving focused action");
+    player.controls.keys[index][0].inputs[0] = input::key(SDL_SCANCODE_F8);
+    player.controls.keys[other][0] = player.controls.keys[index][0];
+    frame();
+    const auto before_keep = ui::bindings_conflicts();
+    activate("keep", 0, ImGuiKey_Space);
+    expect(input::count(player.controls.keys[other]) == 1 && input::count(player.controls.keys[index]) == 1 &&
+            ui::bindings_conflicts() < before_keep,
+        "Keep both preserves both bindings and acknowledges conflict warning");
     player = saved;
     settings::save();
     layer.set_interactive(false);
