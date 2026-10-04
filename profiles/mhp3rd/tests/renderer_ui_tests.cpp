@@ -1513,6 +1513,98 @@ void camera_probe_contracts(gpu::VulkanRenderer &renderer, const std::filesystem
         "camera detector rejects a counter that stops tracking changed turn rate");
 }
 
+void bindings_editor_contracts(gpu::VulkanRenderer &renderer) {
+    auto &player = settings::current();
+    const auto saved = player;
+    player.controls = input::layout(input::Preset::Default);
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    std::string notice;
+    constexpr auto action = input::Action::StickUp;
+    constexpr auto index = static_cast<int>(action);
+    auto frame = [&](const char *kind = nullptr, int slot = 0) {
+        layer.begin_frame();
+        ui::begin_panel("##binding-edit-contract", "Public bindings", "", false);
+        ui::begin_content();
+        if (kind) {
+            auto *window = ImGui::GetCurrentWindow();
+            ImGui::PushID("bindings");
+            ImGui::PushID(index);
+            if (std::string(kind) == "chip") {
+                ImGui::PushID("keys");
+                ImGui::PushID(slot);
+            }
+            const auto id = window->GetID(kind);
+            if (std::string(kind) == "chip") {
+                ImGui::PopID();
+                ImGui::PopID();
+            }
+            ImGui::PopID();
+            ImGui::PopID();
+            ImGui::FocusWindow(window);
+            ImGui::SetFocusID(id, window);
+            ImGui::SetNavCursorVisible(true);
+        }
+        ui::bindings_editor(notice);
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Rebind"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        ui::bindings_capture_prompt();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto activate = [&](const char *kind, int slot, ImGuiKey key) {
+        frame(kind, slot);
+        frame(kind, slot);
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame(kind, slot);
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    auto captured_key = [&](SDL_Scancode scan) {
+        SDL_Event event{};
+        event.key.windowID = SDL_GetWindowID(renderer.window());
+        event.key.scancode = scan;
+        event.key.key = SDL_GetKeyFromScancode(scan, SDL_KMOD_NONE, false);
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.down = true;
+        expect(SDL_PushEvent(&event), "editor binding key-down queues");
+        renderer.pump_events();
+        frame();
+        event.type = SDL_EVENT_KEY_UP;
+        event.key.down = false;
+        expect(SDL_PushEvent(&event), "editor binding key-up queues");
+        renderer.pump_events();
+        frame();
+    };
+    frame();
+    activate("chip", 0, ImGuiKey_Delete);
+    expect(input::count(player.controls.keys[index]) == 0 && !notice.empty(),
+        "Delete clears focused movement binding and creates editable preset notice");
+    activate("chip", 0, ImGuiKey_Space);
+    expect(layer.capturing_binding(), "Add chip starts actual keyboard capture");
+    captured_key(SDL_SCANCODE_F10);
+    expect(!layer.capturing_binding() && player.controls.keys[index][0].inputs[0] == input::key(SDL_SCANCODE_F10),
+        "editor capture stores exact F10 physical input");
+    activate("chip", 1, ImGuiKey_Space);
+    expect(layer.capturing_binding(), "second Add chip starts capture");
+    captured_key(SDL_SCANCODE_F10);
+    expect(input::count(player.controls.keys[index]) == 1, "duplicate captured binding does not add another slot");
+    activate("chip", 0, ImGuiKey_Space);
+    captured_key(SDL_SCANCODE_ESCAPE);
+    expect(!layer.capturing_binding() && player.controls.keys[index][0].inputs[0] == input::key(SDL_SCANCODE_F10),
+        "Escape cancels rebind and preserves existing physical input");
+    frame("reset");
+    expect(ui::bindings_focus_resettable(), "edited action exposes resettable focus");
+    activate("reset", 0, ImGuiKey_Space);
+    expect(player.controls.keys[index] == input::layout(input::Preset::Default).keys[index],
+        "reset chip restores shipped movement bindings exactly");
+    expect(!ui::bindings_summary(action).empty(), "restored action has meaningful binding summary");
+    player = saved;
+    settings::save();
+    layer.set_interactive(false);
+}
+
 void touch_editor_contracts(gpu::VulkanRenderer &renderer) {
     auto &player = settings::current();
     const auto saved_layout = player.touch_action;
@@ -2104,6 +2196,7 @@ int run_contracts() {
     texture_pack_screen_contracts(renderer, sandbox);
     save_screen_contracts(renderer, sandbox);
     mods_screen_contracts(renderer, sandbox, fixture.runtime);
+    bindings_editor_contracts(renderer);
     touch_editor_contracts(renderer);
     touch_event_contracts(renderer);
     virtual_gamepad_contracts(renderer);
