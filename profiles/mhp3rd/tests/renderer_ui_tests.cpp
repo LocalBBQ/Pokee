@@ -392,6 +392,42 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff2255cc, "transformed triangle uses matrices and PSP viewport");
+    renderer.set_frame_rate_auto(false);
+    renderer.set_frame_rate(settings::FrameRate::Fps60);
+    const auto presented_before = renderer.frames_presented();
+    int deferred{};
+    for (int frame = 0; frame < 16; ++frame) {
+        draw.world[12] = static_cast<float>(frame) * 0.002f;
+        const auto moment = std::chrono::steady_clock::now();
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        // A repeated draw also exercises replay-group batching.
+        renderer.submit(draw, memory);
+        if (!renderer.present(0x04000000, moment)) ++deferred;
+        renderer.present_due();
+        renderer.present_until(moment + std::chrono::milliseconds(33));
+    }
+    expect(deferred == 16, "60 fps guest flips defer rendering to interpolation schedule");
+    expect(renderer.frames_presented() == presented_before + 16 && renderer.frame_rate_now() >= 59.0,
+        "guest frame counter advances once per flip while interpolation retains requested rate");
+    expect(pixel() == 0xff2255cc, "interpolation replay preserves interior opaque triangle color");
+    renderer.pause_interpolation();
+    renderer.set_still(true);
+    renderer.begin_frame();
+    renderer.submit(clear, memory);
+    renderer.submit(draw, memory);
+    expect(renderer.present(0x04000000), "photo still presents directly instead of interpolating");
+    renderer.set_still(false);
+    renderer.set_fast_forward(true);
+    renderer.begin_frame();
+    renderer.submit(clear, memory);
+    renderer.submit(draw, memory);
+    renderer.present(0x04000000);
+    renderer.set_fast_forward(false);
+    renderer.set_frame_rate(settings::FrameRate::Fps30);
+    renderer.set_frame_rate_auto(true);
+    draw.world[12] = 0;
     draw.depth.test_enabled = true;
     for (std::uint32_t function : {0u, 1u}) {
         draw.depth.function = function;
