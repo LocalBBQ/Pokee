@@ -3102,6 +3102,23 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     settings::current() = before_control_reset;
 
     page();
+    const auto before_network_edit = settings::current();
+    renderer.set_window_scale(2);
+    edit_menu_text("##server", "example.invalid :49112");
+    expect(settings::current().adhoc_server == "example.invalid:49112",
+        "server field filters whitespace and commits the actual configured endpoint");
+    edit_menu_text("##nickname", "Niéck");
+    expect(settings::current().adhoc_nickname == "Nick",
+        "nickname field accepts printable ASCII while filtering non-ASCII input");
+    const auto retained_mac = settings::current().adhoc_mac;
+    change_video("Restore network defaults", ImGuiKey_Space);
+    expect(settings::current().adhoc == settings::defaults().adhoc &&
+            settings::current().adhoc_server == settings::defaults().adhoc_server &&
+            settings::current().adhoc_nickname == settings::defaults().adhoc_nickname &&
+            settings::current().adhoc_mac == retained_mac,
+        "network defaults restore wireless/server/nickname while preserving the local identity");
+    settings::current() = before_network_edit;
+    renderer.set_window_scale(menu_original_scale);
     const bool original_tracing = adhoc::Client::tracing();
     change_video("Log every call and packet", ImGuiKey_Space);
     expect(adhoc::Client::tracing() != original_tracing, "network menu enables actual diagnostic tracing");
