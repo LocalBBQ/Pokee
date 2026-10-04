@@ -2741,6 +2741,25 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         ImGui::GetIO().AddKeyEvent(key, false);
         frame();
     };
+    auto activate_confirmation = [&](const char *label) {
+        auto focus_cancel = [&] {
+            for (auto *window : ImGui::GetCurrentContext()->Windows) {
+                if (std::string(window->Name) != "##confirm") continue;
+                ImGui::FocusWindow(window);
+                ImGui::SetFocusID(window->GetID(label), window);
+                ImGui::SetNavCursorVisible(true);
+            }
+        };
+        focus_cancel();
+        frame();
+        focus_cancel();
+        frame();
+        focus_cancel();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, false);
+        frame();
+    };
     const auto initial_sharp_screen = settings::current().sharp_screen;
     const auto initial_sharp_textures = settings::current().sharp_textures;
     const auto initial_aspect = settings::current().aspect;
@@ -2784,6 +2803,38 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     settings::current().volume = volume;
     settings::current().mute = saved_mute;
     page();
+    const auto initial_preset = settings::current().control_preset;
+    const auto initial_controls = settings::current().controls;
+    const auto initial_user_presets = settings::current().user_presets;
+    change_video("Preset", ImGuiKey_RightArrow);
+    expect(settings::current().control_preset != initial_preset, "preset selector applies a different shipped layout");
+    change_video("Preset", ImGuiKey_LeftArrow);
+    expect(settings::current().control_preset == initial_preset && settings::current().controls == initial_controls,
+        "preset selector round trip restores the original bindings");
+    change_video("Save as a new preset", ImGuiKey_Space);
+    const auto custom_preset = settings::current().control_preset;
+    expect(!custom_preset.shipped && settings::current().user_presets.size() == initial_user_presets.size() + 1 &&
+            settings::current().controls == initial_controls,
+        "saving a custom preset preserves bindings and creates one independent layout");
+    change_video("Delete this preset", ImGuiKey_Space);
+    activate_confirmation("Cancel");
+    expect(settings::current().control_preset == custom_preset &&
+            settings::current().user_presets.size() == initial_user_presets.size() + 1,
+        "cancelling preset deletion preserves its selection and saved layout");
+    change_video("Delete this preset", ImGuiKey_Space);
+    activate_confirmation("Delete");
+    expect(settings::current().control_preset.shipped == input::Preset::Default &&
+            settings::current().user_presets.size() == initial_user_presets.size(),
+        "confirmed deletion removes only the chosen custom preset and selects Default");
+    settings::current().control_preset = initial_preset;
+    settings::current().controls = initial_controls;
+    settings::current().user_presets = initial_user_presets;
+    const auto initial_chord_window = settings::current().chord_window;
+    change_video("Chord window", ImGuiKey_RightArrow);
+    expect(settings::current().chord_window == initial_chord_window + 10,
+        "combination timing advances by exactly ten milliseconds");
+    change_video("Chord window", ImGuiKey_LeftArrow);
+    expect(settings::current().chord_window == initial_chord_window, "combination timing round trip restores latency");
     const auto original_confirm = settings::current().confirm_south;
     change_video("Confirm button", ImGuiKey_RightArrow);
     expect(settings::current().confirm_south != original_confirm, "controls menu switches confirm convention");
@@ -2885,23 +2936,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         frame();
         expect(ImGui::IsPopupOpen("##confirm", ImGuiPopupFlags_AnyPopupId),
             "destructive system action opens a confirmation before changing lifecycle");
-        auto focus_cancel = [&] {
-            for (auto *window : ImGui::GetCurrentContext()->Windows) {
-                if (std::string(window->Name) != "##confirm") continue;
-                ImGui::FocusWindow(window);
-                ImGui::SetFocusID(window->GetID("Cancel"), window);
-                ImGui::SetNavCursorVisible(true);
-            }
-        };
-        focus_cancel();
-        frame();
-        focus_cancel();
-        frame();
-        focus_cancel();
-        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
-        frame();
-        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, false);
-        frame();
+        activate_confirmation("Cancel");
         expect(!ImGui::IsPopupOpen("##confirm", ImGuiPopupFlags_AnyPopupId) && ui::menu_over_game() &&
                 !ui::take_quit_request(),
             "cancelling quit or setup keeps the menu and game lifecycle intact");
