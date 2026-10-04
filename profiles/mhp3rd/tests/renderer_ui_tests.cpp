@@ -23,6 +23,8 @@
 #include "hle/hle_common.hpp"
 #include "audio/audio_sink.hpp"
 #include "adhoc/client.hpp"
+#include "adhoc/server.hpp"
+#include "kernel/fast_forward.hpp"
 #include "settings/settings.hpp"
 #include "ui/layer.hpp"
 #include "ui/text_input.hpp"
@@ -3031,6 +3033,59 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     }
     expect(logs == 2, "repeated network log saves retain both snapshots without overwriting");
 
+    const auto before_network = settings::current();
+    adhoc::Server synthetic_server;
+    std::uint16_t session_port = 0;
+    for (std::uint16_t candidate = 49112; candidate < 49200; candidate += 2) {
+        if (synthetic_server.start({candidate, false})) {
+            session_port = candidate;
+            break;
+        }
+    }
+    expect(session_port != 0, "synthetic UI session server obtains an unused bounded test port");
+    auto &network_client = adhoc::Client::get();
+    auto wait_network = [&](const auto &condition) {
+        for (int tick = 0; tick < 200; ++tick) {
+            if (condition()) return true;
+            SDL_Delay(5);
+        }
+        return condition();
+    };
+    if (session_port) {
+        settings::current().adhoc = true;
+        settings::current().adhoc_server = "127.0.0.1:" + std::to_string(session_port);
+        network_client.start({settings::current().adhoc_server, "Public UI fixture", {2, 3, 4, 5, 6, 7}, "ULJM05800"});
+        expect(wait_network([&] { return network_client.server_state() == adhoc::ServerState::Online; }),
+            "actual client logs into the synthetic UI session");
+        network_client.join("MHP3Q000");
+        expect(wait_network([&] { return network_client.in_group(); }), "actual UI session joins a guild hall");
+        const int pdp_socket = network_client.pdp_open(21000, 4096);
+        const int ptp_socket = network_client.ptp_listen(21001, 4096, 2);
+        expect(pdp_socket != 0 && ptp_socket != 0, "network status has real datagram and listening stream sockets");
+        expect(wait_network([&] {
+            const auto state = network_client.diagnostics();
+            return state.state == adhoc::ServerState::Online && state.group && state.sockets.size() == 2;
+        }),
+            "network status snapshot publishes the actual connected group and both sockets");
+        frame();
+        expect(network_client.pdp_send(pdp_socket, adhoc::kBroadcastMac, 21000, "x", 1) &&
+                network_client.ptp_exists(ptp_socket),
+            "network page renders diagnostics without consuming or closing sockets");
+        const auto reconnects = network_client.diagnostics().reconnects;
+        change_video("Reconnect now", ImGuiKey_Space);
+        expect(wait_network(
+                   [&] { return network_client.diagnostics().reconnects > reconnects && network_client.in_group(); }),
+            "network menu reconnects and rejoins the active synthetic group");
+        change_video("Disconnect", ImGuiKey_Space);
+        expect(wait_network([&] { return !network_client.in_group(); }) &&
+                network_client.server_state() == adhoc::ServerState::Online,
+            "network menu disconnect leaves its hall while keeping the login");
+    }
+    network_client.stop();
+    synthetic_server.stop();
+    settings::current() = before_network;
+
+    change_video("Network overlay", ImGuiKey_Space);
     page();
     page();
     toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
@@ -3062,6 +3117,26 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     renderer.pump_events();
     frame();
     expect(!ui::menu_over_game() && !ui::take_quit_request(), "keyboard escape resumes game and closes menu");
+    auto *network_window = ImGui::FindWindowByName("##network");
+    expect(network_window && network_window->Active && network_window->DrawList->VtxBuffer.Size > 0,
+        "network overlay displays live client diagnostics after the menu closes");
+    const auto saved_fast_mode = settings::current().fast_forward;
+    const auto saved_fast_speed = settings::current().fast_forward_speed;
+    settings::current().fast_forward = fast_forward::Mode::Hold;
+    settings::current().fast_forward_speed = 4;
+    fast_forward::note_bind(true);
+    expect(fast_forward::active() && fast_forward::speed() == 4,
+        "single-player hold enables actual four-times fast forward");
+    frame();
+    auto *fast_window = ImGui::FindWindowByName("##fast_forward");
+    expect(fast_window && fast_window->Active && fast_window->DrawList->VtxBuffer.Size > 0,
+        "active fast forward draws its actual speed indicator");
+    fast_forward::note_bind(false);
+    expect(!fast_forward::active() && fast_forward::speed() == 1, "releasing fast-forward restores real-time pace");
+    frame();
+    expect(fast_window && !fast_window->Active, "released fast-forward removes its status indicator");
+    settings::current().fast_forward = saved_fast_mode;
+    settings::current().fast_forward_speed = saved_fast_speed;
     ui::set_lock_on_marker(std::array<float, 2>{0.5f, 0.5f});
     ui::show_note("Synthetic status note");
     frame();
@@ -3089,6 +3164,7 @@ int run_contracts() {
     std::filesystem::create_directories(sandbox);
     install::set_data_directory_override(sandbox);
     SDL_setenv_unsafe("MHP3RD_FIND_CAMERA", "1", 1);
+    SDL_setenv_unsafe("MHP3RD_ADHOC_OVERLAY", "0", 1);
     SDL_setenv_unsafe("MHP3RD_POKE_FLOAT", "0x08000120:1.25,0x08000124:-2.5,broken", 1);
     SDL_setenv_unsafe("MHP3RD_FIND_FLOAT", "6.25", 1);
     SDL_setenv_unsafe("MHP3RD_POKE_FOUND", "6.5", 1);
