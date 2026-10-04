@@ -578,6 +578,22 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         renderer.present(0x04000000);
         expect(pixel() == 0xffff00ff, "real GPU texture path decodes each direct and indexed PSP format");
     }
+    draw.texture.width = draw.texture.height = draw.texture.buffer_width = 4;
+    for (auto format : {gpu::TextureFormat::Dxt1, gpu::TextureFormat::Dxt3, gpu::TextureFormat::Dxt5}) {
+        draw.texture.format = format;
+        memory.store32(draw.texture.address, 0); // PSP colour indices precede endpoints.
+        memory.store32(draw.texture.address + 4, 0x0000f81f);
+        memory.store32(draw.texture.address + 8, format == gpu::TextureFormat::Dxt3 ? 0xffffffff : 0);
+        memory.store32(draw.texture.address + 12,
+            format == gpu::TextureFormat::Dxt3 ? 0xffffffff : 0x00ff0000); // DXT5 alpha endpoint at byte14.
+        renderer.begin_frame();
+        renderer.begin_display_list();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect(pixel() == 0xffff00ff, "real GPU texture path renders PSP-layout DXT1, DXT3 and DXT5 blocks");
+    }
+    draw.texture.width = draw.texture.height = draw.texture.buffer_width = 2;
     draw.texture.format = gpu::TextureFormat::Rgba8888;
     for (std::uint32_t i = 0; i < 4; ++i) memory.store32(draw.texture.address + i * 4, 0xff11cc77);
     const auto ui_textures = settings::current().ui_textures;
