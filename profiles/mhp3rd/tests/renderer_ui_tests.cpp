@@ -5,6 +5,7 @@
 #include "mods/mhp3rd_data_bin.hpp"
 #include "kernel/iso_image.hpp"
 #include "ui/mods_screen.hpp"
+#include "ui/texture_pack_screen.hpp"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -593,6 +594,90 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    const auto pack = sandbox / "PublicTextures";
+    std::filesystem::create_directories(pack);
+    std::ofstream(pack / "textures.ini")
+        << "[games]\nNPJB40001 = true\n[options]\nhash = xxh64\n[hashes]\n000000000000000000000001 = red.png\n";
+    // Independently generated PNG chunks for a single public red RGBA pixel.
+    const std::array<std::uint8_t, 70> png{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+        0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15,
+        0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0, 0x1f,
+        0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+        0x42, 0x60, 0x82};
+    {
+        std::ofstream out(pack / "red.png", std::ios::binary);
+        out.write(reinterpret_cast<const char *>(png.data()), png.size());
+    }
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    auto frame = [&](bool back = false, const char *focused_row = nullptr) {
+        layer.begin_frame();
+        ui::begin_panel("##texture-import-contract", "Public texture import", "", false);
+        ui::begin_content();
+        ImGuiID focus{};
+        if (focused_row) {
+            auto *window = ImGui::GetCurrentWindow();
+            focus = window->GetID(focused_row);
+            ImGui::FocusWindow(window);
+            ImGui::SetFocusID(focus, window);
+            ImGui::SetNavCursorVisible(true);
+        }
+        ui::texture_pack_import_tick();
+        if (ui::texture_pack_screen_open())
+            ui::texture_pack_screen(back);
+        else
+            ui::texture_pack_rows();
+        const bool found = focus && GImGui->NavId == focus && GImGui->NavIdIsAlive;
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+        return found;
+    };
+    auto press = [&](ImGuiKey key) {
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    frame();
+    frame(false, "Import texture pack…");
+    press(ImGuiKey_Space);
+    expect(ui::texture_pack_screen_open(), "texture import row opens actual folder browser");
+    const std::string path = pack.string();
+    SDL_Event drop{};
+    drop.type = SDL_EVENT_DROP_FILE;
+    drop.drop.windowID = SDL_GetWindowID(renderer.window());
+    drop.drop.data = path.c_str();
+    expect(SDL_PushEvent(&drop), "public texture pack drop queues");
+    renderer.pump_events();
+    frame();
+    bool review{};
+    for (int settle = 0; settle < 100 && !review; ++settle) {
+        SDL_Delay(5);
+        review = frame(false, "Copy into Yakumo's data folder");
+    }
+    expect(review, "asynchronous texture check reaches valid-copy review");
+    press(ImGuiKey_Space);
+    for (int settle = 0; settle < 100 && ui::texture_pack_import_busy(); ++settle) {
+        SDL_Delay(5);
+        frame();
+    }
+    frame();
+    expect(!ui::texture_pack_import_busy() &&
+            std::filesystem::is_regular_file(sandbox / "textures" / "NPJB40001" / "red.png"),
+        "confirmed texture import installs the public PNG through real copy worker");
+    expect(settings::current().texture_pack && settings::current().texture_pack_folder.empty(),
+        "successful copy enables installed texture pack");
+    frame(true);
+    expect(!ui::texture_pack_screen_open(), "back closes texture import result");
+    settings::current().texture_pack = false;
+    renderer.set_texture_pack(false);
+    layer.set_interactive(false);
+}
+
 void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
     // Construct a tiny ISO9660 image and archive entirely from public bytes.
     // It contains one eight-byte entry and no game executable or assets.
@@ -1179,6 +1264,7 @@ int run_contracts() {
     focused_widget_contracts(renderer);
     menu_contracts(renderer);
     setup_screen_contracts(renderer, sandbox);
+    texture_pack_screen_contracts(renderer, sandbox);
     mods_screen_contracts(renderer, sandbox);
     virtual_gamepad_contracts(renderer);
     audio_device_contracts();
