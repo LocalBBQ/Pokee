@@ -60,6 +60,45 @@ void execute(GeState &ge, psprecomp::GuestMemory &m, std::vector<std::uint32_t> 
 std::vector<std::uint32_t> setup(std::uint32_t type = 3u << 7) {
     return {command(0x10, 0x080000), command(0x12, type), command(1, vertices & 0xffffff)};
 }
+void mirrored_vram_vertices_and_indices() {
+    psprecomp::GuestMemory memory;
+    constexpr std::uint32_t boundary_vertex = 0x041ffff8u;
+    floats(memory, boundary_vertex, 1.25f, -2.5f, 3.75f);
+    std::vector<Vertex> decoded;
+    expect(decode_vertices(memory, boundary_vertex, 3u << 7, 1, decoded) == 12 && decoded.size() == 1 &&
+            decoded[0].position == std::array<float, 4>{1.25f, -2.5f, 3.75f, 1},
+        "noncontiguous EDRAM vertex preserves float components across its physical wrap");
+    floats(memory, vertices, 1, 2, 3);
+    floats(memory, vertices + 12, 4, 5, 6);
+    for (std::uint32_t format = 1; format <= 3; ++format) {
+        constexpr std::uint32_t index_at = 0x041fffffu;
+        const std::uint32_t count = format == 1 ? 2 : 1;
+        if (format == 1) {
+            memory.store8(index_at, 0);
+            memory.store8(index_at + 1, 1);
+        } else if (format == 2)
+            memory.store16(index_at, 1);
+        else
+            memory.store32(index_at, 1);
+        GeState state;
+        DrawCall result;
+        state.set_draw_sink([&](const DrawCall &draw) { result = draw; });
+        auto words = setup((3u << 7) | (format << 11));
+        words.push_back(command(0x10, 0x040000));
+        words.push_back(command(2, index_at & 0xffffff));
+        words.push_back(command(4, count));
+        execute(state, memory, words);
+        expect(result.vertices.size() == count && result.indices.size() == count && !result.vertices.empty() &&
+                result.vertices.back().position == std::array<float, 4>{4, 5, 6, 1},
+            "8/16/32-bit GE indices wrapping EDRAM resolve the real RAM vertices");
+        if (count == 2)
+            expect(result.indices == std::vector<std::uint16_t>{0, 1},
+                "wrapped byte indices retain their actual draw order");
+        else
+            expect(result.indices == std::vector<std::uint16_t>{0},
+                "wrapped wide index is rebased to its one decoded vertex");
+    }
+}
 void control_flow() {
     psprecomp::GuestMemory m;
     GeState ge;
@@ -369,6 +408,7 @@ int main() {
     auto *original_output = checked ? std::cout.rdbuf(diagnostics.rdbuf()) : nullptr;
     control_flow();
     vertex_formats();
+    mirrored_vram_vertices_and_indices();
     draws();
     registers();
     matrices_transfer_copy();

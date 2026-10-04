@@ -194,6 +194,24 @@ void compressed() {
     for (std::size_t i = 0; i < actual.size(); ++i)
         expect((actual[i] >> 24) == alphas[i % 8], "DXT5 alpha endpoints and codes");
 }
+void mirrored_vram_boundary() {
+    psprecomp::GuestMemory memory;
+    auto t = state(TextureFormat::Rgba8888, 2);
+    t.address = 0x041ffffeu;
+    memory.store32(t.address, 0xff112233);
+    memory.store32(t.address + 4, 0xff445566);
+    std::vector<std::uint32_t> actual;
+    expect(decode_texture(memory, t, actual) && actual == std::vector<std::uint32_t>{0xff112233, 0xff445566},
+        "texture crossing the physical EDRAM end reads the legal mirrored guest bytes");
+    TextureSnapshot snapshot;
+    expect(!snapshot_texture(memory, t, snapshot),
+        "noncontiguous EDRAM texture declines asynchronous snapshot and uses immediate decoding");
+    const auto key = texture_key(memory, t);
+    memory.store32(t.address, 0xff778899);
+    expect(texture_key(memory, t) != key, "noncontiguous texture key observes rewritten first texel");
+    expect(decode_texture(memory, t, actual) && actual == std::vector<std::uint32_t>{0xff778899, 0xff445566},
+        "mirrored texture update preserves the adjacent texel across the wrap");
+}
 void invalid_and_keys() {
     psprecomp::GuestMemory memory;
     std::vector<std::uint32_t> out;
@@ -247,6 +265,7 @@ int main() {
     palette_windows();
     rows_and_swizzle();
     compressed();
+    mirrored_vram_boundary();
     invalid_and_keys();
     if (checked) {
         std::cout.rdbuf(original_output);
