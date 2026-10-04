@@ -116,6 +116,13 @@ def diff_coverage(changed, inventory, coverage):
             'files': details, 'unmeasured_changed_files': unmeasured}
 
 
+def measured_totals(languages):
+    covered = sum(value['covered'] for value in languages.values())
+    count = sum(value['count'] for value in languages.values())
+    return {'covered': covered, 'count': count,
+            'percent': round(100 * covered / count, 2) if count else None}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', default=os.environ.get('COVERAGE_BASE', 'origin/main'))
@@ -159,8 +166,10 @@ def main():
                            'unmeasured_files': sorted(set(names) - set(mapped))}
     output = ROOT / 'out/project-coverage'
     output.mkdir(parents=True, exist_ok=True)
+    overall = measured_totals(languages)
     summary = {'base': merge_base, 'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'],
                cwd=ROOT, text=True).strip(), 'languages': languages, 'diff': changed,
+               'measured_totals': overall,
                'inventory': [{'file': name, 'kind': kind, 'mapped': name in coverage}
                              for name, kind in sorted(inventory.items())]}
     (output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
@@ -170,7 +179,10 @@ def main():
         percent = f'{value["percent"]:.2f}%' if value['percent'] is not None else 'Not measured'
         lines.append(f'| {kind} | {value["mapped_files"]} / {value["files"]} | {percent} |')
     percent = f'{changed["percent"]:.2f}%' if changed['percent'] is not None else 'N/A (no changed executable lines)'
-    lines += ['', f'Changed executable lines: **{percent}**, {changed["covered"]}/{changed["count"]}; '
+    overall_percent = f'{overall["percent"]:.2f}%' if overall['percent'] is not None else 'Not measured'
+    lines += ['', f'Combined measured source lines: **{overall_percent}**, '
+              f'{overall["covered"]}/{overall["count"]}. No overall minimum; unknown lines are excluded.', '',
+              f'Changed executable lines: **{percent}**, {changed["covered"]}/{changed["count"]}; '
               'required: **80%**.', '',
               'Unmeasured changed native/Python/Java files: ' + ', '.join(changed['unmeasured_changed_files']), '',
               'Unmeasured files stay visible in the inventory. Percentages apply to mapped lines, '

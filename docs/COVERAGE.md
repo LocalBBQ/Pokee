@@ -64,6 +64,9 @@ JSON and JaCoCo XML. Reports show measured files and remaining gaps separately
 per language. An unmapped changed native/Python/Java file fails the
 gate rather than silently disappearing from its denominator. Deleted lines and
 unchanged lines do not enter the changed-line count.
+The combined measured source-line total pools covered/executable line counts
+across languages, rather than averaging percentages. It has no minimum and
+excludes unknown lines; the report states this limitation alongside the value.
 
 The CI foundation does not close the remaining subsystem gaps. Expand tests in
 stages, using the reports to choose contracts and regressions rather than tests

@@ -75,6 +75,13 @@ class CoverageFormatsTests(unittest.TestCase):
                          ['profiles/mhp3rd/packaging/android/java/App.java'])
         self.assertIsNone(report.diff_coverage({}, {}, {})['percent'])
 
+    def test_overall_is_weighted_and_unknown_counts_are_not_invented(self):
+        value = report.measured_totals({'native': {'covered': 100, 'count': 200},
+                                        'python': {'covered': 5, 'count': 5},
+                                        'shader': {'covered': 0, 'count': 0}})
+        self.assertEqual(value, {'covered': 105, 'count': 205, 'percent': 51.22})
+        self.assertIsNone(report.measured_totals({})['percent'])
+
 
 class CoverageGateIntegrationTests(unittest.TestCase):
     def setUp(self):
@@ -124,6 +131,7 @@ class CoverageGateIntegrationTests(unittest.TestCase):
         self.assertEqual(summary['diff']['percent'], 80)
         self.assertEqual(summary['languages']['python']['percent'], 50)
         self.assertEqual(summary['languages']['native']['count'], 5)
+        self.assertEqual(summary['measured_totals'], {'covered': 5, 'count': 7, 'percent': 71.43})
         self.assertIsNone(summary['languages']['java']['percent'])
         self.assertIsNone(summary['languages']['shader']['percent'])
         self.assertIn('80.00%', (self.root / 'out/project-coverage/summary.md').read_text())
