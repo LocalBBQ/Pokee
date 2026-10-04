@@ -8,6 +8,9 @@
 #include "ui/widgets.hpp"
 #include "ui/file_browser.hpp"
 #include "install/user_data.hpp"
+#include "install/installer.hpp"
+#include <thread>
+#include <atomic>
 #include "ui/ui.hpp"
 #include "ui/bindings_editor.hpp"
 #include "ui/touch_editor.hpp"
@@ -482,6 +485,94 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+// One finite key gesture terminates each modal. The enclosing CTest timeout
+// bounds the real UI event loop if a regression ignores this gesture.
+template <class Fn> auto with_escape(gpu::VulkanRenderer &renderer, Fn work) {
+    const auto window = SDL_GetWindowID(renderer.window());
+    std::jthread input([window] {
+        SDL_Delay(180);
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.windowID = window;
+        event.key.key = SDLK_ESCAPE;
+        event.key.scancode = SDL_SCANCODE_ESCAPE;
+        event.key.down = true;
+        SDL_PushEvent(&event);
+        SDL_Delay(120);
+        event.type = SDL_EVENT_KEY_UP;
+        event.key.down = false;
+        SDL_PushEvent(&event);
+    });
+    return work();
+}
+void setup_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    auto setup = ui::make_setup_screens();
+    expect(setup != nullptr, "setup uses the actual in-window installer interface");
+    expect(!with_escape(renderer, [&] { return setup->introduce(sandbox); }), "welcome back cancels installation");
+    expect(!with_escape(renderer, [&] { return setup->offer_retry("Synthetic invalid image"); }),
+        "invalid-image retry screen permits quitting");
+    expect(!with_escape(renderer, [&] { return setup->offer_retry("Not enough free space for the synthetic image"); }),
+        "insufficient-space retry screen permits quitting");
+    expect(!with_escape(renderer, [&] { return setup->choose_storage(sandbox / "synthetic.iso", {1024}, sandbox); }),
+        "storage selection cancels without choosing copy or in-place");
+    expect(
+        !with_escape(renderer, [&] { return setup->choose_storage(sandbox / "synthetic.iso", {1ULL << 60}, sandbox); }),
+        "storage selection handles insufficient capacity and cancels");
+    std::atomic<int> stages{};
+    setup->run_task("Synthetic preparation", [&] {
+        setup->progress("Checking", 0, 0);
+        ++stages;
+        SDL_Delay(70);
+        setup->progress("Copying", 500'000, 2'000'000);
+        ++stages;
+        SDL_Delay(70);
+        setup->progress("Finishing", 1, 2);
+        ++stages;
+        SDL_Delay(70);
+    });
+    expect(stages == 3, "progress work completes all stages exactly once");
+    bool rethrown{};
+    try {
+        setup->run_task("Synthetic failing task", [] {
+            SDL_Delay(70);
+            throw install::InstallError("synthetic worker failure");
+        });
+    } catch (const install::InstallError &error) {
+        rethrown = std::string(error.what()) == "synthetic worker failure";
+    }
+    expect(rethrown, "worker exception reaches installer caller unchanged");
+    bool cancelled{};
+    with_escape(renderer, [&] {
+        try {
+            setup->run_task("Synthetic cancellable task", [&] {
+                // Two seconds maximum even if cancellation regresses.
+                for (int step = 0; step < 40; ++step) {
+                    setup->progress("Bounded synthetic work", step, 40);
+                    SDL_Delay(50);
+                }
+            });
+        } catch (const install::InstallCancelled &) {
+            cancelled = true;
+        }
+        return 0;
+    });
+    expect(cancelled, "back requests cancellation and progress throws InstallCancelled");
+    expect(with_escape(renderer, [&] { return ui::show_problem("Synthetic problem", "Public fixture", false); }) ==
+            ui::ProblemAnswer::Quit,
+        "plain problem back chooses quit");
+    expect(with_escape(renderer, [&] { return ui::show_problem("Synthetic problem", "Public fixture", true); }) ==
+            ui::ProblemAnswer::Quit,
+        "setup problem back chooses quit without requesting setup");
+    expect(with_escape(
+               renderer, [&] { return ui::ask_choice("Synthetic choice", "Public fixture", "First", "Second"); }) ==
+            ui::ChoiceAnswer::Closed,
+        "choice back reports closed instead of selecting an option");
+    renderer.pump_events();
+    layer.set_interactive(false);
+}
+
 void menu_contracts(gpu::VulkanRenderer &renderer) {
     const auto volume = settings::current().volume;
     ui::open_menu_over_game();
@@ -564,6 +655,7 @@ int main() {
     input_capture_contracts(renderer);
     widget_and_browser_contracts(renderer, sandbox);
     menu_contracts(renderer);
+    setup_screen_contracts(renderer, sandbox);
     audio_device_contracts();
     renderer.shutdown();
     std::filesystem::remove_all(sandbox);
