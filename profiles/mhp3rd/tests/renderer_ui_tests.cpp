@@ -394,11 +394,18 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff2255cc, "transformed triangle uses matrices and PSP viewport");
+    for (auto &v : draw.vertices) v.position[2] = -1;
+    draw.projection[10] = -1.020202f;
+    draw.projection[11] = -1;
+    draw.projection[14] = -0.2020202f;
+    draw.projection[15] = 0;
+    draw.primitive_count = 3;
     renderer.set_frame_rate_auto(false);
     renderer.set_frame_rate(settings::FrameRate::Fps60);
     const auto presented_before = renderer.frames_presented();
+    const int replay_frames = std::getenv("MHP3RD_CHECK_REPLAY") ? 160 : 16;
     int deferred{};
-    for (int frame = 0; frame < 16; ++frame) {
+    for (int frame = 0; frame < replay_frames; ++frame) {
         draw.world[12] = static_cast<float>(frame) * 0.002f;
         draw.lighting_enabled = frame >= 8;
         draw.lighting.material_update = 1;
@@ -418,8 +425,8 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         renderer.present_due();
         renderer.present_until(moment + std::chrono::milliseconds(33));
     }
-    expect(deferred == 16, "60 fps guest flips defer rendering to interpolation schedule");
-    expect(renderer.frames_presented() == presented_before + 16 && renderer.frame_rate_now() >= 59.0,
+    expect(deferred == replay_frames, "60 fps guest flips defer rendering to interpolation schedule");
+    expect(renderer.frames_presented() == presented_before + replay_frames && renderer.frame_rate_now() >= 59.0,
         "guest frame counter advances once per flip while interpolation retains requested rate");
     expect(pixel() == 0xff2255cc, "interpolation replay preserves interior opaque triangle color");
     renderer.pause_interpolation();
@@ -439,6 +446,9 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.set_frame_rate_auto(true);
     draw.world[12] = 0;
     draw.lighting_enabled = false;
+    for (auto &v : draw.vertices) v.position[2] = 0;
+    draw.projection[10] = draw.projection[15] = 1;
+    draw.projection[11] = draw.projection[14] = 0;
     draw.depth.test_enabled = true;
     for (std::uint32_t function : {0u, 1u}) {
         draw.depth.function = function;
@@ -453,7 +463,7 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
 
     // Feed the PSP byte layout directly to the shader vertex decoder.
     std::array<std::uint32_t, 12> raw{};
-    const std::array<std::array<float, 3>, 3> positions{{{-0.8f, -0.8f, 0}, {0.8f, -0.8f, 0}, {0, 0.8f, 0}}};
+    const std::array<std::array<float, 3>, 3> positions{{{-0.8f, -0.8f, -1}, {0.8f, -0.8f, -1}, {0, 0.8f, -1}}};
     for (std::size_t i = 0; i < positions.size(); ++i) {
         raw[i * 4] = 0xff2255cc;
         for (std::size_t axis = 0; axis < 3; ++axis)
@@ -475,6 +485,10 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff2255cc, "raw PSP vertices decode color and float positions on the GPU");
+    draw.projection[10] = -1.020202f;
+    draw.projection[11] = -1;
+    draw.projection[14] = -0.2020202f;
+    draw.projection[15] = 0;
     renderer.set_frame_rate_auto(false);
     renderer.set_frame_rate(settings::FrameRate::Fps60);
     int raw_deferred{};
