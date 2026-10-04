@@ -653,10 +653,16 @@ void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
     auto &layer = ui::Layer::get();
     layer.set_interactive(true);
     ImVec2 click{};
-    auto frame = [&](bool back = false, bool scroll = false) {
+    auto frame = [&](bool back = false, bool scroll = false, const char *focused_row = nullptr) {
         layer.begin_frame();
         ui::begin_panel("##mods-contract", "Mod contract", "", false);
         ui::begin_content();
+        if (focused_row) {
+            auto *window = ImGui::GetCurrentWindow();
+            ImGui::FocusWindow(window);
+            ImGui::SetFocusID(window->GetID(focused_row), window);
+            ImGui::SetNavCursorVisible(true);
+        }
         ui::mods_page(back);
         const auto min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
         click = {(min.x + max.x) * .5f, (min.y + max.y) * .5f};
@@ -696,6 +702,45 @@ void mods_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
     frame(true);
     expect(!ui::mods_screen_open() && !ui::take_mods_restart_request(),
         "back closes mod details without requesting restart");
+    const auto incoming = sandbox / "Incoming";
+    std::filesystem::create_directories(incoming);
+    std::ofstream(incoming / "mod.ini")
+        << "[MOD INFO]\nName=Imported public contract\nType=File\nVersion=HD\nFiles=replacement.bin\nTarget=0000\n";
+    std::ofstream(incoming / "replacement.bin", std::ios::binary) << "IMPORT!!";
+    auto press = [&](ImGuiKey key) {
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    frame();
+    frame();
+    frame(false, false, "Import mod…");
+    press(ImGuiKey_Space);
+    for (int settle = 0; settle < 4 && !ui::mods_screen_open(); ++settle) frame();
+    expect(ui::mods_screen_open(), "import row opens mod folder browser");
+    const std::string dropped_path = incoming.string();
+    SDL_Event drop{};
+    drop.type = SDL_EVENT_DROP_FILE;
+    drop.drop.windowID = SDL_GetWindowID(renderer.window());
+    drop.drop.data = dropped_path.c_str();
+    expect(SDL_PushEvent(&drop), "synthetic mod folder drop queues");
+    renderer.pump_events();
+    frame();
+    frame();
+    frame();
+    frame(false, false, "Import this mod");
+    press(ImGuiKey_Space);
+    for (int settle = 0; settle < 5 && session->library().mods().size() != 2; ++settle) frame();
+    frame();
+    expect(session->library().mods().size() == 2 &&
+            std::filesystem::is_regular_file(sandbox / "mods" / "Incoming" / "replacement.bin"),
+        "review confirmation imports public mod and refreshes real library");
+    expect(std::all_of(session->library().mods().begin(), session->library().mods().end(),
+               [&](const auto &mod) { return !session->library().enabled(mod.id); }),
+        "imported mods stay disabled");
+    frame(true);
+    expect(!ui::mods_screen_open(), "back closes import result");
     layer.set_interactive(false);
     mods::attach_disc(nullptr);
 }
