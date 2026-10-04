@@ -669,6 +669,25 @@ void widget_and_browser_contracts(gpu::VulkanRenderer &renderer, const std::file
         "file sizes use displayed decimal units at boundaries");
     layer.set_interactive(false);
 }
+template <class Fn> auto with_escape(gpu::VulkanRenderer &renderer, Fn work) {
+    const auto window = SDL_GetWindowID(renderer.window());
+    std::jthread input([window] {
+        SDL_Delay(180);
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.windowID = window;
+        event.key.key = SDLK_ESCAPE;
+        event.key.scancode = SDL_SCANCODE_ESCAPE;
+        event.key.down = true;
+        SDL_PushEvent(&event);
+        SDL_Delay(120);
+        event.type = SDL_EVENT_KEY_UP;
+        event.key.down = false;
+        SDL_PushEvent(&event);
+    });
+    return work();
+}
+
 void save_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
     namespace sd = savedata;
     const auto previous = sd::memory_stick();
@@ -766,6 +785,41 @@ void save_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
     activate("Back up to the backups folder");
     activate("Done");
     expect(!ui::save_screen_open(), "backup UI completes and returns to menu");
+    const bool timestamp = settings::current().backup_timestamp;
+    settings::current().backup_timestamp = false;
+    const auto backup_target = sandbox / "PublicExplicitBackup";
+    std::filesystem::create_directories(backup_target);
+    activate("Back up saves…");
+    activate("Back up to another folder…");
+    drop(backup_target);
+    activate("Done");
+    expect(std::filesystem::is_regular_file(backup_target / "ULJM05800" / "MHP3RD.BIN"),
+        "explicit backup contains encrypted save without timestamp");
+    activate("Back up saves…");
+    activate("Back up to another folder…");
+    drop(backup_target);
+    activate("Cancel");
+    expect(ui::save_screen_open(), "conflicting backup cancellation returns to backup options");
+    activate("Back up to another folder…");
+    drop(backup_target);
+    activate("Replace the backup");
+    activate("Done");
+    expect(!ui::save_screen_open(), "confirmed conflicting backup replacement completes");
+    settings::current().backup_timestamp = timestamp;
+
+    const auto invalid = sandbox / "PublicInvalidSave";
+    std::filesystem::create_directories(invalid);
+    std::ofstream(invalid / "PARAM.SFO") << "public invalid metadata";
+    activate("Import save…");
+    drop(invalid);
+    activate("Cancel");
+    expect(!ui::save_screen_open() && sd::load_save(target, files).contents.data == content.data,
+        "invalid save review cancellation preserves exact current payload");
+    ui::request_backup_reminder("Public deterministic reminder contract");
+    expect(ui::backup_reminder_due(), "explicit reminder becomes due after presented frames");
+    expect(with_escape(renderer, [&] { return ui::run_backup_reminder(); }),
+        "bounded Escape closes actual backup reminder without closing SDL window");
+    expect(!ui::backup_reminder_due(), "closed requested reminder is consumed once");
     sd::set_memory_stick(previous);
     layer.set_interactive(false);
 }
@@ -1377,24 +1431,6 @@ void focused_widget_contracts(gpu::VulkanRenderer &renderer) {
 
 // One finite key gesture terminates each modal. The enclosing CTest timeout
 // bounds the real UI event loop if a regression ignores this gesture.
-template <class Fn> auto with_escape(gpu::VulkanRenderer &renderer, Fn work) {
-    const auto window = SDL_GetWindowID(renderer.window());
-    std::jthread input([window] {
-        SDL_Delay(180);
-        SDL_Event event{};
-        event.type = SDL_EVENT_KEY_DOWN;
-        event.key.windowID = window;
-        event.key.key = SDLK_ESCAPE;
-        event.key.scancode = SDL_SCANCODE_ESCAPE;
-        event.key.down = true;
-        SDL_PushEvent(&event);
-        SDL_Delay(120);
-        event.type = SDL_EVENT_KEY_UP;
-        event.key.down = false;
-        SDL_PushEvent(&event);
-    });
-    return work();
-}
 void setup_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
     auto &layer = ui::Layer::get();
     layer.set_interactive(true);
