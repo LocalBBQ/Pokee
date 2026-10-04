@@ -2,6 +2,7 @@
 #include "psprecomp/common.hpp"
 #include "psprecomp/elf32.hpp"
 #include "psprecomp/interpreter.hpp"
+#include "psprecomp/program_analysis.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <algorithm>
@@ -490,6 +491,77 @@ void elf_contracts() {
         absent = true;
     }
     check(absent, "Unmapped virtual ELF read must fail");
+    {
+        auto control = image();
+        write(control, 68, 64);
+        write(control, 72, 64);
+        write(control, 128, i(5, 0, 0, 3));
+        write(control, 132, i(9, 0, 9, 1));
+        write(control, 136, (3u << 26u) | ((base + 48) >> 2u));
+        write(control, 140, 0);
+        write(control, 144, r(8, 0, 31, 0, 9));
+        write(control, 148, 0);
+        write(control, 152, 0x0000003Fu);
+        write(control, 156, r(31, 0, 0, 0, 8));
+        write(control, 160, 0);
+        write(control, 176, r(31, 0, 0, 0, 8));
+        write(control, 180, 0);
+        const auto control_elf = psprecomp::Elf32Image::from_bytes(control);
+        control_elf.load_into(memory);
+        const auto program = psprecomp::analyze_program(control_elf, memory, 0);
+        const auto function = std::find_if(program.functions.begin(), program.functions.end(),
+            [](const auto &analysis) { return analysis.entry == base; });
+        check(function != program.functions.end() && function->direct_calls.contains(base + 48) &&
+                function->indirect_call_sites.contains(base + 16) && function->unsupported_instruction_count == 1 &&
+                !function->labels.contains(base + 4) && !function->labels.contains(base + 12) &&
+                function->entry_labels.contains(base + 16) && !function->truncated,
+            "Program analysis must preserve branch continuations/call sites and exclude delay slots");
+        const auto limited = psprecomp::analyze_program(control_elf, memory, 0, 2);
+        check(limited.functions.front().truncated && limited.functions.front().labels.size() == 2,
+            "Instruction budget must bound analysis and mark truncation");
+        check(psprecomp::is_executable_address(program.executable_ranges, base) &&
+                !psprecomp::is_executable_address(program.executable_ranges, base + 1) &&
+                !psprecomp::is_executable_address(program.executable_ranges, base + 64) &&
+                !psprecomp::is_executable_address({}, base),
+            "Executable ranges must be aligned and half-open");
+        control.resize(384);
+        write(control, 68, 80);
+        write(control, 72, 80);
+        write(control, 32, 208);
+        write(control, 48, 3, 2);
+        // A loaded RWX segment contains distinct executable and data sections.
+        // Only .text is executable; two data pointers identify function-shaped
+        // entries, while a coincidental mid-function pointer is ignored.
+        for (const auto &[header, address, offset, size, flags] : {std::array<std::uint32_t, 5>{248, base, 128, 64, 6},
+                 std::array<std::uint32_t, 5>{288, base + 64, 192, 16, 2}}) {
+            write(control, header + 4, 1);
+            write(control, header + 8, flags);
+            write(control, header + 12, address);
+            write(control, header + 16, offset);
+            write(control, header + 20, size);
+        }
+        write(control, 160, r(31, 0, 0, 0, 8));
+        write(control, 168, r(31, 0, 0, 0, 8));
+        write(control, 176, i(9, 29, 29, 0xFFF0));
+        write(control, 180, r(31, 0, 0, 0, 8));
+        write(control, 192, base + 40);
+        write(control, 196, base + 48);
+        write(control, 200, base + 20);
+        const auto section_elf = psprecomp::Elf32Image::from_bytes(control);
+        section_elf.load_into(memory);
+        const auto sections = psprecomp::analyze_program(section_elf, memory, 0);
+        check(sections.executable_ranges.size() == 1 && sections.executable_ranges[0].end == base + 64 &&
+                sections.seeds.at(base + 40) == "data_section_code_pointer" && !sections.seeds.contains(base + 20),
+            "Data pointers must discover function shapes without treating data or mid-function constants as code");
+        write(control, 128, i(15, 0, 8, 0x0880));
+        write(control, 132, i(13, 8, 8, 0x4030));
+        write(control, 136, r(8, 0, 0, 0, 8));
+        const auto pointer_elf = psprecomp::Elf32Image::from_bytes(control);
+        pointer_elf.load_into(memory);
+        const auto pointers = psprecomp::analyze_program(pointer_elf, memory, 0);
+        check(pointers.seeds.at(base + 48) == "materialized_code_pointer",
+            "An address assembled by LUI/ORI must discover its executable function entry");
+    }
     bad = image();
     write(bad, 72, 8);
     auto short_segment = psprecomp::Elf32Image::from_bytes(bad);
