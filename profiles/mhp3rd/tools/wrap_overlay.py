@@ -22,7 +22,8 @@ def main(argv):
     if len(argv) != 4:
         print(__doc__.strip(), file=sys.stderr)
         return 2
-    data = open(argv[1], "rb").read()
+    with open(argv[1], "rb") as source:
+        data = source.read()
     base = int(argv[2], 0)
     if base % 4:
         print("base address must be 4-byte aligned", file=sys.stderr)

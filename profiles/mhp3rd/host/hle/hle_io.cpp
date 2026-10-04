@@ -141,14 +141,15 @@ std::int64_t open_file(const std::string &full_path, std::uint32_t flags) {
             file.kind = OpenFile::Kind::Disc;
             file.disc_offset = lbn->first * IsoImage::kSectorSize;
             file.size = lbn->second;
+        } else if (split.path.empty()) {
+            // Opening the device itself gives raw sector access. The ISO root
+            // also has an entry, so resolve the device before that directory.
+            file.kind = OpenFile::Kind::Disc;
+            file.size = io().disc->size_bytes();
         } else if (const auto entry = io().disc->find(split.path)) {
             file.kind = entry->directory ? OpenFile::Kind::Directory : OpenFile::Kind::Disc;
             file.disc_offset = static_cast<std::uint64_t>(entry->lba) * IsoImage::kSectorSize;
             file.size = entry->size;
-        } else if (split.path.empty()) {
-            // Opening the device itself gives raw sector access.
-            file.kind = OpenFile::Kind::Disc;
-            file.size = io().disc->size_bytes();
         } else {
             return static_cast<std::int32_t>(io_error::kFileNotFound);
         }

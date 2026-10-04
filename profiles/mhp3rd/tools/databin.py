@@ -147,12 +147,16 @@ class Archive:
 
     def __init__(self, path):
         self.stream = open(path, "rb")
-        self.base = 0
-        self.size = os.path.getsize(path)
-        located = iso_find(self.stream, "/PSP_GAME/USRDIR/DATA.BIN")
-        if located:
-            self.base, self.size = located
-        self.blocks, self.sizes = self._read_directory()
+        try:
+            self.base = 0
+            self.size = os.path.getsize(path)
+            located = iso_find(self.stream, "/PSP_GAME/USRDIR/DATA.BIN")
+            if located:
+                self.base, self.size = located
+            self.blocks, self.sizes = self._read_directory()
+        except Exception:
+            self.stream.close()
+            raise
 
     def _raw(self, offset, length):
         self.stream.seek(self.base + offset)
@@ -363,6 +367,8 @@ def main(argv):
     except BrokenPipeError:  # piping into head and friends
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         return 0
+    finally:
+        archive.stream.close()
 
 
 if __name__ == "__main__":

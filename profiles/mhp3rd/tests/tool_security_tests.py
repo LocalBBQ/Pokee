@@ -12,6 +12,7 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 import add_overlay
 import databin
+import wrap_overlay
 import extract_iso
 from extraction_paths import extraction_path
 
@@ -158,6 +159,166 @@ class ArchiveSecurityTests(unittest.TestCase):
                 self.assertEqual(run.call_args_list[1].kwargs["cwd"], str(build))
                 self.assertEqual(commands[1][4], "0x08800000")
 
+
+class ArchiveBehaviorTests(unittest.TestCase):
+    @staticmethod
+    def mask(block, words):
+        high, low = (block >> 16) or 0x2345, (block & 0xFFFF) or 0x7F8D
+        result = bytearray()
+        for _ in range(words):
+            high = high * 0x2345 % 0xFFD9
+            low = low * 0x7F8D % 0xFFF1
+            result.extend(struct.pack("<HH", low, high))
+        return bytes(result)
+
+    @classmethod
+    def encrypt(cls, plain, block):
+        padded = plain + b"\0" * (-len(plain) % 4)
+        xor = bytes(a ^ b for a, b in zip(padded, cls.mask(block, len(padded) // 4)))
+        return xor.translate(databin.ENCODE_TABLE)[:len(plain)]
+
+    @classmethod
+    def archive(cls, path):
+        overlay = bytearray(80)
+        overlay[:4] = b"MWo3"
+        struct.pack_into("<7I", overlay, 4, 1, 0x08804000, 12, 4, 8, 0x08804018, 0x08804000)
+        overlay[32:42] = b"public.ovl"
+        directory = bytearray(2048)
+        struct.pack_into("<7I", directory, 0, 1, 2, 3, 4, 0, 80, 1)
+        # Third entry is block-aligned; first two have explicit logical lengths.
+        struct.pack_into("<I", directory, 28, 8)
+        path.write_bytes(cls.encrypt(directory, 0) + cls.encrypt(overlay + bytes(2048 - len(overlay)), 1) +
+                         b"PSMFtest" + bytes(2040) + cls.encrypt(bytes(2048), 3))
+        return bytes(overlay)
+
+    def test_keystream_long_cycle_and_partial_words(self):
+        for block in (0, 1, 0x12345678):
+            self.assertEqual(databin.keystream(block, 70000), self.mask(block, 70000))
+        self.assertEqual(databin.keystream(0, 0), b"")
+        for size in (0, 1, 3, 4, 17, 2048):
+            plain = bytes((i * 17) & 255 for i in range(size))
+            self.assertEqual(databin.decrypt(self.encrypt(plain, 7), 7), plain)
+
+    def test_real_archive_directory_and_commands(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "public.bin"
+            overlay = self.archive(path)
+            archive = databin.Archive(path)
+            try:
+                self.assertEqual(len(archive), 3)
+                self.assertEqual(archive.read(0), overlay)
+                self.assertEqual(archive.read(1), b"PSMFtest")
+                self.assertEqual(archive.entry_size(2), 2048)
+                self.assertEqual(archive.overlay(0)["name"], "public.ovl")
+                self.assertIsNone(archive.overlay(1))
+                with patch("sys.stdout", new=io.StringIO()) as output:
+                    self.assertEqual(databin.main(["databin", str(path), "list"]), 0)
+                    self.assertIn("overlay public.ovl", output.getvalue())
+                with patch("sys.stdout", new=io.StringIO()) as output:
+                    databin.main(["databin", str(path), "list", "--overlays", "--csv"])
+                    self.assertIn("0,1,80,public.ovl,0x8804000", output.getvalue())
+                    self.assertNotIn("PSMF", output.getvalue())
+                for args in (("extract", str(root / "entries")), ("extract", str(root / "selected"), "0x1"),
+                             ("extract-overlays", str(root / "overlays"))):
+                    with patch("sys.stdout", new=io.StringIO()):
+                        databin.main(["databin", str(path), *args])
+                self.assertEqual((root / "entries" / "00000_public.ovl").read_bytes(), overlay)
+                self.assertEqual((root / "selected" / "00001.bin").read_bytes(), b"PSMFtest")
+                self.assertEqual((root / "overlays" / "overlay_08804000_public.bin").read_bytes(), overlay)
+                reference = root / "reference.bin"
+                reference.write_bytes(overlay)
+                with patch("sys.stdout", new=io.StringIO()):
+                    self.assertEqual(databin.main(["databin", str(path), "verify", "0", str(reference)]), 0)
+                    reference.write_bytes(b"bad" + overlay[3:])
+                    self.assertEqual(databin.main(["databin", str(path), "verify", "0", str(reference)]), 1)
+                class BinaryOutput(io.StringIO):
+                    buffer = io.BytesIO()
+                with patch("sys.stdout", new=BinaryOutput()) as output:
+                    databin.main(["databin", str(path), "cat", "1"])
+                    self.assertEqual(output.buffer.getvalue(), b"PSMFtest")
+            finally:
+                archive.stream.close()
+
+    def test_databin_is_located_inside_synthetic_iso(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive_path = root / "data.bin"
+            expected = self.archive(archive_path)
+            image = bytearray(27 * 2048)
+            pvd = 16 * 2048
+            image[pvd + 1:pvd + 6] = b"CD001"
+            image[pvd + 156:pvd + 190] = record(b"\0", 20, 2048, True)
+            for lba, entries in ((20, [record(b"\0", 20, 2048, True), record(b"PSP_GAME", 21, 2048, True)]),
+                                 (21, [record(b"USRDIR", 22, 2048, True)]),
+                                 (22, [record(b"UNRELATED.BIN;1", 26, 0), record(b"DATA.BIN;1", 23, 8192)])):
+                directory = b"".join(entries)
+                image[lba * 2048:lba * 2048 + len(directory)] = directory
+            image[23 * 2048:] = archive_path.read_bytes()
+            iso = root / "public.iso"
+            iso.write_bytes(image)
+            archive = databin.Archive(iso)
+            try:
+                self.assertEqual(archive.base, 23 * 2048)
+                self.assertEqual(archive.size, 8192)
+                self.assertEqual(archive.read(0), expected)
+            finally:
+                archive.stream.close()
+            self.assertIsNone(databin.iso_find(io.BytesIO(image), "/NOT_PRESENT"))
+
+    def test_directory_rejects_invalid_size_and_termination(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "bad.bin"
+            for directory in (bytes(2048), struct.pack("<I", 1) + bytes(2044)):
+                path.write_bytes(self.encrypt(directory, 0))
+                with self.assertRaises(ValueError):
+                    databin.Archive(path)
+
+    def test_archive_stream_closes_on_parse_and_command_failures(self):
+        opened = []
+        real_open = open
+        def tracking_open(*args, **kwargs):
+            stream = real_open(*args, **kwargs)
+            opened.append(stream)
+            return stream
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "archive.bin"
+            path.write_bytes(self.encrypt(bytes(2048), 0))
+            with patch("builtins.open", side_effect=tracking_open):
+                with self.assertRaises(ValueError):
+                    databin.Archive(path)
+            self.assertTrue(opened and all(stream.closed for stream in opened))
+            self.archive(path)
+            opened.clear()
+            with patch("builtins.open", side_effect=tracking_open), patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(databin.main(["databin", str(path), "list"]), 0)
+            self.assertTrue(opened and all(stream.closed for stream in opened))
+            opened.clear()
+            with patch("builtins.open", side_effect=tracking_open):
+                with self.assertRaises(IndexError):
+                    databin.main(["databin", str(path), "cat", "99"])
+            self.assertTrue(opened and all(stream.closed for stream in opened))
+
+    def test_wrap_overlay_produces_exact_elf_load_and_text(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            raw = root / "code.bin"
+            elf = root / "code.elf"
+            raw.write_bytes(struct.pack("<II", 0x03E00008, 0))
+            with patch("sys.stdout", new=io.StringIO()):
+                self.assertEqual(wrap_overlay.main(["wrap", str(raw), "0x08804000", str(elf)]), 0)
+            data = elf.read_bytes()
+            header = struct.unpack_from("<16sHHIIIIIHHHHHH", data)
+            self.assertEqual(header[0][:7], b"\x7fELF\x01\x01\x01")
+            self.assertEqual(header[4], 0x08804000)
+            segment = struct.unpack_from("<8I", data, header[5])
+            self.assertEqual(segment, (1, 84, 0x08804000, 0x08804000, 8, 8, 5, 16))
+            self.assertEqual(data[84:92], raw.read_bytes())
+            text = struct.unpack_from("<10I", data, header[6] + 40)
+            self.assertEqual(text[2:6], (6, 0x08804000, 84, 8))
+            with patch("sys.stderr", new=io.StringIO()):
+                self.assertEqual(wrap_overlay.main(["wrap"]), 2)
+                self.assertEqual(wrap_overlay.main(["wrap", str(raw), "0x08804001", str(elf)]), 1)
 
 if __name__ == "__main__":
     unittest.main()
