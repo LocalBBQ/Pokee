@@ -3,6 +3,8 @@
 #include "perf/frame_stats.hpp"
 
 #include <array>
+#include <cstdlib>
+#include <sstream>
 #include <bit>
 #include <cmath>
 #include <iostream>
@@ -362,11 +364,28 @@ void matrices_transfer_copy() {
 }
 }
 int main() {
+    const bool checked = std::getenv("MHP3RD_CHECK_DECODE") != nullptr;
+    std::ostringstream diagnostics;
+    auto *original_output = checked ? std::cout.rdbuf(diagnostics.rdbuf()) : nullptr;
     control_flow();
     vertex_formats();
     draws();
     registers();
     matrices_transfer_copy();
+    if (checked) {
+        std::cout.rdbuf(original_output);
+        std::cout << diagnostics.str();
+        expect(diagnostics.str().find("[material] cmd=0x53 value=0x7") != std::string::npos,
+            "material trace identifies the actual register and value");
+        expect(diagnostics.str().find("[lighting] cmd=0x18") != std::string::npos &&
+                diagnostics.str().find("[lit-draw] vtype=") != std::string::npos,
+            "lighting trace includes command values and actual lit draw inputs");
+        expect(diagnostics.str().find("[fbtex] block transfer 0x4006000") != std::string::npos &&
+                diagnostics.str().find("[fbtex] unhandled GE command 0xff") != std::string::npos,
+            "framebuffer trace identifies block transfers and ignored commands");
+        expect(diagnostics.str().find(" differs over ") == std::string::npos,
+            "fast and scalar decoding agree exactly across format and skinning contracts");
+    }
     std::cout << (failures ? "FAIL" : "PASS") << ": GE contracts (" << failures << " failures)\n";
     return failures ? 1 : 0;
 }

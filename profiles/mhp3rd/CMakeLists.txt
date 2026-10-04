@@ -689,6 +689,11 @@ if(PSPRECOMP_BUILD_TESTS)
     add_custom_target(mhp3rd_ge_state_slow_tests DEPENDS mhp3rd_ge_state_tests)
     add_test(NAME mhp3rd_ge_state_slow_tests COMMAND mhp3rd_ge_state_tests)
     set_tests_properties(mhp3rd_ge_state_slow_tests PROPERTIES ENVIRONMENT "MHP3RD_NO_FAST_DECODE=1")
+    add_custom_target(mhp3rd_ge_state_checked_tests DEPENDS mhp3rd_ge_state_tests)
+    add_test(NAME mhp3rd_ge_state_checked_tests COMMAND mhp3rd_ge_state_tests)
+    set_tests_properties(mhp3rd_ge_state_checked_tests PROPERTIES
+        ENVIRONMENT "MHP3RD_CHECK_DECODE=1;MHP3RD_TRACE_MATERIAL=1;MHP3RD_TRACE_LIGHTING=1;MHP3RD_TRACE_FB_TEXTURES=1"
+        TIMEOUT 30 FAIL_REGULAR_EXPRESSION "FAIL:;\\[decode-check\\].*differs over")
 endif()
 
 add_executable(mhp3rd_texture_decode_tests
@@ -702,6 +707,11 @@ if(PSPRECOMP_BUILD_TESTS)
     add_custom_target(mhp3rd_texture_decode_slow_tests DEPENDS mhp3rd_texture_decode_tests)
     add_test(NAME mhp3rd_texture_decode_slow_tests COMMAND mhp3rd_texture_decode_tests)
     set_tests_properties(mhp3rd_texture_decode_slow_tests PROPERTIES ENVIRONMENT "MHP3RD_NO_FAST_TEXTURE_DECODE=1;MHP3RD_NO_BUFFER_REUSE=1")
+    add_custom_target(mhp3rd_texture_decode_checked_tests DEPENDS mhp3rd_texture_decode_tests)
+    add_test(NAME mhp3rd_texture_decode_checked_tests COMMAND mhp3rd_texture_decode_tests)
+    set_tests_properties(mhp3rd_texture_decode_checked_tests PROPERTIES
+        ENVIRONMENT "MHP3RD_CHECK_TEXTURE_DECODE=1" TIMEOUT 30
+        FAIL_REGULAR_EXPRESSION "FAIL:;[1-9][0-9]* differed")
 endif()
 
 add_executable(mhp3rd_render_tests tests/render_tests.cpp)

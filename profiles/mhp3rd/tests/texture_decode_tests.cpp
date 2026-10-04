@@ -3,6 +3,8 @@
 #include "perf/frame_stats.hpp"
 
 #include <array>
+#include <cstdlib>
+#include <sstream>
 #include <cstdint>
 #include <iostream>
 #include <vector>
@@ -91,6 +93,35 @@ void indexed_formats() {
         memory.store16(palette + 2, 0xffff);
         memory.store16(palette + 4, 0);
         verify(memory, t, {0xffffffffu, format == 0 ? 0xff000000u : 0u});
+    }
+}
+void palette_windows() {
+    psprecomp::GuestMemory memory;
+    for (std::uint32_t format = 0; format < 4; ++format) {
+        for (std::uint32_t start : {0u, 1u})
+            for (std::uint32_t shift : {0u, 4u}) {
+                auto t = state(TextureFormat::Clut8);
+                t.clut_format = format;
+                t.clut_offset = start;
+                t.clut_shift = shift;
+                t.clut_mask = 1;
+                for (std::size_t i = 0; i < 4; ++i)
+                    memory.store8(pixels + i, std::array<std::uint8_t, 4>{0x11, 0x20, 0x30, 0x7f}[i]);
+                if (format == 3) {
+                    memory.store32(palette, 0);
+                    memory.store32(palette + 4, 0xffffffff);
+                    memory.store32(palette + 64, 0xff00ff00);
+                    memory.store32(palette + 68, 0xffff00ff);
+                } else {
+                    memory.store16(palette, 0);
+                    memory.store16(palette + 2, 0xffff);
+                    memory.store16(palette + 32, std::array<std::uint16_t, 3>{0x07e0, 0x83e0, 0xf0f0}[format]);
+                    memory.store16(palette + 34, std::array<std::uint16_t, 3>{0xf81f, 0xfc1f, 0xff0f}[format]);
+                }
+                const auto low = start ? 0xff00ff00u : format == 0 ? 0xff000000u : 0u;
+                const auto high = start ? 0xffff00ffu : 0xffffffffu;
+                verify(memory, t, {high, low, shift ? high : low, high});
+            }
     }
 }
 void rows_and_swizzle() {
@@ -208,11 +239,21 @@ void invalid_and_keys() {
 }
 }
 int main() {
+    const bool checked = std::getenv("MHP3RD_CHECK_TEXTURE_DECODE") != nullptr;
+    std::ostringstream diagnostics;
+    auto *original_output = checked ? std::cout.rdbuf(diagnostics.rdbuf()) : nullptr;
     direct_formats();
     indexed_formats();
+    palette_windows();
     rows_and_swizzle();
     compressed();
     invalid_and_keys();
+    if (checked) {
+        std::cout.rdbuf(original_output);
+        std::cout << diagnostics.str();
+        expect(diagnostics.str().find("[texture-check] 25 textures compared, 0 differed") != std::string::npos,
+            "texture diagnostic reports its real comparison batch without any pixel mismatch");
+    }
     std::cout << (failures ? "FAIL" : "PASS") << ": texture formats/snapshots/cache (" << failures << " failures)\n";
     return failures ? 1 : 0;
 }
