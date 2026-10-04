@@ -2876,6 +2876,37 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     }
     expect(logs == 2, "repeated network log saves retain both snapshots without overwriting");
 
+    page();
+    page();
+    toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
+    toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
+    for (const char *action : {"Quit game", "Set up game data again…"}) {
+        change_video(action, ImGuiKey_Space);
+        frame();
+        expect(ImGui::IsPopupOpen("##confirm", ImGuiPopupFlags_AnyPopupId),
+            "destructive system action opens a confirmation before changing lifecycle");
+        auto focus_cancel = [&] {
+            for (auto *window : ImGui::GetCurrentContext()->Windows) {
+                if (std::string(window->Name) != "##confirm") continue;
+                ImGui::FocusWindow(window);
+                ImGui::SetFocusID(window->GetID("Cancel"), window);
+                ImGui::SetNavCursorVisible(true);
+            }
+        };
+        focus_cancel();
+        frame();
+        focus_cancel();
+        frame();
+        focus_cancel();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, false);
+        frame();
+        expect(!ImGui::IsPopupOpen("##confirm", ImGuiPopupFlags_AnyPopupId) && ui::menu_over_game() &&
+                !ui::take_quit_request(),
+            "cancelling quit or setup keeps the menu and game lifecycle intact");
+    }
+
     SDL_Event escape{};
     escape.type = SDL_EVENT_KEY_DOWN;
     escape.key.windowID = SDL_GetWindowID(renderer.window());
