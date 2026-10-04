@@ -7,6 +7,8 @@
 #include "kernel/iso_image.hpp"
 #include "ui/mods_screen.hpp"
 #include "ui/texture_pack_screen.hpp"
+#include "ui/controllers_screen.hpp"
+#include "input/gamepad_devices.hpp"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -1116,6 +1118,66 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     auto captured = layer.take_captured_binding();
     expect(captured && captured->inputs[0] == input::pad(input::PadInput::South),
         "real SDL pad capture records released button");
+    auto controller_frame = [&](const char *focused = nullptr, bool back = false) {
+        SDL_UpdateJoysticks();
+        renderer.pump_events();
+        layer.begin_frame();
+        ui::begin_panel("##controller-contract", "Public controller", "", false);
+        ui::begin_content();
+        if (focused) {
+            auto *window = ImGui::GetCurrentWindow();
+            const auto focus = window->GetID(focused);
+            ImGui::FocusWindow(window);
+            ImGui::SetFocusID(focus, window);
+            ImGui::SetNavCursorVisible(true);
+        }
+        if (ui::controllers_screen_open())
+            ui::controllers_screen(back);
+        else
+            ui::controllers_rows();
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto activate = [&](const char *label) {
+        controller_frame(label);
+        controller_frame(label);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, true);
+        controller_frame(label);
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Space, false);
+        controller_frame();
+    };
+    controller_frame();
+    activate("Connected controllers");
+    expect(ui::controllers_screen_open(), "controller row opens actual connected device screen");
+    expect(SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 24000), "live controller axis changes");
+    expect(SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true), "live controller button changes");
+    controller_frame();
+    expect(input::devices::snapshot(id).axes[SDL_GAMEPAD_AXIS_LEFTX] == 24000,
+        "controller live snapshot reads actual virtual SDL axis");
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    controller_frame();
+    activate("Set up this controller again");
+    controller_frame();
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    controller_frame();
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    controller_frame();
+    // One real answer, then deliberately skip controls absent from this fixture.
+    for (int step = 1; step < 20; ++step) activate("Skip this one");
+    activate("Save and use this layout");
+    const auto info = input::devices::info(id);
+    expect(info && info->saved, "controller wizard saves actual first button answer for virtual device");
+    const auto file = input::devices::mappings_file();
+    std::ifstream mappings(file);
+    const std::string saved{std::istreambuf_iterator<char>(mappings), std::istreambuf_iterator<char>()};
+    expect(saved.find("a:b0") != std::string::npos && saved.find("Yakumo synthetic test gamepad") != std::string::npos,
+        "saved SDL mapping contains exact virtual device name and recorded bottom button");
+    controller_frame(nullptr, true);
+    expect(!ui::controllers_screen_open(), "back closes controller screen after successful wizard");
     ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
     SDL_CloseGamepad(pad);
     expect(SDL_DetachVirtualJoystick(id), "virtual test device detaches");
