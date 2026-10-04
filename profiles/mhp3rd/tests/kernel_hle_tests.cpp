@@ -1055,8 +1055,8 @@ void system_contracts() {
              "sceKernelDcacheInvalidateRange", "sceKernelDcacheWritebackRange", "sceKernelSetGPO",
              "sceKernelIcacheInvalidateAll", "sceKernelIcacheInvalidateRange"})
         check(f.call("UtilsForUser", name) == 0, "cache maintenance completes on public host");
-    check(f.call("UtilsForUser", "sceKernelLibcTime", {Fixture::output}) == f.runtime.memory().load32(Fixture::output),
-        "libc time return and output agree");
+    const auto seconds = f.call("UtilsForUser", "sceKernelLibcTime", {Fixture::output});
+    check(seconds == f.runtime.memory().load32(Fixture::output), "libc time return and output agree");
     check(f.call("UtilsForUser", "sceKernelLibcTime") != 0, "libc time accepts optional output");
     check(f.call("UtilsForUser", "sceKernelLibcGettimeofday", {Fixture::output, Fixture::output + 16}) == 0,
         "gettimeofday writes guest clock and timezone");

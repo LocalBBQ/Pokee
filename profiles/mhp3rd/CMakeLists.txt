@@ -337,11 +337,11 @@ if(MHP3RD_CAMERA_HELPER_UNIT)
         MHP3RD_CAMERA_HELPER_UNIT=${MHP3RD_CAMERA_HELPER_UNIT})
 endif()
 if(MHP3RD_HUD_INC)
-    set_property(SOURCE host/gpu/game_hud.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    target_compile_definitions(Yakumo PRIVATE
         "MHP3RD_HUD_FUNCTIONS_INC=\"${MHP3RD_HUD_INC}\"")
 endif()
 if(MHP3RD_LAYERED_INC)
-    set_property(SOURCE host/game/layered_armor_hook.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    target_compile_definitions(Yakumo PRIVATE
         "MHP3RD_LAYERED_FUNCTIONS_INC=\"${MHP3RD_LAYERED_INC}\"")
 endif()
 # The NID table is compiled in, so the program reads nothing from the checkout
