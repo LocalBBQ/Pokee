@@ -21,6 +21,7 @@
 #include <sstream>
 #include "hle/hle_common.hpp"
 #include "audio/audio_sink.hpp"
+#include "adhoc/client.hpp"
 #include "settings/settings.hpp"
 #include "ui/layer.hpp"
 #include "ui/text_input.hpp"
@@ -2843,6 +2844,37 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     toggle_setting("Hide the HUD while flying", &settings::Settings::free_camera_hide_hud);
     change_video("Free camera", ImGuiKey_Space);
     expect(!settings::current().free_camera, "experimental free-camera setting restores disabled mode");
+
+    page();
+    const bool original_tracing = adhoc::Client::tracing();
+    change_video("Log every call and packet", ImGuiKey_Space);
+    expect(adhoc::Client::tracing() != original_tracing, "network menu enables actual diagnostic tracing");
+    change_video("Log every call and packet", ImGuiKey_Space);
+    expect(adhoc::Client::tracing() == original_tracing, "network menu restores diagnostic tracing");
+    const auto log_directory = install::user_data_directory() / "logs";
+    std::filesystem::remove_all(log_directory);
+    {
+        std::ofstream blocked(log_directory);
+        blocked << "Not a directory";
+    }
+    change_video("Save network log", ImGuiKey_Space);
+    expect(std::filesystem::is_regular_file(log_directory), "network log failure preserves the blocking file");
+    std::filesystem::remove(log_directory);
+    adhoc::Client::log("Public synthetic diagnostic marker", false);
+    for (int attempt = 0; attempt < 2; ++attempt) change_video("Save network log", ImGuiKey_Space);
+    std::size_t logs = 0;
+    if (std::filesystem::is_directory(log_directory)) {
+        for (const auto &entry : std::filesystem::directory_iterator(log_directory)) {
+            std::ifstream input(entry.path());
+            const std::string contents{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+            expect(contents.find("Yakumo ad hoc log") != std::string::npos &&
+                    contents.find("state: off") != std::string::npos &&
+                    contents.find("Public synthetic diagnostic marker") != std::string::npos,
+                "network menu saves real diagnostics and buffered messages");
+            ++logs;
+        }
+    }
+    expect(logs == 2, "repeated network log saves retain both snapshots without overwriting");
 
     SDL_Event escape{};
     escape.type = SDL_EVENT_KEY_DOWN;
