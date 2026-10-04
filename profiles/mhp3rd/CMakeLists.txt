@@ -1016,6 +1016,12 @@ if(MHP3RD_RENDERER_TESTS)
         set_tests_properties(mhp3rd_renderer_ui_compat_tests PROPERTIES
             TIMEOUT 90
             ENVIRONMENT "MHP3RD_GPU_COMPAT=on")
+        # Documented rollback paths must preserve the same independent pixel contracts.
+        add_custom_target(mhp3rd_renderer_ui_legacy_tests DEPENDS mhp3rd_renderer_ui_tests)
+        add_test(NAME mhp3rd_renderer_ui_legacy_tests COMMAND mhp3rd_renderer_ui_tests)
+        set_tests_properties(mhp3rd_renderer_ui_legacy_tests PROPERTIES
+            TIMEOUT 90
+            ENVIRONMENT "MHP3RD_NO_DIRECT_VERTICES=1;MHP3RD_NO_LOOKUP_CACHE=1;MHP3RD_NO_BUFFER_REUSE=1;MHP3RD_NO_DRAW_MERGE=1;MHP3RD_NO_FAST_STORE=1;MHP3RD_NO_ALPHA_VARIANTS=1;MHP3RD_NO_CLEAR_LOAD=1;MHP3RD_SYNC_UPLOADS=1;MHP3RD_SYNC_TEXTURE_DECODE=1")
         # The same public buffers also check shader decode and direct index expansion
         # against independently specified host vertices in the diagnostic paths.
         add_custom_target(mhp3rd_renderer_ui_checked_tests DEPENDS mhp3rd_renderer_ui_tests)
