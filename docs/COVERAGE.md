@@ -59,11 +59,11 @@ and exports LCOV for the diff check.
 
 Coverage CI compiles the application with the Vulkan renderer and system
 FFmpeg enabled, including their first-party source mappings even where the
-tests do not yet execute those paths. It builds the same pinned SDL source
+tests execute synthetic Vulkan/SDL/ImGui contracts alongside headless suites. It builds the same pinned SDL source
 used by the Java suite; vendor SDL/FFmpeg code is excluded from the first-party
 report. Requested renderer coverage fails configuration if its dependencies
 are missing instead of silently reducing the denominator. Locally, use
-`make project-coverage CMAKE_ARGS="-DMHP3RD_RENDERER=ON -DMHP3RD_FFMPEG=system"`
+`make project-coverage CMAKE_ARGS="-DMHP3RD_RENDERER=ON -DMHP3RD_FFMPEG=system -DMHP3RD_RENDERER_TESTS=ON"`
 after installing the public dependencies. The default local command remains
 headless so it can run without them.
 
@@ -140,3 +140,26 @@ and configuration when assessing changes.
 
 See [TESTING.md](TESTING.md) for existing public checks and manual smoke tests,
 and [CONTRIBUTING.md](../CONTRIBUTING.md#testing-changes) for contributor rules.
+
+## Expanded synthetic contracts
+
+The public test aggregate includes kernel/HLE and media contracts plus reusable
+runtime, memory, interpreter, ELF and recompiler workflows. The renderer/UI
+suite is opt-in with `MHP3RD_RENDERER_TESTS=ON` and uses real SDL, Vulkan and
+ImGui with independently constructed pixels, archives and temporary settings.
+It exercises default, checked, conservative and documented rollback paths,
+scripted input, UI restart and a bounded texture cache. Checked replay requires
+an actual zero-difference pixel report; diagnostic mismatches fail the test.
+
+Linux coverage uses Xvfb and Mesa software Vulkan, the pinned SDL dependency
+with X11 support, and an installed system font. This complements physical GPU
+and gameplay testing; it does not establish Windows/Android rendering coverage
+or device-loss recovery. Preserve those gaps in the report. Audio, camera and
+media results must be combined with their other suites rather than quoting one
+executable's subset as the module total.
+
+Set `PSPRECOMP_TEST_RECOMP` to the built public `psp_recomp` executable before
+Python collection to run the real synthetic overlay-generation workflow.
+This generates public fixture code without rebuilding game overlays. Android's
+native runner preserves CTest variant arguments and environment assignments,
+including guest-memory write-watch contracts sharing one executable.

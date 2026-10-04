@@ -33,7 +33,7 @@ jobs:
       - name: Install versioned coverage toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends clang-18 llvm-18 libclang-rt-18-dev ninja-build glslang-tools libvulkan-dev libavcodec-dev libavutil-dev pkg-config mesa-vulkan-drivers xvfb xauth libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev
+          sudo apt-get install --no-install-recommends clang-18 llvm-18 libclang-rt-18-dev ninja-build glslang-tools libvulkan-dev libavcodec-dev libavutil-dev pkg-config mesa-vulkan-drivers fonts-dejavu-core xvfb xauth libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev
       - name: Install pinned Python coverage collector
         run: make coverage-tools
       - name: Set up Java for Android contract tests
@@ -71,6 +71,13 @@ jobs:
             exit 1
           fi
           export VK_DRIVER_FILES="${drivers[0]}"
+          cmake -S . -B out/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-18 -DPSPRECOMP_COVERAGE=ON \
+            -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON \
+            -DMHP3RD_RENDERER=ON -DMHP3RD_FFMPEG=system -DMHP3RD_RENDERER_TESTS=ON \
+            -DCMAKE_PREFIX_PATH="$PWD/out/coverage-sdl/install"
+          cmake --build out/coverage --target psp_recomp --parallel 2
+          export PSPRECOMP_TEST_RECOMP="$PWD/out/coverage/psp_recomp"
           xvfb-run -a make project-coverage \
             CMAKE_ARGS="-DMHP3RD_RENDERER=ON -DMHP3RD_FFMPEG=system \
             -DMHP3RD_RENDERER_TESTS=ON -DCMAKE_PREFIX_PATH=$PWD/out/coverage-sdl/install"

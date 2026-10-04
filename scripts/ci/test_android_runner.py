@@ -94,7 +94,8 @@ class AndroidRunnerTests(unittest.TestCase):
     def test_empty_or_unsafe_registration_fails_before_any_adb_call(self):
         cases = [[], [self.tests[0], self.tests[0]],
                  [{'name': '../unsafe', 'command': self.tests[0]['command']}],
-                 [{'name': 'other_tests', 'command': self.tests[0]['command']}]]
+                 [{'name': 'other_tests', 'command': self.tests[0]['command'],
+                   'properties': [{'name': 'ENVIRONMENT', 'value': ['bad-name=value']}]}]]
         outside = self.root / 'outside_tests'
         outside.write_bytes(b'outside build')
         cases.append([{'name': 'outside_tests', 'command': [str(outside)]}])
@@ -104,6 +105,21 @@ class AndroidRunnerTests(unittest.TestCase):
             with self.subTest(tests=tests), self.assertRaises((ValueError, RuntimeError)):
                 self.run_suite(tests)
             self.assertFalse(self.calls.exists(), 'Invalid input must not touch the device')
+
+    def test_shared_binary_variant_preserves_arguments_and_environment(self):
+        variant = {'name': 'memory_watch_contracts',
+                   'command': [str(self.build / 'passing_tests'), '--memory-watch'],
+                   'properties': [{'name': 'ENVIRONMENT',
+                                   'value': ['PSPRECOMP_WATCH_WRITE=0x08804000',
+                                             "FIXTURE_VALUE=space and 'quote'"]}]}
+        self.assertEqual(self.run_suite([variant]), 0)
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        command = next(call[1] for call in calls if call[0] == 'shell' and 'timeout 120' in call[1])
+        self.assertIn('env PSPRECOMP_WATCH_WRITE=0x08804000', command)
+        self.assertIn('/passing_tests --memory-watch', command)
+        self.assertIn("'FIXTURE_VALUE=space and '\"'\"'quote'\"'\"''", command)
+        self.assertEqual(ET.parse(self.build / 'android-results/test-results.xml')
+                         .find('testcase').attrib['name'], 'memory_watch_contracts')
 
     def test_runtime_library_must_have_the_ndk_name(self):
         wrong = self.root / 'unexpected.so'

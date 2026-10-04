@@ -33,8 +33,17 @@ def main():
         binary = Path(test["command"][0]).resolve(strict=True)
         if not re.fullmatch(r"[A-Za-z0-9_]+", name) or name in names:
             raise ValueError("CTest names must be unique identifiers")
-        if not binary.is_relative_to(build) or not binary.is_file() or binary.name != name:
-            raise ValueError("CTest executables must match their names and belong to the build directory")
+        if not binary.is_relative_to(build) or not binary.is_file() or not re.fullmatch(r"[A-Za-z0-9_]+", binary.name):
+            raise ValueError("CTest executables must have safe names and belong to the build directory")
+        environment = []
+        for prop in test.get("properties", []):
+            if prop["name"] == "ENVIRONMENT":
+                for assignment in prop["value"]:
+                    key, separator, _ = assignment.partition("=")
+                    if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                        raise ValueError("Invalid CTest environment assignment")
+                    environment.append(assignment)
+        test["remote_environment"] = environment
         names.add(name)
         binaries.add(binary)
     remote = "/data/local/tmp/yakumo-unit-tests"
@@ -55,7 +64,7 @@ def main():
             command = [remote + "/" + Path(test["command"][0]).name, *test["command"][1:]]
             shell = (f"cd {remote} && export LD_LIBRARY_PATH={remote} TMPDIR={remote}/tmp "
                      f"HOME={remote}/home PSPRECOMP_CODEGEN_PATH={remote}/psp_recomp && "
-                     "timeout 120 " + shlex.join(command))
+                     "timeout 120 " + shlex.join(["env", *test["remote_environment"], *command]))
             start = time.monotonic()
             try:
                 result = subprocess.run(["adb", "shell", shell], capture_output=True,
