@@ -467,6 +467,26 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff2255cc, "raw PSP vertices decode color and float positions on the GPU");
+    renderer.set_frame_rate_auto(false);
+    renderer.set_frame_rate(settings::FrameRate::Fps60);
+    int raw_deferred{};
+    for (int frame = 0; frame < 8; ++frame) {
+        draw.world[12] = static_cast<float>(frame) * 0.003f;
+        draw.lighting_enabled = frame >= 4;
+        const auto moment = std::chrono::steady_clock::now();
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        if (!renderer.present(0x04000000, moment)) ++raw_deferred;
+        renderer.present_until(moment + std::chrono::milliseconds(33));
+    }
+    expect(raw_deferred == 8 && pixel() == 0xff2255cc,
+        "raw vertex replay schedules all frames and preserves decoded lit color");
+    renderer.pause_interpolation();
+    renderer.set_frame_rate(settings::FrameRate::Fps30);
+    renderer.set_frame_rate_auto(true);
+    draw.world[12] = 0;
+    draw.lighting_enabled = false;
     draw.raw_vertices = nullptr;
     draw.raw_count = draw.raw_stride = 0;
     draw.through = true;
