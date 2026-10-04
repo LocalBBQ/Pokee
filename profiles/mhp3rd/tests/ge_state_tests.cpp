@@ -132,7 +132,7 @@ void bounded_list_and_offset_contracts() {
     DrawCall result;
     state.set_draw_sink([&](const DrawCall &draw) { result = draw; });
     execute(state, memory,
-        {command(0x10, 0x080000), command(0x13, 0x40), command(0x12, 3u << 7),
+        {command(0x10, 0x080000), command(0x13, 0x40), command(0x00), command(0xcb), command(0x12, 3u << 7),
             command(1, (vertices - 0x4000) & 0xffffff), command(4, 1)});
     expect(result.vertices.size() == 1 && result.vertices[0].position == std::array<float, 4>{10, 20, 30, 1},
         "OFFSET_ADDR adds to BASE when resolving actual vertex memory");

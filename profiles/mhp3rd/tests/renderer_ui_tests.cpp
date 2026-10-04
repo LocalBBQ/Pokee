@@ -1,6 +1,7 @@
 // Real Vulkan/SDL/ImGui contracts with public synthetic buffers, no game data.
 #include "gpu/vulkan_renderer.hpp"
 #include "gpu/screenshot.hpp"
+#include "gpu/texture_pack.hpp"
 #include "camera_probe.hpp"
 #include "camera/free_camera.hpp"
 #include "game/equipment_models.hpp"
@@ -1509,6 +1510,101 @@ void save_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
     layer.set_interactive(false);
 }
 
+void tall_texture_pack_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &pack) {
+    psprecomp::GuestMemory memory;
+    gpu::DrawCall clear{};
+    clear.primitive = gpu::PrimitiveType::Sprites;
+    clear.through = true;
+    clear.clear_mode = true;
+    clear.clear_flags = 7;
+    clear.has_vertex_color = true;
+    clear.target.color_address = 0x04000000;
+    clear.target.color_stride = 512;
+    clear.target.color_format = 3;
+    clear.target.depth_address = 0x04088000;
+    gpu::Vertex low{}, high{};
+    low.position = {0, 0, 0, 1};
+    high.position = {480, 272, 65535, 1};
+    low.color = high.color = 0xff000000;
+    clear.vertices = {low, high};
+    auto draw = clear;
+    draw.clear_mode = false;
+    draw.texture.enabled = true;
+    draw.texture.address = 0x08040000;
+    draw.texture.buffer_width = draw.texture.width = 4;
+    draw.texture.height = 512;
+    draw.texture.format = gpu::TextureFormat::Rgba8888;
+    draw.texture.function = 3; // Replace, independently observable RGBA texels.
+    for (unsigned y = 0; y < 512; ++y)
+        for (unsigned x = 0; x < 4; ++x)
+            memory.store32(draw.texture.address + (y * 4 + x) * 4, y < 272 ? 0xffff00ff : 0xffffff00);
+    gpu::TexturePackOptions options;
+    gpu::TexturePackKey upper{}, whole{};
+    std::uint32_t width{}, height{};
+    expect(gpu::compute_texture_pack_key(memory, draw.texture, 272, options, upper, width, height) &&
+            gpu::compute_texture_pack_key(memory, draw.texture, 512, options, whole, width, height) &&
+            !(upper == whole),
+        "public tall texture fixture has distinct top-272 and complete hashes");
+    std::ofstream(pack / "textures.ini") << "[games]\nNPJB40001 = true\n[options]\nhash = xxh64\n[hashes]\n"
+                                         << gpu::format_texture_pack_key(upper) << " = red.png\n";
+    renderer.reload_texture_pack();
+    auto picture = [&] {
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        std::vector<std::uint8_t> pixels;
+        std::uint32_t w{}, h{};
+        if (!renderer.read_frame(pixels, w, h) || pixels.size() < (h / 2 * w + w / 2) * 4 + 4) return 0u;
+        const auto at = (h / 2 * w + w / 2) * 4;
+        return std::uint32_t(pixels[at]) | std::uint32_t(pixels[at + 1]) << 8 | std::uint32_t(pixels[at + 2]) << 16 |
+            std::uint32_t(pixels[at + 3]) << 24;
+    };
+    auto through = [&](float max_v) {
+        draw.through = true;
+        draw.primitive = gpu::PrimitiveType::Sprites;
+        low.position = {50, 50, 0, 1};
+        high.position = {430, 230, 0, 1};
+        low.color = high.color = 0xffffffff;
+        low.texcoord = {0, 0};
+        high.texcoord = {4, max_v};
+        draw.vertices = {low, high};
+    };
+    through(100);
+    unsigned color = 0;
+    for (int wait = 0; wait < 60 && color != 0xff0000ff; ++wait) {
+        color = picture();
+        SDL_Delay(5);
+    }
+    expect(color == 0xff0000ff, "initial through draw hashes at least 272 rows and loads its red replacement");
+    through(200);
+    expect(picture() == 0xff0000ff, "a smaller cached V extent retains the top-row replacement");
+    through(400);
+    expect(picture() == 0xffff00ff, "growing cached V extent rehashes all 512 rows and restores original magenta");
+    through(200);
+    expect(picture() == 0xffff00ff, "a later smaller draw keeps the complete-height cache identity");
+    renderer.reload_texture_pack();
+    for (int wait = 0; wait < 60 && picture() != 0xff0000ff; ++wait) SDL_Delay(5);
+    expect(picture() == 0xff0000ff, "pack reload resets seen-height tracking and reselects the top-row image");
+    draw.through = false;
+    draw.primitive = gpu::PrimitiveType::Triangles;
+    low.position = {-0.8f, -0.8f, 0, 1};
+    high.position = {0.8f, -0.8f, 0, 1};
+    auto top = low;
+    top.position = {0, 0.8f, 0, 1};
+    top.texcoord = {2, 100};
+    draw.vertices = {low, high, top};
+    for (auto matrix : {&draw.world, &draw.view, &draw.projection, &draw.texture_matrix}) {
+        matrix->fill(0);
+        (*matrix)[0] = (*matrix)[5] = (*matrix)[10] = (*matrix)[15] = 1;
+    }
+    draw.viewport.x_scale = 240;
+    draw.viewport.y_scale = -136;
+    draw.viewport.x_offset = 240;
+    draw.viewport.y_offset = 136;
+    expect(picture() == 0xffff00ff, "transformed draw treats a tall texture as complete regardless of its UV maximum");
+}
+
 void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
     const auto pack = sandbox / "PublicTextures";
     std::filesystem::create_directories(pack);
@@ -1611,6 +1707,8 @@ void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::fil
         "in-place import selects source without changing installed copy");
     expect(std::filesystem::is_regular_file(sandbox / "textures" / "NPJB40001" / "red.png"),
         "in-place import preserves installed PNG");
+    expect(renderer.texture_pack_folder() == pack.string(), "renderer reports the actual in-place pack source");
+    tall_texture_pack_contracts(renderer, pack);
     frame(true);
 
     choose(pack, "Copy and replace");
@@ -2535,6 +2633,19 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button)
         SDL_SetJoystickVirtualButton(joystick, button, false);
     sample();
+    player.controls.keys[static_cast<int>(input::Action::FrameStep)][0].inputs[0] = input::key(SDL_SCANCODE_F13);
+    renderer.set_scripted_key(SDL_SCANCODE_F13, true);
+    sample();
+    expect(renderer.frame_step_held(), "frame-step binding becomes held while game input is enabled");
+    sample();
+    expect(renderer.frame_step_held(), "frame step remains held across subsequent samples");
+    renderer.set_game_input(false);
+    sample();
+    expect(!renderer.frame_step_held(), "disabled game input gates a physically held frame-step binding");
+    renderer.set_game_input(true);
+    renderer.set_scripted_key(SDL_SCANCODE_F13, false);
+    sample();
+    expect(!renderer.frame_step_held(), "releasing frame-step restores the unheld state");
     SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
     expect((sample().buttons & 0x1000) != 0, "physical virtual South button drives exact custom PSP Triangle bit");
     player.confirm_south = true;
@@ -3838,8 +3949,8 @@ int run_contracts(int scripts) {
     widget_and_browser_contracts(renderer, sandbox);
     file_browser_boundary_contracts(renderer, sandbox);
     focused_widget_contracts(renderer);
-    menu_contracts(renderer);
     font_menu_contracts(renderer, sandbox);
+    menu_contracts(renderer);
     setup_screen_contracts(renderer, sandbox);
     texture_pack_screen_contracts(renderer, sandbox);
     save_screen_contracts(renderer, sandbox);
@@ -3866,7 +3977,18 @@ int run_contracts(int scripts) {
 
 int main(int argc, char **argv) {
     try {
-        return run_contracts(argc > 1 ? (std::string_view(argv[1]) == "--input-script" ? 1 : 2) : 0);
+        int mode = 0;
+        if (argc > 1) {
+            if (std::string_view(argv[1]) == "--input-script")
+                mode = 1;
+            else if (std::string_view(argv[1]) == "--input-script-static")
+                mode = 2;
+            else {
+                std::cerr << "FAIL: unknown test mode\n";
+                return 2;
+            }
+        }
+        return run_contracts(mode);
     } catch (const std::exception &error) {
         std::cerr << "FAIL: test fixture exception: " << error.what() << '\n';
         return 1;
