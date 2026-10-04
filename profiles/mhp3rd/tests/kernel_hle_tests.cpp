@@ -1,6 +1,7 @@
 #include "hle/hle_common.hpp"
 #include "adhoc/client.hpp"
 #include "adhoc/server.hpp"
+#include "adhoc/session.hpp"
 #include "adhoc/sockets.hpp"
 #include "settings/settings.hpp"
 #include "fonts/game_font.hpp"
@@ -1001,6 +1002,53 @@ void network_contracts() {
         "unsupported action still shuts down cleanly");
     settings.adhoc = false;
 }
+void hosting_contracts() {
+    using namespace mhp3rd;
+    using namespace mhp3rd::adhoc;
+    struct Cleanup {
+        ~Cleanup() { adhoc_shutdown(); }
+    } cleanup;
+    auto &settings = settings::current();
+    settings.adhoc = false;
+    settings.adhoc_server = "127.0.0.1:1";
+    settings.adhoc_recent = {"127.0.0.1:2", "127.0.0.1:3", "127.0.0.1:4", "127.0.0.1:5", "127.0.0.1:6"};
+    check(!adhoc_hosting() && adhoc_server_address() == settings.adhoc_server,
+        "non-hosting session uses configured server address");
+    Server occupied;
+    unsigned port = 0;
+    for (unsigned candidate = 37612; candidate < 37700; candidate += 2)
+        if (occupied.start(ServerConfig{static_cast<std::uint16_t>(candidate), false})) {
+            port = candidate;
+            break;
+        }
+    check(port != 0, "hosting fixture reserves a port pair");
+    settings.adhoc_host_port = static_cast<int>(port);
+    check(!adhoc_host_start() && !adhoc_hosting() && !adhoc_host_error().empty(),
+        "busy host port reports failure without marking session hosted");
+    occupied.stop();
+    check(adhoc_host_start() && adhoc_hosting() && settings.adhoc && adhoc_host_error().empty(),
+        "hosting enables network and clears previous startup error");
+    check(adhoc_host_status().running && adhoc_host_status().adhocctl_port == port &&
+            adhoc_server_address() == "127.0.0.1:" + std::to_string(port) && adhoc_host_start(),
+        "hosting status and loopback address agree and repeated start is idempotent");
+    adhoc_join("");
+    check(adhoc_hosting(), "empty join does not interrupt hosted session");
+    const auto address = "127.0.0.1:" + std::to_string(port);
+    adhoc_join(address);
+    check(!adhoc_hosting() && settings.adhoc_server == address && settings.adhoc_recent.size() == 5 &&
+            settings.adhoc_recent.front() == address,
+        "join stops hosting, updates destination and caps recent addresses");
+    adhoc_join(address);
+    check(settings.adhoc_recent.size() == 5 &&
+            std::count(settings.adhoc_recent.begin(), settings.adhoc_recent.end(), address) == 1,
+        "repeated join moves an existing address without duplicates");
+    adhoc_host_stop();
+    check(!adhoc_hosting(), "stopping inactive host is idempotent");
+    check(adhoc_host_start(), "stopped host can restart");
+    adhoc_host_stop();
+    check(!adhoc_hosting() && !adhoc_host_status().running && adhoc_server_address() == address,
+        "stop clears hosted state and restores configured destination");
+}
 void system_contracts() {
     Fixture f;
     for (const auto *name : {"sceKernelDcacheWritebackAll", "sceKernelDcacheWritebackInvalidateAll",
@@ -1486,6 +1534,7 @@ int main() {
         scheduler_deadlock_contracts();
         utility_and_savedata_contracts();
         font_contracts();
+        hosting_contracts();
         std::cout << "kernel/HLE contracts passed\n";
         return 0;
     } catch (const std::exception &error) {
