@@ -545,6 +545,27 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff11cc77, "rewriting texture bytes invalidates cache on next display list");
+    // Sample an offscreen framebuffer as a texture before its bytes reach RAM.
+    clear.vertices[0].color = clear.vertices[1].color = 0xffff00ff;
+    draw.target.color_address = 0x04110000;
+    draw.target.depth_address = 0x04198000;
+    draw.vertices[0].position = {50, 50, 0, 1};
+    draw.vertices[1].position = {430, 230, 0, 1};
+    draw.vertices[0].texcoord = {0, 0};
+    draw.vertices[1].texcoord = {480, 272};
+    draw.texture.address = clear.target.color_address;
+    draw.texture.buffer_width = 512;
+    draw.texture.width = 480;
+    draw.texture.height = 272;
+    renderer.begin_frame();
+    renderer.begin_display_list();
+    renderer.submit(clear, memory);
+    renderer.submit(draw, memory);
+    renderer.present(draw.target.color_address);
+    expect(pixel() == 0xffff00ff, "framebuffer texture copies freshly rendered source before guest RAM writeback");
+    renderer.read_back_framebuffer(draw.target.color_address, memory);
+    expect(memory.load32(draw.target.color_address + (150 * 512 + 240) * 4) == 0xffff00ff,
+        "sampled framebuffer readback stores exact rendered color at guest stride");
 }
 
 class MediaFixture {
