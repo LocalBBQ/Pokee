@@ -505,6 +505,39 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     }
     draw.depth.test_enabled = false;
 
+    draw.fog.enabled = true;
+    draw.fog.scale = 1;
+    draw.fog.color = 0x000000ff;
+    for (const float fog_end : {0.0f, 0.5f, 1.0f}) {
+        draw.fog.end = fog_end;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        const auto color = pixel();
+        const int red = static_cast<int>(255 * (1 - fog_end) + 204 * fog_end);
+        const int green = static_cast<int>(85 * fog_end);
+        const int blue = static_cast<int>(34 * fog_end);
+        expect(std::abs(static_cast<int>(color & 255) - red) <= 1 &&
+                std::abs(static_cast<int>((color >> 8) & 255) - green) <= 1 &&
+                std::abs(static_cast<int>((color >> 16) & 255) - blue) <= 1,
+            "view-distance fog independently mixes red fog with triangle color at both boundaries and midpoint");
+    }
+    draw.fog.enabled = false;
+    draw.culling_enabled = true;
+    std::array<std::uint32_t, 2> culled{};
+    for (int winding = 0; winding < 2; ++winding) {
+        draw.cull_clockwise = winding != 0;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        culled[winding] = pixel() & 0xffffff;
+    }
+    expect((culled[0] == 0 && culled[1] == 0x2255cc) || (culled[0] == 0x2255cc && culled[1] == 0),
+        "opposite cull winding admits exactly one orientation of the same transformed triangle");
+    draw.culling_enabled = false;
+
     // Feed the PSP byte layout directly to the shader vertex decoder.
     std::array<std::uint32_t, 12> raw{};
     const std::array<std::array<float, 3>, 3> positions{{{-0.8f, -0.8f, -1}, {0.8f, -0.8f, -1}, {0, 0.8f, -1}}};
