@@ -297,7 +297,8 @@ void discovery(std::uint16_t port) {
     discovery.start_listening();
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     std::string packet = answer;
-    packet[12] = '\x55'; // another session than this process's own
+    // Flip a bit so the peer session always differs from our random session.
+    packet[12] = static_cast<char>(static_cast<unsigned char>(packet[12]) ^ 0x02u);
     packet.replace(26, 32, std::string("Other host") + std::string(22, '\0'));
     const Address listener = Address::ipv4_address(htonl(INADDR_LOOPBACK), kDiscoveryPort);
     bool found = false;
