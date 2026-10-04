@@ -87,6 +87,19 @@ void render_contracts(gpu::VulkanRenderer &renderer) {
     renderer.read_back_framebuffer(framebuffer, memory);
     expect(memory.load32(framebuffer) == 0xff3366cc, "GE block transfer source sees GPU framebuffer contents");
     renderer.present(framebuffer);
+    const std::array<std::uint32_t, 4> packed_magenta{0xf81f, 0xfc1f, 0xff0f, 0xffff00ff};
+    for (std::uint32_t format = 0; format < packed_magenta.size(); ++format) {
+        clear.target.color_format = format;
+        for (auto &v : clear.vertices) v.color = 0xffff00ff;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        expect(renderer.present(framebuffer), "each PSP framebuffer format presents");
+        renderer.read_back_framebuffer(framebuffer, memory);
+        const auto actual = format == 3 ? memory.load32(framebuffer) : memory.load16(framebuffer);
+        expect(actual == packed_magenta[format], "framebuffer readback packs 5650/5551/4444/8888 exactly");
+        renderer.present(framebuffer);
+    }
+    clear.target.color_format = 3;
     renderer.set_internal_scale(2);
     renderer.begin_frame();
     renderer.present(framebuffer);
@@ -241,6 +254,44 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         renderer.present(0x04000000);
         expect(pixel() == 0xff2255cc, "through primitive expansion renders specified color at interior pixel");
     }
+    // Alpha-test equality boundaries are observable as an exact pixel or
+    // untouched clear color, independent of the GPU's framebuffer alpha mode.
+    for (auto &v : draw.vertices) v.color = 0x802255cc;
+    draw.alpha_test.enabled = true;
+    draw.alpha_test.reference = 128;
+    const std::array<bool, 8> accepted{true, false, true, false, false, true, false, true};
+    for (std::uint32_t function = 0; function < accepted.size(); ++function) {
+        draw.alpha_test.function = function;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect((pixel() & 0xffffff) == (accepted[function] ? 0x2255ccu : 0u),
+            "alpha comparison accepts or discards equal-reference fragment");
+    }
+    draw.alpha_test.enabled = false;
+    for (auto &v : draw.vertices) v.color = 0xff2255cc;
+    draw.blend.enabled = true;
+    draw.blend.source_factor = draw.blend.destination_factor = 10;
+    draw.blend.fixed_source = draw.blend.fixed_destination = 0xffffff;
+    const std::array<std::uint32_t, 5> blended{0x2255cc, 0x2255cc, 0, 0, 0x2255cc};
+    for (std::uint32_t equation = 0; equation < blended.size(); ++equation) {
+        draw.blend.equation = equation;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect((pixel() & 0xffffff) == blended[equation],
+            "blend add/subtract/reverse/min/max preserve specified operands");
+    }
+    draw.blend.enabled = false;
+    draw.viewport.scissor_x2 = 200;
+    renderer.begin_frame();
+    renderer.submit(clear, memory);
+    renderer.submit(draw, memory);
+    renderer.present(0x04000000);
+    expect((pixel() & 0xffffff) == 0, "scissor boundary excludes interior sample outside the allowed region");
+    draw.viewport.scissor_x2 = 479;
     draw.primitive = gpu::PrimitiveType::Triangles;
     draw.through = false;
     draw.vertices = {vertex(-0.8f, -0.8f), vertex(0.8f, -0.8f), vertex(0, 0.8f)};
@@ -257,6 +308,18 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     expect(pixel() == 0xff2255cc, "transformed triangle uses matrices and PSP viewport");
+    draw.depth.test_enabled = true;
+    for (std::uint32_t function : {0u, 1u}) {
+        draw.depth.function = function;
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        renderer.present(0x04000000);
+        expect(
+            (pixel() & 0xffffff) == (function == 1 ? 0x2255ccu : 0u), "depth never/always governs fragment visibility");
+    }
+    draw.depth.test_enabled = false;
+
     // Feed the PSP byte layout directly to the shader vertex decoder.
     std::array<std::uint32_t, 12> raw{};
     const std::array<std::array<float, 3>, 3> positions{{{-0.8f, -0.8f, 0}, {0.8f, -0.8f, 0}, {0, 0.8f, 0}}};
