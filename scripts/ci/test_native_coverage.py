@@ -29,11 +29,11 @@ class CoveragePolicyTests(unittest.TestCase):
 
     def test_only_production_sources(self):
         for path in ('src/runtime.cpp', 'include/psprecomp/guest_memory.hpp',
-                     'profiles/mhp3rd/host/kernel/kernel.cpp'):
+                     'profiles/mhfu/host/kernel/kernel.cpp'):
             self.assertTrue(production_source(path), path)
-        for path in ('tests/test_main.cpp', 'profiles/mhp3rd/tests/input_tests.cpp',
-                     'profiles/mhp3rd/generated/generated.cpp',
-                     'profiles/mhp3rd/host/third_party/imgui/imgui.cpp',
+        for path in ('tests/test_main.cpp', 'profiles/mhfu/tests/input_tests.cpp',
+                     'profiles/mhfu/generated/generated.cpp',
+                     'profiles/mhfu/host/third_party/imgui/imgui.cpp',
                      'src/generated/example.cpp', 'scripts/ci/native_coverage.py',
                      '/tmp/src/runtime.cpp', 'src/runtime.cpp.bak'):
             self.assertFalse(production_source(path), path)

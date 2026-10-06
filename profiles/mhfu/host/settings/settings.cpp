@@ -288,6 +288,15 @@ const std::vector<Field> &fields() {
             [](Settings &s, const char *t) {
                 if (!kUiTextures.parse(t, s.ui_textures)) s.ui_textures = UiTextures::Off;
             }},
+        {"video.map_item_scale", "MHFU_MAP_ITEM_SCALE",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.map_item_scale);
+            },
+            [](const Settings &s) { return std::to_string(s.map_item_scale); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.map_item_scale;
+                if (parse_uint(t, kMinMapItemScale, kMaxMapItemScale, value)) s.map_item_scale = value;
+            }},
         {"text.weight", nullptr,
             [](Settings &s, const std::string &t) { return parse_uint(t, 0u, kMaxFontWeight, s.font_weight); },
             [](const Settings &s) { return std::to_string(s.font_weight); }, nullptr},
@@ -463,6 +472,14 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.menu_pause_multiplayer); },
             [](const Settings &s) { return std::string(s.menu_pause_multiplayer ? "1" : "0"); },
             [](Settings &s, const char *t) { s.menu_pause_multiplayer = variable_flag(t); }},
+        {"game.display_without_coefficient", "MHFU_DISPLAY_WITHOUT_COEFFICIENT",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.comparable_weapons); },
+            [](const Settings &s) { return std::string(s.comparable_weapons ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.comparable_weapons = variable_flag(t); }},
+        {"game.damage_numbers", "MHFU_DAMAGE_NUMBERS",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_numbers); },
+            [](const Settings &s) { return std::string(s.damage_numbers ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.damage_numbers = variable_flag(t); }},
         {"network.recent", nullptr,
             [](Settings &s, const std::string &t) {
                 s.adhoc_recent.clear();
@@ -796,6 +813,8 @@ void write_entries(const Settings &values, Entries &entries) {
     write_user_presets(values.user_presets, entries);
     entries.erase(kRetiredTypeNameKey);
     entries.erase(kRetiredTriggerProfileKey);
+    // The setting's earlier name. The new key is the one written above.
+    entries.erase("game.comparable_weapons");
 }
 
 // Drops what a file an earlier version wrote holds only because that
@@ -812,6 +831,12 @@ void read_entries(Settings &values, const Entries &entries) {
     for (const Field &field : all_fields())
         if (const auto found = entries.find(field.key); found != entries.end() && !field.parse(values, found->second))
             std::cerr << "[settings] ignoring " << field.key << "=" << found->second << "\n";
+    // The setting was game.comparable_weapons. A file that still has only that
+    // key keeps the choice; the next save writes the new key and drops it.
+    if (!entries.contains("game.display_without_coefficient")) {
+        if (const auto old = entries.find("game.comparable_weapons"); old != entries.end())
+            (void)parse_bool(old->second, values.comparable_weapons);
+    }
     settle_controls(values, entries);
 }
 
@@ -850,6 +875,12 @@ void load(State &s) {
     // A fixed name in the environment is meant for unattended runs, which
     // nobody is there to type in, so it also answers at once unless
     // MHFU_OSK_MODE says otherwise.
+    if (s.overrides.count("game.display_without_coefficient") == 0u) {
+        if (const char *text = std::getenv("MHFU_COMPARABLE_WEAPONS"); text != nullptr && *text != '\0') {
+            s.values.comparable_weapons = variable_flag(text);
+            s.overrides["game.display_without_coefficient"] = "MHFU_COMPARABLE_WEAPONS";
+        }
+    }
     if (s.overrides.count("input.name_entry") == 0u && std::getenv("MHFU_OSK_TEXT") != nullptr) {
         s.values.name_entry = NameEntry::Fixed;
         s.overrides["input.name_entry"] = "MHFU_OSK_TEXT";

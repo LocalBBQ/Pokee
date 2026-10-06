@@ -5,6 +5,7 @@
 #include "gpu/game_hud.hpp"
 #include "camera_probe.hpp"
 #include "camera/free_camera.hpp"
+#include "game/damage_numbers.hpp"
 #include "game/equipment_models.hpp"
 #include "game/game_data.hpp"
 #include "game/guest_ram.hpp"
@@ -563,6 +564,49 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
             "depth comparison tests exact ordering against the cleared far plane");
     }
     draw.depth.test_enabled = false;
+
+    // The shop draws a weapon icon before the hunter. The icon is a through
+    // sprite, and its screen depth is written even when its depth test is
+    // off, so the hunter fails that test where the two overlap.
+    {
+        auto icon = clear;
+        icon.clear_mode = false;
+        icon.has_vertex_color = true;
+        gpu::Vertex icon_lo, icon_hi;
+        icon_lo.position = {60, 60, 0, 1};
+        icon_hi.position = {420, 230, 1, 1};
+        icon_lo.color = icon_hi.color = 0xff22aa11;
+        icon.vertices = {icon_lo, icon_hi};
+        icon.depth.test_enabled = false;
+        icon.depth.write_enabled = true;
+        auto hunter = draw;
+        hunter.depth.test_enabled = true;
+        hunter.depth.write_enabled = true;
+        hunter.depth.function = 4u; // less: a larger screen depth is farther
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(icon, memory);
+        renderer.submit(hunter, memory);
+        renderer.present(0x04000000);
+        expect(pixel() == 0xff22aa11, "through sprite depth write keeps a later triangle behind the weapon icon");
+        icon_hi.position[2] = 65535;
+        icon.vertices = {icon_lo, icon_hi};
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(icon, memory);
+        renderer.submit(hunter, memory);
+        renderer.present(0x04000000);
+        expect(pixel() == 0xff2255cc, "a through sprite at the far depth does not hide a nearer triangle");
+        icon.depth.write_enabled = false;
+        icon_hi.position[2] = 1;
+        icon.vertices = {icon_lo, icon_hi};
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(icon, memory);
+        renderer.submit(hunter, memory);
+        renderer.present(0x04000000);
+        expect(pixel() == 0xff2255cc, "a through sprite that does not write depth is covered by a later triangle");
+    }
 
     draw.fog.enabled = true;
     draw.fog.scale = 1;
@@ -1387,8 +1431,8 @@ void save_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
     sd::set_memory_stick(target);
     sd::Block key{};
     for (std::size_t i = 0; i < key.size(); ++i) key[i] = static_cast<std::uint8_t>(i + 1);
-    sd::remember_game_key("ULJM05800", key);
-    sd::SaveFiles files{"ULJM05800", "", "MHP2NDG.BIN", key};
+    sd::remember_game_key("ULUS10391", key);
+    sd::SaveFiles files{"ULUS10391", "", "MHP2NDG.BIN", key};
     sd::SaveContents content;
     content.data.assign(2048, 0x5a);
     content.title = "Public synthetic save";
@@ -1484,7 +1528,7 @@ void save_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem:
     activate("Back up to another folder…");
     drop(backup_target);
     activate("Done");
-    expect(std::filesystem::is_regular_file(backup_target / "ULJM05800" / "MHP2NDG.BIN"),
+    expect(std::filesystem::is_regular_file(backup_target / "ULUS10391" / "MHP2NDG.BIN"),
         "explicit backup contains encrypted save without timestamp");
     activate("Back up saves…");
     activate("Back up to another folder…");
@@ -1550,7 +1594,7 @@ void tall_texture_pack_contracts(gpu::VulkanRenderer &renderer, const std::files
             gpu::compute_texture_pack_key(memory, draw.texture, 512, options, whole, width, height) &&
             !(upper == whole),
         "public tall texture fixture has distinct top-272 and complete hashes");
-    std::ofstream(pack / "textures.ini") << "[games]\nNPJB40001 = true\n[options]\nhash = xxh64\n[hashes]\n"
+    std::ofstream(pack / "textures.ini") << "[games]\nULUS10391 = true\n[options]\nhash = xxh64\n[hashes]\n"
                                          << gpu::format_texture_pack_key(upper) << " = red.png\n";
     renderer.reload_texture_pack();
     auto picture = [&] {
@@ -1614,7 +1658,7 @@ void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::fil
     const auto pack = sandbox / "PublicTextures";
     std::filesystem::create_directories(pack);
     std::ofstream(pack / "textures.ini")
-        << "[games]\nNPJB40001 = true\n[options]\nhash = xxh64\n[hashes]\n000000000000000000000001 = red.png\n";
+        << "[games]\nULUS10391 = true\n[options]\nhash = xxh64\n[hashes]\n000000000000000000000001 = red.png\n";
     // Independently generated PNG chunks for a single public red RGBA pixel.
     const std::array<std::uint8_t, 70> png{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
         0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15,
@@ -1683,7 +1727,7 @@ void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::fil
     }
     frame();
     expect(!ui::texture_pack_import_busy() &&
-            std::filesystem::is_regular_file(sandbox / "textures" / "NPJB40001" / "red.png"),
+            std::filesystem::is_regular_file(sandbox / "textures" / "ULUS10391" / "red.png"),
         "confirmed texture import installs the public PNG through real copy worker");
     expect(settings::current().texture_pack && settings::current().texture_pack_folder.empty(),
         "successful copy enables installed texture pack");
@@ -1710,7 +1754,7 @@ void texture_pack_screen_contracts(gpu::VulkanRenderer &renderer, const std::fil
     frame();
     expect(settings::current().texture_pack_folder == pack.string(),
         "in-place import selects source without changing installed copy");
-    expect(std::filesystem::is_regular_file(sandbox / "textures" / "NPJB40001" / "red.png"),
+    expect(std::filesystem::is_regular_file(sandbox / "textures" / "ULUS10391" / "red.png"),
         "in-place import preserves installed PNG");
     expect(renderer.texture_pack_folder() == pack.string(), "renderer reports the actual in-place pack source");
     tall_texture_pack_contracts(renderer, pack);
@@ -3462,7 +3506,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     if (session_port) {
         settings::current().adhoc = true;
         settings::current().adhoc_server = "127.0.0.1:" + std::to_string(session_port);
-        network_client.start({settings::current().adhoc_server, "Public UI fixture", {2, 3, 4, 5, 6, 7}, "ULJM05800"});
+        network_client.start({settings::current().adhoc_server, "Public UI fixture", {2, 3, 4, 5, 6, 7}, "ULUS10391"});
         expect(wait_network([&] { return network_client.server_state() == adhoc::ServerState::Online; }),
             "actual client logs into the synthetic UI session");
         network_client.join("MHP3Q000");
@@ -3499,7 +3543,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         expect(adhoc_hosting() && adhoc_host_status().adhocctl_port == session_port && settings::current().adhoc,
             "host menu starts the owned server on its configured port and enables ad hoc play");
         if (adhoc_hosting()) {
-            network_client.start({adhoc_server_address(), "Public UI fixture", {2, 3, 4, 5, 6, 7}, "ULJM05800"});
+            network_client.start({adhoc_server_address(), "Public UI fixture", {2, 3, 4, 5, 6, 7}, "ULUS10391"});
             expect(wait_network([&] { return network_client.server_state() == adhoc::ServerState::Online; }),
                 "synthetic local player logs into the UI-hosted session");
             network_client.join("MHP3Q000");
@@ -3533,6 +3577,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(menu_screenshots == 1, "System screenshot action saves exactly one real PNG in the isolated folder");
     toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
     toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
+    toggle_setting("Damage numbers", &settings::Settings::damage_numbers);
     for (const char *action : {"Quit game", "Set up game data again…"}) {
         change_video(action, ImGuiKey_Space);
         frame();
@@ -3593,7 +3638,12 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     frame();
     ui::set_lock_on_marker(std::array<float, 2>{0.5f, 0.5f});
     ui::show_note("Synthetic status note");
+    game::set_shown_damage_numbers(
+        {game::make_number(27, game::grade_hit(50, game::Sharpness::Yellow, false, game::Affinity::Positive), 0)});
     frame();
+    expect(!game::damage_numbers().empty() && game::damage_number_text(game::damage_numbers().front()) == "27!",
+        "a damage number is drawn over the game from the health a hit removed");
+    game::set_shown_damage_numbers({});
     ui::set_lock_on_marker(std::nullopt);
     auto &layer = ui::Layer::get();
     layer.set_interactive(true);

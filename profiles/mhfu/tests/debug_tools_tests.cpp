@@ -212,11 +212,11 @@ void test_quest() {
     check(r.load32(game::kQuestTimeLeft) == 89'970u, "unfrozen, the clock runs");
 }
 
-// A quest list laid out the way the game's are: offsets to the records, a
-// zero, then each record: a 0x48-byte header and its strings.
+// A quest list laid out the way Freedom Unite's are: offsets to the records,
+// a zero, then each record: a 0x34-byte header and its strings.
 struct FakeQuest {
     std::uint16_t id;
-    std::uint8_t stars;
+    std::uint16_t map;
     std::uint32_t fee;
     std::vector<std::string> text;
 };
@@ -229,11 +229,12 @@ std::vector<std::uint8_t> quest_list(const std::vector<FakeQuest> &quests) {
     for (std::size_t i = 0; i < quests.size(); ++i) {
         const std::size_t at = file.size();
         put32(i * 4u, static_cast<std::uint32_t>(at));
-        file.resize(at + 0x48u, 0u);
+        file.resize(at + 0x34u, 0u);
         put32(at + 0x04u, quests[i].fee);
         put32(at + 0x08u, 500u);
         put32(at + 0x10u, 90'000u);
-        put32(at + 0x1Cu, quests[i].id | static_cast<std::uint32_t>(quests[i].stars) << 16u);
+        put32(at + 0x18u, quests[i].id);
+        put32(at + 0x1Cu, quests[i].map);
         for (const std::string &text : quests[i].text) {
             file.insert(file.end(), text.begin(), text.end());
             file.push_back(0u);
@@ -250,18 +251,19 @@ std::vector<std::uint8_t> quest_list(const std::vector<FakeQuest> &quests) {
 
 void test_quest_lists() {
     const std::vector<std::uint8_t> level3 = quest_list({
-        {301, 3, 0u, {"Tour", "Survive", "Reward Zero", "Look around.", "Jaggi\nAptonoth", "Chief"}},
-        {304, 3, 150u, {"Carnival", "Slay 10", "Time Over", "Run!", "Bulldrome\nBullfango", "Seeker"}},
-        {10301, 3, 0u, {"Hall Tour", "Survive", "Reward Zero", "Look around.", "Ludroth", "Chief"}},
+        {1101, 5, 0u, {"Tour", "Survive", "Reward Zero", "Look around.", "Jaggi\nAptonoth", "Chief", "Collecte"}},
+        {1104, 11, 150u, {"Carnival", "Slay 10", "Time Over", "Run!", "Bulldrome\nBullfango", "Seeker"}},
+        {10317, 11, 0u, {"Hall Tour", "Survive", "Reward Zero", "Look around.", "Ludroth", "Chief"}},
     });
     const std::vector<quests::Quest> parsed = quests::parse_quest_list(level3);
     check(parsed.size() == 3u, "every record of a list is read");
-    check(parsed.size() == 3u && parsed[1].id == 304u && parsed[1].stars == 3u && parsed[1].fee == 150u &&
+    check(parsed.size() == 3u && parsed[1].id == 1104u && parsed[1].map == 11u && parsed[1].fee == 150u &&
             parsed[1].reward == 500u && parsed[1].time_limit == 90'000u,
-        "a record's id, stars, fee, reward and time");
-    check(parsed.size() == 3u && parsed[1].name == "Carnival" && parsed[1].objective == "Slay 10" &&
-            parsed[1].monsters == "Bulldrome\nBullfango" && parsed[1].client == "Seeker",
-        "a record's strings, past the padding and not into the data after them");
+        "a record's id, map, fee, reward and time");
+    check(parsed.size() == 3u && parsed[0].name == "Tour" && parsed[1].name == "Carnival" &&
+            parsed[1].objective == "Slay 10" && parsed[1].monsters == "Bulldrome\nBullfango" &&
+            parsed[1].client == "Seeker",
+        "the English strings, not the following language or the data after them");
     quests::Quest spaced;
     spaced.monsters = "Deviljho\n Tigrex\n\nNargacuga";
     check(quests::monster_list(spaced) == "Deviljho, Tigrex, Nargacuga", "monsters on one line, empty lines left out");
@@ -269,29 +271,30 @@ void test_quest_lists() {
         "bytes that are not a list give no quests");
     check(quests::parse_quest_list(std::vector<std::uint8_t>{}).empty(), "nothing gives no quests");
 
-    check(quests::village_quest(101u) && quests::village_quest(699u), "village ids");
-    check(!quests::village_quest(10301u) && !quests::village_quest(100u) && !quests::village_quest(0u),
-        "Hall ids and non-ids are not village quests");
-    check(quests::hall_quest(10101u) && quests::hall_quest(10840u) && !quests::hall_quest(301u) &&
-            !quests::hall_quest(20101u) && !quests::hall_quest(40101u) && !quests::hall_quest(10900u),
-        "Hall ids; training and event ids are neither");
+    check(quests::village_quest(1u) && quests::village_quest(1101u) && quests::village_quest(3201u), "village ids");
+    check(!quests::village_quest(10003u) && !quests::village_quest(20001u) && !quests::village_quest(0u),
+        "Hall ids, the 20000 list and zero are not village quests");
+    check(quests::hall_quest(10003u) && quests::hall_quest(11224u) && !quests::hall_quest(1101u) &&
+            !quests::hall_quest(20001u) && !quests::hall_quest(0u),
+        "ids from 10000 to 19999 are the Hall's; the 20000 list is neither");
 
     std::map<std::uint32_t, std::vector<std::uint8_t>> archive;
     archive[quests::kFirstQuestList + 2u] = level3;
-    archive[quests::kFirstQuestList] = quest_list({{101, 1, 0u, {"First", "Deliver"}}, {10101, 1, 0u, {"Hall One"}}});
-    archive[quests::kFirstQuestList + 7u] = quest_list({{10801, 8, 0u, {"Hall Eight"}}});
+    archive[quests::kFirstQuestList] = quest_list({{1, 6, 0u, {"First", "Deliver"}}, {10003, 11, 0u, {"Hall One"}}});
+    archive[quests::kFirstQuestList + 10u] = quest_list({{3201, 1565, 0u, {"Old Volcano"}}});
     const std::vector<quests::Quest> village =
         quests::board_quests([&](std::uint32_t entry) -> std::optional<std::vector<std::uint8_t>> {
             const auto found = archive.find(entry);
             if (found == archive.end()) return std::nullopt;
             return found->second;
         });
-    check(village.size() == 6u && village[0].id == 101u && village[1].id == 301u && village[2].id == 304u &&
-            village[3].id == 10101u && village[4].id == 10301u && village[5].id == 10801u,
-        "the village's quests by level, then the Hall's by level");
-    check(village.size() == 6u && village[2].board() == quests::Board::Village &&
-            village[3].board() == quests::Board::Hall,
-        "each quest's board");
+    check(village.size() == 6u && village[0].id == 1u && village[0].stars == 1u && village[1].id == 1101u &&
+            village[1].stars == 3u && village[2].id == 1104u && village[3].id == 3201u && village[3].stars == 11u &&
+            village[4].id == 10003u && village[4].stars == 1u && village[5].id == 10317u && village[5].stars == 3u,
+        "each rank's quests, the rank lists' own first and the ids from 10000 after them");
+    check(village.size() == 6u && village[2].board() == quests::Board::Village && village[2].map == 11u &&
+            village[4].board() == quests::Board::Hall,
+        "each quest's board and map");
 }
 
 void test_quest_start() {

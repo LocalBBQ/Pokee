@@ -97,7 +97,7 @@ struct Raw {
 
 const Mac kMacA{0x02, 0x11, 0x22, 0x33, 0x44, 0x0A};
 const Mac kMacB{0x02, 0x11, 0x22, 0x33, 0x44, 0x0B};
-constexpr const char *kProduct = "ULJM05800";
+constexpr const char *kProduct = "ULUS10391";
 constexpr const char *kGroup = "MHP3Q000";
 
 std::uint16_t start_server(Server &server) {

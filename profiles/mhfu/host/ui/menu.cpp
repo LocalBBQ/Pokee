@@ -27,6 +27,11 @@
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
 #include "camera/free_camera.hpp"
+#include "game/damage_numbers.hpp"
+#include "game/equipment_models.hpp"
+#include "game/game_data.hpp"
+#include "game/guest_ram.hpp"
+#include "game/weapon_compare.hpp"
 #include "gpu/screenshot.hpp"
 #include "gpu/game_hud.hpp"
 #include "gpu/vulkan_renderer.hpp"
@@ -40,6 +45,7 @@
 #include "perf/frame_stats.hpp"
 #include "save_data/save_transfer.hpp"
 #include "settings/settings.hpp"
+#include "psprecomp/runtime.hpp"
 #include "pokee_version.hpp"
 #if defined(MHFU_ANDROID_APP)
 #include "platform/android_fatal.hpp"
@@ -52,6 +58,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -417,7 +424,7 @@ void Menu::video() {
     }
     {
         RowOptions o = options_for("video.texture_pack",
-            "Draws an HD texture pack in PPSSPP's format from textures/NPJB40001 in the data "
+            "Draws an HD texture pack in PPSSPP's format from textures/ULUS10391 in the data "
             "folder instead of the game's textures.");
         // The footer shows the note under the description: what is loaded,
         // or where the pack was looked for.
@@ -580,6 +587,17 @@ void Menu::video() {
         if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
     }
     {
+        int scale = static_cast<int>(s.map_item_scale);
+        if (slider_row("Map and item bar", scale, static_cast<int>(settings::kMinMapItemScale),
+                static_cast<int>(settings::kMaxMapItemScale), 5, "%d%%",
+                options_for("video.map_item_scale",
+                    "The quest map and the item bar, smaller or larger, kept in their corners. "
+                    "100% is the size the game draws. Health, sharpness and menus stay as they are."))) {
+            s.map_item_scale = static_cast<std::uint32_t>(scale);
+            settings::save();
+        }
+    }
+    {
         static const char *const kPerf[] = {"Off", "Overlay", "Overlay and log", "Log only"};
         const int current = static_cast<int>(s.perf);
         if (const int delta = choice_row("Performance", kPerf[current],
@@ -629,6 +647,7 @@ void Menu::video() {
         restore("video.fast_forward", s.fast_forward, d.fast_forward);
         restore("video.fast_forward_speed", s.fast_forward_speed, d.fast_forward_speed);
         restore("video.performance", s.perf, d.perf);
+        restore("video.map_item_scale", s.map_item_scale, d.map_item_scale);
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
         renderer().set_window_scale(s.window_scale);
@@ -927,7 +946,7 @@ void Menu::controls() {
         const int current = static_cast<int>(s.right_stick);
         if (const int delta = choice_row("Camera stick", kModes[current],
                 options_for("input.right_stick",
-                    "Camera uses the HD release's own right-stick camera. D-pad "
+                    "Camera turns the quest camera with the right stick. D-pad "
                     "presses the D-pad instead, like the PSP's camera controls. "
                     "It is the right stick unless the preset moves with it."))) {
             s.right_stick = static_cast<settings::RightStick>(cycle(current, delta, 3));
@@ -963,8 +982,8 @@ void Menu::controls() {
         }
         o = options_for("input.aim_speed",
             "How fast a bow or a bowgun aims at full deflection, in degrees a "
-            "second. The game's own aim moves at about 100 and only past half "
-            "the stick's travel.");
+            "second. The game's own aim uses three fixed speeds; this follows "
+            "how far the stick is pushed.");
         if (!s.analog_camera && !o.disabled) {
             o.disabled = true;
             o.note = "Analog camera is off";
@@ -1639,6 +1658,24 @@ void Menu::system() {
         s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
         settings::save();
     }
+    if (toggle_row("Display Without Weapon Coefficient", s.comparable_weapons,
+            options_for("game.display_without_coefficient",
+                "On: equipment detail, the status screen and the smithy reprint the weapon's "
+                "attack with the class coefficient divided out, and its element with the extra "
+                "ten divided out. A great sword printed as 336 and a sword and shield printed "
+                "as 98 both read 70. Element 180 reads 18. A hit is unchanged."))) {
+        s.comparable_weapons = !s.comparable_weapons;
+        settings::save();
+    }
+    if (toggle_row("Damage numbers", s.damage_numbers,
+            options_for("game.damage_numbers",
+                "On: a number shows how much health a hit takes off a monster, drawn on the monster. A weak point "
+                "(hitzone 45 or more, after sharpness for a blade) is orange and any other part "
+                "is gray. The number stays white until that part is known, and a critical hit "
+                "keeps its own mark. Off: nothing is added."))) {
+        s.damage_numbers = !s.damage_numbers;
+        settings::save();
+    }
 #if defined(MHFU_ANDROID_APP)
     // An Android app's data folder is out of the file manager's reach; its
     // log goes where the player picks instead, to send with a report.
@@ -2031,6 +2068,30 @@ void set_lock_on_marker(std::optional<std::array<float, 2>> at) {
     lock_on_marker_at() = at;
 }
 
+namespace {
+// A hit's number (game/damage_numbers.hpp), drawn by the interface over the
+// game's picture and never into the game's own frames.
+void draw_damage_numbers() {
+    const ImGuiIO &io = ImGui::GetIO();
+    const std::array<float, 4> picture = Layer::get().renderer().game_picture();
+    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    const float size = Layer::get().font_size() * 0.85f;
+    ImFont *font = ImGui::GetFont();
+    for (const game::Number &number : game::damage_numbers()) {
+        const game::Anchor anchor = game::number_anchor(number);
+        const std::string text = game::damage_number_text(number);
+        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
+        const ImVec2 at{(picture[0] + anchor.x * picture[2]) * io.DisplaySize.x - extent.x * 0.5f,
+            (picture[1] + anchor.y * picture[3]) * io.DisplaySize.y - extent.y * 0.5f};
+        const int alpha = static_cast<int>(anchor.alpha * 230.0f);
+        if (alpha <= 0) continue;
+        const game::Ink ink = game::damage_number_ink(number.grade.fill);
+        draw->AddText(font, size, {at.x + 1.0f, at.y + 1.0f}, IM_COL32(0, 0, 0, alpha), text.c_str());
+        draw->AddText(font, size, at, IM_COL32(ink.red, ink.green, ink.blue, alpha), text.c_str());
+    }
+}
+} // namespace
+
 std::string take_screenshot() {
     Layer &layer = Layer::get();
     if (!layer.attached()) return {};
@@ -2059,6 +2120,147 @@ std::string take_screenshot() {
     return where;
 }
 
+namespace {
+
+// The lobby routine that prints a widget's number (a1 is the figure). Equipment
+// detail, the status screen and the smithy send the weapon's attack and element
+// through it. The quest overlay occupies the same address with different code,
+// so the words below have to match before it is wrapped.
+constexpr std::uint32_t kPrintNumber = 0x09AEC7A0u;
+constexpr std::uint32_t kPrintWords[][2] = {
+    {0x09AEC7A0u, 0x27BDFEF0u}, // addiu sp, sp, -272
+    {0x09AEC7A4u, 0xAFBF003Cu}, // sw ra, 60(sp)
+    {0x09AEC7D4u, 0xA7A500D8u}, // sh a1, 216(sp): the figure being printed
+    {0x09AEC7ECu, 0x0E2373AFu}, // jal 0x088DCEBC
+};
+// The weapon preview on those screens. a0 is the panel; the piece's kind is the
+// byte at the child +10 and its id the half at +12.
+constexpr std::uint32_t kWeaponPreview = 0x09A83CD8u;
+constexpr std::uint32_t kPreviewWords[][2] = {
+    {0x09A83CD8u, 0x27BDFF70u}, // addiu sp, sp, -144
+    {0x09A83CDCu, 0xAFBF003Cu}, // sw ra, 60(sp)
+    {0x09A83D28u, 0x24040013u}, // addiu a0, zero, 19
+};
+
+struct Hook {
+    bool installed{};
+    psprecomp::Runtime::RecompiledFunction original{};
+};
+
+struct DisplayState {
+    Hook print;
+    Hook preview;
+    std::optional<game::Piece> viewed;
+    bool preview_seen{};
+    int quiet_frames{};
+    bool miss_logged{};
+    bool logged_on{};
+};
+
+DisplayState &display_state() {
+    static DisplayState state;
+    return state;
+}
+
+bool words_match(const psprecomp::Runtime &runtime, const std::uint32_t words[][2], std::size_t count) {
+    const psprecomp::GuestMemory &memory = runtime.memory();
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!memory.contains(words[i][0], 4u) || memory.load32(words[i][0]) != words[i][1]) return false;
+    }
+    return true;
+}
+
+int figure_for(const game::Ram &ram, int shown, const game::Piece &piece) {
+    const std::optional<std::array<std::uint8_t, 16>> head = game::weapon_record_head(ram, piece.kind, piece.id);
+    if (!head) return shown;
+    const std::optional<game::ComparedWeapon> figures =
+        game::compared_weapon(head->data(), head->size(), piece.kind);
+    if (!figures) return shown;
+    return game::reprint_shown(shown, piece.kind, figures->attack, figures->element);
+}
+
+void print_number(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    DisplayState &state = display_state();
+    if (settings::current().comparable_weapons) {
+        const int shown = static_cast<int>(static_cast<std::int16_t>(ctx.gpr[5]));
+        if (shown > 0) {
+            game::GuestRam ram(runtime.memory());
+            int next = shown;
+            if (state.viewed) next = figure_for(ram, shown, *state.viewed);
+            if (next == shown) {
+                if (const std::optional<game::Piece> carried = game::carried_weapon(ram))
+                    next = figure_for(ram, shown, *carried);
+            }
+            if (next != shown) ctx.gpr[5] = static_cast<std::uint32_t>(next);
+        }
+    }
+    if (state.print.original != nullptr) state.print.original(runtime, ctx);
+}
+
+void weapon_preview(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    DisplayState &state = display_state();
+    const psprecomp::GuestMemory &memory = runtime.memory();
+    const std::uint32_t panel = ctx.gpr[4];
+    if (memory.contains(panel, 68u)) {
+        const std::uint32_t child = memory.load32(panel + 16u) + (memory.load32(panel + 64u) << 4u);
+        if (memory.contains(child, 14u)) {
+            const game::Piece piece{memory.load8(child + 10u), memory.load16(child + 12u)};
+            if (game::is_weapon(piece.kind) && piece.id != 0u) {
+                state.viewed = piece;
+                state.preview_seen = true;
+            }
+        }
+    }
+    if (state.preview.original != nullptr) state.preview.original(runtime, ctx);
+}
+
+void keep_hook(psprecomp::Runtime &runtime, Hook &hook, std::uint32_t address,
+    psprecomp::Runtime::RecompiledFunction wrapper, const char *name, bool wanted) {
+    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(address);
+    if (wanted) {
+        if (current != nullptr && current != wrapper) {
+            hook.original = current;
+            runtime.register_function(address, wrapper, name);
+            hook.installed = true;
+        }
+        return;
+    }
+    if (hook.installed && current == wrapper && hook.original != nullptr)
+        runtime.register_function(address, hook.original, name);
+    hook.installed = false;
+    hook.original = nullptr;
+}
+
+} // namespace
+
+void reprint_weapon_figures(psprecomp::Runtime &runtime) {
+    DisplayState &state = display_state();
+    if (state.preview_seen) state.quiet_frames = 0;
+    else if (state.viewed) ++state.quiet_frames;
+    state.preview_seen = false;
+    if (state.quiet_frames >= 2) state.viewed.reset();
+
+    const bool on = settings::current().comparable_weapons;
+    const bool print_ok = words_match(runtime, kPrintWords, std::size(kPrintWords));
+    const bool preview_ok = words_match(runtime, kPreviewWords, std::size(kPreviewWords));
+    keep_hook(runtime, state.print, kPrintNumber, &print_number, "recomp_unit_mhfu_weapon_number", on && print_ok);
+    keep_hook(runtime, state.preview, kWeaponPreview, &weapon_preview, "recomp_unit_mhfu_weapon_preview",
+        on && preview_ok);
+    if (on && print_ok && !state.logged_on) {
+        state.logged_on = true;
+        std::cout << "[weapons] display without coefficient is on\n";
+    }
+    if (on && !print_ok && !state.miss_logged) {
+        game::GuestRam ram(runtime.memory());
+        if (game::character_loaded(ram)) {
+            state.miss_logged = true;
+            std::cout << "[weapons] display without coefficient is on, but the number routine is not the one traced; "
+                         "the figures stay as the game draws them\n";
+        }
+    }
+    if (!on) state.logged_on = false;
+}
+
 void draw_over_game() {
     Layer &layer = Layer::get();
     if (!layer.attached()) return;
@@ -2083,10 +2285,12 @@ void draw_over_game() {
         !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
+    const bool numbers = !menu && !layer.renderer().window_capture_pending() && !game::damage_numbers().empty();
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted &&
-        hud_note <= 0.0 && !marker)
+        hud_note <= 0.0 && !marker && !numbers)
         return;
     layer.begin_frame();
+    if (numbers) draw_damage_numbers();
     if (marker) draw_lock_on_marker(*marker);
     if (noted) draw_note(note());
     if (flying) draw_free_camera_indicator(free_camera);

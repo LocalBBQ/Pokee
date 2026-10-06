@@ -36,7 +36,7 @@ bool mhfu::perf::alternate_off(NewPath) {
 
 namespace {
 
-constexpr const char *kGame = "NPJB40001";
+constexpr const char *kGame = "ULUS10391";
 
 int failures = 0;
 
@@ -109,10 +109,10 @@ void test_layouts(const fs::path &root) {
         fs::path pack;
         const char *what;
     } layouts[] = {
-        {root / "a", root / "a" / "textures" / kGame, "textures/NPJB40001 in the chosen folder"},
-        {root / "b", root / "b" / kGame, "NPJB40001 in the chosen folder"},
-        {root / "c", root / "c" / "PSP" / "TEXTURES" / kGame, "PPSSPP's PSP/TEXTURES/NPJB40001"},
-        {root / "d", root / "d" / "psp" / "textures" / "npjb40001", "psp/textures/npjb40001, in another case"},
+        {root / "a", root / "a" / "textures" / kGame, "textures/ULUS10391 in the chosen folder"},
+        {root / "b", root / "b" / kGame, "ULUS10391 in the chosen folder"},
+        {root / "c", root / "c" / "PSP" / "TEXTURES" / kGame, "PPSSPP's PSP/TEXTURES/ULUS10391"},
+        {root / "d", root / "d" / "psp" / "textures" / "ulus10391", "psp/textures/ulus10391, in another case"},
     };
     for (const auto &layout : layouts) {
         make_pack(layout.pack);
@@ -133,12 +133,12 @@ void test_layouts(const fs::path &root) {
 }
 
 void test_games(const fs::path &root) {
-    const std::string listed = std::string(kIni) + "\n[games]\nULJM05800 = true\nNPJB40001 = true\n";
+    const std::string listed = std::string(kIni) + "\n[games]\nULJM05800 = true\nULUS10391 = true\n";
     // Chosen directly.
     const fs::path direct = root / "games" / "ULJM05800";
     make_pack(direct, listed);
     TexturePackCheck c = check_texture_pack(direct, kGame);
-    check(c.ok() && c.made_for == "ULJM05800", "a ULJM05800 pack listing NPJB40001 is taken as made for ULJM05800");
+    check(c.ok() && c.made_for == "ULJM05800", "a ULJM05800 pack listing ULUS10391 is taken as made for ULJM05800");
     // Found under a TEXTURES folder.
     make_pack(root / "games2" / "PSP" / "TEXTURES" / "ULJM05800", listed);
     c = check_texture_pack(root / "games2", kGame);
@@ -148,7 +148,7 @@ void test_games(const fs::path &root) {
     const fs::path other = root / "games3" / "ULJM05800";
     make_pack(other, std::string(kIni) + "\n[games]\nULJM05800 = true\n");
     c = check_texture_pack(other, kGame);
-    check(!c.ok() && c.problem.find("ULJM05800") != std::string::npos, "a ULJM05800 pack without NPJB40001 is refused");
+    check(!c.ok() && c.problem.find("ULJM05800") != std::string::npos, "a ULJM05800 pack without ULUS10391 is refused");
     make_pack(root / "games4" / "ULJM05800");
     c = check_texture_pack(root / "games4" / "ULJM05800", kGame);
     check(!c.ok(), "a ULJM05800 pack without [games] is refused");
@@ -156,7 +156,7 @@ void test_games(const fs::path &root) {
     check(!c.found(), "and is not picked from its parent folder");
     // An override ini named in [games] for this release is read.
     const fs::path overridden = root / "games5" / kGame;
-    make_pack(overridden, std::string(kIni) + "\n[games]\nNPJB40001 = hd.ini\n");
+    make_pack(overridden, std::string(kIni) + "\n[games]\nULUS10391 = hd.ini\n");
     write(overridden / "hd.ini", "[hashes]\n00000000aaaaaaaabbbbbbbb = ui/capcom.png\n");
     c = check_texture_pack(root / "games5", kGame);
     check(c.ok() && c.keys == 5u, "the ini [games] names for this release adds its keys");
@@ -194,7 +194,7 @@ void test_copy(const fs::path &root) {
     write(textures / ".incomplete-2000-01-01_00-00-00" / "junk", "left by a crash");
 
     const fs::path source = root / "new" / "ULJM05800";
-    make_pack(source, std::string(kIni) + "\n[games]\nNPJB40001 = true\n");
+    make_pack(source, std::string(kIni) + "\n[games]\nULUS10391 = true\n");
     write(source / "maps" / "village.png", "village");
     const TexturePackCheck c = check_texture_pack(source, kGame);
     check(c.ok(), "the new pack passes its checks");
@@ -217,9 +217,9 @@ void test_copy(const fs::path &root) {
     check(install_staged_texture_pack(copy.staging(), textures, kGame, backup_dir, backup, error),
         "the copy is put in place: " + error);
     check(backup == backup_dir / kGame && read(backup / "old.txt") == "the old pack",
-        "the replaced pack moved to .backup/<time>/NPJB40001, whole");
+        "the replaced pack moved to .backup/<time>/ULUS10391, whole");
     check(read(installed / "maps" / "village.png") == "village" && !fs::exists(installed / "old.txt"),
-        "the new pack is installed as NPJB40001");
+        "the new pack is installed as ULUS10391");
     check(!fs::exists(copy.staging()), "no staging folder is left");
     check(texture_pack_backup_directory(textures, std::chrono::system_clock::from_time_t(1'000'000'000)) != backup_dir,
         "a second backup in the same second gets a new folder");
@@ -251,7 +251,7 @@ void test_location(const fs::path &root) {
 #endif
     TexturePackLocation l = texture_pack_location(textures, kGame, "");
     check(l.source == TexturePackLocation::Source::Installed && l.folder == textures / kGame,
-        "the pack is read from textures/NPJB40001 by default");
+        "the pack is read from textures/ULUS10391 by default");
     l = texture_pack_location(textures, kGame, "/somewhere/pack");
     check(l.source == TexturePackLocation::Source::InPlace && l.folder == fs::path("/somewhere/pack"),
         "a pack used in place is read from its folder");

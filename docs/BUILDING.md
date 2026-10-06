@@ -1,8 +1,8 @@
-# Building Yakumo
+# Building Pokee
 
-This page covers building the port from source on every platform. It explains where the time goes and how to work on the code without paying for a full build each time. The settings and environment variables of the running game are described in the [profile README](../profiles/mhp3rd/README.md).
+This page covers building the port from source on every platform. It explains where the time goes and how to work on the code without paying for a full build each time. The settings and environment variables of the running game are described in the [profile README](../profiles/mhfu/README.md).
 
-You need your own copy of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`) as a disc image. Nothing else from the game is needed, and nothing from it is ever committed.
+You need your own copy of *Monster Hunter Freedom Unite* (USA, `ULUS-10391`, version 1.01) as a disc image. Nothing else from the game is needed, and nothing from it is ever committed.
 
 ## How the build works
 
@@ -10,13 +10,13 @@ The game's executable and its 355 code overlays are MIPS code for the PSP. The b
 
 | Stage | What happens | Command |
 | --- | --- | --- |
-| 1. Bootstrap | Build a small `Yakumo` that contains no game code yet | `cmake --build out/mhp3rd --target Yakumo` |
-| 2. Prepare the executable | The bootstrap checks your disc image and prepares the decrypted `EBOOT.ELF` from it | `Yakumo --install image.iso` |
-| 3. Generate | Analyse `EBOOT.ELF` and write the recompiled executable as 89 C++ units in `profiles/mhp3rd/generated/` | `profiles/mhp3rd/scripts/generate.sh` |
-| 4. Compile the executable | Compile the 89 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhp3rd --target Yakumo` |
-| 5. Overlays | Extract the 355 code overlays from the disc image's `DATA.BIN`, recompile each one, and build a shared library per overlay | `profiles/mhp3rd/scripts/build_overlays.sh` |
+| 1. Bootstrap | Build a small `Pokee` that contains no game code yet | `cmake --build out/mhfu --target Pokee` |
+| 2. Prepare the executable | The bootstrap checks your disc image and prepares the decrypted `EBOOT.ELF` from it | `Pokee --install image.iso` |
+| 3. Generate | Analyse `EBOOT.ELF` and write the recompiled executable as 89 C++ units in `profiles/mhfu/generated/` | `profiles/mhfu/scripts/generate.sh` |
+| 4. Compile the executable | Compile the 89 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhfu --target Pokee` |
+| 5. Overlays | Extract the 355 code overlays from the disc image's `DATA.BIN`, recompile each one, and build a shared library per overlay | `profiles/mhfu/scripts/build_overlays.sh` |
 
-The installer accepts only `NPJB-40001`: the disc id in `PARAM.SFO` must match, and so must the SHA-256 of the encrypted `EBOOT.BIN`. Fan translation patches that change only `USRDIR/DATA.BIN` keep that executable and are accepted. The English patch v6.1.0 has been checked: its `EBOOT.BIN` and all 355 code overlays are identical to the original's.
+The installer accepts USA Freedom Unite `ULUS-10391` version 1.01 only: the disc id in `PARAM.SFO` must be `ULUS10391`, and the SHA-256 of the encrypted `EBOOT.BIN` must be that release's. Portable 3rd and other regions are refused. The accepted executable starts on its 32 MiB layout. `generate.sh` stamps the SHA-256 of the prepared executable it translates, and launch registers that corpus only for an executable with the same hash. That resident code is 67 units; its overlay sections are named in the ELF and contain no file bytes.
 
 The generated code and the overlays are derived from your copy of the game. They stay on your machine: `generated/`, `overlays/`, `analysis/` and `game/` are ignored by Git.
 
@@ -59,7 +59,7 @@ Older releases, for example Ubuntu 24.04, have no SDL3 package. Build SDL3 from 
 The recompiled code nests deeply, so the main thread needs a 64 MiB stack. Start the game with a larger stack limit:
 
 ```bash
-ulimit -s 65536 && out/mhp3rd/bin/Yakumo
+ulimit -s 65536 && out/mhfu/bin/Pokee
 ```
 
 ### Steam Deck
@@ -68,14 +68,14 @@ SteamOS keeps its system read-only, so build inside a container and run the resu
 
 ```bash
 # In Desktop Mode, in a terminal:
-distrobox create --name yakumo --image debian:trixie
-distrobox enter yakumo -- sudo apt update
-distrobox enter yakumo -- sudo apt install -y build-essential cmake ninja-build python3 ccache pkg-config \
+distrobox create --name pokee --image debian:trixie
+distrobox enter pokee -- sudo apt update
+distrobox enter pokee -- sudo apt install -y build-essential cmake ninja-build python3 ccache pkg-config \
     libsdl3-dev libvulkan-dev glslang-tools
-distrobox enter yakumo      # then follow the steps below inside the container
+distrobox enter pokee      # then follow the steps below inside the container
 ```
 
-For Game Mode, add a small launch script to Steam as a non-Steam game. The script changes to the checkout, sets `ulimit -s 65536`, and runs `out/mhp3rd/bin/Yakumo`. Keep the Deck on its charger during long builds, and stop it from sleeping while one runs: a suspend in the middle of a large build can hang the Deck.
+For Game Mode, add a small launch script to Steam as a non-Steam game. The script changes to the checkout, sets `ulimit -s 65536`, and runs `out/mhfu/bin/Pokee`. Keep the Deck on its charger during long builds, and stop it from sleeping while one runs: a suspend in the middle of a large build can hang the Deck.
 
 ## Windows
 
@@ -86,7 +86,7 @@ For Game Mode, add a small launch script to Steam as a non-Steam game. The scrip
 | MSVC: Visual Studio 2022 or newer, or just the free *Build Tools for Visual Studio* | The *Desktop development with C++* workload (MSVC and the Windows SDK). The IDE itself is not needed. `clang-cl` works on top of the same workload. MinGW has not been tried; the build files are written for MSVC |
 | CMake 3.20 or newer and Ninja | Visual Studio's own copies work, and so do standalone ones on `PATH` |
 | Python 3 | On `PATH` as `python3`. The `python3` that Windows ships by default only opens the Microsoft Store and does not work, so install Python and make sure its `python3` comes first on `PATH`. The python.org installer provides only `python.exe`: copy it to `python3.exe` in the same folder (for example `C:\Program Files\Python314`), or turn off the `python3.exe` alias under *Settings → Apps → Advanced app settings → App execution aliases* |
-| Git for Windows | Git Bash runs the `.sh` scripts in `profiles/mhp3rd/scripts/` |
+| Git for Windows | Git Bash runs the `.sh` scripts in `profiles/mhfu/scripts/` |
 | Vulkan SDK (LunarG) | The Vulkan loader and headers, plus `glslangValidator` for the shaders |
 | SDL3 | For example the official `SDL3-devel-*-VC.zip`; pass its directory in `CMAKE_PREFIX_PATH` when configuring |
 | FFmpeg | Nothing to install: the build downloads a pinned prebuilt FFmpeg and puts its DLLs next to the executable. See [FFmpeg](#ffmpeg) |
@@ -101,16 +101,16 @@ Open the **x64 Native Tools Command Prompt** of your Visual Studio or Build Tool
 
 Then follow the [build steps](#build-steps) in that Bash, with these differences:
 - **SDL3 location.** Add `-DCMAKE_PREFIX_PATH="C:/path/to/SDL3"` to the first `cmake` command.
-- **Paths.** The executable is `out/mhp3rd/bin/Yakumo.exe`, and the per-user data directory is `$APPDATA/Yakumo/MHP3rd`.
-- **DLLs.** Before playing, copy `SDL3.dll` next to `Yakumo.exe`, or put its directory on `PATH`. The FFmpeg DLLs are already there.
+- **Paths.** The executable is `out/mhfu/bin/Pokee.exe`, and the per-user data directory is `$APPDATA/Pokee/MHFU`.
+- **DLLs.** Before playing, copy `SDL3.dll` next to `Pokee.exe`, or put its directory on `PATH`. The FFmpeg DLLs are already there.
 
 Windows specifics:
-- **Data directory.** Step 2 writes `EBOOT.ELF` and `settings.ini` to the per-user data directory. It takes precedence over `profiles/mhp3rd/game`, and both hold the same data after step 3.
-- **Symbolic links.** `prepare_game.sh` links the disc image into `profiles/mhp3rd/game`. Git Bash copies the file instead unless Windows Developer Mode is on and `MSYS=winsymlinks:nativestrict` is exported. A copy works too; it costs about 1.3 GB.
+- **Data directory.** Step 2 writes `EBOOT.ELF` and `settings.ini` to the per-user data directory. It takes precedence over `profiles/mhfu/game`, and both hold the same data after step 3.
+- **Symbolic links.** `prepare_game.sh` links the disc image into `profiles/mhfu/game`. Git Bash copies the file instead unless Windows Developer Mode is on and `MSYS=winsymlinks:nativestrict` is exported. A copy works too; it costs about 1.3 GB.
 - **Overlay DLLs.** Each overlay links against the executable's import library. The runtime (`psprecomp_core`) is an object library, so its objects belong to the executable and `WINDOWS_EXPORT_ALL_SYMBOLS` exports them to the overlays.
 - **No build lock.** Unlike macOS and Linux, the build does not lock its directory on Windows yet, so never run two builds of the same directory at once.
 - **Compiler cache on a non-English Windows.** `ccache` reads the include list MSVC prints, which is translated into the language of the installed Visual Studio language pack; with a non-English one it can fail to parse it. Install the English language pack of the Build Tools and `set VSLANG=1033` before configuring and building.
-- **Headless runs.** Redirected to a file, the program's output is block-buffered, and a process that is killed, for example at a time limit, loses what is still in the buffer. `MHP3RD_PERF=log` lines are flushed as they are written.
+- **Headless runs.** Redirected to a file, the program's output is block-buffered, and a process that is killed, for example at a time limit, loses what is still in the buffer. `MHFU_PERF=log` lines are flushed as they are written.
 - **Out of memory** while compiling a generated unit means the parallelism is too high. Rerun the same `cmake --build` with `-j 1`; it continues where it stopped.
 
 ## Build steps
@@ -119,50 +119,50 @@ The same on every platform. On Windows, run them in Git Bash from a Visual Studi
 
 ```bash
 git clone https://github.com/TeamGDB/Yakumo.git
-cd Yakumo
+cd Pokee
 
 # 1. Configure and build the bootstrap (no game code yet: a few minutes)
-cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd
-cmake --build out/mhp3rd --target Yakumo
+cmake -S . -B out/mhfu -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhfu
+cmake --build out/mhfu --target Pokee
 
 # 2. Prepare EBOOT.ELF from your disc image. --in-place uses the image where it is;
 #    without it the installer keeps its own copy (about 1.3 GB).
-out/mhp3rd/bin/Yakumo --install /path/to/your.iso --in-place
+out/mhfu/bin/Pokee --install /path/to/your.iso --in-place
 
 # 3. Point the checkout at the image and the prepared executable.
-#    The per-user data directory is ~/Library/Application Support/Yakumo/MHP3rd on macOS,
-#    ~/.local/share/Yakumo/MHP3rd on Linux and %APPDATA%\Yakumo\MHP3rd on Windows.
-profiles/mhp3rd/scripts/prepare_game.sh /path/to/your.iso "<per-user data directory>/EBOOT.ELF"
+#    The per-user data directory is ~/Library/Application Support/Pokee/MHFU on macOS,
+#    ~/.local/share/Pokee/MHFU on Linux and %APPDATA%\Pokee\MHFU on Windows.
+profiles/mhfu/scripts/prepare_game.sh /path/to/your.iso "<per-user data directory>/EBOOT.ELF"
 
 # 4. Generate the recompiled executable and compile it (the first long step)
-profiles/mhp3rd/scripts/generate.sh
-cmake -S . -B out/mhp3rd
-cmake --build out/mhp3rd --target Yakumo
+profiles/mhfu/scripts/generate.sh
+cmake -S . -B out/mhfu
+cmake --build out/mhfu --target Pokee
 
 # 5. Recompile the code overlays (the longest step; resumable)
-profiles/mhp3rd/scripts/build_overlays.sh
+profiles/mhfu/scripts/build_overlays.sh
 
 # 6. Play
-out/mhp3rd/bin/Yakumo
+out/mhfu/bin/Pokee
 ```
 
-Check the configure output for `mhp3rd: Vulkan renderer enabled`. Without SDL3, Vulkan or `glslangValidator`, configuration still succeeds but builds a program with no window.
+Check the configure output for `mhfu: Vulkan renderer enabled`. Without SDL3, Vulkan or `glslangValidator`, configuration still succeeds but builds a program with no window.
 
 Stage 5 is resumable. If it stops, run it again: overlays that are already built are skipped. You can play before it finishes. An overlay without its library runs in an interpreter, which works but is much slower, so hunts stutter until the overlays are built.
 
 ### FFmpeg
 
-The streamed music (ATRAC3, ATRAC3plus) and the movies (H.264) are decoded by FFmpeg's `libavcodec`. FFmpeg is part of the normal build and needs no setup. `MHP3RD_FFMPEG` chooses where it comes from:
+The streamed music (ATRAC3, ATRAC3plus) and the movies (H.264) are decoded by FFmpeg's `libavcodec`. FFmpeg is part of the normal build and needs no setup. `MHFU_FFMPEG` chooses where it comes from:
 
-| `MHP3RD_FFMPEG` | What you get |
+| `MHFU_FFMPEG` | What you get |
 | --- | --- |
-| `bundled` (default) | The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds a minimal LGPL configuration with just the three decoders the game uses. This takes a few minutes, once; later configures and builds reuse it. The libraries go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, see below |
+| `bundled` (default) | The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds a minimal LGPL configuration with just the three decoders the game uses. This takes a few minutes, once; later configures and builds reuse it. The libraries go to `out/mhfu/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, see below |
 | `system` | The `libavcodec` and `libavutil` that `pkg-config` finds, for example from `brew install ffmpeg` or `apt install libavcodec-dev libavutil-dev`. Configure stops if there are none |
 | `OFF` | No FFmpeg. Not recommended: the game then has no music and skips its movies, and configure warns about it |
 
-The bundled build needs `make` and a C compiler, which the tools above already include. Offline, put `ffmpeg-7.1.5.tar.xz` (or the Windows `.zip`) in `out/mhp3rd/_deps/downloads/` before configuring. `profiles/mhp3rd/cmake/FFmpeg.cmake` holds the pinned versions and checksums.
+The bundled build needs `make` and a C compiler, which the tools above already include. Offline, put `ffmpeg-7.1.5.tar.xz` (or the Windows `.zip`) in `out/mhfu/_deps/downloads/` before configuring. `profiles/mhfu/cmake/FFmpeg.cmake` holds the pinned versions and checksums.
 
-**On Windows** FFmpeg's `configure` needs a POSIX shell and `make`, which the MSVC toolchain lacks, so `bundled` downloads a pinned prebuilt instead: the LGPL shared build of FFmpeg 7.1.5 from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), checked against its SHA-256. It needs no extra setup. Configure copies `avcodec-61.dll`, `avutil-59.dll` and `swresample-5.dll`, with FFmpeg's licence, next to `Yakumo.exe`, and reports `mhp3rd: bundled FFmpeg 7.1.5 (prebuilt, LGPL); music and movies enabled`.
+**On Windows** FFmpeg's `configure` needs a POSIX shell and `make`, which the MSVC toolchain lacks, so `bundled` downloads a pinned prebuilt instead: the LGPL shared build of FFmpeg 7.1.5 from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), checked against its SHA-256. It needs no extra setup. Configure copies `avcodec-61.dll`, `avutil-59.dll` and `swresample-5.dll`, with FFmpeg's licence, next to `Pokee.exe`, and reports `mhfu: bundled FFmpeg 7.1.5 (prebuilt, LGPL); music and movies enabled`.
 
 ## Working on the code
 
@@ -175,7 +175,7 @@ The generated code is its own object library, and every compile goes through `cc
 | Host code: kernel, HLE, renderer, audio, interface, settings | The files you changed, then a relink | Seconds |
 | A shader | The embedded shaders and the renderer | Seconds |
 | The runtime's sources in `src/` | Those files, then every tool and executable that links the runtime | Seconds to a minute |
-| `profiles/mhp3rd/CMakeLists.txt` (flags, sources) | Host files only; the generated units have their own flags | Seconds to a minute |
+| `profiles/mhfu/CMakeLists.txt` (flags, sources) | Host files only; the generated units have their own flags | Seconds to a minute |
 | Headers in `include/psprecomp/` (the runtime the generated code uses) | All 89 generated units **and** all 355 overlays | The full build again, unless `ccache` already holds that exact version |
 | The recompiler, then `generate.sh` | Only the units whose generated text changed | Depends on the change |
 
@@ -185,17 +185,17 @@ Keep `include/psprecomp/` stable when you can. It is the one place where a small
 
 Work on separate features in separate clones without paying the long stages again:
 
-- **Generated code:** copy `profiles/mhp3rd/generated/` from a checkout that already has it. A plain `cp -R` is fine. Don't use copies that preserve old timestamps (`cp -p`, `rsync -a`, `tar`), because Ninja may then think the objects are newer than the sources.
-- **Overlays:** don't rebuild them per clone. Point the game at one built set with `MHP3RD_OVERLAY_DIR=/path/to/out/mhp3rd/bin/overlays`. It is safe as long as `include/psprecomp/` is the same in both checkouts.
+- **Generated code:** copy `profiles/mhfu/generated/` from a checkout that already has it. A plain `cp -R` is fine. Don't use copies that preserve old timestamps (`cp -p`, `rsync -a`, `tar`), because Ninja may then think the objects are newer than the sources.
+- **Overlays:** don't rebuild them per clone. Point the game at one built set with `MHFU_OVERLAY_DIR=/path/to/out/mhfu/bin/overlays`. It is safe as long as `include/psprecomp/` is the same in both checkouts.
 - **Compiler cache:** `ccache` is shared by every checkout on the machine. A second clone at another path compiles almost entirely from the cache.
-- **Game data:** `MHP3RD_GAME_DIR=/path/to/game` points a build at a game directory (disc image, `EBOOT.ELF`, `ms0/` saves), so clones need no `prepare_game.sh` of their own.
+- **Game data:** `MHFU_GAME_DIR=/path/to/game` points a build at a game directory (disc image, `EBOOT.ELF`, `ms0/` saves), so clones need no `prepare_game.sh` of their own.
 
 ### Running several instances
 
 For multiplayer tests or before/after comparisons, give each instance its own settings and saves, and a window title so you can tell the windows apart:
 
 ```bash
-MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo A" out/mhp3rd/bin/Yakumo
+MHFU_DATA_DIR=~/pokee-a MHFU_GAME_DIR=~/game-a MHFU_WINDOW_TITLE="Pokee A" out/mhfu/bin/Pokee
 ```
 
 ### Rules the build enforces
@@ -207,19 +207,19 @@ MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo 
 
 ### Tests and diagnostics
 
-- `cmake --build out/mhp3rd --target psprecomp_test_binaries`, then `ctest --test-dir out/mhp3rd`, builds and runs all registered unit tests of the recompiler framework and selected profile. These need no game data; see [TESTING.md](TESTING.md) for the headless CI configuration.
+- `cmake --build out/mhfu --target psprecomp_test_binaries`, then `ctest --test-dir out/mhfu`, builds and runs all registered unit tests of the recompiler framework and selected profile. These need no game data; see [TESTING.md](TESTING.md) for the headless CI configuration.
 - [TESTING.md](TESTING.md) is the manual smoke test: about fifteen minutes through every part of the game that works.
 - [COVERAGE.md](COVERAGE.md) describes the public application coverage build, Python and Android Java suites, and the 80% changed-line requirement. Behavior changes require regression tests; see [CONTRIBUTING.md](../CONTRIBUTING.md#testing-changes).
-- `MHP3RD_PERF=1`, or F3 in the game, shows the performance overlay. The `MHP3RD_TRACE_*` variables log individual subsystems. All of them are listed under *Diagnostics* in the [profile README](../profiles/mhp3rd/README.md#diagnostics).
-- `MHP3RD_NO_RENDER=1` runs without a window, which is useful for quick boot checks in scripts. Bound such runs with `timeout`.
+- `MHFU_PERF=1`, or F3 in the game, shows the performance overlay. The `MHFU_TRACE_*` variables log individual subsystems. All of them are listed under *Diagnostics* in the [profile README](../profiles/mhfu/README.md#diagnostics).
+- `MHFU_NO_RENDER=1` runs without a window, which is useful for quick boot checks in scripts. Bound such runs with `timeout`.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `mhp3rd: renderer disabled` | SDL3, Vulkan or `glslangValidator` was not found. Install them and configure again |
+| `mhfu: renderer disabled` | SDL3, Vulkan or `glslangValidator` was not found. Install them and configure again |
 | The compiler is killed, or the machine swaps, while compiling generated units | Too many large units at once: configure with `-DPSPRECOMP_GENERATED_JOBS=1` |
 | The game crashes right after starting on Linux | The main thread's stack is too small: start it after `ulimit -s 65536` |
 | `another build is running` | A build of the same directory is still going. Wait, or find the leftover `ninja` process |
-| No music and no movies | The build was configured with `-DMHP3RD_FFMPEG=OFF`, or the FFmpeg libraries next to the executable are missing; see [FFmpeg](#ffmpeg) |
-| `No game data found` | Run step 2 (`--install`) or step 3 (`prepare_game.sh`), or set `MHP3RD_GAME_DIR` |
+| No music and no movies | The build was configured with `-DMHFU_FFMPEG=OFF`, or the FFmpeg libraries next to the executable are missing; see [FFmpeg](#ffmpeg) |
+| `No game data found` | Run step 2 (`--install`) or step 3 (`prepare_game.sh`), or set `MHFU_GAME_DIR` |

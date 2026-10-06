@@ -1,9 +1,12 @@
 // Which defaults each platform starts from; no settings.ini is read.
+#include "game/weapon_compare.hpp"
+#include "gpu/hud_scale.hpp"
 #include "settings/settings.hpp"
 
 #include <iostream>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace {
 using namespace mhfu::settings;
@@ -342,9 +345,147 @@ void test_crisp_text() {
     check(!from_entries(off).crisp_text, "and off stays off");
 }
 
+// The comparison figures. A hit is not this number: 336 and 98 are the same
+// attack once the class coefficient is divided out, and 180 element is 18.
+void test_comparable_weapons() {
+    const Settings fresh = from_entries({});
+    check(!fresh.comparable_weapons, "display without coefficient starts off");
+    Entries on = to_entries(fresh);
+    on["game.display_without_coefficient"] = "1";
+    check(from_entries(on).comparable_weapons, "the file turns it on");
+    check(from_entries(to_entries(from_entries(on))).comparable_weapons, "and it survives a round trip");
+    check(to_entries(from_entries(on)).at("game.display_without_coefficient") == "1",
+        "the new key is what gets written");
+    Entries earlier{{"game.comparable_weapons", "1"}};
+    check(from_entries(earlier).comparable_weapons, "the earlier key still turns it on");
+    check(!fresh.damage_numbers, "damage numbers start off");
+    Entries hits = to_entries(fresh);
+    hits["game.damage_numbers"] = "1";
+    check(from_entries(hits).damage_numbers, "the file turns damage numbers on");
+    check(from_entries(to_entries(from_entries(hits))).damage_numbers, "and they survive a round trip");
+
+    using mhfu::game::comparable_attack;
+    using mhfu::game::comparable_element;
+    check(comparable_attack(336, 5) == 70, "a great sword at 336 reads 70");
+    check(comparable_attack(336, 12) == 70, "a long sword uses the same 4.8");
+    check(comparable_attack(98, 6) == 70 && comparable_attack(98, 16) == 70,
+        "sword and shield and dual blades at 98 read 70");
+    check(comparable_attack(364, 7) == 70 && comparable_attack(364, 17) == 70,
+        "hammer and hunting horn at 364 read 70");
+    check(comparable_attack(161, 8) == 70 && comparable_attack(161, 14) == 70, "lance and gunlance at 161 read 70");
+    check(comparable_attack(84, 15) == 70 && comparable_attack(84, 9) == 70 && comparable_attack(84, 11) == 70,
+        "bow and bowguns at 84 read 70");
+    check(comparable_attack(378, 13) == 70, "a switch axe at 378 reads 70");
+    check(comparable_attack(336, 0) == 336, "a kind that is not a weapon is left as printed");
+    check(comparable_element(180) == 18 && comparable_element(520) == 52 && comparable_element(0) == 0,
+        "element is the printed figure divided by 10");
+    check(comparable_element(-10) == -10, "a negative element is left as printed");
+
+    using mhfu::game::compared_weapon;
+    using mhfu::game::shop_attack;
+    using mhfu::game::shop_element;
+    check(shop_attack(70, 5) == 336 && shop_attack(70, 6) == 98 && shop_attack(70, 7) == 364,
+        "the shop multiplies raw");
+    check(shop_attack(70, 8) == 161 && shop_attack(70, 15) == 84 && shop_attack(70, 13) == 378,
+        "the shop multiplies the other classes the same way");
+    check(shop_element(18) == 180 && shop_element(0) == 0 && shop_element(-2) == -2,
+        "the shop prints element times 10");
+    using mhfu::game::reprint_shown;
+    check(reprint_shown(336, 5, 70, 18) == 70, "a printed great sword attack of 336 is reprinted as 70");
+    check(reprint_shown(180, 5, 70, 18) == 18, "a printed element of 180 is reprinted as 18");
+    check(reprint_shown(98, 6, 70, 18) == 70, "a printed sword and shield attack of 98 is reprinted as 70");
+    check(reprint_shown(200, 5, 70, 18) == 200, "a figure that is not this weapon's attack or element stays");
+    check(reprint_shown(0, 5, 70, 18) == 0 && reprint_shown(-4, 5, 70, 18) == -4, "zero and a negative stay");
+    // A bow at true raw 150 prints 180, and element 18 prints 180 too.
+    check(reprint_shown(180, 15, 150, 18) == 180, "a figure that is both the attack and the element stays");
+    std::uint8_t record[16]{};
+    record[0] = 3;
+    record[2] = 1;
+    record[4] = 1500 & 0xFF;
+    record[5] = (1500 >> 8) & 0xFF;
+    record[10] = 70;
+    record[12] = 18;
+    const std::optional<mhfu::game::ComparedWeapon> read = compared_weapon(record, sizeof(record), 5);
+    check(read && read->attack == 70 && read->element == 18, "a weapon record gives the stored attack and element");
+    record[2] = 0;
+    check(!compared_weapon(record, sizeof(record), 5), "a record that is not a weapon is left unread");
+    check(!compared_weapon(record, sizeof(record), 0), "a kind that is not a weapon has no record");
+}
+
+void test_map_item_scale() {
+    using mhfu::gpu::hud_scale::Anchor;
+    using mhfu::gpu::hud_scale::Piece;
+    using mhfu::gpu::hud_scale::Rect;
+    using mhfu::gpu::hud_scale::anchor_of;
+    using mhfu::gpu::hud_scale::piece_of;
+    using mhfu::gpu::hud_scale::scale_point;
+    check(defaults().map_item_scale == 100u, "the map and the item bar start at the game's size");
+    Settings chosen = from_entries({{"video.map_item_scale", "150"}});
+    check(chosen.map_item_scale == 150u, "150% is read back");
+    check(to_entries(chosen).at("video.map_item_scale") == "150", "150% is written");
+    check(from_entries({{"video.map_item_scale", "50"}}).map_item_scale == 50u, "50% is half the game's size");
+    check(from_entries({{"video.map_item_scale", "40"}}).map_item_scale == 50u, "below 50% stays at 50%");
+    check(from_entries({{"video.map_item_scale", "900"}}).map_item_scale == 200u, "above 200% stays at 200%");
+
+    // The rectangles measured in a quest's base camp.
+    const Rect map{8.0f, 8.0f, 60.0f, 56.0f};
+    const Rect item_icon{372.0f, 200.0f, 412.0f, 240.0f};
+    const Rect item_name{354.0f, 244.0f, 431.0f, 258.0f};
+    const Rect health{56.0f, 12.0f, 320.0f, 20.0f};
+    const Rect name_plate{8.0f, 56.0f, 104.0f, 72.0f};
+    const Rect supply{391.0f, 85.0f, 421.0f, 115.0f};
+    check(piece_of(map) == Piece::Map, "the camp map is the map");
+    check(piece_of({20.0f, 20.0f, 28.0f, 28.0f}) == Piece::Map, "a marker on the map stays with it");
+    check(piece_of(item_icon) == Piece::ItemBar && piece_of(item_name) == Piece::ItemBar,
+        "the item icon and its name are the item bar");
+    check(piece_of(health) == Piece::None && piece_of(name_plate) == Piece::None && piece_of(supply) == Piece::None,
+        "health, the name plate and the supply icons are left alone");
+
+    float x = 60.0f;
+    float y = 56.0f;
+    scale_point(x, y, anchor_of(Piece::Map), 2.0f);
+    check(x == 112.0f && y == 104.0f, "the map grows down and right from its corner");
+    x = 8.0f;
+    y = 8.0f;
+    scale_point(x, y, anchor_of(Piece::Map), 2.0f);
+    check(x == 8.0f && y == 8.0f, "the map's corner stays put");
+    x = 312.0f;
+    y = 200.0f;
+    const Anchor bar = anchor_of(Piece::ItemBar);
+    scale_point(x, y, bar, 2.0f);
+    check(x == 152.0f && y == 136.0f, "the item bar grows up and left");
+    x = bar.x;
+    y = bar.y;
+    scale_point(x, y, bar, 2.0f);
+    check(x == bar.x && y == bar.y, "the item bar's corner stays put");
+    x = 60.0f;
+    y = 56.0f;
+    scale_point(x, y, anchor_of(Piece::Map), 0.5f);
+    check(x == 34.0f && y == 32.0f, "the map shrinks toward its corner");
+    x = 312.0f;
+    y = 200.0f;
+    scale_point(x, y, bar, 0.5f);
+    check(x == 392.0f && y == 232.0f, "the item bar shrinks toward its corner");
+
+    struct Vertex {
+        float x;
+        float y;
+    };
+    std::vector<Vertex> quad(6, Vertex{8.0f, 8.0f});
+    quad[2].x = 60.0f;
+    quad[2].y = 56.0f;
+    mhfu::gpu::hud_scale::scale_quads(quad, 1.0f);
+    check(quad[2].x == 60.0f && quad[2].y == 56.0f, "100% does not move a sprite");
+    mhfu::gpu::hud_scale::scale_quads(quad, 2.0f);
+    check(quad[0].x == 8.0f && quad[0].y == 8.0f && quad[2].x == 112.0f && quad[2].y == 104.0f,
+        "a map sprite is scaled about its corner");
+}
+
 int main() {
+    test_map_item_scale();
     test_crisp_text();
     test_layered_armor();
+    test_comparable_weapons();
     test_desktop_is_the_declared_defaults();
     test_android();
     test_this_build();

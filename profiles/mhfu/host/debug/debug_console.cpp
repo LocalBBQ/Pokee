@@ -6,6 +6,12 @@
 #include "game/guest_ram.hpp"
 #include "platform/utf8_path.hpp"
 
+namespace psprecomp {
+// Defined in the core library; declared here rather than in the header so that
+// arming a watch does not rebuild every generated unit and every overlay.
+void set_write_watch(std::uint32_t address, std::uint32_t size);
+} // namespace psprecomp
+
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -148,6 +154,19 @@ std::vector<std::string> run_command(Ram &ram, const std::string &line) {
                 if (match && found++ < 64u) text += " " + hex(a);
             }
         out.push_back(text + " (" + std::to_string(found) + ")");
+    } else if (command == "watch") {
+        // Retarget PSPRECOMP_WATCH_WRITE. The slow store path is armed only
+        // when that variable was set at start-up; the address may change.
+        if (args.empty()) {
+            out.push_back("usage: watch ADDR [BYTES]");
+        } else if (std::getenv("PSPRECOMP_WATCH_WRITE") == nullptr) {
+            out.push_back("not armed: start with PSPRECOMP_WATCH_WRITE set");
+        } else {
+            const std::uint32_t address = arg(0);
+            const std::uint32_t bytes = args.size() > 1u ? arg(1) : 2u;
+            psprecomp::set_write_watch(address, bytes);
+            out.push_back("watching " + hex(address) + " for " + std::to_string(bytes == 0u ? 4u : bytes) + " bytes");
+        }
     } else if (command == "peek") {
         const std::uint32_t address = arg(0);
         const std::uint32_t length = args.size() > 1u ? arg(1) : 64u;

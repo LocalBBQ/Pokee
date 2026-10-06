@@ -22,6 +22,7 @@
 //
 // Pure functions over a Ram, so the unit tests run them on a buffer.
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -94,6 +95,12 @@ struct Piece {
 [[nodiscard]] std::optional<Piece> worn_armor(const Ram &ram, std::uint8_t kind);
 // The weapon the loaded character carries.
 [[nodiscard]] std::optional<Piece> carried_weapon(const Ram &ram);
+
+// The first 16 bytes of a weapon's record (model, rarity, price, attack at
+// +10, element at +12), or nothing when that class has no table or the
+// record is not in memory.
+[[nodiscard]] std::optional<std::array<std::uint8_t, 16>> weapon_record_head(
+    const Ram &ram, std::uint8_t kind, std::uint16_t id);
 
 // The file with a piece's model for a hunter of this look, as the game picks
 // it: an empty armor slot gives the inner wear or the bare part. Nothing when

@@ -16,12 +16,12 @@ def main():
     args = parser.parse_args()
     android_jar = args.android_jar.resolve(strict=True)
     sdl_java = args.sdl_source.resolve(strict=True) / "android-project/app/src/main/java"
-    app_java = Path(__file__).resolve().parents[2] / "profiles/mhp3rd/packaging/android/java"
+    app_java = Path(__file__).resolve().parents[2] / "profiles/mhfu/packaging/android/java"
     build_dir = args.build_dir.resolve()
     sdl_classes = build_dir / "sdl-classes"
     app_classes = build_dir / "app-classes"
 
-    # Prepare SDL before CodeQL init; trace only Yakumo's compilation afterward.
+    # Prepare SDL before CodeQL init; trace only Pokee's compilation afterward.
     # SDL bytecode and android.jar remain available for resolving external calls.
     for stage, source_dir, output_dir, classpath in (
         ("sdl", sdl_java, sdl_classes, str(android_jar)),

@@ -90,7 +90,7 @@ void test_copy(const fs::path &root) {
     const fs::path to = root / "portable" / "data";
     write(from / kSettingsFile, "disc_image=disc.iso\n");
     write(from / kExecutableFile, std::string(3u << 20, 'e')); // more than one buffer
-    write(from / "ms0" / "PSP" / "SAVEDATA" / "ULJM05800" / "MHP2NDG.BIN", "save");
+    write(from / "ms0" / "PSP" / "SAVEDATA" / "ULUS10391" / "MHP2NDG.BIN", "save");
     fs::create_directories(from / "logs");
     write(to / kSettingsFile, "kept=1\n");
 
@@ -105,7 +105,7 @@ void test_copy(const fs::path &root) {
     check(copied == 2u, "the two files missing in the target are copied");
     check(read(to / kSettingsFile) == "kept=1\n", "a file already in the target is never replaced");
     check(read(to / kExecutableFile) == read(from / kExecutableFile), "a large file arrives whole");
-    check(read(to / "ms0" / "PSP" / "SAVEDATA" / "ULJM05800" / "MHP2NDG.BIN") == "save", "saves are copied");
+    check(read(to / "ms0" / "PSP" / "SAVEDATA" / "ULUS10391" / "MHP2NDG.BIN") == "save", "saves are copied");
     check(fs::is_directory(to / "logs"), "empty folders are copied too");
     check(monotonic && last_done == last_total && last_total == (3u << 20) + 4u, "progress counts the bytes");
     check(read(from / kSettingsFile) == "disc_image=disc.iso\n" && file_count(from) == 3u,

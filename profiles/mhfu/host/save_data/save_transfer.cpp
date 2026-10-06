@@ -26,7 +26,7 @@ constexpr std::size_t kFileListEntrySize = 32u;
 constexpr std::size_t kFileListNameSize = 13u;
 // The folders an export carries: the install data is a cache the game
 // rebuilds, and it is several times the size of the rest.
-constexpr std::string_view kExportedFolders[] = {"ULJM05800", "ULJM05800QST"};
+constexpr std::string_view kExportedFolders[] = {"ULUS10391", "ULUS10391QST"};
 
 struct Session {
     std::mutex mutex;
@@ -130,9 +130,9 @@ bool is_game_save_name(std::string_view folder_name) {
 }
 
 std::string save_label(std::string_view folder_name) {
-    if (folder_name == "ULJM05800") return "Game data";
-    if (folder_name == "ULJM05800QST") return "Downloaded quests";
-    if (folder_name == "ULJM05800DAT") return "Install data";
+    if (folder_name == "ULUS10391") return "Game data";
+    if (folder_name == "ULUS10391QST") return "Downloaded quests";
+    if (folder_name == "ULUS10391DAT") return "Install data";
     return std::string(folder_name);
 }
 
@@ -241,7 +241,7 @@ SaveCheck check_save_folder(const fs::path &folder, const std::optional<Block> &
     // The game data and the quests are written through the save-data utility,
     // which lists their file; the install data is written file by file and
     // lists none.
-    if (listed.empty() && check.name != "ULJM05800DAT") {
+    if (listed.empty() && check.name != "ULUS10391DAT") {
         check.problem = "PARAM.SFO lists no data file.";
         return check;
     }

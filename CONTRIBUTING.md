@@ -1,4 +1,4 @@
-# Contributing to Yakumo
+# Contributing to Pokee
 
 Bug reports, documentation improvements, compatibility testing and code contributions are welcome. Follow the [Code of Conduct](CODE_OF_CONDUCT.md) when participating in repository discussions.
 
@@ -17,7 +17,7 @@ Use minimal synthetic examples where possible. Keep game files and saves local; 
 
 - Write code, comments, documentation, commit messages and pull requests in English. The exceptions are `README.ru.md` and `README.es.md`; update these translations in the same pull request as `README.md` when changing its content.
 - Never commit game data: disc images, `EBOOT` or `DATA.BIN` contents, generated game code, overlay corpora or saves. Do not include personal paths, user names, machine names, device addresses or credentials.
-- Do not share pirated copies or distribute Yakumo builds bundled with copyrighted game content through project spaces. See the [game-content policy](CODE_OF_CONDUCT.md#piracy-and-game-content).
+- Do not share pirated copies or distribute Pokee builds bundled with copyrighted game content through project spaces. See the [game-content policy](CODE_OF_CONDUCT.md#piracy-and-game-content).
 - Write implementations yourself. Do not copy or translate code line by line from projects with licenses incompatible with this repository's MIT license. Public documentation, constants, offsets and format facts can inform your work. Record the origin of intentionally included third-party code as described in [SOURCE_PROVENANCE.md](docs/SOURCE_PROVENANCE.md).
 
 ## Getting started
@@ -78,7 +78,7 @@ separate: `make tidy-tools` then `make tidy`, `make cppcheck-tools` then
 `make cppcheck`, and `make sanitizers` with the documented native Linux Clang
 toolchain. See [TESTING.md](docs/TESTING.md) for prerequisites, including the
 Apple SDK flags for clang-tidy. These targets use their existing separate
-`out/` directories. `make app APP_BUILD_DIR=out/mhp3rd` builds the application
+`out/` directories. `make app APP_BUILD_DIR=out/mhfu` builds the application
 only after that directory has been configured following the build guide; reuse
 compatible generated objects and overlays as usual.
 
@@ -97,11 +97,11 @@ the desktop/Android native jobs retain direct CMake commands.
 For the unit-test targets:
 
 ```sh
-cmake --build out/mhp3rd --target psprecomp_test_binaries -j2
-ctest --test-dir out/mhp3rd
+cmake --build out/mhfu --target psprecomp_test_binaries -j2
+ctest --test-dir out/mhfu
 ```
 
-Bound game runs with a timeout and inspect logs and captures. For regressions, compare a known-good build and your change with the same scripted input and game state. Measure performance changes before and after rather than relying on impressions. See [TESTING.md](docs/TESTING.md) for testing workflows and the profile README's [Diagnostics](profiles/mhp3rd/README.md#diagnostics) section for tracing options.
+Bound game runs with a timeout and inspect logs and captures. For regressions, compare a known-good build and your change with the same scripted input and game state. Measure performance changes before and after rather than relying on impressions. See [TESTING.md](docs/TESTING.md) for testing workflows and the profile README's [Diagnostics](profiles/mhfu/README.md#diagnostics) section for tracing options.
 
 ## Python tooling
 
@@ -115,7 +115,7 @@ python3 -m venv .venv
 
 On Windows use `.venv\Scripts\python.exe` and `.venv\Scripts\ruff.exe`. Activating the environment also lets you run `python` and `ruff` directly.
 
-Ruff checks first-party Python under `scripts/`, `profiles/mhp3rd/tools/` and `profiles/mhp3rd/tests/`. `ruff.toml` explicitly excludes vendored code, generated code, game directories, overlays and build outputs, including when a path is passed explicitly. The initial rule set checks Pyflakes diagnostics (`F`), syntax errors (`E9`) and bare `except` clauses (`E722`). Python formatting, import ordering and broad style rules are not enforced at this stage. The configuration requires the exact version pinned in `requirements/dev.txt`.
+Ruff checks first-party Python under `scripts/`, `profiles/mhfu/tools/` and `profiles/mhfu/tests/`. `ruff.toml` explicitly excludes vendored code, generated code, game directories, overlays and build outputs, including when a path is passed explicitly. The initial rule set checks Pyflakes diagnostics (`F`), syntax errors (`E9`) and bare `except` clauses (`E722`). Python formatting, import ordering and broad style rules are not enforced at this stage. The configuration requires the exact version pinned in `requirements/dev.txt`.
 
 The `Python lint (Ruff)` job runs the same configuration on public GitHub-hosted CI for pull requests and pushes to main or release branches. Findings fail the job; review and fix them before requesting a merge. The check needs no game data or build. Changes to branch protection and checks for C++ formatting, clang-tidy, Cppcheck and sanitizers are separate stages in [#249](https://github.com/TeamGDB/Yakumo/issues/249).
 

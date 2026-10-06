@@ -73,6 +73,19 @@ void fault(psprecomp::Runtime &, psprecomp::AllegrexContext &) {
     throw psprecomp::Error("synthetic guest memory fault");
 }
 void stay(psprecomp::Runtime &, psprecomp::AllegrexContext &) {}
+bool chain_resumed = false;
+void chain_resident(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &cpu) {
+    runtime.unregister_functions(base + 0x200u, base + 0x204u);
+    cpu.pc = base + 0x200u;
+}
+void chain_overlay(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &cpu) {
+    cpu.pc = base + 0x300u;
+    if (runtime.invoke_chained_call(cpu, nullptr) && cpu.pc == base + 0x200u) chain_resumed = true;
+}
+void chain_leaf(psprecomp::Runtime &, psprecomp::AllegrexContext &cpu) {
+    cpu.gpr[2] = 7u;
+    cpu.pc += 4u;
+}
 void entry(
     psprecomp::Runtime &, psprecomp::AllegrexContext &cpu, std::uint16_t, psprecomp::GuestMemory::AotFastView &memory) {
     cpu.gpr[2] = memory.aot_load32(scratch);
@@ -83,6 +96,23 @@ void heartbeat(std::uint64_t, std::uint32_t) {
     ++heartbeat_hits;
 }
 void dispatch_contracts() {
+    {
+        // Dropping a compiled range must unwind a caller that is still in that
+        // range, and must not poison a later chain that starts afterwards.
+        psprecomp::Runtime runtime;
+        chain_resumed = false;
+        runtime.register_function(base + 0x200u, chain_overlay, "recomp_unit_overlay_caller");
+        runtime.register_function(base + 0x300u, chain_resident, "recomp_unit_overlay_resident");
+        psprecomp::AllegrexContext cpu{};
+        cpu.pc = base + 0x200u;
+        check(!runtime.invoke_chained_call(cpu, nullptr) && !chain_resumed,
+            "Unloading compiled code must not resume the caller it replaced");
+        runtime.register_function(base + 0x400u, chain_leaf, "recomp_unit_after_unload");
+        cpu = {};
+        cpu.pc = base + 0x400u;
+        check(runtime.invoke_chained_call(cpu, nullptr) && cpu.gpr[2] == 7u,
+            "A chain that starts after an unload must still run");
+    }
     {
         psprecomp::Runtime runtime;
         runtime.register_function(base + 0x10000, next, "recomp_unit_far");

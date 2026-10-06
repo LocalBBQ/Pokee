@@ -8,6 +8,7 @@
 #include "kernel/load_trace.hpp"
 
 #include "overlays.hpp"
+#include "game/damage_numbers.hpp"
 #include "game/guest_ram.hpp"
 #include "game/layered_armor.hpp"
 #include "platform/utf8_path.hpp"
@@ -392,6 +393,7 @@ bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t ad
             return true;
         }
         replay_frame(rt, renderer);
+        game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory());
         ui::draw_over_game();
         renderer.write_back_frame(rt.memory());
         renderer.present(address);
@@ -459,7 +461,10 @@ void present_frame(Runtime &rt) {
         renderer.upload_frame(
             address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
     }
+    game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory());
     ui::draw_over_game();
+    // After the menu, so a toggle there is in place before the next guest frame.
+    ui::reprint_weapon_figures(rt);
     renderer.write_back_frame(rt.memory());
     // A load running fast, or fast-forward, flips more often than the
     // display refreshes.
@@ -610,6 +615,9 @@ void register_display_ctrl(HleRegistrar &hle) {
         std::uint8_t analog_y = 0x80u;
         std::uint8_t right_x = 0x80u;
         std::uint8_t right_y = 0x80u;
+        // Cleared unless this sample is an aim push. The aim function reads
+        // it; the movement stick below is unchanged.
+        camera::game_camera_present_aim(0, 0);
 #if defined(MHFU_HAS_RENDERER)
         if (media().renderer && media().renderer->available()) {
             // The pad as it is now, not as it was at the last flip (#8).
@@ -631,10 +639,11 @@ void register_display_ctrl(HleRegistrar &hle) {
                 right_x = 0x80u;
                 right_y = 0x80u;
             } else if (camera::game_camera_aim_boost()) {
-                // Past the dead zone, any push reaches the game at full
-                // length in the same direction, so its aim steps and the
-                // driver decides how far. With the stick idle, the mouse's
-                // direction stands in for it.
+                // Past the dead zone, any push is remembered at full length
+                // in the same direction. The aim function is shown that
+                // direction for its call; bytes 8 and 9 stay the movement
+                // stick. With the stick idle, the mouse's direction stands
+                // in for it.
                 int dx = static_cast<int>(right_x) - 0x80;
                 int dy = static_cast<int>(right_y) - 0x80;
                 if (dx == 0 && dy == 0) {
@@ -645,10 +654,11 @@ void register_display_ctrl(HleRegistrar &hle) {
                 }
                 const float length = std::sqrt(static_cast<float>(dx * dx + dy * dy));
                 if (length > 0.0f) {
-                    right_x = static_cast<std::uint8_t>(
-                        std::clamp(0x80 + static_cast<int>(std::lround(dx * 127.0f / length)), 0, 255));
-                    right_y = static_cast<std::uint8_t>(
-                        std::clamp(0x80 + static_cast<int>(std::lround(dy * 127.0f / length)), 0, 255));
+                    const int full_x = std::clamp(0x80 + static_cast<int>(std::lround(dx * 127.0f / length)), 0, 255);
+                    const int full_y = std::clamp(0x80 + static_cast<int>(std::lround(dy * 127.0f / length)), 0, 255);
+                    right_x = static_cast<std::uint8_t>(full_x);
+                    right_y = static_cast<std::uint8_t>(full_y);
+                    camera::game_camera_present_aim(full_x - 0x80, full_y - 0x80);
                 }
             } else if (right_x == 0x80u && right_y == 0x80u &&
                 settings::current().right_stick == settings::RightStick::Camera) {

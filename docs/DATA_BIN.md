@@ -1,4 +1,4 @@
-# MHP3rd `DATA.BIN` archive format
+# MHFU `DATA.BIN` archive format
 
 `/PSP_GAME/USRDIR/DATA.BIN` (1,208,858,624 bytes on NPJB-40001) is the read-only
 archive that the game's `fakeRofsLoader` thread serves every asset and every code
@@ -40,7 +40,7 @@ Encryption, over an entry padded to a multiple of 4 bytes:
 
 2. **Byte substitution.** A fixed 256-entry bijection is applied to every byte of
    the XOR result. The table is `ENCODE_TABLE` in
-   `profiles/mhp3rd/tools/databin.py`; decryption applies its inverse first and
+   `profiles/mhfu/tools/databin.py`; decryption applies its inverse first and
    then the same XOR keystream.
 
 The archive directory is obfuscated with block address 0, i.e. with the default
@@ -135,7 +135,7 @@ and nothing in the overlay image is patched at load time — see below.)
 
 ## Tool
 
-`profiles/mhp3rd/tools/databin.py` implements the directory and the cipher. It
+`profiles/mhfu/tools/databin.py` implements the directory and the cipher. It
 accepts either `DATA.BIN` itself or a PSP ISO, in which case it locates
 `/PSP_GAME/USRDIR/DATA.BIN` inside the image and reads it in place — no 1.2 GB
 extraction step and no need to hold the archive in memory.
@@ -144,18 +144,18 @@ extraction step and no need to hold the archive in memory.
 ISO=game.iso
 
 # every entry, with overlay names and load addresses decoded
-python3 profiles/mhp3rd/tools/databin.py "$ISO" list
-python3 profiles/mhp3rd/tools/databin.py "$ISO" list --overlays --csv
+python3 profiles/mhfu/tools/databin.py "$ISO" list
+python3 profiles/mhfu/tools/databin.py "$ISO" list --overlays --csv
 
 # all 355 overlays, named overlay_<LOADADDR>_<name>.bin (~15 MB, a few seconds)
-python3 profiles/mhp3rd/tools/databin.py "$ISO" extract-overlays out/overlays
+python3 profiles/mhfu/tools/databin.py "$ISO" extract-overlays out/overlays
 
 # individual entries, or one entry to stdout
-python3 profiles/mhp3rd/tools/databin.py "$ISO" extract out/ 116 117 125
-python3 profiles/mhp3rd/tools/databin.py "$ISO" cat 125 | xxd | head
+python3 profiles/mhfu/tools/databin.py "$ISO" extract out/ 116 117 125
+python3 profiles/mhfu/tools/databin.py "$ISO" cat 125 | xxd | head
 
 # compare an entry against an overlay image captured from guest memory
-python3 profiles/mhp3rd/tools/databin.py "$ISO" verify 117 dump/overlays/overlay_0A05E600.bin
+python3 profiles/mhfu/tools/databin.py "$ISO" verify 117 dump/overlays/overlay_0A05E600.bin
 ```
 
 `verify` splits the comparison at the end of the code section, because the data
@@ -176,7 +176,7 @@ Extracting all 355 overlays takes about 4 seconds and produces 15 MB.
 
 ## How the game reads it
 
-Traced with `MHP3RD_TRACE_IO=1` (and the caller's return address, added for the trace) from start-up to the title screen:
+Traced with `MHFU_TRACE_IO=1` (and the caller's return address, added for the trace) from start-up to the title screen:
 
 - The game opens `disc0:/PSP_GAME/USRDIR/DATA.BIN` once and keeps it open. It reads the block table (24,176 bytes at offset 0) into `0x08B42A80` and the size table (10,312 bytes at offset 24,176) into `0x08B40200`, once, and asks `sceIoGetstat` for the archive's size.
 - Every other read is a whole entry or a piece of one, never two entries at once. The `fakeRofsLoader` thread seeks to the entry's first block and reads it in pieces of at most 128 KiB into a bounce buffer at `0x08B48900` (the read returns to `0x08865514`), decrypts and copies each piece to the file's destination (`0x08863664`), and marks the request done by storing 1 through the request's done pointer (`0x088657FC`). Movies are streamed straight into their buffers in 64 KiB pieces (from `0x08863F6C`).
@@ -188,6 +188,6 @@ Traced with `MHP3RD_TRACE_IO=1` (and the caller's return address, added for the 
 
 The game's mod community numbers the files of `DATA.BIN` by their entry index, written as four upper-case hex digits: `0601` is entry 1537. The community's file lists count the directory as file 0 and the entries from 1, so their file names (`1490.pak`) are one more than the id (`05D1`) in decimal. On NPJB-40001, entry `05D1` is indeed the first model archive after the weapon overlays, as those lists have it.
 
-Do not trust those lists' HD ids for armour without checking. Traced on NPJB-40001 with a male hunter wearing nothing, the game reads head `0503` and waist `0409`, which the male armour list gives, but body `034B`, arms `03C8` and legs `04C2`, where the list gives `030F`, `038C` and `0486`: an empty body, arms or legs slot shows the hunter's inner wear, not the part's first model ([EQUIPMENT_MODS.md](EQUIPMENT_MODS.md) has the tables). The Mods page's *Use my current armor* and *No armor* work the ids out from the game itself. `MHP3RD_TRACE_DATA_BIN=1` (with any mod on) logs every file the game reads, which is how to check an id: change the equipment on screen and note the new ids.
+Do not trust those lists' HD ids for armour without checking. Traced on NPJB-40001 with a male hunter wearing nothing, the game reads head `0503` and waist `0409`, which the male armour list gives, but body `034B`, arms `03C8` and legs `04C2`, where the list gives `030F`, `038C` and `0486`: an empty body, arms or legs slot shows the hunter's inner wear, not the part's first model ([EQUIPMENT_MODS.md](EQUIPMENT_MODS.md) has the tables). The Mods page's *Use my current armor* and *No armor* work the ids out from the game itself. `MHFU_TRACE_DATA_BIN=1` (with any mod on) logs every file the game reads, which is how to check an id: change the equipment on screen and note the new ids.
 
-Yakumo serves mods' files through the file I/O (`profiles/mhp3rd/host/mods/`). A replaced or patched entry is encrypted for the block it starts at. An entry that no longer fits its blocks grows; every entry after it then starts that many blocks later, and its bytes are re-keyed from its block on the disc to its new block as they are read (decrypt with the one keystream, encrypt with the other; verbatim entries are served as they are). The block table and the size table the game reads say the same. The size table has a fixed number of rows (the game reads exactly 10,312 bytes), so an entry keeps or lacks its row as on the disc; a new size that is not a whole number of blocks for an entry without a row is padded with zeros to its blocks. The trailer after the tables is served unchanged.
+Pokee serves mods' files through the file I/O (`profiles/mhfu/host/mods/`). A replaced or patched entry is encrypted for the block it starts at. An entry that no longer fits its blocks grows; every entry after it then starts that many blocks later, and its bytes are re-keyed from its block on the disc to its new block as they are read (decrypt with the one keystream, encrypt with the other; verbatim entries are served as they are). The block table and the size table the game reads say the same. The size table has a fixed number of rows (the game reads exactly 10,312 bytes), so an entry keeps or lacks its row as on the disc; a new size that is not a whole number of blocks for an entry without a row is padded with zeros to its blocks. The trailer after the tables is served unchanged.

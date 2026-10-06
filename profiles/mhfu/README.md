@@ -1,4 +1,4 @@
-# MHFU HD profile
+# MHFU profile
 
 This profile builds `Pokee` for **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, disc version 1.01). It recompiles that PSP executable into a native program. No executable, game data or code generated from them is part of the repository — you supply your own copy of the game. The installer accepts this release only.
 
@@ -40,7 +40,7 @@ Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Gam
 | Entry / `gp` | `0x08906A54` / `0x089D3BA0` |
 | Imports | 272 |
 
-The encrypted header uses tag `0xC0CB167C`. `generate.sh` translates the resident code (3095 functions, 67 C++ units) and stamps the executable SHA-256. Launch registers that corpus only when the prepared executable has the same hash. The ELF names overlay sections (`game_task.ovl`, `em01.ovl`, `stage000.ovl`, and the rest) but those sections have no file bytes, so they are not part of this corpus. Camera, HUD and layered armor were traced on Portable 3rd (`NPJB-40001`) and stay off for this executable. Portable 3rd, its PSP release (`ULJM-05800`), and other Freedom Unite regions are refused.
+The encrypted header uses tag `0xC0CB167C`. `generate.sh` translates the resident code (3095 functions, 67 C++ units) and stamps the executable SHA-256. Launch registers that corpus only when the prepared executable has the same hash. The ELF names overlay sections (`game_task.ovl`, `em01.ovl`, `stage000.ovl`, and the rest) but those sections have no file bytes, so they are not part of this corpus. The analog camera's follow driver, its bow and bowgun aim, and lock-on were read from this executable. The projection, HUD, lock-on marker and layered armor were traced on Portable 3rd (`NPJB-40001`) and stay off here. Portable 3rd, its PSP release (`ULJM-05800`), and other Freedom Unite regions are refused.
 
 ## Requirements
 
@@ -197,7 +197,7 @@ It extracts every overlay from `DATA.BIN` into `analysis/overlays`, recompiles e
 
 Many overlays share one address, so each has its own corpus and the host must use the one matching what is loaded right now. An overlay image starts with `MWo3` and a 64-byte header: id, load address, code size, data size, bss size, two end-of-image addresses and a 32-byte name. A corpus is identified by its slot base plus an FNV-1a hash of that header and the code after it — the part the game never writes to, unlike the data section a loaded overlay keeps modifying.
 
-On a dispatch miss inside a slot, the host hashes those bytes in guest memory, unregisters whatever was installed there and registers the matching corpus. Every frame it compares each installed slot's header against the one it installed, which is enough to notice a swap without rehashing the code. An overlay may be larger than the gap to the next slot's base; the slot list records where images load, not how much room they have.
+On a dispatch miss inside a slot, the host hashes those bytes in guest memory, unregisters whatever was installed there and registers the matching corpus. Every frame, and before a chained call into a slot, it compares each installed slot's header against the one it installed, which is enough to notice a swap without rehashing the code. The call check matters when the game jumps into a new image before it flushes the instruction cache: the previous image's compiled code is dropped first, and the jump is looked up again. An overlay may be larger than the gap to the next slot's base; the slot list records where images load, not how much room they have.
 
 Each library resolves its framework symbols from the executable that loads it, so it only matches a host built from the same sources; `cmake --build out/mhfu` rebuilds all of them. `MHFU_OVERLAY_DIR` points the host at another library directory.
 
@@ -252,7 +252,7 @@ To rebind, see [Rebinding](#rebinding). Keys are bound by their place on the key
 
 **The pointer.** While the game runs and the window has focus, Pokee captures the mouse: the pointer is hidden and its motion and buttons go to the game. It is given back whenever Pokee's menu, the on-screen keyboard or a setup screen is up, and when the window loses focus (switching to another window, Cmd+Tab or Alt+Tab, minimising). Buttons and keys still held when it is captured again reach the game only after they are released, and motion made while it was free is never replayed. *Mouse* in the menu (`input.mouse`, `MHFU_MOUSE=0`) turns all of this off, leaving the pointer alone.
 
-**The mouse camera** feeds the same camera layer as the right stick, so it works where the [analog camera](#analog-camera) does: in a quest's ordinary camera, moving the mouse sideways turns the camera and moving it forward and back tilts it, by *Mouse sensitivity* degrees for each count of motion (0.10 by default), and it stops where the mouse stops. While a bow or a bowgun aims, and in a bowgun's scope, the mouse moves the aim the way the right stick does, slowed as *Aim speed* is to *Camera speed*; the game still decides when the aim may move. Where the port does not drive the camera (with *Analog camera* off, in the village or in a camera mode without a driver) the game's own camera turns at one fixed speed or not at all, so the mouse can only switch that turn on: moving it sideways turns the camera for as long as it moves, like holding the right stick, and vertical motion does nothing there (the second stick's up and down are the game's recentring commands). With *Camera stick* set to D-pad or off, the mouse does not turn the game's own camera, since D-pad presses would also move cursors in the game's menus.
+**The mouse camera** feeds the same camera layer as the right stick, so it works where the [analog camera](#analog-camera) does: in a quest's ordinary camera, moving the mouse sideways turns the camera and moving it forward and back tilts it, by *Mouse sensitivity* degrees for each count of motion (0.10 by default), and it stops where the mouse stops. While a bow or a bowgun is in the aim action, the same motion aims, at *Aim speed*'s share of *Camera speed*. Where the port does not drive the camera (with *Analog camera* off, in the village or in a camera mode without a driver) the game's own camera turns at one fixed speed or not at all, so the mouse can only switch that turn on: moving it sideways turns the camera for as long as it moves, like holding the right stick, and vertical motion does nothing there (the second stick's up and down are the game's recentring commands). With *Camera stick* set to D-pad or off, the mouse does not turn the game's own camera, since D-pad presses would also move cursors in the game's menus.
 
 The keyboard and a gamepad can be used together or in turns: both are read every frame and add up, so nothing is left pressed by switching.
 
@@ -432,6 +432,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | Fast-forward | `video.fast_forward` | `MHFU_FAST_FORWARD` | `hold` (default): the game runs faster while the Fast-forward key is held; `toggle`: one press turns it on, the next off; `off`: the key does nothing. Single player only. See [Fast-forward](#fast-forward) |
 | Video | Fast-forward speed | `video.fast_forward_speed` | `MHFU_FAST_FORWARD_SPEED` | 2×–8× real time; default 3× |
 | Video | Hide HUD | | `MHFU_HIDE_HUD` | Off (default) or on, for this run: the game's HUD, name tags and prompts are left out of the picture; menus and dialogs stay. Same as the Hide HUD key. See [Hiding the HUD](#hiding-the-hud) |
+| Video | Map and item bar | `video.map_item_scale` | `MHFU_MAP_ITEM_SCALE` | 50–200, the game's size as a percent; default 100. The quest map and the item bar shrink or grow from their corners. See [Map and item bar](#map-and-item-bar) |
 | Video | Performance | `video.performance` | `MHFU_PERF` | Off, overlay, overlay and log, log only |
 | Video | GPU compatibility | `video.gpu_compat` | `MHFU_GPU_COMPAT` | Auto (default: on only when the start-up self-test fails or a pipeline is refused), on or off; applies from the next start. See [GPU compatibility mode](#gpu-compatibility-mode) |
 | Video | Font | `text.font` | `MHFU_FONT` | Default (a Japanese system font), or an installed font; see [Game text](#game-text) |
@@ -446,10 +447,10 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Controls | Chord window (under *Combinations*) | `input.chord_window` | `MHFU_CHORD_WINDOW` | Off, 10–200 ms (50 by default): how long an input that begins a longer chord waits for the rest; see [Rebinding](#rebinding) |
 | Controls | Preset | `input.preset` | `MHFU_CONTROL_PRESET` | `default`, `modern`, `left_handed`, `classic` or `user:<name>`; see [Control presets](#control-presets). The variable takes a shipped preset's id or the name of one of yours, for the run only |
 | Controls | Camera stick | `input.right_stick` | `MHFU_PAD_RSTICK_DPAD` | Camera, D-pad or off, for the stick that does not move the hunter |
-| Controls | Analog camera | `input.analog_camera` | `MHFU_ANALOG_CAMERA` | Proportional turn and continuous tilt in the ordinary quest camera, and proportional bow and bowgun aim; on by default |
+| Controls | Analog camera | `input.analog_camera` | `MHFU_ANALOG_CAMERA` | Proportional turn and continuous tilt in the ordinary quest camera; on by default |
 | Controls | Lock-on | `input.lock_on` | `MHFU_LOCK_ON` | On (default) or off: what the [Lock on](#lock-on) bind does. Off, the bind does nothing |
 | Controls | Lock-on marker | `input.lock_on_marker` | | On (default) or off: a ring over the locked monster |
-| Controls | Aim speed | `input.aim_speed` | `MHFU_AIM_SPEED` | Degrees a second at full deflection while a bow or a bowgun aims, 10 to 360; default 90 |
+| Controls | Aim speed | `input.aim_speed` | `MHFU_AIM_SPEED` | Degrees a second a bow or bowgun aims at full deflection |
 | Controls | Camera speed | `input.camera_speed` | `MHFU_CAMERA_SPEED` | 20–720 degrees per second at full deflection; default 190 |
 | Controls | Invert camera horizontally / vertically | `input.invert_camera_x`, `input.invert_camera_y` | | For the right-stick camera |
 | Controls | Camera stick D-pad point | `input.right_stick_zone` | `MHFU_PAD_RSTICK_ZONE` | 10–100%, for the D-pad mode |
@@ -479,6 +480,8 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Mods | A row per mod: On, Priority | `[mod <folder>] enabled`, `rank` in `mods.ini` | | Off (default) or on; a higher rank wins where two mods replace the same file |
 | System | Pause the game when the menu opens | `ui.menu_pause` | `MHFU_MENU_PAUSE` | On (default) or off: the game keeps running behind the menu |
 | System | Pause during multiplayer | `ui.menu_pause_multiplayer` | `MHFU_MENU_PAUSE_MULTIPLAYER` | Off (default): during ad hoc play the game keeps running behind the menu; on: the setting above decides |
+| System | Display Without Weapon Coefficient | `game.display_without_coefficient` | `MHFU_DISPLAY_WITHOUT_COEFFICIENT` | Off (default) or on: equipment detail, the status screen and the smithy reprint the weapon's attack with the class coefficient divided out, and its element with the extra ten divided out. A hit still uses the attack and element the game already uses. See [Display Without Weapon Coefficient](#display-without-weapon-coefficient) |
+| System | Damage numbers | `game.damage_numbers` | `MHFU_DAMAGE_NUMBERS` | Off (default) or on: the health a hit removes, drawn on the monster. Orange when the part's hitzone is 45 or more after sharpness (a gun uses the hitzone alone), gray otherwise, and white until that part is known. A critical hit adds its own mark. The size of the number does not decide the colour |
 | System | Add a timestamp to the backup name | `saves.backup_timestamp` | | On (default): each backup from *Back up saves…* is a new folder named by its time; off: plain folder names, replaced after asking |
 | System | Remind me to back up after updates | `saves.backup_reminder` | `MHFU_BACKUP_REMINDER` | On (default): the first start of a new release asks you to back up your saves; see [Backups](#where-saves-live-and-how-to-back-them-up). `saves.backup_reminded` records the release that last asked |
 | Network | Ad hoc play | `network.adhoc` | `MHFU_ADHOC` | Off (default) or on; off, the game reports the wireless switch as off |
@@ -490,6 +493,18 @@ Everything applies without a restart, apart from mods that change a file's size 
 The Network section also shows the connection and has the troubleshooting tools described under [Multiplayer](#multiplayer-ad-hoc). The file also keeps `network.mac`, the address other players know you by (made up the first time you go on line; `MHFU_ADHOC_MAC` overrides it), `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
 
 The interface is drawn with [Dear ImGui](third_party/imgui/README.md). Its text uses a system font: San Francisco or Helvetica on macOS, Noto Sans, DejaVu Sans or Liberation Sans on Linux, Segoe UI on Windows, with a Japanese font merged in for file names; `MHFU_UI_FONT` names another `.ttf`. It scales with the window: about 27-pixel text on a Steam Deck's 1280×800 screen.
+
+### Display Without Weapon Coefficient
+
+**Display Without Weapon Coefficient** (System, `game.display_without_coefficient`, `MHFU_DISPLAY_WITHOUT_COEFFICIENT=1`) is off by default. It is there so weapons can be compared. On, the attack and element on equipment detail, the status screen and the smithy are reprinted: the attack is that figure divided by the class coefficient, and the element is that figure divided by 10. A great sword at 336 and a sword and shield at 98 are both 70. Element 180 is 18. A hit still uses the attack and element the game already uses. The earlier key `game.comparable_weapons` and `MHFU_COMPARABLE_WEAPONS` still turn it on.
+
+The coefficients are 4.8 for a great sword or long sword, 1.4 for a sword and shield or dual blades, 5.2 for a hammer or hunting horn, 2.3 for a lance or gunlance, 1.2 for a bow or bowgun, and 5.4 for a switch axe.
+
+### Damage numbers
+
+**Damage numbers** (System, `game.damage_numbers`, `MHFU_DAMAGE_NUMBERS=1`) are off by default. On, a hit that removes health from a monster shows that amount on the monster, a little above its feet, and the number stays there as the monster moves. It rises slightly and fades. A hit off the picture is not drawn. A status tick that drains health on its own is not shown. The place is the entity's position at `+0x200`, and the view is the perspective the world was drawn with.
+
+The colour is the later games' hitzone rule, not the size of the number. Orange means the part's hitzone is 45 or more. A blade multiplies that hitzone by its sharpness (red 0.50, orange 0.75, yellow 1.00, green 1.05, blue 1.20, white 1.32, purple 1.45); a gun uses the hitzone alone. Any other known part is gray. Element is already inside the one drop, so it does not change the colour. A critical hit adds `!`, and a negative critical adds `~`. Until the part itself is known, the number is white.
 
 ## Game text
 
@@ -535,7 +550,7 @@ Pokee loads HD texture packs made for PPSSPP, in its `textures.ini` format, with
 | Flatpak | `~/.var/app/io.github.teamgdb.Pokee/data/Pokee/MHFU/textures/ULUS10391/` (a copy, not a link to a folder outside the sandbox) |
 | Windows | `%APPDATA%\Pokee\MHFU\textures\ULUS10391\` |
 
-*Open the textures folder* in the menu's Video section opens `textures`. A pack made for the PSP release (`ULJM05800`) works only if its `textures.ini` lists `ULUS10391` under `[games]`; the import installs such a pack as `ULUS10391` by itself. *Texture pack* in the Video section turns the pack on and off while the game runs; off draws exactly the game's own textures again. The footer under that setting shows how many textures the pack lists, *No pack in …* with the folder Pokee looked in, or *Pack folder missing: …* when a pack used in place has moved.
+*Open the textures folder* in the menu's Video section opens `textures`. A pack made for another release, such as Portable 3rd (`ULJM05800`), works only if its `textures.ini` lists `ULUS10391` under `[games]`; the import installs such a pack as `ULUS10391` by itself. *Texture pack* in the Video section turns the pack on and off while the game runs; off draws exactly the game's own textures again. The footer under that setting shows how many textures the pack lists, *No pack in …* with the folder Pokee looked in, or *Pack folder missing: …* when a pack used in place has moved.
 
 ### Importing a texture pack
 
@@ -565,7 +580,7 @@ How it works:
 
 ## Mods
 
-Pokee reads mods in the format the game's community already uses with the mhp3reload mod loader and its mod manager, so a mod made for them works without changes. None is included, downloaded or linked here: install mods you downloaded yourself. Each mod is a folder in `mods` in the [per-user directory](#installer) (`~/Library/Application Support/Pokee/MHFU/mods` on macOS, `~/.local/share/Pokee/MHFU/mods` on Linux, `%APPDATA%\Pokee\MHFU\mods` on Windows):
+Pokee reads mods in the format the game's community already uses with its mod loader and mod manager, so a mod made for them works without changes. None is included, downloaded or linked here: install mods you downloaded yourself. Each mod is a folder in `mods` in the [per-user directory](#installer) (`~/Library/Application Support/Pokee/MHFU/mods` on macOS, `~/.local/share/Pokee/MHFU/mods` on Linux, `%APPDATA%\Pokee\MHFU\mods` on Windows):
 
 ```
 mods/
@@ -573,7 +588,7 @@ mods/
     mod.ini
     preview.png     optional, shown in the menu
     armour.pac
-  some_files/       files named by the file id they replace, as in mhp3reload's files folder
+  some_files/       files named by the file id they replace, as in the community loader's files folder
     0601
     0602P           a patch for file 0602
 ```
@@ -633,7 +648,7 @@ A change shows the next time the game loads the hunter: entering another area, s
 The game saves through the PSP's save-data utility, which the host implements. Saves live where a PSP keeps them, under the directory that backs `ms0:`: `ms0` in the [per-user data directory](#installer) for an installation, or `ms0` in the game directory when the game runs from one (`profiles/mhfu/game`, `MHFU_GAME_DIR` or the `game_dir` argument):
 
 ```text
-game/ms0/PSP/SAVEDATA/ULJM05800/
+game/ms0/PSP/SAVEDATA/ULUS10391/
     PARAM.SFO      titles, the file list and the hashes that protect the save
     MHP2NDG.BIN     the game data, encrypted
     ICON0.PNG      icon shown in the PSP's save list
@@ -642,32 +657,32 @@ game/ms0/PSP/SAVEDATA/ULJM05800/
 
 `MHP2NDG.BIN` is encrypted and `PARAM.SFO` hashed exactly as the PSP's save-data utility does it, with the key the game supplies, so a folder can move between this port and a PSP's memory stick unchanged. The one field that cannot be reproduced is a hash made with a key unique to each PSP; the port writes a placeholder there. Copying a save made here onto a real PSP has not been tried yet.
 
-Nothing is drawn for the save-data or message dialogs yet ([#33](https://github.com/TeamGDB/Yakumo/issues/33)): the game's own screens ask where to save and show the result, and the system dialogs answer as if the player confirmed them. The log shows each request and each message, for example `[savedata] AUTOSAVE (1) game="ULJM05800" …` followed by `[savedata] saved 1183744 bytes to …`.
+Nothing is drawn for the save-data or message dialogs yet ([#33](https://github.com/TeamGDB/Yakumo/issues/33)): the game's own screens ask where to save and show the result, and the system dialogs answer as if the player confirmed them. The log shows each request and each message, for example `[savedata] AUTOSAVE (1) game="ULUS10391" …` followed by `[savedata] saved 1183744 bytes to …`.
 
 ### Importing a save from a PSP
 
 The in-game menu does it (Esc, or L3+R3 on a gamepad; System section, *Saves*):
 
-1. Copy the save to this machine, or connect the memory stick: on a PSP's memory stick the folder of *Monster Hunter Portable 3rd* is `PSP/SAVEDATA/ULJM05800`, with downloaded quests in `ULJM05800QST`. PPSSPP keeps the same folders in its `memstick/PSP/SAVEDATA`.
+1. Copy the save to this machine, or connect the memory stick: on a PSP's memory stick the folder of *Monster Hunter Freedom Unite* is `PSP/SAVEDATA/ULUS10391`, with downloaded quests in `ULUS10391QST`. PPSSPP keeps the same folders in its `memstick/PSP/SAVEDATA`.
 2. Choose *Import save…*. The file browser lists folders. Opening a save folder chooses it; *Import from this folder* chooses the folder shown, and every save in it, in its `SAVEDATA` or in its `PSP/SAVEDATA` is found, so a memory stick's root or a `SAVEDATA` folder holding several games works too.
 3. Each save found is checked, then shown with its date and size beside the save it would replace. Nothing is copied until you choose *Import* (or *Replace and import*).
 4. The game reads its saves at the title screen. *Restart now* closes the game and starts it again there; progress since your last save is lost. If you keep playing instead, do not save before restarting, or the game writes its own data over the imported save.
 
-**Checks.** A folder is imported only when its `PARAM.SFO` names one of this game's folders (`ULJM05800`, `ULJM05800QST`, `ULJM05800DAT`), its own hashes match, and every data file it lists is present, matches its hash and decrypts with the key the game passes to the save-data utility. Other games' saves are left out (and counted), and a damaged one is refused with the reason. The key is taken from the game's own first save-data request, at boot; until then, saves cannot be checked and the menu says to try again at the title screen. A save stored without encryption, as early PPSSPP versions wrote them, has nothing to check and is imported as it is.
+**Checks.** A folder is imported only when its `PARAM.SFO` names one of this game's folders (`ULUS10391`, `ULUS10391QST`, `ULUS10391DAT`), its own hashes match, and every data file it lists is present, matches its hash and decrypts with the key the game passes to the save-data utility. Other games' saves are left out (and counted), and a damaged one is refused with the reason. The key is taken from the game's own first save-data request, at boot; until then, saves cannot be checked and the menu says to try again at the title screen. A save stored without encryption, as early PPSSPP versions wrote them, has nothing to check and is imported as it is.
 
-**Nothing is deleted.** A save that an import replaces is moved to `ms0/PSP/SAVEDATA/.backup/<date>_<time>/<folder>/`, for example `.backup/2026-09-19_19-05-12/ULJM05800/`; import that folder to go back to it. `.zip` files are not read: unpack them first.
+**Nothing is deleted.** A save that an import replaces is moved to `ms0/PSP/SAVEDATA/.backup/<date>_<time>/<folder>/`, for example `.backup/2026-09-19_19-05-12/ULUS10391/`; import that folder to go back to it. `.zip` files are not read: unpack them first.
 
 By hand, the same works with the game closed: copy the folder into `ms0/PSP/SAVEDATA/` in the directory above (for example `~/.local/share/Pokee/MHFU/ms0/PSP/SAVEDATA/`), after keeping a copy of any folder of the same name, which holds all three character slots. *Open the saves folder* in the menu shows that folder.
 
 ### Exporting and backing up
 
-- **Export save…** copies the game data and the downloaded quests to a folder you choose, as `MHFU saves <date>_<time>/PSP/SAVEDATA/ULJM05800…`, the layout of a memory stick: copy its `PSP` folder to the root of a PSP's memory stick, or import it on another machine. It always makes a new folder.
-- **Back up saves…** copies every save folder of the game, the install data included, to the backups folder, `save-backups` in the [per-user data directory](#installer), or to a folder you choose. With *Add a timestamp to the backup name* (on by default; `saves.backup_timestamp` in `settings.ini`) each backup is a new folder named by its time, holding the save folders: `save-backups/2026-09-19_19-05-12/ULJM05800/`. With it off, the save folders go straight into the chosen folder (`save-backups/ULJM05800/`), and an earlier backup there is replaced only after you confirm. *Open the backups folder* shows it. To restore a backup, import it.
+- **Export save…** copies the game data and the downloaded quests to a folder you choose, as `MHFU saves <date>_<time>/PSP/SAVEDATA/ULUS10391…`, the layout of a memory stick: copy its `PSP` folder to the root of a PSP's memory stick, or import it on another machine. It always makes a new folder.
+- **Back up saves…** copies every save folder of the game, the install data included, to the backups folder, `save-backups` in the [per-user data directory](#installer), or to a folder you choose. With *Add a timestamp to the backup name* (on by default; `saves.backup_timestamp` in `settings.ini`) each backup is a new folder named by its time, holding the save folders: `save-backups/2026-09-19_19-05-12/ULUS10391/`. With it off, the save folders go straight into the chosen folder (`save-backups/ULUS10391/`), and an earlier backup there is replaced only after you confirm. *Open the backups folder* shows it. To restore a backup, import it.
 - **The reminder.** The first time a new release starts and finds saves, it pauses the game for a moment and asks you to back them up. *Back up now* makes a new timestamped folder in `save-backups` (on Android, in a folder you pick), whatever the timestamp setting says, so it never replaces an earlier backup; the next screen says where the backup went and offers to open that folder. *Continue without a backup* starts the game. Either way the reminder does not come back until the next release. The import's review asks the same before it writes anything, with its own *Back up now*. Turn the reminder off with *Remind me to back up after updates*.
 
 ### Where saves live and how to back them up
 
-The saves are the folders in `ms0/PSP/SAVEDATA/` of the data directory: `ULJM05800` holds all three character slots, `ULJM05800QST` the downloaded quests, and `ULJM05800DAT` the install data, which the game can rebuild.
+The saves are the folders in `ms0/PSP/SAVEDATA/` of the data directory: `ULUS10391` holds all three character slots, `ULUS10391QST` the downloaded quests, and `ULUS10391DAT` the install data, which the game can rebuild.
 
 | Platform | Saves folder |
 | --- | --- |
@@ -688,14 +703,14 @@ Pokee never deletes a save: an import moves the save it replaces to `ms0/PSP/SAV
 
 ### Downloadable content
 
-The game keeps downloaded quests and equipment in the `ULJM05800QST` save folder and reads it through the save-data utility, like an ordinary save (AUTOLOAD of `ULJM05800QST` / `MHP2NDG.BIN`). The download servers are long gone, so the in-game download mode's network side stays unimplemented. To use DLC you already have, import your `ULJM05800QST` folder from the menu (or copy it into `ms0/PSP/SAVEDATA/`), then open the game's download menu to install the quests. The project does not host, bundle or link to DLC files.
+The game keeps downloaded quests and equipment in the `ULUS10391QST` save folder and reads it through the save-data utility, like an ordinary save (AUTOLOAD of `ULUS10391QST` / `MHP2NDG.BIN`). The download servers are long gone, so the in-game download mode's network side stays unimplemented. To use DLC you already have, import your `ULUS10391QST` folder from the menu (or copy it into `ms0/PSP/SAVEDATA/`), then open the game's download menu to install the quests. The project does not host, bundle or link to DLC files.
 
-This release (`NPJB-40001`) asks for the original PSP release's folder names (`ULJM05800`), and the key it passes is the PSP release's: a downloaded-quest folder written by a PSP running `ULJM-05800` passes every check with it and decrypts. The two releases therefore share one save format, and saves should move between them in both directions; a save from this release has not yet been loaded on a PSP. When there is no save of its own, the game also looks for saves of *Monster Hunter Portable 2nd G* (`ULJM05500`) and *Monster Hunter Diary: Poka Poka Airu Village* (`ULJM05710`); those would be read from `ms0` the same way, which has not been tried.
+This release (`ULUS-10391`) keeps the save in `ULUS10391`, with the game data in `MHP2NDG.BIN`. A folder written by a PSP running that release passes the checks with the key the game supplies. A save made here has not yet been loaded on a PSP.
 
 To check a save folder without starting the game — for example one that the game reports as corrupted — run the save-data test program on it:
 
 ```bash
-out/mhfu/bin/mhfu_savedata_tests --check profiles/mhfu/game/ms0/PSP/SAVEDATA/ULJM05800 MHP2NDG.BIN <key>
+out/mhfu/bin/mhfu_savedata_tests --check profiles/mhfu/game/ms0/PSP/SAVEDATA/ULUS10391 MHP2NDG.BIN <key>
 ```
 
 `<key>` is the 32-digit key the game passes to the save-data utility; a run with `MHFU_TRACE_SAVEDATA=1` prints it as `key=` on every request for the game's own save. The program reports whether the hashes in `PARAM.SFO` and the data file's hash match and whether the file decrypts. Without arguments it runs the self-tests, which need no game data.
@@ -732,7 +747,7 @@ A server has two parts, both over TCP: the matchmaking service on port **27312**
 
 Server and nickname changes apply the next time the game goes on line: leave the hall and enter it again. Turning ad hoc play off while in a hall takes you out of it, as if the connection dropped. The address other players know you by (`network.mac` in `settings.ini`) is made up once and kept.
 
-Everyone in a hall must play the same game: this release and the PSP's *Monster Hunter Portable 3rd* (`ULJM-05800`) are the same game on the server, so players of the PSP version on PPSSPP can join.
+Everyone in a hall must play the same game: this release is USA Freedom Unite (`ULUS-10391`), so players of that PSP version on PPSSPP can join.
 
 ### Choosing a server
 
@@ -772,7 +787,7 @@ Each instance needs its own settings (for its own address and nickname) and its 
 mkdir -p ~/pokee-b/ms0/PSP/SAVEDATA
 ln -s /path/to/disc.iso ~/pokee-b/disc.iso
 ln -s /path/to/EBOOT.ELF ~/pokee-b/EBOOT.ELF
-cp -R profiles/mhfu/game/ms0/PSP/SAVEDATA/ULJM05800 ~/pokee-b/ms0/PSP/SAVEDATA/
+cp -R profiles/mhfu/game/ms0/PSP/SAVEDATA/ULUS10391 ~/pokee-b/ms0/PSP/SAVEDATA/
 
 # each instance: its own data directory, window title, server and nickname
 MHFU_DATA_DIR=~/pokee-a-data MHFU_WINDOW_TITLE="Pokee A" MHFU_ADHOC=1 \
@@ -872,6 +887,8 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHFU_NO_CACHED_READBACK` | off | Keep the frame written back to guest memory in the first host-visible memory type, as before, instead of a host-cached one; on a Steam Deck the CPU copy out of it then takes ~3 ms a frame instead of a fraction of one |
 | `MHFU_NO_CACHED_VERTICES` | off | Keep the vertex buffer in the first host-visible memory type, as before, instead of a host-cached one. A rainy area writes about 125 MiB of vertices a frame, and the uncached copy of that took long enough to run the game at half speed |
 | `MHFU_NO_VERTEX_CACHE` | off | Decode every draw's vertices again each frame, as before, instead of reusing a span whose guest bytes and bones have not changed |
+| `MHFU_NO_VERTEX_HOLD` | off | Copy those reused vertices into the per-frame buffer every frame, as before. Otherwise a span that has not changed is copied once into a 192 MiB buffer and drawn from there. One that did not fit is copied each frame until a later frame has room |
+| `MHFU_NO_VERTEX_HOLD_RECLAIM` | off | Leave a span's bytes in that buffer after it stops being drawn, as the first version of the hold did. Otherwise the space returns once the frames still reading it have finished, so the next zone reuses it |
 | `MHFU_NO_DIRECT_VERTICES` | off | Expand every draw into a plain triangle list on the CPU, as before, instead of writing a transformed draw's decoded vertices once with an index list |
 | `MHFU_NO_LOOKUP_CACHE` | off | Look every draw's pipeline and texture up in the renderer's caches, as before, instead of reusing the previous draw's and what the display list already resolved |
 | `MHFU_NO_BUFFER_REUSE` | off | Allocate the texture decoder's working buffers, the staging buffer and command buffer of each texture upload, and the pixels of a framebuffer read back for a block transfer every time, as before, instead of keeping them for the next use |
@@ -933,7 +950,7 @@ On a phone with a display cutout (a camera notch or hole), the window covers the
 
 How Fill works: the game keeps the projection's parameters in its camera object (the pointer at `0x08A2F958`): near and far plane, aspect ratio and vertical field of view at `+0x0` to `+0xC`. The camera's set-up (`0x0882D5A4`) copies the aspect ratio from a constant, 480/272 at `0x08969F74`; the projection (`0x0882CF0C`, which calls the perspective builder `0x0882CDCC`) and the culling planes (`0x0882BF1C`) are built from those fields, and the camera's update builds them again only when the field of view differs from the one kept at `+0x10`. At each flip `host/camera/game_aspect.cpp` writes the target's shape into the constant (for cameras set up later) and into the live camera, and makes the next update rebuild by changing `+0x10`. The culling planes cover the view up to an aspect ratio of about 3; beyond that the port also shrinks their depth factor, the constant `-1.5` at `0x08969ED4`, which only `0x0882BF74` reads. Back at Original or Stretch the port writes the game's own values back, bit for bit, and then nothing more. Eleven instructions and the two constants are checked at start-up (listed in `game_aspect.cpp`); if any differs, the view keeps the PSP's shape. The renderer keeps the game's 480×272 coordinates everywhere (viewport, scissor, framebuffer textures, the frame written back to guest memory) and only spreads them over a target of the window's shape; the interface's through-mode draws into the shown framebuffer are pulled in about the centre, their scissor with them.
 
-The community's widescreen cheat for this release (NPJB-40001) patches the same constant; the port does it live, for any shape, and keeps the interface undistorted.
+The community's widescreen cheat for Portable 3rd (NPJB-40001) patches the same constant; the port does it live, for any shape, and keeps the interface undistorted.
 
 ### Frame rate
 
@@ -975,7 +992,7 @@ Steam Deck (LCD, 90 Hz, Game Mode, ×6 under Fill, 2611×1632), village, Vsync o
 
 At 90 the kernel still waits about 12 ms of every game frame, so the rate has room; 60 blended and 30 plain presents a second, none dropped, a delay of 26 ms (the game's code about 4 ms).
 
-A game-side 60 fps patch was not used. The one community code for this game (Saramagrean's CWCheat database, NPJB-40001 and ULJM-05800, "60 FPS Beta") takes the vblank handler at `0x0887669C` from starting a frame every other vblank to every one, then halves a quest timer, one counter and a few animation speeds back. The game has no time step to scale: its timers count frames and its animations take fixed steps (about 280 self-doubling `add.s` in the executable and the quest overlays), so everything else — monsters, their attacks, stamina, hit windows — runs at double speed, as its author and testers say. The overlay half of the NPJB code also targets the PSP release's addresses: our overlays load 0x800000 higher. 120 would be four times the game's own rate. Presenting in between keeps every one of those timings.
+A game-side 60 fps patch was not used. The one community code for Portable 3rd (Saramagrean's CWCheat database, NPJB-40001 and ULJM-05800, "60 FPS Beta") takes the vblank handler at `0x0887669C` from starting a frame every other vblank to every one, then halves a quest timer, one counter and a few animation speeds back. The game has no time step to scale: its timers count frames and its animations take fixed steps (about 280 self-doubling `add.s` in the executable and the quest overlays), so everything else — monsters, their attacks, stamina, hit windows — runs at double speed, as its author and testers say. The overlay half of the NPJB code also targets the PSP release's addresses: our overlays load 0x800000 higher. 120 would be four times the game's own rate. Presenting in between keeps every one of those timings.
 
 ### Fast loading
 
@@ -1032,6 +1049,12 @@ How the game's 2D draws were told apart (`host/gpu/game_hud.{hpp,cpp}`), traced 
 
 The renderer then leaves out the HUD packets' draws, and nothing else: their other commands still run, so the GE state is the same either way. The watching starts only once the HUD is first hidden (or the free camera flies with the option on), and then stays for the run; with the HUD shown nothing is left out. If the game's code at those addresses is not what it was traced on, the switch is unavailable and says so on the console.
 
+### Map and item bar
+
+**Map and item bar** (Video) draws those two smaller or larger than the game does, and leaves the rest of the picture at the game's size. 100% is that size. From 50% to 200% the map stays in the top-left corner and the item bar stays in the bottom-right, open or closed, including the item's name and the **L** prompt. Below 100% each shrinks toward its corner; above 100% each grows away from it. Health, stamina, sharpness, the name plate, menus and the 3D view are not moved. The menu steps by 5. `MHFU_MAP_ITEM_SCALE` sets any whole percent in that range for one run.
+
+It was measured with `MHFU_TRACE_SPRITES` in a quest's base camp (USA Freedom Unite). The map is the sprite at (8, 8)–(60, 56). The item bar is the sprites inside x 312–472 and y 200–264. A marker drawn on the map is scaled with it. At 200% the map overlaps the left of the health bar, and the open item bar covers more of the view. The village and the menus do not use these rectangles, so they are unchanged.
+
 ### Audio
 
 | Variable | Default | Effect |
@@ -1052,7 +1075,7 @@ The renderer then leaves out the HUD packets' draws, and nothing else: their oth
 | `MHFU_ANALOG_CAMERA` | on | Proportional yaw and continuous tilt in the ordinary quest camera, the tilt limited to −60°…70° before collision correction. Stick deflection controls speed; release holds the angle. The physical D-pad and recentre return control to the game. Uses the camera update directly, without memory searches or renderer tracing. Off restores stock input and stops camera writes immediately (menu: Analog camera) |
 | `MHFU_LOCK_ON` | on | `0` makes the [Lock on](#lock-on) bind do nothing (menu: Lock-on) |
 | `MHFU_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
-| `MHFU_AIM_SPEED` | `90` | Degrees a second at full deflection while a bow or a bowgun aims, 10 to 360 (menu: Aim speed) |
+| `MHFU_AIM_SPEED` | `90` | Degrees a second a bow or bowgun aims at full deflection, 10 to 360 (menu: Aim speed) |
 | `MHFU_MOUSE` | on | `0` leaves the pointer alone: no capture, no mouse camera and no mouse buttons (menu: Mouse) |
 | `MHFU_MOUSE_SENSITIVITY` | `0.10` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99 (menu: Mouse sensitivity) |
 | `MHFU_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Camera stick) |
@@ -1077,44 +1100,47 @@ The renderer then leaves out the HUD packets' draws, and nothing else: their oth
 
 ### Analog camera
 
-**Analog camera** (Controls) is on by default and drives both axes in a quest. Small right-stick deflections turn and tilt slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. While a bow or a bowgun aims, the right stick moves the aim in proportion to how far it is pushed, at **Aim speed** (the game's own aim moves at one speed of about 100° a second, and only past half the stick's travel), and the game's camera follows the aim as it always does; the analog camera takes over again when the aim ends. A bowgun's scope (a short press of R) counts as an aim: the right stick and the mouse move the scope instead of turning the camera behind it. The game still decides whether the aim may move and which way: nothing moves while rolling, an axis the game locks (vertical aim while walking) stays locked, the scope's left-stick aim is untouched, and the game's Quick Aim Controls option applies. The game's own **Quick Aim Camera** option (START → Options) decides whether the camera turns behind the hunter while aiming: with Type 2 it stays where it is. Fixed village cameras and other special camera modes remain stock; this feature does not unlock them.
+**Analog camera** (Controls) is on by default and drives both axes of the quest follow camera. Small right-stick deflections turn and tilt slowly; full deflection uses **Camera speed**. The input dead zone and inversion settings apply to both axes. The game retains terrain and wall collision handling. Its eye ease moves the eye's height an eighth of the way to the tilted offset each update and copies the sideways axes at once; the driver adds the player's change in height to the eye before that ease, so a tilt, looking up included, is not left for the ease to catch up. Releasing the stick holds the angle. Collision corrections still go through the ease. While the camera is placing itself behind the hunter, and while the D-pad or a snap is in use, the driver leaves that update alone. Village cameras and any other camera function stay stock, because this driver wraps only the follow camera's update.
+
+While the hunter's action halfword at `+804` is 1001, the same option aims a bow or a bowgun. That action is the one the game's aim function (`0x09AA4DD0` in `game_task`) requires before it steps the aim heading at halfword `+800` and the pitch byte at `+1662`. The game's own steps are three fixed sizes from the left stick's magnitude, plus a D-pad step. A push on the right stick, or the mouse, is shown to the aim function for that call only, so the game steps, and each step is then replaced by one sized with **Aim speed**. The movement stick stays the one the player is holding, so the right stick does not walk the hunter. With the right stick centred, a push on the left stick is resized from its magnitude the same way. A frame in which the game does not step (a roll, a shot, an axis it has locked, the D-pad with the stick centred) is left as the game made it. The body facing, the low 16 bits of the word at `+500`, moves with the aim heading while it still matches that heading. No separate scope flag was found in this executable; a scope that stays in action 1001 uses these same fields.
 
 The option takes effect at run time, with no regeneration or rebuild. Turning it off stops all analog-camera writes, restores the game's vertical presets and passes the right stick through unchanged. Camera speed is in degrees per second of real time, measured between the game's flips, so it does not change when the game slows down.
 
 The code is in two layers under `host/camera/`:
 
 - `camera_input` is what the player asks for, independent of device and game. Rate sources (the stick, and the camera keys, which push it) hold a fraction of Camera speed; motion sources (the mouse, later a touch drag) add degrees. Every source adds together. New input devices only feed this layer.
-- `game_camera` drives the game's camera from that input. The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. Each camera mode needs its own driver: only the ordinary follow camera (mode 0) has one, and every other mode keeps the stock camera and stick. Aiming stays in mode 0: each update the camera asks the weapon's code whether it aims and keeps the answer at camera `+0x91` (-1 when not), and while it is not negative the game turns the camera after the aim, so for exactly that time the driver leaves the camera alone and sizes the aim instead. The weapon's aim code (in `game_task`) reads the stick as on/off commands and, in the states where the aim may move, steps the hunter's facing (followed object `+0x188`, copied by the game into `+0x74`) by 512 or 624 and one of three vertical aims (`+0xC22` or `+0x1457`, signed bytes limited to ±100, or `+0xC24`, a halfword limited to ±8192) by a fixed amount. While aiming, the stick reaches the game stretched to full length so the aim code steps at any push, and the driver replaces each step it finds since the previous update with one in proportion to the stick, in the game's direction. No step from the game means no movement. A mouse has no stick, so while the right stick is idle and the mouse has moved, the second stick shows the game the mouse's direction at full length, and a step the game makes then is sized by the mouse's degrees instead; degrees the game has not stepped for wait up to three updates (the game may step an update after it saw the push) and are then dropped, and a step made after they are spent is taken back.
+- `game_camera` drives the game's camera from that input. The follow camera is the update at `0x08886E50`. Its argument is the parent object and the camera is that plus `0xA0`. The host wraps the update. It writes the target yaw and the filtered yaw together, so the game's quarter-step yaw filter has nothing left to close, and it rewrites the preset's eye-offset height and distance (`+4` and `+8` of the pointer at camera `+0x70`) for that call so collision sees the tilted offset. Those two floats are put back before the update returns, so the shared table is not left changed. The update then eases the eye's height an eighth of the way toward that offset (`0x08887D10`) and copies the other two axes at once. The player's change in height is added to the eye first, so that ease does not lag the stick; terrain and collision still use it. A non-negative byte at camera `+0x91` is the behind-the-hunter placement, and that update is left to the game. Some weapon checks in the same function take a fixed distance instead of the preset; the tilt does not apply on that path.
 
-Safeguards: CMake finds the generated unit that holds the rotation helper and fails the configure if none does, so a new partition of the corpus cannot call the wrong code. At start-up the driver compares twenty-two instructions and constants of the game (listed in `game_camera.cpp`) with what it expects and stays out, saying which differs, if any does. The wrapper is installed only when the option is on (from the first frame, by default): a player who turns it off before starting keeps the helper's generated unit on its direct calls, and the feature costs nothing. No shared preset table or generated code is patched, and guest RAM is never scanned.
+Safeguards: CMake finds the generated unit that holds the camera update, and without that unit the option stays off. At start-up the driver compares twenty-nine instructions of the game (listed in `game_camera.cpp`) with what it expects and stays out, saying which differs, if any does. The wrapper is installed only when the option is on, or when lock-on wants it (from the first frame, by default): a player who turns both off before starting keeps that unit on its direct calls, and the feature costs nothing. Guest RAM is never scanned.
 
 ### Lock-on
 
 **Lock on** (T or the middle mouse button; R3 on a gamepad; Controls → Camera) turns the quest camera towards a large monster and keeps it there while the monster moves. It works in the camera that follows the hunter in a quest; the hunter moves relative to the camera as always, so pushing forward heads for the monster.
 
-- **A tap** with nothing locked picks the nearest large monster within 60° either side of where the camera looks, or the nearest one when none is in view, among the large monsters that are alive and in the hunter's area. Companions and small monsters are never picked. With none in the area, a note says so.
-- **Another tap** moves to the next large monster in the area; after the last one, a tap lets go. With one monster, the second tap lets go.
-- **It lets go by itself** when the monster dies or is captured, leaves the hunter's area (or the hunter leaves it), gets more than 6,000 units away, or the quest ends; a note says why. It also lets go when the player takes the camera back: turning it by hand (the right stick, the mouse or the camera keys, past about 6° so a nudge does not count), the D-pad's camera commands, or recentring with L. Holding L for the item bar does not.
+- **A tap** with nothing locked picks the nearest large monster within 60° either side of where the camera looks, or the nearest one when none is in view. It reads the quest entity list and keeps an entry that is not a player, whose vtable method lies in the large-monster overlay, and that has both current and maximum health above zero. A companion, a player and a small monster are left out. If nothing qualifies yet, the tap keeps looking for about three seconds, so a press as the area finishes loading still catches a monster that appears a moment later. With none, the log says how many entities were on the list and why they were left out.
+- **Another tap** moves to the next one in that list; after the last one, a tap lets go. With one monster, the second tap lets go.
+- **It lets go by itself** when the monster dies or is captured (its health or its maximum health falls to zero), gets more than 6,000 units away, or the quest ends; a note says why. A flag for "in another area" was not found in this executable, so that is not a reason to let go. It also lets go when the player takes the camera back: turning it by hand (the right stick, the mouse or the camera keys, past about 6° so a nudge does not count), the D-pad's camera commands, or recentring with L. Holding L for the item bar does not.
 - **While it holds**, the camera's yaw eases towards the monster by a fifth of the rest each camera update, at most 11.25° an update, so it follows a charge without jumping. When the monster stands on top of the hunter (within 300 units of the camera's look-at point) its direction means little and the yaw holds, coming back in over the next 400 units; with nearly half a turn to go, the turn keeps the way it was going instead of flipping between the two. The camera also tilts by half the monster's elevation as seen from the hunter, at most 10° up or 20° down from where it was, unless the player tilts it with the [analog camera](#analog-camera), which then keeps the tilt for the rest of the lock. The second stick is kept from the game meanwhile, so its own turn and presets do not fight the lock.
 - **The free camera** suspends it: the lock is kept, and resumes when the free camera ends. While a bow or a bowgun aims, the camera follows the aim as usual, and the lock resumes when the aim ends.
-- **The marker** (*Lock-on marker*, on by default) is a small ring the interface draws over the locked monster, placed with the game's own view and projection. It is left out of the game's own frames and screenshots, like the rest of the interface.
+- **The marker** (*Lock-on marker*, on by default) is a small ring the interface draws over the locked monster. The view and projection it uses were traced on Portable 3rd and are not in this executable, so the ring does not appear here. It is left out of the game's own frames and screenshots, like the rest of the interface.
 
 A tap is a press of the bind on its own: it acts when the input is let go, and only if no other button of the same device was held meanwhile. R3 is also part of L3 + R3 (the menu), Back + R3 (the free camera) and R3 + D-pad left (a screenshot); those never lock on, and the controls page shows no conflict for them. *Lock-on* (Controls) turns it off: the bind then does nothing.
 
 It is not a second camera. The [analog camera](#analog-camera)'s driver asks lock-on, on each update of the ordinary follow camera, for the yaw and pitch, and writes them where it writes its own, before the game's collision checks. The driver's hook is installed on the first tap, so with *Analog camera* off and lock-on never used, the game's camera code runs exactly as before. The code is `host/camera/lock_on.{hpp,cpp}`.
 
-What it reads, traced in quests from the full test save with the developer tools' memory dumps (`dump`, `peek`; see [docs/DEBUG_MENU.md](../../docs/DEBUG_MENU.md)):
+What it reads in this executable:
 
 | What | Where | How it was found |
 | --- | --- | --- |
-| Large monsters | The table of five pointers at `0x0A1B0AE0` (in the quest overlay's data), only while `game_task.ovl` is in the task slot | Already known from the Debug page |
-| Monster position | Object `+0x80`, three floats, y up | Two dumps in the Misty Peaks with the monster wandering: the triple moved by thousands of units; the hunter's object (`0x09649890`) has its position at the same offset, which the camera update reads (`lwc1 …,0x80(s5)` at `0x088E623C`) |
-| Health, most health | Object `+0x246`, `+0x288` (s16) | Already known; a companion's most health is 0 |
-| In another area | Bit `0x4` of the word at object `+0x4` | 7 in all four dumps with the monster in another area than the hunter (three in the Misty Peaks with the hunter in the camp, one in the arena's camp), 3 or 1 with it beside the hunter; bit `0x2` is not visibility (it stayed set with the monster behind the camera) |
-| Area coordinates | Each area has its own | The arena's camp at (-140, 0, 95) lies inside the range the arena itself uses, so distance cannot tell areas apart |
-| Camera eye, look-at | Camera structure (s1) `+0x0`, `+0x10` | In a dump, the look-at point is the hunter's position plus the preset's 190 units of height |
-| Camera yaw | `+0x80` target, `+0x82` filtered, in 65536ths of a turn; the eye sits at (sin yaw, cos yaw) from the look-at point | Yaw 7283 (40.0°) with the eye at 40.0° in the Misty Peaks, 32768 with the eye at 180° in the arena; recentring sets the target to the hunter's facing (`+0xE0`) minus half a turn (`0x088E618C`) |
-| View and projection | Camera object (the pointer at `0x08A2F958`) `+0xF50` and `+0xFD0`, column major | The view as the [free camera](#free-camera-experimental) traced it; beside it, a perspective with 1.215 and 2.145 on the diagonal (480/272's shape) and the near plane at 30 |
+| On a quest | `game_task.ovl` loaded at `0x09A5F300` | The overlay slot table in `mhfu_profile.hpp`; the header is the usual `MWo3` block |
+| Entity list | The word at `0x09D19860` is the manager. The newest node is at manager `+0x19030`. Node `+4` is the next older node, `+12` the entity, `+36` a type byte (`1` is a player) | `game_sub` publishes the manager at `0x09C2BCF4` and inserts a node at `0x09C57CA0`. Large-monster overlays call that insert with type `0` (and some with `3` or `4`). The resident player constructor uses type `1` |
+| Position | Entity `+0x200`, three floats, y up | The follow camera copies the hunter's `+512` and `+520` into the camera, and `em01` loads all three as floats |
+| Health, most health | Entity `+0x2E4` and `+0x41E` (s16) | `em01` `0x09D1A398` stores the same value to both when the monster is created. A companion's most health stays 0, so it is skipped |
+| Large, not small | Entity `+0` is the vtable; the word at vtable `+8` is inside the `em*.ovl` slot `0x09D1A280`..`0x09D63100` | Every vtable a large-monster overlay writes onto its object has that method in the slot. Vtables written only by `game_task` point at `game_task` or resident code |
+| Camera eye, look-at | Camera structure `+0x0`, `+0x10` | The follow camera at `0x08886E50`; the camera is the parent plus `0xA0` |
+| Camera yaw | `+0x80` target, `+0x82` filtered, in 65536ths of a turn | The same update; the host writes both before the game's quarter-step filter |
+
+The marker's camera object (`0x08A2F958`, view `+0xF50`, projection `+0xFD0`) is the Portable 3rd one and was not found here. The debug menu's monster table is still that title's table as well; its kind byte was not re-read, so the cheat stays on the old addresses. This has not been tried in a quest.
 
 ### Screenshots
 
@@ -1189,9 +1215,9 @@ With the setting off nothing is hooked into the display lists, no input is read 
 | `MHFU_FIND_FLOAT=V`, `MHFU_FIND_INT32=N` | List every place in guest memory holding that value. `MHFU_FIND_INT16_WIDE=1` searches 16-bit fields instead of 32-bit |
 | `MHFU_POKE_FOUND=V`, `MHFU_POKE_INT32=N` | Write a different value into what those found, once a frame. With more than one match, `MHFU_POKE_WHICH` must name an index or say `all`, since writing every place that held a number also writes whatever else held it |
 | `MHFU_POKE_FLOAT=0xADDRESS:V[,...]` | Write floats into guest memory once a frame, to turn a guess about a constant into a measurement |
-| `MHFU_TRACE_CAMERA_STATE=path.csv` | Trace ordinary camera updates: frame, guest camera address, enabled state, stick axes, yaw target/current, stock eye offset and target height, owned pitch, recentre/D-pad flags, adjusted offset and previous observed pitch. Does not enable memory searches or renderer tracing |
-| `MHFU_TRACE_CAMERA_MODES=path.csv` | Every call of the camera's rotation helper from the camera update, and one line per game flip, with the camera mode, the aim the weapon reports, the stick, the yaw fields and the whole camera structure in hex. For finding what a camera mode keeps where before it has a driver. Needs Analog camera turned on once in the session, which installs the hook the trace runs in |
-| `MHFU_TRACE_AIM=path.csv` | While a bow or a bowgun aims or a bowgun's scope is up: one line per camera update with the scope flag, the stick's and the mouse's degrees, the mouse degrees carried, the game's own step (yaw:pitch), the step taken off in advance and the step the driver made; and one line per frame the mouse shows the game a direction. For telling the game's steps from the driver's |
+| `MHFU_TRACE_CAMERA_STATE=path.csv` | Trace follow-camera updates: frame, guest camera address, enabled state, stick axes, yaw target/current, preset height and distance, owned pitch, and whether the update was left to the game. Does not enable memory searches or renderer tracing |
+| `MHFU_TRACE_CAMERA_MODES=path.csv` | Every call of the camera update, and one line per game flip, with the parent object, the stick, the yaw fields and the whole camera structure in hex. Needs Analog camera turned on once in the session, which installs the hook the trace runs in |
+| `MHFU_TRACE_AIM=path.csv` | While a bow or a bowgun is in the aim action: one line per camera update with the stick's and the mouse's degrees, the mouse degrees carried, the game's own step (yaw:pitch), the step taken off in advance and the step the driver made; and one line per frame the mouse shows the game a direction. For telling the game's steps from the driver's |
 | `MHFU_TRACE_LOCK_ON=1` | One `[lockon] update` line per camera update while [lock-on](#lock-on) holds a monster: the monster's position, the camera's look-at point, its yaw before and after and the yaw wanted, the pitch before and after, and the hand-turn built up. Locking, moving to another monster and letting go are logged whether or not it is set |
 | `MHFU_TRACE_VIEWS=N` | Every N game frames, one line per distinct view and projection the frame's transformed draws used: how many draws and vertices, the eye position, yaw and pitch, the matrices, the render targets, and where in the game's camera object the view matrix lies (`in-camera +0xf50 +0xf90`). While the free camera flies, how many draws it gave its view and how many it left. How the [free camera](#free-camera-experimental) was traced |
 | `MHFU_TRACE_CAMERA=1` | One line per frame for the camera the game itself set: the second stick's offset from centre, the yaw and pitch read out of the frame's busiest view matrix, the turn since the previous frame, and the camera's world position. Reads the game's own camera, so it tells a stepped turn from a continuous one |
@@ -1204,6 +1230,7 @@ With the setting off nothing is hooked into the display lists, no input is read 
 | `MHFU_TRACE_TEXTURE_PACK=1` | Each texture's texture pack key and what the pack does with it (its image, kept as it is, or not listed), each image decoded and uploaded, and once a second the draws that used a replacement and the images and megabytes on the GPU |
 | `MHFU_SAMPLED_TEXTURE_KEYS=1` | Recognise changed textures of up to 64 KiB by one word in every 256 bytes, as for larger ones, instead of by all of their contents. Glyphs the game adds to its text atlas are then often missed, and text shows stale or missing characters |
 | `MHFU_NO_CULL=1`, `MHFU_NO_DEPTH=1` | Disable face culling or the depth test, to bisect missing geometry |
+| `MHFU_NO_THROUGH_DEPTH=1` | Leave 2D draws out of the depth buffer. Otherwise a 2D image that writes depth, such as a weapon icon in the shop, stays in front of a model drawn over it |
 | `MHFU_TRACE_AUDIO=1` | One line per second of output: frames, peak, RMS, silence and drops |
 | `MHFU_TRACE_ATRAC=1` | Every `sceAtrac3plus` call with its arguments, result and decode position |
 | `MHFU_TRACE_UI=1` | Each [sharper copy](#sharper-text-and-2d-textures) of a glyph atlas page or a 2D texture as it is made: its address, sizes and milliseconds, and how many of a page's cells were drawn again |

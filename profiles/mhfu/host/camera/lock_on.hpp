@@ -20,22 +20,20 @@ class GuestMemory;
 // collision checks, its presets for every other mode, and the hunter's
 // movement, which stays relative to the camera as it always is.
 //
-// NPJB-40001, as traced in a quest (see the profile README):
-// - The large monsters are a table of five pointers at 0x0A1B0AE0, in the
-//   quest overlay's data (docs/DEBUG_MENU.md). Each object keeps its position
-//   as three floats at +0x80, its health (s16) at +0x246 and its most health
-//   (s16) at +0x288; a companion has no most health.
-// - Bit 0x4 of the word at +0x4 of the object is set while the monster is in
-//   an area other than the hunter's: 7 in four dumps with the monster
-//   elsewhere (the hunter in a camp), 3 or 1 with it beside the hunter.
-// - Each area has its own coordinates, and neighbouring areas overlap, so a
-//   monster in another area can seem near; distance alone does not do.
-// - The camera looks from its eye at +0x0 of the camera structure (s1 of the
-//   camera update) to its look-at point at +0x10. Its yaw, in 65536ths of a
-//   turn, puts the eye in the direction (sin yaw, cos yaw) from the look-at
-//   point, so the camera looks along -(sin yaw, cos yaw). Checked in two
-//   quests: yaw 7283 (40.0 degrees) with the eye at 40.0 degrees, 32768 with
-//   the eye at 180.
+// ULUS-10391, read from this executable (see the profile README):
+// - While game_task.ovl is loaded at 0x09A5F300, a manager pointer sits at
+//   0x09D19860. Its list of quest entities starts at manager+0x19030. Each
+//   node points at the next-older node at +4, at the entity at +12, and
+//   keeps a type byte at +36 (1 is a player).
+// - The entity's position is three floats at +0x200. Its health and most
+//   health are s16 at +0x2E4 and +0x41E. A companion's most health is 0.
+// - A large monster's vtable is at +0. The word at vtable+8 is a method in
+//   the em overlay slot (0x09D1A280..0x09D63100). Small monsters' methods
+//   stay in game_task, so they are left out.
+// - The camera looks from its eye at +0x0 of the camera structure to its
+//   look-at point at +0x10. Its yaw, in 65536ths of a turn, puts the eye in
+//   the direction (sin yaw, cos yaw) from the look-at point, so the camera
+//   looks along -(sin yaw, cos yaw).
 namespace mhfu::camera {
 
 struct Vec3 {
@@ -46,15 +44,27 @@ struct Vec3 {
 
 // What lock-on reads in the game. Exposed for tests, which build a stand-in.
 namespace lock_on_layout {
-inline constexpr std::uint32_t kTaskSlot = 0x0A05E600u; // the code overlay slot: "game_task.ovl" in a quest
-inline constexpr std::uint32_t kMonsterTable = 0x0A1B0AE0u;
-inline constexpr std::uint32_t kMonsterSlots = 5u;
-inline constexpr std::uint32_t kFlags = 0x04u;
-inline constexpr std::uint32_t kOtherArea = 0x4u;
-inline constexpr std::uint32_t kPosition = 0x80u;
-inline constexpr std::uint32_t kHealth = 0x246u;
-inline constexpr std::uint32_t kMostHealth = 0x288u;
-inline constexpr std::uint32_t kExtent = 0x28Cu;
+inline constexpr std::uint32_t kTaskSlot = 0x09A5F300u; // game_task.ovl while a quest runs
+// The word at this address is the entity manager. Its list head is the
+// newest node; +4 of a node is the next older one, +12 the entity, +36 a
+// type byte. Type 1 is a player. The insert is game_sub 0x09C57CA0.
+inline constexpr std::uint32_t kEntityList = 0x09D19860u;
+inline constexpr std::uint32_t kListHead = 0x19030u;
+inline constexpr std::uint32_t kNodeOlder = 0x4u;
+inline constexpr std::uint32_t kNodeEntity = 0xCu;
+inline constexpr std::uint32_t kNodeType = 0x24u;
+inline constexpr std::uint8_t kPlayerNode = 1u;
+inline constexpr std::uint32_t kMaxMonsters = 64u; // a bound on a corrupt or cyclic list
+// Object +0 is the vtable. Its word at +8 is a method. For a large monster
+// that method lies in the em overlay slot; a small monster's does not.
+inline constexpr std::uint32_t kVtable = 0x0u;
+inline constexpr std::uint32_t kVtableMethod = 0x8u;
+inline constexpr std::uint32_t kEmOverlay = 0x09D1A280u;
+inline constexpr std::uint32_t kEmOverlayEnd = 0x09D63100u;
+inline constexpr std::uint32_t kPosition = 0x200u;
+inline constexpr std::uint32_t kHealth = 0x2E4u;
+inline constexpr std::uint32_t kMostHealth = 0x41Eu;
+inline constexpr std::uint32_t kExtent = 0x420u;
 } // namespace lock_on_layout
 
 struct LockMonster {
@@ -63,8 +73,9 @@ struct LockMonster {
     Vec3 position;
 };
 
-// The large monsters that can be locked onto: in the monster table while a
-// quest runs, alive, and in the hunter's area.
+// The large monsters that can be locked onto: on the quest entity list while
+// a quest runs, not a player, with a health pool, and with a vtable method
+// in the large-monster overlay.
 [[nodiscard]] std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory);
 
 // The camera's yaw, in its units, that looks from `from` towards `to`.
@@ -76,7 +87,7 @@ struct LockMonster {
 // point and yaw), the target locked now, if any, and the ones this lock has
 // already gone through. Returns the monster to lock onto, or nothing to let
 // go. With nothing locked: the nearest monster within kInView of where the
-// camera looks, else the nearest one. Locked: the next monster in the table
+// camera looks, else the nearest one. Locked: the next monster in the list
 // this lock has not been on yet; after the last, nothing.
 inline constexpr float kInView = 60.0f; // degrees either side of where the camera looks
 [[nodiscard]] std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monsters, const Vec3 &look_at,

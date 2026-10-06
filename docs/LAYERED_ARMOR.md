@@ -3,7 +3,7 @@
 Layered armor draws the hunter played on this machine in other armor pieces
 than it wears, part by part, while the game keeps the real pieces for
 everything else. The player's side is in the profile README
-([Layered armor](../profiles/mhp3rd/README.md#layered-armor)); this page says
+([Layered armor](../profiles/mhfu/README.md#layered-armor)); this page says
 what the game does, how that was found, and why the rest of the game cannot
 see the difference.
 
@@ -11,12 +11,12 @@ Everything here is for NPJB-40001. It was found by reading the executable's
 code around the tables that [EQUIPMENT_MODS.md](EQUIPMENT_MODS.md) traced
 (the armor records and the file bases) and by tracing the running game:
 temporary wrappers around the functions below logged their arguments, return
-values and callers (`MHP3RD_TRACE_LAYERED_ARMOR=1` keeps the part of that the
+values and callers (`MHFU_TRACE_LAYERED_ARMOR=1` keeps the part of that the
 feature needs), memory was read with the developer tools' `peek` and `find32`
 ([DEBUG_MENU.md](DEBUG_MENU.md)), and every step was checked in the game with
 the 100% test save (a female hunter in the Silver Sol set).
 
-The code is `profiles/mhp3rd/host/game/layered_armor.{hpp,cpp}` (pure
+The code is `profiles/mhfu/host/game/layered_armor.{hpp,cpp}` (pure
 functions over a `Ram`, tested on made-up tables in
 `tests/equipment_models_tests.cpp`) and `layered_armor_hook.cpp` (what is put
 in the game's place), and the page is `host/ui/layered_armor_screen.cpp`.
@@ -114,7 +114,7 @@ the game's own loads: setting the state while the game was not loading
 anything was tried, and the loader then never ran, since the game steps it
 only while it loads.
 
-Measured with `MHP3RD_TRACE_LAYERED_ARMOR=1`: a change made in the Guild Hall
+Measured with `MHFU_TRACE_LAYERED_ARMOR=1`: a change made in the Guild Hall
 showed on leaving it; a change made just before departing showed on the
 quest; turning the feature off in the village showed the real armor on
 entering the Guild Hall.

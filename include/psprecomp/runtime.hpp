@@ -92,6 +92,9 @@ public:
     void register_function(std::uint32_t address, RecompiledFunction function, std::string name);
     void register_hle(std::string library, std::uint32_t nid, HleFunction function);
     [[nodiscard]] bool has_function(std::uint32_t address) const;
+    // The function registered at `address`, or null. A host wrapper uses this
+    // to keep the generated function it replaces.
+    [[nodiscard]] RecompiledFunction function_at(std::uint32_t address) const noexcept;
     [[nodiscard]] std::size_t function_count() const noexcept;
 
     void set_game_root(std::filesystem::path root);

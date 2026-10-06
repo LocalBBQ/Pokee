@@ -14,8 +14,10 @@ namespace mhfu {
 void install_overlay_support(psprecomp::Runtime &runtime);
 
 // Drops the corpus of any slot whose contents no longer match it. The guest
-// flushes the instruction cache right after loading an overlay, which is when
-// this is called; the next jump into the slot then installs the right corpus.
+// flushes the instruction cache right after loading an overlay, and a chained
+// call into a slot whose header has already changed does the same check first,
+// because that jump can happen before the flush. The next lookup then installs
+// the image that is in memory now.
 void revalidate_overlays(psprecomp::Runtime &runtime);
 
 // The guest loaded code: a slot whose image matched no corpus is searched

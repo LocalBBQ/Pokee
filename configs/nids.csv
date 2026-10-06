@@ -180,6 +180,7 @@ sceLibFont,0x67F17ED7,sceFontNewLib
 sceLibFont,0x980F4895,sceFontGetCharGlyphImage
 sceLibFont,0xA834319D,sceFontOpen
 sceLibFont,0xDCC80C2F,sceFontGetCharInfo
+sceMpeg,0x0E3C2E9D,sceMpegAvcDecode
 sceMpeg,0x0F6C18D7,sceMpegAvcDecodeDetail
 sceMpeg,0x13407F13,sceMpegRingbufferDestruct
 sceMpeg,0x167AFD9E,sceMpegInitAu
@@ -193,6 +194,7 @@ sceMpeg,0x611E9E11,sceMpegQueryStreamSize
 sceMpeg,0x67179B1B,sceMpegAvcInitYCbCr
 sceMpeg,0x682A619B,sceMpegInit
 sceMpeg,0x707B7629,sceMpegFlushAllStream
+sceMpeg,0x740FCCD1,sceMpegAvcDecodeStop
 sceMpeg,0x800C44DF,sceMpegAtracDecode
 sceMpeg,0x874624D6,sceMpegFinish
 sceMpeg,0xA780CF7E,sceMpegMallocAvcEsBuf

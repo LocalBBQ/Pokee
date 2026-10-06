@@ -1,8 +1,8 @@
-# Yakumo website
+# Pokee website
 
 This directory contains the static website published through GitHub Pages.
 It uses plain HTML, CSS and JavaScript so it works under the repository's
-`/Yakumo/` project path without a build step.
+`/Pokee/` project path without a build step.
 
 Preview it from the repository root:
 

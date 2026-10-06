@@ -107,7 +107,7 @@ std::optional<FileId> parse_hex(std::string text) {
     return value;
 }
 
-// A file named like mhp3reload's files folder has them: 0601 or 0601P.
+// A file named like the community loader's files folder has them: 0601 or 0601P.
 struct IdFile {
     FileId file{};
     bool patch{};
@@ -237,7 +237,7 @@ std::optional<Mod> read_id_files(const ModFolderFormat &format, std::uint32_t en
     mod.version = "HD version (assumed)";
     mod.description = "No mod.ini: its files are named by the file id they replace (" +
         format.file_name(mod.changes.front().file) +
-        "), as in mhp3reload's files folder. Taken to be made for the HD version.";
+        "), as in the community loader's files folder. Taken to be made for the HD version.";
     return mod;
 }
 

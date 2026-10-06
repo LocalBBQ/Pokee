@@ -43,7 +43,7 @@ Install the pinned collector with `make coverage-tools`, then run
 `make project-coverage`. To include Android Java locally, first run
 `make java-test SDL_SOURCE=/path/to/SDL3` with Maven and Java 17 or newer. The
 SDL version and archive checksum are pinned in
-`profiles/mhp3rd/packaging/linux/sources.sh`; do not copy SDL sources into Git.
+`profiles/mhfu/packaging/linux/sources.sh`; do not copy SDL sources into Git.
 CI downloads and verifies that archive and always runs the Java suite before
 the aggregate coverage job. Set `COVERAGE_BASE` to the commit or branch to compare
 against locally (the default is `origin/main`). Python reports include branch
@@ -69,7 +69,7 @@ tests execute synthetic Vulkan/SDL/ImGui contracts alongside headless suites. It
 used by the Java suite; vendor SDL/FFmpeg code is excluded from the first-party
 report. Requested renderer coverage fails configuration if its dependencies
 are missing instead of silently reducing the denominator. Locally, use
-`make project-coverage CMAKE_ARGS="-DMHP3RD_RENDERER=ON -DMHP3RD_FFMPEG=system -DMHP3RD_RENDERER_TESTS=ON"`
+`make project-coverage CMAKE_ARGS="-DMHFU_RENDERER=ON -DMHFU_FFMPEG=system -DMHFU_RENDERER_TESTS=ON"`
 after installing the public dependencies. The default local command remains
 headless so it can run without them.
 
@@ -151,7 +151,7 @@ and [CONTRIBUTING.md](../CONTRIBUTING.md#testing-changes) for contributor rules.
 
 The public test aggregate includes kernel/HLE and media contracts plus reusable
 runtime, memory, interpreter, ELF and recompiler workflows. The renderer/UI
-suite is opt-in with `MHP3RD_RENDERER_TESTS=ON` and uses real SDL, Vulkan and
+suite is opt-in with `MHFU_RENDERER_TESTS=ON` and uses real SDL, Vulkan and
 ImGui with independently constructed pixels, archives and temporary settings.
 It exercises default, checked, conservative and documented rollback paths,
 scripted input, UI restart and a bounded texture cache. Checked replay requires

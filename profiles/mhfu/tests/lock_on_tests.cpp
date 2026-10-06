@@ -1,6 +1,6 @@
 // Lock-on (camera/lock_on.hpp) without game code or game data: a stand-in
-// for the quest overlay's header, the monster table and the camera, and the
-// real camera driver dispatching the rotation helper.
+// for the quest overlay's header, the entity list and the camera, and the
+// real camera driver dispatching the camera update.
 #include "camera/camera_input.hpp"
 #include "camera/game_camera.hpp"
 #include "camera/lock_on.hpp"
@@ -26,14 +26,24 @@ namespace {
 using namespace mhfu::camera;
 namespace game = mhfu::camera::lock_on_layout;
 
-constexpr std::uint32_t helper = 0x08878B70u;
-constexpr std::uint32_t return_pc = 0x088E626Cu;
+constexpr std::uint32_t helper = 0x08886E50u;
 constexpr std::uint32_t camera_address = 0x08900000u;
-constexpr std::uint32_t stack_address = 0x08901000u;
+constexpr std::uint32_t parent_address = camera_address - 0xA0u;
 constexpr std::uint32_t preset_address = 0x08902000u;
 constexpr std::uint32_t monster_a = 0x09000000u;
 constexpr std::uint32_t monster_b = 0x09001000u;
 constexpr std::uint32_t companion = 0x09002000u;
+constexpr std::uint32_t player = 0x09003000u;
+constexpr std::uint32_t small = 0x09004000u;
+constexpr std::uint32_t manager = 0x09100000u;
+constexpr std::uint32_t large_vtable = 0x09300000u;
+constexpr std::uint32_t small_vtable = 0x09300100u;
+constexpr std::uint32_t node_b = 0x09200000u;
+constexpr std::uint32_t node_a = 0x09200040u;
+constexpr std::uint32_t node_small = 0x09200080u;
+constexpr std::uint32_t node_companion = 0x092000C0u;
+constexpr std::uint32_t node_player = 0x09200100u;
+constexpr std::uint32_t node_again = 0x09200140u;
 int failures{};
 
 void check(bool condition, const char *message) {
@@ -52,13 +62,20 @@ void write_float(psprecomp::GuestMemory &memory, std::uint32_t address, float va
 }
 
 void place(psprecomp::GuestMemory &memory, std::uint32_t monster, float x, float z, std::int16_t health = 1000,
-    std::int16_t most = 1000, bool other_area = false) {
+    std::int16_t most = 1000) {
     write_float(memory, monster + game::kPosition, x);
     write_float(memory, monster + game::kPosition + 4u, 0.0f);
     write_float(memory, monster + game::kPosition + 8u, z);
     memory.store16(monster + game::kHealth, static_cast<std::uint16_t>(health));
     memory.store16(monster + game::kMostHealth, static_cast<std::uint16_t>(most));
-    memory.store32(monster + game::kFlags, other_area ? 7u : 3u);
+}
+
+// Newest node first, each +4 the next older one, as the game's insert leaves it.
+void link(psprecomp::GuestMemory &memory, std::uint32_t node, std::uint32_t entity, std::uint32_t older,
+    std::uint8_t type) {
+    memory.store32(node + game::kNodeOlder, older);
+    memory.store32(node + game::kNodeEntity, entity);
+    memory.store8(node + game::kNodeType, type);
 }
 
 // The quest overlay's header, as the game has it in the task slot.
@@ -77,7 +94,7 @@ struct Fixture {
     Fixture() {
         mhfu::settings::current() = {};
         mhfu::settings::current().analog_camera = false;
-        runtime.register_generated_unit(29u, 0x08878000u, 0x4000u, &original, nullptr);
+        runtime.register_generated_unit(29u, 0x08886000u, 0x1000u, &original, nullptr);
         runtime.register_function(helper, &original, "recomp_unit_test");
         auto &memory = runtime.memory();
         for (const CodeWord &word : game_code_signature()) memory.store32(word.address, word.word);
@@ -86,28 +103,40 @@ struct Fixture {
         memory.store16(camera_address + 0x80u, 0u);
         memory.store16(camera_address + 0x82u, 0u);
         memory.store8(camera_address + 0x91u, 0xFFu);
+        write_float(memory, preset_address + 4u, -40.0f);
+        write_float(memory, preset_address + 8u, 490.0f);
         write_float(memory, preset_address + 0x10u, 190.0f);
         write_float(memory, camera_address + 4u, 150.0f);
         // The hunter at the origin, the camera looking along -z (yaw 0).
         write_float(memory, camera_address + 0x10u, 0.0f);
         write_float(memory, camera_address + 0x14u, 190.0f);
         write_float(memory, camera_address + 0x18u, 0.0f);
-        ctx.gpr[17] = camera_address;
-        ctx.gpr[29] = stack_address;
-        ctx.gpr[5] = stack_address + 0x50u;
-        ctx.gpr[31] = return_pc;
+        ctx.gpr[4] = parent_address;
+        ctx.gpr[31] = 0x09C00000u;
         start_quest(memory);
-        memory.store32(game::kMonsterTable, monster_a);
-        memory.store32(game::kMonsterTable + 4u, companion);
-        memory.store32(game::kMonsterTable + 8u, monster_b);
+        memory.store32(game::kEntityList, manager);
+        link(memory, node_b, monster_b, node_a, 0u);
+        link(memory, node_a, monster_a, node_small, 0u);
+        link(memory, node_small, small, node_companion, 0u);
+        link(memory, node_companion, companion, node_player, 0u);
+        link(memory, node_player, player, 0u, game::kPlayerNode);
+        link(memory, node_again, monster_b, node_b, 0u); // the same monster, inserted twice
+        memory.store32(manager + game::kListHead, node_again);
+        memory.store32(large_vtable + game::kVtableMethod, game::kEmOverlay);
+        memory.store32(small_vtable + game::kVtableMethod, game::kTaskSlot);
         place(memory, monster_a, 1000.0f, 0.0f);        // to the right, 90 degrees off the view
         place(memory, monster_b, 0.0f, -3000.0f);       // straight ahead, farther
+        memory.store32(monster_a + game::kVtable, large_vtable);
+        memory.store32(monster_b + game::kVtable, large_vtable);
+        place(memory, small, 200.0f, -200.0f); // health, but a small monster's vtable
+        memory.store32(small + game::kVtable, small_vtable);
         place(memory, companion, 0.0f, -100.0f, 50, 0); // no most health: not a large monster
+        memory.store32(companion + game::kVtable, large_vtable);
+        place(memory, player, 0.0f, -50.0f); // a player node, even with health
+        memory.store32(player + game::kVtable, large_vtable);
     }
     void update() {
-        write_float(runtime.memory(), stack_address + 0x34u, 150.0f);
-        write_float(runtime.memory(), stack_address + 0x38u, 490.0f);
-        check(runtime.invoke_isolated_aot(helper, ctx), "the rotation helper dispatches");
+        check(runtime.invoke_isolated_aot(helper, ctx), "the camera update dispatches");
     }
     void frame(float stick_x = 0.0f) {
         set_rate(Source::Stick, stick_x, 0.0f);
@@ -144,7 +173,10 @@ void test_monsters_and_pick() {
     Fixture f;
     auto &memory = f.runtime.memory();
     std::vector<LockMonster> found = lock_on_monsters(memory);
-    check(found.size() == 2u, "a companion is no large monster");
+    check(found.size() == 2u, "a small monster, a companion and a player are not tracked");
+    memory.store32(node_a + game::kNodeOlder, node_b);
+    check(lock_on_monsters(memory).size() == 2u, "a cyclic list is walked once");
+    memory.store32(node_a + game::kNodeOlder, node_small);
     const Vec3 origin{0.0f, 190.0f, 0.0f};
     check(lock_on_pick(found, origin, 0u, std::nullopt, {}) == monster_b,
         "a tap picks the monster in view over a nearer one out of view");
@@ -153,10 +185,10 @@ void test_monsters_and_pick() {
     check(lock_on_pick(found, origin, 0u, monster_a, {monster_a}) == monster_b, "a second tap moves to the next one");
     check(!lock_on_pick(found, origin, 0u, monster_b, {monster_a, monster_b}), "after the last, a tap lets go");
     check(lock_on_pick(found, origin, 0u, monster_b, {monster_b}) == monster_a, "cycling wraps round the table");
-    place(memory, monster_a, 1000.0f, 0.0f, 1000, 1000, true);
-    check(lock_on_monsters(memory).size() == 1u, "a monster in another area cannot be locked");
-    place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
-    check(lock_on_monsters(memory).empty(), "nor a dead one");
+    place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
+    check(lock_on_monsters(memory).size() == 1u, "a dead monster cannot be locked");
+    place(memory, monster_b, 0.0f, -3000.0f, 1000, 0);
+    check(lock_on_monsters(memory).empty(), "nor one with no health pool");
     memory.store8(game::kTaskSlot + 32u, 'l');
     place(memory, monster_b, 0.0f, -3000.0f);
     check(lock_on_monsters(memory).empty(), "and nothing outside a quest");
@@ -192,12 +224,10 @@ void test_lock_follows_and_lets_go() {
     lock_on_tap();
     f.frame();
     check(lock_on_status().target == monster_b, "the next tap takes the one that is left");
-    place(memory, monster_b, 3000.0f, 0.0f, 1000, 1000, true);
+    place(memory, monster_b, 8000.0f, 0.0f);
     f.frame();
-    check(!lock_on_status().locked, "one that leaves the area lets go");
-    place(memory, monster_a, 1000.0f, 0.0f, 1000, 1000, true);
-    f.frame();
-    check(!lock_on_status().locked, "one that leaves the area lets go");
+    check(!lock_on_status().locked, "one farther than the release distance lets go");
+    place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
 
     place(memory, monster_a, 1000.0f, 0.0f);
     lock_on_tap();
@@ -213,6 +243,28 @@ void test_lock_follows_and_lets_go() {
     lock_on_tap();
     f.frame();
     check(!lock_on_status().locked, "with one monster a second tap lets go");
+}
+
+void test_tap_waits_for_the_monster() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
+    place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
+    lock_on_tap();
+    f.frame();
+    check(!lock_on_status().locked, "a tap before the monster exists does not lock yet");
+    place(memory, monster_b, 0.0f, -3000.0f);
+    f.frame();
+    check(lock_on_status().locked && lock_on_status().target == monster_b,
+        "and locks when the monster appears a moment later");
+
+    lock_on_release("");
+    place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
+    lock_on_tap();
+    for (int i = 0; i < 120; ++i) f.frame();
+    place(memory, monster_b, 0.0f, -3000.0f);
+    f.frame();
+    check(!lock_on_status().locked, "a tap that found nothing gives up after a few seconds");
 }
 
 void test_off_changes_nothing() {
@@ -277,6 +329,7 @@ int main() {
     test_geometry();
     test_monsters_and_pick();
     test_lock_follows_and_lets_go();
+    test_tap_waits_for_the_monster();
     test_off_changes_nothing();
     test_binds();
     std::cout << (failures ? "FAIL" : "PASS") << ": lock-on (" << failures << " failures)\n";

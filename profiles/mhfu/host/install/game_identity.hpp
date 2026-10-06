@@ -50,7 +50,8 @@ inline constexpr SupportedRelease kFreedomUniteUsa{
 inline constexpr SupportedRelease kSupportedReleases[] = {kFreedomUniteUsa};
 
 // Names of the release this build runs. Texture packs and the in-game menu
-// use them. Camera and HUD stay on kPortable3rdHd until they are traced here.
+// use them. The analog camera reads this executable. The projection and the
+// HUD stay on kPortable3rdHd until they are traced here.
 inline constexpr const char *kDiscId = kFreedomUniteUsa.disc_id;
 inline constexpr const char *kDiscIdDisplay = kFreedomUniteUsa.disc_id_display;
 inline constexpr const char *kGameTitle = kFreedomUniteUsa.title;

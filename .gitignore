@@ -43,9 +43,9 @@ overlay_*.bin
 /profiles/*/analysis/
 /profiles/*/progress/
 /profiles/*/captures/
-# The MHP3rd AOT corpora are derived from the user's executable
-/profiles/mhp3rd/generated/
-/profiles/mhp3rd/overlays/
+# The MHFU AOT corpora are derived from the user's executable
+/profiles/mhfu/generated/
+/profiles/mhfu/overlays/
 
 # Local dumps next to the repository root
 /dump/

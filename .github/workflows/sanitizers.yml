@@ -39,9 +39,9 @@ jobs:
         run: >-
           cmake -S . -B out/sanitizers -G Ninja
           -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_BUILD_TYPE=Debug
-          -DPSPRECOMP_SANITIZERS=ON -DPSPRECOMP_PROFILE=mhp3rd
-          -DPSPRECOMP_BUILD_TESTS=ON -DMHP3RD_RENDERER=OFF
-          -DMHP3RD_FFMPEG=OFF
+          -DPSPRECOMP_SANITIZERS=ON -DPSPRECOMP_PROFILE=mhfu
+          -DPSPRECOMP_BUILD_TESTS=ON -DMHFU_RENDERER=OFF
+          -DMHFU_FFMPEG=OFF
 
       - name: Verify instrumentation detects synthetic errors
         run: python3 scripts/ci/check_sanitizers.py out/sanitizers

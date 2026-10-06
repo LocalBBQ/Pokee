@@ -10,7 +10,7 @@ Use **clang-format 21.1.8**. The [LLVM release](https://github.com/llvm/llvm-pro
 has binaries for Linux, Apple Silicon macOS and Windows. The
 [LLVM formatter documentation](https://releases.llvm.org/21.1.0/tools/clang/docs/ClangFormat.html)
 describes configuration files and editor integration. A formatter version does
-not select the compiler used to build Yakumo: GCC, MSVC and Clang builds continue
+not select the compiler used to build Pokee: GCC, MSVC and Clang builds continue
 to use their existing toolchains.
 
 For a smaller cross-platform installation, the commands below use the
@@ -39,7 +39,7 @@ python scripts/format_cpp.py report --samples --diff
 ```
 
 The wrapper selects only Git-tracked regular C/C++ files in `include/psprecomp`,
-`src`, `tests`, `tools`, `profiles/mhp3rd/host` and `profiles/mhp3rd/tests`.
+`src`, `tests`, `tools`, `profiles/mhfu/host` and `profiles/mhfu/tests`.
 It excludes vendored code, generated code, game data, overlays and build outputs,
 including nested excluded directories and symlinks. Explicit file paths must be
 in this scope; untracked files must be staged before they can be selected.
@@ -94,13 +94,13 @@ python3 scripts/format_cpp.py report --samples --diff > out/format-review/sample
 # Check the complete first-party scope (also used by CI).
 python3 scripts/format_cpp.py check
 # Check just explicit files (exit 1 if formatting differs).
-python3 scripts/format_cpp.py check profiles/mhp3rd/tests/guest_pcm_tests.cpp --diff
+python3 scripts/format_cpp.py check profiles/mhfu/tests/guest_pcm_tests.cpp --diff
 # Select changed files since the merge-base with main, including local tracked edits.
 python3 scripts/format_cpp.py check --base origin/main --diff
 # Format the complete scope; keep mechanical changes in their own commit.
 python3 scripts/format_cpp.py format
 # Or format one staged/committed file.
-python3 scripts/format_cpp.py format profiles/mhp3rd/tests/guest_pcm_tests.cpp
+python3 scripts/format_cpp.py format profiles/mhfu/tests/guest_pcm_tests.cpp
 ```
 
 `--json` writes the fixed repository-local `out/format-review/baseline.json`

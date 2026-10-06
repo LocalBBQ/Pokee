@@ -602,7 +602,7 @@ void list(ModSession &session) {
         open_browser();
     if (button_row("Open the mods folder",
             {false, {},
-                "Show the mods folder in the file manager: one folder per mod, as the mhp3reload mod "
+                "Show the mods folder in the file manager: one folder per mod, as the community mod "
                 "manager has them."}))
         open_folder(session.paths().folder);
     if (button_row("Read the folder again", {false, {}, "Pick up mods added to or removed from the folder."}))

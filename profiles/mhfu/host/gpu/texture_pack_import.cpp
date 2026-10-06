@@ -38,7 +38,7 @@ bool is_file(const fs::path &path) {
     return fs::is_regular_file(path, ec);
 }
 
-// ULJM05800, NPJB40001: four letters and five digits.
+// ULUS10391: four letters and five digits.
 bool looks_like_game_id(const std::string &name) {
     if (name.size() != 9u) return false;
     for (std::size_t i = 0; i < 4u; ++i)

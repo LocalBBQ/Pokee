@@ -41,13 +41,14 @@ end-of-run report names the addresses that ran interpreted.
 
 ## Code that changes at run time
 
-Some titles copy code into memory while they run — overlays swapped into a fixed address window, for example — so the corpus generated from the executable cannot cover it. The framework leaves the policy to the profile and gives it three levers:
+Some titles copy code into memory while they run — overlays swapped into a fixed address window, for example — so the corpus generated from the executable cannot cover it. The framework leaves the policy to the profile and gives it four levers:
 
 - `set_runtime_missing_function_hook` is called when dispatch finds nothing at an address. The profile can register functions for whatever is loaded there and return true, and dispatch retries. Only if it declines does the interpreter take over.
 - `set_runtime_unsupported_hook` is called when generated code reaches an instruction it cannot execute, which is what stale code looks like after the memory under it was replaced. Returning true retries at the same address.
+- `set_runtime_stale_code_hook` is called before a chained call runs a function that is already registered. Return true when that body belongs to an image that has since been overwritten: the call is not made, and dispatch looks the address up again. A jump into a newly copied overlay hits this before the game flushes its instruction cache.
 - `Runtime::unregister_functions(start, end)` drops every generated function in a range, so code compiled for the previous contents of a window cannot run against the new ones.
 
-A profile typically builds each piece of run-time code as its own shared library, identifies which one is loaded by hashing guest memory, and swaps libraries through these three calls. `profiles/mhp3rd/README.md` describes one such scheme in full.
+A profile typically builds each piece of run-time code as its own shared library, identifies which one is loaded by hashing guest memory, and swaps libraries through these calls. `profiles/mhfu/README.md` describes one such scheme in full.
 
 ## Native fast paths
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / 'profiles/mhp3rd/tools'))
+sys.path.insert(0, str(ROOT / 'profiles/mhfu/tools'))
 import embed_shaders
 
 COMPILER = shutil.which('glslangValidator')
@@ -21,7 +21,7 @@ COMPILER = shutil.which('glslangValidator')
 @unittest.skipUnless(COMPILER, 'glslangValidator is required; coverage CI installs it')
 class ShaderToolTests(unittest.TestCase):
     def test_all_renderer_variants_compile_into_named_spirv_arrays(self):
-        directory = ROOT / 'profiles/mhp3rd/host/gpu/shaders'
+        directory = ROOT / 'profiles/mhfu/host/gpu/shaders'
         variants = {'Ge': 'ge.vert', 'Raw': 'GE_RAW_VERTICES@ge.vert',
                     'Checked': 'GE_RAW_VERTICES,GE_CHECK_DECODE@ge.vert',
                     'Fragment': 'ge.frag', 'Plain': 'GE_NO_SPECIALIZATION@ge.frag',

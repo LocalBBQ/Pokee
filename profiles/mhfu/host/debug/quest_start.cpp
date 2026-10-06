@@ -11,7 +11,7 @@
 namespace mhfu::debug::quests {
 namespace {
 
-constexpr std::size_t kRecordHeader = 0x48u;
+constexpr std::size_t kRecordHeader = 0x34u;
 constexpr std::size_t kRecordStrings = 6u; // name, objective, failure, description, monsters, client
 
 std::uint32_t load32(std::span<const std::uint8_t> bytes, std::size_t at) {
@@ -81,8 +81,8 @@ std::vector<Quest> parse_quest_list(std::span<const std::uint8_t> file) {
         q.fee = load32(file, at + 0x04u);
         q.reward = load32(file, at + 0x08u);
         q.time_limit = load32(file, at + 0x10u);
-        q.id = static_cast<std::uint16_t>(load32(file, at + 0x1Cu) & 0xFFFFu);
-        q.stars = file[at + 0x1Eu];
+        q.id = static_cast<std::uint16_t>(load32(file, at + 0x18u) & 0xFFFFu);
+        q.map = static_cast<std::uint16_t>(load32(file, at + 0x1Cu) & 0xFFFFu);
         const std::vector<std::string> text = record_strings(file, at + kRecordHeader, end);
         if (q.id == 0u || text.empty()) continue;
         q.name = text[0];
@@ -114,11 +114,11 @@ std::string monster_list(const Quest &quest) {
 }
 
 bool village_quest(std::uint16_t id) {
-    return id >= 101u && id <= 699u && id % 100u != 0u;
+    return id >= 1u && id < 10000u;
 }
 
 bool hall_quest(std::uint16_t id) {
-    return id >= 10101u && id <= 10899u && (id / 100u) % 100u != 0u && id % 100u != 0u;
+    return id >= 10000u && id < 20000u;
 }
 
 Board Quest::board() const {
@@ -133,9 +133,10 @@ std::vector<Quest> board_quests(
         const std::optional<std::vector<std::uint8_t>> file = read_entry(kFirstQuestList + level - 1u);
         if (!file) continue;
         for (Quest &q : parse_quest_list(*file)) {
-            if (village_quest(q.id) && q.id / 100u == level)
+            q.stars = static_cast<std::uint8_t>(level);
+            if (village_quest(q.id))
                 village.push_back(std::move(q));
-            else if (hall_quest(q.id) && (q.id / 100u) % 100u == level)
+            else if (hall_quest(q.id))
                 hall.push_back(std::move(q));
         }
     }

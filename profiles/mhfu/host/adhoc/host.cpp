@@ -15,7 +15,7 @@ namespace {
 
 // The product code other players see in the announcement. Players of the
 // game's PSP release log in with the same one.
-constexpr const char *kProduct = "ULJM05800";
+constexpr const char *kProduct = "ULUS10391";
 constexpr std::size_t kRecentAddresses = 5u;
 
 struct HostState {

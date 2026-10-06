@@ -80,9 +80,9 @@ class AndroidRunnerTests(unittest.TestCase):
         self.assertEqual(len(commands), 2)
         self.assertIn("'arg with spaces'", commands[0])
         self.assertIn("'quote'\"'\"'s'", commands[0])
-        self.assertEqual(calls[-1], ['shell', 'rm -rf /data/local/tmp/yakumo-unit-tests'])
+        self.assertEqual(calls[-1], ['shell', 'rm -rf /data/local/tmp/pokee-unit-tests'])
         self.assertEqual(len([call for call in calls if call[0] == 'push']), 5)
-        self.assertIn('PSPRECOMP_TEST_NIDS_CSV=/data/local/tmp/yakumo-unit-tests/nids.csv', commands[0])
+        self.assertIn('PSPRECOMP_TEST_NIDS_CSV=/data/local/tmp/pokee-unit-tests/nids.csv', commands[0])
         self.assertTrue(any(call[0] == 'push' and call[-1].endswith('/nids.csv') for call in calls))
 
     def test_success_and_bridge_timeout_have_different_statuses(self):
@@ -91,7 +91,7 @@ class AndroidRunnerTests(unittest.TestCase):
         case = ET.parse(self.build / 'android-results/test-results.xml').find('testcase')
         self.assertEqual(case.find('failure').attrib['message'], 'Exit status 124')
         self.assertIn('135 seconds', case.find('system-out').text)
-        self.assertIn('rm -rf /data/local/tmp/yakumo-unit-tests', self.calls.read_text().splitlines()[-1])
+        self.assertIn('rm -rf /data/local/tmp/pokee-unit-tests', self.calls.read_text().splitlines()[-1])
 
     def test_empty_or_unsafe_registration_fails_before_any_adb_call(self):
         cases = [[], [self.tests[0], self.tests[0]],

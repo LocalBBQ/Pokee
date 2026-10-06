@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE_ROOTS = ('src/', 'tests/', 'profiles/mhp3rd/host/', 'profiles/mhp3rd/tests/')
+SOURCE_ROOTS = ('src/', 'tests/', 'profiles/mhfu/host/', 'profiles/mhfu/tests/')
 HEADER_ROOTS = SOURCE_ROOTS + ('include/psprecomp/',)
 
 
@@ -35,12 +35,12 @@ def main():
     # Reuse the build's public header generators directly. Requesting Ninja's
     # NID output target also pulls in object-library dependencies unnecessarily.
     subprocess.run(['cmake', f'-DINPUT={ROOT / "configs/nids.csv"}',
-                    f'-DOUTPUT={build / "profiles/mhp3rd/generated_nids/nid_table.inc"}',
-                    '-P', str(ROOT / 'profiles/mhp3rd/tools/embed_nids.cmake')],
+                    f'-DOUTPUT={build / "profiles/mhfu/generated_nids/nid_table.inc"}',
+                    '-P', str(ROOT / 'profiles/mhfu/tools/embed_nids.cmake')],
                    check=True, timeout=30)
     subprocess.run(['cmake', f'-DSOURCE_DIR={ROOT}',
-                    f'-DOUTPUT={build / "profiles/mhp3rd/generated_version/yakumo_version.hpp"}',
-                    '-P', str(ROOT / 'profiles/mhp3rd/tools/write_version.cmake')],
+                    f'-DOUTPUT={build / "profiles/mhfu/generated_version/pokee_version.hpp"}',
+                    '-P', str(ROOT / 'profiles/mhfu/tools/write_version.cmake')],
                    check=True, timeout=30)
     database = json.loads((build / 'compile_commands.json').read_text())
     entries = []
@@ -93,7 +93,7 @@ def main():
     # preserves those before the erased element. Bound this reviewed exception
     # to the diagnostic, location and the entire reviewed free_block function;
     # a changed erase operation must never inherit this exception.
-    exception = ('invalidContainer', 'profiles/mhp3rd/host/kernel/kernel.cpp', '832')
+    exception = ('invalidContainer', 'profiles/mhfu/host/kernel/kernel.cpp', '832')
     context_sha256 = 'd3a5ee13614f241aebff59bbb76c834299f4a8cb545e09d6216a00f8c641c89b'
     waived = []
     failures = []

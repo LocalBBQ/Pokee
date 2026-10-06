@@ -65,11 +65,16 @@ constexpr float kNearBlend = 400.0f;
 constexpr int kHalfTurnBand = 28672; // 157.5 degrees
 // A first tap that no camera update took in this many flips is dropped.
 constexpr unsigned kTapFrames = 6u;
+// A tap as a zone finishes loading finds nothing: the monster is inserted a
+// moment later. The tap keeps looking for this many follow-camera updates.
+constexpr unsigned kSeekUpdates = 90u;
 
 struct State {
     bool suspended{};
     bool tap{};
     unsigned tap_age{};
+    bool seeking{};
+    unsigned seek_left{};
     bool locked{};
     std::uint32_t target{};
     std::vector<std::uint32_t> visited;
@@ -134,20 +139,119 @@ void lock(std::uint32_t target, const char *how) {
 
 std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) {
     std::vector<LockMonster> out;
-    if (!on_quest(memory) || memory.raw_pointer(kMonsterTable, kMonsterSlots * 4u) == nullptr) return out;
-    for (std::uint32_t slot = 0; slot < kMonsterSlots; ++slot) {
-        const std::uint32_t at = memory.load32(kMonsterTable + slot * 4u);
+    if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return out;
+    const std::uint32_t manager = memory.load32(kEntityList);
+    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) return out;
+    std::uint32_t node = memory.load32(manager + kListHead);
+    std::uint32_t seen[kMaxMonsters]{};
+    for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
+        if (memory.raw_pointer(node, kNodeType + 1u) == nullptr) break;
+        for (std::uint32_t earlier = 0; earlier < n; ++earlier)
+            if (seen[earlier] == node) return out;
+        seen[n] = node;
+        const std::uint32_t older = memory.load32(node + kNodeOlder);
+        const std::uint8_t kind = memory.load8(node + kNodeType);
+        const std::uint32_t at = memory.load32(node + kNodeEntity);
+        node = older;
+        if (kind == kPlayerNode) continue;
         if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
+        bool seen_entity = false;
+        for (const LockMonster &already : out)
+            if (already.address == at) seen_entity = true;
+        if (seen_entity) continue;
+        const std::uint32_t vtable = memory.load32(at + kVtable);
+        if (vtable < 0x08800000u || memory.raw_pointer(vtable + kVtableMethod, 4u) == nullptr) continue;
+        const std::uint32_t method = memory.load32(vtable + kVtableMethod);
+        if (method < kEmOverlay || method >= kEmOverlayEnd) continue;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
         if (most <= 0 || health <= 0) continue; // a companion, not spawned yet, or dead
-        if ((memory.load32(at + kFlags) & kOtherArea) != 0u) continue;
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
-        out.push_back({at, slot, position});
+        out.push_back({at, static_cast<std::uint32_t>(out.size()), position});
     }
     return out;
 }
+
+namespace {
+// Why a tap found nothing, from the same walk as lock_on_monsters. One line.
+void explain_miss(const psprecomp::GuestMemory &memory) {
+    if (!on_quest(memory)) {
+        std::cout << "[lockon] no large monster to lock onto: not in a quest" << std::endl;
+        return;
+    }
+    if (memory.raw_pointer(kEntityList, 4u) == nullptr) {
+        std::cout << "[lockon] no large monster to lock onto: entity list unreadable" << std::endl;
+        return;
+    }
+    const std::uint32_t manager = memory.load32(kEntityList);
+    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) {
+        std::cout << "[lockon] no large monster to lock onto: no entity manager at 0x" << std::hex << manager
+                  << std::dec << std::endl;
+        return;
+    }
+    unsigned nodes = 0;
+    unsigned players = 0;
+    unsigned small = 0;
+    unsigned unwell = 0;
+    unsigned unplaced = 0;
+    std::uint32_t sample = 0;
+    std::uint32_t sample_method = 0;
+    std::uint8_t sample_type = 0;
+    int sample_health = 0;
+    int sample_most = 0;
+    std::uint32_t node = memory.load32(manager + kListHead);
+    std::uint32_t seen[kMaxMonsters]{};
+    for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
+        if (memory.raw_pointer(node, kNodeType + 1u) == nullptr) break;
+        bool repeated = false;
+        for (std::uint32_t earlier = 0; earlier < n; ++earlier)
+            if (seen[earlier] == node) repeated = true;
+        if (repeated) break;
+        seen[n] = node;
+        const std::uint8_t kind = memory.load8(node + kNodeType);
+        const std::uint32_t at = memory.load32(node + kNodeEntity);
+        node = memory.load32(node + kNodeOlder);
+        ++nodes;
+        if (kind == kPlayerNode) {
+            ++players;
+            continue;
+        }
+        if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
+        const std::uint32_t vtable = memory.load32(at + kVtable);
+        const std::uint32_t method =
+            vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u) != nullptr
+                ? memory.load32(vtable + kVtableMethod)
+                : 0u;
+        const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
+        const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
+        if (sample == 0) {
+            sample = at;
+            sample_method = method;
+            sample_type = kind;
+            sample_health = health;
+            sample_most = most;
+        }
+        if (method < kEmOverlay || method >= kEmOverlayEnd) {
+            ++small;
+            continue;
+        }
+        if (most <= 0 || health <= 0) {
+            ++unwell;
+            continue;
+        }
+        if (!finite(load_vec(memory, at + kPosition))) ++unplaced;
+    }
+    std::cout << "[lockon] no large monster to lock onto: " << nodes << " entities, " << players << " players, "
+              << small << " not large, " << unwell << " without health, " << unplaced << " with no position";
+    if (sample != 0)
+        std::cout << "; first at 0x" << std::hex << sample << " type " << std::dec
+                  << static_cast<unsigned>(sample_type) << " method 0x" << std::hex << sample_method << std::dec
+                  << " health " << sample_health << "/" << sample_most;
+    std::cout << std::endl;
+}
+
+} // namespace
 
 std::uint16_t yaw_towards(const Vec3 &from, const Vec3 &to) {
     // The camera looks along -(sin yaw, cos yaw); the eye sits the other way.
@@ -185,8 +289,8 @@ std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monste
     std::uint32_t from = 0u;
     for (const LockMonster &m : monsters)
         if (m.address == *current) from = m.slot;
-    for (std::uint32_t step = 1; step <= kMonsterSlots; ++step) {
-        const std::uint32_t slot = (from + step) % kMonsterSlots;
+    for (std::uint32_t step = 1; step <= kMaxMonsters; ++step) {
+        const std::uint32_t slot = (from + step) % kMaxMonsters;
         for (const LockMonster &m : monsters)
             if (m.slot == slot && m.address != *current &&
                 std::find(visited.begin(), visited.end(), m.address) == visited.end())
@@ -218,22 +322,30 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     if (state.suspended) return std::nullopt;
     ++state.updates;
     const bool tapped = std::exchange(state.tap, false);
-    if (!tapped && !state.locked) return std::nullopt;
+    const bool retry = !tapped && state.seeking && !state.locked;
+    if (!tapped && !state.locked && !retry) return std::nullopt;
     const std::vector<LockMonster> monsters = lock_on_monsters(memory);
-    if (tapped) {
+    if (tapped || retry) {
         const std::optional<std::uint32_t> current = state.locked ? std::optional(state.target) : std::nullopt;
-        if (!state.locked) state.visited.clear();
+        if (tapped && !state.locked) state.visited.clear();
         const std::optional<std::uint32_t> next =
             lock_on_pick(monsters, camera.look_at, camera.yaw, current, state.visited);
         if (!next) {
             if (state.locked) {
                 lock_on_release("");
+            } else if (tapped) {
+                state.seeking = true;
+                state.seek_left = kSeekUpdates;
+                state.note = "No large monster to lock onto";
+                explain_miss(memory);
+            } else if (state.seek_left > 0u) {
+                --state.seek_left;
             } else {
-                state.note = "No large monster in this area";
-                std::cout << "[lockon] no large monster in this area" << std::endl;
+                state.seeking = false;
             }
             return std::nullopt;
         }
+        state.seeking = false;
         const bool first = !state.locked;
         lock(*next, first ? "locked onto" : "moved to");
         if (first) {
@@ -318,7 +430,7 @@ void lock_on_frame(const psprecomp::GuestMemory &memory) {
 }
 
 bool lock_on_wanted() {
-    return state.tap || state.locked;
+    return state.tap || state.locked || state.seeking;
 }
 
 LockOnStatus lock_on_status() {
@@ -351,6 +463,7 @@ std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory 
 }
 
 void lock_on_release(const char *why) {
+    state.seeking = false;
     if (state.locked)
         std::cout << "[lockon] let go of the monster at 0x" << std::hex << state.target << std::dec
                   << (why != nullptr && *why != '\0' ? std::string(": ") + why : std::string()) << std::endl;

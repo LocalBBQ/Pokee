@@ -30,8 +30,8 @@ jobs:
         run: >-
           cmake -S . -B out/tidy -G Ninja
           -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON
-          -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF
+          -DPSPRECOMP_PROFILE=mhfu -DPSPRECOMP_BUILD_TESTS=ON
+          -DMHFU_RENDERER=OFF -DMHFU_FFMPEG=OFF
       - name: Analyze first-party translation units
         run: python3 scripts/ci/clang_tidy.py
       - name: Upload analysis diagnostics

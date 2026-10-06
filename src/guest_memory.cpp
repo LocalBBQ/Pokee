@@ -56,6 +56,12 @@ bool overlaps_watch(std::uint32_t address, std::size_t length) {
         static_cast<std::uint64_t>(canonical_watch) < first_end;
 }
 
+[[noreturn]] void outside_guest_memory(std::uint32_t address) {
+    throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address) + " (dispatch " +
+        hex32(runtime_dispatch_pc()) + ", thread " + std::to_string(runtime_thread_uid()) + " " +
+        runtime_thread_name() + ")");
+}
+
 void log_write_watch(std::uint32_t address, std::size_t length, const char *operation, std::uint64_t old_value,
     std::uint64_t new_value) {
     if (!overlaps_watch(address, length)) return;
@@ -122,7 +128,7 @@ bool GuestMemory::contains(std::uint32_t address, std::size_t length) const noex
 
 GuestMemory::ResolvedAddress GuestMemory::resolve(std::uint32_t address, std::size_t length) const {
     if (!contains(address, length)) {
-        throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address));
+        outside_guest_memory(address);
     }
     const std::uint32_t c = canonical(address);
     if (is_vram_window(c)) return {Region::Vram, vram_offset(c)};
@@ -443,7 +449,7 @@ void GuestMemory::memory_barrier() const noexcept {
 }
 void GuestMemory::copy_in(std::uint32_t address, std::span<const std::uint8_t> source) {
     if (!contains(address, source.size()))
-        throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address));
+        outside_guest_memory(address);
     log_write_watch(address, source.size(), "copy_in", 0u, 0u);
     std::size_t copied = 0u;
     while (copied < source.size()) {
@@ -458,7 +464,7 @@ void GuestMemory::copy_in(std::uint32_t address, std::span<const std::uint8_t> s
 }
 void GuestMemory::copy_out(std::uint32_t address, std::span<std::uint8_t> destination) const {
     if (!contains(address, destination.size()))
-        throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address));
+        outside_guest_memory(address);
     std::size_t copied = 0u;
     while (copied < destination.size()) {
         const std::uint32_t current = address + static_cast<std::uint32_t>(copied);
@@ -471,7 +477,7 @@ void GuestMemory::copy_out(std::uint32_t address, std::span<std::uint8_t> destin
     }
 }
 void GuestMemory::zero(std::uint32_t address, std::size_t length) {
-    if (!contains(address, length)) throw Error("Guest memory access outside PSP RAM/EDRAM at " + hex32(address));
+    if (!contains(address, length)) outside_guest_memory(address);
     log_write_watch(address, length, "zero", 0u, 0u);
     std::size_t cleared = 0u;
     while (cleared < length) {

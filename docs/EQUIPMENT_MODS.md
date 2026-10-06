@@ -26,7 +26,7 @@ carries. Felyne gear (`EquipCATSET`, `EquipCATHELM`, ...) has no buttons.
 
 The game loads the armor models when it loads the character and when the
 equipment changes at the item box; it keeps them otherwise. Measured with
-`MHP3RD_TRACE_DATA_BIN=1`:
+`MHFU_TRACE_DATA_BIN=1`:
 
 | What the player does | The armor models are read again |
 | --- | --- |
@@ -46,10 +46,10 @@ Not measured: whether starting a quest or returning from one reloads them.
 
 All addresses are for NPJB-40001. They were found by tracing, not taken from
 elsewhere: the model files the game read were logged with
-`MHP3RD_TRACE_DATA_BIN=1`, memory was dumped with the developer tools'
+`MHFU_TRACE_DATA_BIN=1`, memory was dumped with the developer tools'
 `dump` command ([DEBUG_MENU.md](DEBUG_MENU.md)) and searched offline, and the
 code that uses each table was read in the executable to confirm what it
-does. The code is `profiles/mhp3rd/host/game/equipment_models.{hpp,cpp}`, and
+does. The code is `profiles/mhfu/host/game/equipment_models.{hpp,cpp}`, and
 `tests/equipment_models_tests.cpp` checks it on made-up tables.
 
 ### The character
