@@ -18,6 +18,8 @@ std::array<Rate, kSources> rates{};
 // Degrees from the held rates, and from each motion source on its own.
 Turn pending{};
 std::array<Turn, kSources> motion{};
+// The interval the last advance() applied, after the pause cap.
+float stepped_seconds{};
 
 void add(Turn &to, const Turn &from) {
     to.yaw_degrees += from.yaw_degrees;
@@ -41,14 +43,23 @@ void add_motion(Source source, float yaw_degrees, float pitch_degrees) {
 }
 
 void advance(float seconds, float degrees_per_second) {
-    if (!std::isfinite(seconds) || seconds <= 0.0f) return;
-    const float step = std::min(seconds, kLongestStep) * degrees_per_second;
+    if (!std::isfinite(seconds) || seconds <= 0.0f) {
+        stepped_seconds = 0.0f;
+        return;
+    }
+    const float used = std::min(seconds, kLongestStep);
+    stepped_seconds = used;
+    const float step = used * degrees_per_second;
     for (const Rate &rate : rates) {
         pending.yaw_degrees += rate.yaw * step;
         pending.pitch_degrees += rate.pitch * step;
         pending.yaw_held |= rate.yaw != 0.0f;
         pending.pitch_held |= rate.pitch != 0.0f;
     }
+}
+
+float advance_seconds() {
+    return stepped_seconds;
 }
 
 Turn take() {
@@ -82,6 +93,7 @@ Rate rate(Source source) {
 
 void reset() {
     rates.fill(Rate{});
+    stepped_seconds = 0.0f;
     discard();
 }
 

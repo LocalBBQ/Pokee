@@ -11,6 +11,7 @@
 #include "overlay_module.hpp"
 #include "platform/utf8_path.hpp"
 #include "psprecomp/common.hpp"
+#include "psprecomp/stale_code_hook.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -308,6 +309,25 @@ bool unsupported_instruction_hook(Runtime &runtime, AllegrexContext &, std::uint
     return install_overlay_for(runtime, pc);
 }
 
+// A jalr into a slot can run after the new image has been copied and before
+// the guest flushes its instruction cache. The old corpus is still registered
+// at those addresses, so the call would execute the previous overlay. Drop it
+// and tell the runtime to look the address up again.
+bool overlay_call_is_stale(Runtime &runtime, std::uint32_t pc) {
+    const auto [slot_start, slot_end] = slot_of(pc);
+    (void)slot_end;
+    if (slot_start == 0u) return false;
+    const auto installed = installed_overlays().find(slot_start);
+    if (installed == installed_overlays().end()) return false;
+    const auto recorded = installed_headers().find(slot_start);
+    if (recorded == installed_headers().end() || header_hash(runtime.memory(), slot_start) == recorded->second)
+        return false;
+    const std::uint64_t previous = installed->second;
+    revalidate_overlays(runtime);
+    const auto now = installed_overlays().find(slot_start);
+    return now == installed_overlays().end() || now->second != previous;
+}
+
 } // namespace
 
 void revalidate_overlays(Runtime &runtime) {
@@ -357,6 +377,7 @@ void install_overlay_support(Runtime &runtime) {
     load_overlay_libraries();
     psprecomp::set_runtime_missing_function_hook(&missing_function_hook);
     psprecomp::set_runtime_unsupported_hook(&unsupported_instruction_hook);
+    psprecomp::set_runtime_stale_code_hook(&overlay_call_is_stale);
 }
 
 } // namespace mhfu

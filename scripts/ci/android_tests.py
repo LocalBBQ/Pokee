@@ -49,7 +49,7 @@ def main():
         test["remote_environment"] = environment
         names.add(name)
         binaries.add(binary)
-    remote = "/data/local/tmp/yakumo-unit-tests"
+    remote = "/data/local/tmp/pokee-unit-tests"
     diagnostics = build / "android-results"
     diagnostics.mkdir(exist_ok=True)
     suite = ET.Element("testsuite", name="Android native tests", tests=str(len(tests)))

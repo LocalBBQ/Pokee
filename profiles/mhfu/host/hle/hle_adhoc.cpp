@@ -94,7 +94,7 @@ constexpr std::uint32_t kNetconfAdhocParam = 0x34u;
 constexpr std::uint32_t kNetconfActionConnectAdhoc = 2u;
 constexpr std::uint32_t kNetconfResultCancelled = 1u;
 
-constexpr const char *kDefaultProduct = "ULJM05800";
+constexpr const char *kDefaultProduct = "ULUS10391";
 constexpr std::uint32_t kErrorWaitTimeout = error::kWaitTimeout;
 
 bool trace_adhoc() {

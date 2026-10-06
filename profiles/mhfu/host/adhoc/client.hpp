@@ -25,7 +25,7 @@ struct Identity {
     std::string server; // host name or address, optionally host:port for adhocctl
     std::string nickname;
     Mac mac{};
-    std::string product; // the game's product code, for example ULJM05800
+    std::string product; // the game's product code, for example ULUS10391
 };
 
 // What the game sees of the matchmaking service.

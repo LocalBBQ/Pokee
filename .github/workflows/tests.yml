@@ -44,10 +44,10 @@ jobs:
         run: >-
           cmake -S . -B out/ci -G "${{ matrix.generator }}"
           -DCMAKE_BUILD_TYPE=Debug
-          -DPSPRECOMP_PROFILE=mhp3rd
+          -DPSPRECOMP_PROFILE=mhfu
           -DPSPRECOMP_BUILD_TESTS=ON
-          -DMHP3RD_RENDERER=OFF
-          -DMHP3RD_FFMPEG=OFF
+          -DMHFU_RENDERER=OFF
+          -DMHFU_FFMPEG=OFF
           -DPSPRECOMP_MSVC_MP_JOBS=1
 
       - name: Build test executables
@@ -55,7 +55,7 @@ jobs:
 
       - name: Test archive and overlay tools
         run: |
-          python3 profiles/mhp3rd/tests/tool_security_tests.py
+          python3 profiles/mhfu/tests/tool_security_tests.py
           python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 
       - name: Run tests
@@ -98,8 +98,8 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/$NDK_VERSION/build/cmake/android.toolchain.cmake"
           -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-29
           -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE=Debug
-          -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON
-          -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF
+          -DPSPRECOMP_PROFILE=mhfu -DPSPRECOMP_BUILD_TESTS=ON
+          -DMHFU_RENDERER=OFF -DMHFU_FFMPEG=OFF
 
       - name: Build Android test executables
         run: cmake --build out/android --target psprecomp_test_binaries -j2

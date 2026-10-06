@@ -7,6 +7,7 @@
 #include "game/game_data.hpp"
 #include "game/guest_ram.hpp"
 #include "game/layered_armor.hpp"
+#include "game/weapon_compare.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -132,6 +133,18 @@ void test_files() {
     const std::optional<Piece> weapon = carried_weapon(ram);
     check(weapon && weapon->kind == 5 && weapon->id == 1, "the carried weapon");
     if (weapon) check(model_file(ram, *weapon, *look) == 2003u, "a weapon's file");
+    if (weapon) {
+        const std::uint32_t at = 0x08997AA0u + 1u * 28u;
+        ram.store8(at + 2u, 1u);
+        ram.store16(at + 4u, 1500u);
+        ram.store16(at + 10u, 70u);
+        ram.store8(at + 12u, 18u);
+        const std::optional<std::array<std::uint8_t, 16>> head = weapon_record_head(ram, 5, 1);
+        const std::optional<ComparedWeapon> figures =
+            head ? compared_weapon(head->data(), head->size(), 5) : std::nullopt;
+        check(figures && figures->attack == 70 && figures->element == 18, "the carried weapon's attack and element");
+        check(!weapon_record_head(ram, 10, 1), "an unused kind has no record");
+    }
     check(model_file(ram, Piece{5, 2}, *look) == 2009u, "a weapon's model is kept below the count");
 
     const std::optional<FileModel> found = file_model(ram, 1004);

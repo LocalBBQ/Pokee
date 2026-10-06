@@ -1,6 +1,7 @@
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/common.hpp"
 #include "psprecomp/interpreter.hpp"
+#include "psprecomp/stale_code_hook.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,6 +37,7 @@ RuntimePreDispatchHook g_pre_dispatch_hook = nullptr;
 RuntimePostDispatchHook g_post_dispatch_hook = nullptr;
 RuntimePreChainedCallHook g_pre_chained_call_hook = nullptr;
 RuntimePostChainedCallHook g_post_chained_call_hook = nullptr;
+RuntimeStaleCodeHook g_stale_code_hook = nullptr;
 }
 
 // Execution counter for a handful of guest addresses, armed by
@@ -120,6 +122,9 @@ void set_runtime_pre_chained_call_hook(RuntimePreChainedCallHook hook) noexcept 
 void set_runtime_post_chained_call_hook(RuntimePostChainedCallHook hook) noexcept {
     g_post_chained_call_hook = hook;
     if (hook != nullptr) g_runtime_chain_observers_active = true;
+}
+void set_runtime_stale_code_hook(RuntimeStaleCodeHook hook) noexcept {
+    g_stale_code_hook = hook;
 }
 
 void set_runtime_post_import_hook(RuntimePostImportHook hook) noexcept {
@@ -214,7 +219,18 @@ bool Runtime::run_interpreter_fallback(AllegrexContext &ctx) {
     if (!interpreter_fallback_enabled()) return false;
     // Each entry is bounded, so a long interpreted stretch still returns to the
     // dispatcher often enough for the starvation hook to preempt the thread.
-    return interpret_allegrex(*this, ctx) != InterpreterExit::Unreachable;
+    // The fast dispatch path reports the guest PC when a compiled function
+    // throws. This path is outside that try, so a fault here used to name only
+    // the bad address.
+    try {
+        return interpret_allegrex(*this, ctx) != InterpreterExit::Unreachable;
+    } catch (const Error &error) {
+        std::ostringstream message;
+        message << error.what() << " in interpreter at " << hex32(ctx.pc);
+        if (memory_.contains(ctx.pc, 4u)) message << " instr=" << hex32(memory_.load32(ctx.pc));
+        append_gpr_dump(message, ctx);
+        throw Error(message.str());
+    }
 }
 
 bool Runtime::account_dispatch_work(AllegrexContext &ctx, bool allow_preemption) {
@@ -268,6 +284,10 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
     }
 
     const std::uint32_t target_pc = ctx.pc;
+    // The profile drops an overlay corpus here when the slot now holds a
+    // different image. The function resolved above was compiled for the old
+    // bytes; running it would execute them against the new image.
+    if (g_stale_code_hook != nullptr && g_stale_code_hook(*this, target_pc)) return false;
     const std::uint32_t native_depth = chain_depth_;
     // Always guard execution-context ownership. Even a clean generated unit can
     // reach a nested direct chain whose scheduler boundary switches PSP thread.
@@ -277,6 +297,10 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
     // ownership change. Avoid constructing/checking a two-field token on every
     // dynamic native chain boundary in the city hot path.
     const std::uint64_t caller_generation = g_runtime_thread_switch_generation_fast;
+    // Snapshot the overlay-unload flag. A callee that drops compiled code this
+    // frame was built from must unwind us; a flag already raised by an earlier
+    // unload belongs to a chain that has already returned.
+    const bool code_removed_before = chain_context_invalidated_;
 #if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     if (g_pre_chained_call_hook != nullptr) g_pre_chained_call_hook(*this, ctx, target_pc, native_depth);
 #endif
@@ -299,7 +323,8 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
     // ownership without passing through run_starvation_boundary(). Keep the
     // generation guard here even in production; compile-time direct chains use
     // chain_context_invalidated_ and retain their cheaper hot path.
-    if (caller_generation != g_runtime_thread_switch_generation_fast) {
+    if (caller_generation != g_runtime_thread_switch_generation_fast ||
+        (chain_context_invalidated_ && !code_removed_before)) {
         (void)account_dispatch_work(ctx, false);
         return false;
     }
@@ -319,6 +344,7 @@ bool Runtime::invoke_chained_unit(
     const std::uint32_t target_pc = ctx.pc;
     const std::uint32_t native_depth = chain_depth_;
     const std::uint64_t caller_generation = g_runtime_thread_switch_generation_fast;
+    const bool code_removed_before = chain_context_invalidated_;
 #if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     if (g_pre_chained_call_hook != nullptr) g_pre_chained_call_hook(*this, ctx, target_pc, native_depth);
 #endif
@@ -339,7 +365,8 @@ bool Runtime::invoke_chained_unit(
 
     // A descendant scheduler boundary may have switched the PSP context while
     // this frame was active. Never let a stale native caller resume it.
-    if (caller_generation != g_runtime_thread_switch_generation_fast) {
+    if (caller_generation != g_runtime_thread_switch_generation_fast ||
+        (chain_context_invalidated_ && !code_removed_before)) {
         (void)account_dispatch_work(ctx, false);
         return false;
     }
@@ -411,6 +438,10 @@ NidRegistry &Runtime::nids() noexcept {
 }
 const NidRegistry &Runtime::nids() const noexcept {
     return nids_;
+}
+
+Runtime::RecompiledFunction Runtime::function_at(std::uint32_t address) const noexcept {
+    return lookup_function(address);
 }
 
 void Runtime::register_function(std::uint32_t address, RecompiledFunction function, std::string name) {
@@ -1121,6 +1152,7 @@ void Runtime::arithmetic_overflow(std::uint32_t pc, std::uint32_t instruction) {
 }
 
 void Runtime::unregister_functions(std::uint32_t start, std::uint32_t end) {
+    bool removed = false;
     for (auto it = functions_.begin(); it != functions_.end();) {
         if (it->first < start || it->first >= end) {
             ++it;
@@ -1134,8 +1166,14 @@ void Runtime::unregister_functions(std::uint32_t start, std::uint32_t end) {
                 direct_chainable_[index] = nullptr;
             }
         }
+        removed = true;
         it = functions_.erase(it);
     }
+    // The dropped body may be on the host stack, waiting on a call into the
+    // loader that just replaced its guest bytes. Resuming it would run the old
+    // logic against the new image. Chained callers see this flag and return to
+    // the dispatcher, which then executes whatever those addresses hold now.
+    if (removed) chain_context_invalidated_ = true;
 }
 
 void Runtime::register_native_fast_path(std::uint32_t address, NativeFastPath function) {

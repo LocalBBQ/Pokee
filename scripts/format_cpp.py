@@ -12,15 +12,15 @@ from pathlib import Path, PurePosixPath
 VERSION = "21.1.8"
 ROOTS = (
     "include/psprecomp/", "src/", "tests/", "tools/",
-    "profiles/mhp3rd/host/", "profiles/mhp3rd/tests/",
+    "profiles/mhfu/host/", "profiles/mhfu/tests/",
 )
 SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
 EXCLUDED = {"third_party", "generated", "game", "overlays", "overlay_corpora", "out", "build"}
 SAMPLES = (
     "include/psprecomp/guest_memory.hpp",
     "src/guest_memory.cpp",
-    "profiles/mhp3rd/host/ui/input_script.cpp",
-    "profiles/mhp3rd/tests/guest_pcm_tests.cpp",
+    "profiles/mhfu/host/ui/input_script.cpp",
+    "profiles/mhfu/tests/guest_pcm_tests.cpp",
     "tests/test_main.cpp",
     "tools/dump_function.cpp",
 )

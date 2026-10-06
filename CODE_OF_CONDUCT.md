@@ -1,6 +1,6 @@
 # Code of conduct
 
-Yakumo welcomes people with different backgrounds, experience levels and language skills. Everyone participating in the project is expected to help keep discussions respectful and useful.
+Pokee welcomes people with different backgrounds, experience levels and language skills. Everyone participating in the project is expected to help keep discussions respectful and useful.
 
 ## Scope
 
@@ -28,7 +28,7 @@ Disagreement with a maintainer, reporting a bug or questioning a technical decis
 
 Do not use the project's spaces to promote or facilitate piracy. Requests for pirated copies, download links and instructions for obtaining unauthorized copies of games are prohibited.
 
-Do not upload, attach, link to or distribute copyrighted game content here, including disc images (ISO files), game executables or extracted game assets. This also applies to unofficial or repackaged Yakumo builds that bundle game content, whether as separate files, an embedded ISO or content included in an installer or archive.
+Do not upload, attach, link to or distribute copyrighted game content here, including disc images (ISO files), game executables or extracted game assets. This also applies to unofficial or repackaged Pokee builds that bundle game content, whether as separate files, an embedded ISO or content included in an installer or archive.
 
 Keep game data local. Share code, logs and minimal synthetic examples when reporting problems, following the repository's [contribution rules](CONTRIBUTING.md).
 

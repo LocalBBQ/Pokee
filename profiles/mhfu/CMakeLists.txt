@@ -22,24 +22,23 @@ if(MHFU_GENERATED)
     endif()
     set_source_files_properties(${MHFU_GENERATED} PROPERTIES COMPILE_OPTIONS "${MHFU_GENERATED_OPTIONS}")
 
-    # The analog camera wraps the game's camera rotation helper, and main.cpp
-    # has to hand it the generated unit that helper was compiled into. Which
-    # unit that is depends on how the generator partitions the code, so read it
-    # from the corpus instead of naming it: a new partition then finds its own
-    # unit, and a corpus without the helper stops the build here rather than
-    # letting the camera call the wrong code in game.
+    # The analog camera wraps the camera update, and main.cpp has to hand it
+    # the generated unit that update was compiled into. Which unit that is
+    # depends on how the generator partitions the code, so read it from the
+    # corpus instead of naming it: a new partition then finds its own unit,
+    # and a corpus without the update leaves analog camera off.
     set(MHFU_CAMERA_HELPER_UNIT "")
     foreach(unit IN LISTS MHFU_GENERATED)
-        file(STRINGS "${unit}" hit REGEX "register_function\\(0x08878B70u, &recomp_unit_[0-9]+," LIMIT_COUNT 1)
+        file(STRINGS "${unit}" hit REGEX "register_function\\(0x08886E50u, &recomp_unit_[0-9]+," LIMIT_COUNT 1)
         if(hit)
             string(REGEX MATCH "recomp_unit_[0-9]+" MHFU_CAMERA_HELPER_UNIT "${hit}")
             break()
         endif()
     endforeach()
     if(MHFU_CAMERA_HELPER_UNIT)
-        message(STATUS "mhfu: camera rotation helper in ${MHFU_CAMERA_HELPER_UNIT}")
+        message(STATUS "mhfu: camera update in ${MHFU_CAMERA_HELPER_UNIT}")
     else()
-        message(STATUS "mhfu: corpus has no camera rotation helper; analog camera stays off")
+        message(STATUS "mhfu: corpus has no camera update; analog camera stays off")
     endif()
 
     # Hiding the HUD (host/gpu/game_hud.cpp) wraps the game's 2D functions the
@@ -256,6 +255,7 @@ set(MHFU_HOST_SOURCES
     host/game/equipment_models.cpp
     host/game/layered_armor.cpp
     host/game/layered_armor_hook.cpp
+    host/game/damage_numbers.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -524,6 +524,18 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_settings_tests COMMAND mhfu_settings_tests)
 endif()
 
+# Damage numbers: hitzone colour, the health a hit removes, and the watch
+# around that hit. No game data.
+add_executable(mhfu_damage_numbers_tests
+    tests/damage_numbers_tests.cpp
+    host/game/damage_numbers.cpp)
+target_include_directories(mhfu_damage_numbers_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_damage_numbers_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_damage_numbers_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_damage_numbers_tests COMMAND mhfu_damage_numbers_tests)
+endif()
+
 # Installer release identities, and preparation of a supported executable when
 # a disc image path is passed. The default run uses no game data.
 add_executable(mhfu_install_identity_tests
@@ -692,6 +704,21 @@ target_include_directories(mhfu_mmpx_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
 set_target_properties(mhfu_mmpx_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_mmpx_tests COMMAND mhfu_mmpx_tests)
+endif()
+
+# Per-frame vertex budget: the larger one only when the device can spare it.
+add_executable(mhfu_vertex_budget_tests tests/vertex_budget_tests.cpp)
+target_include_directories(mhfu_vertex_budget_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+set_target_properties(mhfu_vertex_budget_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_vertex_budget_tests COMMAND mhfu_vertex_budget_tests)
+endif()
+
+add_executable(mhfu_vertex_hold_tests tests/vertex_hold_tests.cpp)
+target_include_directories(mhfu_vertex_hold_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+set_target_properties(mhfu_vertex_hold_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_vertex_hold_tests COMMAND mhfu_vertex_hold_tests)
 endif()
 
 # Descriptor pools counted the way a phone's driver counts them: growth,
@@ -992,6 +1019,41 @@ endif()
 add_executable(mhfu_kernel_hle_tests tests/kernel_hle_tests.cpp)
 target_compile_definitions(mhfu_kernel_hle_tests PRIVATE PSPRECOMP_TEST_NIDS_CSV="${PROJECT_SOURCE_DIR}/configs/nids.csv")
 target_link_libraries(mhfu_kernel_hle_tests PRIVATE mhfu_test_host)
+
+# Two synthetic overlay modules sharing one slot. The host resolves their
+# framework symbols from this test, the way a game build resolves them from Pokee.
+if(NOT WIN32)
+    set(MHFU_OVERLAY_FIXTURE_DIR "${CMAKE_BINARY_DIR}/bin/overlay-fixtures")
+    foreach(mark IN ITEMS 1 2)
+        set(fixture_target "mhfu_overlay_fixture_${mark}")
+        add_library(${fixture_target} MODULE tests/overlay_swap_module.cpp)
+        target_include_directories(${fixture_target} PRIVATE
+            "${MHFU_PROFILE_DIR}/host" "${PROJECT_SOURCE_DIR}/include")
+        target_compile_definitions(${fixture_target} PRIVATE "MHFU_OVERLAY_FIXTURE_MARK=${mark}")
+        set_target_properties(${fixture_target} PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN ON
+            PREFIX ""
+            LIBRARY_OUTPUT_DIRECTORY "${MHFU_OVERLAY_FIXTURE_DIR}"
+            OUTPUT_NAME "fixture_${mark}")
+    endforeach()
+    add_executable(mhfu_overlay_swap_tests tests/overlay_swap_tests.cpp)
+    target_compile_definitions(mhfu_overlay_swap_tests PRIVATE
+        "MHFU_OVERLAY_FIXTURE_DIR=\"${MHFU_OVERLAY_FIXTURE_DIR}\"")
+    target_include_directories(mhfu_overlay_swap_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+    target_link_libraries(mhfu_overlay_swap_tests PRIVATE mhfu_test_host)
+    if(APPLE)
+        target_link_options(mhfu_overlay_swap_tests PRIVATE "LINKER:-export_dynamic")
+    else()
+        target_link_options(mhfu_overlay_swap_tests PRIVATE "LINKER:--export-dynamic")
+    endif()
+    add_dependencies(mhfu_overlay_swap_tests mhfu_overlay_fixture_1 mhfu_overlay_fixture_2)
+    set_target_properties(mhfu_overlay_swap_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    if(PSPRECOMP_BUILD_TESTS)
+        add_test(NAME mhfu_overlay_swap_tests COMMAND mhfu_overlay_swap_tests)
+        set_tests_properties(mhfu_overlay_swap_tests PROPERTIES TIMEOUT 60)
+    endif()
+endif()
 set_target_properties(mhfu_kernel_hle_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_kernel_hle_tests COMMAND mhfu_kernel_hle_tests)

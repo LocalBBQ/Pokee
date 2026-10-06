@@ -71,6 +71,9 @@ struct Settings {
     bool frame_rate_auto{true}; // lower the frame rate rather than slow the game
     PerfDisplay perf{PerfDisplay::Off};
     GpuCompat gpu_compat{GpuCompat::Auto};
+    // The quest map and the item bar, as a percent of the size the game draws
+    // them (gpu/hud_scale.hpp). 100 leaves both where they are.
+    std::uint32_t map_item_scale{100u};
 
     // Text
     std::string font;              // the game's text font: path, "#face" for a collection; empty: the default
@@ -147,6 +150,16 @@ struct Settings {
     // Interface
     bool menu_pause{true};         // opening the menu pauses the game
     bool menu_pause_multiplayer{}; // ...also during ad hoc play, where a paused game stops answering its peers
+    // Display Without Weapon Coefficient (game/weapon_compare.hpp): off, the
+    // game's digits stay. On, equipment detail, the status screen and the
+    // smithy reprint the weapon's attack with the class coefficient divided
+    // out, and its element with the extra ten divided out. A hit still reads
+    // the game's own values.
+    bool comparable_weapons{};
+    // Damage numbers (game/damage_numbers.hpp): off, a hit is only what the
+    // game already shows. On, the health that hit removed is drawn over the
+    // picture.
+    bool damage_numbers{};
     bool menu_hint_seen{};         // the "Esc / L3+R3 opens the menu" hint was shown
     std::string last_folder;       // where the setup's file browser was last used
     std::string menu_tab;          // the menu's page when it last closed ("controls")
@@ -178,6 +191,8 @@ inline constexpr std::int32_t kLayeredReal = -1;
 inline constexpr std::int32_t kMaxLayeredPiece = 0xFFFF;
 inline constexpr std::uint32_t kMaxInternalScale = 8u;
 inline constexpr std::uint32_t kMaxWindowScale = 4u;
+inline constexpr std::uint32_t kMinMapItemScale = 50u;
+inline constexpr std::uint32_t kMaxMapItemScale = 200u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
 inline constexpr float kMinTouchOpacity = 0.1f;

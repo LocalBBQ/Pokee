@@ -4,6 +4,7 @@
 #include "game/guest_ram.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <vector>
 
@@ -169,6 +170,16 @@ std::optional<Piece> carried_weapon(const Ram &ram) {
     const std::uint8_t kind = ram.load8(at + 1u);
     if (!is_weapon(kind)) return std::nullopt;
     return Piece{kind, ram.load16(at + 2u)};
+}
+
+std::optional<std::array<std::uint8_t, 16>> weapon_record_head(const Ram &ram, std::uint8_t kind, std::uint16_t id) {
+    const WeaponTable *t = weapon_table(kind);
+    if (t == nullptr || t->record < 16u) return std::nullopt;
+    const std::uint32_t at = t->data + static_cast<std::uint32_t>(id) * t->record;
+    if (!ram.contains(at, t->record)) return std::nullopt;
+    std::array<std::uint8_t, 16> head{};
+    for (std::size_t i = 0; i < head.size(); ++i) head[i] = ram.load8(at + static_cast<std::uint32_t>(i));
+    return head;
 }
 
 std::optional<std::uint32_t> model_file(const Ram &ram, const Piece &piece, const Look &look) {

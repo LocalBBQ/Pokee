@@ -14,9 +14,9 @@ player's game.
 
 | Build | What you get |
 | --- | --- |
-| Release (`-DMHP3RD_RELEASE=ON`, the builds on the releases page) | Nothing. `host/debug/` and the page are not compiled, whatever else is set |
-| Developer build (the default, `MHP3RD_RELEASE=OFF`) | Compiled in (CMake option `MHP3RD_DEBUG_MENU`, on by default; `-DMHP3RD_DEBUG_MENU=OFF` leaves it out), but hidden |
-| Developer build run with `MHP3RD_DEBUG_MENU=1` | The menu (Esc, or L3+R3) has a **Debug** tab after System |
+| Release (`-DMHFU_RELEASE=ON`, the builds on the releases page) | Nothing. `host/debug/` and the page are not compiled, whatever else is set |
+| Developer build (the default, `MHFU_RELEASE=OFF`) | Compiled in (CMake option `MHFU_DEBUG_MENU`, on by default; `-DMHFU_DEBUG_MENU=OFF` leaves it out), but hidden |
+| Developer build run with `MHFU_DEBUG_MENU=1` | The menu (Esc, or L3+R3) has a **Debug** tab after System |
 
 It is opt-in at run time on purpose: people who build from source to play
 never see it by accident.
@@ -97,10 +97,10 @@ overlay.
 
 ## The command file
 
-`MHP3RD_DEBUG_COMMANDS=<file>` (with `MHP3RD_DEBUG_MENU=1`) names a file read
-while the game runs, like `MHP3RD_INPUT_LIVE`: each line appended to it runs
+`MHFU_DEBUG_COMMANDS=<file>` (with `MHFU_DEBUG_MENU=1`) names a file read
+while the game runs, like `MHFU_INPUT_LIVE`: each line appended to it runs
 at the next flip, and its answer is printed as `[debug]` lines. Together with
-`MHP3RD_INPUT_LIVE` and window captures it drives a whole test from a shell.
+`MHFU_INPUT_LIVE` and window captures it drives a whole test from a shell.
 
 ```bash
 echo "state" >> cmd.txt              # the character, zenny, free slots
@@ -126,6 +126,7 @@ echo "quest list hall 8" >> cmd.txt  # the Guild Hall's 8-star quests
 | `find8`/`find16`/`find32 V [LO HI]` | Every place in user memory holding V; narrowed with `next V`, `changed`, `unchanged`, `delta D`; `list` shows them |
 | `findbytes HEX` | Every place holding that byte string |
 | `peek ADDR [N]` | N bytes (default 64) as hex |
+| `watch ADDR [BYTES]` | Point the write watch at ADDR for BYTES (default 2). Prints the guest instruction that stores there. The process must have been started with `PSPRECOMP_WATCH_WRITE` set, or the slow store path is not armed and this does nothing |
 | `poke8`/`poke16`/`poke32 ADDR V` | Write one value |
 | `dump PATH [ADDR LEN]` | Guest memory to a file (all of it by default), for comparing snapshots offline |
 
@@ -136,8 +137,9 @@ script waits for the quest's `[overlay] installed game_task` line (or polls
 
 ## What the game keeps where
 
-All addresses are for NPJB-40001, the one executable Yakumo supports, and
-were measured in the running game with the tools above: a value the game
+All addresses are for NPJB-40001. The installer accepts USA Freedom Unite, so
+these stay off until they are traced there. They were measured in the running
+game with the tools above: a value the game
 shows was searched for, changed in the game, searched again, and the survivor
 written to see the game follow. A community cheat list for this disc gave
 hints for money, the item box, the player's health, the quest clock and the
@@ -246,16 +248,16 @@ and write them only while `game_task.ovl` is there.
 
 How the counter and the gate hand a quest to the game was traced with the
 maintainer playing a traced build (`PSPRECOMP_WATCH_WRITE` on the quest
-state, `MHP3RD_TRACE_IO` for the files, memory dumps before and after each
+state, `MHFU_TRACE_IO` for the files, memory dumps before and after each
 step), then read in the code the traces pointed at.
 
 | What | Where | How it was found |
 | --- | --- | --- |
-| The quest lists | DATA.BIN entries 4059 to 4066, one per star level | `MHP3RD_TRACE_IO` showed the entry the game reads when a star level is chosen at the counter; the file is the list the counter shows, found again in memory. Levels 1 to 6 hold that level's village quests (ids 101 to 699, the level in the hundreds) and the Guild Hall's (ids 1SSNN, 10101 to 10622, stars in SS); 7 and 8 only Hall quests (10701 to 10840): 92 village and 184 Hall quests in all. A list is 32-bit offsets to the records, ended by 0; a record has the fee at `+4`, the reward at `+8`, the time limit at `+0x10`, the id (u16) at `+0x1C`, the stars at `+0x1E`, and from `+0x48` the name, objective, failure conditions, description, main monsters and client. Checked against the counter's screen: *Harvest 'Shroom*, reward 300z, fee 0z, 50 minutes |
+| The quest lists | DATA.BIN entries 5342 to 5352, one per rank | Read from the USA disc. Each file is one rank. A list is 32-bit offsets to the records, ended by 0; a record has the fee at `+4`, the reward at `+8`, the time limit at `+0x10`, the id (u16) at `+0x18`, a map id (u16) at `+0x1C`, and from `+0x34` the name, objective, failure conditions, description, main monsters and client, then the same six again in the other languages. Ids below 10000 are that rank's own quests; ids from 10000 to 19999 sit in the same files; entry 5354 holds ids from 20000 and is not started. Gathering quests name the place (*Gathering - Volcanic Zone*, *G-Lvl Gathering - OldVolcano*) |
 | The quest itself | One DATA.BIN entry per quest, loaded by the quest overlay by id | After departing on quest 501 the quest overlay read entry 3098, on 10503 entry 3484; the entries are encrypted and are not read by the tools |
 | Accepted quest id (u16) | `0x09FAF8C2` (character pointer at `0x08AB3640`, `+0x60472`) | A write watch on it: accepting at the counter wrote the quest's id (101, 302, 501, 10503, ...), and the village writes 1 when it loads. Cancelling at the counter does not write it. Changing it after accepting and before leaving made the other quest start, with its own map and monster |
 | The gate left by (u8) and a flag (u8) | `0x09FAF8C8`, `0x09FAF8C9` (`+0x60478`, `+0x60479`) | Written by the departure code: 2 after leaving by the village gate, 3 by the Hall's (traced in both); -1 after a save is loaded. When the village loads after a quest, `lobby_task.ovl` (`0x0A08F4E8`) reads the byte as an index into its table of places (`0x0A184068`, 20 bytes each) and puts the hunter there: a quest left by the Hall's gate comes back to the Hall. The flag is set only when a bit of the network state is (online play); offline it is 0 |
-| Where the hunter is | The map overlay in slot `0x0A055E80` | `P_v00a00d.ovl` in the village, `P_v00a01d.ovl` in the Guild Hall (`MHP3RD_TRACE_IO` and the `[overlay] installed` lines on walking in); `P_v00a02d` to `a04d` are the other village areas |
+| Where the hunter is | The map overlay in slot `0x0A055E80` | `P_v00a00d.ovl` in the village, `P_v00a01d.ovl` in the Guild Hall (`MHFU_TRACE_IO` and the `[overlay] installed` lines on walking in); `P_v00a02d` to `a04d` are the other village areas |
 | The next scene | Word pointed to by `0x0A25DD28` (`0x0A25DD2C`) | 0 while the hunter walks around the village or the Hall, other values while a menu or dialog is open (12 with the game's menu, 0x3E seen while the hunter stood at the Hall's gate before pressing □); 30 at departure in the dumps after pressing □ at the gate |
 | The departure | Village code at `0x0A09CE6C` (in `lobby_task.ovl`), called from the □ handler at the gate (`0x0A0ECC90`), the only caller; the Hall's gate is the same handler, with gate 3 | Found from the village's teardown, which the write watch caught at departure: it runs once bit 4 of the scene flags is set, and turns into a quest when the scene word is 30. The functions that set that bit also set the scene word; this is the one that sets 30. It sets the word at `+0x28` to -1, the gate byte, the scene to 30, the flag byte (bit 0 of the word at `*(0x09FC8BE8) + 0x01500000 - 0x57DC`), and ends the village scene: bit 4 of the flags at `+0x20` of the scene object at `*(0x08ABAE14)`. The village then tears itself down and the quest overlay loads |
 

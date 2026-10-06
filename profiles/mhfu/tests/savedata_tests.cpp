@@ -187,23 +187,23 @@ void test_transfer() {
     const Block wrong_key = block("f0e0d0c0b0a090807060504030201000");
     const fs::path source = root / "stick";
     const fs::path source_saves = source / "PSP" / "SAVEDATA";
-    make_save(source, "ULJM05800", "", key, 0x11u);
-    make_save(source, "ULJM05800", "QST", key, 0x22u);
+    make_save(source, "ULUS10391", "", key, 0x11u);
+    make_save(source, "ULUS10391", "QST", key, 0x22u);
     make_save(source, "ULUS10000", "", key, 0x33u);
 
-    check(is_game_save_name("ULJM05800QST") && !is_game_save_name("ULJM05800X"), "the game's folder names");
-    check(check_save_folder(source_saves / "ULJM05800", key).ok(), "a save of this game passes");
-    check(check_save_folder(source_saves / "ULJM05800QST", key).name == "ULJM05800QST", "the save's name is read");
+    check(is_game_save_name("ULUS10391QST") && !is_game_save_name("ULUS10391X"), "the game's folder names");
+    check(check_save_folder(source_saves / "ULUS10391", key).ok(), "a save of this game passes");
+    check(check_save_folder(source_saves / "ULUS10391QST", key).name == "ULUS10391QST", "the save's name is read");
     const SaveCheck other = check_save_folder(source_saves / "ULUS10000", key);
     check(!other.ok() && other.other_game, "a save of another game is refused");
-    check(!check_save_folder(source_saves / "ULJM05800", wrong_key).ok(), "a save made with another key is refused");
-    check(!check_save_folder(source_saves / "ULJM05800", std::nullopt).ok(), "an encrypted save needs the key");
+    check(!check_save_folder(source_saves / "ULUS10391", wrong_key).ok(), "a save made with another key is refused");
+    check(!check_save_folder(source_saves / "ULUS10391", std::nullopt).ok(), "an encrypted save needs the key");
     check(!check_save_folder(root, key).ok(), "a folder without PARAM.SFO is refused");
 
     // A damaged copy: one byte of the data file changed.
-    const fs::path damaged = root / "damaged" / "ULJM05800";
+    const fs::path damaged = root / "damaged" / "ULUS10391";
     fs::create_directories(damaged);
-    for (const auto &entry : fs::directory_iterator(source_saves / "ULJM05800"))
+    for (const auto &entry : fs::directory_iterator(source_saves / "ULUS10391"))
         fs::copy_file(entry.path(), damaged / entry.path().filename());
     {
         std::fstream data(damaged / "MHP2NDG.BIN", std::ios::binary | std::ios::in | std::ios::out);
@@ -213,7 +213,7 @@ void test_transfer() {
     check(!check_save_folder(damaged, key).ok(), "a damaged data file is refused");
     // A damaged PARAM.SFO: the title changed, which its hashes cover.
     fs::copy_file(
-        source_saves / "ULJM05800" / "MHP2NDG.BIN", damaged / "MHP2NDG.BIN", fs::copy_options::overwrite_existing);
+        source_saves / "ULUS10391" / "MHP2NDG.BIN", damaged / "MHP2NDG.BIN", fs::copy_options::overwrite_existing);
     check(check_save_folder(damaged, key).ok(), "the undamaged copy passes");
     {
         auto sfo_bytes = file_bytes(damaged / "PARAM.SFO");
@@ -228,7 +228,7 @@ void test_transfer() {
     check(!check_save_folder(damaged, key).ok(), "a missing data file is refused");
 
     // What the player picks: one save, a SAVEDATA folder or a memory stick.
-    check(find_saves(source_saves / "ULJM05800", key).size() == 1u, "a save folder is found as itself");
+    check(find_saves(source_saves / "ULUS10391", key).size() == 1u, "a save folder is found as itself");
     const auto from_stick = find_saves(source, key);
     check(from_stick.size() == 3u, "a memory stick's saves are found under PSP/SAVEDATA");
     check(std::count_if(from_stick.begin(), from_stick.end(), [](const SaveCheck &c) { return c.ok(); }) == 2,
@@ -253,26 +253,26 @@ void test_transfer() {
 
     // Import into an empty installation, then replace it with another save.
     const ImportResult first =
-        import_save(check_save_folder(source_saves / "ULJM05800", key), dest, backup_directory(dest_saves, time));
+        import_save(check_save_folder(source_saves / "ULUS10391", key), dest, backup_directory(dest_saves, time));
     check(first.ok && first.backup.empty(), "a save is imported where none was");
     SaveFiles files;
-    files.game_name = "ULJM05800";
+    files.game_name = "ULUS10391";
     files.file_name = "MHP2NDG.BIN";
     files.key = key;
     check(load_save(dest, files).contents.data == std::vector<std::uint8_t>(2048u, 0x11u), "the imported save loads");
-    const auto old_bytes = file_bytes(dest_saves / "ULJM05800" / "MHP2NDG.BIN");
+    const auto old_bytes = file_bytes(dest_saves / "ULUS10391" / "MHP2NDG.BIN");
 
     const fs::path newer = root / "newer";
-    make_save(newer, "ULJM05800", "", key, 0x44u);
+    make_save(newer, "ULUS10391", "", key, 0x44u);
     const fs::path backup_dir = backup_directory(dest_saves, time);
     const ImportResult second =
-        import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULJM05800", key), dest, backup_dir);
-    check(second.ok && second.backup == backup_dir / "ULJM05800", "a replaced save is moved to the backup folder");
+        import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULUS10391", key), dest, backup_dir);
+    check(second.ok && second.backup == backup_dir / "ULUS10391", "a replaced save is moved to the backup folder");
     check(file_bytes(second.backup / "MHP2NDG.BIN") == old_bytes && fs::exists(second.backup / "PARAM.SFO"),
         "the backup holds the replaced save unchanged");
     check(load_save(dest, files).contents.data == std::vector<std::uint8_t>(2048u, 0x44u), "the new save loads");
-    check(!fs::exists(dest_saves / ".import-ULJM05800"), "no partial copy is left behind");
-    check(!import_save(check_save_folder(dest_saves / "ULJM05800", key), dest, backup_dir).ok,
+    check(!fs::exists(dest_saves / ".import-ULUS10391"), "no partial copy is left behind");
+    check(!import_save(check_save_folder(dest_saves / "ULUS10391", key), dest, backup_dir).ok,
         "the save in use cannot be imported over itself");
     check(!import_save(other, dest, backup_dir).ok && !fs::exists(dest_saves / "ULUS10000"),
         "a refused save is not copied");
@@ -282,9 +282,9 @@ void test_transfer() {
     fs::create_directories(target);
     const ExportResult exported = export_saves(dest, target, time);
     check(exported.ok && exported.exported.size() == 1u, "the installed saves are exported");
-    const fs::path out = exported.folder / "PSP" / "SAVEDATA" / "ULJM05800";
+    const fs::path out = exported.folder / "PSP" / "SAVEDATA" / "ULUS10391";
     bool same = true;
-    for (const auto &entry : fs::directory_iterator(dest_saves / "ULJM05800"))
+    for (const auto &entry : fs::directory_iterator(dest_saves / "ULUS10391"))
         same = same && file_bytes(entry.path()) == file_bytes(out / entry.path().filename());
     check(same, "the export is identical to the installed save");
     check(export_saves(dest, target, time).folder != exported.folder, "a second export does not replace the first");
@@ -293,32 +293,32 @@ void test_transfer() {
     // Backups: named by time, or plain names that replace only when asked.
     const fs::path backups = root / "backups";
     fs::create_directories(backups);
-    check(saves_to_back_up(dest) == std::vector<std::string>{"ULJM05800"}, "the installed saves are backed up");
+    check(saves_to_back_up(dest) == std::vector<std::string>{"ULUS10391"}, "the installed saves are backed up");
     const fs::path timed = backup_folder(backups, time);
     check(timed == backups / stamp, "a timed backup is a folder named by its time");
     const BackupResult timed_result = back_up_saves(dest, timed, false);
     check(timed_result.ok &&
-            file_bytes(timed / "ULJM05800" / "MHP2NDG.BIN") == file_bytes(dest_saves / "ULJM05800" / "MHP2NDG.BIN"),
+            file_bytes(timed / "ULUS10391" / "MHP2NDG.BIN") == file_bytes(dest_saves / "ULUS10391" / "MHP2NDG.BIN"),
         "a timed backup copies the save");
     check(backup_folder(backups, time) == backups / (stamp + "-2"), "a second timed backup gets its own folder");
     check(backup_folder(backups, std::nullopt) == backups, "an untimed backup uses the folder as it is");
     check(backup_conflicts(dest, backups).empty(), "no earlier untimed backup is in the way");
     check(back_up_saves(dest, backups, false).ok, "an untimed backup is written");
     check(
-        backup_conflicts(dest, backups) == std::vector<std::string>{"ULJM05800"}, "an earlier untimed backup is found");
+        backup_conflicts(dest, backups) == std::vector<std::string>{"ULUS10391"}, "an earlier untimed backup is found");
     // Make the installed save differ from the backup, then back up again.
-    make_save(newer, "ULJM05800", "", key, 0x55u);
-    check(import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULJM05800", key), dest,
+    make_save(newer, "ULUS10391", "", key, 0x55u);
+    check(import_save(check_save_folder(newer / "PSP" / "SAVEDATA" / "ULUS10391", key), dest,
               backup_directory(dest_saves, time))
               .ok,
         "another save is imported");
-    const auto earlier = file_bytes(backups / "ULJM05800" / "MHP2NDG.BIN");
-    check(!back_up_saves(dest, backups, false).ok && file_bytes(backups / "ULJM05800" / "MHP2NDG.BIN") == earlier,
+    const auto earlier = file_bytes(backups / "ULUS10391" / "MHP2NDG.BIN");
+    check(!back_up_saves(dest, backups, false).ok && file_bytes(backups / "ULUS10391" / "MHP2NDG.BIN") == earlier,
         "an earlier backup is not replaced without asking");
     check(back_up_saves(dest, backups, true).ok &&
-            file_bytes(backups / "ULJM05800" / "MHP2NDG.BIN") == file_bytes(dest_saves / "ULJM05800" / "MHP2NDG.BIN"),
+            file_bytes(backups / "ULUS10391" / "MHP2NDG.BIN") == file_bytes(dest_saves / "ULUS10391" / "MHP2NDG.BIN"),
         "an earlier backup is replaced when the player agrees");
-    check(!fs::exists(backups / ".ULJM05800.partial"), "no partial backup is left behind");
+    check(!fs::exists(backups / ".ULUS10391.partial"), "no partial backup is left behind");
     check(!back_up_saves(dest, dest_saves, true).ok && load_save(dest, files).status == LoadStatus::Ok,
         "a backup never replaces the save itself");
 

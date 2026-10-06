@@ -506,7 +506,7 @@ void texture_pack_rows() {
     if (button_row("Import texture pack…",
             {false, {},
                 "Install an HD texture pack from a folder: the one that holds textures.ini, or one that holds it "
-                "in textures/NPJB40001 or PSP/TEXTURES. It is checked first; the pack it replaces is kept."}))
+                "in textures/ULUS10391 or PSP/TEXTURES. It is checked first; the pack it replaces is kept."}))
         open_browser();
     if (button_row("Open the textures folder",
             {false, {}, "Show the textures folder in the data folder, where imported packs go."}))

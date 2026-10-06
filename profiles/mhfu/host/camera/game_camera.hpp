@@ -12,11 +12,10 @@ class GuestMemory;
 
 // Drives the game's own camera from camera::take() (camera_input.hpp).
 //
-// NPJB-40001 only. The game's camera update calls a rotation helper once per
-// update; the port wraps that helper and, for that one caller, adjusts the
-// camera's angle and eye offset before the game runs its collision checks. The
-// game keeps every other decision: presets, recentring, cutscenes and every
-// camera mode that has no driver here yet, which then keeps the stock stick.
+// USA Freedom Unite. The port wraps the camera update and, before that update
+// builds the view, sets the yaw and the preset offset it is about to read. The
+// game then runs its own smoothing, collision and recentre. A camera update
+// that is already placing the view itself is left alone.
 namespace mhfu::camera {
 
 using RotationFunction = void (*)(psprecomp::Runtime &, psprecomp::AllegrexContext &);
@@ -30,9 +29,13 @@ struct CodeWord {
 // Everything the driver relies on in the game's code, checked before it is
 // ever installed. Exposed for tests, which build a stand-in for that code.
 [[nodiscard]] std::span<const CodeWord> game_code_signature();
+// The aim function's prologue. It is not part of game_code_signature(): that
+// function is in an overlay, so it is not in memory when the camera driver
+// starts.
+[[nodiscard]] std::span<const CodeWord> aim_code_signature();
 
 // Checks the game's code against game_code_signature() and remembers the
-// generated function behind the rotation helper. Nothing is hooked yet: that
+// generated function behind the camera update. Nothing is hooked yet: that
 // waits until the player turns Analog camera on, so a player who never does
 // pays nothing at all. Returns false, having said why, if the code differs.
 bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original);
@@ -46,16 +49,20 @@ void game_camera_frame(psprecomp::Runtime &runtime);
 // act on the second stick: its own turn and vertical presets would fight ours.
 [[nodiscard]] bool game_camera_driving();
 
-// A bow or a bowgun is aiming under the driver: the stick goes to the game,
-// stretched to full length, so the game's aim code steps at any push and the
-// driver can size each step.
+// A bow or a bowgun is aiming under the driver. The aim function is shown the
+// right stick, or the mouse, for that call only; the movement stick is left
+// as the player is holding it.
 [[nodiscard]] bool game_camera_aim_boost();
 
+// The deflection, already centred, to show the aim function on its next call.
+// Zero on both axes leaves the stick the game copied from the pad.
+void game_camera_present_aim(int x, int y);
+
 // A mouse has no stick for the game's aim code to read. While a bow or a
-// bowgun aims (or a bowgun's scope is up) and the mouse has moved, the
-// direction, at full length, the second stick should show the game this
-// sample so its aim steps the mouse's way; the driver then sizes those steps
-// from the mouse's degrees. Each axis is fully on or off.
+// bowgun aims and the mouse has moved, the direction, at full length, the
+// aim stick should show the game this sample so its aim steps the mouse's
+// way; the driver then sizes those steps from the mouse's degrees. Each axis
+// is fully on or off.
 struct StickDirection {
     float x{};
     float y{};

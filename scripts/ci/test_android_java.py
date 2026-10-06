@@ -27,7 +27,7 @@ class AndroidJavaCompilerTests(unittest.TestCase):
         self.sdl_source = self.sdl / 'android-project/app/src/main/java/org/libsdl/app/SDLActivity.java'
         self.sdl_source.parent.mkdir(parents=True)
         self.sdl_source.write_text('package org.libsdl.app; public class SDLActivity { public int value() { return 7; } }\n')
-        self.app = self.root / 'profiles/mhp3rd/packaging/android/java/PublicActivity.java'
+        self.app = self.root / 'profiles/mhfu/packaging/android/java/PublicActivity.java'
         self.app.parent.mkdir(parents=True)
         self.app.write_text('public class PublicActivity extends org.libsdl.app.SDLActivity {}\n')
         self.build = self.root / 'build with spaces'

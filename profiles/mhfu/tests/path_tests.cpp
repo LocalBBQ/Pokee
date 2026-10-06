@@ -165,7 +165,7 @@ void test_settings(const fs::path &data_dir, const fs::path &pack_folder, const 
     check(installed && installed->disc_image == image && installed->executable == data_dir / "EBOOT.ELF",
         "the installation is found in the data directory");
     const auto location =
-        mhfu::gpu::texture_pack_location(data_dir / "textures", "NPJB40001", settings::current().texture_pack_folder);
+        mhfu::gpu::texture_pack_location(data_dir / "textures", "ULUS10391", settings::current().texture_pack_folder);
     check(location.folder == pack_folder, "a pack used in place is found from its setting");
 }
 
@@ -173,7 +173,7 @@ void test_saves(const fs::path &root) {
     namespace sd = mhfu::savedata;
     const fs::path stick = root / "ms0";
     sd::SaveFiles files;
-    files.game_name = "ULJM05800";
+    files.game_name = "ULUS10391";
     files.file_name = "MHP2NDG.BIN";
     files.key = sd::Block{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
     sd::SaveContents contents;
@@ -222,11 +222,11 @@ void test_texture_pack(const fs::path &root, const fs::path &chosen) {
 
     gpu::TexturePackInfo info;
     std::string error;
-    check(gpu::TexturePack::inspect(chosen, "NPJB40001", info, error), "the pack reads (" + error + ")");
+    check(gpu::TexturePack::inspect(chosen, "ULUS10391", info, error), "the pack reads (" + error + ")");
     check(std::find(info.files.begin(), info.files.end(), "ui/" + image) != info.files.end(),
         "the image textures.ini names keeps its name");
 
-    const gpu::TexturePackCheck checked = gpu::check_texture_pack(chosen, "NPJB40001");
+    const gpu::TexturePackCheck checked = gpu::check_texture_pack(chosen, "ULUS10391");
     check(checked.ok() && checked.missing == 0u, "the pack passes the import's checks (" + checked.problem + ")");
     const fs::path textures = root / "textures";
     gpu::TexturePackCopy copy;
@@ -235,11 +235,11 @@ void test_texture_pack(const fs::path &root, const fs::path &chosen) {
     check(copy.state() == gpu::TexturePackCopy::State::Done, "the pack is copied (" + copy.error() + ")");
     fs::path backup;
     const bool installed = copy.state() == gpu::TexturePackCopy::State::Done &&
-        gpu::install_staged_texture_pack(copy.staging(), textures, "NPJB40001",
+        gpu::install_staged_texture_pack(copy.staging(), textures, "ULUS10391",
             gpu::texture_pack_backup_directory(textures, std::chrono::system_clock::now()), backup, error);
     check(installed, "the copy is put in place (" + error + ")");
-    check(read(textures / "NPJB40001" / "ui" / path_from_utf8(image)) == "png", "the image arrives with its name");
-    const gpu::InstalledTexturePack summary = gpu::summarize_texture_pack(textures / "NPJB40001", "NPJB40001");
+    check(read(textures / "ULUS10391" / "ui" / path_from_utf8(image)) == "png", "the image arrives with its name");
+    const gpu::InstalledTexturePack summary = gpu::summarize_texture_pack(textures / "ULUS10391", "ULUS10391");
     check(summary.exists && summary.problem.empty(), "the installed pack loads (" + summary.problem + ")");
 }
 
@@ -400,7 +400,7 @@ int main() {
 
         test_conversions(scratch.root);
         const fs::path font = copy_a_font(data_dir / "fonts");
-        const fs::path pack = scratch.root / kPacks / "NPJB40001";
+        const fs::path pack = scratch.root / kPacks / "ULUS10391";
         test_settings(data_dir, pack, font.empty() ? data_dir / "fonts" / kFont : font);
         test_saves(scratch.root);
         test_texture_pack(data_dir, pack);

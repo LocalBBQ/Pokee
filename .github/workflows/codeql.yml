@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35'
-          source profiles/mhp3rd/packaging/linux/sources.sh
+          source profiles/mhfu/packaging/linux/sources.sh
           mkdir -p out/codeql-java/deps
           curl --fail --location --retry 3 "$SDL3_URL" -o out/codeql-java/deps/sdl.tar.gz
           echo "$SDL3_SHA256  out/codeql-java/deps/sdl.tar.gz" | sha256sum --check --strict
@@ -72,12 +72,12 @@ jobs:
               - uses: security-extended
             threat-models: [local]
 
-      - name: Compile Yakumo Android Java
+      - name: Compile Pokee Android Java
         if: matrix.language == 'java-kotlin'
         shell: bash
         run: |
           set -euo pipefail
-          source profiles/mhp3rd/packaging/linux/sources.sh
+          source profiles/mhfu/packaging/linux/sources.sh
           python3 scripts/ci/android_java.py "$ANDROID_HOME/platforms/android-35/android.jar" \
             "out/codeql-java/deps/SDL3-$SDL3_VERSION" out/codeql-java --stage app
 

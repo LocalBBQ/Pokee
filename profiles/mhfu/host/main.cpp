@@ -374,7 +374,7 @@ int run_adhoc_server(int argc, char **argv) {
         info.name = name;
         const ServerStatus status = server.status();
         info.players = static_cast<unsigned>(status.players.size());
-        info.product = status.players.empty() ? "ULJM05800" : status.players.front().product;
+        info.product = status.players.empty() ? "ULUS10391" : status.players.front().product;
         return info;
     });
     const std::string suffix =
@@ -466,15 +466,14 @@ int main(int argc, char **argv) {
         if (corpus_matches) psprecomp::register_generated_functions(runtime);
         const std::size_t generated_functions = runtime.function_count();
         mhfu::install_profile(runtime, elf, paths);
-        // Traced on Portable 3rd. The same addresses exist in Freedom Unite's
-        // resident code, so the hash, not the address, decides.
+        // The projection was traced on Portable 3rd. Freedom Unite's resident
+        // code is a different executable, so the hash, not the address, decides.
         if (sha256 == mhfu::install::kPortable3rdHd.executable_sha256)
             (void)mhfu::camera::prepare_game_aspect(runtime);
 #if defined(MHFU_CAMERA_HELPER_UNIT)
-        // CMake names the generated unit that holds the camera's rotation
-        // helper, so a new partition of the code cannot hand the camera the
-        // wrong one.
-        if (sha256 == mhfu::install::kPortable3rdHd.executable_sha256)
+        // CMake names the generated unit that holds the camera update, so a
+        // new partition of the code cannot hand the camera the wrong one.
+        if (sha256 == mhfu::install::kFreedomUniteUsa.executable_sha256)
             (void)mhfu::camera::prepare_game_camera(runtime, &psprecomp::MHFU_CAMERA_HELPER_UNIT);
 #endif
 

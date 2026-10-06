@@ -2,7 +2,9 @@
 
 #include "frame_interpolation.hpp"
 #include "frame_pacing.hpp"
+#include "game/damage_numbers.hpp"
 #include "game_hud.hpp"
+#include "hud_scale.hpp"
 #include "replacement_textures.hpp"
 #include "mmpx.hpp"
 #include "ui_textures.hpp"
@@ -12,6 +14,8 @@
 #include "texture_pack_import.hpp"
 #include "descriptor_pools.hpp"
 #include "device_report.hpp"
+#include "vertex_budget.hpp"
+#include "vertex_hold.hpp"
 
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
@@ -86,8 +90,13 @@ constexpr float kScreenWideDraw = 470.0f;
 // ground out, so the budget was 32 MiB. Freedom Unite's Guild Hall filled 32
 // MiB. A quest area then filled 64 MiB — the first draw that did not fit was
 // at 63 MiB and 121 KiB — and every draw after that was dropped, the hunter
-// and the interface among them, every frame. Twice that.
-constexpr VkDeviceSize kVertexBufferBytes = 128u * 1024u * 1024u;
+// and the interface among them, every frame. Twice that, 128 MiB, held a rainy
+// area (about 125 MiB a frame). The volcano, loading in to fight Akantor,
+// filled that as well. 256 MiB a frame holds it, but three frames of that is
+// one 780 MiB allocation kept for the whole session, which a phone cannot
+// spare. choose_vertex_region picks 256 only when the host-visible heap is at
+// least 8 GiB and the device can allocate it; every smaller machine stays at
+// 128. See vertex_budget.hpp.
 // Index lists of merged draws (see submit()), kept apart from the vertices so
 // that the draws of one group have consecutive indices.
 constexpr VkDeviceSize kIndexBufferBytes = 4u * 1024u * 1024u;
@@ -100,7 +109,8 @@ constexpr VkDeviceSize kIndexBufferBytes = 4u * 1024u * 1024u;
 // blended vertices of skinned draws and the lighting blocks of blended draws.
 constexpr std::uint32_t kFrameRegions = 3u;
 constexpr VkDeviceSize kPresentScratchBytes = 6u * 1024u * 1024u;
-constexpr VkDeviceSize kVertexBufferTotal = kFrameRegions * kVertexBufferBytes + 2u * kPresentScratchBytes;
+static_assert(kFrameRegions == kVertexRegions);
+static_assert(kPresentScratchBytes == kVertexScratch);
 constexpr VkDeviceSize kIndexBufferTotal = kFrameRegions * kIndexBufferBytes;
 
 // Says, once in a while, that a frame's geometry did not fit and some of its
@@ -1570,22 +1580,43 @@ struct VulkanRenderer::Impl {
     bool vertex_coherent{true};
     std::uint32_t vertex_type_index{};
     VkDeviceSize vertex_bytes{};
+    // Decoded vertices that did not change live here and are drawn from here,
+    // so a later frame does not copy them into the ring. A span that stops
+    // being drawn returns its range once the frames still reading it have
+    // finished. MHFU_NO_VERTEX_HOLD copies into the ring every frame, as
+    // before. MHFU_NO_VERTEX_HOLD_RECLAIM keeps a freed span's bytes until
+    // the process ends.
+    static constexpr VkDeviceSize kHoldBytes = 192ull << 20u;
+    VkBuffer vertex_hold{};
+    VkDeviceMemory hold_memory{};
+    void *hold_mapped{};
+    VkDeviceSize hold_bytes{};
+    VkDeviceSize hold_dirty{}; // end of the bytes place_hold wrote since the last flush
+    VertexHoldHeap hold_heap{};
+    bool hold_coherent{true};
+    bool hold_full_logged{};
     VkDeviceSize noncoherent_atom{1u};
     VkDeviceSize vertex_offset{};
+    // One frame's share of the vertex buffer. 256 MiB where the device can
+    // spare three of them, 128 MiB otherwise (vertex_budget.hpp).
+    VkDeviceSize vertex_region_bytes{kVertexRegionBase};
+    [[nodiscard]] VkDeviceSize vertex_storage_bytes() const {
+        return mhfu::gpu::vertex_storage_bytes(vertex_region_bytes);
+    }
     // The region of the vertex and index buffers this frame writes: always
     // the first without frame interpolation, the next of kFrameRegions in
     // turn with it (see kFrameRegions).
     std::uint32_t frame_region{};
     std::uint32_t next_region{};
-    VkDeviceSize vertex_limit{kVertexBufferBytes};
+    VkDeviceSize vertex_limit{kVertexRegionBase};
     VkDeviceSize index_limit{kIndexBufferBytes};
     void enter_region(std::uint32_t index) {
         // How much of its region the frame being left used, for the perf line.
-        perf::note_frame_space(vertex_offset - static_cast<VkDeviceSize>(frame_region) * kVertexBufferBytes,
+        perf::note_frame_space(vertex_offset - static_cast<VkDeviceSize>(frame_region) * vertex_region_bytes,
             index_offset - static_cast<VkDeviceSize>(frame_region) * kIndexBufferBytes);
         frame_region = index;
-        vertex_offset = static_cast<VkDeviceSize>(index) * kVertexBufferBytes;
-        vertex_limit = vertex_offset + kVertexBufferBytes;
+        vertex_offset = static_cast<VkDeviceSize>(index) * vertex_region_bytes;
+        vertex_limit = vertex_offset + vertex_region_bytes;
         index_offset = static_cast<VkDeviceSize>(index) * kIndexBufferBytes;
         index_limit = index_offset + kIndexBufferBytes;
     }
@@ -1621,27 +1652,42 @@ struct VulkanRenderer::Impl {
     // Makes this frame's CPU writes visible when the vertex memory is cached
     // but not coherent. Coherent memory needs nothing.
     void flush_vertex_writes() {
-        if (vertex_coherent || vertex_memory == VK_NULL_HANDLE || vertex_mapped == nullptr) return;
-        const VkDeviceSize region = static_cast<VkDeviceSize>(frame_region) * kVertexBufferBytes;
-        if (vertex_offset <= region || vertex_bytes == 0u) return;
         const VkDeviceSize atom = std::max<VkDeviceSize>(noncoherent_atom, 1u);
-        VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
-        range.memory = vertex_memory;
-        range.offset = region & ~(atom - 1u);
-        if (range.offset >= vertex_bytes) return;
-        VkDeviceSize end = (vertex_offset + atom - 1u) & ~(atom - 1u);
-        if (end <= range.offset) end = range.offset + atom;
-        if (end >= vertex_bytes) {
-            range.size = VK_WHOLE_SIZE;
-        } else {
-            range.size = end - range.offset;
+        if (!vertex_coherent && vertex_memory != VK_NULL_HANDLE && vertex_mapped != nullptr && vertex_bytes != 0u) {
+            const VkDeviceSize region = static_cast<VkDeviceSize>(frame_region) * vertex_region_bytes;
+            if (vertex_offset > region) {
+                VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+                range.memory = vertex_memory;
+                range.offset = region & ~(atom - 1u);
+                if (range.offset < vertex_bytes) {
+                    VkDeviceSize end = (vertex_offset + atom - 1u) & ~(atom - 1u);
+                    if (end <= range.offset) end = range.offset + atom;
+                    if (end >= vertex_bytes) {
+                        range.size = VK_WHOLE_SIZE;
+                    } else {
+                        range.size = end - range.offset;
+                    }
+                    vkFlushMappedMemoryRanges(device, 1u, &range);
+                }
+            }
         }
+        if (hold_coherent || hold_memory == VK_NULL_HANDLE || hold_mapped == nullptr || hold_dirty == 0u) {
+            if (hold_coherent) hold_dirty = 0u;
+            return;
+        }
+        VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+        range.memory = hold_memory;
+        range.offset = 0u;
+        const VkDeviceSize end = (hold_dirty + atom - 1u) & ~(atom - 1u);
+        range.size = end >= hold_bytes ? VK_WHOLE_SIZE : end;
         vkFlushMappedMemoryRanges(device, 1u, &range);
+        hold_dirty = 0u;
     }
 
     // Decoded vertices kept while the guest bytes and bones they came from
     // stay the same, so a later frame copies them instead of decoding again.
-    // MHFU_NO_VERTEX_CACHE decodes every draw, as before.
+    // One that is not skinned is also kept in vertex_hold and drawn from
+    // there. MHFU_NO_VERTEX_CACHE decodes every draw, as before.
     struct SpanKey {
         std::uint32_t address{};
         std::uint32_t count{};
@@ -1660,12 +1706,16 @@ struct VulkanRenderer::Impl {
         bool expanded{};
         std::vector<GpuVertex> vertices;
         std::uint64_t frame{};
+        VkDeviceSize hold_at{~VkDeviceSize{0}}; // bytes into vertex_hold, or none
+        VkDeviceSize hold_reserved{};           // bytes that placement occupies, aligned
     };
     std::map<SpanKey, SpanEntry> vertex_spans;
     std::vector<GpuVertex> cache_build;
     std::uint64_t vertex_cache_bytes{};
     const std::vector<GpuVertex> *reused_vertices{};
     bool reused_expanded{};
+    SpanEntry *reused_entry{};
+    VkDeviceSize reused_hold_at{~VkDeviceSize{0}};
     bool cache_pending{};
     SpanKey cache_pending_key{};
     std::uint64_t cache_pending_source{};
@@ -1678,7 +1728,12 @@ struct VulkanRenderer::Impl {
     std::uint32_t cache_report{};
     [[nodiscard]] bool direct_vertex_layout(PrimitiveType primitive, bool through) const;
     bool reuse_span(const VertexReuseLookup &lookup);
-    void remember_span(const std::vector<GpuVertex> &vertices);
+    void remember_span(const std::vector<GpuVertex> &vertices, bool keep);
+    // Copies decoded vertices into vertex_hold once. offset is ~0 when the hold is off or full.
+    [[nodiscard]] VertexHoldHeap::Placement place_hold(const std::vector<GpuVertex> &vertices);
+    // Returns how far the append cursor moved back. A reclaim that is still in
+    // flight stays reserved until `ready_frame`.
+    std::uint64_t release_hold(VkDeviceSize offset, VkDeviceSize reserved, std::uint64_t ready_frame);
     void report_vertex_cache();
     void forget_bindings() {
         bound_pipeline = VK_NULL_HANDLE;
@@ -1714,6 +1769,7 @@ struct VulkanRenderer::Impl {
         std::uint32_t draws{};
         bool raw{};             // the guest's vertex bytes, decoded on the GPU
         std::uint32_t stride{}; // of a raw group's vertices
+        VkBuffer source{};      // vertex_hold for a group kept there, else the ring
     };
     DrawGroup group{};
     bool group_skinned{}; // the open group is of skinned draws recorded for drawing again
@@ -1726,7 +1782,8 @@ struct VulkanRenderer::Impl {
         if (!group.open) return;
         const perf::SplitScope split(perf::Split::Record);
         group.open = false;
-        vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer, &group.vertex_base);
+        const VkBuffer source = group.source != VK_NULL_HANDLE ? group.source : vertex_buffer;
+        vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &source, &group.vertex_base);
         vkCmdBindIndexBuffer(command_buffer, index_buffer, group.index_base, VK_INDEX_TYPE_UINT16);
         // A raw group finds its bytes at its first instance (ge.vert).
         vkCmdDrawIndexed(command_buffer, group.index_count, 1u, 0u, 0,
@@ -1794,6 +1851,7 @@ struct VulkanRenderer::Impl {
         std::uint32_t skinned{kNone};   // FrameRecord::skinned: the vertices of a group of skinned draws
         bool raw{};                     // drawn from the guest's vertex bytes at vertex_base (first instance)
         std::uint32_t raw_block{kNone}; // FrameRecord::raws: its format and bones
+        VkBuffer vertices{};            // vertex_hold when the draw was kept there, else the ring
     };
     struct FrameRecord {
         std::vector<interpolation::DrawSummary> summaries;
@@ -1904,7 +1962,7 @@ struct VulkanRenderer::Impl {
     void finish_interpolated_frame(VkImage source, std::uint32_t displayed, std::int64_t moment_us);
     void record_draw_for_replay(const DrawCall &call, bool lit, std::uint32_t skinned, const DrawState &state,
         VkDeviceSize vertex_start, VkBuffer indices, VkDeviceSize index_start, std::uint32_t count,
-        std::uint32_t vertex_count, bool joined, bool raw = false);
+        std::uint32_t vertex_count, bool joined, bool raw = false, VkBuffer vertices = VK_NULL_HANDLE);
     // `idle`: the kernel is waiting for real time, so the present costs the
     // game nothing; otherwise it is made while the game's code runs, within
     // a budget per game frame. Returns whether a present was made.
@@ -2642,8 +2700,20 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     // leaving a black screen.
     impl.facts = read_device_facts(impl.physical_device);
     log_device(impl.physical_device, impl.surface, impl.facts);
+    {
+        VkPhysicalDeviceMemoryProperties memory{};
+        vkGetPhysicalDeviceMemoryProperties(impl.physical_device, &memory);
+        VkDeviceSize host_heap = 0u;
+        for (std::uint32_t type = 0u; type < memory.memoryTypeCount; ++type) {
+            if ((memory.memoryTypes[type].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0u) continue;
+            const std::uint32_t heap = memory.memoryTypes[type].heapIndex;
+            if (heap < memory.memoryHeapCount) host_heap = std::max(host_heap, memory.memoryHeaps[heap].size);
+        }
+        impl.vertex_region_bytes = choose_vertex_region(impl.facts.max_allocation, host_heap);
+        impl.vertex_limit = impl.vertex_region_bytes;
+    }
     if (const std::vector<std::string> missing =
-            missing_requirements(impl.physical_device, impl.facts, kVertexBufferTotal);
+            missing_requirements(impl.physical_device, impl.facts, impl.vertex_storage_bytes());
         !missing.empty()) {
         error = impl.facts.name + " (driver " + impl.facts.driver_version_text() + ") lacks what Pokee needs:";
         for (std::size_t i = 0; i < missing.size(); ++i) error += (i == 0u ? " " : "; ") + missing[i];
@@ -3013,48 +3083,129 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     }
 
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = kVertexBufferTotal;
     buffer_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    if (!check(vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.vertex_buffer), "vkCreateBuffer", error))
-        return false;
-    VkMemoryRequirements requirements{};
-    vkGetBufferMemoryRequirements(impl.device, impl.vertex_buffer, &requirements);
-    VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    allocate.allocationSize = requirements.size;
     static const bool no_cached_vertices = std::getenv("MHFU_NO_CACHED_VERTICES") != nullptr;
-    const Impl::HostBufferMemory vertex_memory_choice =
-        impl.host_buffer_memory(requirements.memoryTypeBits, !no_cached_vertices);
-    allocate.memoryTypeIndex = vertex_memory_choice.index;
-    impl.vertex_cached = vertex_memory_choice.cached;
-    impl.vertex_coherent = vertex_memory_choice.coherent;
-    impl.vertex_type_index = vertex_memory_choice.index;
-    impl.vertex_bytes = requirements.size;
     {
         VkPhysicalDeviceProperties atom_properties{};
         vkGetPhysicalDeviceProperties(impl.physical_device, &atom_properties);
         impl.noncoherent_atom = std::max<VkDeviceSize>(atom_properties.limits.nonCoherentAtomSize, 1u);
     }
-    VkResult vertex_allocated = vkAllocateMemory(impl.device, &allocate, nullptr, &impl.vertex_memory);
-    if (vertex_allocated != VK_SUCCESS && vertex_memory_choice.cached) {
-        impl.vertex_memory = VK_NULL_HANDLE;
-        allocate.memoryTypeIndex = impl.find_memory_type(
-            requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        impl.vertex_cached = false;
-        impl.vertex_coherent = true;
-        impl.vertex_type_index = allocate.memoryTypeIndex;
-        vertex_allocated = vkAllocateMemory(impl.device, &allocate, nullptr, &impl.vertex_memory);
+    // Tries the chosen budget. A device that reported room and then refused the
+    // larger allocation is retried at 128 MiB a frame, which is what a phone keeps.
+    const auto release_vertex_storage = [&] {
+        if (impl.vertex_memory != VK_NULL_HANDLE) {
+            vkFreeMemory(impl.device, impl.vertex_memory, nullptr);
+            impl.vertex_memory = VK_NULL_HANDLE;
+        }
+        if (impl.vertex_buffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(impl.device, impl.vertex_buffer, nullptr);
+            impl.vertex_buffer = VK_NULL_HANDLE;
+        }
+        impl.vertex_mapped = nullptr;
+    };
+    const auto allocate_vertex_storage = [&]() -> VkResult {
+        release_vertex_storage();
+        buffer_info.size = impl.vertex_storage_bytes();
+        const VkResult created = vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.vertex_buffer);
+        if (created != VK_SUCCESS) return created;
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(impl.device, impl.vertex_buffer, &requirements);
+        VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        allocate.allocationSize = requirements.size;
+        const Impl::HostBufferMemory vertex_memory_choice =
+            impl.host_buffer_memory(requirements.memoryTypeBits, !no_cached_vertices);
+        allocate.memoryTypeIndex = vertex_memory_choice.index;
+        impl.vertex_cached = vertex_memory_choice.cached;
+        impl.vertex_coherent = vertex_memory_choice.coherent;
+        impl.vertex_type_index = vertex_memory_choice.index;
+        impl.vertex_bytes = requirements.size;
+        VkResult allocated = vkAllocateMemory(impl.device, &allocate, nullptr, &impl.vertex_memory);
+        if (allocated != VK_SUCCESS && vertex_memory_choice.cached) {
+            impl.vertex_memory = VK_NULL_HANDLE;
+            allocate.memoryTypeIndex = impl.find_memory_type(requirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            impl.vertex_cached = false;
+            impl.vertex_coherent = true;
+            impl.vertex_type_index = allocate.memoryTypeIndex;
+            allocated = vkAllocateMemory(impl.device, &allocate, nullptr, &impl.vertex_memory);
+        }
+        if (allocated != VK_SUCCESS) {
+            release_vertex_storage();
+            return allocated;
+        }
+        const VkResult bound = vkBindBufferMemory(impl.device, impl.vertex_buffer, impl.vertex_memory, 0u);
+        if (bound != VK_SUCCESS) {
+            release_vertex_storage();
+            return bound;
+        }
+        return vkMapMemory(
+            impl.device, impl.vertex_memory, 0u, impl.vertex_storage_bytes(), 0u, &impl.vertex_mapped);
+    };
+    VkResult vertex_allocated = allocate_vertex_storage();
+    if (vertex_allocated != VK_SUCCESS && impl.vertex_region_bytes != kVertexRegionBase) {
+        std::cout << "[render] a " << (impl.vertex_storage_bytes() >> 20u)
+                  << " MiB vertex buffer was refused; keeping " << (vertex_storage_bytes(kVertexRegionBase) >> 20u)
+                  << " MiB\n";
+        impl.vertex_region_bytes = kVertexRegionBase;
+        impl.vertex_limit = impl.vertex_region_bytes;
+        vertex_allocated = allocate_vertex_storage();
     }
     if (!check(vertex_allocated, "vkAllocateMemory", error)) return false;
-    vkBindBufferMemory(impl.device, impl.vertex_buffer, impl.vertex_memory, 0u);
-    vkMapMemory(impl.device, impl.vertex_memory, 0u, kVertexBufferTotal, 0u, &impl.vertex_mapped);
+
+    // Unchanged decoded spans are copied here once and drawn from here.
+    // A device that refuses the allocation keeps copying them into the ring.
+    static const bool no_vertex_hold = std::getenv("MHFU_NO_VERTEX_HOLD") != nullptr;
+    if (!no_vertex_hold) {
+        VkBufferCreateInfo hold_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        hold_info.size = Impl::kHoldBytes;
+        hold_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        hold_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        VkBuffer hold = VK_NULL_HANDLE;
+        if (vkCreateBuffer(impl.device, &hold_info, nullptr, &hold) == VK_SUCCESS) {
+            VkMemoryRequirements hold_requirements{};
+            vkGetBufferMemoryRequirements(impl.device, hold, &hold_requirements);
+            const Impl::HostBufferMemory choice =
+                impl.host_buffer_memory(hold_requirements.memoryTypeBits, !no_cached_vertices);
+            VkMemoryAllocateInfo hold_allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            hold_allocate.allocationSize = hold_requirements.size;
+            hold_allocate.memoryTypeIndex = choice.index;
+            bool coherent = choice.coherent;
+            VkDeviceMemory hold_memory = VK_NULL_HANDLE;
+            VkResult hold_allocated = vkAllocateMemory(impl.device, &hold_allocate, nullptr, &hold_memory);
+            if (hold_allocated != VK_SUCCESS && choice.cached) {
+                hold_memory = VK_NULL_HANDLE;
+                hold_allocate.memoryTypeIndex = impl.find_memory_type(hold_requirements.memoryTypeBits,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                coherent = true;
+                hold_allocated = vkAllocateMemory(impl.device, &hold_allocate, nullptr, &hold_memory);
+            }
+            if (hold_allocated != VK_SUCCESS) hold_memory = VK_NULL_HANDLE;
+            void *mapped = nullptr;
+            if (hold_allocated == VK_SUCCESS &&
+                vkBindBufferMemory(impl.device, hold, hold_memory, 0u) == VK_SUCCESS &&
+                vkMapMemory(impl.device, hold_memory, 0u, Impl::kHoldBytes, 0u, &mapped) == VK_SUCCESS) {
+                impl.vertex_hold = hold;
+                impl.hold_memory = hold_memory;
+                impl.hold_mapped = mapped;
+                impl.hold_bytes = Impl::kHoldBytes;
+                impl.hold_heap.reset(Impl::kHoldBytes);
+                impl.hold_coherent = coherent;
+            } else {
+                if (hold_memory != VK_NULL_HANDLE) vkFreeMemory(impl.device, hold_memory, nullptr);
+                vkDestroyBuffer(impl.device, hold, nullptr);
+            }
+        }
+    }
 
     buffer_info.size = kIndexBufferTotal;
     buffer_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     if (!check(vkCreateBuffer(impl.device, &buffer_info, nullptr, &impl.index_buffer), "vkCreateBuffer", error))
         return false;
+    VkMemoryRequirements requirements{};
     vkGetBufferMemoryRequirements(impl.device, impl.index_buffer, &requirements);
+    VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocate.allocationSize = requirements.size;
     allocate.memoryTypeIndex = impl.find_memory_type(
         requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -3071,7 +3222,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         if (impl.lighting_descriptor == VK_NULL_HANDLE) return false;
         // The vertex buffer read as words must fit the storage range every
         // device offers at least (2^27 bytes); GPU vertex decode needs it.
-        impl.gpu_decode_available = kVertexBufferTotal <= device_properties.limits.maxStorageBufferRange;
+        impl.gpu_decode_available = impl.vertex_storage_bytes() <= device_properties.limits.maxStorageBufferRange;
         if (impl.check_gpu_decode) {
             // Two frame slots' worth, each with room past the compared part
             // for draws beyond it to write into.
@@ -3200,10 +3351,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                   << VK_API_VERSION_MINOR(properties.apiVersion) << "." << VK_API_VERSION_PATCH(properties.apiVersion)
                   << ", driver 0x" << std::hex << properties.driverVersion << ", vendor 0x" << properties.vendorID
                   << ", device 0x" << properties.deviceID << std::dec << "; vertex buffer "
-                  << (kVertexBufferTotal >> 20u) << " MiB in memory type " << impl.vertex_type_index << " ("
+                  << (impl.vertex_storage_bytes() >> 20u) << " MiB in memory type " << impl.vertex_type_index << " ("
                   << ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u ? "device local, " : "")
                   << (impl.vertex_cached ? "cached" : "uncached")
-                  << (impl.vertex_coherent ? ", coherent" : ", not coherent") << "); depth format "
+                  << (impl.vertex_coherent ? ", coherent" : ", not coherent") << "); hold "
+                  << (impl.vertex_hold != VK_NULL_HANDLE ? std::to_string(impl.hold_bytes >> 20u) + " MiB" : "off")
+                  << "; depth format "
                   << static_cast<int>(impl.depth_format) << "\n";
     }
     std::cout << "Renderer: Vulkan on " << properties.deviceName << ", target " << impl.target_extent.width << "x"
@@ -6894,6 +7047,8 @@ bool VulkanRenderer::Impl::direct_vertex_layout(PrimitiveType primitive, bool th
 
 bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
     reused_vertices = nullptr;
+    reused_entry = nullptr;
+    reused_hold_at = ~VkDeviceSize{0};
     cache_pending = false;
     static const bool off = std::getenv("MHFU_NO_VERTEX_CACHE") != nullptr ||
         std::getenv("MHFU_CHECK_DIRECT_VERTICES") != nullptr || std::getenv("MHFU_TRACE_GE") != nullptr ||
@@ -6915,6 +7070,8 @@ bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
             entry.frame = frames;
             reused_vertices = &entry.vertices;
             reused_expanded = expanded;
+            reused_entry = &entry;
+            reused_hold_at = entry.hold_at;
             cache_hit_bytes += entry.vertices.size() * sizeof(GpuVertex);
             return true;
         }
@@ -6929,13 +7086,44 @@ bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
     return false;
 }
 
-void VulkanRenderer::Impl::remember_span(const std::vector<GpuVertex> &vertices) {
+VertexHoldHeap::Placement VulkanRenderer::Impl::place_hold(const std::vector<GpuVertex> &vertices) {
+    if (vertex_hold == VK_NULL_HANDLE || hold_mapped == nullptr || vertices.empty()) return {};
+    const VkDeviceSize bytes = static_cast<VkDeviceSize>(vertices.size()) * sizeof(GpuVertex);
+    const VertexHoldHeap::Placement placed = hold_heap.place(bytes, frames);
+    if (placed.offset == VertexHoldHeap::kNone) {
+        if (!hold_full_logged) {
+            std::cout << "[render] vertex hold is full; further unchanged spans are copied each frame\n";
+            hold_full_logged = true;
+        }
+        return {};
+    }
+    std::memcpy(static_cast<std::uint8_t *>(hold_mapped) + static_cast<std::size_t>(placed.offset), vertices.data(),
+        static_cast<std::size_t>(bytes));
+    const VkDeviceSize end = static_cast<VkDeviceSize>(placed.offset + bytes);
+    if (end > hold_dirty) hold_dirty = end;
+    return placed;
+}
+
+std::uint64_t VulkanRenderer::Impl::release_hold(
+    VkDeviceSize offset, VkDeviceSize reserved, std::uint64_t ready_frame) {
+    static const bool keep = std::getenv("MHFU_NO_VERTEX_HOLD_RECLAIM") != nullptr;
+    if (keep || offset == ~VkDeviceSize{0} || reserved == 0u) return 0u;
+    const std::uint64_t freed = hold_heap.release(offset, reserved, ready_frame, frames);
+    if (freed != 0u) hold_full_logged = false;
+    return freed;
+}
+
+void VulkanRenderer::Impl::remember_span(const std::vector<GpuVertex> &vertices, bool keep) {
     if (!cache_pending || vertices.empty()) {
         cache_pending = false;
         return;
     }
     cache_pending = false;
     SpanEntry &entry = vertex_spans[cache_pending_key];
+    // The previous bytes can still be read by the frame that drew them and by
+    // the presents that blend it with the next one.
+    const std::uint64_t retired =
+        release_hold(entry.hold_at, entry.hold_reserved, frames + kVertexHoldRetireFrames);
     vertex_cache_bytes -= entry.vertices.size() * sizeof(GpuVertex);
     entry.source_hash = cache_pending_source;
     entry.bone_hash = cache_pending_bone;
@@ -6944,13 +7132,27 @@ void VulkanRenderer::Impl::remember_span(const std::vector<GpuVertex> &vertices)
     entry.expanded = cache_pending_expanded;
     entry.vertices = vertices;
     entry.frame = frames;
+    entry.hold_at = ~VkDeviceSize{0};
+    entry.hold_reserved = 0u;
     vertex_cache_bytes += entry.vertices.size() * sizeof(GpuVertex);
     cache_miss_bytes += entry.vertices.size() * sizeof(GpuVertex);
     constexpr std::uint64_t kCap = 192ull << 20u;
     if (vertex_cache_bytes > kCap) {
+        std::uint64_t freed = retired;
+        for (const auto &item : vertex_spans)
+            freed += release_hold(item.second.hold_at, item.second.hold_reserved, frames + kVertexHoldRetireFrames);
+        if (freed >= (1ull << 20u))
+            std::cout << "[render] vertex hold freed " << (freed >> 20u) << " MiB\n";
         vertex_spans.clear();
         vertex_cache_bytes = 0u;
+        return;
     }
+    if (retired >= (1ull << 20u)) std::cout << "[render] vertex hold freed " << (retired >> 20u) << " MiB\n";
+    if (!keep) return;
+    const VertexHoldHeap::Placement placed = place_hold(entry.vertices);
+    if (placed.offset == VertexHoldHeap::kNone) return;
+    entry.hold_at = static_cast<VkDeviceSize>(placed.offset);
+    entry.hold_reserved = static_cast<VkDeviceSize>(placed.reserved);
 }
 
 void VulkanRenderer::Impl::report_vertex_cache() {
@@ -6961,14 +7163,19 @@ void VulkanRenderer::Impl::report_vertex_cache() {
         std::cout << "[render] vertex cache hit " << (cache_hit_bytes / samples >> 20u) << " MiB/frame, miss "
                   << (cache_miss_bytes / samples >> 20u) << " MiB/frame\n";
     cache_hit_bytes = cache_miss_bytes = 0u;
+    std::uint64_t freed = 0u;
     for (auto it = vertex_spans.begin(); it != vertex_spans.end();) {
         if (it->second.frame + 2u < frames) {
+            // Last drawn at least three frames ago, so the presents that read
+            // it have finished. The range can be used by the next zone.
+            freed += release_hold(it->second.hold_at, it->second.hold_reserved, frames);
             vertex_cache_bytes -= it->second.vertices.size() * sizeof(GpuVertex);
             it = vertex_spans.erase(it);
         } else {
             ++it;
         }
     }
+    if (freed >= (1ull << 20u)) std::cout << "[render] vertex hold freed " << (freed >> 20u) << " MiB\n";
 }
 
 bool VulkanRenderer::reuse_decoded_vertices(const VertexReuseLookup &lookup) {
@@ -6978,6 +7185,16 @@ bool VulkanRenderer::reuse_decoded_vertices(const VertexReuseLookup &lookup) {
 void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     Impl &impl = *impl_;
     if (!impl.ready) return;
+    // Damage numbers sit on the monster. The perspective draw with the most
+    // vertices is the world camera; the HUD is orthographic and is ignored.
+    if (mhfu::game::damage_numbers_watching() && !call.through && !call.clear_mode) {
+        const std::uint32_t vertices = call.vertices_reused ? call.reused_count
+            : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
+        mhfu::game::note_world_camera({call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
+                                           call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x,
+                                           call.viewport.offset_y},
+            vertices);
+    }
     const perf::SplitScope split(perf::Split::Draw);
     if (!impl.recording) begin_frame();
     // Presents between flips fall due while the game draws, too: a busy
@@ -6992,6 +7209,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         ~DropPending() {
             impl.cache_pending = false;
             impl.reused_vertices = nullptr;
+            impl.reused_entry = nullptr;
+            impl.reused_hold_at = ~VkDeviceSize{0};
         }
     } drop_pending{impl};
     const std::vector<GpuVertex> *reused = call.vertices_reused ? impl.reused_vertices : nullptr;
@@ -7485,6 +7704,34 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     const bool skinned = impl.interpolating && !raw && !call.through && ((call.vertex_type >> 9u) & 3u) != 0u;
     const std::uint32_t skinned_first =
         skinned ? static_cast<std::uint32_t>(impl.recording_frame.skinned.size()) : Impl::kNone;
+    // The quest map and the item bar, smaller or larger (gpu/hud_scale.hpp). The copy
+    // that is drawn is scaled; the one the vertex cache keeps is not, so 100%
+    // is the vertices the game submitted.
+    const float map_item_scale = static_cast<float>(settings::current().map_item_scale) * 0.01f;
+    const bool scale_corners = call.through && !call.clear_mode && map_item_scale != 1.0f && !direct &&
+        call.primitive == PrimitiveType::Sprites;
+    std::vector<GpuVertex> corner_scaled;
+    if (scale_corners) {
+        corner_scaled = reused_expanded ? *reused : impl.scratch;
+        hud_scale::scale_quads(corner_scaled, map_item_scale);
+    }
+    // A span remembered while the hold was full has no offset. Once an area
+    // stops being drawn its bytes come back, and the next hit of this span
+    // takes them. Until then the span is copied into the ring like a miss.
+    if (!scale_corners && reused != nullptr && !skinned && impl.reused_entry != nullptr &&
+        impl.vertex_hold != VK_NULL_HANDLE && impl.reused_hold_at == ~VkDeviceSize{0}) {
+        const VertexHoldHeap::Placement placed = impl.place_hold(*reused);
+        if (placed.offset != VertexHoldHeap::kNone) {
+            impl.reused_entry->hold_at = placed.offset;
+            impl.reused_entry->hold_reserved = placed.reserved;
+            impl.reused_hold_at = placed.offset;
+        }
+    }
+    // A cache hit that is not skinned already lives in the hold buffer.
+    // Drawing it from there leaves this frame's ring region alone.
+    const bool held = !scale_corners && reused != nullptr && !skinned && impl.vertex_hold != VK_NULL_HANDLE &&
+        impl.reused_hold_at != ~VkDeviceSize{0};
+    const VkBuffer vertex_source = held ? impl.vertex_hold : impl.vertex_buffer;
     VkDeviceSize vertex_start = impl.vertex_offset;
     VkDeviceSize index_start = 0u;
     VkDeviceSize draw_end = 0u;
@@ -7501,80 +7748,112 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         // before broke that for every other draw, and half the draws that
         // could have merged did not (MHFU_NO_TIGHT_MERGE rounds as before).
         static const bool loose_merge = std::getenv("MHFU_NO_TIGHT_MERGE") != nullptr;
-        if (merge && impl.group.open && impl.group.raw == raw && impl.vertex_offset == impl.group.vertex_end &&
+        if (!held && merge && impl.group.open && impl.group.raw == raw && impl.vertex_offset == impl.group.vertex_end &&
             (raw ? impl.group.stride == call.raw_stride && !impl.check_gpu_decode : !loose_merge))
             vertex_start = impl.vertex_offset;
         const VkDeviceSize vertex_bytes = raw ? static_cast<VkDeviceSize>(call.raw_count) * call.raw_stride
                                               : static_cast<VkDeviceSize>(vertex_total) * sizeof(GpuVertex);
-        const VkDeviceSize vertex_end = vertex_start + vertex_bytes;
-        index_start = (vertex_end + 3u) & ~VkDeviceSize{3u};
-        draw_end = merge ? vertex_end : index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
-        if (draw_end > impl.vertex_limit) {
-            const VkDeviceSize region = impl.vertex_limit - kVertexBufferBytes;
-            report_frame_space_full("vertex", vertex_start - region, draw_end - vertex_start);
-            return;
-        }
-        if (merge && impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit) {
-            report_frame_space_full("index");
-            return;
-        }
-        auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
-        if (raw)
-            std::memcpy(out, call.raw_vertices, static_cast<std::size_t>(vertex_bytes));
-        else if (reused != nullptr) {
-            std::memcpy(out, reused->data(), static_cast<std::size_t>(vertex_bytes));
-            if (skinned)
-                impl.recording_frame.skinned.insert(impl.recording_frame.skinned.end(), reused->begin(), reused->end());
-        } else if (impl.cache_pending) {
-            impl.cache_build.clear();
-            impl.cache_build.reserve(call.vertices.size());
-            for (const Vertex &vertex : call.vertices) {
-                const GpuVertex converted = to_gpu(vertex);
-                impl.cache_build.push_back(converted);
-                if (skinned) impl.recording_frame.skinned.push_back(converted);
+        if (held) {
+            vertex_start = impl.reused_hold_at;
+            draw_end = vertex_start + vertex_bytes;
+            if (merge) {
+                if (impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit) {
+                    report_frame_space_full("index");
+                    return;
+                }
+            } else {
+                index_start = (impl.index_offset + 3u) & ~VkDeviceSize{3u};
+                const VkDeviceSize index_bytes = impl.direct_indices.size() * sizeof(std::uint16_t);
+                if (index_start + index_bytes > impl.index_limit) {
+                    report_frame_space_full("index");
+                    return;
+                }
+                std::memcpy(static_cast<std::uint8_t *>(impl.index_mapped) + index_start, impl.direct_indices.data(),
+                    static_cast<std::size_t>(index_bytes));
+                impl.index_offset = index_start + index_bytes;
             }
-            std::memcpy(out, impl.cache_build.data(), impl.cache_build.size() * sizeof(GpuVertex));
-            impl.remember_span(impl.cache_build);
         } else {
-            for (const Vertex &vertex : call.vertices) {
-                const GpuVertex converted = to_gpu(vertex);
-                std::memcpy(out, &converted, sizeof(GpuVertex));
-                out += sizeof(GpuVertex);
-                if (skinned) impl.recording_frame.skinned.push_back(converted);
+            const VkDeviceSize vertex_end = vertex_start + vertex_bytes;
+            index_start = (vertex_end + 3u) & ~VkDeviceSize{3u};
+            draw_end = merge ? vertex_end : index_start + impl.direct_indices.size() * sizeof(std::uint16_t);
+            if (draw_end > impl.vertex_limit) {
+                const VkDeviceSize region = impl.vertex_limit - impl.vertex_region_bytes;
+                report_frame_space_full("vertex", vertex_start - region, draw_end - vertex_start);
+                return;
             }
+            if (merge &&
+                impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit) {
+                report_frame_space_full("index");
+                return;
+            }
+            auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
+            if (raw)
+                std::memcpy(out, call.raw_vertices, static_cast<std::size_t>(vertex_bytes));
+            else if (reused != nullptr) {
+                std::memcpy(out, reused->data(), static_cast<std::size_t>(vertex_bytes));
+                if (skinned)
+                    impl.recording_frame.skinned.insert(
+                        impl.recording_frame.skinned.end(), reused->begin(), reused->end());
+            } else if (impl.cache_pending) {
+                impl.cache_build.clear();
+                impl.cache_build.reserve(call.vertices.size());
+                for (const Vertex &vertex : call.vertices) {
+                    const GpuVertex converted = to_gpu(vertex);
+                    impl.cache_build.push_back(converted);
+                    if (skinned) impl.recording_frame.skinned.push_back(converted);
+                }
+                std::memcpy(out, impl.cache_build.data(), impl.cache_build.size() * sizeof(GpuVertex));
+                impl.remember_span(impl.cache_build, !skinned);
+            } else {
+                for (const Vertex &vertex : call.vertices) {
+                    const GpuVertex converted = to_gpu(vertex);
+                    std::memcpy(out, &converted, sizeof(GpuVertex));
+                    out += sizeof(GpuVertex);
+                    if (skinned) impl.recording_frame.skinned.push_back(converted);
+                }
+            }
+            if (!merge)
+                std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + index_start, impl.direct_indices.data(),
+                    impl.direct_indices.size() * sizeof(std::uint16_t));
         }
-        if (!merge)
-            std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + index_start, impl.direct_indices.data(),
-                impl.direct_indices.size() * sizeof(std::uint16_t));
         draw_count = static_cast<std::uint32_t>(impl.direct_indices.size());
-    } else if (reused_expanded) {
+    } else if (held) {
         const VkDeviceSize bytes = reused->size() * sizeof(GpuVertex);
-        if (impl.vertex_offset + bytes > impl.vertex_limit) {
-            const VkDeviceSize region = impl.vertex_limit - kVertexBufferBytes;
-            report_frame_space_full("vertex", impl.vertex_offset - region, bytes);
-            return;
-        }
-        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, reused->data(),
-            static_cast<std::size_t>(bytes));
-        draw_end = impl.vertex_offset + bytes;
+        vertex_start = impl.reused_hold_at;
+        draw_end = vertex_start + bytes;
         draw_count = static_cast<std::uint32_t>(reused->size());
-        if (skinned)
-            impl.recording_frame.skinned.insert(impl.recording_frame.skinned.end(), reused->begin(), reused->end());
-    } else {
-        const VkDeviceSize bytes = impl.scratch.size() * sizeof(GpuVertex);
+    } else if (reused_expanded) {
+        const std::vector<GpuVertex> &source = scale_corners ? corner_scaled : *reused;
+        const VkDeviceSize bytes = source.size() * sizeof(GpuVertex);
         if (impl.vertex_offset + bytes > impl.vertex_limit) {
-            const VkDeviceSize region = impl.vertex_limit - kVertexBufferBytes;
+            const VkDeviceSize region = impl.vertex_limit - impl.vertex_region_bytes;
             report_frame_space_full("vertex", impl.vertex_offset - region, bytes);
             return;
         }
-        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
+        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, source.data(),
             static_cast<std::size_t>(bytes));
         draw_end = impl.vertex_offset + bytes;
-        draw_count = static_cast<std::uint32_t>(impl.scratch.size());
+        draw_count = static_cast<std::uint32_t>(source.size());
+        if (skinned)
+            impl.recording_frame.skinned.insert(impl.recording_frame.skinned.end(), source.begin(), source.end());
+    } else {
+        const std::vector<GpuVertex> &source = scale_corners ? corner_scaled : impl.scratch;
+        const VkDeviceSize bytes = source.size() * sizeof(GpuVertex);
+        if (impl.vertex_offset + bytes > impl.vertex_limit) {
+            const VkDeviceSize region = impl.vertex_limit - impl.vertex_region_bytes;
+            report_frame_space_full("vertex", impl.vertex_offset - region, bytes);
+            return;
+        }
+        std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, source.data(),
+            static_cast<std::size_t>(bytes));
+        draw_end = impl.vertex_offset + bytes;
+        draw_count = static_cast<std::uint32_t>(source.size());
         if (skinned)
             impl.recording_frame.skinned.insert(
-                impl.recording_frame.skinned.end(), impl.scratch.begin(), impl.scratch.end());
-        impl.remember_span(impl.scratch);
+                impl.recording_frame.skinned.end(), source.begin(), source.end());
+        // The cache keeps the game's vertices. A later frame at another scale
+        // scales its own copy.
+        impl.remember_span(impl.scratch, !skinned);
     }
     const auto drawn_vertices = static_cast<std::uint32_t>(
         reused_expanded ? reused->size() : direct ? vertex_total : impl.scratch.size());
@@ -7608,9 +7887,19 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             ((call.blend.fixed_source + call.blend.fixed_destination) & 0x00FFFFFFu) == 0x00FFFFFFu)
             key.destination_factor = kFactorInverseConstant;
         key.equation = call.blend.equation;
-        key.depth_test = call.depth.test_enabled && !call.through;
         key.depth_write = call.depth.write_enabled;
         key.depth_function = call.depth.function;
+        key.depth_test = call.depth.test_enabled && !call.through;
+        // A through sprite carries a screen depth. The shop draws a weapon
+        // icon before the hunter, and that depth is what keeps the icon in
+        // front of him. Vulkan writes depth only while the test is enabled,
+        // so a write with the test off still tests and always passes.
+        // MHFU_NO_THROUGH_DEPTH leaves these draws out of the depth buffer.
+        static const bool no_through_depth = std::getenv("MHFU_NO_THROUGH_DEPTH") != nullptr;
+        if (call.through && !no_through_depth) {
+            key.depth_test = call.depth.test_enabled || call.depth.write_enabled;
+            if (call.depth.write_enabled && !call.depth.test_enabled) key.depth_function = 1u;
+        }
         key.cull = call.culling_enabled && !call.through && call.primitive != PrimitiveType::Sprites;
         key.cull_clockwise = call.cull_clockwise;
     }
@@ -7787,18 +8076,18 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             impl.record_state(state);
             {
                 const perf::SplitScope split(perf::Split::Record);
-                vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &vertex_start);
+                vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &vertex_source, &vertex_start);
                 vkCmdDraw(impl.command_buffer, draw_count, 1u, 0u, 0u);
             }
             perf::count_recorded_draws(1u);
-            impl.record_draw_for_replay(
-                call, lit, skinned_first, state, vertex_start, VK_NULL_HANDLE, 0u, draw_count, drawn_vertices, false);
+            impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start, VK_NULL_HANDLE, 0u, draw_count,
+                drawn_vertices, false, false, vertex_source);
         } else {
             Impl::DrawGroup &group = impl.group;
             const auto vertex_count = static_cast<std::uint32_t>(vertex_total);
             std::uint32_t rebase = 0u;
-            bool join = group.open && vertex_start == group.vertex_end && impl.state_known &&
-                Impl::same_state(state, impl.recorded) && group.raw == raw &&
+            bool join = group.open && group.source == vertex_source && vertex_start == group.vertex_end &&
+                impl.state_known && Impl::same_state(state, impl.recorded) && group.raw == raw &&
                 (!raw || group.stride == call.raw_stride) && !impl.check_gpu_decode;
             // Recorded for drawing again, skinned draws join only skinned
             // ones: their vertices are kept on the CPU too, one after another
@@ -7814,13 +8103,13 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 impl.record_state(state);
                 // Metal wants index buffer offsets on 4 bytes.
                 impl.index_offset = (impl.index_offset + 3u) & ~VkDeviceSize{3u};
-                group =
-                    Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u, raw, call.raw_stride};
+                group = Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u, raw,
+                    call.raw_stride, vertex_source};
                 rebase = 0u;
                 impl.group_skinned = skinned;
             }
             impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start, impl.index_buffer,
-                group.index_base, draw_count, vertex_count, join, raw);
+                group.index_base, draw_count, vertex_count, join, raw, vertex_source);
             auto *indices = reinterpret_cast<std::uint8_t *>(impl.index_mapped) + impl.index_offset;
             if (rebase == 0u) {
                 std::memcpy(indices, impl.direct_indices.data(), impl.direct_indices.size() * sizeof(std::uint16_t));
@@ -7833,7 +8122,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             group.index_count += draw_count;
             ++group.draws;
         }
-        impl.vertex_offset = draw_end;
+        if (!held) impl.vertex_offset = draw_end;
         ++impl.draws;
         perf::count_draw();
         return;
@@ -7859,9 +8148,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     }
     vkCmdPushConstants(impl.command_buffer, impl.pipeline_layout,
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(push), &push);
-    vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &impl.vertex_buffer, &vertex_start);
+    vkCmdBindVertexBuffers(impl.command_buffer, 0u, 1u, &vertex_source, &vertex_start);
     if (direct) {
-        vkCmdBindIndexBuffer(impl.command_buffer, impl.vertex_buffer, index_start, VK_INDEX_TYPE_UINT16);
+        const VkBuffer index_source = held ? impl.index_buffer : impl.vertex_buffer;
+        vkCmdBindIndexBuffer(impl.command_buffer, index_source, index_start, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(
             impl.command_buffer, draw_count, 1u, 0u, 0, raw ? static_cast<std::uint32_t>(vertex_start) : 0u);
     } else {
@@ -7870,10 +8160,11 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     if (impl.interpolating) {
         const Impl::DrawState state{
             pipeline, texture_descriptor, lighting_offsets, vk_viewport, vk_scissor, blend_constants, push};
-        impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start,
-            direct ? impl.vertex_buffer : VK_NULL_HANDLE, index_start, draw_count, drawn_vertices, false, raw);
+        const VkBuffer index_source = !direct ? VK_NULL_HANDLE : held ? impl.index_buffer : impl.vertex_buffer;
+        impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start, index_source, index_start,
+            draw_count, drawn_vertices, false, raw, vertex_source);
     }
-    impl.vertex_offset = draw_end;
+    if (!held) impl.vertex_offset = draw_end;
     ++impl.draws;
     perf::count_draw();
     perf::count_recorded_draws(1u);
@@ -8111,7 +8402,7 @@ bool VulkanRenderer::Impl::interpolation_wanted() const {
 // frame recorded, or one more draw in the group it joined.
 void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit, std::uint32_t skinned,
     const DrawState &state, VkDeviceSize vertex_start, VkBuffer indices, VkDeviceSize index_start, std::uint32_t count,
-    std::uint32_t vertex_count, bool joined, bool raw) {
+    std::uint32_t vertex_count, bool joined, bool raw, VkBuffer vertices) {
     if (!interpolating) return;
     FrameRecord &frame = recording_frame;
     if (!frame.recorded) return;
@@ -8143,6 +8434,7 @@ void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit
         }
         added.skinned = skinned;
         added.raw = raw;
+        added.vertices = vertices != VK_NULL_HANDLE ? vertices : vertex_buffer;
         if (raw && ((call.vertex_type >> 9u) & 3u) != 0u) {
             // A skinned raw group is blended through its bones.
             if (frame.raws.empty() || frame.raw_offset != raw_offset) {
@@ -8460,7 +8752,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
 
     // The slot's scratch area: blended vertices and object blocks.
     VkDeviceSize scratch_at =
-        static_cast<VkDeviceSize>(kFrameRegions) * kVertexBufferBytes + slot * kPresentScratchBytes;
+        static_cast<VkDeviceSize>(kFrameRegions) * vertex_region_bytes + slot * kPresentScratchBytes;
     const VkDeviceSize scratch_end = scratch_at + kPresentScratchBytes;
     auto *mapped = static_cast<std::uint8_t *>(vertex_mapped);
 
@@ -8497,10 +8789,12 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     for (const ReplayGroup &drawn : older.groups) {
         if (drawn.target != older.displayed) continue;
         // The regions this replay reads, for present_regions.
-        if (drawn.vertex_base < static_cast<VkDeviceSize>(kFrameRegions) * kVertexBufferBytes)
-            replay_regions |= 1u << static_cast<std::uint32_t>(drawn.vertex_base / kVertexBufferBytes);
+        const bool ring_vertices = drawn.vertices == VK_NULL_HANDLE || drawn.vertices == vertex_buffer;
+        if (ring_vertices && drawn.vertex_base < static_cast<VkDeviceSize>(kFrameRegions) * vertex_region_bytes)
+            replay_regions |= 1u << static_cast<std::uint32_t>(drawn.vertex_base / vertex_region_bytes);
         DrawState state = drawn.state;
         VkDeviceSize vertex_base = drawn.vertex_base;
+        VkBuffer vertices = drawn.vertices != VK_NULL_HANDLE ? drawn.vertices : vertex_buffer;
         std::int32_t partner = -1;
         std::uint32_t member = drawn.first_draw;
         for (std::uint32_t i = drawn.first_draw; i < drawn.first_draw + drawn.draws; ++i) {
@@ -8632,6 +8926,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
                     }
                     scratch_at = at + bytes;
                     vertex_base = at;
+                    vertices = vertex_buffer;
                 }
             }
         }
@@ -8654,7 +8949,7 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
                 sizeof(PushConstants), &state.push);
         set = state;
         known = true;
-        vkCmdBindVertexBuffers(commands, 0u, 1u, &vertex_buffer, &vertex_base);
+        vkCmdBindVertexBuffers(commands, 0u, 1u, &vertices, &vertex_base);
         if (drawn.index_buffer != VK_NULL_HANDLE) {
             vkCmdBindIndexBuffer(commands, drawn.index_buffer, drawn.index_base, VK_INDEX_TYPE_UINT16);
             vkCmdDrawIndexed(
@@ -9258,6 +9553,9 @@ void VulkanRenderer::shutdown() {
     if (impl.vertex_mapped != nullptr) vkUnmapMemory(impl.device, impl.vertex_memory);
     vkDestroyBuffer(impl.device, impl.vertex_buffer, nullptr);
     vkFreeMemory(impl.device, impl.vertex_memory, nullptr);
+    if (impl.hold_mapped != nullptr) vkUnmapMemory(impl.device, impl.hold_memory);
+    if (impl.vertex_hold != VK_NULL_HANDLE) vkDestroyBuffer(impl.device, impl.vertex_hold, nullptr);
+    if (impl.hold_memory != VK_NULL_HANDLE) vkFreeMemory(impl.device, impl.hold_memory, nullptr);
     vkDestroyBuffer(impl.device, impl.index_buffer, nullptr);
     vkFreeMemory(impl.device, impl.index_memory, nullptr);
     vkDestroySampler(impl.device, impl.sampler, nullptr);

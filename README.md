@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/logo.svg" alt="Yakumo" width="720"></p>
+<p align="center"><img src="docs/images/logo.svg" alt="Pokee" width="720"></p>
 
 <p align="center"><b>English</b> · <a href="README.ru.md">Русский</a> · <a href="README.es.md">Español</a></p>
 
@@ -16,33 +16,33 @@
   <a href="https://discord.gg/XbQSE3b4m"><img src="https://img.shields.io/badge/Discord-Join%20community-b98335?style=flat-square&amp;logo=discord&amp;logoColor=white&amp;labelColor=2a1a22" alt="Join the TeamGDB Discord community"></a>
 </p>
 
-# Yakumo
+# Pokee
 
-A native port of **Monster Hunter Portable 3rd HD Ver.** made by static recompilation: the game's PSP code is translated ahead of time into C++ and compiled for your machine, then run on a reimplementation of the PSP system software. It is not an emulator — there is no interpreter or JIT at the heart of it — and it is not a decompilation.
+A native port of **Monster Hunter Freedom Unite** (USA) made by static recompilation: the game's PSP code is translated ahead of time into C++ and compiled for your machine, then run on a reimplementation of the PSP system software. It is not an emulator — there is no interpreter or JIT at the heart of it — and it is not a decompilation.
 
-> **This project does not include any game assets.** You must provide the files from your own legally obtained copy of Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`) to install or build Yakumo.
+> **This project does not include any game assets.** You must provide the files from your own legally obtained copy of Monster Hunter Freedom Unite (USA, `ULUS-10391`, version 1.01) to install or build Pokee.
 
 ## Legal disclaimer
 
-**Yakumo** is an independent, open-source project and is not affiliated with, authorized by, sponsored by, or endorsed by CAPCOM, Sony, or any of their affiliates.
+**Pokee** is an independent, open-source project and is not affiliated with, authorized by, sponsored by, or endorsed by CAPCOM, Sony, or any of their affiliates.
 
-Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP, and all related trademarks, game assets, artwork, audio, characters, and other intellectual property belong to their respective owners.
+Monster Hunter, Monster Hunter Freedom Unite, CAPCOM, PlayStation, PSP, and all related trademarks, game assets, artwork, audio, characters, and other intellectual property belong to their respective owners.
 
-**Yakumo** does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of Monster Hunter Portable 3rd HD Ver. to install or build **Yakumo**; the installer checks that copy and accepts only the original release.
+**Pokee** does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of Monster Hunter Freedom Unite (USA) to install or build **Pokee**; the installer checks that copy and accepts only `ULUS-10391` version 1.01.
 
-To use **Yakumo**, users must provide the required files from their own legally obtained copy of Monster Hunter Portable 3rd HD Ver. for PlayStation 3.
+To use **Pokee**, users must provide the required files from their own legally obtained copy of Monster Hunter Freedom Unite (USA) for PSP.
 
 Users are solely responsible for obtaining, dumping, extracting, and using their game copy in accordance with the laws applicable in their jurisdiction.
 
-**Yakumo** does not support, provide, link to, or encourage the use of unauthorized or pirated copies of the game.
+**Pokee** does not support, provide, link to, or encourage the use of unauthorized or pirated copies of the game.
 
 Any references to the original game or its trademarks are made solely for identification, compatibility, and interoperability purposes.
 
-Screenshots and other depictions of the original game may be used solely to document or demonstrate **Yakumo's** functionality. All depicted third-party game content remains the property of its respective rights holders.
+Screenshots and other depictions of the original game may be used solely to document or demonstrate **Pokee's** functionality. All depicted third-party game content remains the property of its respective rights holders.
 
-The license covering **Yakumo** applies only to the project's own original code and materials and does not grant any rights to third-party intellectual property.
+The license covering **Pokee** applies only to the project's own original code and materials and does not grant any rights to third-party intellectual property.
 
-**Yakumo** provides the software, not the game. You must provide your own legally obtained copy.
+**Pokee** provides the software, not the game. You must provide your own legally obtained copy.
 
 ## Status: playable
 
@@ -54,10 +54,10 @@ You can load a save copied from a PSP or start a new game, hunt, play with other
 | Saves in the PSP's own format, including saves and downloaded quests copied from a PSP; import, export and backups from the menu | Curved surfaces (#10); the save-data dialogs draw nothing yet (#33) |
 | Vulkan graphics: models, animation, textures, transparency, lighting and fog; adjustable internal resolution, arbitrary window shapes and frame interpolation | |
 | PPSSPP-compatible HD texture packs, installed from the menu or copied into the data directory | |
-| Mods in the community's mhp3reload format: file replacements and patches, managed from the menu (see the [profile README](profiles/mhp3rd/README.md#mods)) | Code mods (#81) |
+| Mods in the community's file-replacement format: file replacements and patches, managed from the menu (see the [profile README](profiles/mhfu/README.md#mods)) | Code mods (#81) |
 | Sound effects, streamed music and cutscene movies | |
 | Fully rebindable keyboard and mouse controls; gamepads with an analog right-stick camera and aim, control presets and button-combination binds | |
-| Yakumo's in-game menu, first-run setup, file browser and on-screen keyboard, all usable with a gamepad, keyboard or mouse | |
+| Pokee's in-game menu, first-run setup, file browser and on-screen keyboard, all usable with a gamepad, keyboard or mouse | |
 | All 355 code overlays recompiled | |
 | Multiplayer: through the ad hoc servers PSP players use, or hosted from the game on a LAN or VPN | |
 
@@ -73,10 +73,10 @@ A prebuilt release needs nothing but your disc image. Pick the file for your dev
 
 | Device | File | Install |
 | --- | --- | --- |
-| **Windows** (x86-64) | `yakumo-…-windows-x86_64.zip` | Unzip it anywhere and run `Yakumo.exe`. Its data goes to `%APPDATA%`. From v0.7.0 there is also a `…-portable.zip` that keeps everything (settings, saves, the prepared game) in a `data` folder next to `Yakumo.exe`, e.g. on a USB drive; see [Portable copy](profiles/mhp3rd/README.md#portable-copy). |
-| **Steam Deck and Linux** | `yakumo-…-linux-x86_64.flatpak` (or the portable `.tar.gz`) | Install the Flatpak, start Yakumo, and add it to Steam for Game Mode. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling. |
-| **Android** (64-bit, Android 10+, Vulkan 1.1) | `yakumo-…-android-arm64.apk` | Open the APK on the phone and allow installing it. On the first start it takes your `.iso` through Android's file picker and copies it into the app (about 1.3 GB besides the app's 0.8 GB). Touch controls are drawn over the game; gamepads work too. |
-| **macOS** (Apple Silicon, macOS 13+) | `yakumo-…-macos-arm64.dmg` | Open the disk image and drag Yakumo to Applications. It is not notarized by Apple, so macOS asks you to allow it once. [`docs/MACOS.md`](docs/MACOS.md) covers installing, the first start, where saves live, updating and uninstalling. |
+| **Windows** (x86-64) | `pokee-…-windows-x86_64.zip` | Unzip it anywhere and run `Pokee.exe`. Its data goes to `%APPDATA%`. From v0.7.0 there is also a `…-portable.zip` that keeps everything (settings, saves, the prepared game) in a `data` folder next to `Pokee.exe`, e.g. on a USB drive; see [Portable copy](profiles/mhfu/README.md#portable-copy). |
+| **Steam Deck and Linux** | `pokee-…-linux-x86_64.flatpak` (or the portable `.tar.gz`) | Install the Flatpak, start Pokee, and add it to Steam for Game Mode. [`docs/LINUX.md`](docs/LINUX.md) covers installing, the first start, Game Mode, where saves live, updating and uninstalling. |
+| **Android** (64-bit, Android 10+, Vulkan 1.1) | `pokee-…-android-arm64.apk` | Open the APK on the phone and allow installing it. On the first start it takes your `.iso` through Android's file picker and copies it into the app (about 1.3 GB besides the app's 0.8 GB). Touch controls are drawn over the game; gamepads work too. |
+| **macOS** (Apple Silicon, macOS 13+) | `pokee-…-macos-arm64.dmg` | Open the disk image and drag Pokee to Applications. It is not notarized by Apple, so macOS asks you to allow it once. [`docs/MACOS.md`](docs/MACOS.md) covers installing, the first start, where saves live, updating and uninstalling. |
 
 **Test builds.** The [releases page](https://github.com/TeamGDB/Yakumo/releases) also lists test builds, marked *(test)* (older ones *(unstable)*) and published as pre-releases. They carry the newest changes and may have new bugs: install one only if you want to help test. If you just want to play, use the latest stable release above.
 
@@ -95,23 +95,23 @@ Building from source is a fully supported way to play. It needs:
 
 In short:
 
-1. Prepare the game's executable from your disc image: build `Yakumo` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`.
-2. Configure, generate the recompiled code with `profiles/mhp3rd/scripts/generate.sh`, and build `Yakumo`.
-3. Recompile the code overlays with `profiles/mhp3rd/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
-4. Run `out/mhp3rd/bin/Yakumo`.
+1. Prepare the game's executable from your disc image: build `Pokee` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhfu/scripts/prepare_game.sh`.
+2. Configure, generate the recompiled code with `profiles/mhfu/scripts/generate.sh`, and build `Pokee`.
+3. Recompile the code overlays with `profiles/mhfu/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
+4. Run `out/mhfu/bin/Pokee`.
 
-The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md). Building on every platform, Windows included, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md).
+The full instructions, including every setting, are in [`profiles/mhfu/README.md`](profiles/mhfu/README.md). Building on every platform, Windows included, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md).
 
 ## Controls
 
-On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Control presets (Default, Modern with attacks on the triggers, Left-handed, Classic keyboard, and your own) cover every control, and any of them can be bound to a single button or a combination such as L1 + ○. Keyboard and mouse play is complete; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhp3rd/README.md#running).
+On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Control presets (Default, Modern with attacks on the triggers, Left-handed, Classic keyboard, and your own) cover every control, and any of them can be bound to a single button or a combination such as L1 + ○. Keyboard and mouse play is complete; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhfu/README.md#running).
 
-Esc, or both sticks pressed together (L3+R3), opens Yakumo's own menu. It holds video, audio, control, network and save settings, including aspect ratio, frame rate, internal resolution and HD texture pack import. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
+Esc, or both sticks pressed together (L3+R3), opens Pokee's own menu. It holds video, audio, control, network and save settings, including aspect ratio, frame rate, internal resolution and HD texture pack import. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
 
 ## Roadmap
 
 - Android on real phones: device testing, graphics drivers and performance ([#127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
-- One consistent visual style across Yakumo's setup screens, menus and overlays ([#33](https://github.com/TeamGDB/Yakumo/issues/33))
+- One consistent visual style across Pokee's setup screens, menus and overlays ([#33](https://github.com/TeamGDB/Yakumo/issues/33))
 - Touch controls for gameplay, menus, camera movement and aiming
 
 ## How it works
@@ -130,7 +130,7 @@ src/                 Framework: ELF loading, decoder, runtime, interpreter
 tools/               Framework: analyzer and C++ code generator
 tests/               Framework regression tests
 configs/             PSP NID data and generic examples
-profiles/mhp3rd/     Everything specific to this game: host, kernel, renderer,
+profiles/mhfu/     Everything specific to this game: host, kernel, renderer,
                      audio, input, configuration and build scripts
 docs/                Architecture, archive format, profile guide, source rules
 ```
@@ -139,7 +139,7 @@ The recompiled code itself is generated locally from your copy of the game and i
 
 ## Built on PSPRecomp
 
-**Yakumo** is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
+**Pokee** is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
 
 ```bash
 cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
@@ -151,16 +151,19 @@ To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [
 
 ## Authors
 
+Pokee is built from [Yakumo](https://github.com/TeamGDB/Yakumo). That project and its contributors keep the credit for the port this tree starts from:
+
 - [@MHunterG](https://github.com/MHunterG)
 - [@mojitosunrise](https://github.com/mojitosunrise)
 
 ## Credits
 
+- [Yakumo](https://github.com/TeamGDB/Yakumo) — the original port, by its contributors
 - [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — the recompilation framework this project builds on
 - [SDL3](https://www.libsdl.org/) — windowing, input and audio output
 - [FFmpeg](https://ffmpeg.org/) — music and movie decoding
 - [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — rendering
-- [Dear ImGui](https://github.com/ocornut/imgui) — Yakumo's menus and setup screens
+- [Dear ImGui](https://github.com/ocornut/imgui) — Pokee's menus and setup screens
 - [tiny-AES-c](https://github.com/kokke/tiny-AES-c) — the installer and PSP save-data support
 - [stb_truetype](https://github.com/nothings/stb) — font rasterization
 - [svanheulen/mhef](https://github.com/svanheulen/mhef) — community documentation of the game's archive format

@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / 'out/coverage'
-ROOTS = ('include/psprecomp/', 'src/', 'tools/', 'profiles/mhp3rd/host/')
+ROOTS = ('include/psprecomp/', 'src/', 'tools/', 'profiles/mhfu/host/')
 EXCLUDED = {'third_party', 'generated', 'game', 'overlays', 'overlay_corpora', 'out', 'build'}
 SUFFIXES = {'.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx'}
 
@@ -105,8 +105,8 @@ def main():
                     str(output / 'test-results.xml')], env=environment, check=True)
     # Exercise public CLI contracts and flush zero counters for the complete
     # application/tool mappings. No game data or interactive window is needed.
-    cli_cases = [([str(BUILD / 'bin/Yakumo'), '--help'], 0),
-                 ([str(BUILD / 'bin/Yakumo'), '--not-a-yakumo-option'], 2),
+    cli_cases = [([str(BUILD / 'bin/Pokee'), '--help'], 0),
+                 ([str(BUILD / 'bin/Pokee'), '--not-a-pokee-option'], 2),
                  ([str(BUILD / 'psp_analyze')], 2),
                  ([str(BUILD / 'psp_recomp')], 2),
                  ([str(BUILD / 'dump_function')], 2)]

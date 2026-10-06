@@ -17,17 +17,17 @@ import project_coverage as report
 class CoverageFormatsTests(unittest.TestCase):
     def test_inventory_owns_sources_but_not_vendor_or_test_code(self):
         cases = {'src/runtime.cpp': 'native', 'scripts/format_cpp.py': 'python',
-                 'profiles/mhp3rd/packaging/android/java/App.java': 'java',
-                 'profiles/mhp3rd/host/ge/shader.vert': 'shader',
-                 'profiles/mhp3rd/packaging/linux/build.sh': 'build',
+                 'profiles/mhfu/packaging/android/java/App.java': 'java',
+                 'profiles/mhfu/host/ge/shader.vert': 'shader',
+                 'profiles/mhfu/packaging/linux/build.sh': 'build',
                  'CMakeLists.txt': 'build', 'cmake/Coverage.cmake': 'build',
-                 'Makefile': 'build', 'profiles/mhp3rd/CMakeLists.txt': 'build',
-                 'profiles/mhp3rd/cmake/FFmpeg.cmake': 'build',
-                 'profiles/mhp3rd/scripts/release_linux.sh': 'build',
+                 'Makefile': 'build', 'profiles/mhfu/CMakeLists.txt': 'build',
+                 'profiles/mhfu/cmake/FFmpeg.cmake': 'build',
+                 'profiles/mhfu/scripts/release_linux.sh': 'build',
                  'tests/main.cpp': None, 'scripts/ci/test_project_coverage.py': None,
                  'scripts/ci/tests/fixture.py': None,
-                 'profiles/mhp3rd/host/third_party/imgui/imgui.cpp': None,
-                 'profiles/mhp3rd/generated/function.cpp': None}
+                 'profiles/mhfu/host/third_party/imgui/imgui.cpp': None,
+                 'profiles/mhfu/generated/function.cpp': None}
         for name, kind in cases.items():
             with self.subTest(name=name):
                 self.assertEqual(report.source_kind(name), kind)
@@ -49,7 +49,7 @@ class CoverageFormatsTests(unittest.TestCase):
         java = '<report><package name="io/example"><sourcefile name="App.java">'
         java += '<line nr="4" ci="0"/><line nr="8" ci="2"/></sourcefile></package></report>'
         self.assertEqual(report.read_java(java), {
-            'profiles/mhp3rd/packaging/android/java/io/example/App.java': {4: 0, 8: 2}})
+            'profiles/mhfu/packaging/android/java/io/example/App.java': {4: 0, 8: 2}})
 
     def test_diff_hunks_handle_insertions_deletions_and_quoted_names(self):
         diff = '+++ b/src/runtime.cpp\n@@ -1 +2,3 @@\n@@ -10,3 +12,0 @@\n'
@@ -60,10 +60,10 @@ class CoverageFormatsTests(unittest.TestCase):
 
     def test_weighted_diff_excludes_comments_and_reports_missing_mapping(self):
         changed = {'src/a.cpp': {1, 2, 3}, 'scripts/b.py': {1, 2, 3, 4},
-                   'profiles/mhp3rd/packaging/android/java/App.java': {1},
+                   'profiles/mhfu/packaging/android/java/App.java': {1},
                    'docs/a.md': {1}, 'src/deleted.cpp': set()}
         inventory = {'src/a.cpp': 'native', 'scripts/b.py': 'python',
-                     'profiles/mhp3rd/packaging/android/java/App.java': 'java',
+                     'profiles/mhfu/packaging/android/java/App.java': 'java',
                      'src/deleted.cpp': 'native'}
         result = report.diff_coverage(changed, inventory,
                                       {'src/a.cpp': {1: 9, 2: 0}, 'scripts/b.py': {1: 1, 2: 1, 3: 1, 4: 1}})
@@ -72,7 +72,7 @@ class CoverageFormatsTests(unittest.TestCase):
         self.assertEqual(result['files'][0]['missing_lines'], [])
         self.assertEqual(result['files'][1]['missing_lines'], [2])
         self.assertEqual(result['unmeasured_changed_files'],
-                         ['profiles/mhp3rd/packaging/android/java/App.java'])
+                         ['profiles/mhfu/packaging/android/java/App.java'])
         self.assertIsNone(report.diff_coverage({}, {}, {})['percent'])
 
     def test_overall_is_weighted_and_unknown_counts_are_not_invented(self):
@@ -93,8 +93,8 @@ class CoverageGateIntegrationTests(unittest.TestCase):
         self.git('config', 'user.email', 'coverage@example.invalid')
         self.write('src/runtime.cpp', 'old\n')
         self.write('scripts/fixture.py', 'old\n')
-        self.write('profiles/mhp3rd/packaging/android/java/App.java', 'old\n')
-        self.write('profiles/mhp3rd/host/ge/shader.frag', 'old\n')
+        self.write('profiles/mhfu/packaging/android/java/App.java', 'old\n')
+        self.write('profiles/mhfu/host/ge/shader.frag', 'old\n')
         self.git('add', '.')
         self.git('commit', '-qm', 'Base')
         self.base = self.git('rev-parse', 'HEAD').strip()
@@ -145,8 +145,8 @@ class CoverageGateIntegrationTests(unittest.TestCase):
         self.assertEqual(summary['diff']['percent'], 60)
 
     def test_changed_java_requires_mapping_and_can_be_covered(self):
-        self.write('profiles/mhp3rd/packaging/android/java/App.java', 'new\n')
-        self.git('add', 'profiles/mhp3rd/packaging/android/java/App.java')
+        self.write('profiles/mhfu/packaging/android/java/App.java', 'new\n')
+        self.git('add', 'profiles/mhfu/packaging/android/java/App.java')
         self.git('commit', '-qm', 'Change Java')
         self.assertEqual(self.run_gate()[0], 1)
         self.write('out/java-coverage/report/jacoco.xml', '<report><package name=""><sourcefile name="App.java">'

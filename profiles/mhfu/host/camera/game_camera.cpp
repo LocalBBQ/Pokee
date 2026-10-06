@@ -34,50 +34,84 @@ Turn peek_pointer() {
 } // namespace
 namespace {
 
-// NPJB-40001: the ordinary camera update calls the rotation helper at
-// 0x088E6264. At that call s1 is the camera, a1 points to the rotation angles,
-// and sp+0x30 holds the eye offset from the look-at point. The game's
-// subsequent transform, terrain and wall collision checks still run on the
-// adjusted offset. These facts come from this project's own reading of the
-// executable; each one the driver relies on is listed in kSignature.
-constexpr std::uint32_t kRotationHelper = 0x08878B70u;
-constexpr std::uint32_t kCameraReturn = 0x088E626Cu;
+// ULUS-10391: the camera update is the function at 0x08886E50. Its argument is
+// the parent object; the camera structure is that plus 0xA0 (s4 in the
+// function). It turns by ±1150 units when bits 0xA0 of the halfword at +0x84
+// are set, eases the filtered yaw at +0x82 a quarter of the way to the target
+// at +0x80, and reads the preset pointer at +0x70 for the eye offset (height
+// at +4, distance at +8) before collision. A non-negative byte at +0x91 takes
+// the behind-the-hunter placement instead. These facts come from this
+// project's own reading of the executable; each one the driver relies on is
+// listed in kSignature.
+constexpr std::uint32_t kCameraUpdate = 0x08886E50u;
+constexpr std::uint32_t kCameraFromParent = 0xA0u;
 constexpr float kRadians = 3.14159265358979323846f / 180.0f;
 constexpr float kAngleUnits = 65536.0f / 360.0f;
 
-// Camera structure, relative to s1.
+// Camera structure, relative to the parent object's camera (a0 + 0xA0).
 constexpr std::uint32_t kEyeY = 0x04u;
 constexpr std::uint32_t kPreset = 0x70u;
-constexpr std::uint32_t kMode = 0x76u;
+constexpr std::uint32_t kPresetHeight = 0x04u;
+constexpr std::uint32_t kPresetDistance = 0x08u;
 constexpr std::uint32_t kYawTarget = 0x80u;
 constexpr std::uint32_t kYawCurrent = 0x82u;
 constexpr std::uint32_t kButtons = 0x84u;
+constexpr std::uint32_t kVerticalButtons = 0x86u;
 constexpr std::uint32_t kSnap = 0x8Eu;
-// The aim the weapon reports while the player aims a bow or a bowgun, -1
-// otherwise. The camera update asks the weapon's code each update (0x088E5434)
-// and, while this is not negative, turns the camera after the aim itself
-// (0x088E7AFC). The aim is moved with the same stick.
+// Non-negative, this byte selects the behind-the-hunter placement (0x08887530)
+// and the follow driver leaves that update to the game.
 constexpr std::uint32_t kAim = 0x91u;
-// While a weapon aims, the aim itself lives in the hunter the camera follows
-// (s5 at the ordinary call). The weapon's aim code (in game_task, around
-// 0x0A0FE4D8) reads the stick as on/off commands and, in the states where
-// aiming may move, steps the facing by a fixed 512 or 624 and one of three
-// vertical aims by a fixed amount, which is why its aim feels like a D-pad.
-// The driver leaves every decision to that code -- whether the aim may move
-// now, and which way -- and only replaces how far each step goes.
-//
-// The facing, in the camera's yaw units, the game keeps at kHunterHeading
-// and copies into kHunterYaw each frame; writing only the copy is undone.
-constexpr std::uint32_t kHunterYaw = 0x74u;
-constexpr std::uint32_t kHunterHeading = 0x188u;
-// The largest single step the aim code makes, with room for its diagonal
-// scaling; anything larger is the game setting the facing for another reason.
+// The followed hunter is not an argument of the camera update. 0x08886E80
+// loads the list at 0x089CBD04 (0x089D0000 - 17148) and 0x08886EF8 loads the
+// hunter from that plus 2692. The same object is s3 where the aim camera
+// reads the facing and the pitch.
+constexpr std::uint32_t kHunterList = 0x089CBD04u;
+constexpr std::uint32_t kFollowedHunter = 2692u;
+// Bow and bowgun aim is the action at halfword +804 equal to 1001. The aim
+// function at 0x09AA4DD0 (game_task) returns unless that action is current,
+// then steps the aim heading at halfword +800 by 128, 215 or 400 as the left
+// stick's magnitude (halfword +1182) crosses 40, 90 and 123, or by 576 from
+// the D-pad. It adds 1, 2 or 4 (5 or 10 from the D-pad) to the pitch byte at
+// +1662 through 0x088D5EF0, which stops at ±100. The aim camera at 0x08888448
+// reads that byte and turns it into an angle with (pitch + 100) * 34 - 2816,
+// so one pitch unit is 34 of the yaw's angle units. The body facing is the
+// low 16 bits of the word at +500 (0x0888755C); a write that moves the aim
+// heading moves those bits too while they still match it.
+constexpr std::uint32_t kAimAction = 804u;
+constexpr std::uint16_t kAimingAction = 1001u;
+constexpr std::uint32_t kAimHeading = 800u;
+constexpr std::uint32_t kFacing = 500u;
+constexpr std::uint32_t kStickMagnitude = 1182u;
+constexpr std::uint32_t kHunterButtons = 1152u;
+// The stick reader at 0x08868F50 packs a direction into the high half of the
+// button word, from the 16-entry table at 0x089A619C (one entry per 22.5°).
+// Index 0 is right (0x20) and the angle runs counterclockwise: up 0x10, left
+// 0x80, down 0x40, the same bits as the D-pad. The aim function tests those
+// bits shifted up by 16. Replacing them, and the magnitude, is how a push is
+// shown to that function without the movement stick changing.
+constexpr std::uint32_t kStickDirectionMask = 0x00F00000u;
+constexpr std::uint32_t kStickUp = 0x00100000u;
+constexpr std::uint32_t kStickRight = 0x00200000u;
+constexpr std::uint32_t kStickDown = 0x00400000u;
+constexpr std::uint32_t kStickLeft = 0x00800000u;
+constexpr int kStickDeadzone = 40;
+constexpr int kStickFull = 127;
+// The aim function, in game_task. Its prologue is checked before the wrapper
+// is installed, because this address belongs to whichever overlay is loaded.
+constexpr std::uint32_t kAimFunction = 0x09AA4DD0u;
+constexpr std::array<CodeWord, 4> kAimSignature{{
+    {0x09AA4DD0u, 0x27BDFFE0u, "addiu sp,sp,-32"},
+    {0x09AA4DD4u, 0xAFBF001Cu, "sw ra,28(sp)"},
+    {0x09AA4DD8u, 0xAFB30018u, "sw s3,24(sp)"},
+    {0x09AA4DDCu, 0xAFB20014u, "sw s2,20(sp)"},
+}};
+// The largest step the aim function adds in one call, with the D-pad's 576
+// and the stick's 400 both able to land. Anything larger is the game setting
+// the heading for another reason.
 constexpr int kLargestYawStep = 1024;
 
-// The three vertical aims the aim code steps, depending on how the weapon
-// aims. The byte ones step by 5 or 8 and stop at 100; the halfword one steps
-// by that times 64 and stops at 8192. One byte unit is taken as 3.43 / 8 of
-// a degree, the angle of the game's yaw step for its vertical step.
+// The one vertical aim. The byte steps by at most 10 and stops at 100. One
+// unit is 34 angle units in the aim camera, which is kAngleUnits / 34 degrees.
 struct PitchField {
     std::uint32_t offset;
     bool halfword;
@@ -85,25 +119,14 @@ struct PitchField {
     int largest_step;
     float units_per_degree;
 };
-constexpr float kAimPitchUnitsPerDegree = 8.0f / (624.0f / kAngleUnits);
-constexpr std::array<PitchField, 3> kPitchFields{{
-    {0xC22u, false, 100, 16, kAimPitchUnitsPerDegree},           // 0x088A68A8
-    {0x1457u, false, 100, 16, kAimPitchUnitsPerDegree},          // 0x0A11FCF0
-    {0xC24u, true, 8192, 1024, kAimPitchUnitsPerDegree * 64.0f}, // 0x0A11FC9C
+constexpr float kAimPitchUnitsPerDegree = kAngleUnits / 34.0f;
+constexpr std::array<PitchField, 1> kPitchFields{{
+    {1662u, false, 100, 16, kAimPitchUnitsPerDegree},
 }};
-constexpr std::uint32_t kHunterExtent = 0x1458u;
-// A bowgun's scope (the full-screen reticle, entered with a short press of
-// R): bit 0x1000 of the hunter's word at +0xBB0, which the camera update
-// tests at 0x088E4DCC before it builds the scope's view. The camera mode stays
-// 0 and the weapon reports no aim at +0x91, so without this the scope looks
-// like the ordinary follow camera. The scope's aim code steps the same facing
-// (by 400) and +0xC22 (by 4) from either stick, so it is driven like an aim.
-constexpr std::uint32_t kHunterWeaponFlags = 0xBB0u;
-constexpr std::uint32_t kScopeFlag = 0x1000u;
-// Preset, relative to its pointer, and the update's stack frame.
-constexpr std::uint32_t kPresetTargetHeight = 0x10u;
-constexpr std::uint32_t kStackEyeY = 0x34u;
-constexpr std::uint32_t kStackEyeZ = 0x38u;
+constexpr std::uint32_t kHunterExtent = 1664u;
+// Left and right live in the button halfword; up and down live in the next one.
+constexpr std::uint16_t kTurnBits = 0x00A0u;
+constexpr std::uint16_t kVerticalBits = 0x0050u;
 
 // The mouse while aiming. Its degrees wait for a step of the game to size
 // (the game may step an update after the stick showed the direction); up to
@@ -116,39 +139,39 @@ constexpr float kMouseAimThreshold = 0.05f;
 // Degrees of mouse yaw in one frame that switch on the game's own turn.
 constexpr float kMouseStockTurn = 0.5f;
 
-// The one camera mode with a driver: the ordinary follow camera in a quest.
-// Others (aiming with a bow or a bowgun among them) keep the stock camera and
-// the stock stick until each is traced and given its own driver below.
-constexpr std::uint8_t kFollowMode = 0u;
-
-// Game code the driver depends on, read from NPJB-40001. If any word differs,
+// Game code the driver depends on, read from ULUS-10391. If any word differs,
 // the executable is not the one these facts were read from, and the driver
 // stays out rather than write to places that may mean something else.
-constexpr std::array<CodeWord, 24> kSignature{{
-    {0x088E6264u, 0x0E21E2DCu, "jal 0x08878B70: the camera update calls the rotation helper"},
-    {0x088E6254u, 0x27A50050u, "addiu a1,sp,0x50: the helper's angles are on the update's stack"},
-    {0x08878B70u, 0x27BDFFE0u, "addiu sp,sp,-0x20: the rotation helper's first instruction"},
-    {0x088E6214u, 0x92230076u, "lbu v1,0x76(s1): the camera mode"},
-    {0x088E68F0u, 0x8E220070u, "lw v0,0x70(s1): the camera's preset"},
-    {0x088E68F8u, 0xE7A00034u, "swc1 f0,0x34(sp): the eye offset's height, from the preset"},
-    {0x088E6904u, 0xE7A20038u, "swc1 f2,0x38(sp): the eye offset's distance, from the preset"},
-    {0x088E6908u, 0xC4410010u, "lwc1 f1,0x10(v0): the preset's look-at height"},
-    {0x088E6910u, 0x0A23988Fu, "j 0x088E623C: modes 0-2 join the path that calls the helper"},
-    {0x088E61A0u, 0xA6220080u, "sh v0,0x80(s1): the target yaw"},
-    {0x088E61A4u, 0x86220082u, "lh v0,0x82(s1): the filtered yaw"},
-    {0x088E61ACu, 0x9224008Eu, "lbu a0,0x8e(s1): the recentre snap"},
-    {0x088E77D4u, 0x96260084u, "lhu a2,0x84(s1): the camera's buttons"},
-    {0x088E6B58u, 0xC6220004u, "lwc1 f2,0x4(s1): the eye height the 1/8 filter eases"},
-    {0x0896D47Cu, 0x3E000000u, "0.125: that filter's coefficient"},
-    {0x088E5434u, 0x0E83D878u, "jal 0x0A0F61E0: the camera asks the weapon whether it is aiming"},
-    {0x088E5448u, 0x82220091u, "lb v0,0x91(s1): the aim the weapon reported"},
-    {0x088E7AFCu, 0x82260091u, "lb a2,0x91(s1): the camera follows the aim while it is not negative"},
-    {0x088E7B20u, 0x8EA20074u, "lw v0,0x74(s5): what it follows is the hunter's facing"},
-    {0x088E34C8u, 0x82630C22u, "lb v1,0xc22(s3): and the hunter's vertical aim"},
-    {0x088A68A8u, 0x90820C22u, "lbu v0,0xc22(a0): the game's own step of the vertical aim"},
-    {0x088A68C8u, 0x24020064u, "addiu v0,zero,0x64: which it limits to 100"},
-    {0x088E4DCCu, 0x8C420BB0u, "lw v0,0xbb0(v0): the camera reads the hunter's weapon flags"},
-    {0x088E4DD0u, 0x30421000u, "andi v0,v0,0x1000: and builds the scope's view while this bit is set"},
+constexpr std::array<CodeWord, 29> kSignature{{
+    {0x08886E50u, 0x27BDFE30u, "addiu sp,sp,-464: the camera update"},
+    {0x08886EC8u, 0x26B400A0u, "addiu s4,s5,160: the camera is the parent object plus 0xA0"},
+    {0x08887470u, 0x96850084u, "lhu a1,0x84(s4): the turn buttons"},
+    {0x08887474u, 0x30A200A0u, "andi v0,a1,0xa0: left and right gate the turn"},
+    {0x0888749Cu, 0x2403FB82u, "addiu v1,zero,-1150: one sign of the yaw step"},
+    {0x088874A0u, 0x2403047Eu, "addiu v1,zero,1150: and the other"},
+    {0x088874B0u, 0x86820080u, "lh v0,0x80(s4): the target yaw"},
+    {0x088874B8u, 0xA6820080u, "sh v0,0x80(s4): written back by that step"},
+    {0x08887614u, 0x86820080u, "lh v0,0x80(s4): the filter reads the target"},
+    {0x08887618u, 0x86830082u, "lh v1,0x82(s4): and the filtered yaw"},
+    {0x08887624u, 0x00021083u, "sra v0,v0,2: a quarter of the difference"},
+    {0x08887630u, 0xA6820082u, "sh v0,0x82(s4): the filtered yaw"},
+    {0x08887530u, 0x82860091u, "lb a2,0x91(s4): the behind-the-hunter gate"},
+    {0x08887534u, 0x04C00029u, "bltz a2: a negative gate skips that placement"},
+    {0x08887814u, 0xC4400004u, "lwc1 f0,4(v0): the preset's eye-offset height"},
+    {0x0888781Cu, 0xC4400008u, "lwc1 f0,8(v0): and its distance"},
+    {0x08886E80u, 0x3C03089Du, "lui v1,0x89d: the base of the hunter list"},
+    {0x08886E84u, 0x8C70BD04u, "lw s0,-17148(v1): the list at 0x089CBD04"},
+    {0x08886EF8u, 0x8E130A84u, "lw s3,2692(s0): the hunter the camera follows"},
+    {0x0888755Cu, 0x8E6301F4u, "lw v1,500(s3): the hunter's facing"},
+    {0x088D5EF0u, 0x8083067Eu, "lb v1,1662(a0): the aim pitch"},
+    {0x088D5EF8u, 0xA083067Eu, "sb v1,1662(a0): the aim pitch, written back"},
+    {0x088D5F00u, 0x28610065u, "slti at,v1,101: the aim pitch stops at 100"},
+    {0x08888448u, 0x8265067Eu, "lb a1,1662(s3): the aim camera reads that pitch"},
+    {0x08888460u, 0x00052840u, "sll a1,a1,1: one pitch unit becomes 34 angle units"},
+    {0x08888464u, 0x24A5F500u, "addiu a1,a1,-2816: the aim camera's pitch angle"},
+    {0x08887D0Cu, 0xC6820004u, "lwc1 f2,4(s4): the eye height the ease reads"},
+    {0x08887D10u, 0x3C023E00u, "lui v0,0x3e00: one eighth, the eye-height ease"},
+    {0x08887D24u, 0xE6800004u, "swc1 f0,4(s4): the eased eye height"},
 }};
 
 struct State {
@@ -164,8 +187,18 @@ struct State {
     // The pitch above is lock-on's (lock_on.hpp), not the player's.
     bool pitch_by_lock{};
     float pitch{};
+    // The shared preset's height and distance, rewritten for this update only
+    // and put back after the game has read them.
+    bool preset_patched{};
+    std::uint32_t preset{};
+    float saved_height{};
+    float saved_distance{};
     unsigned updates{};
     bool aiming{};
+    // The generated aim function, and the centred deflection to show it.
+    RotationFunction aim_original{};
+    int aim_x{};
+    int aim_y{};
     std::uint32_t aim_hunter{};
     std::uint16_t aim_heading{};
     std::array<int, 3> aim_pitch{};
@@ -216,10 +249,6 @@ bool lock_on_allowed() {
     return settings::current().lock_on;
 }
 
-// The game's camera commands in the camera's buttons (0x088E77D4), the
-// D-pad's turn and tilt, as the PSP's buttons.
-constexpr std::uint16_t kDpadCommands = 0x00F0u;
-
 float load_float(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     return std::bit_cast<float>(memory.load32(address));
 }
@@ -231,6 +260,7 @@ void store_float(psprecomp::GuestMemory &memory, std::uint32_t address, float va
 void release() {
     state.available = false;
     state.pitch_owned = false;
+    state.preset_patched = false;
     state.yaw_remainder = 0.0f;
     state.aiming = false;
     state.aim_yaw_remainder = 0.0f;
@@ -241,8 +271,8 @@ void release() {
     state.mouse_pitch_waits = 0u;
 }
 
-void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t stack, const Turn &turn,
-    bool active, bool recentre, bool vertical_command, float y, float z, float target_height) {
+void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, const Turn &turn, bool active, bool yielded,
+    bool vertical_command, float height, float distance) {
     static const std::filesystem::path path = environment_path("MHFU_TRACE_CAMERA_STATE");
     if (path.empty()) return;
     static std::ofstream out(path);
@@ -251,46 +281,59 @@ void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, std::uin
     const float eye_dz = load_float(memory, address + 8u) - load_float(memory, address + 0x18u);
     out << state.frame << ',' << std::hex << address << std::dec << ',' << active << ',' << turn.yaw_degrees << ','
         << turn.pitch_degrees << ',' << memory.load16(address + kYawTarget) << ','
-        << memory.load16(address + kYawCurrent) << ',' << y << ',' << z << ',' << target_height << ','
-        << state.pitch_owned << ',' << state.pitch << ',' << recentre << ',' << vertical_command << ','
-        << load_float(memory, stack + kStackEyeY) << ',' << load_float(memory, stack + kStackEyeZ) << ','
+        << memory.load16(address + kYawCurrent) << ',' << height << ',' << distance << ',' << state.pitch_owned << ','
+        << state.pitch << ',' << yielded << ',' << vertical_command << ','
         << std::atan2(eye_dy, std::hypot(eye_dx, eye_dz)) / kRadians << '\n';
     if (state.updates % 30u == 0u) out.flush();
 }
 
-// The ordinary follow camera: yaw on the game's own angle, pitch by orbiting
-// the eye around its look-at point at the preset's distance.
-void drive_follow(
-    psprecomp::GuestMemory &memory, psprecomp::AllegrexContext &ctx, std::uint32_t address, std::uint32_t stack) {
+void restore_preset(psprecomp::GuestMemory &memory) {
+    if (!state.preset_patched) return;
+    state.preset_patched = false;
+    if (memory.raw_pointer(state.preset, 0x0Cu) == nullptr) return;
+    store_float(memory, state.preset + kPresetHeight, state.saved_height);
+    store_float(memory, state.preset + kPresetDistance, state.saved_distance);
+}
+
+// The quest follow camera. Yaw is written to both of the game's yaw fields
+// before the update, so its quarter-step filter has nothing left to close.
+// Pitch rewrites the preset offset this update is about to read, including
+// for its collision, and the caller puts those two floats back afterwards.
+// 0x08887D10 then eases the eye's height an eighth of the way to that offset
+// and copies the other two axes at once. The player's change in height is
+// added to the eye first, so the ease is left for terrain and collision.
+void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
     if (state.address != address || state.frame - state.last_update > 2u) {
         state.pitch_owned = false;
         state.yaw_remainder = 0.0f;
     }
     state.address = address;
     state.last_update = state.frame;
-    state.available = true;
     state.aiming = false;
     ++state.updates;
 
     const bool active = driving_allowed();
-    // Taken even when inactive, so nothing built up while the option was off
-    // is spent the moment it comes back on.
+    // Taken even while this update is left to the game, so nothing built up
+    // is spent the moment the port drives again.
     const Turn turn = take();
-    const float y = load_float(memory, stack + kStackEyeY);
-    const float z = load_float(memory, stack + kStackEyeZ);
-    const auto preset = memory.load32(address + kPreset);
-    if (!memory.raw_pointer(preset, 0x20u)) return;
-    const float target_height = load_float(memory, preset + kPresetTargetHeight);
-    const float radius = std::hypot(y - target_height, z);
-    if (!std::isfinite(radius) || radius < 1.0f || radius > 10000.0f) return;
-
-    // A real D-pad command, recentre or target-camera snap cancels our pitch.
-    // The game has already selected the new preset; these stay its controls.
     const auto buttons = memory.load16(address + kButtons);
-    const bool recentre = (buttons & 0x100u) != 0u || memory.load8(address + kSnap) != 0u;
-    const bool vertical_command = (buttons & 0x50u) != 0u;
+    const auto vertical = memory.load16(address + kVerticalButtons);
+    const bool snap = memory.load8(address + kSnap) != 0u;
+    // A non-negative gate is the behind-the-hunter placement. That update,
+    // a snap, and the D-pad's own turn and tilt stay the game's.
+    const bool behind = static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0;
+    const bool turn_command = (buttons & kTurnBits) != 0u;
+    const bool vertical_command = (vertical & kVerticalBits) != 0u;
+    const bool yielded = behind || snap || turn_command || vertical_command;
 
-    // Lock-on (lock_on.hpp) aims the same angles while it holds a monster.
+    const auto preset = memory.load32(address + kPreset);
+    const bool preset_ok = memory.raw_pointer(preset, 0x20u) != nullptr;
+    const float height = preset_ok ? load_float(memory, preset + kPresetHeight) : 0.0f;
+    const float distance = preset_ok ? load_float(memory, preset + kPresetDistance) : 1.0f;
+    const float radius = std::hypot(height, distance);
+    const bool radius_ok = std::isfinite(radius) && radius >= 1.0f && radius <= 10000.0f;
+    const float stock_pitch = std::atan2(height, std::fabs(distance)) / kRadians;
+
     std::optional<LockOnAim> lock;
     if (lock_on_allowed() && lock_on_wanted()) {
         LockOnCamera camera;
@@ -298,78 +341,67 @@ void drive_follow(
         camera.yaw = memory.load16(address + kYawCurrent);
         camera.look_at = {load_float(memory, address + 0x10u), load_float(memory, address + 0x14u),
             load_float(memory, address + 0x18u)};
-        camera.manual_yaw = turn.yaw_held ? turn.yaw_degrees : 0.0f;
-        // Recentring (L) shows as the snap; holding L for the item bar
-        // does not. The D-pad turns and tilts.
-        camera.command = memory.load8(address + kSnap) != 0u || (buttons & kDpadCommands) != 0u;
-        camera.pitch = std::atan2(y - target_height, std::fabs(z)) / kRadians;
-        if (state.pitch_owned) camera.pitch = state.pitch;
-        camera.player_pitch = (active && turn.pitch_held) || (state.pitch_owned && !state.pitch_by_lock);
+        camera.manual_yaw = !yielded && turn.yaw_held ? turn.yaw_degrees : 0.0f;
+        camera.command = snap || turn_command || vertical_command;
+        camera.pitch = state.pitch_owned ? state.pitch : stock_pitch;
+        camera.player_pitch = (active && turn.pitch_held && !yielded) || (state.pitch_owned && !state.pitch_by_lock);
         lock = lock_on_update(memory, camera);
     }
     const bool lock_pitch = lock && lock->pitch;
-    if ((!active && !lock_pitch) || recentre || vertical_command) state.pitch_owned = false;
+    if ((!active && !lock_pitch) || behind || snap || vertical_command) state.pitch_owned = false;
 
-    if (lock) {
+    if (yielded) {
+        state.yaw_remainder = 0.0f;
+    } else if (lock) {
         state.yaw_remainder = 0.0f;
         memory.store16(address + kYawTarget, lock->yaw);
         memory.store16(address + kYawCurrent, lock->yaw);
-        memory.store32(ctx.gpr[5] + 4u, static_cast<std::uint32_t>(static_cast<std::int16_t>(lock->yaw)));
-    } else if (active && !recentre && turn.yaw_held) {
+    } else if (active && turn.yaw_held) {
         state.yaw_remainder -= turn.yaw_degrees * kAngleUnits;
         const int step = static_cast<int>(state.yaw_remainder);
         state.yaw_remainder -= static_cast<float>(step);
         const auto yaw = static_cast<std::uint16_t>(memory.load16(address + kYawCurrent) + step);
-        // Keeping target and filtered yaw together prevents a delayed turn
-        // after release: the filter at 0x088E61A4 has nothing left to close.
         memory.store16(address + kYawTarget, yaw);
         memory.store16(address + kYawCurrent, yaw);
-        memory.store32(ctx.gpr[5] + 4u, static_cast<std::uint32_t>(static_cast<std::int16_t>(yaw)));
     } else {
         state.yaw_remainder = 0.0f;
     }
 
-    if (lock_pitch || (active && !recentre && !vertical_command)) {
-        float previous_pitch = state.pitch;
+    if (!yielded && preset_ok && radius_ok && (lock_pitch || active)) {
+        const float previous_pitch = state.pitch_owned ? state.pitch : stock_pitch;
         if (lock_pitch) {
-            if (!state.pitch_owned) previous_pitch = std::atan2(y - target_height, std::fabs(z)) / kRadians;
             state.pitch = *lock->pitch;
             state.pitch_owned = true;
             state.pitch_by_lock = true;
         } else if (turn.pitch_held) {
-            if (!state.pitch_owned) {
-                state.pitch = std::atan2(y - target_height, std::fabs(z)) / kRadians;
-                previous_pitch = state.pitch;
-                state.pitch_owned = true;
-            }
+            if (!state.pitch_owned) state.pitch = stock_pitch;
+            state.pitch_owned = true;
             state.pitch_by_lock = false;
             state.pitch = std::clamp(state.pitch + turn.pitch_degrees, -60.0f, 70.0f);
         }
         if (state.pitch_owned) {
-            // Rotate the eye about its look-at point, keeping the current
-            // preset's distance. Only this update's stack values change; shared
-            // preset tables and other cameras are never written.
-            const float pitch = state.pitch * kRadians;
-            store_float(memory, stack + kStackEyeY, target_height + radius * std::sin(pitch));
-            store_float(memory, stack + kStackEyeZ, std::copysign(radius * std::cos(pitch), z));
-            // 0x088E6B58 eases eye.y towards target.y by 1/8 each update.
-            // Advance its current value by just the player's height change;
-            // otherwise releasing the stick leaves many frames of catch-up.
-            // Terrain movement and collision corrections still use the game's
-            // filter, and all subsequent collision checks remain in place.
-            if (state.pitch != previous_pitch) {
-                const float delta = radius * (std::sin(pitch) - std::sin(previous_pitch * kRadians));
+            state.preset = preset;
+            state.saved_height = height;
+            state.saved_distance = distance;
+            const float angle = state.pitch * kRadians;
+            const float sign = distance < 0.0f ? -1.0f : 1.0f;
+            store_float(memory, preset + kPresetHeight, radius * std::sin(angle));
+            store_float(memory, preset + kPresetDistance, std::copysign(radius * std::cos(angle), sign));
+            state.preset_patched = true;
+            // The ease at 0x08887D10 closes an eighth of (desired height - eye
+            // height). Moving the eye by the player's own change leaves it
+            // nothing of that change to close, in either direction.
+            const float delta = radius * (std::sin(angle) - std::sin(previous_pitch * kRadians));
+            if (std::isfinite(delta) && delta != 0.0f)
                 store_float(memory, address + kEyeY, load_float(memory, address + kEyeY) + delta);
-            }
         }
     }
-    trace(memory, address, stack, turn, active, recentre, vertical_command, y, z, target_height);
+    state.available = !yielded && (active || lock.has_value());
+    trace(memory, address, turn, active, yielded, vertical_command, height, distance);
 }
 
-// MHFU_TRACE_CAMERA_MODES=path.csv: every call of the rotation helper, from
-// any caller, with the camera mode and the stick, and the whole camera
-// structure whenever the mode is not the ordinary one. For finding what the
-// aiming camera keeps where, before it has a driver.
+// MHFU_TRACE_CAMERA_MODES=path.csv: every call of the camera update, with the
+// stick and the camera structure. For finding what another camera keeps where.
 std::ofstream *modes_trace() {
     static const std::filesystem::path path = environment_path("MHFU_TRACE_CAMERA_MODES");
     if (path.empty()) return nullptr;
@@ -378,10 +410,8 @@ std::ofstream *modes_trace() {
 }
 
 void dump_camera(std::ostream &out, const psprecomp::GuestMemory &memory, std::uint32_t address) {
-    const unsigned mode = memory.load8(address + kMode);
-    out << ",mode=" << mode << ",yaw=" << memory.load16(address + kYawTarget) << ':'
-        << memory.load16(address + kYawCurrent) << ",buttons=" << std::hex << memory.load16(address + kButtons)
-        << std::dec;
+    out << ",yaw=" << memory.load16(address + kYawTarget) << ':' << memory.load16(address + kYawCurrent)
+        << ",buttons=" << std::hex << memory.load16(address + kButtons) << std::dec;
     out << ",words=" << std::hex;
     for (std::uint32_t offset = 0u; offset < 0x190u; offset += 4u)
         out << (offset ? ":" : "") << memory.load32(address + offset);
@@ -408,35 +438,29 @@ void trace_modes(const psprecomp::GuestMemory &memory, const psprecomp::Allegrex
     std::ofstream *trace_out = modes_trace();
     if (trace_out == nullptr) return;
     std::ofstream &out = *trace_out;
-    // Only the camera's own calls; the helper also turns every other object.
-    if (ctx.gpr[31] != kCameraReturn && ctx.gpr[31] != 0x088E5E24u) return;
-    const auto address = ctx.gpr[17];
-    const bool camera = memory.raw_pointer(address, 0x190u) != nullptr;
+    const auto parent = ctx.gpr[4];
+    const auto address = parent + kCameraFromParent;
+    const bool camera = parent >= 0x08800000u && memory.raw_pointer(address, 0x190u) != nullptr;
     const Rate stick = rate(Source::Stick);
-    out << state.frame << ",ra=" << std::hex << ctx.gpr[31] << ",s1=" << address << std::dec;
-    if (memory.raw_pointer(ctx.gpr[5], 12u) != nullptr)
-        out << ",angles=" << static_cast<std::int32_t>(memory.load32(ctx.gpr[5])) << ':'
-            << static_cast<std::int32_t>(memory.load32(ctx.gpr[5] + 4u)) << ':'
-            << static_cast<std::int32_t>(memory.load32(ctx.gpr[5] + 8u));
+    out << state.frame << ",a0=" << std::hex << parent << ",camera=" << address << std::dec;
     out << ",stick=" << stick.yaw << ':' << stick.pitch;
     if (camera) dump_camera(out, memory, address);
-    // While the weapon aims, the object the camera follows (s5 at the
-    // ordinary call), which carries the aim the camera turns after.
-    const auto followed = ctx.gpr[21];
-    if (camera && ctx.gpr[31] == kCameraReturn && static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0 &&
-        memory.raw_pointer(followed, 0x2000u) != nullptr) {
-        out << ",s5=" << std::hex << followed << ",followed=";
-        for (std::uint32_t offset = 0u; offset < 0x2000u; offset += 4u)
-            out << (offset ? ":" : "") << memory.load32(followed + offset);
-        out << std::dec;
-    }
     out << '\n';
     out.flush();
 }
 
-bool scoped(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
-    return memory.raw_pointer(hunter, kHunterExtent) != nullptr &&
-        (memory.load32(hunter + kHunterWeaponFlags) & kScopeFlag) != 0u;
+// The followed hunter, or 0 when the list is not in guest RAM yet.
+std::uint32_t followed_hunter(const psprecomp::GuestMemory &memory) {
+    if (memory.raw_pointer(kHunterList, 4u) == nullptr) return 0u;
+    const auto list = memory.load32(kHunterList);
+    if (list < 0x08800000u || memory.raw_pointer(list + kFollowedHunter, 4u) == nullptr) return 0u;
+    const auto hunter = memory.load32(list + kFollowedHunter);
+    if (hunter < 0x08800000u || memory.raw_pointer(hunter, kHunterExtent) == nullptr) return 0u;
+    return hunter;
+}
+
+bool hunter_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
+    return hunter != 0u && memory.load16(hunter + kAimAction) == kAimingAction;
 }
 
 // MHFU_TRACE_AIM=path.csv: one line per aiming camera update with what the
@@ -463,14 +487,22 @@ void store_pitch(psprecomp::GuestMemory &memory, std::uint32_t hunter, const Pit
 
 void remember_aim(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
     state.aim_hunter = hunter;
-    state.aim_heading = memory.load16(hunter + kHunterHeading);
+    state.aim_heading = memory.load16(hunter + kAimHeading);
     for (std::size_t i = 0; i < kPitchFields.size(); ++i)
         state.aim_pitch[i] = load_pitch(memory, hunter, kPitchFields[i]);
 }
 
+// Writes the aim heading. The body facing's low 16 bits move with it while
+// they are still on that heading (or within one aim step of it); a facing the
+// game has put somewhere else is left there.
 void store_heading(psprecomp::GuestMemory &memory, std::uint32_t hunter, std::uint16_t heading) {
-    memory.store16(hunter + kHunterHeading, heading);
-    memory.store16(hunter + kHunterYaw, heading);
+    const auto previous = memory.load16(hunter + kAimHeading);
+    memory.store16(hunter + kAimHeading, heading);
+    const auto facing = memory.load32(hunter + kFacing);
+    const auto body = static_cast<std::uint16_t>(facing);
+    const int apart = static_cast<std::int16_t>(static_cast<std::uint16_t>(body - previous));
+    if (std::abs(apart) <= kLargestYawStep)
+        memory.store32(hunter + kFacing, (facing & 0xFFFF0000u) | heading);
 }
 
 int sign_of(float value) {
@@ -499,7 +531,7 @@ void settle_anticipation(psprecomp::GuestMemory &memory) {
     const std::uint32_t hunter = state.aim_hunter;
     const bool valid = memory.raw_pointer(hunter, kHunterExtent) != nullptr;
     if (valid && state.anticipated_yaw != 0) {
-        const auto heading = memory.load16(hunter + kHunterHeading);
+        const auto heading = memory.load16(hunter + kAimHeading);
         const int game = static_cast<std::int16_t>(static_cast<std::uint16_t>(heading - state.anticipated_heading));
         if (std::abs(game) <= kLargestYawStep)
             store_heading(memory, hunter, static_cast<std::uint16_t>(heading + state.anticipated_yaw));
@@ -538,21 +570,17 @@ void learn_steps(bool scope, int game_yaw, int game_pitch, std::size_t pitch_fie
     }
 }
 
-// A bow or a bowgun aiming, or a bowgun's scope. The stick reaches the game
-// stretched to full length (game_camera_aim_boost), so its aim code steps
-// whenever the player pushes at all and the game allows it; here each step
-// the game made since the previous update is replaced by one in proportion to
-// the stick, in the game's direction. No step from the game -- rolling,
-// moving, firing, a state that locks an axis -- means no movement from the
-// port either. A step made while the right stick is idle (the left stick in
-// the scope) is kept as is.
-//
-// The mouse works the same way through the direction game_camera_mouse_aim()
-// shows the game: a step made while the stick is idle and the mouse's
-// direction was shown is sized by the mouse's degrees instead, and none left
-// means the step is taken back.
-void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::uint32_t address) {
-    const auto hunter = ctx.gpr[21];
+// A bow or a bowgun in the aim action. The right stick, or the mouse, is
+// shown to the aim function for that call (aim_step), so it steps whenever
+// that push is allowed; here each step is replaced by one in proportion to
+// that stick, in the game's direction. The movement stick is not that push.
+// With the right stick idle the left stick is what the game read, and its
+// three speeds are replaced by one that follows its magnitude. No step from
+// the game -- rolling, firing, a state that locks an axis, the D-pad with the
+// stick centred -- means the port adds none of its own. A step made for the
+// mouse is sized by the mouse's degrees, and none left means the step is
+// taken back.
+void drive_aim(psprecomp::GuestMemory &memory, std::uint32_t hunter, std::uint32_t address) {
     state.address = address;
     const int anticipated_yaw = state.anticipated_yaw;
     const int anticipated_pitch = state.anticipated_pitch;
@@ -569,7 +597,9 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
     ++state.updates;
     const Turn mouse = take_pointer();
     const Turn turn = take();
-    const bool scope = scoped(memory, hunter);
+    const bool scope = false;
+    const int magnitude = static_cast<std::int16_t>(memory.load16(hunter + kStickMagnitude));
+    const bool left_held = magnitude >= kStickDeadzone;
     if (!state.aiming || state.aim_hunter != hunter) {
         // The first update of an aim only learns where the aim starts.
         state.aiming = true;
@@ -593,14 +623,17 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
     bool pitch_spent = false;
 
     const float carried_yaw = state.mouse_yaw;
-    const auto heading = memory.load16(hunter + kHunterHeading);
+    const auto heading = memory.load16(hunter + kAimHeading);
     const int game_yaw = static_cast<std::int16_t>(static_cast<std::uint16_t>(heading - state.aim_heading));
-    if (game_yaw != 0 && std::abs(game_yaw) <= kLargestYawStep && (turn.yaw_held || mouse_shown)) {
+    if (game_yaw != 0 && std::abs(game_yaw) <= kLargestYawStep && (turn.yaw_held || mouse_shown || left_held)) {
         float degrees = std::fabs(turn.yaw_degrees);
-        if (!turn.yaw_held) {
+        if (!turn.yaw_held && mouse_shown) {
             degrees = std::fabs(state.mouse_yaw);
             state.mouse_yaw = 0.0f;
             yaw_spent = true;
+        } else if (!turn.yaw_held) {
+            degrees = static_cast<float>(magnitude) / static_cast<float>(kStickFull) * settings::current().aim_speed *
+                advance_seconds();
         }
         state.aim_yaw_remainder += degrees * kAngleUnits;
         const int step = static_cast<int>(state.aim_yaw_remainder);
@@ -622,12 +655,15 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
             game_pitch_seen = game_pitch;
             pitch_field_seen = i;
         }
-        if (!(turn.pitch_held || mouse_shown)) continue;
+        if (!(turn.pitch_held || mouse_shown || left_held)) continue;
         pitch_stepped = true;
         float degrees = std::fabs(turn.pitch_degrees);
-        if (!turn.pitch_held) {
+        if (!turn.pitch_held && mouse_shown) {
             degrees = std::fabs(state.mouse_pitch);
             pitch_spent = true;
+        } else if (!turn.pitch_held) {
+            degrees = static_cast<float>(magnitude) / static_cast<float>(kStickFull) * settings::current().aim_speed *
+                advance_seconds();
         }
         const float wanted = state.aim_pitch_remainder + degrees;
         const int step = static_cast<int>(wanted * field.units_per_degree);
@@ -643,7 +679,7 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
         learn_steps(scope, std::abs(game_yaw) <= kLargestYawStep ? game_yaw : 0, game_pitch_seen, pitch_field_seen);
     if (std::ofstream *out = aim_trace()) {
         const int applied = static_cast<std::int16_t>(
-            static_cast<std::uint16_t>(memory.load16(hunter + kHunterHeading) - state.aim_heading));
+            static_cast<std::uint16_t>(memory.load16(hunter + kAimHeading) - state.aim_heading));
         *out << state.frame << ",update,scope=" << scope << ",stick=" << turn.yaw_degrees << ':' << turn.pitch_degrees
              << ",mouse=" << mouse.yaw_degrees << ':' << mouse.pitch_degrees << ",carried=" << carried_yaw
              << ",shown=" << mouse_shown << ",anticipated=" << anticipated_yaw << ':' << anticipated_pitch
@@ -671,37 +707,64 @@ void drive_aim(psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext 
     remember_aim(memory, hunter);
 }
 
-void adjust_camera(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    trace_modes(runtime.memory(), ctx);
-    if (ctx.gpr[31] != kCameraReturn) return;
+// Shows aim_x/aim_y to the aim function, then puts the hunter's stick back,
+// so walking still follows the stick the player is holding.
+void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     auto &memory = runtime.memory();
-    const auto address = ctx.gpr[17];
-    const auto stack = ctx.gpr[29];
-    if (!memory.raw_pointer(address, 0x188u) || !memory.raw_pointer(stack, 0x190u) ||
-        !memory.raw_pointer(ctx.gpr[5], 12u))
-        return;
-    switch (memory.load8(address + kMode)) {
-    case kFollowMode:
-        // Aiming a bow or a bowgun, or looking through a bowgun's scope: the
-        // stick moves the aim and the game's camera follows it.
-        if (static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0 || scoped(memory, ctx.gpr[21])) {
-            drive_aim(memory, ctx, address);
-            return;
-        }
-        drive_follow(memory, ctx, address, stack);
-        return;
-    // A driver for the aiming camera goes here, once traced.
-    default:
-        release();
-        return;
+    const auto hunter = ctx.gpr[4];
+    const bool show = (state.aim_x != 0 || state.aim_y != 0) && memory.raw_pointer(hunter, kHunterExtent) != nullptr;
+    std::uint32_t saved_buttons = 0u;
+    std::uint16_t saved_magnitude = 0u;
+    if (show) {
+        saved_buttons = memory.load32(hunter + kHunterButtons);
+        saved_magnitude = memory.load16(hunter + kStickMagnitude);
+        std::uint32_t direction = 0u;
+        if (state.aim_x > 0) direction |= kStickRight;
+        else if (state.aim_x < 0) direction |= kStickLeft;
+        if (state.aim_y < 0) direction |= kStickUp;
+        else if (state.aim_y > 0) direction |= kStickDown;
+        memory.store32(hunter + kHunterButtons, (saved_buttons & ~kStickDirectionMask) | direction);
+        memory.store16(hunter + kStickMagnitude, static_cast<std::uint16_t>(kStickFull));
+    }
+    if (state.aim_original != nullptr) state.aim_original(runtime, ctx);
+    if (show && memory.raw_pointer(hunter, kHunterExtent) != nullptr) {
+        memory.store32(hunter + kHunterButtons, saved_buttons);
+        memory.store16(hunter + kStickMagnitude, saved_magnitude);
     }
 }
 
+// The aim function lives in an overlay, so the wrapper is put back whenever
+// that overlay is installed again. A different image at the same address is
+// left alone.
+void install_aim_hook(psprecomp::Runtime &runtime) {
+    if (!option_on()) return;
+    const RotationFunction current = runtime.function_at(kAimFunction);
+    if (current == nullptr || current == &aim_step) return;
+    const auto &memory = runtime.memory();
+    for (const CodeWord &expected : kAimSignature)
+        if (memory.load32(expected.address) != expected.word) return;
+    state.aim_original = current;
+    runtime.register_function(kAimFunction, &aim_step, "mhfu_aim_step");
+}
+
 void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    adjust_camera(runtime, ctx);
-    // Continue the original helper with the same CPU context and return PC.
+    trace_modes(runtime.memory(), ctx);
+    auto &memory = runtime.memory();
+    const auto parent = ctx.gpr[4];
+    const auto address = parent + kCameraFromParent;
+    const bool camera = parent >= 0x08800000u && memory.raw_pointer(address, 0x98u) != nullptr;
+    const auto hunter = followed_hunter(memory);
+    if (hunter_aiming(memory, hunter)) {
+        drive_aim(memory, hunter, camera ? address : 0u);
+    } else if (camera) {
+        drive_follow(memory, address);
+    } else if (state.aiming) {
+        release();
+    }
+    // Continue the original update with the same CPU context and return PC.
     // Do not invoke an isolated guest call: normal scheduling must be retained.
     state.original(runtime, ctx);
+    restore_preset(memory);
 }
 
 } // namespace
@@ -710,12 +773,16 @@ std::span<const CodeWord> game_code_signature() {
     return kSignature;
 }
 
+std::span<const CodeWord> aim_code_signature() {
+    return kAimSignature;
+}
+
 bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original) {
     state = State{};
     reset();
     lock_on_reset();
-    if (!original || !runtime.has_function(kRotationHelper)) {
-        std::cerr << "[camera] the rotation helper is not in the generated code; analog camera unavailable\n";
+    if (!original || !runtime.has_function(kCameraUpdate)) {
+        std::cerr << "[camera] the camera update is not in the generated code; analog camera unavailable\n";
         return false;
     }
     for (const CodeWord &expected : kSignature) {
@@ -749,9 +816,10 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
         // generated cross-unit camera call reaches the wrapper without
         // regeneration. It stays until exit; with the option off again the
         // wrapper only passes through.
-        runtime.register_function(kRotationHelper, &camera_rotation, "mhfu_camera_rotation");
+        runtime.register_function(kCameraUpdate, &camera_rotation, "mhfu_camera_update");
         state.hooked = true;
     }
+    install_aim_hook(runtime);
     if (state.frame - state.last_update > 1u) release();
     if (!driving_allowed() && !(state.pitch_by_lock && lock_on_status().locked)) {
         state.pitch_owned = false;
@@ -767,6 +835,11 @@ bool game_camera_driving() {
 
 bool game_camera_aim_boost() {
     return driving_allowed() && state.aiming && state.frame - state.last_update <= 1u;
+}
+
+void game_camera_present_aim(int x, int y) {
+    state.aim_x = x;
+    state.aim_y = y;
 }
 
 std::optional<StickDirection> game_camera_mouse_aim() {
@@ -803,7 +876,7 @@ void game_camera_anticipate_aim(psprecomp::Runtime &runtime) {
         const float other = static_cast<float>(steps[1u - diagonal]);
         return static_cast<int>(std::lround(diagonal != 0u ? other * kDiagonal : other / kDiagonal));
     };
-    const auto heading = memory.load16(hunter + kHunterHeading);
+    const auto heading = memory.load16(hunter + kAimHeading);
     const int yaw_step = step_for(state.yaw_step);
     if (x != 0 && state.yaw_sign != 0 && yaw_step != 0 && heading == state.aim_heading) {
         state.anticipated_yaw = state.yaw_sign * x * yaw_step;

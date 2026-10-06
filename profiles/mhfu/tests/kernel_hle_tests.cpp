@@ -846,7 +846,7 @@ void network_contracts() {
     }
     settings.adhoc = true;
     settings.adhoc_server = "127.0.0.1:" + std::to_string(server_port);
-    f.string(Fixture::text + 4, "ULJM05800");
+    f.string(Fixture::text + 4, "ULUS10391");
     check(ctl("sceNetAdhocctlInit", {0, 0, Fixture::text}) == 0 && ctl("sceNetAdhocctlInit") == 0x80410b07u,
         "control initializes one client identity");
     check(wait_until([] { return Client::get().server_state() == ServerState::Online; }),
@@ -856,7 +856,7 @@ void network_contracts() {
     Client::get().join("PUBLIC01");
     check(wait_until([] { return Client::get().in_group(); }), "real HLE client joins group");
     ProtocolPeer remote(server_port);
-    remote.send(ctl::login(macB, "PublicB", "ULJM05800") + ctl::connect("PUBLIC01"));
+    remote.send(ctl::login(macB, "PublicB", "ULUS10391") + ctl::connect("PUBLIC01"));
     check(wait_until([] { return Client::get().peers().size() == 1; }), "HLE client observes public protocol peer");
     check(ctl("sceNetAdhocctlGetPeerList", {length, 0}) == 0 && f.runtime.memory().load32(length) == 152,
         "peer sizing query counts records");

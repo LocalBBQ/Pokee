@@ -8,7 +8,7 @@
 #include <vector>
 
 // The mod folders this game's community already uses, so that mods made for
-// mhp3reload and its mod manager work unchanged. Implemented from their
+// the community mod loader and its mod manager work unchanged. Implemented from their
 // published documentation and from the files themselves, not from their code
 // (see docs/SOURCE_PROVENANCE.md):
 //
@@ -16,7 +16,7 @@
 //   Type, its Files, and for file and patch mods the Target file ids.
 // - A file id is a DATA.BIN entry index in four upper-case hex digits.
 // - A folder without a mod.ini that holds files named by file id (0601) and
-//   patches named by file id and P (0601P), as mhp3reload's own files folder
+//   patches named by file id and P (0601P), as the community loader's files folder
 //   does, is taken as one mod.
 //
 // Game-specific: the machinery that uses this is in mod_library.hpp.

@@ -24,7 +24,7 @@
 //   10     1    players logged in to the host's server
 //   11     1    reserved, 0
 //   12     4    session: a random number the host keeps while it hosts
-//   16     10   product code, NUL-padded (ULJM05800)
+//   16     10   product code, NUL-padded (ULUS10391)
 //   26     32   host's name, UTF-8, NUL-padded
 //   58          end
 //

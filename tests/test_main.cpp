@@ -7,6 +7,7 @@
 #include "psprecomp/nid_registry.hpp"
 #include "psprecomp/program_analysis.hpp"
 #include "psprecomp/runtime.hpp"
+#include "psprecomp/stale_code_hook.hpp"
 #include "psprecomp/sha256.hpp"
 
 #include <array>
@@ -125,6 +126,37 @@ static void test_chained_call_context_guard() {
     ctx.pc = 0x08804100u;
     require(
         !unit_runtime.invoke_chained_unit(ctx, 0u), "Overridden generated unit bypassed exact non-chainable lookup");
+    psprecomp::set_runtime_thread_identity(-1, "none");
+}
+
+static int stale_code_runs = 0;
+
+static void stale_code_body(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    ++stale_code_runs;
+    ctx.pc = 0x08804220u;
+}
+
+static bool stale_code_reject(psprecomp::Runtime &, std::uint32_t) {
+    return true;
+}
+
+static void test_stale_code_hook_skips_registered_body() {
+    psprecomp::Runtime runtime;
+    runtime.register_function(0x08804200u, &stale_code_body, "recomp_unit_stale");
+    psprecomp::AllegrexContext ctx{};
+    psprecomp::set_runtime_thread_identity(3, "threadmain");
+
+    stale_code_runs = 0;
+    psprecomp::set_runtime_stale_code_hook(&stale_code_reject);
+    ctx.pc = 0x08804200u;
+    require(!runtime.invoke_chained_call(ctx), "Stale compiled code was allowed to run");
+    require(stale_code_runs == 0, "Stale compiled code executed after the hook rejected it");
+    require(ctx.pc == 0x08804200u, "Rejecting stale code moved the guest PC");
+
+    psprecomp::set_runtime_stale_code_hook(nullptr);
+    ctx.pc = 0x08804200u;
+    require(runtime.invoke_chained_call(ctx), "Clearing the stale-code hook left the call rejected");
+    require(stale_code_runs == 1 && ctx.pc == 0x08804220u, "The registered body did not run once the hook was cleared");
     psprecomp::set_runtime_thread_identity(-1, "none");
 }
 
@@ -1092,6 +1124,7 @@ int main() {
     try {
         test_import_return_context_guard();
         test_chained_call_context_guard();
+        test_stale_code_hook_skips_registered_body();
         test_nested_direct_chain_context_guard();
         test_interpreter_delay_slots_and_branch_likely();
         test_interpreter_unaligned_word_access();

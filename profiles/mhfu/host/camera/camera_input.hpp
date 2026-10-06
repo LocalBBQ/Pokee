@@ -26,6 +26,9 @@ void add_motion(Source source, float yaw_degrees, float pitch_degrees);
 // Once per presented game frame: turns the held rates into degrees over the
 // real time since the previous frame. `degrees_per_second` is full deflection.
 void advance(float seconds, float degrees_per_second);
+// The seconds the last advance() turned into degrees, already capped so a
+// pause does not count. Zero before the first advance and after a bad one.
+[[nodiscard]] float advance_seconds();
 
 struct Turn {
     float yaw_degrees{};

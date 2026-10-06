@@ -23,7 +23,7 @@ COVERAGE_CXX ?= clang++-18
 endif
 COVERAGE_PYTHON := out/coverage-tools/bin/python
 NATIVE_COVERAGE_RUN ?= $(PYTHON)
-HEADLESS_ARGS := -DPSPRECOMP_PROFILE=mhp3rd -DPSPRECOMP_BUILD_TESTS=ON -DMHP3RD_RENDERER=OFF -DMHP3RD_FFMPEG=OFF
+HEADLESS_ARGS := -DPSPRECOMP_PROFILE=mhfu -DPSPRECOMP_BUILD_TESTS=ON -DMHFU_RENDERER=OFF -DMHFU_FFMPEG=OFF
 
 .PHONY: help configure build test python-test java-test check tools lint format-check format tidy-tools tidy cppcheck-tools cppcheck sanitizers coverage coverage-tools python-coverage project-coverage app
 
@@ -48,7 +48,7 @@ help:
 	  'make coverage-tools  Install the pinned Python coverage collector' \
 	  'make python-coverage Run full Python suites with source/branch coverage' \
 	  'make project-coverage Collect reports and enforce 80% changed-line coverage' \
-	  'make app             Build Yakumo in an already configured APP_BUILD_DIR' \
+	  'make app             Build Pokee in an already configured APP_BUILD_DIR' \
 	  'Overrides: JOBS=2 BUILD_DIR=out/tests CMAKE_ARGS="..." CTEST_ARGS="..."'
 
 configure:
@@ -61,12 +61,12 @@ test: build
 	$(CTEST) --test-dir "$(BUILD_DIR)" --output-on-failure --no-tests=error --timeout 120 $(CTEST_ARGS)
 
 python-test:
-	$(PYTHON) profiles/mhp3rd/tests/tool_security_tests.py
+	$(PYTHON) profiles/mhfu/tests/tool_security_tests.py
 	$(PYTHON) -m unittest discover -s scripts/ci -p 'test_*.py'
 
 java-test:
 	@test -n "$(SDL_SOURCE)" || { printf '%s\n' 'Set SDL_SOURCE to the pinned SDL source checkout; see docs/COVERAGE.md.' >&2; exit 1; }
-	$(MAVEN) -B -f profiles/mhp3rd/tests/android/pom.xml -Dsdl.source="$(SDL_SOURCE)" clean verify
+	$(MAVEN) -B -f profiles/mhfu/tests/android/pom.xml -Dsdl.source="$(SDL_SOURCE)" clean verify
 
 # Recursive commands keep this sequence ordered even with make -j.
 check:
@@ -125,7 +125,7 @@ coverage-tools:
 
 python-coverage:
 	"$(COVERAGE_PYTHON)" -m coverage erase
-	"$(COVERAGE_PYTHON)" -m coverage run --parallel-mode profiles/mhp3rd/tests/tool_security_tests.py
+	"$(COVERAGE_PYTHON)" -m coverage run --parallel-mode profiles/mhfu/tests/tool_security_tests.py
 	"$(COVERAGE_PYTHON)" -m coverage run --parallel-mode -m unittest discover -s scripts/ci -p 'test_*.py'
 	"$(COVERAGE_PYTHON)" -m coverage combine --append
 	"$(COVERAGE_PYTHON)" -m coverage json
@@ -142,4 +142,4 @@ project-coverage:
 
 app:
 	@test -n "$(APP_BUILD_DIR)" || { printf '%s\n' 'Set APP_BUILD_DIR to an existing game build; see docs/BUILDING.md.' >&2; exit 1; }
-	$(CMAKE) --build "$(APP_BUILD_DIR)" --target Yakumo --parallel $(JOBS)
+	$(CMAKE) --build "$(APP_BUILD_DIR)" --target Pokee --parallel $(JOBS)

@@ -32,7 +32,7 @@ class CoveragePipelineTests(unittest.TestCase):
             write('owned/__init__.py', '')
             for name in ('archive', 'unit', 'collector'):
                 write(f'owned/{name}.py', 'VALUE = 1\n')
-            write('profiles/mhp3rd/tests/tool_security_tests.py',
+            write('profiles/mhfu/tests/tool_security_tests.py',
                   'import sys\nfrom pathlib import Path\n'
                   'sys.path.insert(0, str(Path(__file__).resolve().parents[3]))\nimport owned.archive\n')
             write('scripts/ci/test_probe.py',

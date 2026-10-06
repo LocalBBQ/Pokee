@@ -163,7 +163,7 @@ void test_format(const fs::path &root) {
     make_mod(mods / "withpreview", "Name=\"P\"\nType=\"Pack\"\nModList=\"a\"\n");
     check(!format.read(mods / "withpreview")->preview.empty(), "format: the preview is found without case");
 
-    // mhp3reload's own files folder: files named by id, patches with P.
+    // The community loader's files folder: files named by id, patches with P.
     write(mods / "raw" / "files" / "0601", pattern(16, 1));
     write(mods / "raw" / "files" / "0602P", pattern(16, 2));
     write(mods / "raw" / "files" / "readme.txt", "x");

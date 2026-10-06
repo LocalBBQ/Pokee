@@ -1,6 +1,6 @@
 # Releasing
 
-A release gives players the program ready to run: the executable with the recompiled game code built in and the 355 overlay libraries. Like the repository, it does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. On first start it asks for the files from the player's own legally obtained copy, the disc image, checks it, accepts only the original release, and prepares the game from it (see [Installer](../profiles/mhp3rd/README.md#installer)).
+A release gives players the program ready to run: the executable with the recompiled game code built in and the 355 overlay libraries. Like the repository, it does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. On first start it asks for the files from the player's own legally obtained copy, the disc image, checks it, accepts only the original release, and prepares the game from it (see [Installer](../profiles/mhfu/README.md#installer)).
 
 Releases are built by maintainers, not by CI: the recompiled code is generated from the game's executable, so a build needs a copy of the game. The game data stays on the maintainer's machine. Every artifact is checked for it before it is published.
 
@@ -12,14 +12,14 @@ There are two kinds of release, and players must be able to tell them apart at a
 | --- | --- | --- |
 | Tag | `vX.Y.Z`, e.g. `v0.7.0`, `v0.7.1` | `vX.Y.Z-test.N`, e.g. `v0.7.0-test.1` |
 | GitHub | a normal release, marked **Latest** | always a **pre-release**, never Latest |
-| Title | `Yakumo vX.Y.Z` | `(test) Yakumo vX.Y.Z-test.N` |
+| Title | `Pokee vX.Y.Z` | `(test) Pokee vX.Y.Z-test.N` |
 | Notes | what changed | start with the notice below, then what changed |
 | Platforms | all of them | any subset (e.g. Android only), said in the notes |
 
 Every test build's notes start with this notice, with the link pointing at the latest stable release:
 
 ```markdown
-> ⚠️ **This is a test build, not a stable release.** The latest stable release is [Yakumo vX.Y.Z](…). If you just want to play, stay on (or go back to) that one. Install this build only if you want to help test.
+> ⚠️ **This is a test build, not a stable release.** The latest stable release is [Pokee vX.Y.Z](…). If you just want to play, stay on (or go back to) that one. Install this build only if you want to help test.
 ```
 
 A test build becomes stable without being built again: when it has passed the checks below, the same commit is tagged `vX.Y.Z` and published with the same files (renamed to the stable version where the file name carries it, and re-checked against `SHA256SUMS`). So what was tested is exactly what players get.
@@ -43,12 +43,12 @@ There are Linux, macOS and [Windows](#windows) builds. Android is described [bel
 
 ## Linux
 
-`profiles/mhp3rd/scripts/release_linux.sh` builds both Linux artifacts from a checkout:
+`profiles/mhfu/scripts/release_linux.sh` builds both Linux artifacts from a checkout:
 
 | Artifact | Contents |
 | --- | --- |
-| `yakumo-<version>-linux-x86_64.flatpak` | Flatpak bundle, app ID `io.github.teamgdb.Yakumo`, on the `org.freedesktop.Platform` 25.08 runtime. The main download, and the one for the Steam Deck. |
-| `yakumo-<version>-linux-x86_64.tar.gz` | Portable tarball: the `yakumo` launcher, `Yakumo`, `overlays/`, `lib/` (SDL3, FFmpeg), `fonts/`, `licenses/` |
+| `pokee-<version>-linux-x86_64.flatpak` | Flatpak bundle, app ID `io.github.teamgdb.Pokee`, on the `org.freedesktop.Platform` 25.08 runtime. The main download, and the one for the Steam Deck. |
+| `pokee-<version>-linux-x86_64.tar.gz` | Portable tarball: the `pokee` launcher, `Pokee`, `overlays/`, `lib/` (SDL3, FFmpeg), `fonts/`, `licenses/` |
 | `ffmpeg-<version>.tar.xz` | The unmodified source of the FFmpeg both artifacts contain, published next to them as the LGPL asks |
 | `SHA256SUMS` | Checksums of the three files above |
 | `BUILDINFO.txt` | Commit, build environment, glibc requirement and the FFmpeg configure line, for the release notes |
@@ -57,14 +57,14 @@ Flathub cannot host the Flatpak: its builders compile everything from source, an
 
 ### What the script does
 
-1. Checks the game data a source build uses: `profiles/mhp3rd/game/EBOOT.ELF` (the SHA-256 in the profile README) and `profiles/mhp3rd/game/disc.iso`. `prepare_game.sh` sets both up; `Yakumo --install` produces the executable from the image.
+1. Checks the game data a source build uses: `profiles/mhfu/game/EBOOT.ELF` (the SHA-256 in the profile README) and `profiles/mhfu/game/disc.iso`. `prepare_game.sh` sets both up; `Pokee --install` produces the executable from the image.
 2. Starts the Steam Runtime 3 "sniper" SDK container (Debian 11, glibc 2.31), pinned by digest in `packaging/linux/sources.sh`, and runs `packaging/linux/build_in_sdk.sh` in it, which
    - builds SDL3 from a source archive pinned by version and SHA-256 in `sources.sh`;
-   - configures Yakumo with `-DMHP3RD_RELEASE=ON`, `-DMHP3RD_FFMPEG=bundled` and GCC 14. The bundled FFmpeg is built by `cmake/FFmpeg.cmake` with only `libavcodec` and `libavutil` and the ATRAC3, ATRAC3plus and H.264 decoders, and configuring stops unless FFmpeg reports the LGPL with no GPL or non-free parts. The build then generates the recompiled code, builds `Yakumo` and runs the save-data self-tests;
+   - configures Pokee with `-DMHFU_RELEASE=ON`, `-DMHFU_FFMPEG=bundled` and GCC 14. The bundled FFmpeg is built by `cmake/FFmpeg.cmake` with only `libavcodec` and `libavutil` and the ATRAC3, ATRAC3plus and H.264 decoders, and configuring stops unless FFmpeg reports the LGPL with no GPL or non-free parts. The build then generates the recompiled code, builds `Pokee` and runs the save-data self-tests;
    - builds all overlay libraries with `build_overlays.sh`;
    - stages the program with the libraries it needs, the fallback Japanese font and the license texts, strips it, and checks that every library resolves, that no binary needs `libstdc++.so`, and which glibc version it needs.
 3. Packs the tarball from the staged tree, with the launcher, in a reproducible order and with fixed timestamps.
-4. Builds the Flatpak with `flatpak-builder` (the `org.flatpak.Builder` Flatpak) from `packaging/linux/io.github.teamgdb.Yakumo.yml`, which packs the same staged tree, and exports it as a single-file bundle.
+4. Builds the Flatpak with `flatpak-builder` (the `org.flatpak.Builder` Flatpak) from `packaging/linux/io.github.teamgdb.Pokee.yml`, which packs the same staged tree, and exports it as a single-file bundle.
 5. Unpacks both artifacts again and refuses them if any file is named like game data (`EBOOT*`, `*.iso`, `*.cso`, `*.bin`, `*.prx`, `*.pbp`, `*.elf`, `DATA.BIN`, `PARAM.SFO`, `SAVEDATA`, `ms0`, …) or looks like it by content: a MIPS ELF, a PBP, an encrypted PSP module, a `PARAM.SFO` or an ISO 9660 image.
 6. Prints the checksums.
 
@@ -77,27 +77,27 @@ Flathub cannot host the Flatpak: its builders compile everything from source, an
 ### Build
 
 ```bash
-profiles/mhp3rd/scripts/release_linux.sh --version 0.2.0
+profiles/mhfu/scripts/release_linux.sh --version 0.2.0
 ```
 
-Without `--version`, the artifacts are named after `git describe`. `--jobs N` sets the number of parallel compiles (default 4; each generated unit needs over a gigabyte of memory). `--skip-build` packs the staged build of a previous run again, `--no-flatpak` and `--no-tarball` leave one artifact out. Everything is kept in `out/release-linux/`, the artifacts in `out/release-linux/dist/`. Build from a clean checkout of the commit you release: the version shown in Yakumo's menu comes from `git describe` of the checkout.
+Without `--version`, the artifacts are named after `git describe`. `--jobs N` sets the number of parallel compiles (default 4; each generated unit needs over a gigabyte of memory). `--skip-build` packs the staged build of a previous run again, `--no-flatpak` and `--no-tarball` leave one artifact out. Everything is kept in `out/release-linux/`, the artifacts in `out/release-linux/dist/`. Build from a clean checkout of the commit you release: the version shown in Pokee's menu comes from `git describe` of the checkout.
 
 On a Steam Deck, keep it plugged in and stop it from sleeping during the build, which runs the CPU flat out for hours: a Deck that suspends or runs flat in the middle leaves the build to be resumed, and a hard power-off can damage the half-written files, so after one delete `out/release-linux/build` and let the compiler cache catch up. Over SSH, start the build as a user service so that it also survives the connection closing, and use three jobs to keep the temperature down:
 
 ```bash
-systemd-run --user --unit=yakumo-release --collect \
-    systemd-inhibit --what=sleep:idle --why="Yakumo release build" \
-    "$PWD/profiles/mhp3rd/scripts/release_linux.sh" --jobs 3
-journalctl --user -fu yakumo-release     # follow it
+systemd-run --user --unit=pokee-release --collect \
+    systemd-inhibit --what=sleep:idle --why="Pokee release build" \
+    "$PWD/profiles/mhfu/scripts/release_linux.sh" --jobs 3
+journalctl --user -fu pokee-release     # follow it
 ```
 
 ### Check
 
 On a machine with the game, before publishing.
 
-**Never touch a player's own installation or data.** `~/.var/app/io.github.teamgdb.Yakumo` is shared by every installation of the Flatpak, and `~/.local/share/Yakumo` by every tarball: they hold the player's settings, copied disc image and saves. So on a machine where someone plays:
+**Never touch a player's own installation or data.** `~/.var/app/io.github.teamgdb.Pokee` is shared by every installation of the Flatpak, and `~/.local/share/Pokee` by every tarball: they hold the player's settings, copied disc image and saves. So on a machine where someone plays:
 
-- never uninstall, reinstall or replace an installed Yakumo, and never use `--delete-data`;
+- never uninstall, reinstall or replace an installed Pokee, and never use `--delete-data`;
 - never delete or overwrite anything in those directories, or in Steam's files;
 - run every check with its data in a throwaway directory of your own, and clean up only what you created there.
 
@@ -106,33 +106,33 @@ check=$(mktemp -d)
 
 # The tarball: set up from the disc image alone into a temporary data
 # directory, then boot without a window.
-tar -xzf out/release-linux/dist/yakumo-*-linux-x86_64.tar.gz -C "$check"
-export MHP3RD_DATA_DIR="$check/data"
-"$check"/yakumo-*/yakumo --install /path/to/your.iso
-MHP3RD_NO_RENDER=1 MHP3RD_NO_AUDIO=1 timeout 120 "$check"/yakumo-*/yakumo
-unset MHP3RD_DATA_DIR
+tar -xzf out/release-linux/dist/pokee-*-linux-x86_64.tar.gz -C "$check"
+export MHFU_DATA_DIR="$check/data"
+"$check"/pokee-*/pokee --install /path/to/your.iso
+MHFU_NO_RENDER=1 MHFU_NO_AUDIO=1 timeout 120 "$check"/pokee-*/pokee
+unset MHFU_DATA_DIR
 
 # The Flatpak, without installing it: run the committed tree from the build's
 # repository with the same runtime, pointing its data at the temporary
-# directory. This leaves any installed Yakumo and its data alone.
+# directory. This leaves any installed Pokee and its data alone.
 ostree --repo=out/release-linux/flatpak/repo checkout --user-mode \
-    app/io.github.teamgdb.Yakumo/x86_64/stable "$check/app"
+    app/io.github.teamgdb.Pokee/x86_64/stable "$check/app"
 flatpak run --command=bash --filesystem="$check" --filesystem=/path/to/iso-folder:ro \
-    --env=MHP3RD_DATA_DIR="$check/flatpak-data" --env=MHP3RD_NO_RENDER=1 --env=MHP3RD_NO_AUDIO=1 \
+    --env=MHFU_DATA_DIR="$check/flatpak-data" --env=MHFU_NO_RENDER=1 --env=MHFU_NO_AUDIO=1 \
     org.freedesktop.Platform//25.08 -c \
-    "$check/app/files/lib/yakumo/yakumo --install /path/to/your.iso &&
-     timeout 120 $check/app/files/lib/yakumo/yakumo"
+    "$check/app/files/lib/pokee/pokee --install /path/to/your.iso &&
+     timeout 120 $check/app/files/lib/pokee/pokee"
 
 rm -rf "$check"
 ```
 
-This checks the Flatpak's files on its runtime, not its sandbox permissions. Check those on a machine where Yakumo is not installed, with `flatpak install --user` of the bundle and `flatpak run` using `--env=MHP3RD_DATA_DIR=` pointing at a temporary directory. Uninstall it afterwards without `--delete-data`, and delete only that temporary directory.
+This checks the Flatpak's files on its runtime, not its sandbox permissions. Check those on a machine where Pokee is not installed, with `flatpak install --user` of the bundle and `flatpak run` using `--env=MHFU_DATA_DIR=` pointing at a temporary directory. Uninstall it afterwards without `--delete-data`, and delete only that temporary directory.
 
 The boot should print the executable's SHA-256, `Functions:` with a non-zero count, and overlays being installed as the game loads them; the run then ends at the timeout. Then play the release once with a window, a gamepad, a save and a reload, following [`TESTING.md`](TESTING.md), on a Steam Deck in Game Mode as well.
 
 ### Publish
 
-Create the release on GitHub with the tag of the commit that was built, and attach every file from `out/release-linux/dist/` except `BUILDINFO.txt`, whose contents go into the release notes. The FFmpeg source archive must stay attached to every release whose artifacts contain that FFmpeg: that is the source offer in [`THIRD_PARTY_NOTICES.md`](../profiles/mhp3rd/packaging/THIRD_PARTY_NOTICES.md).
+Create the release on GitHub with the tag of the commit that was built, and attach every file from `out/release-linux/dist/` except `BUILDINFO.txt`, whose contents go into the release notes. The FFmpeg source archive must stay attached to every release whose artifacts contain that FFmpeg: that is the source offer in [`THIRD_PARTY_NOTICES.md`](../profiles/mhfu/packaging/THIRD_PARTY_NOTICES.md).
 
 ### Updating a bundled component
 
@@ -140,26 +140,26 @@ Change its version and SHA-256 where it is pinned, `packaging/linux/sources.sh` 
 
 ## macOS
 
-`profiles/mhp3rd/scripts/release_macos.sh` packages a finished build directory into the macOS artifacts, for Apple Silicon only:
+`profiles/mhfu/scripts/release_macos.sh` packages a finished build directory into the macOS artifacts, for Apple Silicon only:
 
 | Artifact | Contents |
 | --- | --- |
-| `yakumo-<version>-macos-arm64.dmg` | Disk image with `Yakumo.app`, a link to Applications and `Read Me.txt` (the first start, Gatekeeper, where the data lives). The main download. |
-| `yakumo-<version>-macos-arm64.zip` | Only with `--zip`: the same app and note as a zip archive |
+| `pokee-<version>-macos-arm64.dmg` | Disk image with `Pokee.app`, a link to Applications and `Read Me.txt` (the first start, Gatekeeper, where the data lives). The main download. |
+| `pokee-<version>-macos-arm64.zip` | Only with `--zip`: the same app and note as a zip archive |
 | `ffmpeg-<version>.tar.xz` | The unmodified source of the FFmpeg the app contains, as for Linux |
 | `SHA256SUMS` | Checksums of the files above |
 | `BUILDINFO.txt` | Commit, build environment, minimum macOS and the bundled versions, for the release notes |
 
-`Yakumo.app` holds:
+`Pokee.app` holds:
 
 ```text
 Contents/
-    Info.plist                 io.github.teamgdb.yakumo, version from git describe, LSMinimumSystemVersion
-    MacOS/Yakumo               the executable
+    Info.plist                 io.github.teamgdb.pokee, version from git describe, LSMinimumSystemVersion
+    MacOS/Pokee               the executable
     Frameworks/                libSDL3.0.dylib, libvulkan.1.dylib, libMoltenVK.dylib,
                                libavcodec.61.dylib, libavutil.59.dylib
     Frameworks/overlays/       the 355 overlay libraries
-    Resources/Yakumo.icns      the icon, from docs/images/emblem.svg (packaging/macos/make_icon.sh)
+    Resources/Pokee.icns      the icon, from docs/images/emblem.svg (packaging/macos/make_icon.sh)
     Resources/fonts/           Noto Sans CJK JP, the fallback Japanese font
     Resources/vulkan/icd.d/    MoltenVK's driver manifest, found by the bundled Vulkan loader
     Resources/licenses/        LICENSE, THIRD_PARTY_NOTICES.md and every bundled license
@@ -171,9 +171,9 @@ The app is signed **ad hoc**: no Apple Developer ID, no notarization. Gatekeeper
 
 ### What the script does
 
-1. Checks the build directory: an arm64 `Yakumo` built with `-DMHP3RD_RELEASE=ON` (a developer build, which names its checkout's game directory, is refused), 355 overlay libraries in `bin/overlays`, and the bundled LGPL FFmpeg in `bin/lib` configured as `cmake/FFmpeg.cmake` pins it. Nothing in the build directory is rebuilt or changed.
+1. Checks the build directory: an arm64 `Pokee` built with `-DMHFU_RELEASE=ON` (a developer build, which names its checkout's game directory, is refused), 355 overlay libraries in `bin/overlays`, and the bundled LGPL FFmpeg in `bin/lib` configured as `cmake/FFmpeg.cmake` pins it. Nothing in the build directory is rebuilt or changed.
 2. Fetches the pinned sources in `packaging/macos/sources.sh` (which takes SDL3 and the font from `packaging/linux/sources.sh`) and builds SDL3 and the Vulkan loader for arm64 and the deployment target, macOS 13. MoltenVK is the Khronos release build, thinned to arm64.
-3. Assembles `Yakumo.app`, points every library reference at `@rpath` with the single rpath `@executable_path/../Frameworks`, and strips local symbols (the symbols the executable exports to the overlays stay).
+3. Assembles `Pokee.app`, points every library reference at `@rpath` with the single rpath `@executable_path/../Frameworks`, and strips local symbols (the symbols the executable exports to the overlays stay).
 4. Checks that every symbol the binaries import from the C and C++ runtime exists in the macOS 13 SDK, then marks the binaries that were built for a newer macOS (the build machine's) for macOS 13 with `vtool`. This is what lets a build made on the newest macOS run on older ones without recompiling the game code.
 5. Signs every library, then the app, ad hoc, and checks the signature (`codesign --verify --deep --strict`), that no library reference or rpath leads outside the bundle, that no binary needs a newer macOS, and that no file in the app names the home directory, the user name, the checkout or the build directory.
 6. Packs the disk image (APFS, LZMA-compressed) and, with `--zip`, the zip, opens them again, checks their signatures and refuses them if any file looks like game data, as the Linux script does.
@@ -182,61 +182,61 @@ The app is signed **ad hoc**: no Apple Developer ID, no notarization. Gatekeeper
 ### Requirements
 
 - A Mac with Apple Silicon, Xcode or the Command Line Tools, CMake, Ninja and curl.
-- The macOS 13 SDK for the import check: the Command Line Tools keep older SDKs in `/Library/Developer/CommandLineTools/SDKs` (for example `MacOSX13.1.sdk`); `YAKUMO_CHECK_SDK=/path/to/MacOSX13.x.sdk` points at another one.
-- A finished release build. From a checkout with the game data, as in the [build instructions](../profiles/mhp3rd/README.md):
+- The macOS 13 SDK for the import check: the Command Line Tools keep older SDKs in `/Library/Developer/CommandLineTools/SDKs` (for example `MacOSX13.1.sdk`); `POKEE_CHECK_SDK=/path/to/MacOSX13.x.sdk` points at another one.
+- A finished release build. From a checkout with the game data, as in the [build instructions](../profiles/mhfu/README.md):
 
   ```bash
-  cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd \
-      -DMHP3RD_RELEASE=ON -DMHP3RD_FFMPEG=bundled
-  profiles/mhp3rd/scripts/generate.sh out/mhp3rd
-  cmake --build out/mhp3rd -j 4 --target Yakumo
-  profiles/mhp3rd/scripts/build_overlays.sh out/mhp3rd 4
+  cmake -S . -B out/mhfu -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhfu \
+      -DMHFU_RELEASE=ON -DMHFU_FFMPEG=bundled
+  profiles/mhfu/scripts/generate.sh out/mhfu
+  cmake --build out/mhfu -j 4 --target Pokee
+  profiles/mhfu/scripts/build_overlays.sh out/mhfu 4
   ```
 
-  `MHP3RD_RELEASE` changes only the executable, not the recompiled code or the overlays. A developer build directory can therefore be switched to it, `Yakumo` rebuilt and copied away, and the directory switched back, which relinks only the executable:
+  `MHFU_RELEASE` changes only the executable, not the recompiled code or the overlays. A developer build directory can therefore be switched to it, `Pokee` rebuilt and copied away, and the directory switched back, which relinks only the executable:
 
   ```bash
-  cmake -S . -B out/mhp3rd -DMHP3RD_RELEASE=ON && cmake --build out/mhp3rd -j 2 --target Yakumo
-  cp out/mhp3rd/bin/Yakumo out/release-macos/Yakumo
-  cmake -S . -B out/mhp3rd -DMHP3RD_RELEASE=OFF && cmake --build out/mhp3rd -j 2 --target Yakumo
+  cmake -S . -B out/mhfu -DMHFU_RELEASE=ON && cmake --build out/mhfu -j 2 --target Pokee
+  cp out/mhfu/bin/Pokee out/release-macos/Pokee
+  cmake -S . -B out/mhfu -DMHFU_RELEASE=OFF && cmake --build out/mhfu -j 2 --target Pokee
   ```
 
-  Build only the `Yakumo` target there: the default target would relink every overlay library against the new executable.
+  Build only the `Pokee` target there: the default target would relink every overlay library against the new executable.
 
 ### Build
 
 ```bash
-profiles/mhp3rd/scripts/release_macos.sh out/mhp3rd                                   # a release build directory
-profiles/mhp3rd/scripts/release_macos.sh --executable out/release-macos/Yakumo out/mhp3rd   # a switched-back one
+profiles/mhfu/scripts/release_macos.sh out/mhfu                                   # a release build directory
+profiles/mhfu/scripts/release_macos.sh --executable out/release-macos/Pokee out/mhfu   # a switched-back one
 ```
 
-Without `--version`, the artifacts are named after `git describe`; commit first, since the version shown in Yakumo's menu comes from `git describe` when `Yakumo` was built. `--zip` adds the zip archive, `--no-dmg` leaves the disk image out, `--jobs N` sets the parallel compiles for SDL3 and the loader. Everything is kept in `out/release-macos/`, the artifacts in `out/release-macos/dist/`. The first run takes a few minutes for SDL3 and the loader; later runs reuse them.
+Without `--version`, the artifacts are named after `git describe`; commit first, since the version shown in Pokee's menu comes from `git describe` when `Pokee` was built. `--zip` adds the zip archive, `--no-dmg` leaves the disk image out, `--jobs N` sets the parallel compiles for SDL3 and the loader. Everything is kept in `out/release-macos/`, the artifacts in `out/release-macos/dist/`. The first run takes a few minutes for SDL3 and the loader; later runs reuse them.
 
 ### Check
 
-The same rule as on Linux: **never touch a player's own data.** `~/Library/Application Support/Yakumo/` holds the settings, the copied disc image and the saves of every Yakumo on the Mac, the developer build included. Check the release with its data in a throwaway directory, from a copy of the app outside the checkout, with no `MHP3RD_*` or `DYLD_*` variable pointing at the build tree, and with no other Yakumo running:
+The same rule as on Linux: **never touch a player's own data.** `~/Library/Application Support/Pokee/` holds the settings, the copied disc image and the saves of every Pokee on the Mac, the developer build included. Check the release with its data in a throwaway directory, from a copy of the app outside the checkout, with no `MHFU_*` or `DYLD_*` variable pointing at the build tree, and with no other Pokee running:
 
 ```bash
 check=$(mktemp -d)
-hdiutil attach -readonly -nobrowse -mountpoint "$check/dmg" out/release-macos/dist/yakumo-*-macos-arm64.dmg
-ditto "$check/dmg/Yakumo.app" "$check/Yakumo.app"
+hdiutil attach -readonly -nobrowse -mountpoint "$check/dmg" out/release-macos/dist/pokee-*-macos-arm64.dmg
+ditto "$check/dmg/Pokee.app" "$check/Pokee.app"
 hdiutil detach "$check/dmg"
 
 # Everything the process loads comes from the bundle or the system.
-export MHP3RD_DATA_DIR="$check/data"
-"$check/Yakumo.app/Contents/MacOS/Yakumo" --install /path/to/your.iso --in-place
-DYLD_PRINT_LIBRARIES=1 VK_LOADER_DEBUG=driver "$check/Yakumo.app/Contents/MacOS/Yakumo" 2>&1 | tee "$check/run.log"
-grep -E '/opt/homebrew|/usr/local|out/mhp3rd' "$check/run.log"      # should print nothing
-unset MHP3RD_DATA_DIR
+export MHFU_DATA_DIR="$check/data"
+"$check/Pokee.app/Contents/MacOS/Pokee" --install /path/to/your.iso --in-place
+DYLD_PRINT_LIBRARIES=1 VK_LOADER_DEBUG=driver "$check/Pokee.app/Contents/MacOS/Pokee" 2>&1 | tee "$check/run.log"
+grep -E '/opt/homebrew|/usr/local|out/mhfu' "$check/run.log"      # should print nothing
+unset MHFU_DATA_DIR
 
 # What Gatekeeper does with a download: expect "rejected" for an ad hoc signature.
-xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Safari;" "$check/Yakumo.app"
-spctl --assess --type execute -vv "$check/Yakumo.app"
+xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Safari;" "$check/Pokee.app"
+spctl --assess --type execute -vv "$check/Pokee.app"
 
 rm -rf "$check"
 ```
 
-`--install` without `--in-place` copies the 1.3 GB image into the throwaway directory instead. The window run should start the game, print `Overlay corpora: 355 from …/Yakumo.app/Contents/Frameworks/overlays`, and play the intro movie with sound. Then play the release once with a gamepad, a save and a reload, following [`TESTING.md`](TESTING.md), and open it once through Finder from a quarantined copy to see the Gatekeeper steps players will see.
+`--install` without `--in-place` copies the 1.3 GB image into the throwaway directory instead. The window run should start the game, print `Overlay corpora: 355 from …/Pokee.app/Contents/Frameworks/overlays`, and play the intro movie with sound. Then play the release once with a gamepad, a save and a reload, following [`TESTING.md`](TESTING.md), and open it once through Finder from a quarantined copy to see the Gatekeeper steps players will see.
 
 ### Publish
 
@@ -248,19 +248,19 @@ SDL3 and the font are pinned in `packaging/linux/sources.sh` for both systems; t
 
 ## Windows
 
-`profiles/mhp3rd/scripts/release_windows.sh` packages a finished Windows build into two zips:
+`profiles/mhfu/scripts/release_windows.sh` packages a finished Windows build into two zips:
 
 | Artifact | Contents |
 | --- | --- |
-| `yakumo-<version>-windows-x86_64.zip` | The folder `yakumo-<version>-windows-x86_64` with `Yakumo.exe`, `overlays/` (the 355 overlay DLLs), `SDL3.dll`, the FFmpeg DLLs (`avcodec`, `avutil`, `swresample`), the Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), `licenses/`, `README.txt` and `BUILDINFO.txt`. It keeps its data in `%APPDATA%\Yakumo\MHP3rd` |
-| `yakumo-<version>-windows-x86_64-portable.zip` | The same in a folder named `…-portable`, plus `portable.txt`, which keeps all data in `data\` next to `Yakumo.exe` (see [Portable copy](../profiles/mhp3rd/README.md#portable-copy)) ([#152](https://github.com/TeamGDB/Yakumo/issues/152)) |
+| `pokee-<version>-windows-x86_64.zip` | The folder `pokee-<version>-windows-x86_64` with `Pokee.exe`, `overlays/` (the 355 overlay DLLs), `SDL3.dll`, the FFmpeg DLLs (`avcodec`, `avutil`, `swresample`), the Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), `licenses/`, `README.txt` and `BUILDINFO.txt`. It keeps its data in `%APPDATA%\Pokee\MHFU` |
+| `pokee-<version>-windows-x86_64-portable.zip` | The same in a folder named `…-portable`, plus `portable.txt`, which keeps all data in `data\` next to `Pokee.exe` (see [Portable copy](../profiles/mhfu/README.md#portable-copy)) ([#152](https://github.com/TeamGDB/Yakumo/issues/152)) |
 | `BUILDINFO-windows.txt` | Commit, compiler, SDL3 and FFmpeg versions and the overlay count, for the release notes |
 
 The FFmpeg DLLs are BtbN's prebuilt LGPL shared build, which the build downloads and checks against its pinned SHA-256 (see [FFmpeg](BUILDING.md#ffmpeg)); `licenses/FFmpeg-SOURCE.txt` names the build and its source.
 
 ### What the script does
 
-1. Checks the build directory: configured with `-DMHP3RD_RELEASE=ON`, `bin/Yakumo.exe` built, one overlay DLL for every corpus in `profiles/mhp3rd/overlays`, and the bundled FFmpeg next to the executable. Nothing in the build directory is rebuilt or changed.
+1. Checks the build directory: configured with `-DMHFU_RELEASE=ON`, `bin/Pokee.exe` built, one overlay DLL for every corpus in `profiles/mhfu/overlays`, and the bundled FFmpeg next to the executable. Nothing in the build directory is rebuilt or changed.
 2. Stages the program with `SDL3.dll` from the SDL3 the build found (`SDL3_DIR` in its CMake cache; the official `SDL3-devel-*-VC.zip` layout), the Visual C++ runtime from the toolchain's redistributable folder (`$VCToolsRedistDir`) and the license texts.
 3. Checks with `dumpbin /dependents` that every DLL the executable and the overlays import is in the package or in `System32`. The Vulkan loader, `vulkan-1.dll`, comes with the graphics driver.
 4. Packs each zip with Windows' own `tar.exe`, unpacks it again, and refuses it if any file is named like game data (`EBOOT*`, `*.iso`, `*.cso`, `*.bin`, `*.prx`, `*.pbp`, `*.elf`, `*.ovl`, `DATA.BIN`, `PARAM.SFO`, `ms0`, `SAVEDATA`) or looks like it by content (an ELF, a PBP, an encrypted PSP module, a `PARAM.SFO` or an ISO 9660 image), or if any file contains the checkout's path, the user profile's path, the user name or the computer name.
@@ -275,31 +275,31 @@ The Windows build tools of [BUILDING.md](BUILDING.md#windows): the MSVC toolchai
 Build a release configuration in a directory of its own, with the generated code and the overlay corpora in the checkout (copy them from a developer checkout as [BUILDING.md](BUILDING.md#several-checkouts) describes, or run `generate.sh` and `build_overlays.sh`). The compiler cache makes this quick when a developer build of the same sources exists:
 
 ```bash
-cmake -S . -B out/release-windows/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd \
-    -DMHP3RD_RELEASE=ON -DCMAKE_PREFIX_PATH="C:/path/to/SDL3"
+cmake -S . -B out/release-windows/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhfu \
+    -DMHFU_RELEASE=ON -DCMAKE_PREFIX_PATH="C:/path/to/SDL3"
 cmake --build out/release-windows/build -j 4
-profiles/mhp3rd/scripts/release_windows.sh --version 0.7.0 out/release-windows/build
+profiles/mhfu/scripts/release_windows.sh --version 0.7.0 out/release-windows/build
 ```
 
 `cmake --build` without a target builds the overlay DLLs as well. Without `--version`, the artifacts are named after `git describe`. `--no-portable` and `--no-installed` leave one zip out. The staged tree is kept in `out/release-windows/stage/`, the artifacts in `out/release-windows/dist/`.
 
 ### Check
 
-On a machine with the game, before publishing. Never touch a player's own `%APPDATA%\Yakumo\MHP3rd`: check each zip in a folder of your own.
+On a machine with the game, before publishing. Never touch a player's own `%APPDATA%\Pokee\MHFU`: check each zip in a folder of your own.
 
 ```bat
 rem The normal zip, with its data in a folder of your own
-tar -xf yakumo-<version>-windows-x86_64.zip -C C:\check
-set MHP3RD_DATA_DIR=C:\check\data
-C:\check\yakumo-<version>-windows-x86_64\Yakumo.exe --install C:\path\to\your.iso --in-place
-set MHP3RD_DATA_DIR=
+tar -xf pokee-<version>-windows-x86_64.zip -C C:\check
+set MHFU_DATA_DIR=C:\check\data
+C:\check\pokee-<version>-windows-x86_64\Pokee.exe --install C:\path\to\your.iso --in-place
+set MHFU_DATA_DIR=
 
 rem The portable zip: the first line must say "(portable)" and name data\ next to the executable
-tar -xf yakumo-<version>-windows-x86_64-portable.zip -C C:\check
-C:\check\yakumo-<version>-windows-x86_64-portable\Yakumo.exe --install C:\path\to\your.iso
+tar -xf pokee-<version>-windows-x86_64-portable.zip -C C:\check
+C:\check\pokee-<version>-windows-x86_64-portable\Pokee.exe --install C:\path\to\your.iso
 ```
 
-Then start each one with `MHP3RD_NO_AUDIO=1` and a time limit, play past the title screen, save once, and check that the portable copy wrote only into its `data` folder. On a machine where Yakumo is set up already, the portable copy's first start offers to copy that data: choose *Start empty* unless the copy is what you are testing, and delete only the folders you created.
+Then start each one with `MHFU_NO_AUDIO=1` and a time limit, play past the title screen, save once, and check that the portable copy wrote only into its `data` folder. On a machine where Pokee is set up already, the portable copy's first start offers to copy that data: choose *Start empty* unless the copy is what you are testing, and delete only the folders you created.
 
 ### Publish
 
@@ -307,7 +307,7 @@ Attach both zips to the GitHub release, and put `BUILDINFO-windows.txt` into the
 
 ## Android
 
-`profiles/mhp3rd/scripts/release_android.sh <build-dir>` packs `yakumo-<version>-android-arm64.apk` for 64-bit phones and handhelds with Android 10 or later and Vulkan 1.1, and a `SHA256SUMS` next to it, in `out/release-android/dist/`. There is no Play Store build (no AAB): players install the APK themselves, and on its first start the app asks for their `.iso` through Android's file picker and copies it into its own storage (about 1.3 GB, besides the app's 0.8 GB).
+`profiles/mhfu/scripts/release_android.sh <build-dir>` packs `pokee-<version>-android-arm64.apk` for 64-bit phones and handhelds with Android 10 or later and Vulkan 1.1, and a `SHA256SUMS` next to it, in `out/release-android/dist/`. There is no Play Store build (no AAB): players install the APK themselves, and on its first start the app asks for their `.iso` through Android's file picker and copies it into its own storage (about 1.3 GB, besides the app's 0.8 GB).
 
 ### Build directory
 
@@ -317,7 +317,7 @@ The script packs an Android build directory whose overlay libraries are already 
 cmake -S . -B out/android-app -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/28.2.13676358/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DCMAKE_BUILD_TYPE=Release \
-  -DPSPRECOMP_PROFILE=mhp3rd -DMHP3RD_ANDROID_APP=ON \
+  -DPSPRECOMP_PROFILE=mhfu -DMHFU_ANDROID_APP=ON \
   -DSDL3_DIR=<SDL3 built for Android>/lib/cmake/SDL3 -DCMAKE_FIND_ROOT_PATH=<SDL3 built for Android>
 cmake --build out/android-app -j 2
 ```
@@ -329,7 +329,7 @@ The first configure needs an SDL3 built for Android to find; the release script 
 ### What the script does
 
 1. Fetches the pinned SDL3 and the fallback font, checks their SHA-256 and builds SDL3 for Android 10 once.
-2. Reconfigures the build directory as a release (`MHP3RD_RELEASE`, no checkout paths, `android-29`) against that SDL3 and rebuilds `libmain.so` if that changed it.
+2. Reconfigures the build directory as a release (`MHFU_RELEASE`, no checkout paths, `android-29`) against that SDL3 and rebuilds `libmain.so` if that changed it.
 3. Checks that every overlay library is there and newer than the framework headers.
 4. Packs the APK with `packaging/android/build_apk.sh`: the native libraries, SDL's Java activity and the app's own, the font, and under `assets/licenses` the third-party notices, SDL's licence, FFmpeg's LGPL with where its source is, and the font's licence. The version name is `git describe`; the version code is the number of commits, so a later release installs as an update.
 5. Signs it with the release key, verifies the signature, refuses it if it holds any game file or if a library imports a function Android 10 lacks, and prints its size and SHA-256.

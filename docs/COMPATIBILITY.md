@@ -19,14 +19,14 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Village | ✅ | ❔ | ✅ | ✅ reached from a loaded save | ✅ reached from a loaded save |
 | Hunts | ✅ | ❔ | ✅ | ❔ | ✅ |
 | Graphics | ✅ lighting, fog, the quest reward screen and tiled 2D screens | ❔ | ✅ lighting, fog, the quest reward screen and tiled 2D screens; ⚠️ lighting slows the busiest village spots slightly [#7] | ❔ | ❔ on a device |
-| GPU compatibility Auto [#210] [#212] | ✅ `f2416df`: off at start; on after a self-test made to fail (`MHP3RD_GPU_SELFTEST=fail`), a refused pipeline at start and in play (`MHP3RD_GPU_FAIL_PIPELINES=1`, `=play`); the intro draws in each | ❔ | ❔ | ❔ | ❔ on a MediaTek phone: speed with Auto, and whether the self-test passes there |
+| GPU compatibility Auto [#210] [#212] | ✅ `f2416df`: off at start; on after a self-test made to fail (`MHFU_GPU_SELFTEST=fail`), a refused pipeline at start and in play (`MHFU_GPU_FAIL_PIPELINES=1`, `=play`); the intro draws in each | ❔ | ❔ | ❔ | ❔ on a MediaTek phone: speed with Auto, and whether the self-test passes there |
 | Sound effects | ❔ re-check [#4]: the game now runs at real time | ❔ | ❔ | ❔ | ❔ |
 | Music | ✅ with FFmpeg | ❔ | ❔ | ❔ | ❔ |
 | Picture beside a display cutout [#170] | ✅ unchanged (no cutout) | ❔ | ❔ | ❔ | ✅ centred and full screen with hole, corner and tall cutouts, in both landscapes, after turns, the home screen and the notification shade; ❔ on a device |
 | Cutscene movies | ✅ with FFmpeg; the opening movie checked | ❔ | ❔ | ❔ | ✅ the opening movie |
 | Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ✅ a new character saves and loads after restarting the game [#13] | ✅ saves load; import and export through Android's file picker |
 | Save-data pass [#167]: create, save, load after a restart, overwrite, import, backup | ✅ all of it, the backup reminder and the import's *Back up now* included | ❔ | ❔ the Deck was offline for the pass | ✅ all of it on `main`; the backup reminder is newer than that build and was not checked | ✅ the reminder and *Back up now* through the picker, import of an encrypted PSP save with the review's backup, load after the restart; ❔ creating and overwriting a character (emulator keyboard) |
-| Downloadable content | ✅ a player's `ULJM05800QST` folder is read by the download menu | ❔ | ❔ | ❔ | ❔ |
+| Downloadable content | ✅ a player's `ULUS10391QST` folder is read by the download menu | ❔ | ❔ | ❔ | ❔ |
 | Free camera (experimental) | ✅ `8690816`: the village and the Misty Peaks base camp, keyboard and mouse and the input script's virtual gamepad, photo mode at 30 and 60 frames a second [#162] | ❔ | ❔ | ❔ | ❔ |
 | Lock-on camera [#163] | ✅ `69dff80`: the small arena (event quest with Arzuros, Lagombi and Volvidon) from the full test save, the input script's virtual gamepad: R3 locks and follows the monster through its charges, the stick, the D-pad and L let go, the monster's death lets go, R3 in chords (screenshot, menu, free camera) never locks, the free camera suspends it; leaving the area checked only by setting the game's flag, not by walking out | ❔ | ❔ | ❔ | ❔ |
 | Multiplayer | ✅ with a Steam Deck through an ad hoc server: hall and a full quest [#2] | ❔ | ✅ with a Mac through an ad hoc server: hall and a full quest [#2] | ❔ | ❔ |
@@ -59,7 +59,7 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `3f1c0e9` (save-data pass) | 2026-09-27 |
 | Windows 11 Pro | Ryzen 5 5600, 16 GB | AMD Radeon RX 5600 XT | `87bc4d9` (save-data pass) | 2026-09-27 |
 | Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | SwiftShader | `2caf2fd` (save-data pass) | 2026-09-27 |
-| macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `65daf82` (the hot spring's glints at 60 fps, [#168]: 240 presents in a row from a scripted run, against `MHP3RD_INTERPOLATION_NO_NEAREST_INSTANCES`) | 2026-09-27 |
+| macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `65daf82` (the hot spring's glints at 60 fps, [#168]: 240 presents in a row from a scripted run, against `MHFU_INTERPOLATION_NO_NEAREST_INSTANCES`) | 2026-09-27 |
 | Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
 | Android 10 emulator (API 29, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
 

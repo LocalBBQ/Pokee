@@ -84,12 +84,12 @@ class CppcheckDriverTests(unittest.TestCase):
         self.assertTrue(self.analyze('<error id="internalError" severity="error" msg="No source location"/>'))
 
     def test_reviewed_exception_is_bound_to_exact_source_context(self):
-        production = Path(cppcheck.ROOT) / 'profiles/mhp3rd/host/kernel/kernel.cpp'
+        production = Path(cppcheck.ROOT) / 'profiles/mhfu/host/kernel/kernel.cpp'
         reviewed = production.read_text().splitlines()[818:837]
-        local = self.root / 'profiles/mhp3rd/host/kernel/kernel.cpp'
+        local = self.root / 'profiles/mhfu/host/kernel/kernel.cpp'
         local.parent.mkdir(parents=True)
         local.write_text('\n'.join([''] * 818 + reviewed) + '\n')
-        diagnostic = self.diagnostic(path='profiles/mhp3rd/host/kernel/kernel.cpp',
+        diagnostic = self.diagnostic(path='profiles/mhfu/host/kernel/kernel.cpp',
                                      identifier='invalidContainer', line='832')
         self.assertFalse(self.analyze(diagnostic))
         summary = json.loads((self.build / 'cppcheck-results/summary.json').read_text())

@@ -8,6 +8,6 @@ A profile is selected at configure time:
 cmake -S . -B out/<profile> -DPSPRECOMP_PROFILE=<profile>
 ```
 
-The repository currently includes [`mhp3rd`](mhp3rd/README.md), which builds Yakumo for **Monster Hunter Portable 3rd HD Ver.** (`NPJB-40001`). It covers the complete recompiled executable and all 355 overlays, Vulkan graphics, audio and movies, saves, input, Yakumo's interface and ad hoc multiplayer.
+The repository currently includes [`mhfu`](mhfu/README.md), which builds Pokee for **Monster Hunter Freedom Unite** (USA, `ULUS-10391`). The installer accepts that release only.
 
 See [`docs/PROFILE_GUIDE.md`](../docs/PROFILE_GUIDE.md) before adding another title.

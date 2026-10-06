@@ -12,8 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOTS = ('include/psprecomp/', 'src/', 'tools/', 'scripts/',
-                'profiles/mhp3rd/host/', 'profiles/mhp3rd/tools/', 'profiles/mhp3rd/packaging/',
-                'profiles/mhp3rd/cmake/', 'profiles/mhp3rd/scripts/')
+                'profiles/mhfu/host/', 'profiles/mhfu/tools/', 'profiles/mhfu/packaging/',
+                'profiles/mhfu/cmake/', 'profiles/mhfu/scripts/')
 EXCLUDED = {'third_party', 'generated', 'game', 'overlays', 'overlay_corpora', 'out', 'build'}
 KINDS = {'.c': 'native', '.cc': 'native', '.cpp': 'native', '.cxx': 'native',
          '.h': 'native', '.hh': 'native', '.hpp': 'native', '.hxx': 'native',
@@ -23,7 +23,7 @@ KINDS = {'.c': 'native', '.cc': 'native', '.cpp': 'native', '.cxx': 'native',
 
 def source_kind(name):
     path = Path(name)
-    if name in {'CMakeLists.txt', 'Makefile', 'profiles/mhp3rd/CMakeLists.txt'} \
+    if name in {'CMakeLists.txt', 'Makefile', 'profiles/mhfu/CMakeLists.txt'} \
             or name.startswith('cmake/') and path.suffix == '.cmake':
         return 'build'
     if not name.startswith(SOURCE_ROOTS) or EXCLUDED.intersection(path.parts):
@@ -68,7 +68,7 @@ def read_java(text):
     result = {}
     for package in ET.fromstring(text).findall('package'):
         for file in package.findall('sourcefile'):
-            name = 'profiles/mhp3rd/packaging/android/java/' + '/'.join(
+            name = 'profiles/mhfu/packaging/android/java/' + '/'.join(
                 part for part in (package.get('name'), file.get('name')) if part)
             result[name] = {int(line.get('nr')): int(line.get('ci'))
                             for line in file.findall('line')}
