@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em54
+size=169984
+code_size=108908
+hash=0x6AEFBBB9CA0BCAD1
+source=06105_em54.ovl

@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em82
+size=124032
+code_size=91732
+hash=0xC1C463AA9F641A99
+source=06110_em82.ovl

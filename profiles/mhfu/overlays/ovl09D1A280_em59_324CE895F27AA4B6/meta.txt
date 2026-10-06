@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em59
+size=68736
+code_size=51472
+hash=0x324CE895F27AA4B6
+source=06108_em59.ovl

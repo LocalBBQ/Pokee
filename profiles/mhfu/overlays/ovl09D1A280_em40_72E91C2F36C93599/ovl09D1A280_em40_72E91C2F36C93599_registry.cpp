@@ -1,0 +1,20 @@
+#include "psprecomp/runtime.hpp"
+#include <cstdint>
+
+namespace psprecomp {
+void register_ovl09D1A280_em40_72E91C2F36C93599_unit_0(Runtime &runtime);
+void register_ovl09D1A280_em40_72E91C2F36C93599_unit_1(Runtime &runtime);
+void register_ovl09D1A280_em40_72E91C2F36C93599_unit_2(Runtime &runtime);
+void register_ovl09D1A280_em40_72E91C2F36C93599_unit_3(Runtime &runtime);
+void register_ovl09D1A280_em40_72E91C2F36C93599_unit_4(Runtime &runtime);
+void register_ovl09D1A280_em40_72E91C2F36C93599_unit_5(Runtime &runtime);
+
+void register_ovl09D1A280_em40_72E91C2F36C93599_functions(Runtime &runtime) {
+    register_ovl09D1A280_em40_72E91C2F36C93599_unit_0(runtime);
+    register_ovl09D1A280_em40_72E91C2F36C93599_unit_1(runtime);
+    register_ovl09D1A280_em40_72E91C2F36C93599_unit_2(runtime);
+    register_ovl09D1A280_em40_72E91C2F36C93599_unit_3(runtime);
+    register_ovl09D1A280_em40_72E91C2F36C93599_unit_4(runtime);
+    register_ovl09D1A280_em40_72E91C2F36C93599_unit_5(runtime);
+}
+} // namespace psprecomp

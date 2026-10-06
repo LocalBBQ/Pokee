@@ -1,0 +1,6 @@
+base=0x09A5F300
+name=demo_task
+size=11136
+code_size=10332
+hash=0x7ED060D8F9419525
+source=00063_demo_task.ovl

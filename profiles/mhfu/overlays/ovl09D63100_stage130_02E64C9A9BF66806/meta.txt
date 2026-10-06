@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage130
+size=2176
+code_size=944
+hash=0x02E64C9A9BF66806
+source=05672_stage130.ovl

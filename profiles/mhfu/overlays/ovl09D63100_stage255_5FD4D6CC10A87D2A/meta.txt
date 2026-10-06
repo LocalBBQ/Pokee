@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage255
+size=1536
+code_size=608
+hash=0x5FD4D6CC10A87D2A
+source=05797_stage255.ovl

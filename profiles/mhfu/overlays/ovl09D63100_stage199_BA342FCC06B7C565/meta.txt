@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage199
+size=1024
+code_size=432
+hash=0xBA342FCC06B7C565
+source=05741_stage199.ovl

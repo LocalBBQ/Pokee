@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage074
+size=1408
+code_size=504
+hash=0x4ED689A67F8376BB
+source=05616_stage074.ovl

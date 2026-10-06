@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage105
+size=1536
+code_size=784
+hash=0xF465FE13A041612B
+source=05647_stage105.ovl

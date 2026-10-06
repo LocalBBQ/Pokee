@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em55
+size=74112
+code_size=58772
+hash=0x5FFF9B77865022FD
+source=06106_em55.ovl

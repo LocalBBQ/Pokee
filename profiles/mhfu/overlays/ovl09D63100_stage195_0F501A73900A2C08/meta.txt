@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage195
+size=2432
+code_size=1216
+hash=0x0F501A73900A2C08
+source=05737_stage195.ovl

@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage146
+size=1536
+code_size=696
+hash=0x447202E9BD91A1A4
+source=05688_stage146.ovl

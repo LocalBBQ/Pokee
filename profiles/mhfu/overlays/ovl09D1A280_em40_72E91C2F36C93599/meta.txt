@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em40
+size=138112
+code_size=91708
+hash=0x72E91C2F36C93599
+source=06104_em40.ovl

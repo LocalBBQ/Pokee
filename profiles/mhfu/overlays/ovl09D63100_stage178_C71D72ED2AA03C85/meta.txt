@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage178
+size=1664
+code_size=560
+hash=0xC71D72ED2AA03C85
+source=05720_stage178.ovl

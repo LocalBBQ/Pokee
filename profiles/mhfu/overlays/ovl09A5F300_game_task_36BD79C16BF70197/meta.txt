@@ -1,0 +1,6 @@
+base=0x09A5F300
+name=game_task
+size=1776896
+code_size=1408724
+hash=0x36BD79C16BF70197
+source=00071_game_task.ovl

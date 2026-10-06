@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage220
+size=1536
+code_size=584
+hash=0xC067491A2C356736
+source=05762_stage220.ovl

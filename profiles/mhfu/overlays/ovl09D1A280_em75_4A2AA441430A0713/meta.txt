@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em75
+size=298368
+code_size=227432
+hash=0x4A2AA441430A0713
+source=06109_em75.ovl

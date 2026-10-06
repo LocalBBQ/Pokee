@@ -1,0 +1,6 @@
+base=0x09C19100
+name=game_sub
+size=927616
+code_size=745664
+hash=0x662DDC5878706505
+source=game_sub_overlay_09C19100.bin

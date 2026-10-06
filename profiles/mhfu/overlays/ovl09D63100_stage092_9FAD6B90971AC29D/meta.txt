@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage092
+size=1408
+code_size=504
+hash=0x9FAD6B90971AC29D
+source=05634_stage092.ovl

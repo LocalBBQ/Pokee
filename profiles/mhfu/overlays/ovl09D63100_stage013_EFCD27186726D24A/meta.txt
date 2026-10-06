@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage013
+size=3072
+code_size=1576
+hash=0xEFCD27186726D24A
+source=05555_stage013.ovl

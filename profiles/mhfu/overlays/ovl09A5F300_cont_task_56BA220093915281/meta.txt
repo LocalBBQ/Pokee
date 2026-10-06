@@ -1,0 +1,6 @@
+base=0x09A5F300
+name=cont_task
+size=2816
+code_size=2076
+hash=0x56BA220093915281
+source=00065_cont_task.ovl

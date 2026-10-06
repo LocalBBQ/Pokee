@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em01
+size=176512
+code_size=100604
+hash=0xB545BFEC46EDD173
+source=06095_em01.ovl

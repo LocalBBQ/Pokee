@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage148
+size=1408
+code_size=528
+hash=0x3144B4A70E9B77B3
+source=05690_stage148.ovl

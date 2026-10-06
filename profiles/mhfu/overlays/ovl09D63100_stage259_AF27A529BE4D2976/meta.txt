@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage259
+size=2688
+code_size=864
+hash=0xAF27A529BE4D2976
+source=05801_stage259.ovl

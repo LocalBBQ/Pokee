@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage122
+size=1408
+code_size=656
+hash=0x528082613403B514
+source=05664_stage122.ovl

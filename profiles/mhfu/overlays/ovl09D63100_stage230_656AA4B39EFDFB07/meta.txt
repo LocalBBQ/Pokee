@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage230
+size=1152
+code_size=448
+hash=0x656AA4B39EFDFB07
+source=05772_stage230.ovl

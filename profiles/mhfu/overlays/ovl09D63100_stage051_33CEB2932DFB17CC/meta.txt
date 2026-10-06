@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage051
+size=3072
+code_size=680
+hash=0x33CEB2932DFB17CC
+source=05593_stage051.ovl

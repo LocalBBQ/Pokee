@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em20
+size=142848
+code_size=90612
+hash=0x2A7F7BE7512B5423
+source=06101_em20.ovl

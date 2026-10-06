@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage260
+size=2816
+code_size=568
+hash=0x370E796B3DC75DC6
+source=05802_stage260.ovl

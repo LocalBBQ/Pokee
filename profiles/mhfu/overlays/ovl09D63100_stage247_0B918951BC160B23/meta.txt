@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage247
+size=2432
+code_size=568
+hash=0x0B918951BC160B23
+source=05789_stage247.ovl

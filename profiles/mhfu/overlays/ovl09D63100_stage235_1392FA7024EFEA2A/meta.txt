@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage235
+size=1280
+code_size=544
+hash=0x1392FA7024EFEA2A
+source=05777_stage235.ovl

@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage135
+size=1024
+code_size=432
+hash=0xF5F8AFF30F126103
+source=05677_stage135.ovl

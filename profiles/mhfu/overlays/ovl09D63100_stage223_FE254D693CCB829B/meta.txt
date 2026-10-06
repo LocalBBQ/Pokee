@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage223
+size=1408
+code_size=592
+hash=0xFE254D693CCB829B
+source=05765_stage223.ovl

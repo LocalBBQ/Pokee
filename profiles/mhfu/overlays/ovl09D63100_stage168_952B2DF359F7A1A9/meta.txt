@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage168
+size=1408
+code_size=632
+hash=0x952B2DF359F7A1A9
+source=05710_stage168.ovl

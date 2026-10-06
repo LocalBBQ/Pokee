@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage186
+size=2048
+code_size=528
+hash=0x9E8E3F924ED1FF42
+source=05728_stage186.ovl

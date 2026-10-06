@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage227
+size=1408
+code_size=640
+hash=0xC33FA8987EB1535F
+source=05769_stage227.ovl

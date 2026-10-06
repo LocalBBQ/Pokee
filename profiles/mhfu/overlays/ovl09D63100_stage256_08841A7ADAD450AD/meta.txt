@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage256
+size=1664
+code_size=584
+hash=0x08841A7ADAD450AD
+source=05798_stage256.ovl

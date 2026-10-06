@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em07
+size=77312
+code_size=42720
+hash=0x1762B6DB95F8046A
+source=06097_em07.ovl

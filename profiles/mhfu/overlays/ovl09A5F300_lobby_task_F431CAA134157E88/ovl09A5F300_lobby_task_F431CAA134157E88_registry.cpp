@@ -1,0 +1,98 @@
+#include "psprecomp/runtime.hpp"
+#include <cstdint>
+
+namespace psprecomp {
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_0(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_1(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_2(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_3(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_4(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_5(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_6(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_7(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_8(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_9(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_10(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_11(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_12(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_13(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_14(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_15(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_16(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_17(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_18(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_19(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_20(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_21(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_22(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_23(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_24(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_25(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_26(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_27(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_28(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_29(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_30(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_31(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_32(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_33(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_34(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_35(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_36(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_37(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_38(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_39(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_40(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_41(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_42(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_43(Runtime &runtime);
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_44(Runtime &runtime);
+
+void register_ovl09A5F300_lobby_task_F431CAA134157E88_functions(Runtime &runtime) {
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_0(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_1(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_2(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_3(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_4(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_5(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_6(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_7(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_8(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_9(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_10(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_11(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_12(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_13(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_14(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_15(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_16(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_17(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_18(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_19(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_20(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_21(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_22(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_23(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_24(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_25(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_26(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_27(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_28(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_29(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_30(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_31(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_32(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_33(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_34(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_35(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_36(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_37(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_38(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_39(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_40(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_41(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_42(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_43(runtime);
+    register_ovl09A5F300_lobby_task_F431CAA134157E88_unit_44(runtime);
+}
+} // namespace psprecomp

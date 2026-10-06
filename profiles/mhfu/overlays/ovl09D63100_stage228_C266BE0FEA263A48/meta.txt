@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage228
+size=1024
+code_size=448
+hash=0xC266BE0FEA263A48
+source=05770_stage228.ovl

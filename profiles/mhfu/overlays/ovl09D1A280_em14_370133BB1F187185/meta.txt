@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em14
+size=91904
+code_size=63840
+hash=0x370133BB1F187185
+source=06098_em14.ovl

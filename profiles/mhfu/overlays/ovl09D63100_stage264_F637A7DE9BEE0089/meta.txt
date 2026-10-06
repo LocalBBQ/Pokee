@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage264
+size=2944
+code_size=856
+hash=0xF637A7DE9BEE0089
+source=05806_stage264.ovl

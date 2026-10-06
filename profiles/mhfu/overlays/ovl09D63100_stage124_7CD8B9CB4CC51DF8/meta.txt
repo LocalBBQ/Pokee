@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage124
+size=1408
+code_size=648
+hash=0x7CD8B9CB4CC51DF8
+source=05666_stage124.ovl

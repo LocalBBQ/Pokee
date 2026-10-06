@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em21
+size=86400
+code_size=67648
+hash=0x9E5C67A047FDEEE5
+source=06102_em21.ovl

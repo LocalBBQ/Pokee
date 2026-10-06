@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage048
+size=2688
+code_size=712
+hash=0x57917156AAFDD427
+source=05590_stage048.ovl

@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage205
+size=1920
+code_size=648
+hash=0x50EE3B05C484CF94
+source=05747_stage205.ovl

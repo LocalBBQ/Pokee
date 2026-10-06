@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em17
+size=99328
+code_size=73828
+hash=0x43714027159C83A0
+source=06100_em17.ovl

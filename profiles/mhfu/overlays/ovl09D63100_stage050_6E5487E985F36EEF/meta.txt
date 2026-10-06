@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage050
+size=1792
+code_size=688
+hash=0x6E5487E985F36EEF
+source=05592_stage050.ovl

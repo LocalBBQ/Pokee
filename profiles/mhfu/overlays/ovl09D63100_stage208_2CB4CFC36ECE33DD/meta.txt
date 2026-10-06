@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage208
+size=1664
+code_size=640
+hash=0x2CB4CFC36ECE33DD
+source=05750_stage208.ovl

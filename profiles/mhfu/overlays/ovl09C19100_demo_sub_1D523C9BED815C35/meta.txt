@@ -1,0 +1,6 @@
+base=0x09C19100
+name=demo_sub
+size=9984
+code_size=7632
+hash=0x1D523C9BED815C35
+source=00075_demo_sub.ovl

@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em83
+size=94208
+code_size=77700
+hash=0x0AE11181161B21D9
+source=06111_em83.ovl

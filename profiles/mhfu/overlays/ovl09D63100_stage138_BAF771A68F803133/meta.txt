@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage138
+size=1152
+code_size=616
+hash=0xBAF771A68F803133
+source=05680_stage138.ovl

@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em02
+size=92544
+code_size=60136
+hash=0xA3385DF103E7E3F7
+source=06096_em02.ovl

@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em58
+size=69248
+code_size=53888
+hash=0xAB972B74ACC2FA0A
+source=06107_em58.ovl

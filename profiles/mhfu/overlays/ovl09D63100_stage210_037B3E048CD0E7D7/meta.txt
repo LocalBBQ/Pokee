@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage210
+size=8064
+code_size=6672
+hash=0x037B3E048CD0E7D7
+source=05752_stage210.ovl

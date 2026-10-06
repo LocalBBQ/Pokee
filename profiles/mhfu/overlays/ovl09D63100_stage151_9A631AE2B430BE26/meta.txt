@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage151
+size=1536
+code_size=648
+hash=0x9A631AE2B430BE26
+source=05693_stage151.ovl

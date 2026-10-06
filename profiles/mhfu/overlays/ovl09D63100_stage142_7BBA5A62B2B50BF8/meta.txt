@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage142
+size=2688
+code_size=736
+hash=0x7BBA5A62B2B50BF8
+source=05684_stage142.ovl

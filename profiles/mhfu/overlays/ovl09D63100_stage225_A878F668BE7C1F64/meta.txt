@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage225
+size=1152
+code_size=528
+hash=0xA878F668BE7C1F64
+source=05767_stage225.ovl

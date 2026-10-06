@@ -1,0 +1,6 @@
+base=0x09A5F300
+name=lobby_task
+size=724352
+code_size=665728
+hash=0xF431CAA134157E88
+source=lobby_task_overlay_09A5F300.bin

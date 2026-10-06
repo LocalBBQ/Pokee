@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage203
+size=1664
+code_size=648
+hash=0x1196C8B3F5502646
+source=05745_stage203.ovl

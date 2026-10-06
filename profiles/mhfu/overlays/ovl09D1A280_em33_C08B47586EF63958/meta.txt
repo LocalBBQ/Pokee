@@ -1,0 +1,6 @@
+base=0x09D1A280
+name=em33
+size=50688
+code_size=27848
+hash=0xC08B47586EF63958
+source=06103_em33.ovl

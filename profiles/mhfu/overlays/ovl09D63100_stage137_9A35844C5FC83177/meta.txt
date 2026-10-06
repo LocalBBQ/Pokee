@@ -1,0 +1,6 @@
+base=0x09D63100
+name=stage137
+size=1024
+code_size=432
+hash=0x9A35844C5FC83177
+source=05679_stage137.ovl
