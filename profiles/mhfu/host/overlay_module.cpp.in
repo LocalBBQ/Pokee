@@ -1,0 +1,25 @@
+// Entry point of one overlay library, configured from the overlay's meta.txt by
+// profiles/mhfu/CMakeLists.txt. Everything else in the library is psp_recomp
+// output carrying the @MHFU_OVERLAY_PREFIX@ symbol prefix.
+#define MHFU_OVERLAY_MODULE 1
+#include "overlay_module.hpp"
+
+#include "psprecomp/runtime.hpp"
+
+namespace psprecomp {
+void register_@MHFU_OVERLAY_PREFIX@_functions(Runtime &runtime);
+}
+
+namespace {
+
+constexpr mhfu::OverlayModuleInfo kInfo{mhfu::kOverlayAbiVersion, @MHFU_OVERLAY_BASE@u,
+                                          @MHFU_OVERLAY_SIZE@u, @MHFU_OVERLAY_CODE_SIZE@u,
+                                          @MHFU_OVERLAY_HASH@ull, "@MHFU_OVERLAY_NAME@"};
+
+} // namespace
+
+const mhfu::OverlayModuleInfo *mhfu_overlay_info() { return &kInfo; }
+
+void mhfu_register_overlay(psprecomp::Runtime &runtime) {
+    psprecomp::register_@MHFU_OVERLAY_PREFIX@_functions(runtime);
+}

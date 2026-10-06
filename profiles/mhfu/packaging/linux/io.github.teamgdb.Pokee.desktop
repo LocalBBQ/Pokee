@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Pokee
+GenericName=Native port of Monster Hunter Freedom Unite (USA)
+Comment=Play Monster Hunter Freedom Unite (USA) natively from your own disc image
+Exec=pokee
+Icon=io.github.teamgdb.Pokee
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=Monster Hunter;Freedom Unite;MHFU;PSP;recompilation;
+StartupNotify=true
