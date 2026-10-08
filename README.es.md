@@ -1,5 +1,3 @@
-<p align="center"><img src="docs/images/logo.svg" alt="Pokee" width="720"></p>
-
 <p align="center"><a href="README.md">English</a> · <a href="README.ru.md">Русский</a> · <b>Español</b></p>
 
 <p align="center">
@@ -12,11 +10,9 @@
 
 # Pokee
 
-Una versión nativa de **Monster Hunter Freedom Unite** (EE. UU., `ULUS-10391`, versión 1.01) hecha mediante recompilación estática: el código de PSP del juego se traduce de antemano a C++ y se compila para tu equipo, y después se ejecuta sobre una reimplementación del software de sistema de la PSP. No es un emulador —no hay un intérprete ni un JIT en su núcleo— ni tampoco una decompilación.
+Pokee ejecuta **Monster Hunter Freedom Unite** (EE. UU., `ULUS-10391`, versión 1.01) en Windows, Linux, macOS y Android.
 
-Este repositorio es [LocalBBQ/Pokee](https://github.com/LocalBBQ/Pokee). Continúa [Yakumo](https://github.com/TeamGDB/Yakumo), redirigido de Monster Hunter Portable 3rd a Freedom Unite. Las compilaciones publicadas de Yakumo son de Portable 3rd. Este juego se obtiene compilando este repositorio.
-
-> **Este proyecto no incluye ningún recurso del juego.** Para instalar o compilar Pokee debes aportar los archivos de tu propia copia legal de Monster Hunter Freedom Unite (EE. UU., `ULUS-10391`, versión 1.01).
+> **Este proyecto no incluye el juego.** Para instalar o compilar Pokee, usa los archivos de tu propia copia legal de esa edición.
 
 > Esto es una traducción. Si difiere del [README en inglés](README.md), prevalece el inglés. La documentación detallada está en inglés.
 

@@ -238,6 +238,35 @@ void test_on_the_monster() {
     check(only_sky && camera_centred(*only_sky), "a centred view is still a camera when there is no other");
 }
 
+void test_the_stroke() {
+    const Stroke thin = number_stroke(1u, 24.0f, 24.0f);
+    check(thin.outline == 1.0f && thin.weight == 0.0f, "thickness 1 is a one-pixel outline and the font's strokes");
+    const Stroke bold = number_stroke(5u, 24.0f, 24.0f);
+    check(bold.outline == 5.0f && bold.weight == 2.0f, "each step thickens the outline and the digits");
+    const Stroke large = number_stroke(2u, 72.0f, 24.0f);
+    check(large.outline == 6.0f && large.weight == 1.5f, "a larger number gets a proportionally larger stroke");
+    const Stroke tiny = number_stroke(1u, 6.0f, 24.0f);
+    check(tiny.outline == 1.0f, "a small number keeps at least one pixel of outline");
+    const Stroke none = number_stroke(0u, 24.0f, 24.0f);
+    check(none.outline == 0.0f && number_stroke(1u, 24.0f, 0.0f).outline == 0.0f, "no stroke without a thickness or a unit");
+
+    check(stack_gap_px(10.0f, 3.0f, 60.0f, 7.0f, false) == 10.0f, "the default size and thickness keep the tuned gap");
+    check(stack_gap_px(10.0f, 3.0f, 60.0f, 3.0f, true) == 66.0f, "a larger number is lifted by its whole height");
+    check(stack_gap_px(10.0f, 1.0f, 20.0f, 7.0f, true) == 34.0f, "a thicker number clears the stroke on both sides");
+    check(stack_gap_px(10.0f, 0.5f, 4.0f, 1.0f, true) == 6.0f, "a smaller number keeps the scaled gap when that is taller");
+    check(stack_gap_px(-1.0f, 0.0f, -5.0f, -2.0f, true) == 0.0f, "a gap with no size is nothing");
+
+    check(stroke_offsets(0.0f, 3).size() == 1u && stroke_offsets(0.2f, 3).size() == 1u &&
+            stroke_offsets(4.0f, 0).size() == 1u,
+        "no radius, or no rings, is the text drawn once");
+    const std::vector<Offset> ring = stroke_offsets(4.0f, 2);
+    check(ring.size() == 25u && ring.front().x == 0.0f && ring.front().y == 0.0f, "the centre and 12 points a ring");
+    float furthest = 0.0f;
+    for (const Offset &o : ring) furthest = std::max(furthest, std::sqrt(o.x * o.x + o.y * o.y));
+    check(std::fabs(furthest - 4.0f) < 1e-4f && std::fabs(std::hypot(ring[1].x, ring[1].y) - 2.0f) < 1e-4f,
+        "the rings are spaced out to the radius");
+}
+
 void test_the_game_camera_view() {
     // The game's camera far out in the world, looking down the +z axis at a
     // monster; the GE view it draws with has no translation.
@@ -443,6 +472,7 @@ int main() {
     test_the_hit_watch();
     test_health_halfword();
     test_on_the_monster();
+    test_the_stroke();
     test_the_game_camera_view();
     test_the_setting_does_not_slow_direct_chains();
     test_the_hit_records();

@@ -431,6 +431,61 @@ void Menu::video() {
         }
     }
     {
+        struct Element {
+            const char *name;
+            const char *key;
+            const char *help;
+            std::uint32_t settings::Settings::InterfaceScale::*value;
+        };
+        static const Element kElements[] = {
+            {"Map", "video.hud.map",
+                "The area map on the right of a quest, from its top-right corner. 100% is the size the game draws.",
+                &settings::Settings::InterfaceScale::map},
+            {"Status", "video.hud.health",
+                "The quest clock, the name under it, health and stamina, the eye shown when a monster is found, "
+                "sharpness, the long sword's spirit gauge, "
+                "a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a hunting horn's notes, from the "
+                "clock's corner so they stay together. "
+                "100% is the size the game draws.",
+                &settings::Settings::InterfaceScale::health},
+            {"Items", "video.hud.item_bar",
+                "The item bar, open or closed, from its bottom-right corner, including the item's name, a bowgun's "
+                "ammo bar and a bow's coating bar, and their menus. The item list stays as the game draws it. "
+                "100% is the size the game draws.",
+                &settings::Settings::InterfaceScale::item_bar},
+        };
+        static bool open = true;
+        disclosure_row("UI Scaling", open,
+            {false, {},
+                "Sizes for the quest interface. Each part below has its own size, from 50% to 200%. "
+                "Menus stay as the game draws them."});
+        if (open) {
+            ImGui::Indent(ImGui::GetFontSize() * 0.75f);
+            for (const Element &element : kElements) {
+                int scale = static_cast<int>(s.hud.*(element.value));
+                if (slider_row(element.name, scale, static_cast<int>(settings::kMinMapItemScale),
+                        static_cast<int>(settings::kMaxMapItemScale), 5, "%d%%",
+                        options_for(element.key, element.help))) {
+                    s.hud.*(element.value) = static_cast<std::uint32_t>(scale);
+                    settings::save();
+                }
+            }
+            ImGui::Unindent(ImGui::GetFontSize() * 0.75f);
+        }
+    }
+    {
+        const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::HideHud)]);
+        RowOptions o;
+        o.description = "Hides the game's HUD for pictures and videos: health, stamina, sharpness, the clock, the "
+                        "item bar, the map, name tags and prompts. Menus and dialogs stay. Its key (" +
+            (key.empty() ? std::string("none: set it in Controls") : key) + ") does the same.";
+        if (!gpu::hud::available()) {
+            o.disabled = true;
+            o.note = "Not with this game's code";
+        }
+        if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
+    }
+    {
         RowOptions o = options_for("video.texture_pack",
             "Draws an HD texture pack in PPSSPP's format from textures/ULUS10391 in the data "
             "folder instead of the game's textures.");
@@ -524,7 +579,9 @@ void Menu::video() {
     if (choice_row("Game speed", s.unthrottled ? "Unlimited" : "Normal",
             options_for("video.unthrottled",
                 "Normal holds the game to real time. Unlimited lets it run as "
-                "fast as frames can be drawn, which also speeds up the game."))) {
+                "fast as frames can be drawn, which also speeds up the game. "
+                "The window keeps up at about 30 pictures a second, so the "
+                "display's refresh does not hold it, and the sound is muted."))) {
         s.unthrottled = !s.unthrottled;
         settings::save();
     }
@@ -579,58 +636,6 @@ void Menu::video() {
         if (slider_row("Fast-forward speed", speed, static_cast<int>(fast_forward::kMinSpeed),
                 static_cast<int>(fast_forward::kMaxSpeed), 1, "%dx", o)) {
             s.fast_forward_speed = static_cast<std::uint32_t>(speed);
-            settings::save();
-        }
-    }
-    {
-        const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::HideHud)]);
-        RowOptions o;
-        o.description = "Hides the game's HUD for pictures and videos: health, stamina, sharpness, the clock, the "
-                        "item bar, the map, name tags and prompts. Menus and dialogs stay. Its key (" +
-            (key.empty() ? std::string("none: set it in Controls") : key) + ") does the same.";
-        if (!gpu::hud::available()) {
-            o.disabled = true;
-            o.note = "Not with this game's code";
-        }
-        if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
-    }
-    {
-        struct Element {
-            const char *name;
-            const char *key;
-            const char *help;
-            std::uint32_t settings::Settings::InterfaceScale::*value;
-        };
-        static const Element kElements[] = {
-            {"Map", "video.hud.map",
-                "The area map on the right of a quest, from its top-right corner. 100% is the size the game draws.",
-                &settings::Settings::InterfaceScale::map},
-            {"Clock, health and weapons", "video.hud.health",
-                "The quest clock, the name under it, health and stamina, sharpness, the long sword's spirit gauge, "
-                "a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a hunting horn's notes, from the "
-                "clock's corner so they stay together. "
-                "100% is the size the game draws.",
-                &settings::Settings::InterfaceScale::health},
-            {"Item bar", "video.hud.item_bar",
-                "The item bar, open or closed, from its bottom-right corner, including the item's name, a bowgun's "
-                "ammo bar and a bow's coating bar, and their menus. The item list stays as the game draws it. "
-                "100% is the size the game draws.",
-                &settings::Settings::InterfaceScale::item_bar},
-        };
-        constexpr int kCount = static_cast<int>(std::size(kElements));
-        static int selected = 0;
-        const char *names[kCount];
-        for (int i = 0; i < kCount; ++i) names[i] = kElements[i].name;
-        dropdown_row("Interface", names, kCount, selected,
-            {false, {},
-                "Which part of the quest interface the size below changes. The list opens under this row. "
-                "Up and down move through it, and confirm chooses. Menus stay as the game draws them."},
-            back_);
-        const Element &element = kElements[selected];
-        int scale = static_cast<int>(s.hud.*(element.value));
-        if (slider_row("Size", scale, static_cast<int>(settings::kMinMapItemScale),
-                static_cast<int>(settings::kMaxMapItemScale), 5, "%d%%", options_for(element.key, element.help))) {
-            s.hud.*(element.value) = static_cast<std::uint32_t>(scale);
             settings::save();
         }
     }
@@ -1715,6 +1720,30 @@ void Menu::system() {
         s.damage_numbers = !s.damage_numbers;
         settings::save();
     }
+    {
+        RowOptions o = options_for("game.damage_number_size",
+            "How large damage numbers are drawn, in percent of the interface text. They still shrink when "
+            "the camera is close to the monster.");
+        o.disabled = o.disabled || !s.damage_numbers;
+        int size = static_cast<int>(s.damage_number_size);
+        if (slider_row("Damage number size", size, static_cast<int>(settings::kMinDamageNumberSize),
+                static_cast<int>(settings::kMaxDamageNumberSize), 10, "%d%%", o)) {
+            s.damage_number_size = static_cast<std::uint32_t>(size);
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("game.damage_number_thickness",
+            "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and each "
+            "step thickens both the digits and the outline.");
+        o.disabled = o.disabled || !s.damage_numbers;
+        int thickness = static_cast<int>(s.damage_number_thickness);
+        if (slider_row("Damage number thickness", thickness, 1,
+                static_cast<int>(settings::kMaxDamageNumberThickness), 1, "%d", o)) {
+            s.damage_number_thickness = static_cast<std::uint32_t>(thickness);
+            settings::save();
+        }
+    }
 #if defined(MHFU_ANDROID_APP)
     // An Android app's data folder is out of the file manager's reach; its
     // log goes where the player picks instead, to send with a report.
@@ -2114,7 +2143,9 @@ void draw_damage_numbers() {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
     ImDrawList *draw = ImGui::GetForegroundDrawList();
-    const float full_size = Layer::get().font_size() * 0.85f;
+    const settings::Settings &s = settings::current();
+    const float base_size = Layer::get().font_size() * 0.85f;
+    const float full_size = base_size * static_cast<float>(s.damage_number_size) / 100.0f;
     ImFont *font = ImGui::GetFont();
     for (const game::Number &number : game::damage_numbers()) {
         const game::Anchor anchor = game::number_anchor(number);
@@ -2122,13 +2153,26 @@ void draw_damage_numbers() {
         const float size = full_size * anchor.scale;
         const std::string text = game::damage_number_text(number);
         const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
+        // A pixel of stroke for every interface-sized number's worth of height.
+        const game::Stroke stroke = game::number_stroke(s.damage_number_thickness, size, base_size);
+        // The tuned gap fits the default size. A bigger or thicker number is
+        // lifted by its own height, so the hits stay readable.
+        const float picture_px = picture[3] * io.DisplaySize.y;
+        const float tuned_px = game::kStack * anchor.scale * picture_px;
+        const bool clear = s.damage_number_size != 100u || s.damage_number_thickness != 1u;
+        const float gap_px = game::stack_gap_px(tuned_px, static_cast<float>(s.damage_number_size) / 100.0f, extent.y,
+            stroke.outline + stroke.weight, clear);
+        const float lift = static_cast<float>(number.lane) * (gap_px - tuned_px);
         const ImVec2 at{(picture[0] + anchor.x * picture[2]) * io.DisplaySize.x - extent.x * 0.5f,
-            (picture[1] + anchor.y * picture[3]) * io.DisplaySize.y - extent.y * 0.5f};
+            (picture[1] + anchor.y * picture[3]) * io.DisplaySize.y - extent.y * 0.5f - lift};
         const int alpha = static_cast<int>(anchor.alpha * 230.0f);
         if (alpha <= 0) continue;
         const game::Ink ink = game::damage_number_ink(number.grade.fill);
-        draw->AddText(font, size, {at.x + 1.0f, at.y + 1.0f}, IM_COL32(0, 0, 0, alpha), text.c_str());
-        draw->AddText(font, size, at, IM_COL32(ink.red, ink.green, ink.blue, alpha), text.c_str());
+        for (const game::Offset &o : game::stroke_offsets(stroke.outline + stroke.weight, 3))
+            draw->AddText(font, size, {at.x + o.x, at.y + o.y}, IM_COL32(0, 0, 0, alpha), text.c_str());
+        for (const game::Offset &o : game::stroke_offsets(stroke.weight, 2))
+            draw->AddText(
+                font, size, {at.x + o.x, at.y + o.y}, IM_COL32(ink.red, ink.green, ink.blue, alpha), text.c_str());
     }
 }
 } // namespace

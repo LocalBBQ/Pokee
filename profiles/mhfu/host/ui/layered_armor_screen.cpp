@@ -63,15 +63,22 @@ void read_snapshot() {
     const bool read = game::read([&](const game::Ram &ram) {
         Snapshot &n = s.snap;
         const std::optional<game::Look> look = game::hunter_look(ram);
-        n.loaded = look.has_value();
+        const std::optional<std::uint8_t> played = layered::played_sex(ram);
+        n.loaded = look.has_value() || played.has_value();
         if (look) n.sex = game::sex_name(look->sex);
+        else if (played) n.sex = game::sex_name(*played == 0u ? game::Sex::Male : game::Sex::Female);
         for (std::uint8_t part = 0; part < layered::kParts; ++part) {
             n.chosen[part] = layered::choice_name(&ram, part, settings.layered_pieces[part]);
             if (!n.loaded) continue;
             const std::optional<game::Piece> worn = game::worn_armor(ram, part);
-            n.worn[part] = !worn ? std::string()
-                : worn->id == 0u ? std::string("nothing")
-                                 : game::equipment_name(ram, part, worn->id);
+            if (worn && worn->id == 0u) {
+                n.worn[part] = "nothing";
+            } else if (worn) {
+                const std::string name = game::equipment_name(ram, part, worn->id);
+                n.worn[part] = name.empty() ? "Piece " + std::to_string(worn->id) : name;
+            } else if (const std::optional<std::uint16_t> id = layered::played_armor(ram, part)) {
+                n.worn[part] = *id == 0u ? std::string("nothing") : "Piece " + std::to_string(*id);
+            }
         }
         if (s.screen == Screen::Pieces) n.offers = layered::offers(ram, s.part, settings.layered_all);
     });

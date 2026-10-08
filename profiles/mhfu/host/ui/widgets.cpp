@@ -557,6 +557,27 @@ bool dropdown_row(const char *label, const char *const *items, int count, int &s
     return changed;
 }
 
+bool disclosure_row(const char *label, bool &open, const RowOptions &options) {
+    const Row r = row(label, options);
+    const bool toggled = !options.disabled && r.pressed;
+    if (toggled) open = !open;
+    if (options.disabled) return false;
+    const bool live = r.focused || r.hovered;
+    const float chevron = font() * 0.55f;
+    const float mid_y = (r.min.y + r.max.y) * 0.5f;
+    const float x = r.max.x - px(16.0f) - chevron * 0.35f;
+    const ImU32 ink = live ? colors::kAccent : colors::kTextDim;
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    if (open) {
+        draw->AddTriangleFilled({x - chevron * 0.45f, mid_y - chevron * 0.2f},
+            {x + chevron * 0.45f, mid_y - chevron * 0.2f}, {x, mid_y + chevron * 0.4f}, ink);
+    } else {
+        draw->AddTriangleFilled({x - chevron * 0.2f, mid_y - chevron * 0.45f},
+            {x - chevron * 0.2f, mid_y + chevron * 0.45f}, {x + chevron * 0.4f, mid_y}, ink);
+    }
+    return toggled;
+}
+
 int choice_row(const char *label, const std::string &value, const RowOptions &options) {
     const Row r = row(label, options);
     const float mid_y = (r.min.y + r.max.y) * 0.5f;

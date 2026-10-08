@@ -75,9 +75,9 @@ struct Settings {
     // (gpu/hud_scale.hpp). 100 leaves that piece where it is.
     struct InterfaceScale {
         std::uint32_t map{100u}; // the area map on the right
-        // The quest clock, the name under it, health, stamina, sharpness, the
-        // long sword spirit gauge, a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a
-        // hunting horn's notes.
+        // The quest clock, the name under it, health, stamina, the eye shown when a monster is found,
+        // sharpness, the long sword spirit gauge, a bowgun's loaded shots, a bow's coatings, a gunlance's shells
+        // and a hunting horn's notes.
         std::uint32_t health{100u};
         // The item bar, the bowgun ammo bar, the bow coating bar and their menus.
         std::uint32_t item_bar{100u};
@@ -168,6 +168,12 @@ struct Settings {
     // game already shows. On, the health that hit removed is drawn over the
     // picture.
     bool damage_numbers{};
+    // Their size, in percent of the interface font's (kMinDamageNumberSize to
+    // kMaxDamageNumberSize), and the weight of their strokes and dark outline
+    // (1 to kMaxDamageNumberThickness, 1 the thinnest). Both scale with the
+    // number as it shrinks near the camera.
+    std::uint32_t damage_number_size{100};
+    std::uint32_t damage_number_thickness{1};
     bool menu_hint_seen{};         // the "Esc / L3+R3 opens the menu" hint was shown
     std::string last_folder;       // where the setup's file browser was last used
     std::string menu_tab;          // the menu's page when it last closed ("controls")
@@ -202,6 +208,9 @@ inline constexpr std::uint32_t kMaxWindowScale = 4u;
 inline constexpr std::uint32_t kMinMapItemScale = 50u;
 inline constexpr std::uint32_t kMaxMapItemScale = 200u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
+inline constexpr std::uint32_t kMinDamageNumberSize = 50u;
+inline constexpr std::uint32_t kMaxDamageNumberSize = 300u;
+inline constexpr std::uint32_t kMaxDamageNumberThickness = 5u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
 inline constexpr float kMinTouchOpacity = 0.1f;
 inline constexpr float kMaxTouchOpacity = 1.0f;

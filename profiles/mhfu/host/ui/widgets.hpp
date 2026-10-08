@@ -69,6 +69,10 @@ void dismiss_dropdowns();
 [[nodiscard]] bool dropdown_swallowed_back();
 bool dropdown_row(const char *label, const char *const *items, int count, int &selected, const RowOptions &options = {},
     bool back = false);
+// A row that opens the rows drawn after it. Confirm or a click toggles `open`.
+// The chevron points right while closed and down while open. Returns true when
+// it toggles.
+bool disclosure_row(const char *label, bool &open, const RowOptions &options = {});
 // An on/off setting. Returns true when toggled.
 bool toggle_row(const char *label, bool value, const RowOptions &options = {});
 // A number between minimum and maximum, changed in steps with left/right or

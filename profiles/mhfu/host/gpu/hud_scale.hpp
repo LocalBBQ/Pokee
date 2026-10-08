@@ -111,20 +111,25 @@ inline constexpr float kBowgunBottom = 200.0f;
     return i.x0 >= o.x0 && i.y0 >= o.y0 && i.x1 <= o.x1 && i.y1 <= o.y1;
 }
 
-// The area map: (316, 32)-(468, 184), 152 by 152, or the small one the game
-// can show instead, (425, 78)-(465, 118), 40 by 40, a window into the same
-// map texture with the player's arrow on it. Traced in a hunting area with
-// MHFU_TRACE_SPRITES. Each has a little room for the position to sit a pixel
-// or two off. The quest clock is neither size.
+// The area map: (316, 32)-(468, 184), 152 by 152, or a small window into the
+// same map texture. In the corner that window is about 34 by 40 at
+// (432, 76)-(466, 116), or 40 by 40 at (425, 78)-(465, 118). Once a monster
+// is found the same window sits at about (371, 59)-(411, 99); the large tile
+// is not drawn then. Traced with MHFU_TRACE_SPRITES. The quest clock is
+// neither size.
 [[nodiscard]] inline bool is_map_sprite(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
     const bool large = r.x0 >= 300.0f && r.x0 <= 340.0f && r.y0 >= 20.0f && r.y0 <= 48.0f && width >= 140.0f &&
         width <= 164.0f && height >= 140.0f && height <= 164.0f;
-    const bool small = r.x0 >= 418.0f && r.x0 <= 432.0f && r.y0 >= 70.0f && r.y0 <= 86.0f && width >= 36.0f &&
+    const bool corner = r.x0 >= 418.0f && r.x0 <= 440.0f && r.y0 >= 68.0f && r.y0 <= 90.0f && width >= 30.0f &&
         width <= 46.0f && height >= 36.0f && height <= 46.0f;
-    return large || small;
+    // The window moves left and up while a monster is found. It is still the
+    // map: the same texture, and the UV origin tracks the window.
+    const bool found = r.x0 >= 360.0f && r.x0 <= 400.0f && r.y0 >= 50.0f && r.y0 <= 72.0f && width >= 36.0f &&
+        width <= 46.0f && height >= 36.0f && height <= 46.0f;
+    return large || corner || found;
 }
 
 // The quest clock: (8, 8)-(60, 56), 52 by 48, with a little room for the
@@ -135,6 +140,18 @@ inline constexpr float kBowgunBottom = 200.0f;
     const float height = r.y1 - r.y0;
     return r.x0 >= 4.0f && r.x0 <= 14.0f && r.y0 >= 4.0f && r.y0 <= 14.0f && width >= 46.0f && width <= 58.0f &&
         height >= 42.0f && height <= 54.0f;
+}
+
+// The yellow eye shown once a monster is found: 12 by 16 at (104, 56)-(116, 72),
+// on the right end of the name plate. The plate's rectangle stops at x 112, so
+// the name's rule leaves the eye where the game drew it. Traced with
+// MHFU_TRACE_SPRITES on the frames after the monster is found.
+[[nodiscard]] inline bool is_monster_eye(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 10.0f && width <= 16.0f && height >= 14.0f && height <= 18.0f && r.x0 >= 98.0f && r.x0 <= 114.0f &&
+        r.y0 >= 52.0f && r.y0 <= 64.0f;
 }
 
 // The long health and stamina bars, frames and fills. The fills are two pixels
@@ -361,8 +378,9 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
         return Piece::Vitals;
     if (width < 4.0f || height < 4.0f) return Piece::None;
     // The hunter's name under the clock. It grows from the clock's corner
-    // with the bars, so it stays under the clock.
-    if (contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r)) return Piece::Vitals;
+    // with the bars, so it stays under the clock. The yellow eye is the icon
+    // just past the plate's right end.
+    if (contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r) || is_monster_eye(r)) return Piece::Vitals;
     // A marker drawn on the map, inside the tile. Anything that sticks out
     // is not one.
     if (contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r)) return Piece::Map;
@@ -514,7 +532,7 @@ struct Frame {
             const Rect r = normalized(rect);
             map_corner = {r.x1, r.y0};
         }
-        if (is_vital_bar(rect) || is_clock_sprite(rect)) vital_now = true;
+        if (is_vital_bar(rect) || is_clock_sprite(rect) || is_monster_eye(rect)) vital_now = true;
         if (is_bar_panel(rect)) bar_now = true;
         if (is_sharpness_bar(rect) || is_sharpness_frame(rect)) sharp_now = true;
         if (is_spirit_bar(rect) || is_spirit_fill(rect) || is_loaded_round(rect) || is_bow_coating(rect) ||

@@ -9359,10 +9359,11 @@ bool VulkanRenderer::present(
     }
     // The game's frame as it is, at its flip.
     if (impl.cycle_active || impl.newer_frame.valid) impl.reset_interpolation();
-    if (impl.fast_forward) {
-        // A load running fast: the flip is drawn, and shown only when the
-        // window has not had a picture for a while, so the display's refresh
-        // never holds the load back.
+    // Game speed Unlimited is read here as well as from set_fast_forward: a
+    // present that runs before the next flip must not wait on the display.
+    if (impl.fast_forward || settings::current().unthrottled) {
+        // The flip is drawn, and shown only when the window has not had a
+        // picture for a while, so the display's refresh never holds the game.
         if (now - impl.fast_forward_shown < kFastForwardPresentInterval) {
             impl.ui_draw_data = nullptr;
             impl.submit_frame();

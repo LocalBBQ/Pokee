@@ -545,6 +545,18 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
     renderer.submit(draw, memory);
     renderer.present(0x04000000);
     renderer.set_fast_forward(false);
+    const bool saved_unthrottled = settings::current().unthrottled;
+    settings::current().unthrottled = true;
+    int unlimited_shown = 0;
+    for (int i = 0; i < 4; ++i) {
+        renderer.begin_frame();
+        renderer.submit(clear, memory);
+        renderer.submit(draw, memory);
+        if (renderer.present(0x04000000)) ++unlimited_shown;
+    }
+    expect(unlimited_shown >= 1 && unlimited_shown < 4,
+        "unlimited game speed draws frames without waiting on the display");
+    settings::current().unthrottled = saved_unthrottled;
     renderer.set_frame_rate(settings::FrameRate::Fps30);
     renderer.set_frame_rate_auto(true);
     draw.world[12] = 0;
@@ -3578,6 +3590,29 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
     toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
     toggle_setting("Damage numbers", &settings::Settings::damage_numbers);
+    {
+        const bool numbers = settings::current().damage_numbers;
+        const std::uint32_t size = settings::current().damage_number_size;
+        const std::uint32_t thickness = settings::current().damage_number_thickness;
+        settings::current().damage_numbers = false;
+        change_video("Damage number size", ImGuiKey_RightArrow);
+        change_video("Damage number thickness", ImGuiKey_RightArrow);
+        expect(settings::current().damage_number_size == size &&
+                settings::current().damage_number_thickness == thickness,
+            "damage number size and thickness are locked while the numbers are off");
+        settings::current().damage_numbers = true;
+        change_video("Damage number size", ImGuiKey_RightArrow);
+        change_video("Damage number thickness", ImGuiKey_RightArrow);
+        expect(settings::current().damage_number_size == size + 10u &&
+                settings::current().damage_number_thickness == thickness + 1u,
+            "damage number size steps by 10% and thickness by 1");
+        change_video("Damage number size", ImGuiKey_LeftArrow);
+        change_video("Damage number thickness", ImGuiKey_LeftArrow);
+        expect(settings::current().damage_number_size == size &&
+                settings::current().damage_number_thickness == thickness,
+            "damage number size and thickness round trip");
+        settings::current().damage_numbers = numbers;
+    }
     for (const char *action : {"Quit game", "Set up game data again…"}) {
         change_video(action, ImGuiKey_Space);
         frame();

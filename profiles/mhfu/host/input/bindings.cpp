@@ -620,6 +620,12 @@ bool waits_for(std::uint64_t shorter, std::uint64_t longer) {
     // chord only adds to them.
     constexpr std::uint64_t kHeldFirst = 0x0300u | (0xFull << 32u);
     if ((shorter & ~longer) == 0u && (shorter & ~kHeldFirst) == 0u) return false;
+    // Fast-forward runs for as long as its button is down and stops when
+    // that button is released or taken by a longer chord (L3 + R3 opens
+    // the menu). Waiting out the chord window would turn the press into a
+    // tap shorter than one frame, so the game would never speed up.
+    constexpr std::uint64_t kFastForward = 1ull << (32u + static_cast<unsigned>(Action::FastForward));
+    if (shorter == kFastForward) return false;
     const bool longer_reaches_game = (longer & ~port_bits()) != 0u;
     return port_effect(shorter) || longer_reaches_game;
 }

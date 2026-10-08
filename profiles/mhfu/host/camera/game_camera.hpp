@@ -56,8 +56,12 @@ void game_camera_frame(psprecomp::Runtime &runtime);
 [[nodiscard]] bool game_camera_aim_boost();
 
 // The deflection, already centred, to show the aim function on its next call.
-// Zero on both axes leaves the stick the game copied from the pad.
-void game_camera_present_aim(int x, int y);
+// Zero on both axes leaves the stick the game copied from the pad. `scale_x`
+// and `scale_y` are how far that axis of the stick is pushed, from -1 to 1:
+// the wrapper replaces the game's step on that axis with Aim speed times
+// this, before the aim camera reads the heading. Zero leaves the step for
+// the follow camera's driver (the mouse, whose size is its own degrees).
+void game_camera_present_aim(int x, int y, float scale_x = 0.0f, float scale_y = 0.0f);
 
 // A mouse has no stick for the game's aim code to read. While a bow or a
 // bowgun aims and the mouse has moved, the direction, at full length, the

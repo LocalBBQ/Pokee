@@ -24,8 +24,8 @@ struct SupportedRelease {
     std::uint32_t guest_ram_bytes;
 };
 
-// Monster Hunter Portable 3rd HD Ver. Camera, HUD and layered armor were traced
-// on this executable. The installer does not accept it.
+// Monster Hunter Portable 3rd HD Ver. The installer does not accept it. The
+// equipment name tables and the equipment box are still this executable's.
 inline constexpr SupportedRelease kPortable3rdHd{
     "NPJB40001",
     "NPJB-40001",
@@ -50,8 +50,9 @@ inline constexpr SupportedRelease kFreedomUniteUsa{
 inline constexpr SupportedRelease kSupportedReleases[] = {kFreedomUniteUsa};
 
 // Names of the release this build runs. Texture packs and the in-game menu
-// use them. The analog camera, the projection and hiding the HUD read this
-// executable. Layered armor stays on kPortable3rdHd until it is traced here.
+// use them. The analog camera, the projection, hiding the HUD and layered
+// armor read this executable. The equipment name tables and the equipment box
+// are still the Portable 3rd addresses.
 inline constexpr const char *kDiscId = kFreedomUniteUsa.disc_id;
 inline constexpr const char *kDiscIdDisplay = kFreedomUniteUsa.disc_id_display;
 inline constexpr const char *kGameTitle = kFreedomUniteUsa.title;
