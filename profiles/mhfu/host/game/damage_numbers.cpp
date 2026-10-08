@@ -1,5 +1,6 @@
 #include "game/damage_numbers.hpp"
 
+#include "game/hit_trace.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <algorithm>
@@ -7,6 +8,8 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <iostream>
 #include <iterator>
 #include <mutex>
 
@@ -48,10 +51,18 @@ bool &observers_before() {
     return before;
 }
 
-struct PendingCamera {
+// This frame's perspective views, each with the vertices drawn through it.
+struct PendingView {
     WorldCamera camera{};
-    std::uint32_t vertices{};
+    std::uint64_t vertices{};
 };
+
+struct PendingCamera {
+    std::vector<PendingView> views;
+    std::uint32_t vertices{}; // over every view; 0 when nothing was drawn
+};
+
+constexpr std::size_t kMaxViews = 16u;
 
 PendingCamera &pending_camera() {
     static PendingCamera pending;
@@ -60,30 +71,86 @@ PendingCamera &pending_camera() {
 
 std::optional<WorldCamera> take_pending_camera() {
     PendingCamera &pending = pending_camera();
-    if (pending.vertices == 0u) return std::nullopt;
+    if (pending.vertices == 0u || pending.views.empty()) {
+        pending.views.clear();
+        pending.vertices = 0u;
+        return std::nullopt;
+    }
+    const PendingView *best = nullptr;
+    const PendingView *best_centred = nullptr;
+    for (const PendingView &view : pending.views) {
+        const PendingView *&slot = camera_centred(view.camera) ? best_centred : best;
+        if (slot == nullptr || view.vertices > slot->vertices) slot = &view;
+    }
+    const WorldCamera chosen = best != nullptr ? best->camera : best_centred->camera;
+    pending.views.clear();
     pending.vertices = 0u;
-    return pending.camera;
+    return chosen;
 }
 
-void place_numbers(std::vector<Number> &live, const psprecomp::GuestMemory *memory) {
-    const std::optional<WorldCamera> camera = take_pending_camera();
-    if (!camera || memory == nullptr) return;
+// MHFU_TRACE_HITS: why a number is or is not on the picture. A few lines for
+// each number until it is placed, and one when it is.
+void report_place(Number &number, const char *outcome, const WorldCamera *camera, const WorldPoint *at,
+    const std::optional<PicturePoint> &point) {
+    if (!hit_trace::enabled() || number.reports >= 4u || (number.placed && number.reports > 0u)) return;
+    ++number.reports;
+    char line[512];
+    int used = std::snprintf(line, sizeof(line), "[hit] number %d on %08X: %s", number.amount, number.object, outcome);
+    if (at != nullptr && used > 0 && used < static_cast<int>(sizeof(line)))
+        used += std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used), "; position %g %g %g",
+            static_cast<double>(at->x), static_cast<double>(at->y), static_cast<double>(at->z));
+    if (point && used > 0 && used < static_cast<int>(sizeof(line)))
+        used += std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used), "; picture %g %g",
+            static_cast<double>(point->x), static_cast<double>(point->y));
+    if (camera != nullptr && used > 0 && used < static_cast<int>(sizeof(line))) {
+        const WorldCamera &c = *camera;
+        std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used),
+            "; view t %g %g %g; projection %g %g %g %g %g; viewport %g %g %g %g origin %g %g",
+            static_cast<double>(c.view[12]), static_cast<double>(c.view[13]), static_cast<double>(c.view[14]),
+            static_cast<double>(c.projection[0]), static_cast<double>(c.projection[5]),
+            static_cast<double>(c.projection[10]), static_cast<double>(c.projection[11]),
+            static_cast<double>(c.projection[14]), static_cast<double>(c.x_scale), static_cast<double>(c.y_scale),
+            static_cast<double>(c.x_offset), static_cast<double>(c.y_offset), static_cast<double>(c.origin_x),
+            static_cast<double>(c.origin_y));
+    }
+    std::cout << line << std::endl;
+}
+
+void place_numbers(
+    std::vector<Number> &live, const psprecomp::GuestMemory *memory, const std::optional<EyePose> &pose) {
+    std::optional<WorldCamera> camera = take_pending_camera();
+    if (camera && pose)
+        if (const std::optional<std::array<float, 16>> view = look_at_view(pose->eye, pose->look_at))
+            camera->view = *view;
+    if (!camera || memory == nullptr) {
+        for (Number &number : live)
+            if (!number.placed) report_place(number, "no world camera this frame", nullptr, nullptr, std::nullopt);
+        return;
+    }
     for (Number &number : live) {
         if (number.object == 0u) continue;
         const std::optional<WorldPoint> at = monster_position(*memory, number.object);
         if (!at) {
             number.placed = false;
+            report_place(number, "the monster's position cannot be read", &*camera, nullptr, std::nullopt);
             continue;
         }
         const std::optional<PicturePoint> picture =
             project_world(*camera, at->x, at->y + kBodyHeight, at->z);
         if (!picture) {
             number.placed = false;
+            report_place(number, "the point is behind the camera or off the picture", &*camera, &*at,
+                project_point(*camera, at->x, at->y + kBodyHeight, at->z));
             continue;
         }
         number.x = picture->x;
         number.y = picture->y;
+        // How tall the body is on the picture, feet to the number's point;
+        // the feet may be off the picture when the camera is close.
+        const std::optional<PicturePoint> feet = project_point(*camera, at->x, at->y, at->z);
+        number.body = feet ? std::fabs(feet->y - picture->y) : 0.0f;
         number.placed = true;
+        report_place(number, "placed", &*camera, &*at, picture);
     }
 }
 
@@ -92,12 +159,13 @@ void pre_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::
     if (!watch_armed().load(std::memory_order_relaxed) || target_pc != kHitAdjust) return;
     const std::uint32_t object = ctx.gpr[4];
     const std::optional<int> health = monster_health(runtime.memory(), object);
+    if (hit_trace::enabled()) hit_trace::note_call(runtime.memory(), ctx, native_depth, health);
     if (!health) return;
     std::lock_guard lock(numbers_mutex());
     watch_hit_enter(open_hits(), target_pc, native_depth, object, *health);
 }
 
-void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &, std::uint32_t target_pc,
+void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::uint32_t target_pc,
     std::uint32_t native_depth) {
     if (!watch_armed().load(std::memory_order_relaxed) || target_pc != kHitAdjust) return;
     std::uint32_t object = 0u;
@@ -124,6 +192,13 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &, std::ui
         }
     }
     if (!have) return;
+    if (hit_trace::enabled()) {
+        for (auto it = open_hits().rbegin(); it != open_hits().rend(); ++it) {
+            if (it->depth != native_depth) continue;
+            (void)hit_trace::log_return(ctx, native_depth, it->health, sample);
+            break;
+        }
+    }
     if (std::optional<Number> number =
             watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size())))
         remember_number(live_numbers(), *number);
@@ -221,19 +296,59 @@ Anchor number_anchor(const Number &number) noexcept {
     Anchor anchor;
     if (!number.placed) return anchor;
     const float life = number.age / kNumberSeconds;
-    const int slot = number.lane % 5;
-    const int row = number.lane / 5;
-    // A few pixels either side of the monster, so two hits do not share a point,
-    // and a short rise that stays on the body.
-    static constexpr float kStep[] = {0.0f, -1.0f, 1.0f, -2.0f, 2.0f};
-    anchor.x = number.x + kStep[slot] * 0.012f;
-    anchor.y = number.y - life * 0.025f - static_cast<float>(row) * 0.012f;
+    // On the hit's point, never beside it: later hits sit above the earlier
+    // ones, and the whole rises a little. Up close, smaller, so the number
+    // keeps to the point rather than spreading over the body.
+    anchor.scale = closeness_scale(number.body);
+    anchor.x = number.x;
+    anchor.y = number.y - (life * kRise + static_cast<float>(number.lane) * kStack) * anchor.scale;
     anchor.alpha = life < 0.70f ? 1.0f : (1.0f - life) / 0.30f;
     if (anchor.alpha < 0.0f) anchor.alpha = 0.0f;
     return anchor;
 }
 
+float closeness_scale(float body) noexcept {
+    if (!std::isfinite(body) || body <= kShrinkFrom) return 1.0f;
+    const float t = std::min((body - kShrinkFrom) / (kShrinkTo - kShrinkFrom), 1.0f);
+    return 1.0f - t * (1.0f - kMinScale);
+}
+
+std::optional<std::array<float, 16>> look_at_view(const WorldPoint &eye, const WorldPoint &target) noexcept {
+    float forward[3] = {target.x - eye.x, target.y - eye.y, target.z - eye.z};
+    const float length = std::sqrt(forward[0] * forward[0] + forward[1] * forward[1] + forward[2] * forward[2]);
+    if (!std::isfinite(length) || length < 1.0e-4f) return std::nullopt;
+    for (float &f : forward) f /= length;
+    // forward x (0, 1, 0)
+    float right[3] = {-forward[2], 0.0f, forward[0]};
+    const float level = std::sqrt(right[0] * right[0] + right[2] * right[2]);
+    if (level < 1.0e-4f) return std::nullopt;
+    right[0] /= level;
+    right[2] /= level;
+    const float back[3] = {-forward[0], -forward[1], -forward[2]};
+    // back x right
+    const float up[3] = {back[1] * right[2] - back[2] * right[1], back[2] * right[0] - back[0] * right[2],
+        back[0] * right[1] - back[1] * right[0]};
+    const float at[3] = {eye.x, eye.y, eye.z};
+    std::array<float, 16> view{};
+    for (std::size_t axis = 0; axis < 3u; ++axis) {
+        view[axis * 4u + 0u] = right[axis];
+        view[axis * 4u + 1u] = up[axis];
+        view[axis * 4u + 2u] = back[axis];
+    }
+    view[12] = -(right[0] * at[0] + right[1] * at[1] + right[2] * at[2]);
+    view[13] = -(up[0] * at[0] + up[1] * at[1] + up[2] * at[2]);
+    view[14] = -(back[0] * at[0] + back[1] * at[1] + back[2] * at[2]);
+    view[15] = 1.0f;
+    return view;
+}
+
 std::optional<PicturePoint> project_world(const WorldCamera &camera, float x, float y, float z) noexcept {
+    const std::optional<PicturePoint> point = project_point(camera, x, y, z);
+    if (!point || point->x < 0.0f || point->x > 1.0f || point->y < 0.0f || point->y > 1.0f) return std::nullopt;
+    return point;
+}
+
+std::optional<PicturePoint> project_point(const WorldCamera &camera, float x, float y, float z) noexcept {
     if (camera.x_scale == 0.0f || camera.y_scale == 0.0f) return std::nullopt;
     const float point[4] = {x, y, z, 1.0f};
     float eye[4]{};
@@ -253,9 +368,7 @@ std::optional<PicturePoint> project_world(const WorldCamera &camera, float x, fl
     const float pixel_y = ndc_y * camera.y_scale + camera.y_offset - camera.origin_y;
     const float picture_x = pixel_x / 480.0f;
     const float picture_y = pixel_y / 272.0f;
-    if (!std::isfinite(picture_x) || !std::isfinite(picture_y) || picture_x < 0.0f || picture_x > 1.0f ||
-        picture_y < 0.0f || picture_y > 1.0f)
-        return std::nullopt;
+    if (!std::isfinite(picture_x) || !std::isfinite(picture_y)) return std::nullopt;
     return PicturePoint{picture_x, picture_y};
 }
 
@@ -270,13 +383,24 @@ std::optional<WorldPoint> monster_position(const psprecomp::GuestMemory &memory,
     return point;
 }
 
+bool camera_centred(const WorldCamera &camera) noexcept {
+    constexpr float kNoTranslation = 1.0e-3f;
+    return std::fabs(camera.view[12]) < kNoTranslation && std::fabs(camera.view[13]) < kNoTranslation &&
+        std::fabs(camera.view[14]) < kNoTranslation;
+}
+
 void note_world_camera(const WorldCamera &camera, std::uint32_t vertices) {
     if (vertices == 0u || std::fabs(camera.projection[11]) < 1.0e-6f) return;
     std::lock_guard lock(numbers_mutex());
     PendingCamera &pending = pending_camera();
-    if (vertices <= pending.vertices) return;
-    pending.camera = camera;
-    pending.vertices = vertices;
+    pending.vertices += vertices;
+    for (PendingView &view : pending.views) {
+        if (view.camera.view == camera.view && view.camera.projection == camera.projection) {
+            view.vertices += vertices;
+            return;
+        }
+    }
+    if (pending.views.size() < kMaxViews) pending.views.push_back({camera, vertices});
 }
 
 std::optional<WorldCamera> take_world_camera() {
@@ -333,7 +457,7 @@ std::optional<int> monster_health(const psprecomp::GuestMemory &memory, std::uin
     return static_cast<int>(static_cast<std::int16_t>(memory.load16(address)));
 }
 
-void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory) {
+void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, const std::optional<EyePose> &pose) {
     using Clock = std::chrono::steady_clock;
     static Clock::time_point previous = Clock::now();
     const Clock::time_point now = Clock::now();
@@ -342,7 +466,9 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory) {
     if (seconds < 0.0f) seconds = 0.0f;
     if (seconds > 1.0f) seconds = 1.0f;
 
-    if (!enabled) {
+    // The trace watches the same routine, with the numbers themselves off.
+    const bool watch = enabled || hit_trace::enabled();
+    if (!watch) {
         // Off, and never turned on: the present path does not take the lock.
         if (!hook_installed()) return;
         remove_watch();
@@ -351,13 +477,16 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory) {
         live_numbers().clear();
         shown_numbers().clear();
         pending_camera().vertices = 0u;
+        pending_camera().views.clear();
         return;
     }
     install_watch();
+    if (hit_trace::enabled() && memory != nullptr) hit_trace::frame(*memory, &monster_health);
     std::lock_guard lock(numbers_mutex());
     live_numbers() = age_numbers(std::move(live_numbers()), seconds);
-    place_numbers(live_numbers(), memory);
-    shown_numbers() = live_numbers();
+    place_numbers(live_numbers(), memory, pose);
+    if (enabled) shown_numbers() = live_numbers();
+    else shown_numbers().clear();
 }
 
 const std::vector<Number> &damage_numbers() {

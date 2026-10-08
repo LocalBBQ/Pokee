@@ -387,6 +387,7 @@ void test_aim_stick_is_not_movement() {
     constexpr std::uint32_t kButtons = 1152u;
     memory.store32(kHunter + kButtons, 0x00800001u);
     memory.store16(kHunter + kMagnitude, 10u);
+    memory.store8(kHunter + 1380u, 1u);
     game_camera_present_aim(127, -40);
     f.ctx.gpr[4] = kHunter;
     f.ctx.gpr[31] = 0x09C00000u;
@@ -400,6 +401,15 @@ void test_aim_stick_is_not_movement() {
     check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches with no push");
     check(seen_magnitude == 10u, "no push leaves the stick the game copied");
     check(seen_buttons == 0x00800001u, "and leaves its direction");
+
+    // A bowgun leaves +1380 clear, and the aim function then steps from the
+    // D-pad bits rather than the stick half.
+    memory.store8(kHunter + 1380u, 0u);
+    game_camera_present_aim(127, -40);
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the bowgun aim function dispatches");
+    check(seen_buttons == 0x00800031u, "a bowgun aim is shown as D-pad right and up");
+    check(seen_magnitude == 10u, "and the movement magnitude is not replaced");
+    check(memory.load32(kHunter + kButtons) == 0x00800001u, "the bowgun's movement direction is put back");
 }
 
 void test_proportional_aim() {

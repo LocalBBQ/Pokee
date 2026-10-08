@@ -3,22 +3,18 @@
 <p align="center"><a href="README.md">English</a> · <a href="README.ru.md">Русский</a> · <b>Español</b></p>
 
 <p align="center">
-  <a href="https://github.com/TeamGDB/Yakumo/releases/latest"><img src="https://img.shields.io/github/v/release/TeamGDB/Yakumo?style=flat-square&amp;label=release&amp;labelColor=2a1a22&amp;color=b98335" alt="Latest stable release"></a>
-  <a href="https://github.com/TeamGDB/Yakumo/actions/workflows/tests.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/TeamGDB/Yakumo/tests.yml?branch=main&amp;event=push&amp;style=flat-square&amp;label=tests&amp;labelColor=2a1a22" alt="Unit tests on main"></a>
-  <a href="docs/COVERAGE.md"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FTeamGDB%2FYakumo%2Fcoverage-badges%2Fcoverage.json&amp;style=flat-square&amp;cacheSeconds=300" alt="Coverage of measured source lines on main; see scope and unmeasured files"></a>
+  <a href="https://github.com/LocalBBQ/Pokee"><img src="https://img.shields.io/badge/source-LocalBBQ%2FPokee-b98335?style=flat-square&amp;labelColor=2a1a22" alt="Source: LocalBBQ/Pokee"></a>
+  <a href="https://github.com/LocalBBQ/Pokee/actions/workflows/tests.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/LocalBBQ/Pokee/tests.yml?branch=main&amp;event=push&amp;style=flat-square&amp;label=tests&amp;labelColor=2a1a22" alt="Unit tests on main"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-b98335?style=flat-square&amp;labelColor=2a1a22" alt="License: MIT"></a>
-  <a href="docs/COMPATIBILITY.md"><img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS%20%C2%B7%20Android-b98335?style=flat-square&amp;labelColor=2a1a22" alt="Platforms: Windows, Linux, macOS and Android"></a>
-  <a href="https://github.com/TeamGDB/Yakumo/stargazers"><img src="https://img.shields.io/github/stars/TeamGDB/Yakumo?style=flat-square&amp;label=stars&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub stars"></a>
-  <a href="https://github.com/TeamGDB/Yakumo/releases"><img src="https://img.shields.io/github/downloads/TeamGDB/Yakumo/total?style=flat-square&amp;label=downloads&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub release asset downloads across all releases"></a>
-</p>
-
-<p align="center">
-  <a href="https://discord.gg/XbQSE3b4m"><img src="https://img.shields.io/badge/Discord-Join%20community-b98335?style=flat-square&amp;logo=discord&amp;logoColor=white&amp;labelColor=2a1a22" alt="Join the TeamGDB Discord community"></a>
+  <a href="docs/BUILDING.md"><img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS%20%C2%B7%20Android-b98335?style=flat-square&amp;labelColor=2a1a22" alt="Build targets: Windows, Linux, macOS and Android"></a>
+  <a href="https://github.com/LocalBBQ/Pokee/stargazers"><img src="https://img.shields.io/github/stars/LocalBBQ/Pokee?style=flat-square&amp;label=stars&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub stars"></a>
 </p>
 
 # Pokee
 
-Una versión nativa de **Monster Hunter Freedom Unite** (EE. UU.) hecha mediante recompilación estática: el código de PSP del juego se traduce de antemano a C++ y se compila para tu equipo, y después se ejecuta sobre una reimplementación del software de sistema de la PSP. No es un emulador —no hay un intérprete ni un JIT en su núcleo— ni tampoco una decompilación.
+Una versión nativa de **Monster Hunter Freedom Unite** (EE. UU., `ULUS-10391`, versión 1.01) hecha mediante recompilación estática: el código de PSP del juego se traduce de antemano a C++ y se compila para tu equipo, y después se ejecuta sobre una reimplementación del software de sistema de la PSP. No es un emulador —no hay un intérprete ni un JIT en su núcleo— ni tampoco una decompilación.
+
+Este repositorio es [LocalBBQ/Pokee](https://github.com/LocalBBQ/Pokee). Continúa [Yakumo](https://github.com/TeamGDB/Yakumo), redirigido de Monster Hunter Portable 3rd a Freedom Unite. Las compilaciones publicadas de Yakumo son de Portable 3rd. Este juego se obtiene compilando este repositorio.
 
 > **Este proyecto no incluye ningún recurso del juego.** Para instalar o compilar Pokee debes aportar los archivos de tu propia copia legal de Monster Hunter Freedom Unite (EE. UU., `ULUS-10391`, versión 1.01).
 
@@ -46,41 +42,32 @@ La licencia de **Pokee** se aplica únicamente al código y los materiales origi
 
 **Pokee** proporciona el software, no el juego. Debes aportar tu propia copia adquirida legalmente.
 
-## Estado: jugable
+## Estado
 
-Puedes cargar una partida copiada de una PSP o empezar una nueva, cazar con otros jugadores y guardar tu progreso, con música, cinemáticas e iluminación. La simulación del juego sigue funcionando a los 30 fotogramas por segundo de la PSP; la interpolación opcional puede presentarla a 45, 60, 90, 120 fotogramas o a la frecuencia de la pantalla sin cambiar la velocidad del juego. Las cargas son más cortas que en una PSP: mientras el juego carga en silencio, avanza más deprisa que el tiempo real (*Fast loading*, activado por defecto).
+El host apunta a un Freedom Unite de EE. UU. jugable: una partida copiada de una PSP o una partida nueva, la aldea y las cacerías, música, cinemáticas e iluminación, y después un guardado en el formato de la propia PSP. La simulación se mantiene a 30 fotogramas por segundo. La interpolación opcional la presenta a 45, 60, 90, 120 o a la frecuencia de la pantalla. Mientras el juego carga en silencio puede avanzar más deprisa que el tiempo real (*Fast loading*, activado por defecto).
 
-| Funciona | Falta o tiene problemas |
+`generate.sh` traduce el ejecutable residente (3095 funciones) y sella su SHA-256. El arranque registra ese corpus solo cuando el ejecutable preparado tiene el mismo hash. El juego cabe en 32 MiB de RAM de invitado. Los 355 overlays de código se recompilan por adelantado; un intérprete cubre lo que ellos no alcanzan.
+
+| En este árbol | Sigue abierto |
 | --- | --- |
-| Arranque, menús, creación de personaje, la aldea y las zonas de caza | |
-| Partidas guardadas en el formato de la propia PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y hacer copias de seguridad desde el menú | Superficies curvas (#10); los diálogos de guardado todavía no dibujan nada (#33) |
-| Gráficos Vulkan: modelos, animación, texturas, transparencias, iluminación y niebla; resolución interna ajustable, cualquier forma de ventana e interpolación de fotogramas | |
-| Paquetes de texturas HD compatibles con PPSSPP, instalados desde el menú o copiados al directorio de datos | |
-| Mods en el formato de la comunidad: reemplazos y parches de archivos, gestionados desde el menú (ver el [README del perfil](profiles/mhfu/README.md#mods)) | Mods de código (#81) |
-| Efectos de sonido, música en streaming y cinemáticas | |
-| Controles de teclado y ratón totalmente reasignables; mandos con cámara y apuntado analógicos en el stick derecho, preajustes de control y asignación de combinaciones de botones | |
-| El menú de Pokee dentro del juego, la configuración inicial, el explorador de archivos y el teclado en pantalla, todos utilizables con mando, teclado o ratón | |
-| Los 355 overlays de código, recompilados | |
-| Multijugador: a través de los servidores ad hoc que usan los jugadores de PSP, o con anfitrión desde el propio juego en una red local o VPN | |
+| Arranque, menús, creación de personaje, la aldea y las zonas de caza | Superficies curvas (parches de Bézier y splines) |
+| Partidas en formato PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y copias de seguridad desde el menú | Los diálogos de guardado y de mensaje responden como si se confirmaran y no dibujan nada ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| Gráficos Vulkan: modelos, animación, texturas, transparencias, iluminación, niebla e interpolación de fotogramas | Proyección panorámica, colocación del HUD, el marcador de fijación y la armadura por capas. Se trazaron en Portable 3rd y siguen apagados hasta que se trazen en este ejecutable |
+| Seguimiento de cámara analógica, apuntado de arco y ballesta, y fijación, leídos de este ejecutable | |
+| Paquetes de texturas HD compatibles con PPSSPP para `ULUS10391`, instalados desde el menú o copiados al directorio de datos | |
+| Mods por reemplazo de archivos, gestionados desde el menú (ver el [README del perfil](profiles/mhfu/README.md#mods)) | Mods de código |
+| Efectos de sonido, música en streaming y cinemáticas | Modo de descarga (`sceHttp`, `sceNetInet`) |
+| Controles reasignables de teclado, ratón y mando, incluida la cámara y el apuntado analógicos en el stick derecho | |
+| Configuración inicial, menú dentro del juego, explorador de archivos y teclado en pantalla | |
+| Ad hoc entre instancias de Pokee, en una red local o a través de un servidor ad hoc | Jugar con PPSSPP y en servidores públicos |
 
-Se ha probado en macOS (Apple Silicon, Vulkan a través de MoltenVK), en una Steam Deck en el modo de juego, con Vulkan nativo y los controles integrados, y en Windows 11 con MSVC.
-
-El estado de cada parte del juego en cada plataforma está en [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
+Las filas de [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) se comprobaron en Yakumo antes de redirigir este árbol. Describen sesiones de Portable 3rd. Freedom Unite todavía necesita su propia pasada en cada plataforma.
 
 ## Jugar
 
-### ⬇️ [Descargar la última versión estable](https://github.com/TeamGDB/Yakumo/releases/latest)
+Este repositorio no publica instaladores. Compílalo desde el código fuente con tu propia imagen de disco; los pasos están en [Primeros pasos](#primeros-pasos). La configuración inicial comprueba la imagen, prepara el juego a partir de ella y guarda los ajustes y las partidas en un directorio del usuario (o en una [carpeta portátil `data`](profiles/mhfu/README.md#portable-copy) junto al ejecutable).
 
-Una versión publicada solo necesita tu imagen de disco. Elige el archivo para tu dispositivo en los **Assets** de la versión, inícialo e indica tu imagen en la configuración inicial: comprueba la imagen, prepara el juego a partir de ella y lo guarda todo en un directorio del usuario. Actualizar conserva tus ajustes y partidas guardadas.
-
-| Dispositivo | Archivo | Instalación |
-| --- | --- | --- |
-| **Windows** (x86-64) | `pokee-…-windows-x86_64.zip` | Descomprímelo donde quieras y ejecuta `Pokee.exe`. Sus datos van a `%APPDATA%`. Desde la v0.7.0 también hay un `…-portable.zip` que lo guarda todo (ajustes, partidas guardadas, el juego preparado) en una carpeta `data` junto a `Pokee.exe`, por ejemplo en una memoria USB; más detalles en [Portable copy](profiles/mhfu/README.md#portable-copy). |
-| **Steam Deck y Linux** | `pokee-…-linux-x86_64.flatpak` (o el archivo portátil `.tar.gz`) | Instala el Flatpak, inicia Pokee y añádelo a Steam para el modo de juego. [`docs/LINUX.md`](docs/LINUX.md) (en inglés) explica la instalación, el primer inicio, el modo de juego, dónde están las partidas guardadas, cómo actualizar y cómo desinstalar. |
-| **Android** (64 bits, Android 10+, Vulkan 1.1) | `pokee-…-android-arm64.apk` | Abre el APK en el teléfono y permite instalarlo. En el primer inicio toma tu `.iso` mediante el selector de archivos de Android y lo copia dentro de la aplicación (unos 1,3 GB además de los 0,8 GB de la aplicación). Los controles táctiles se dibujan sobre el juego; los mandos también funcionan. |
-| **macOS** (Apple Silicon, macOS 13+) | `pokee-…-macos-arm64.dmg` | Abre la imagen de disco y arrastra Pokee a Aplicaciones. Apple no la ha notarizado, así que macOS pide permitirla una vez. [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explica la instalación, el primer inicio, dónde se guardan las partidas, cómo actualizar y cómo desinstalar. |
-
-**Versiones de prueba.** La [página de versiones](https://github.com/TeamGDB/Yakumo/releases) también muestra versiones de prueba, marcadas *(test)* (las anteriores, *(unstable)*) y publicadas como pre-release. Traen los cambios más nuevos y pueden tener errores nuevos: instálalas solo si quieres ayudar a probar. Si solo quieres jugar, usa la última versión estable de arriba.
+Cuando exista una compilación terminada, [`docs/LINUX.md`](docs/LINUX.md) y [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explican la instalación, el primer inicio y dónde viven las partidas. Android apunta a Android 10 o posterior de 64 bits con Vulkan 1.1; los controles táctiles se dibujan sobre el juego y los mandos también funcionan.
 
 ## Requisitos
 
@@ -112,9 +99,11 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Pokee. 
 
 ## Hoja de ruta
 
-- Android en teléfonos reales: pruebas en dispositivos, controladores gráficos y rendimiento ([#127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
-- Un estilo visual coherente para las pantallas de configuración, los menús y los overlays de Pokee ([#33](https://github.com/TeamGDB/Yakumo/issues/33))
-- Controles táctiles para el juego y los menús, además de la cámara y el apuntado
+- Trazar la proyección panorámica, la colocación del HUD, el marcador de fijación y la armadura por capas en el ejecutable de Freedom Unite. Siguen apagados hasta que ese trabajo esté hecho
+- Superficies curvas, y diálogos de guardado que dibujen
+- Juego ad hoc con PPSSPP y en los servidores públicos que usan los jugadores de PSP
+- Android en teléfonos reales: pruebas en dispositivos, controladores gráficos y rendimiento ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
+- Un estilo visual coherente en las pantallas de configuración, los menús y los overlays ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33))
 
 ## Cómo funciona
 
@@ -153,7 +142,7 @@ Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](docs/PROFILE_G
 
 ## Autores
 
-Pokee parte de [Yakumo](https://github.com/TeamGDB/Yakumo). Ese proyecto y quienes contribuyeron a él conservan el crédito del port del que sale este árbol:
+[Pokee](https://github.com/LocalBBQ/Pokee) parte de [Yakumo](https://github.com/TeamGDB/Yakumo), el port de Portable 3rd. Ese proyecto y quienes contribuyeron a él conservan el crédito del host del que sale este árbol:
 
 - [@MHunterG](https://github.com/MHunterG)
 - [@mojitosunrise](https://github.com/mojitosunrise)

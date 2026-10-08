@@ -349,15 +349,11 @@ void test_crisp_text() {
 // attack once the class coefficient is divided out, and 180 element is 18.
 void test_comparable_weapons() {
     const Settings fresh = from_entries({});
-    check(!fresh.comparable_weapons, "display without coefficient starts off");
+    check(!fresh.comparable_weapons, "comparable weapon numbers start off");
     Entries on = to_entries(fresh);
-    on["game.display_without_coefficient"] = "1";
-    check(from_entries(on).comparable_weapons, "the file turns it on");
-    check(from_entries(to_entries(from_entries(on))).comparable_weapons, "and it survives a round trip");
-    check(to_entries(from_entries(on)).at("game.display_without_coefficient") == "1",
-        "the new key is what gets written");
-    Entries earlier{{"game.comparable_weapons", "1"}};
-    check(from_entries(earlier).comparable_weapons, "the earlier key still turns it on");
+    on["game.comparable_weapons"] = "1";
+    check(from_entries(on).comparable_weapons, "the file turns them on");
+    check(from_entries(to_entries(from_entries(on))).comparable_weapons, "and they survive a round trip");
     check(!fresh.damage_numbers, "damage numbers start off");
     Entries hits = to_entries(fresh);
     hits["game.damage_numbers"] = "1";
@@ -380,109 +376,317 @@ void test_comparable_weapons() {
     check(comparable_element(180) == 18 && comparable_element(520) == 52 && comparable_element(0) == 0,
         "element is the printed figure divided by 10");
     check(comparable_element(-10) == -10, "a negative element is left as printed");
-
-    using mhfu::game::compared_weapon;
-    using mhfu::game::shop_attack;
-    using mhfu::game::shop_element;
-    check(shop_attack(70, 5) == 336 && shop_attack(70, 6) == 98 && shop_attack(70, 7) == 364,
-        "the shop multiplies raw");
-    check(shop_attack(70, 8) == 161 && shop_attack(70, 15) == 84 && shop_attack(70, 13) == 378,
-        "the shop multiplies the other classes the same way");
-    check(shop_element(18) == 180 && shop_element(0) == 0 && shop_element(-2) == -2,
-        "the shop prints element times 10");
-    using mhfu::game::reprint_shown;
-    check(reprint_shown(336, 5, 70, 18) == 70, "a printed great sword attack of 336 is reprinted as 70");
-    check(reprint_shown(180, 5, 70, 18) == 18, "a printed element of 180 is reprinted as 18");
-    check(reprint_shown(98, 6, 70, 18) == 70, "a printed sword and shield attack of 98 is reprinted as 70");
-    check(reprint_shown(200, 5, 70, 18) == 200, "a figure that is not this weapon's attack or element stays");
-    check(reprint_shown(0, 5, 70, 18) == 0 && reprint_shown(-4, 5, 70, 18) == -4, "zero and a negative stay");
-    // A bow at true raw 150 prints 180, and element 18 prints 180 too.
-    check(reprint_shown(180, 15, 150, 18) == 180, "a figure that is both the attack and the element stays");
-    std::uint8_t record[16]{};
-    record[0] = 3;
-    record[2] = 1;
-    record[4] = 1500 & 0xFF;
-    record[5] = (1500 >> 8) & 0xFF;
-    record[10] = 70;
-    record[12] = 18;
-    const std::optional<mhfu::game::ComparedWeapon> read = compared_weapon(record, sizeof(record), 5);
-    check(read && read->attack == 70 && read->element == 18, "a weapon record gives the stored attack and element");
-    record[2] = 0;
-    check(!compared_weapon(record, sizeof(record), 5), "a record that is not a weapon is left unread");
-    check(!compared_weapon(record, sizeof(record), 0), "a kind that is not a weapon has no record");
 }
 
-void test_map_item_scale() {
-    using mhfu::gpu::hud_scale::Anchor;
-    using mhfu::gpu::hud_scale::Piece;
-    using mhfu::gpu::hud_scale::Rect;
-    using mhfu::gpu::hud_scale::anchor_of;
-    using mhfu::gpu::hud_scale::piece_of;
-    using mhfu::gpu::hud_scale::scale_point;
-    check(defaults().map_item_scale == 100u, "the map and the item bar start at the game's size");
-    Settings chosen = from_entries({{"video.map_item_scale", "150"}});
-    check(chosen.map_item_scale == 150u, "150% is read back");
-    check(to_entries(chosen).at("video.map_item_scale") == "150", "150% is written");
-    check(from_entries({{"video.map_item_scale", "50"}}).map_item_scale == 50u, "50% is half the game's size");
-    check(from_entries({{"video.map_item_scale", "40"}}).map_item_scale == 50u, "below 50% stays at 50%");
-    check(from_entries({{"video.map_item_scale", "900"}}).map_item_scale == 200u, "above 200% stays at 200%");
+// The Video page's Interface sizes: the area map, the clock with health and
+// the weapon pieces, and the item bar, each saved on its own.
+void test_interface_sizes() {
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    const Settings fresh = defaults();
+    check(fresh.hud.map == 100u && fresh.hud.health == 100u && fresh.hud.item_bar == 100u,
+        "every interface piece starts at the game's size");
+    const Settings chosen =
+        from_entries({{"video.hud.map", "50"}, {"video.hud.health", "150"}, {"video.hud.item_bar", "70"}});
+    check(chosen.hud.map == 50u && chosen.hud.health == 150u && chosen.hud.item_bar == 70u,
+        "each piece reads its own size");
+    const Entries written = to_entries(chosen);
+    check(written.at("video.hud.map") == "50" && written.at("video.hud.health") == "150" &&
+            written.at("video.hud.item_bar") == "70",
+        "each piece writes its own size");
+    check(from_entries({{"video.hud.map", "40"}}).hud.map == 50u, "below 50% stays at 50%");
+    check(from_entries({{"video.hud.item_bar", "900"}}).hud.item_bar == 200u, "above 200% stays at 200%");
 
-    // The rectangles measured in a quest's base camp.
-    const Rect map{8.0f, 8.0f, 60.0f, 56.0f};
-    const Rect item_icon{372.0f, 200.0f, 412.0f, 240.0f};
-    const Rect item_name{354.0f, 244.0f, 431.0f, 258.0f};
-    const Rect health{56.0f, 12.0f, 320.0f, 20.0f};
-    const Rect name_plate{8.0f, 56.0f, 104.0f, 72.0f};
-    const Rect supply{391.0f, 85.0f, 421.0f, 115.0f};
-    check(piece_of(map) == Piece::Map, "the camp map is the map");
-    check(piece_of({20.0f, 20.0f, 28.0f, 28.0f}) == Piece::Map, "a marker on the map stays with it");
-    check(piece_of(item_icon) == Piece::ItemBar && piece_of(item_name) == Piece::ItemBar,
-        "the item icon and its name are the item bar");
-    check(piece_of(health) == Piece::None && piece_of(name_plate) == Piece::None && piece_of(supply) == Piece::None,
-        "health, the name plate and the supply icons are left alone");
-
-    float x = 60.0f;
-    float y = 56.0f;
-    scale_point(x, y, anchor_of(Piece::Map), 2.0f);
-    check(x == 112.0f && y == 104.0f, "the map grows down and right from its corner");
-    x = 8.0f;
-    y = 8.0f;
-    scale_point(x, y, anchor_of(Piece::Map), 2.0f);
-    check(x == 8.0f && y == 8.0f, "the map's corner stays put");
-    x = 312.0f;
-    y = 200.0f;
-    const Anchor bar = anchor_of(Piece::ItemBar);
-    scale_point(x, y, bar, 2.0f);
-    check(x == 152.0f && y == 136.0f, "the item bar grows up and left");
-    x = bar.x;
-    y = bar.y;
-    scale_point(x, y, bar, 2.0f);
-    check(x == bar.x && y == bar.y, "the item bar's corner stays put");
-    x = 60.0f;
-    y = 56.0f;
-    scale_point(x, y, anchor_of(Piece::Map), 0.5f);
-    check(x == 34.0f && y == 32.0f, "the map shrinks toward its corner");
-    x = 312.0f;
-    y = 200.0f;
-    scale_point(x, y, bar, 0.5f);
-    check(x == 392.0f && y == 232.0f, "the item bar shrinks toward its corner");
+    // One size used to cover all three.
+    const Settings older = from_entries({{"video.map_item_scale", "80"}});
+    check(older.hud.map == 80u && older.hud.health == 80u && older.hud.item_bar == 80u,
+        "the earlier single size carries over to all three");
+    check(from_entries({{"video.map_item_scale", "80"}, {"video.hud.map", "60"}}).hud.health == 100u,
+        "the earlier size is ignored once a separate size is saved");
+    check(to_entries(older).count("video.map_item_scale") == 0u, "the earlier key is not written again");
 
     struct Vertex {
         float x;
         float y;
     };
-    std::vector<Vertex> quad(6, Vertex{8.0f, 8.0f});
-    quad[2].x = 60.0f;
-    quad[2].y = 56.0f;
-    mhfu::gpu::hud_scale::scale_quads(quad, 1.0f);
-    check(quad[2].x == 60.0f && quad[2].y == 56.0f, "100% does not move a sprite");
-    mhfu::gpu::hud_scale::scale_quads(quad, 2.0f);
-    check(quad[0].x == 8.0f && quad[0].y == 8.0f && quad[2].x == 112.0f && quad[2].y == 104.0f,
-        "a map sprite is scaled about its corner");
+    // The area map tile, (316, 32)-(468, 184), grows from its top-right.
+    const Scales map_only{2.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<Vertex> map(6, Vertex{316.0f, 32.0f});
+    map[2] = {468.0f, 184.0f};
+    Frame frame;
+    mhfu::gpu::hud_scale::scale_quads(map, map_only, frame);
+    check(map[0].x == 164.0f && map[0].y == 32.0f && map[2].x == 468.0f && map[2].y == 336.0f,
+        "the map grows left and down from its top-right corner");
+    // The small map, (425, 78)-(465, 118), shrinks into its own top-right
+    // corner, and the player's arrow drawn after it stays on it.
+    const Scales map_half{0.5f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    Frame quest;
+    std::vector<Vertex> small(6, Vertex{425.0f, 78.0f});
+    small[2] = {465.0f, 118.0f};
+    mhfu::gpu::hud_scale::scale_quads(small, map_half, quest);
+    check(small[0].x == 445.0f && small[0].y == 78.0f && small[2].x == 465.0f && small[2].y == 98.0f,
+        "the small map shrinks toward its top-right corner");
+    std::vector<Vertex> arrow(6, Vertex{438.0f, 95.0f});
+    arrow[2] = {450.0f, 107.0f};
+    mhfu::gpu::hud_scale::scale_quads(arrow, map_half, quest);
+    check(arrow[0].x == 451.5f && arrow[0].y == 86.5f && arrow[2].x == 457.5f && arrow[2].y == 92.5f,
+        "the player's arrow moves with the small map");
+
+    std::vector<Vertex> health(6, Vertex{56.0f, 12.0f});
+    health[2] = {320.0f, 20.0f};
+    mhfu::gpu::hud_scale::scale_quads(health, map_only, frame);
+    check(health[0].x == 56.0f && health[2].x == 320.0f && health[2].y == 20.0f,
+        "the map's size leaves the health bar alone");
+    // Health shrinks toward the clock's corner at (8, 8).
+    const Scales group_half{1.0f, 0.5f, 1.0f, 0.5f, 0.5f, 0.5f};
+    mhfu::gpu::hud_scale::scale_quads(health, group_half, frame);
+    check(health[0].x == 32.0f && health[0].y == 10.0f && health[2].x == 164.0f && health[2].y == 14.0f,
+        "health shrinks toward the clock's corner");
+    // Raised maximum health draws the bar out to x 399. It still shrinks with
+    // the clock; left at the game's position it is drawn over the clock.
+    Frame raised;
+    std::vector<Vertex> long_health(6, Vertex{56.0f, 12.0f});
+    long_health[2] = {399.0f, 20.0f};
+    mhfu::gpu::hud_scale::scale_quads(long_health, group_half, raised);
+    check(long_health[0].x == 32.0f && long_health[0].y == 10.0f && long_health[2].x == 203.5f &&
+            long_health[2].y == 14.0f,
+        "a raised health bar shrinks toward the clock's corner");
+
+    // The long sword's red gauge is two pixels tall inside the sharpness bar.
+    Frame spirit;
+    std::vector<Vertex> gauge(6, Vertex{66.0f, 46.0f});
+    gauge[2] = {162.0f, 48.0f};
+    mhfu::gpu::hud_scale::scale_quads(gauge, group_half, spirit);
+    check(gauge[0].x == 37.0f && gauge[0].y == 27.0f && gauge[2].x == 85.0f && gauge[2].y == 28.0f,
+        "a full spirit gauge shrinks with the clock and health");
+    Frame sliver;
+    std::vector<Vertex> bit(6, Vertex{66.0f, 46.0f});
+    bit[2] = {69.0f, 48.0f};
+    mhfu::gpu::hud_scale::scale_quads(bit, group_half, sliver);
+    check(bit[0].x == 37.0f && bit[0].y == 27.0f && bit[2].x == 38.5f && bit[2].y == 28.0f,
+        "a barely filled spirit gauge shrinks from the same corner");
+
+    // A bowgun's loaded shots under stamina: the frame, then a round.
+    using mhfu::gpu::hud_scale::Piece;
+    using mhfu::gpu::hud_scale::piece_of;
+    check(piece_of({60.0f, 32.0f, 164.0f, 44.0f}) == Piece::LongSword &&
+            piece_of({60.0f, 32.0f, 68.0f, 48.0f}) == Piece::LongSword,
+        "the loaded shots are in the weapon slot under stamina");
+    check(piece_of({324.0f, 184.0f, 468.0f, 200.0f}) == Piece::Bowgun &&
+            piece_of({346.0f, 186.0f, 353.0f, 200.0f}) == Piece::Bowgun,
+        "the ammo bar and its text above the item bar are bowgun ammo");
+    Frame gunner;
+    std::vector<Vertex> shots(6, Vertex{60.0f, 32.0f});
+    shots[2] = {164.0f, 44.0f};
+    mhfu::gpu::hud_scale::scale_quads(shots, group_half, gunner);
+    // Under the stamina bar: (60, 29) follows the clock's corner to (34, 18.5).
+    check(shots[0].x == 34.0f && shots[0].y == 20.0f && shots[2].x == 86.0f && shots[2].y == 26.0f,
+        "the loaded shots shrink with the clock and health");
+    std::vector<Vertex> ammo(6, Vertex{324.0f, 184.0f});
+    ammo[2] = {468.0f, 200.0f};
+    mhfu::gpu::hud_scale::scale_quads(ammo, group_half, gunner);
+    check(ammo[2].x == 470.0f && ammo[2].y == 200.0f && ammo[0].x == 398.0f && ammo[0].y == 192.0f,
+        "the ammo bar shrinks into its corner above the item bar");
+
+    // A bow's coatings under stamina, in each of their states, move like the
+    // loaded rounds: (60, 29) follows the clock's corner to (34, 18.5).
+    Frame no_coating;
+    std::vector<Vertex> plate(6, Vertex{60.0f, 32.0f});
+    plate[2] = {94.0f, 44.0f};
+    mhfu::gpu::hud_scale::scale_quads(plate, group_half, no_coating);
+    check(plate[0].x == 34.0f && plate[0].y == 20.0f && plate[2].x == 51.0f && plate[2].y == 26.0f,
+        "a bow's empty coating plate shrinks with the clock and health");
+    Frame coated;
+    std::vector<Vertex> coating(6, Vertex{60.0f, 30.0f});
+    coating[2] = {78.0f, 46.0f};
+    mhfu::gpu::hud_scale::scale_quads(coating, group_half, coated);
+    std::vector<Vertex> count(6, Vertex{90.0f, 30.0f});
+    count[2] = {100.0f, 50.0f};
+    mhfu::gpu::hud_scale::scale_quads(count, group_half, coated);
+    std::vector<Vertex> single(6, Vertex{120.0f, 30.0f});
+    single[2] = {132.0f, 46.0f};
+    mhfu::gpu::hud_scale::scale_quads(single, group_half, coated);
+    check(coating[0].x == 34.0f && coating[0].y == 19.0f && coating[2].x == 43.0f && coating[2].y == 27.0f,
+        "a bow's large coating icon shrinks with the clock and health");
+    check(count[0].x == 49.0f && count[0].y == 19.0f && count[2].x == 54.0f && count[2].y == 29.0f,
+        "the coating count moves with the large icon");
+    check(single[0].x == 64.0f && single[0].y == 19.0f && single[2].x == 70.0f && single[2].y == 27.0f,
+        "a single coating icon shrinks with the clock and health");
+    Frame ninth_only;
+    std::vector<Vertex> ninth(6, Vertex{232.0f, 30.0f});
+    ninth[2] = {244.0f, 46.0f};
+    mhfu::gpu::hud_scale::scale_quads(ninth, group_half, ninth_only);
+    check(ninth[0].x == 120.0f && ninth[0].y == 19.0f && ninth[2].x == 126.0f && ninth[2].y == 27.0f,
+        "the ninth single coating, the last of the row, shrinks with the rest");
+
+    // A gunlance draws no long sharpness bar, only the frame, and its shells
+    // sit to the right of it. Both shrink from the clock's corner.
+    Frame lance;
+    std::vector<Vertex> sharp(6, Vertex{60.0f, 29.0f});
+    sharp[2] = {104.0f, 41.0f};
+    mhfu::gpu::hud_scale::scale_quads(sharp, group_half, lance);
+    check(sharp[0].x == 34.0f && sharp[0].y == 18.5f && sharp[2].x == 56.0f && sharp[2].y == 24.5f,
+        "a gunlance's sharpness frame shrinks without the long color bar");
+    Frame shells_only;
+    std::vector<Vertex> shell(6, Vertex{148.0f, 30.0f});
+    shell[2] = {156.0f, 46.0f};
+    mhfu::gpu::hud_scale::scale_quads(shell, group_half, shells_only);
+    check(shell[0].x == 78.0f && shell[0].y == 19.0f && shell[2].x == 82.0f && shell[2].y == 27.0f,
+        "a gunlance shell past the bowgun rounds shrinks with the clock and health");
+    Frame shell_frame_only;
+    std::vector<Vertex> shell_frame(6, Vertex{116.0f, 32.0f});
+    shell_frame[2] = {220.0f, 44.0f};
+    mhfu::gpu::hud_scale::scale_quads(shell_frame, group_half, shell_frame_only);
+    check(shell_frame[0].x == 62.0f && shell_frame[0].y == 20.0f && shell_frame[2].x == 114.0f &&
+            shell_frame[2].y == 26.0f,
+        "the gunlance shell frame shrinks with the shells");
+
+    // A hunting horn's staff is on screen with no notes queued. A note above
+    // the slot, the note that grows during a recital, and the mark under the
+    // staff all shrink from the same corner.
+    Frame horn;
+    std::vector<Vertex> staff(6, Vertex{118.0f, 30.0f});
+    staff[2] = {246.0f, 46.0f};
+    mhfu::gpu::hud_scale::scale_quads(staff, group_half, horn);
+    check(staff[0].x == 63.0f && staff[0].y == 19.0f && staff[2].x == 127.0f && staff[2].y == 27.0f,
+        "a hunting horn's staff shrinks with the clock and health");
+    std::vector<Vertex> note(6, Vertex{150.0f, 28.0f});
+    note[2] = {162.0f, 44.0f};
+    mhfu::gpu::hud_scale::scale_quads(note, group_half, horn);
+    check(note[0].x == 79.0f && note[0].y == 18.0f && note[2].x == 85.0f && note[2].y == 26.0f,
+        "a queued note above the staff shrinks with it");
+    Frame recital;
+    std::vector<Vertex> grown(6, Vertex{149.0f, 26.0f});
+    grown[2] = {164.0f, 47.0f};
+    mhfu::gpu::hud_scale::scale_quads(grown, group_half, recital);
+    check(grown[0].x == 78.5f && grown[0].y == 17.0f && grown[2].x == 86.0f && grown[2].y == 27.5f,
+        "a note grows and still shrinks with the clock and health while it is recited");
+    // The first frame of a new note is larger and higher than a settled one.
+    // It has to move with the staff, or it shows at the game's position and
+    // jumps onto the sheet a frame later.
+    Frame arriving;
+    std::vector<Vertex> arrival(6, Vertex{145.0f, 21.0f});
+    arrival[2] = {168.0f, 52.0f};
+    mhfu::gpu::hud_scale::scale_quads(arrival, group_half, arriving);
+    check(arrival[0].x == 76.5f && arrival[0].y == 14.5f && arrival[2].x == 88.0f && arrival[2].y == 30.0f,
+        "a note just played shrinks with the staff instead of jumping onto it");
+    // The equip confirmation's 24 by 24 icon sits where a note would, and the
+    // first line of that box runs through the weapon slot. Neither moves.
+    Frame equip;
+    std::vector<Vertex> equip_icon(6, Vertex{240.0f, 32.0f});
+    equip_icon[2] = {264.0f, 56.0f};
+    std::vector<Vertex> equip_word(6, Vertex{65.0f, 33.0f});
+    equip_word[2] = {72.0f, 47.0f};
+    std::vector<Vertex> equip_row(equip_icon);
+    equip_row.insert(equip_row.end(), equip_word.begin(), equip_word.end());
+    mhfu::gpu::hud_scale::scale_quads(equip_row, group_half, equip);
+    check(equip_row[0].x == 240.0f && equip_row[0].y == 32.0f && equip_row[6].x == 65.0f && equip_row[6].y == 33.0f,
+        "the equip confirmation's icon does not scale the text beside it");
+    Frame horn_mark;
+    std::vector<Vertex> mark(6, Vertex{128.0f, 56.0f});
+    mark[2] = {140.0f, 72.0f};
+    mhfu::gpu::hud_scale::scale_quads(mark, group_half, horn_mark);
+    check(mark[0].x == 68.0f && mark[0].y == 32.0f && mark[2].x == 74.0f && mark[2].y == 40.0f,
+        "the mark under the note staff shrinks with the horn");
+    Frame lone_count;
+    std::vector<Vertex> digit(6, Vertex{90.0f, 30.0f});
+    digit[2] = {100.0f, 50.0f};
+    mhfu::gpu::hud_scale::scale_quads(digit, group_half, lone_count);
+    check(digit[0].x == 90.0f && digit[0].y == 30.0f, "a glyph in that slot alone is not a coating");
+
+    // A clock hand is a turned quad, a four-vertex strip expanded to two
+    // triangles, inside the gauge at (8, 8)-(60, 56). It shrinks with it.
+    Frame clock;
+    clock.note({8.0f, 8.0f, 60.0f, 56.0f});
+    std::vector<Vertex> hand{{32.0f, 30.0f}, {49.0f, 28.0f}, {34.0f, 44.0f}, {34.0f, 44.0f}, {49.0f, 28.0f},
+        {51.0f, 42.0f}};
+    mhfu::gpu::hud_scale::scale_quads(hand, group_half, clock);
+    check(hand[0].x == 20.0f && hand[0].y == 19.0f && hand[1].x == 28.5f && hand[1].y == 18.0f &&
+            hand[5].x == 29.5f && hand[5].y == 25.0f,
+        "a turned clock hand shrinks with the clock");
+
+    // The player's sizes: the ammo bar takes the item bar's, not health's.
+    const Scales players = Scales::from_percent(75u, 65u, 70u);
+    check(players.map == 0.75f && players.vitals == 0.65f && players.sharpness == 0.65f &&
+            players.long_sword == 0.65f && players.item_bar == 0.70f && players.bowgun == 0.70f,
+        "the bowgun's ammo bar and coatings take the item bar's size");
+    Frame bar_only;
+    std::vector<Vertex> bar_ammo(6, Vertex{324.0f, 184.0f});
+    bar_ammo[2] = {468.0f, 200.0f};
+    mhfu::gpu::hud_scale::scale_quads(bar_ammo, Scales::from_percent(100u, 100u, 50u), bar_only);
+    // The item bar's top edge, y 200, goes to 232 at 50%; the ammo bar stays on it.
+    check(bar_ammo[0].x == 398.0f && bar_ammo[0].y == 224.0f && bar_ammo[2].x == 470.0f && bar_ammo[2].y == 232.0f,
+        "the ammo bar shrinks with the item bar it sits on");
+
+    // Loaded rounds are drawn without their frame.
+    Frame loaded;
+    std::vector<Vertex> round(6, Vertex{60.0f, 32.0f});
+    round[2] = {68.0f, 48.0f};
+    mhfu::gpu::hud_scale::scale_quads(round, group_half, loaded);
+    check(round[0].x == 34.0f && round[0].y == 20.0f && round[2].x == 38.0f && round[2].y == 28.0f,
+        "a loaded round shrinks with the clock and health without its frame");
+    // Shop header letters are 7 by 14 in the same band, including the stretch
+    // a gunlance shell occupies. They must stay put.
+    Frame shop;
+    std::vector<Vertex> type_letter(6, Vertex{65.0f, 33.0f});
+    type_letter[2] = {72.0f, 47.0f};
+    std::vector<Vertex> type_shell(6, Vertex{114.0f, 33.0f});
+    type_shell[2] = {121.0f, 47.0f};
+    std::vector<Vertex> type_far(6, Vertex{240.0f, 32.0f});
+    type_far[2] = {247.0f, 46.0f};
+    std::vector<Vertex> header(type_letter);
+    header.insert(header.end(), type_shell.begin(), type_shell.end());
+    header.insert(header.end(), type_far.begin(), type_far.end());
+    mhfu::gpu::hud_scale::scale_quads(header, group_half, shop);
+    check(header[0].x == 65.0f && header[0].y == 33.0f && header[6].x == 114.0f && header[6].y == 33.0f &&
+            header[12].x == 240.0f && header[12].y == 32.0f,
+        "shop header letters in the weapon slot are not scaled");
+
+    // The ammo menu shrinks as one panel into the item bar's corner (472, 264).
+    const Scales bar_half{1.0f, 1.0f, 0.5f, 1.0f, 1.0f, 1.0f};
+    Frame menu;
+    std::vector<Vertex> highlight(6, Vertex{314.0f, 153.0f});
+    highlight[2] = {470.0f, 173.0f};
+    mhfu::gpu::hud_scale::scale_quads(highlight, bar_half, menu);
+    check(highlight[0].x == 393.0f && highlight[0].y == 208.5f && highlight[2].x == 471.0f &&
+            highlight[2].y == 218.5f,
+        "the ammo menu's highlight shrinks into the item bar's corner");
+    std::vector<Vertex> title(6, Vertex{349.0f, 140.0f});
+    title[2] = {356.0f, 154.0f};
+    mhfu::gpu::hud_scale::scale_quads(title, bar_half, menu);
+    check(title[0].x == 410.5f && title[0].y == 202.0f, "the ammo menu's title moves with it");
+    Frame closed;
+    std::vector<Vertex> lone_title(6, Vertex{349.0f, 140.0f});
+    lone_title[2] = {356.0f, 154.0f};
+    mhfu::gpu::hud_scale::scale_quads(lone_title, bar_half, closed);
+    check(lone_title[0].x == 349.0f && lone_title[0].y == 140.0f, "without the ammo menu that corner is left alone");
+
+    // The menu's first sprite, its frame's top-left corner, opens it in the
+    // same frame, and the arrow above the frame moves with it.
+    Frame opening;
+    std::vector<Vertex> corner(6, Vertex{312.0f, 128.0f});
+    corner[2] = {328.0f, 136.0f};
+    mhfu::gpu::hud_scale::scale_quads(corner, bar_half, opening);
+    check(corner[0].x == 392.0f && corner[0].y == 196.0f && corner[2].x == 400.0f && corner[2].y == 200.0f,
+        "the ammo menu's top border shrinks in the frame it opens");
+    std::vector<Vertex> menu_arrow(6, Vertex{384.0f, 124.0f});
+    menu_arrow[2] = {400.0f, 140.0f};
+    mhfu::gpu::hud_scale::scale_quads(menu_arrow, bar_half, opening);
+    check(menu_arrow[0].x == 428.0f && menu_arrow[0].y == 194.0f, "the arrow above the ammo menu moves with it");
+    opening.begin();
+    std::vector<Vertex> after(6, Vertex{349.0f, 140.0f});
+    after[2] = {356.0f, 154.0f};
+    mhfu::gpu::hud_scale::scale_quads(after, bar_half, opening);
+    check(after[0].x == 349.0f && after[0].y == 140.0f, "the frame after the ammo menu closes nothing is kept");
+    Frame bar_closed;
+    std::vector<Vertex> closed_corner(6, Vertex{312.0f, 208.0f});
+    closed_corner[2] = {328.0f, 216.0f};
+    mhfu::gpu::hud_scale::scale_quads(closed_corner, bar_half, bar_closed);
+    check(!bar_closed.ammo_menu_now, "the closed item bar's corner is not the ammo menu");
 }
 
 int main() {
-    test_map_item_scale();
+    test_interface_sizes();
     test_crisp_text();
     test_layered_armor();
     test_comparable_weapons();

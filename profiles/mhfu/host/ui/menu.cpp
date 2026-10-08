@@ -28,10 +28,6 @@
 #include "audio/audio_sink.hpp"
 #include "camera/free_camera.hpp"
 #include "game/damage_numbers.hpp"
-#include "game/equipment_models.hpp"
-#include "game/game_data.hpp"
-#include "game/guest_ram.hpp"
-#include "game/weapon_compare.hpp"
 #include "gpu/screenshot.hpp"
 #include "gpu/game_hud.hpp"
 #include "gpu/vulkan_renderer.hpp"
@@ -45,7 +41,6 @@
 #include "perf/frame_stats.hpp"
 #include "save_data/save_transfer.hpp"
 #include "settings/settings.hpp"
-#include "psprecomp/runtime.hpp"
 #include "pokee_version.hpp"
 #if defined(MHFU_ANDROID_APP)
 #include "platform/android_fatal.hpp"
@@ -58,7 +53,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cfloat>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -193,6 +187,7 @@ private:
 };
 
 bool Menu::frame() {
+    dropdown_new_frame();
     Layer &layer = Layer::get();
     // A text field's keyboard takes the whole screen until it closes.
     if (text_input_open()) {
@@ -233,6 +228,11 @@ bool Menu::frame() {
 #endif
     // A page that is not there this run (Debug) gives way to the first.
     if (tab_ >= tab_count) tab_ = 0;
+    static int dropdown_tab = -1;
+    if (dropdown_tab != tab_) {
+        dismiss_dropdowns();
+        dropdown_tab = tab_;
+    }
     const bool opening = first_frame_;
     const bool switched = tab_bar(kTabs, tab_count, tab_) || first_frame_;
     first_frame_ = false;
@@ -321,9 +321,11 @@ bool Menu::frame() {
 
     if (confirm_ != Confirm::None) {
         if ((back || pad_back) && confirm_opened_) confirm_ = Confirm::None;
-    } else if (!font_list_was_open && (((back || pad_back) && !was_editing_) || start)) {
+    } else if (!font_list_was_open &&
+        ((((back || pad_back) && !was_editing_ && !dropdown_swallowed_back()) || start))) {
         close_ = true;
     }
+    if (close_) dismiss_dropdowns();
     if (close_ && !quit_ && texture_pack_import_busy()) close_ = false;
     if (!confirm_dialog()) return false;
     was_editing_ = ImGui::IsAnyItemActive();
@@ -331,8 +333,14 @@ bool Menu::frame() {
 }
 
 void Menu::video() {
-    if (font_list(back_)) return;
-    if (texture_pack_screen(back_)) return;
+    if (font_list(back_)) {
+        dismiss_dropdowns();
+        return;
+    }
+    if (texture_pack_screen(back_)) {
+        dismiss_dropdowns();
+        return;
+    }
     settings::Settings &s = settings::current();
     section("Picture");
     {
@@ -587,13 +595,42 @@ void Menu::video() {
         if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
     }
     {
-        int scale = static_cast<int>(s.map_item_scale);
-        if (slider_row("Map and item bar", scale, static_cast<int>(settings::kMinMapItemScale),
-                static_cast<int>(settings::kMaxMapItemScale), 5, "%d%%",
-                options_for("video.map_item_scale",
-                    "The quest map and the item bar, smaller or larger, kept in their corners. "
-                    "100% is the size the game draws. Health, sharpness and menus stay as they are."))) {
-            s.map_item_scale = static_cast<std::uint32_t>(scale);
+        struct Element {
+            const char *name;
+            const char *key;
+            const char *help;
+            std::uint32_t settings::Settings::InterfaceScale::*value;
+        };
+        static const Element kElements[] = {
+            {"Map", "video.hud.map",
+                "The area map on the right of a quest, from its top-right corner. 100% is the size the game draws.",
+                &settings::Settings::InterfaceScale::map},
+            {"Clock, health and weapons", "video.hud.health",
+                "The quest clock, the name under it, health and stamina, sharpness, the long sword's spirit gauge, "
+                "a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a hunting horn's notes, from the "
+                "clock's corner so they stay together. "
+                "100% is the size the game draws.",
+                &settings::Settings::InterfaceScale::health},
+            {"Item bar", "video.hud.item_bar",
+                "The item bar, open or closed, from its bottom-right corner, including the item's name, a bowgun's "
+                "ammo bar and a bow's coating bar, and their menus. The item list stays as the game draws it. "
+                "100% is the size the game draws.",
+                &settings::Settings::InterfaceScale::item_bar},
+        };
+        constexpr int kCount = static_cast<int>(std::size(kElements));
+        static int selected = 0;
+        const char *names[kCount];
+        for (int i = 0; i < kCount; ++i) names[i] = kElements[i].name;
+        dropdown_row("Interface", names, kCount, selected,
+            {false, {},
+                "Which part of the quest interface the size below changes. The list opens under this row. "
+                "Up and down move through it, and confirm chooses. Menus stay as the game draws them."},
+            back_);
+        const Element &element = kElements[selected];
+        int scale = static_cast<int>(s.hud.*(element.value));
+        if (slider_row("Size", scale, static_cast<int>(settings::kMinMapItemScale),
+                static_cast<int>(settings::kMaxMapItemScale), 5, "%d%%", options_for(element.key, element.help))) {
+            s.hud.*(element.value) = static_cast<std::uint32_t>(scale);
             settings::save();
         }
     }
@@ -647,7 +684,9 @@ void Menu::video() {
         restore("video.fast_forward", s.fast_forward, d.fast_forward);
         restore("video.fast_forward_speed", s.fast_forward_speed, d.fast_forward_speed);
         restore("video.performance", s.perf, d.perf);
-        restore("video.map_item_scale", s.map_item_scale, d.map_item_scale);
+        restore("video.hud.map", s.hud.map, d.hud.map);
+        restore("video.hud.health", s.hud.health, d.hud.health);
+        restore("video.hud.item_bar", s.hud.item_bar, d.hud.item_bar);
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
         renderer().set_window_scale(s.window_scale);
@@ -1658,12 +1697,12 @@ void Menu::system() {
         s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
         settings::save();
     }
-    if (toggle_row("Display Without Weapon Coefficient", s.comparable_weapons,
-            options_for("game.display_without_coefficient",
-                "On: equipment detail, the status screen and the smithy reprint the weapon's "
-                "attack with the class coefficient divided out, and its element with the extra "
-                "ten divided out. A great sword printed as 336 and a sword and shield printed "
-                "as 98 both read 70. Element 180 reads 18. A hit is unchanged."))) {
+    if (toggle_row("Comparable weapon numbers", s.comparable_weapons,
+            options_for("game.comparable_weapons",
+                "On: the comparison figure for attack is the printed attack divided by the class "
+                "coefficient, and for element the printed element divided by 10. A great sword "
+                "at 336 and a sword and shield at 98 are both 70. A hit still uses the attack "
+                "and element the game already uses. The shop still draws the game's own digits."))) {
         s.comparable_weapons = !s.comparable_weapons;
         settings::save();
     }
@@ -2075,10 +2114,12 @@ void draw_damage_numbers() {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
     ImDrawList *draw = ImGui::GetForegroundDrawList();
-    const float size = Layer::get().font_size() * 0.85f;
+    const float full_size = Layer::get().font_size() * 0.85f;
     ImFont *font = ImGui::GetFont();
     for (const game::Number &number : game::damage_numbers()) {
         const game::Anchor anchor = game::number_anchor(number);
+        // Smaller when the camera is close, so it stays on the hit's point.
+        const float size = full_size * anchor.scale;
         const std::string text = game::damage_number_text(number);
         const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
         const ImVec2 at{(picture[0] + anchor.x * picture[2]) * io.DisplaySize.x - extent.x * 0.5f,
@@ -2118,147 +2159,6 @@ std::string take_screenshot() {
     screenshot::save_png_later(path, std::move(pixels), width, height);
     show_note("Screenshot saved to " + where);
     return where;
-}
-
-namespace {
-
-// The lobby routine that prints a widget's number (a1 is the figure). Equipment
-// detail, the status screen and the smithy send the weapon's attack and element
-// through it. The quest overlay occupies the same address with different code,
-// so the words below have to match before it is wrapped.
-constexpr std::uint32_t kPrintNumber = 0x09AEC7A0u;
-constexpr std::uint32_t kPrintWords[][2] = {
-    {0x09AEC7A0u, 0x27BDFEF0u}, // addiu sp, sp, -272
-    {0x09AEC7A4u, 0xAFBF003Cu}, // sw ra, 60(sp)
-    {0x09AEC7D4u, 0xA7A500D8u}, // sh a1, 216(sp): the figure being printed
-    {0x09AEC7ECu, 0x0E2373AFu}, // jal 0x088DCEBC
-};
-// The weapon preview on those screens. a0 is the panel; the piece's kind is the
-// byte at the child +10 and its id the half at +12.
-constexpr std::uint32_t kWeaponPreview = 0x09A83CD8u;
-constexpr std::uint32_t kPreviewWords[][2] = {
-    {0x09A83CD8u, 0x27BDFF70u}, // addiu sp, sp, -144
-    {0x09A83CDCu, 0xAFBF003Cu}, // sw ra, 60(sp)
-    {0x09A83D28u, 0x24040013u}, // addiu a0, zero, 19
-};
-
-struct Hook {
-    bool installed{};
-    psprecomp::Runtime::RecompiledFunction original{};
-};
-
-struct DisplayState {
-    Hook print;
-    Hook preview;
-    std::optional<game::Piece> viewed;
-    bool preview_seen{};
-    int quiet_frames{};
-    bool miss_logged{};
-    bool logged_on{};
-};
-
-DisplayState &display_state() {
-    static DisplayState state;
-    return state;
-}
-
-bool words_match(const psprecomp::Runtime &runtime, const std::uint32_t words[][2], std::size_t count) {
-    const psprecomp::GuestMemory &memory = runtime.memory();
-    for (std::size_t i = 0; i < count; ++i) {
-        if (!memory.contains(words[i][0], 4u) || memory.load32(words[i][0]) != words[i][1]) return false;
-    }
-    return true;
-}
-
-int figure_for(const game::Ram &ram, int shown, const game::Piece &piece) {
-    const std::optional<std::array<std::uint8_t, 16>> head = game::weapon_record_head(ram, piece.kind, piece.id);
-    if (!head) return shown;
-    const std::optional<game::ComparedWeapon> figures =
-        game::compared_weapon(head->data(), head->size(), piece.kind);
-    if (!figures) return shown;
-    return game::reprint_shown(shown, piece.kind, figures->attack, figures->element);
-}
-
-void print_number(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    DisplayState &state = display_state();
-    if (settings::current().comparable_weapons) {
-        const int shown = static_cast<int>(static_cast<std::int16_t>(ctx.gpr[5]));
-        if (shown > 0) {
-            game::GuestRam ram(runtime.memory());
-            int next = shown;
-            if (state.viewed) next = figure_for(ram, shown, *state.viewed);
-            if (next == shown) {
-                if (const std::optional<game::Piece> carried = game::carried_weapon(ram))
-                    next = figure_for(ram, shown, *carried);
-            }
-            if (next != shown) ctx.gpr[5] = static_cast<std::uint32_t>(next);
-        }
-    }
-    if (state.print.original != nullptr) state.print.original(runtime, ctx);
-}
-
-void weapon_preview(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    DisplayState &state = display_state();
-    const psprecomp::GuestMemory &memory = runtime.memory();
-    const std::uint32_t panel = ctx.gpr[4];
-    if (memory.contains(panel, 68u)) {
-        const std::uint32_t child = memory.load32(panel + 16u) + (memory.load32(panel + 64u) << 4u);
-        if (memory.contains(child, 14u)) {
-            const game::Piece piece{memory.load8(child + 10u), memory.load16(child + 12u)};
-            if (game::is_weapon(piece.kind) && piece.id != 0u) {
-                state.viewed = piece;
-                state.preview_seen = true;
-            }
-        }
-    }
-    if (state.preview.original != nullptr) state.preview.original(runtime, ctx);
-}
-
-void keep_hook(psprecomp::Runtime &runtime, Hook &hook, std::uint32_t address,
-    psprecomp::Runtime::RecompiledFunction wrapper, const char *name, bool wanted) {
-    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(address);
-    if (wanted) {
-        if (current != nullptr && current != wrapper) {
-            hook.original = current;
-            runtime.register_function(address, wrapper, name);
-            hook.installed = true;
-        }
-        return;
-    }
-    if (hook.installed && current == wrapper && hook.original != nullptr)
-        runtime.register_function(address, hook.original, name);
-    hook.installed = false;
-    hook.original = nullptr;
-}
-
-} // namespace
-
-void reprint_weapon_figures(psprecomp::Runtime &runtime) {
-    DisplayState &state = display_state();
-    if (state.preview_seen) state.quiet_frames = 0;
-    else if (state.viewed) ++state.quiet_frames;
-    state.preview_seen = false;
-    if (state.quiet_frames >= 2) state.viewed.reset();
-
-    const bool on = settings::current().comparable_weapons;
-    const bool print_ok = words_match(runtime, kPrintWords, std::size(kPrintWords));
-    const bool preview_ok = words_match(runtime, kPreviewWords, std::size(kPreviewWords));
-    keep_hook(runtime, state.print, kPrintNumber, &print_number, "recomp_unit_mhfu_weapon_number", on && print_ok);
-    keep_hook(runtime, state.preview, kWeaponPreview, &weapon_preview, "recomp_unit_mhfu_weapon_preview",
-        on && preview_ok);
-    if (on && print_ok && !state.logged_on) {
-        state.logged_on = true;
-        std::cout << "[weapons] display without coefficient is on\n";
-    }
-    if (on && !print_ok && !state.miss_logged) {
-        game::GuestRam ram(runtime.memory());
-        if (game::character_loaded(ram)) {
-            state.miss_logged = true;
-            std::cout << "[weapons] display without coefficient is on, but the number routine is not the one traced; "
-                         "the figures stay as the game draws them\n";
-        }
-    }
-    if (!on) state.logged_on = false;
 }
 
 void draw_over_game() {

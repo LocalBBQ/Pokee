@@ -59,6 +59,16 @@ struct RowOptions {
 // A setting with a few values, changed with left/right or by activating it.
 // Returns -1, 0 or +1.
 int choice_row(const char *label, const std::string &value, const RowOptions &options = {});
+// A setting chosen from a list that opens under the row. Up and down, on a
+// keyboard or a gamepad, move through the open list, and confirm chooses the
+// highlighted entry. `back` closes the list instead of leaving the page;
+// dropdown_swallowed_back() is then true for the rest of the frame.
+// Call dropdown_new_frame() once at the start of the frame.
+void dropdown_new_frame();
+void dismiss_dropdowns();
+[[nodiscard]] bool dropdown_swallowed_back();
+bool dropdown_row(const char *label, const char *const *items, int count, int &selected, const RowOptions &options = {},
+    bool back = false);
 // An on/off setting. Returns true when toggled.
 bool toggle_row(const char *label, bool value, const RowOptions &options = {});
 // A number between minimum and maximum, changed in steps with left/right or

@@ -44,8 +44,7 @@ if(MHFU_GENERATED)
     # Hiding the HUD (host/gpu/game_hud.cpp) wraps the game's 2D functions the
     # same way, so their units are read from the corpus too, in one pass.
     set(MHFU_HUD_FUNCTIONS
-        08876874 088EA9B0 088EB07C 088EBF0C 088EC060 088EC0F8 088EC1F0 088EC2EC 088EC3E0
-        088EC63C 088ECB74 088ECC38 088ECCE4 088ECD9C 088ECE58)
+        088596C8 088952A4 08891474 088915B0 08891700 0889183C)
     list(JOIN MHFU_HUD_FUNCTIONS "|" hud_pattern)
     set(hud_lines "")
     foreach(unit IN LISTS MHFU_GENERATED)
@@ -256,6 +255,7 @@ set(MHFU_HOST_SOURCES
     host/game/layered_armor.cpp
     host/game/layered_armor_hook.cpp
     host/game/damage_numbers.cpp
+    host/game/hit_trace.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -505,6 +505,27 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_aspect_tests COMMAND mhfu_aspect_tests)
 endif()
 
+# Hiding the HUD: the resident words it requires, and the overlay functions
+# that count only while those words are still there.
+add_executable(mhfu_hud_tests
+    tests/game_hud_tests.cpp
+    host/gpu/game_hud.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_hud_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_hud_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_hud_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_hud_tests COMMAND mhfu_hud_tests)
+endif()
+
 # Each platform's settings defaults.
 add_executable(mhfu_settings_tests
     tests/settings_defaults_tests.cpp
@@ -524,11 +545,12 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_settings_tests COMMAND mhfu_settings_tests)
 endif()
 
-# Damage numbers: hitzone colour, the health a hit removes, and the watch
-# around that hit. No game data.
+# Damage numbers: hitzone colour, the health a hit removes, the watch
+# around that hit, and the MHFU_TRACE_HITS lines. No game data.
 add_executable(mhfu_damage_numbers_tests
     tests/damage_numbers_tests.cpp
-    host/game/damage_numbers.cpp)
+    host/game/damage_numbers.cpp
+    host/game/hit_trace.cpp)
 target_include_directories(mhfu_damage_numbers_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
 target_link_libraries(mhfu_damage_numbers_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_damage_numbers_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

@@ -1241,6 +1241,46 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
         }
     }
 
+    // How the swamp water (and any other surface) builds its texture
+    // coordinates. Command 0xC0 is the map mode the renderer does not apply
+    // yet; 0xC1 picks the environment-map columns. One line per distinct
+    // combination, so a few seconds looking at the water is enough.
+    if (static const bool trace = std::getenv("MHFU_TRACE_TEXMAP") != nullptr;
+        trace && texture_.enabled && !call.through) {
+        const std::uint32_t tmap = registers_[0xC0u];
+        const std::uint32_t tmat = registers_[0xC1u];
+        bool identity = true;
+        for (std::size_t i = 0u; i < texture_matrix_.size(); ++i) {
+            const float expected = (i == 0u || i == 5u || i == 10u || i == 15u) ? 1.0f : 0.0f;
+            if (texture_matrix_[i] != expected) identity = false;
+        }
+        static std::map<std::array<std::uint32_t, 8>, std::uint32_t> seen;
+        const std::array<std::uint32_t, 8> key{tmap, tmat, texture_.address, static_cast<std::uint32_t>(texture_.format),
+            texture_.function, blend_.enabled ? blend_.source_factor : 0xFFu, blend_.destination_factor,
+            identity ? 1u : 0u};
+        if (++seen[key] == 1u && seen.size() <= 300u) {
+            const char *modes[] = {"uv", "matrix", "env", "mode3"};
+            const char *projections[] = {"position", "uv", "normalized-normal", "normal"};
+            std::cout << "[texmap] " << modes[tmap & 3u] << " proj=" << projections[(tmap >> 8u) & 3u] << " env "
+                      << (tmat & 3u) << "," << ((tmat >> 8u) & 3u) << " tex=0x" << std::hex << texture_.address
+                      << std::dec << " " << texture_.width << "x" << texture_.height
+                      << " fmt=" << static_cast<int>(texture_.format) << " tfx=" << texture_.function
+                      << " blend=" << (blend_.enabled ? 1 : 0) << " " << blend_.source_factor << ","
+                      << blend_.destination_factor << " uvscale=" << texture_.scale_u << "," << texture_.scale_v
+                      << " uvoff=" << texture_.offset_u << "," << texture_.offset_v;
+            if (!call.vertices.empty())
+                std::cout << " uv0=" << call.vertices[0].texcoord[0] << "," << call.vertices[0].texcoord[1];
+            if (identity) {
+                std::cout << " matrix=identity\n";
+            } else {
+                std::cout << " matrix";
+                for (const std::size_t index : {0u, 1u, 2u, 4u, 5u, 6u, 8u, 9u, 10u, 12u, 13u, 14u})
+                    std::cout << " " << texture_matrix_[index];
+                std::cout << "\n";
+            }
+        }
+    }
+
     ++draw_count_;
     vertex_count_ += reused ? vertex_count : call.raw_vertices != nullptr ? call.raw_count : call.vertices.size();
     if (view_hook_ && !call.through) view_hook_(call);

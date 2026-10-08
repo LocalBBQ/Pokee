@@ -126,7 +126,6 @@ echo "quest list hall 8" >> cmd.txt  # the Guild Hall's 8-star quests
 | `find8`/`find16`/`find32 V [LO HI]` | Every place in user memory holding V; narrowed with `next V`, `changed`, `unchanged`, `delta D`; `list` shows them |
 | `findbytes HEX` | Every place holding that byte string |
 | `peek ADDR [N]` | N bytes (default 64) as hex |
-| `watch ADDR [BYTES]` | Point the write watch at ADDR for BYTES (default 2). Prints the guest instruction that stores there. The process must have been started with `PSPRECOMP_WATCH_WRITE` set, or the slow store path is not armed and this does nothing |
 | `poke8`/`poke16`/`poke32 ADDR V` | Write one value |
 | `dump PATH [ADDR LEN]` | Guest memory to a file (all of it by default), for comparing snapshots offline |
 

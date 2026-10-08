@@ -188,7 +188,8 @@ void test_monsters_and_pick() {
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     check(lock_on_monsters(memory).size() == 1u, "a dead monster cannot be locked");
     place(memory, monster_b, 0.0f, -3000.0f, 1000, 0);
-    check(lock_on_monsters(memory).empty(), "nor one with no health pool");
+    check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == small,
+        "with no marked monster left, the healthy small one remains");
     memory.store8(game::kTaskSlot + 32u, 'l');
     place(memory, monster_b, 0.0f, -3000.0f);
     check(lock_on_monsters(memory).empty(), "and nothing outside a quest");
@@ -245,11 +246,25 @@ void test_lock_follows_and_lets_go() {
     check(!lock_on_status().locked, "with one monster a second tap lets go");
 }
 
+void test_unmarked_monsters_still_lock() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    // The quest that loaded em75 kept game_task methods on every list entity.
+    memory.store32(large_vtable + game::kVtableMethod, game::kTaskSlot);
+    std::vector<LockMonster> found = lock_on_monsters(memory);
+    check(found.size() == 3u, "with nothing marked large, a healthy small monster is included");
+    memory.store16(node_a + game::kNodeClass, 34u);
+    found = lock_on_monsters(memory);
+    check(found.size() == 1u && found[0].address == monster_a,
+        "a class id of 34 keeps every unmarked monster out");
+}
+
 void test_tap_waits_for_the_monster() {
     Fixture f;
     auto &memory = f.runtime.memory();
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
+    place(memory, small, 200.0f, -200.0f, 0, 1000);
     lock_on_tap();
     f.frame();
     check(!lock_on_status().locked, "a tap before the monster exists does not lock yet");
@@ -278,6 +293,56 @@ void test_off_changes_nothing() {
     check(!lock_on_status().locked, "with the setting off a tap does nothing");
     const auto *q = memory.raw_pointer(camera_address, 0x100u);
     check(std::vector<std::uint8_t>(q, q + 0x100u) == before, "and the camera is left as the game made it");
+}
+
+LockOnView picture_camera() {
+    LockOnView camera;
+    camera.view[0] = camera.view[5] = camera.view[10] = camera.view[15] = 1.0f;
+    camera.projection[0] = camera.projection[5] = camera.projection[10] = 1.0f;
+    camera.projection[11] = -1.0f;
+    camera.x_scale = 240.0f;
+    camera.x_offset = 240.0f;
+    camera.y_scale = -136.0f;
+    camera.y_offset = 136.0f;
+    return camera;
+}
+
+void test_marker_sits_on_the_drawn_view() {
+    lock_on_reset();
+    const LockOnView camera = picture_camera();
+    const auto centre = lock_on_project(camera, {0.0f, 0.0f, -10.0f});
+    check(centre && (*centre)[0] == 0.5f && (*centre)[1] == 0.5f,
+        "a point in front of the camera lands in the middle of the picture");
+    const auto high = lock_on_project(camera, {0.0f, 10.0f, -10.0f});
+    check(high && (*high)[1] == 0.0f, "a point above the camera lands at the top");
+    check(!lock_on_project(camera, {0.0f, 0.0f, 10.0f}), "a point behind the camera is not marked");
+    check(!lock_on_project(camera, {100.0f, 0.0f, -10.0f}), "a point off the picture is not marked");
+    LockOnView unscaled = camera;
+    unscaled.x_scale = 0.0f;
+    check(!lock_on_project(unscaled, {0.0f, 0.0f, -10.0f}), "a draw with no viewport is not a camera");
+
+    Fixture f;
+    f.frame();
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked, "locked, so the marker has a monster");
+    const std::uint32_t target = lock_on_status().target;
+    // The ring is drawn a little above the feet. At y -100 that point is on
+    // the camera's axis, in the middle of the picture.
+    place(f.runtime.memory(), target, 0.0f, -10.0f);
+    write_float(f.runtime.memory(), target + game::kPosition + 4u, -100.0f);
+    LockOnView hud = camera;
+    hud.projection[11] = 0.0f;
+    lock_on_note_view(hud, 5000u);
+    lock_on_note_view(camera, 20u);
+    LockOnView smaller = camera;
+    smaller.x_offset = 0.0f;
+    lock_on_note_view(smaller, 3u);
+    const auto at = lock_on_marker(f.runtime.memory());
+    check(at && (*at)[0] == 0.5f && (*at)[1] == 0.5f,
+        "the ring sits on the monster in the view the world was drawn with, not the HUD");
+    check(!lock_on_marker(f.runtime.memory()), "that view is used for one frame");
+    lock_on_reset();
 }
 
 void test_binds() {
@@ -328,9 +393,11 @@ void test_binds() {
 int main() {
     test_geometry();
     test_monsters_and_pick();
+    test_unmarked_monsters_still_lock();
     test_lock_follows_and_lets_go();
     test_tap_waits_for_the_monster();
     test_off_changes_nothing();
+    test_marker_sits_on_the_drawn_view();
     test_binds();
     std::cout << (failures ? "FAIL" : "PASS") << ": lock-on (" << failures << " failures)\n";
     return failures ? 1 : 0;

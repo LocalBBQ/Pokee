@@ -466,9 +466,9 @@ int main(int argc, char **argv) {
         if (corpus_matches) psprecomp::register_generated_functions(runtime);
         const std::size_t generated_functions = runtime.function_count();
         mhfu::install_profile(runtime, elf, paths);
-        // The projection was traced on Portable 3rd. Freedom Unite's resident
-        // code is a different executable, so the hash, not the address, decides.
-        if (sha256 == mhfu::install::kPortable3rdHd.executable_sha256)
+        // The projection was read from this executable. The signature inside
+        // prepare_game_aspect refuses it if those instructions differ.
+        if (sha256 == mhfu::install::kFreedomUniteUsa.executable_sha256)
             (void)mhfu::camera::prepare_game_aspect(runtime);
 #if defined(MHFU_CAMERA_HELPER_UNIT)
         // CMake names the generated unit that holds the camera update, so a

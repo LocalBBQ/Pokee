@@ -71,9 +71,18 @@ struct Settings {
     bool frame_rate_auto{true}; // lower the frame rate rather than slow the game
     PerfDisplay perf{PerfDisplay::Off};
     GpuCompat gpu_compat{GpuCompat::Auto};
-    // The quest map and the item bar, as a percent of the size the game draws
-    // them (gpu/hud_scale.hpp). 100 leaves both where they are.
-    std::uint32_t map_item_scale{100u};
+    // Each quest interface piece, as a percent of the size the game draws it
+    // (gpu/hud_scale.hpp). 100 leaves that piece where it is.
+    struct InterfaceScale {
+        std::uint32_t map{100u}; // the area map on the right
+        // The quest clock, the name under it, health, stamina, sharpness, the
+        // long sword spirit gauge, a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a
+        // hunting horn's notes.
+        std::uint32_t health{100u};
+        // The item bar, the bowgun ammo bar, the bow coating bar and their menus.
+        std::uint32_t item_bar{100u};
+    };
+    InterfaceScale hud{};
 
     // Text
     std::string font;              // the game's text font: path, "#face" for a collection; empty: the default
@@ -150,11 +159,10 @@ struct Settings {
     // Interface
     bool menu_pause{true};         // opening the menu pauses the game
     bool menu_pause_multiplayer{}; // ...also during ad hoc play, where a paused game stops answering its peers
-    // Display Without Weapon Coefficient (game/weapon_compare.hpp): off, the
-    // game's digits stay. On, equipment detail, the status screen and the
-    // smithy reprint the weapon's attack with the class coefficient divided
-    // out, and its element with the extra ten divided out. A hit still reads
-    // the game's own values.
+    // Comparable weapon numbers (game/weapon_compare.hpp): off, the shop, the
+    // smithy and the status screen keep the game's figures. On, the attack
+    // figure is divided by the class coefficient and the element figure by 10.
+    // A hit still reads the attack and element the game already uses.
     bool comparable_weapons{};
     // Damage numbers (game/damage_numbers.hpp): off, a hit is only what the
     // game already shows. On, the health that hit removed is drawn over the

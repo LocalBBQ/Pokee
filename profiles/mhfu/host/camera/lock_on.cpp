@@ -23,13 +23,6 @@ constexpr float kDegrees = 180.0f / kPi;
 constexpr std::uint32_t kOverlayMagic = 0x336F574Du;
 constexpr std::string_view kQuestOverlay = "game_task.ovl";
 
-// The camera object (camera/free_camera.hpp): the pointer to it, its view
-// matrix and, 0x80 on, its projection, both column major. Found beside the
-// view in a dump: a perspective of 480/272's shape with the near plane at 30.
-constexpr std::uint32_t kCameraObject = 0x08A2F958u;
-constexpr std::uint32_t kViewMatrix = 0xF50u;
-constexpr std::uint32_t kProjection = 0xFD0u;
-
 // Farther than this from the camera's look-at point, horizontally, a lock
 // lets go: well past what the camera can frame. Areas are a few thousand
 // units across.
@@ -85,6 +78,9 @@ struct State {
     float pitch{};
     std::uint64_t updates{};
     std::string note;
+    // The perspective draw with the most vertices since the marker last asked.
+    LockOnView view{};
+    std::uint32_t view_vertices{};
 };
 State state;
 
@@ -135,40 +131,69 @@ void lock(std::uint32_t target, const char *how) {
     std::cout << "[lockon] " << how << " the monster at 0x" << std::hex << target << std::dec << std::endl;
 }
 
+bool em_method(const psprecomp::GuestMemory &memory, std::uint32_t vtable) {
+    if (vtable < 0x08800000u || memory.raw_pointer(vtable, kVtableSpan) == nullptr) return false;
+    for (std::uint32_t off = kVtableMethod; off < kVtableSpan; off += 4u) {
+        const std::uint32_t method = memory.load32(vtable + off);
+        if (method >= kEmOverlay && method < kEmOverlayEnd) return true;
+    }
+    return false;
+}
+
+bool marked_large(std::uint16_t class_id) {
+    return class_id == 32u || class_id == 34u || class_id == 36u;
+}
+
 } // namespace
 
 std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) {
+    struct Candidate {
+        LockMonster monster;
+        bool marked{};
+    };
     std::vector<LockMonster> out;
     if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return out;
     const std::uint32_t manager = memory.load32(kEntityList);
     if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) return out;
+    std::vector<Candidate> found;
     std::uint32_t node = memory.load32(manager + kListHead);
     std::uint32_t seen[kMaxMonsters]{};
     for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
-        if (memory.raw_pointer(node, kNodeType + 1u) == nullptr) break;
+        if (memory.raw_pointer(node, kNodeClass + 2u) == nullptr) break;
+        bool repeated = false;
         for (std::uint32_t earlier = 0; earlier < n; ++earlier)
-            if (seen[earlier] == node) return out;
+            if (seen[earlier] == node) repeated = true;
+        if (repeated) break;
         seen[n] = node;
         const std::uint32_t older = memory.load32(node + kNodeOlder);
         const std::uint8_t kind = memory.load8(node + kNodeType);
+        const std::uint16_t class_id = memory.load16(node + kNodeClass);
         const std::uint32_t at = memory.load32(node + kNodeEntity);
         node = older;
         if (kind == kPlayerNode) continue;
         if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
         bool seen_entity = false;
-        for (const LockMonster &already : out)
-            if (already.address == at) seen_entity = true;
+        for (const Candidate &already : found)
+            if (already.monster.address == at) seen_entity = true;
         if (seen_entity) continue;
-        const std::uint32_t vtable = memory.load32(at + kVtable);
-        if (vtable < 0x08800000u || memory.raw_pointer(vtable + kVtableMethod, 4u) == nullptr) continue;
-        const std::uint32_t method = memory.load32(vtable + kVtableMethod);
-        if (method < kEmOverlay || method >= kEmOverlayEnd) continue;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
         if (most <= 0 || health <= 0) continue; // a companion, not spawned yet, or dead
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
-        out.push_back({at, static_cast<std::uint32_t>(out.size()), position});
+        const bool marked = em_method(memory, memory.load32(at + kVtable)) || marked_large(class_id);
+        found.push_back({LockMonster{at, 0u, position}, marked});
+    }
+    // Prefer entities the executable marks as large. In a quest where em75 was
+    // loaded, every list entity's vtable methods stayed in game_task, so with
+    // none marked the whole health pool is what a tap can lock onto.
+    bool any_marked = false;
+    for (const Candidate &candidate : found)
+        if (candidate.marked) any_marked = true;
+    for (const Candidate &candidate : found) {
+        if (any_marked && !candidate.marked) continue;
+        out.push_back(candidate.monster);
+        out.back().slot = static_cast<std::uint32_t>(out.size() - 1u);
     }
     return out;
 }
@@ -192,7 +217,6 @@ void explain_miss(const psprecomp::GuestMemory &memory) {
     }
     unsigned nodes = 0;
     unsigned players = 0;
-    unsigned small = 0;
     unsigned unwell = 0;
     unsigned unplaced = 0;
     std::uint32_t sample = 0;
@@ -232,10 +256,6 @@ void explain_miss(const psprecomp::GuestMemory &memory) {
             sample_health = health;
             sample_most = most;
         }
-        if (method < kEmOverlay || method >= kEmOverlayEnd) {
-            ++small;
-            continue;
-        }
         if (most <= 0 || health <= 0) {
             ++unwell;
             continue;
@@ -243,7 +263,7 @@ void explain_miss(const psprecomp::GuestMemory &memory) {
         if (!finite(load_vec(memory, at + kPosition))) ++unplaced;
     }
     std::cout << "[lockon] no large monster to lock onto: " << nodes << " entities, " << players << " players, "
-              << small << " not large, " << unwell << " without health, " << unplaced << " with no position";
+              << unwell << " without health, " << unplaced << " with no position";
     if (sample != 0)
         std::cout << "; first at 0x" << std::hex << sample << " type " << std::dec
                   << static_cast<unsigned>(sample_type) << " method 0x" << std::hex << sample_method << std::dec
@@ -437,29 +457,48 @@ LockOnStatus lock_on_status() {
     return {state.locked, state.locked ? state.target : 0u};
 }
 
-std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory) {
-    if (!state.locked || memory.raw_pointer(kCameraObject, 4u) == nullptr) return std::nullopt;
-    const std::uint32_t camera = memory.load32(kCameraObject);
-    if (memory.raw_pointer(camera, kProjection + 64u) == nullptr ||
-        memory.raw_pointer(state.target, kExtent) == nullptr)
-        return std::nullopt;
-    const Vec3 p = load_vec(memory, state.target + kPosition);
-    const float point[4] = {p.x, p.y + kAimHeight, p.z, 1.0f};
+void lock_on_note_view(const LockOnView &view, std::uint32_t vertices) {
+    if (vertices == 0u || std::fabs(view.projection[11]) < 1.0e-6f) return;
+    if (vertices <= state.view_vertices) return;
+    state.view = view;
+    state.view_vertices = vertices;
+}
+
+std::optional<std::array<float, 2>> lock_on_project(const LockOnView &view, const Vec3 &world) {
+    if (view.x_scale == 0.0f || view.y_scale == 0.0f) return std::nullopt;
+    const float point[4] = {world.x, world.y, world.z, 1.0f};
     float eye[4]{};
     float clip[4]{};
     for (int row = 0; row < 4; ++row)
         for (int col = 0; col < 4; ++col)
-            eye[row] +=
-                load_float(memory, camera + kViewMatrix + static_cast<std::uint32_t>((col * 4 + row) * 4)) * point[col];
+            eye[row] += view.view[static_cast<std::size_t>(col * 4 + row)] * point[col];
     for (int row = 0; row < 4; ++row)
         for (int col = 0; col < 4; ++col)
-            clip[row] +=
-                load_float(memory, camera + kProjection + static_cast<std::uint32_t>((col * 4 + row) * 4)) * eye[col];
-    if (!std::isfinite(clip[0]) || !std::isfinite(clip[1]) || !std::isfinite(clip[3]) || clip[3] <= 1.0f)
+            clip[row] += view.projection[static_cast<std::size_t>(col * 4 + row)] * eye[col];
+    if (!std::isfinite(clip[0]) || !std::isfinite(clip[1]) || !std::isfinite(clip[3]) || clip[3] <= 1.0e-4f)
         return std::nullopt;
-    const float x = (clip[0] / clip[3] + 1.0f) * 0.5f;
-    const float y = (1.0f - clip[1] / clip[3]) * 0.5f;
-    return std::array<float, 2>{std::clamp(x, 0.0f, 1.0f), std::clamp(y, 0.0f, 1.0f)};
+    const float ndc_x = clip[0] / clip[3];
+    const float ndc_y = clip[1] / clip[3];
+    // The GE viewport: screen = ndc * scale + offset - origin, in PSP pixels.
+    // A negative y scale already points device y down the screen.
+    const float pixel_x = ndc_x * view.x_scale + view.x_offset - view.origin_x;
+    const float pixel_y = ndc_y * view.y_scale + view.y_offset - view.origin_y;
+    const float picture_x = pixel_x / 480.0f;
+    const float picture_y = pixel_y / 272.0f;
+    if (!std::isfinite(picture_x) || !std::isfinite(picture_y) || picture_x < 0.0f || picture_x > 1.0f ||
+        picture_y < 0.0f || picture_y > 1.0f)
+        return std::nullopt;
+    return std::array<float, 2>{picture_x, picture_y};
+}
+
+std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory) {
+    const LockOnView view = state.view;
+    const std::uint32_t vertices = std::exchange(state.view_vertices, 0u);
+    state.view = {};
+    if (!state.locked || vertices == 0u || memory.raw_pointer(state.target, kExtent) == nullptr) return std::nullopt;
+    const Vec3 feet = load_vec(memory, state.target + kPosition);
+    if (!finite(feet)) return std::nullopt;
+    return lock_on_project(view, Vec3{feet.x, feet.y + kAimHeight, feet.z});
 }
 
 void lock_on_release(const char *why) {
