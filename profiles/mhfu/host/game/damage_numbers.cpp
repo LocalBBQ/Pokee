@@ -266,6 +266,37 @@ std::optional<int> damage_shown(int health_before, int health_after) noexcept {
     return health_before - health_after;
 }
 
+std::vector<Offset> stroke_offsets(float radius, int rings) {
+    std::vector<Offset> offsets{{0.0f, 0.0f}};
+    if (!(radius >= 0.25f) || rings <= 0) return offsets;
+    constexpr int kPoints = 12;
+    constexpr float kTurn = 6.28318530718f;
+    for (int ring = 1; ring <= rings; ++ring) {
+        const float r = radius * static_cast<float>(ring) / static_cast<float>(rings);
+        for (int point = 0; point < kPoints; ++point) {
+            const float angle = kTurn * static_cast<float>(point) / static_cast<float>(kPoints);
+            offsets.push_back({r * std::cos(angle), r * std::sin(angle)});
+        }
+    }
+    return offsets;
+}
+
+Stroke number_stroke(std::uint32_t thickness, float size, float unit_size) noexcept {
+    if (thickness == 0u || !(size > 0.0f) || !(unit_size > 0.0f)) return {};
+    // At least one pixel of outline however small the number is drawn.
+    const float pixel = std::max(1.0f, size / unit_size);
+    return {pixel * static_cast<float>(thickness), 0.5f * pixel * static_cast<float>(thickness - 1u)};
+}
+
+float stack_gap_px(float tuned_px, float size_scale, float glyph_px, float stroke_px, bool clear) noexcept {
+    if (!(tuned_px > 0.0f)) tuned_px = 0.0f;
+    if (!(size_scale > 0.0f)) size_scale = 1.0f;
+    if (!(glyph_px > 0.0f)) glyph_px = 0.0f;
+    if (!(stroke_px > 0.0f)) stroke_px = 0.0f;
+    if (!clear) return tuned_px;
+    return std::max(tuned_px * size_scale, glyph_px + 2.0f * stroke_px);
+}
+
 Number make_number(int amount, Grade grade, int lane) noexcept {
     Number number;
     number.amount = amount;

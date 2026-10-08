@@ -480,9 +480,11 @@ void present_frame(Runtime &rt) {
     ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
-    // A load running fast, or fast-forward, flips more often than the
-    // display refreshes.
-    renderer.set_fast_forward(fast_loading::active() || fast_forward::active());
+    // A load running fast, fast-forward, or Game speed Unlimited flips more
+    // often than the display refreshes. Without this, Vsync's wait for the
+    // next image holds the game to the display rate.
+    renderer.set_fast_forward(
+        fast_loading::active() || fast_forward::active() || settings::current().unthrottled);
     // The real time the frame stands for, which frame interpolation spaces
     // its presents by: that of the vblank the game's frame started from.
     const bool presented = renderer.present(address, kernel().real_time_of(frame_start_us(kernel().last_vblank_us())));
@@ -653,20 +655,30 @@ void register_display_ctrl(HleRegistrar &hle) {
                 right_y = 0x80u;
             } else if (camera::game_camera_aim_boost()) {
                 // The direction, at full length, is shown to the aim function
-                // for its call. Bytes 8 and 9 stay the movement stick, and
-                // with the stick idle the mouse's direction stands in.
+                // so it steps; the wrapper then sizes that step from how far
+                // the stick is pushed. Bytes 8 and 9 stay the movement stick,
+                // and with the stick idle the mouse's direction stands in.
+                // The mouse has no length of its own: its step is sized later
+                // from its degrees.
                 int dx = static_cast<int>(right_x) - 0x80;
                 int dy = static_cast<int>(right_y) - 0x80;
-                if (dx == 0 && dy == 0) {
+                const bool stick = dx != 0 || dy != 0;
+                if (!stick) {
                     if (const auto mouse = camera::game_camera_mouse_aim()) {
                         dx = static_cast<int>(std::lround(mouse->x * 127.0f));
                         dy = static_cast<int>(std::lround(mouse->y * 127.0f));
                     }
                 }
                 const float length = std::sqrt(static_cast<float>(dx * dx + dy * dy));
-                if (length > 0.0f)
-                    camera::game_camera_present_aim(static_cast<int>(std::lround(dx * 127.0f / length)),
-                        static_cast<int>(std::lround(dy * 127.0f / length)));
+                if (length > 0.0f) {
+                    const int sx = static_cast<int>(std::lround(dx * 127.0f / length));
+                    const int sy = static_cast<int>(std::lround(dy * 127.0f / length));
+                    if (stick)
+                        camera::game_camera_present_aim(sx, sy, static_cast<float>(dx) / 127.0f,
+                            static_cast<float>(dy) / 127.0f);
+                    else
+                        camera::game_camera_present_aim(sx, sy);
+                }
                 // The aim wrapper shows this push to the aim function. The
                 // second stick stays centred: its up and down are the game's
                 // own camera commands, and a bowgun aims from the D-pad bits
@@ -803,11 +815,12 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
             load_trace::note_audio_peak(peak);
             // While a load runs faster than real time its silence is dropped:
             // played, it would pile up faster than the device plays it. So is
-            // everything while the player fast-forwards: the sound is muted
-            // rather than sped up. The channel's cursor stays where it was
-            // and catches up with the device when sound comes back.
+            // everything while the player fast-forwards, or Game speed is
+            // Unlimited: the sound is muted rather than sped up. The channel's
+            // cursor stays where it was and catches up with the device when
+            // sound comes back.
             const bool silent_load = fast_loading::note_audio(peak);
-            if (!silent_load && !fast_forward::active())
+            if (!silent_load && !fast_forward::active() && !settings::current().unthrottled)
                 audio::AudioSink::instance().mix(state.cursor, staging.data(), frames, left, right);
         } else {
             log_once("audio-buffer", "[audio] output buffer is not a single mapped range; dropping it");

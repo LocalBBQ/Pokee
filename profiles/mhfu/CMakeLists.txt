@@ -61,7 +61,7 @@ if(MHFU_GENERATED)
     # Layered armor (host/game/layered_armor_hook.cpp) stands in for the game's
     # lookup of an armor part's model and wraps the hunter's load step, so
     # their units are read from the corpus too.
-    set(MHFU_LAYERED_FUNCTIONS 08869778 088A5564)
+    set(MHFU_LAYERED_FUNCTIONS 0885187C 088C0E58)
     list(JOIN MHFU_LAYERED_FUNCTIONS "|" layered_pattern)
     set(layered_lines "")
     foreach(unit IN LISTS MHFU_GENERATED)

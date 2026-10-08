@@ -477,8 +477,11 @@ void Kernel::advance_clock(std::uint64_t target_us) {
 bool Kernel::pace_to_real_time() {
     // Virtual time jumps to the next event whenever every thread waits, so
     // without this the game runs as fast as frames can be presented: two to
-    // three times PSP speed on a 60-90 Hz display. Runs without a window, and
-    // the unthrottled setting (MHFU_UNTHROTTLED), keep the unpaced clock.
+    // three times PSP speed on a 60-90 Hz display, because a present waits
+    // for the display. Runs without a window, and the unthrottled setting
+    // (MHFU_UNTHROTTLED), keep the unpaced clock. While Game speed is
+    // Unlimited the renderer shows a frame at most about 30 times a second,
+    // so that wait does not hold the game either.
     static const bool windowed = std::getenv("MHFU_NO_RENDER") == nullptr;
     if (!windowed || settings::current().unthrottled) {
         // Turning pacing back on starts from the current moment.

@@ -506,6 +506,25 @@ void test_chords() {
     check((q.at(rs, 600).buttons & 0x0080u) != 0u,
         "D-pad left, a game button in a chord only the port reads, acts at once as before");
 
+    // Fast-forward on L3. L3 + R3 is the menu chord, but the speed-up is a
+    // hold: it starts the moment L3 is down and ends when L3 is released.
+    Bindings ff{};
+    ff[static_cast<std::size_t>(Action::FastForward)] = {single(L3)};
+    const Table fft{ff, {}, true};
+    Timeline ffs;
+    ffs.reserved = {chord(L3, R3)};
+    ffs.held = {L3};
+    check(ffs.at(fft, 0).fast_forward, "L3 fast-forward is on the moment it is pressed");
+    check(ffs.at(fft, 16).fast_forward, "and stays on while held, inside the chord window");
+    check(ffs.at(fft, 80).fast_forward, "and after the window");
+    ffs.held = {L3, R3};
+    check(!ffs.at(fft, 100).fast_forward, "L3 + R3 is the menu and does not fast-forward");
+    ffs.held = {L3};
+    check(ffs.at(fft, 120).fast_forward, "L3 alone again fast-forwards at once");
+    ffs.held = {};
+    check(!ffs.at(fft, 140).fast_forward, "releasing L3 stops it, with no leftover tap");
+    check(!ffs.at(fft, 200).fast_forward, "and it stays off");
+
     // A bound chord that is let go of and changed in the menu stops at once.
     Timeline e;
     e.held = {F, G};

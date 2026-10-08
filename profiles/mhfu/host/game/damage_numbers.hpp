@@ -138,6 +138,34 @@ struct Anchor {
     float scale{1.0f}; // of the number's full size
 };
 
+// Where a number's text is drawn again to give it weight, in pixels from its
+// place: the centre, and `rings` rings out to `radius`, each of 12 points so
+// no gap shows between the copies. Only the centre for a radius under a
+// quarter pixel.
+struct Offset {
+    float x{};
+    float y{};
+};
+[[nodiscard]] std::vector<Offset> stroke_offsets(float radius, int rings);
+// The thickness setting (1..settings::kMaxDamageNumberThickness) as pixels,
+// for a number drawn `size` pixels tall where `unit_size` is 1 pixel of
+// stroke: how far the dark outline reaches past the digits, and how far the
+// digits themselves are thickened. Thickness 1 is a one-pixel outline and
+// the font's own strokes.
+struct Stroke {
+    float outline{};
+    float weight{};
+};
+[[nodiscard]] Stroke number_stroke(std::uint32_t thickness, float size, float unit_size) noexcept;
+// Screen pixels between the centres of two stacked hits. `tuned_px` is the gap
+// at the default size and thickness (kStack of the picture, already scaled for
+// how close the camera is). With `clear` false, that gap is returned as it is.
+// With `clear` true (a larger, smaller or thicker number), the gap is at least
+// the glyph plus the stroke past it on both sides, and it still scales with
+// the size.
+[[nodiscard]] float stack_gap_px(
+    float tuned_px, float size_scale, float glyph_px, float stroke_px, bool clear) noexcept;
+
 [[nodiscard]] Number make_number(int amount, Grade grade, int lane) noexcept;
 [[nodiscard]] std::string damage_number_text(const Number &number);
 [[nodiscard]] std::vector<Number> age_numbers(std::vector<Number> numbers, float seconds);

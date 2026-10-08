@@ -359,6 +359,25 @@ void test_comparable_weapons() {
     hits["game.damage_numbers"] = "1";
     check(from_entries(hits).damage_numbers, "the file turns damage numbers on");
     check(from_entries(to_entries(from_entries(hits))).damage_numbers, "and they survive a round trip");
+    check(fresh.damage_number_size == 100u && fresh.damage_number_thickness == 1u,
+        "damage numbers start at the interface's size and the thinnest stroke");
+    Entries look = to_entries(fresh);
+    look["game.damage_number_size"] = "250";
+    look["game.damage_number_thickness"] = "4";
+    const Settings bigger = from_entries(to_entries(from_entries(look)));
+    check(bigger.damage_number_size == 250u && bigger.damage_number_thickness == 4u,
+        "their size and thickness come from the file and survive a round trip");
+    look["game.damage_number_size"] = std::to_string(kMaxDamageNumberSize + 1u);
+    look["game.damage_number_thickness"] = "0";
+    const Settings outside = from_entries(look);
+    check(outside.damage_number_size == 100u && outside.damage_number_thickness == 1u,
+        "a size or thickness out of range keeps the default");
+    look["game.damage_number_size"] = std::to_string(kMinDamageNumberSize);
+    look["game.damage_number_thickness"] = std::to_string(kMaxDamageNumberThickness);
+    const Settings edges = from_entries(look);
+    check(edges.damage_number_size == kMinDamageNumberSize &&
+            edges.damage_number_thickness == kMaxDamageNumberThickness,
+        "the ends of both ranges are allowed");
 
     using mhfu::game::comparable_attack;
     using mhfu::game::comparable_element;
@@ -451,6 +470,47 @@ void test_interface_sizes() {
     check(long_health[0].x == 32.0f && long_health[0].y == 10.0f && long_health[2].x == 203.5f &&
             long_health[2].y == 14.0f,
         "a raised health bar shrinks toward the clock's corner");
+    // Once a monster is found the small map is the window at (371, 59)-(411, 99).
+    // It shrinks toward its own top-right, and the mark on it stays on it.
+    // Status size does not pull it toward the clock.
+    Frame found;
+    std::vector<Vertex> map_window(6, Vertex{371.0f, 59.0f});
+    map_window[2] = {411.0f, 99.0f};
+    std::vector<Vertex> map_mark(6, Vertex{385.0f, 74.0f});
+    map_mark[2] = {399.0f, 86.0f};
+    std::vector<Vertex> found_map(map_window);
+    found_map.insert(found_map.end(), map_mark.begin(), map_mark.end());
+    mhfu::gpu::hud_scale::scale_quads(found_map, map_half, found);
+    check(found_map[0].x == 391.0f && found_map[0].y == 59.0f && found_map[2].x == 411.0f && found_map[2].y == 79.0f,
+        "the map window shown once a monster is found shrinks toward its top-right");
+    check(found_map[6].x == 398.0f && found_map[6].y == 66.5f && found_map[8].x == 405.0f && found_map[8].y == 72.5f,
+        "the mark on that window stays on the map");
+    Frame status_only;
+    std::vector<Vertex> parked(map_window);
+    mhfu::gpu::hud_scale::scale_quads(parked, group_half, status_only);
+    check(parked[0].x == 371.0f && parked[0].y == 59.0f && parked[2].x == 411.0f && parked[2].y == 99.0f,
+        "status size leaves the found-monster map window where the game drew it");
+    // The corner window is sometimes 34 by 40, at (432, 76)-(466, 116).
+    Frame corner_map;
+    std::vector<Vertex> narrow(6, Vertex{432.0f, 76.0f});
+    narrow[2] = {466.0f, 116.0f};
+    mhfu::gpu::hud_scale::scale_quads(narrow, map_half, corner_map);
+    check(narrow[0].x == 449.0f && narrow[0].y == 76.0f && narrow[2].x == 466.0f && narrow[2].y == 96.0f,
+        "the 34 by 40 map window shrinks toward its top-right");
+    Frame stray_mark;
+    std::vector<Vertex> lone_mark(6, Vertex{385.0f, 74.0f});
+    lone_mark[2] = {399.0f, 86.0f};
+    mhfu::gpu::hud_scale::scale_quads(lone_mark, map_half, stray_mark);
+    check(lone_mark[0].x == 385.0f && lone_mark[0].y == 74.0f,
+        "a mark in that spot without the map window is not scaled");
+    // The yellow eye, 12 by 16 at the right end of the name, once a monster
+    // is found. It grows from the clock with the name and the bars.
+    Frame eye_frame;
+    std::vector<Vertex> eye(6, Vertex{104.0f, 56.0f});
+    eye[2] = {116.0f, 72.0f};
+    mhfu::gpu::hud_scale::scale_quads(eye, group_half, eye_frame);
+    check(eye[0].x == 56.0f && eye[0].y == 32.0f && eye[2].x == 62.0f && eye[2].y == 40.0f,
+        "the yellow eye shrinks toward the clock with the name and health");
 
     // The long sword's red gauge is two pixels tall inside the sharpness bar.
     Frame spirit;

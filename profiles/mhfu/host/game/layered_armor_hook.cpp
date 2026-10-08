@@ -42,38 +42,43 @@ const Compiled *compiled(std::uint32_t address) {
     return nullptr;
 }
 
-// The first instructions of the lookup, as traced: the record's address from
-// a1 (a1 * 252 + 0x30), the check that the part is below 7, and the jump
-// table by part. A different executable does not get the replacement.
+// The first instructions of the lookup, as read from the executable: the
+// record's address from a1 (a1 * 140 + 0x30), the check that the part is
+// below 6, the sex byte, and one id load per armor part. A different
+// executable does not get the replacement.
 struct CodeWord {
     std::uint32_t address;
     std::uint32_t word;
 };
 constexpr CodeWord kSignature[] = {
-    {0x08869778u, 0x00051200u},  // sll v0,a1,8
-    {0x0886977Cu, 0x00052880u},  // sll a1,a1,2
-    {0x08869780u, 0x00451023u},  // subu v0,v0,a1
-    {0x08869784u, 0x24420030u},  // addiu v0,v0,0x30
-    {0x08869788u, 0x2CC30007u},  // sltiu v1,a2,7
-    {0x088697C8u, 0x94A20030u},  // lhu v0,0x30(a1): the waist's id
-    {0x08869800u, 0x94A2001Cu},  // lhu v0,0x1C(a1): the chest's id
-    {0x08869858u, 0x94A20044u},  // lhu v0,0x44(a1): the head's id
-    {0x08869890u, 0x94A2003Au},  // lhu v0,0x3A(a1): the legs' id
-    {0x088698C8u, 0x94A20026u},  // lhu v0,0x26(a1): the arms' id
+    {0x0885187Cu, 0x000518C0u},  // sll v1,a1,3
+    {0x08851880u, 0x00652823u},  // subu a1,v1,a1
+    {0x08851884u, 0x00051880u},  // sll v1,a1,2
+    {0x08851888u, 0x00A31821u},  // addu v1,a1,v1
+    {0x0885188Cu, 0x00031880u},  // sll v1,v1,2
+    {0x08851890u, 0x00831821u},  // addu v1,a0,v1          a1 * 140 + block
+    {0x08851894u, 0x2CC10006u},  // sltiu at,a2,6
+    {0x088518A0u, 0x24630030u},  // addiu v1,v1,0x30
+    {0x088518C0u, 0x90620010u},  // lbu v0,0x10(v1): sex, 0 male
+    {0x088518C8u, 0x9464003Eu},  // lhu a0,0x3E(v1): chest
+    {0x08851920u, 0x9465004Au},  // lhu a1,0x4A(v1): arms
+    {0x0885197Cu, 0x94640056u},  // lhu a0,0x56(v1): waist
+    {0x088519CCu, 0x94640062u},  // lhu a0,0x62(v1): legs
+    {0x08851A1Cu, 0x9464006Eu},  // lhu a0,0x6E(v1): head
 };
 
-// What starting a hunter's load over relies on: the load step and the game's
-// own request.
+// What starting the hunter's load over relies on: the step, the state it
+// reports done at, and the game's own request that clears the state.
 constexpr CodeWord kLoadSignature[] = {
-    {0x088A5598u, 0x8E230B80u},  // lw v1,0xB80(s1): the step reads the state
-    {0x088A55BCu, 0xAE320B80u},  // sw s2,0xB80(s1): 0 becomes 1, the first part
-    {0x088A5610u, 0x8E250B84u},  // lw a1,0xB84(s1): the part
-    {0x088A5618u, 0x8C6200A8u},  // lw v0,0xA8(v1): the object's file function for it
-    {0x088A5638u, 0x8C430B8Cu},  // lw v1,0xB8C(v0): compared with the file loaded
-    {0x088A53DCu, 0x28420003u},  // slti v0,v0,3: the request cancels a load below 3
-    {0x088A5404u, 0xAE000B84u},  // sw zero,0xB84(s0): and sets the part
-    {0x088A5408u, 0xAE000B80u},  // sw zero,0xB80(s0): and the state to 0
-    {0x088BD258u, 0x8C620094u},  // lw v0,0x94(v1): the driver steps through the vtable
+    {0x088C0E58u, 0x27BDFFE0u},  // addiu sp,sp,-0x20
+    {0x088C0E70u, 0x8C820998u},  // lw v0,0x998(a0): the state
+    {0x088C0EA0u, 0xAE020998u},  // sw v0,0x998(s0): the first step stores the next state
+    {0x088C1150u, 0x8E020998u},  // lw v0,0x998(s0)
+    {0x088C1154u, 0x38420005u},  // xori v0,v0,5: done when the state is 5
+    {0x088C1158u, 0x2C420001u},  // sltiu v0,v0,1
+    {0x088BCBB4u, 0xAE20099Cu},  // sw zero,0x99C(s1): the game's request
+    {0x088BCBB8u, 0xAE200998u},  // sw zero,0x998(s1)
+    {0x088BCBFCu, 0x0E230396u},  // jal 0x088C0E58: the driver steps it
 };
 
 struct State {
@@ -103,10 +108,12 @@ void model_of_part(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx)
         const GuestRam ram(runtime.memory());
         const std::optional<std::uint16_t> model = replacement_model(ram, ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], s.pieces);
         if (model) {
-            if (s.trace)
-                std::cout << "[layered] " << part_label(static_cast<std::uint8_t>(ctx.gpr[6])) << ": model " << *model
+            if (s.trace) {
+                const std::optional<std::uint8_t> kind = armor_kind(ctx.gpr[6]);
+                std::cout << "[layered] " << (kind ? part_label(*kind) : "?") << ": model " << *model
                           << " instead of the worn piece's (hunter " << ctx.gpr[5] << ", from 0x" << std::hex
                           << ctx.gpr[31] << std::dec << ")\n";
+            }
             // What the game's function leaves for its caller: the model in v0,
             // back to the return address. It only reads memory.
             ctx.gpr[2] = *model;

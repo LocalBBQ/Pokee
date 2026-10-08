@@ -7,14 +7,11 @@ everything else. The player's side is in the profile README
 what the game does, how that was found, and why the rest of the game cannot
 see the difference.
 
-Everything here is for NPJB-40001. It was found by reading the executable's
-code around the tables that [EQUIPMENT_MODS.md](EQUIPMENT_MODS.md) traced
-(the armor records and the file bases) and by tracing the running game:
-temporary wrappers around the functions below logged their arguments, return
-values and callers (`MHFU_TRACE_LAYERED_ARMOR=1` keeps the part of that the
-feature needs), memory was read with the developer tools' `peek` and `find32`
-([DEBUG_MENU.md](DEBUG_MENU.md)), and every step was checked in the game with
-the 100% test save (a female hunter in the Silver Sol set).
+Everything here is for USA Freedom Unite, `ULUS-10391`. It was read from
+that executable: the model lookup, the armor tables and the load step below.
+The name tables and the equipment box are still the Portable 3rd addresses in
+[EQUIPMENT_MODS.md](EQUIPMENT_MODS.md), so the choice lists show piece ids.
+No playthrough was run.
 
 The code is `profiles/mhfu/host/game/layered_armor.{hpp,cpp}` (pure
 functions over a `Ram`, tested on made-up tables in
@@ -25,59 +22,55 @@ in the game's place), and the page is `host/ui/layered_armor_screen.cpp`.
 
 ### The hunter records
 
-The block the game reaches through the pointer at `0x08AB3640` holds, from
-`+0x30`, a 252-byte record per hunter. Record 0 is the hunter played here;
-records 1 to 3 are the other hunters of an ad hoc session (0x08872DC8 fills
-them from per-player data, from record 1 on, 252 bytes apart). The block's `+0x85C` is the character that
-[EQUIPMENT_MODS.md](EQUIPMENT_MODS.md) describes.
+The block the game reaches through the pointer at `0x089CC558` holds, from
+`+0x30`, a 140-byte record per hunter. Record 0 is the hunter played here.
+The address is `block + index * 140 + 0x30`, from `sll` by 3, `subu` of the
+index, `sll` by 2, `addu`, `sll` by 2 (`0x0885187C`).
 
 | Offset in a record | What |
 | --- | --- |
-| `+0x00` (u8) | In use |
-| `+0x08` (u32) | Bit 0: female; the next bits hold the hair and face (read with `ext` for parts 5 and 6) |
-| `+0x1C`, `+0x26`, `+0x30`, `+0x3A`, `+0x44` (u16) | The armor ids by part: chest, arms, waist, legs, head, 10 bytes apart |
+| `+0x10` (u8) | 0 male, otherwise female (`lbu` at `0x088518C0`) |
+| `+0x3E`, `+0x4A`, `+0x56`, `+0x62`, `+0x6E` (u16) | The armor ids. The lookup's part is 0 chest, 2 arms, 3 waist, 4 legs, 5 head. Part 1 is not an armor model |
 
-Record 0 held exactly the worn Silver Sol ids (chest `0xAB`, arms `0xA5`,
-waist `0xA5`, legs `0xA6`, head `0xA9`), the same as the character block.
+The armor tables are 40 bytes per id, male model then female model as u16,
+and the byte at `+4` says who can wear it. Chest `0x08973954`, arms
+`0x08963374`, waist `0x08967794`, legs `0x0896B934`, head `0x0896F96C`. The
+lookup indexes one with `sll` by 2, `addu` of the id, `sll` by 3.
 
-### The model lookup, 0x08869778
+### The model lookup, 0x0885187C
 
-`0x08869778` takes the block (a0), a record index (a1) and a part (a2, 0 to
-6) and returns a model number: for an armor part, the male or female half
-(by the record's bit 0) of the armor table's entry at the record's id. It
-only reads memory. Everything that draws a hunter asks it:
+`0x0885187C` takes the block (a0), a record index (a1) and a part (a2, below
+6) and returns a model number: the male or female half, by the record's byte
+at `+0x10`, of the armor table's entry at the record's id. It only reads
+memory. The executable calls it from `0x08852004`, `0x088C1104`,
+`0x088CE47C`, `0x088DA2F0` (once per part, parts 0 to 5), `0x088DBC64` and
+`0x088DD18C`:
 
-| Caller | What it does with the model |
+What those calls draw was read from the instructions:
+
+| Caller | What the instructions do with the model |
 | --- | --- |
-| `0x088A58DC`, a hunter's file function (vtable `+0xA8`) | File = base per sex and part (`0x089E892C`) + model, after `0x088A51E4` turns model 0 of the chest, arms or legs into the inner wear: the file the hunter loads for that part |
-| `0x088A5B20` | Keeps the seven models at the hunter's `+0x4F6`, which `0x088A5DC0` reads to choose the part's colours |
-| `0x088B9AD0` | Special cases of some head models (112, 114, 118) |
-| `0x08891214` | The hair (part 5) |
-| `0x08869C74` | Whether the head is model 112; in the same generated unit, so a direct jump (see below) |
+| `0x088DA2F0` | Asks for parts 0 to 5 and stores each model |
+| `0x088C1104` | Asks for part 2 while the load step (`0x088C0E58`) is advancing |
+| `0x088DBC64` | Asks inside the file load at `0x088DBBBC`, which then calls `0x088DB4C8` |
 
-A hunter object keeps its record index at `+0x60` (`0x088BA4C0` sets it when
-it makes the hunter for a record), and all of the above read that index. In
-the trace, every armor model that the village, the Guild Hall and a quest
-loaded for the hunter played here went through `0x08869778` with index 0.
+A hunter object keeps its record index as a u16 at `+0x1E6`; `0x088CE47C` and
+`0x088DD18C` pass that to the lookup. Which of these runs in the village and
+which on a quest was not watched.
 
-Much other code reads the armor tables by id (about a hundred places in the
-executable): the Equipment and Status screens, defense, resistances and
-skills, the smithy, the item box. None of it goes through `0x08869778`, and in
-the game the Equipment screen on a quest listed the real Silver Sol pieces
-with their skills while the hunter was drawn in the Yukumo set.
-`0x08869564`, a second model lookup by id rather than by record, serves
-another kind of hunter object (`0x088F46D8` is its file function; one such
-object was seen while the village loads, not what it is for); layered armor
-leaves it alone.
+Other code reads the armor tables by id. Layered armor does not wrap that.
+`0x088516A4` is a second lookup, by sex, part and id rather than by record;
+the lobby overlay calls it. Layered armor leaves it alone, because the
+record lookup is what the load step and the part loop call.
 
 ### What layered armor changes
 
-While it is on, `0x08869778` is replaced (the runtime's function table, at the
-flip, as the analog camera and the HUD toggle do). For index 0 and a part
-with a chosen piece it returns that piece's model for the record's sex,
+While it is on, `0x0885187C` is replaced (the runtime's function table, at the
+flip, as the analog camera and the HUD toggle do). For index 0 and an armor
+part with a chosen piece it returns that piece's model for the record's sex,
 exactly what the game's function returns for that piece; anything else runs
-the game's own code. The file, the inner wear of *Nothing*, the colours and
-the head's special cases then follow as for a piece really worn.
+the game's own code. The file and the inner wear of *Nothing* then follow as
+for a piece really worn. Head models with special cases were not located.
 
 It writes nothing: not the records, not the character, not the equipment
 box. Turned off, the game's own function goes back in the table. Off from the
@@ -85,58 +78,37 @@ start, nothing is registered at all. A different executable is left alone:
 the replacement is only installed when the code at the traced addresses is
 the code described here.
 
-The one caller it does not reach is `0x08869C74`, which the generated code
-reaches with a direct jump inside its unit, not through the table: that check
-(is the head model 112?) keeps seeing the real head. It is called from
-`0x088CAEC8`; what that serves was not traced, and nothing was seen to change
-because of it.
-
 ## When a new look shows
 
-A hunter loads its part models with a state machine at `0x088A5564`
-(vtable `+0x94`), which `0x088BD1CC` steps once a frame while the game loads
-something, until it reports done. `+0xB80` is the state (0 start, then one
-step per part, 3 and above done), `+0xB84` the part it is at, and `+0xB8C` the
-file loaded for each part; each step asks the file function for the part and
-loads the file only when it differs from the one loaded. The game's own
-request to load them again, `0x088A53C8`, sets the state and the part to 0.
-The game steps it when the hunter is made (entering an area, starting or
-leaving a quest) and after a change of equipment at the item box.
+`0x088C0E58` loads the hunter's models. `0x088BCBFC` calls it with the load
+object and waits until it returns non-zero. `+0x998` is the state: the
+function returns done only when that word is 5 (`xori` by 5, then `sltiu` by
+1, at `0x088C1154`). The game's own request to load again stores 0 at
+`+0x99C` and `+0x998` (`0x088BCBB4`). What makes the game call the step — an
+area, a quest, the item box — was not watched.
 
 The model lookup alone changes nothing on screen until the hunter loads its
-models again. So layered armor also wraps the step: when the game steps the
-hunter played here (index 0, drawn from its record) with its load done, and
-the look differs from the one it was last loaded with, it sets the state and
-the part to 0 as the game's request does, and the game's step goes on from
-there. A change thus shows at the next load the game makes by itself, and
-only the parts whose file changed are read. Nothing is ever started outside
-the game's own loads: setting the state while the game was not loading
-anything was tried, and the loader then never ran, since the game steps it
-only while it loads.
+models again. So layered armor also wraps the step: when the game steps that
+load with the state already 5, and the look differs from the one it was last
+loaded with, it stores 0 at `+0x99C` and `+0x998` as the game's request does,
+and the game's step goes on from there. A change thus waits for the next
+load the game makes by itself. Nothing is started outside those calls.
 
-Measured with `MHFU_TRACE_LAYERED_ARMOR=1`: a change made in the Guild Hall
-showed on leaving it; a change made just before departing showed on the
-quest; turning the feature off in the village showed the real armor on
-entering the Guild Hall.
+Not measured in the game: no scripted run and no playthrough. The claim that
+a change shows on the next load is the load step's own state, not a screen
+that was watched.
 
 ## Multiplayer: what other players see
 
-Other players see the real armor. Each game draws the other hunters from its
-own records 1 to 3, which it fills from the data the other games send
-(`0x08872DC8`); what this game sends is its own equipment, which layered
-armor never changes, and the replacement applies to record 0 only, so the
-other hunters are drawn here as their games describe them. The look is never
-sent, and a session shows nothing new to the others.
-
-Not verified in a session: the packet that carries the equipment was not
-traced on the wire, and no two-instance session was run with layered armor
-on. The claim rests on the replacement writing no memory at all.
+Other players see the real armor. The replacement applies to record 0 only
+and writes no guest memory, so the equipment the game sends is the equipment
+it wears. How that equipment is filled into records 1 to 3 was not read, and
+no two-instance session was run.
 
 ## Not verified
 
-- A hunter created male (the save has only a female hunter). The male half
-  of the table is chosen by the same bit as the game's own code.
-- What the objects drawn through `0x088F46D8` are; they keep the real pieces.
-- Changing equipment at the item box with layered armor on.
-- Pieces with special heads (head models 112, 114, 118) chosen as a look.
+- Any of this on screen: a village, a quest, a male hunter, the item box.
+- The game's names and the equipment box, which are still the Portable 3rd addresses.
+- What `0x088516A4` draws in the lobby. It keeps the real pieces.
+- Pieces whose head model the game treats specially.
 - An ad hoc session with layered armor on.

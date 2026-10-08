@@ -4,7 +4,10 @@
 // itself works it out, so that the Mods page can point an equipment mod at the
 // armor the hunter is wearing. Read-only: nothing here writes guest memory.
 //
-// Traced in the running game (NPJB-40001); docs/EQUIPMENT_MODS.md says how.
+// The armor tables were read from the USA Freedom Unite executable
+// (ULUS-10391). The file bases, the inner wear and the weapon tables are
+// still the Portable 3rd trace (NPJB-40001); docs/EQUIPMENT_MODS.md says how
+// that trace was made.
 // In short:
 //
 // - The loaded character (game_data.hpp's kCharacter) holds the hunter's sex
@@ -42,11 +45,11 @@ inline constexpr std::uint32_t kCharacterArmor = 0x50u;  // chest, arms, waist, 
 // male model, u16 female model, u8 who can wear it (bit 0 male, bit 1 female,
 // bit 2 blademaster, bit 3 gunner).
 inline constexpr std::uint32_t kArmorRecord = 40u;
-inline constexpr std::uint32_t kChestData = 0x08985A7Cu;
-inline constexpr std::uint32_t kArmsData = 0x08983934u;
-inline constexpr std::uint32_t kWaistData = 0x0898A6E4u;
-inline constexpr std::uint32_t kLegsData = 0x0898C854u;
-inline constexpr std::uint32_t kHeadData = 0x08987EE4u;
+inline constexpr std::uint32_t kChestData = 0x08973954u;
+inline constexpr std::uint32_t kArmsData = 0x08963374u;
+inline constexpr std::uint32_t kWaistData = 0x08967794u;
+inline constexpr std::uint32_t kLegsData = 0x0896B934u;
+inline constexpr std::uint32_t kHeadData = 0x0896F96Cu;
 
 // The first file of each part's models: u16[2][7] by sex (male, female) and
 // part (chest, arms, waist, legs, head, then hair and face).

@@ -177,8 +177,10 @@ void test_layered_armor() {
     ram.store32(layered::kGameBlockPointer, block);
     const std::uint32_t own = block + layered::kHunterRecords;
     const std::uint32_t other = own + layered::kHunterRecordBytes;
-    ram.store32(own + layered::kRecordFlags, 1u);
-    ram.store32(other + layered::kRecordFlags, 0u);
+    ram.store8(own + layered::kRecordSex, 1u);
+    ram.store8(other + layered::kRecordSex, 0u);
+    write_armor(ram, kArmsData, 1, 8, 9, 0x0Fu);
+    write_armor(ram, kHeadData, 1, 11, 12, 0x0Fu);
 
     layered::Pieces pieces{layered::kReal, layered::kReal, layered::kReal, layered::kReal, layered::kReal};
     check(!layered::replacement_model(ram, block, 0, 0, pieces), "a real part is left to the game");
@@ -187,11 +189,17 @@ void test_layered_armor() {
         "the chosen chest's model for her");
     check(!layered::replacement_model(ram, block, 1, 0, pieces), "another player's hunter is left to the game");
     check(!layered::replacement_model(ram, block + 4u, 0, 0, pieces), "a block not the game's is left alone");
-    check(!layered::replacement_model(ram, block, 0, 5, pieces), "hair and face are left to the game");
-    ram.store32(own + layered::kRecordFlags, 0u);
+    check(!layered::replacement_model(ram, block, 0, 1, pieces), "the lookup's part 1 is not armor");
+    pieces[1] = 1;
+    check(layered::replacement_model(ram, block, 0, 2, pieces) == std::optional<std::uint16_t>{9},
+        "part 2 is the arms");
+    pieces[4] = 1;
+    check(layered::replacement_model(ram, block, 0, 5, pieces) == std::optional<std::uint16_t>{12},
+        "part 5 is the head");
+    ram.store8(own + layered::kRecordSex, 0u);
     check(layered::replacement_model(ram, block, 0, 0, pieces) == std::optional<std::uint16_t>{3},
         "the record's sex picks the model");
-    ram.store32(own + layered::kRecordFlags, 1u);
+    ram.store8(own + layered::kRecordSex, 1u);
     pieces[0] = 2; // for men only
     check(!layered::replacement_model(ram, block, 0, 0, pieces), "a piece she cannot wear shows the real one");
     pieces[0] = 0;
@@ -211,22 +219,36 @@ void test_layered_armor() {
     check(layered::choice_name(&ram, 4, 1) == "Cap", "a choice named by the game");
     check(layered::choice_name(nullptr, 4, 1) == "Piece 1", "a choice by id without the game");
     check(layered::choice_name(&ram, 4, layered::kReal) == "Real equipment", "the real piece");
+    ram.store32(kTextBlock + 31u * 4u, 0u);
+    const std::vector<layered::Offer> by_id = layered::offers(ram, 0, true);
+    check(by_id.size() == 2u && by_id[0].id == 1 && by_id[0].name == "Piece 1" && by_id[1].id == 3,
+        "without the name table, wearable pieces are listed by id");
 
-    // The hunter's load: only the hunter played here, drawn from its record.
+    // The hunter's load. The step runs for that load only; an address outside
+    // guest memory is not it. Done is state 5, and a restart clears the state
+    // and the word the game clears with it.
     const std::uint32_t hunter = 0x09100000u;
-    const std::uint32_t vtable = 0x09200000u;
-    ram.store32(hunter, vtable);
-    ram.store32(vtable + layered::kFileFunctionSlot, layered::kRecordFileFunction);
-    ram.store16(hunter + layered::kObjectIndex, 0u);
-    ram.store32(hunter + layered::kLoadState, 4u);
-    ram.store32(hunter + layered::kLoadPart, 9u);
+    ram.store32(hunter + layered::kLoadState, 5u);
+    ram.store32(hunter + layered::kLoadCleared, 9u);
     check(layered::own_hunter(ram, hunter) && layered::load_done(ram, hunter), "the hunter played here, loaded");
     layered::restart_load(ram, hunter);
-    check(ram.load32(hunter + layered::kLoadState) == 0u && ram.load32(hunter + layered::kLoadPart) == 0u,
-        "a restarted load begins at the first part");
+    check(ram.load32(hunter + layered::kLoadState) == 0u && ram.load32(hunter + layered::kLoadCleared) == 0u,
+        "a restarted load begins again");
     check(!layered::load_done(ram, hunter), "and is running");
-    ram.store16(hunter + layered::kObjectIndex, 1u);
-    check(!layered::own_hunter(ram, hunter), "another player's hunter is not ours");
+    check(!layered::own_hunter(ram, 0u), "no object is not the hunter's load");
+
+    // The menu used to wait on the Portable 3rd character address, so a loaded
+    // hunter kept every part on Real. The record is enough.
+    BufferRam bare(kBase, kSize);
+    write_tables(bare);
+    check(!layered::played_sex(bare), "no hunter before the block exists");
+    bare.store32(layered::kGameBlockPointer, block);
+    bare.store8(block + layered::kHunterRecords + layered::kRecordSex, 1u);
+    check(layered::played_sex(bare) == std::optional<std::uint8_t>{1u}, "her sex comes from the record");
+    const std::vector<layered::Offer> from_record = layered::offers(bare, 0, true);
+    check(from_record.size() == 2u && from_record[0].id == 1 && from_record[0].name == "Piece 1" &&
+            from_record[1].id == 3,
+        "a loaded record lists wearable pieces without the old character block");
 }
 
 } // namespace

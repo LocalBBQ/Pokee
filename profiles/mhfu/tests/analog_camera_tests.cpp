@@ -412,6 +412,62 @@ void test_aim_stick_is_not_movement() {
     check(memory.load32(kHunter + kButtons) == 0x00800001u, "the bowgun's movement direction is put back");
 }
 
+// The aim camera reads the heading after the aim function returns. The game's
+// own step is its fastest; the wrapper replaces it from the stick's deflection
+// before that read, and the follow camera must not add the same step again.
+void aim_steps_fast(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    auto &memory = runtime.memory();
+    const auto hunter = ctx.gpr[4];
+    const auto heading = memory.load16(hunter + kHeading);
+    const auto next = static_cast<std::uint16_t>(heading + 576u);
+    memory.store16(hunter + kHeading, next);
+    const auto body = memory.load32(hunter + kFacing);
+    memory.store32(hunter + kFacing, (body & 0xFFFF0000u) | next);
+    const int pitch = static_cast<std::int8_t>(memory.load8(hunter + kPitch)) + 10;
+    memory.store8(hunter + kPitch, static_cast<std::uint8_t>(static_cast<std::int8_t>(pitch)));
+    ctx.pc = ctx.gpr[31];
+}
+
+void test_aim_speed_follows_the_stick() {
+    Fixture f;
+    f.enable();
+    mhfu::settings::current().aim_speed = 90.0f;
+    auto &memory = f.runtime.memory();
+    for (const CodeWord &word : aim_code_signature()) memory.store32(word.address, word.word);
+    f.runtime.register_function(0x09AA4DD0u, &aim_steps_fast, "recomp_unit_aim_speed");
+    plant_hunter(memory, 1001u);
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_boost(), "aiming is live before the follow camera runs");
+    f.ctx.gpr[4] = kHunter;
+    f.ctx.gpr[31] = 0x09C00000u;
+
+    game_camera_present_aim(127, 0);
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches");
+    check(memory.load16(kHunter + kHeading) == 10576u, "no stick scale leaves the game's own step");
+    check(static_cast<std::int8_t>(memory.load8(kHunter + kPitch)) == 10, "and its own pitch step");
+
+    plant_hunter(memory, 1001u);
+    f.flip(1.0f, 1.0f);
+    f.update();
+    check(memory.load16(kHunter + kHeading) == 10000u, "the follow camera's first aim update only learns");
+    game_camera_present_aim(127, -40, 0.5f, 0.5f);
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches at half deflection");
+    check(memory.load16(kHunter + kHeading) == 10273u, "half a push is half of Aim speed, not the game's 576");
+    check(static_cast<std::int8_t>(memory.load8(kHunter + kPitch)) == 8, "and half of the same speed on pitch");
+    check(memory.load32(kHunter + kFacing) == (0xABC00000u | 10273u), "the body facing moves with the resized aim");
+    f.update();
+    check(memory.load16(kHunter + kHeading) == 10273u, "the follow camera does not add that step again");
+    check(static_cast<std::int8_t>(memory.load8(kHunter + kPitch)) == 8, "and does not add the pitch again");
+
+    f.flip(1.0f, 0.0f);
+    game_camera_present_aim(127, 0, 1.0f, 0.0f);
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches at full deflection");
+    check(memory.load16(kHunter + kHeading) == 10819u, "a full push is 3 degrees of Aim speed, not the game's 576");
+    check(static_cast<std::int8_t>(memory.load8(kHunter + kPitch)) == 18, "an axis with no scale keeps the game's pitch step");
+    f.update();
+    check(memory.load16(kHunter + kHeading) == 10819u, "a held stick does not speed the resized step further");
+}
+
 void test_proportional_aim() {
     Fixture f;
     f.enable();
@@ -486,6 +542,7 @@ int main() {
     test_motion_source();
     test_mouse_stock_turn();
     test_aim_stick_is_not_movement();
+    test_aim_speed_follows_the_stick();
     test_proportional_aim();
     check(original_calls > 0u, "original camera update is called");
     std::cout << (failures ? "FAIL" : "PASS") << ": analog camera (" << failures << " failures)\n";

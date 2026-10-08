@@ -499,6 +499,24 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_numbers); },
             [](const Settings &s) { return std::string(s.damage_numbers ? "1" : "0"); },
             [](Settings &s, const char *t) { s.damage_numbers = variable_flag(t); }},
+        {"game.damage_number_size", "MHFU_DAMAGE_NUMBER_SIZE",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinDamageNumberSize, kMaxDamageNumberSize, s.damage_number_size);
+            },
+            [](const Settings &s) { return std::to_string(s.damage_number_size); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.damage_number_size;
+                if (parse_uint(t, kMinDamageNumberSize, kMaxDamageNumberSize, value)) s.damage_number_size = value;
+            }},
+        {"game.damage_number_thickness", "MHFU_DAMAGE_NUMBER_THICKNESS",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, 1u, kMaxDamageNumberThickness, s.damage_number_thickness);
+            },
+            [](const Settings &s) { return std::to_string(s.damage_number_thickness); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.damage_number_thickness;
+                if (parse_uint(t, 1u, kMaxDamageNumberThickness, value)) s.damage_number_thickness = value;
+            }},
         {"network.recent", nullptr,
             [](Settings &s, const std::string &t) {
                 s.adhoc_recent.clear();
