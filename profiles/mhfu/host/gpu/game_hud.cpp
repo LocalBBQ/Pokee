@@ -50,103 +50,90 @@ psprecomp::Runtime::RecompiledFunction compiled(std::uint32_t address) {
 }
 
 // Files a packet into the display list's ordering table: a0 the list object,
-// a1 the packet, a2 its length in words, a3 the bucket.
-constexpr std::uint32_t kFilePacket = 0x08876874u;
+// a1 the packet, a2 its length in words, a3 the bucket. Leaf: sll v0, a3, 2
+// then sw a2, 0x148(t0), the new tail of that bucket.
+constexpr std::uint32_t kFilePacket = 0x088596C8u;
 
-// The text functions the rest of the game calls: every function that can
-// reach the four that add to a text queue (0x088E8C4C, 0x088EBF0C,
-// 0x088EC3E0, 0x088EC51C) and is called from outside the text code.
-constexpr std::array<std::uint32_t, 13> kTextFunctions = {
-    0x088EB07Cu,
-    0x088EBF0Cu,
-    0x088EC060u,
-    0x088EC0F8u,
-    0x088EC1F0u,
-    0x088EC2ECu,
-    0x088EC3E0u,
-    0x088EC63Cu,
-    0x088ECB74u,
-    0x088ECC38u,
-    0x088ECCE4u,
-    0x088ECD9Cu,
-    0x088ECE58u,
+// The four functions that append to a text queue (each stores the new length
+// at +308). They are what the rest of the game calls; nothing else writes
+// that length except the reset.
+constexpr std::array<std::uint32_t, 4> kTextFunctions = {
+    0x08891474u,
+    0x088915B0u,
+    0x08891700u,
+    0x0889183Cu,
 };
-// Called by the queue's drawing (0x088EE17C) after each character, with the
-// entry still in s3: the moment button icons the character added to the
-// layer's icon list can be told to belong to that entry.
-constexpr std::uint32_t kCharacterDrawn = 0x088EA9B0u;
-constexpr std::uint32_t kCharacterDrawnFromQueue = 0x088EE2CCu; // its ra there
+// Called from the per-character draw (0x0889377C) after each character, with
+// the entry still in s3: the moment button icons the character added to the
+// queue's icon list can be told to belong to that entry.
+constexpr std::uint32_t kCharacterDrawn = 0x088952A4u;
+constexpr std::uint32_t kCharacterDrawnFromQueue = 0x08893860u; // its ra there
 constexpr std::size_t kWrapped = 2u + kTextFunctions.size();
 
 constexpr std::uint32_t wrapped_address(std::size_t index) {
     return index == 0u ? kFilePacket : index == 1u ? kCharacterDrawn : kTextFunctions[index - 2u];
 }
 
-// The functions everything of the HUD is drawn from. The quest's is overlay
-// code (game_task.ovl in the slot at 0x0A05E600), so its first words are
-// checked too before a match counts.
-constexpr std::uint32_t kHubHud = 0x08945D78u;
-constexpr std::uint32_t kQuestHud = 0x0A17370Cu;
-constexpr std::array<std::uint32_t, 2> kQuestHudWords = {0x27BDFFD0u, 0xAFBF0020u};
+// The functions the HUD is drawn from. Both overlays load at 0x09A5F300, so
+// the words are checked before a match counts: the other overlay's bytes at
+// the same address are not this function.
+constexpr std::array<HudFunction, 3> kHudFunctions = {{
+    {0x09AE38F8u, 0x27BDFFF0u, 0xAFBF000Cu}, // lobby_task: addiu sp,-16; sw ra,12(sp)
+    {0x09A665F0u, 0x27BDFFB0u, 0xAFBF001Cu}, // game_task status: addiu sp,-80; sw ra,28(sp)
+    {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu}, // game_task labels: addiu sp,-96; sw ra,28(sp)
+}};
 
 // The text context, and in it each queue's length (u8 at +308 + queue) and
-// entries (a pointer at +324 + 4 * queue, entries of 12 bytes).
-constexpr std::uint32_t kTextContextPointer = 0x09FF0C28u;
+// entries (a pointer at +320 + 4 * queue, entries of 12 bytes). The flush
+// loads it from 0x08A632C8.
+constexpr std::uint32_t kTextContextPointer = 0x08A632C8u;
 constexpr std::uint32_t kQueueLengths = 308u;
-constexpr std::uint32_t kQueueEntries = 324u;
-constexpr std::uint32_t kQueues = 7u;
+constexpr std::uint32_t kQueueEntries = 320u;
+constexpr std::uint32_t kQueues = 6u;
 constexpr std::uint32_t kEntryBytes = 12u;
 // Button icons in queued text are listed per queue while it is drawn (count
-// u8 at +315 + queue, entries of 8 bytes from +0x263F8 + 80 * queue) and drawn
-// after its glyphs by 0x088ED378, through 0x08900970, which files each icon's
-// packet with 0x08900658.
-constexpr std::uint32_t kIconCounts = 315u;
-constexpr std::uint32_t kIconLists = 0x263F8u;
+// u8 at +314 + queue, entries of 8 bytes from +0x22B18 + 80 * queue).
+// 0x08892A88 walks that list in s4 and files each icon's packets; the return
+// addresses of those two filing calls are below, and s4 is the entry then.
+constexpr std::uint32_t kIconCounts = 314u;
+constexpr std::uint32_t kIconLists = 0x22B18u;
 constexpr std::uint32_t kIconListStride = 80u;
 constexpr std::uint32_t kIconBytes = 8u;
-constexpr std::uint32_t kIconFiled = 0x08900784u;  // ra of 0x08900658's filing call
-constexpr std::uint32_t kIconEmitterSavedRa = 36u; // 0x08900658: sw ra, 36(sp); 48-byte frame
-constexpr std::uint32_t kIconEmitterFrame = 48u;
-constexpr std::uint32_t kIconEmitterFromIcon = 0x08900A24u;
-constexpr std::uint32_t kIconDrawSavedRa = 40u; // 0x08900970: sw ra, 40(sp); sw s0, 32(sp)
-constexpr std::uint32_t kIconDrawSavedEntry = 32u;
-constexpr std::uint32_t kIconDrawFromList = 0x088ED43Cu;
+constexpr std::uint32_t kIconFiled = 0x08892C88u;
+constexpr std::uint32_t kIconFiledAgain = 0x08892E2Cu;
 
-// Drawing a queued glyph: 0x088EE17C calls 0x088ED984 for it at 0x088EE2AC,
-// with the entry in s3, which 0x088ED984 saves at sp+28 (and ra at sp+52);
-// 0x088ED984 files the glyph's packet from 0x088EDB10.
-constexpr std::uint32_t kGlyphFiled = 0x088EDB18u;     // ra of the filing call
-constexpr std::uint32_t kGlyphFromQueue = 0x088EE2B4u; // 0x088ED984's ra when drawing a queue
-constexpr std::uint32_t kGlyphSavedRa = 52u;
-constexpr std::uint32_t kGlyphSavedEntry = 28u;
+// Drawing one queued character (0x0889377C) calls 0x08893894 for its glyph
+// at 0x08893844, with the entry in s3. 0x08893894 saves that s3 at sp+20 and
+// ra at sp+44, and files the glyph's packet at 0x08893C24.
+constexpr std::uint32_t kGlyphFiled = 0x08893C2Cu;     // ra of the filing call
+constexpr std::uint32_t kGlyphFromQueue = 0x0889384Cu; // 0x08893894's ra from the character draw
+constexpr std::uint32_t kGlyphSavedRa = 44u;
+constexpr std::uint32_t kGlyphSavedEntry = 20u;
 
-struct CodeWord {
-    std::uint32_t address;
-    std::uint32_t word;
-};
 // What the addresses above were read off; the switch stays off if any differs.
+// The overlay functions are not here: they are not loaded at startup.
 constexpr CodeWord kSignature[] = {
-    {0x08876874u, 0x00073880u}, // sll a3, a3, 2: the ordering table insert
-    {0x088768B8u, 0xACE20144u}, // sw v0, 0x144(a3)
-    {0x08945D78u, 0x27BDFFE0u}, // addiu sp, sp, -32: the hub HUD
-    {0x08945D9Cu, 0xAFBF0010u}, // sw ra, 16(sp)
-    {0x088ED984u, 0x27BDFFC0u}, // addiu sp, sp, -64: drawing a glyph
-    {0x088ED9ACu, 0xAFBF0034u}, // sw ra, 52(sp)
-    {0x088ED9C4u, 0xAFB3001Cu}, // sw s3, 28(sp)
-    {0x088EDB10u, 0x0E21DA1Du}, // jal 0x08876874
-    {0x088EE2ACu, 0x0E23B661u}, // jal 0x088ED984, drawing a queue
-    {0x088E8818u, 0x8E440C28u}, // lw a0, 0xC28(s2): the text context
-    {0x088EE2C4u, 0x0E23AA6Cu}, // jal 0x088EA9B0 after each character
-    {0x088EE370u, 0x344263F0u}, // ori v0, v0, 0x63F0: the icon lists
-    {0x088EE32Cu, 0x92B1013Bu}, // lbu s1, 315(s5): the icon count
-    {0x088ED434u, 0x0E24025Cu}, // jal 0x08900970, drawing an icon
-    {0x0890097Cu, 0x27BDFFD0u}, // addiu sp, sp, -48
-    {0x08900988u, 0xAFBF0028u}, // sw ra, 40(sp)
-    {0x089009A0u, 0xAFB00020u}, // sw s0, 32(sp)
-    {0x08900A1Cu, 0x0E240196u}, // jal 0x08900658
-    {0x08900658u, 0x27BDFFD0u}, // addiu sp, sp, -48
-    {0x08900674u, 0xAFBF0024u}, // sw ra, 36(sp)
-    {0x0890077Cu, 0x0E21DA1Du}, // jal 0x08876874
+    {0x088596C8u, 0x00071080u}, // sll v0, a3, 2: the ordering table insert
+    {0x0885971Cu, 0xAD060148u}, // sw a2, 0x148(t0): the bucket's new tail
+    {0x08893894u, 0x27BDFFB0u}, // addiu sp, sp, -80: drawing a glyph
+    {0x08893898u, 0xAFBF002Cu}, // sw ra, 44(sp)
+    {0x088938B0u, 0xAFB30014u}, // sw s3, 20(sp): the caller's entry
+    {0x08893C24u, 0x0E2165B2u}, // jal 0x088596C8
+    {0x08893844u, 0x0E224E25u}, // jal 0x08893894, from the character draw
+    {0x08891A60u, 0x90720134u}, // lbu s2, 308(v1): a queue's length
+    {0x08891A7Cu, 0x8C740140u}, // lw s4, 320(v1): its entries
+    {0x08891AACu, 0x9072013Au}, // lbu s2, 314(v1): its icon count
+    {0x08891AD8u, 0x34212B18u}, // ori at, at, 0x2B18: the icon lists at +0x22B18
+    {0x0888FDD0u, 0x3C0208A6u}, // lui v0, 0x8a6
+    {0x0888FDD8u, 0x8C4432C8u}, // lw a0, 0x32C8(v0): the text context
+    {0x08893858u, 0x0E2254A9u}, // jal 0x088952A4 after each character
+    {0x088952A4u, 0x90820130u}, // lbu v0, 0x130(a0)
+    {0x08892C80u, 0x0E2165B2u}, // jal 0x088596C8, an icon's first packet
+    {0x08892E24u, 0x0E2165B2u}, // jal 0x088596C8, an icon's second packet
+    {0x08891474u, 0x27BDFCA0u}, // addiu sp, sp, -864: a queue append
+    {0x088915B0u, 0x27BDFC80u}, // addiu sp, sp, -896
+    {0x08891700u, 0x27BDFCA0u}, // addiu sp, sp, -864
+    {0x0889183Cu, 0x27BDFC80u}, // addiu sp, sp, -896
 };
 
 // Where a function starts, found from a return address into it.
@@ -181,7 +168,7 @@ struct State {
     std::array<std::uint8_t, kQueues> icon_counts{};
     std::uint64_t icon_frame{~0ull};
     bool last_call_hud{};
-    std::uint32_t quest_hud_mismatches{};
+    std::array<bool, kHudFunctions.size()> hud_word_logged{};
     std::unordered_map<std::uint32_t, Frame> frames;
     // MHFU_TRACE_HUD
     std::uint64_t frame{};
@@ -232,16 +219,24 @@ const Frame *frame_of(State &s, const psprecomp::GuestMemory &memory, std::uint3
     return &s.frames.emplace(ra, frame).first->second;
 }
 
-bool quest_hud_here(State &s, const psprecomp::GuestMemory &memory) {
-    for (std::uint32_t i = 0; i < kQuestHudWords.size(); ++i) {
-        const std::uint32_t word = memory.load32(kQuestHud + i * 4u);
-        if (word == kQuestHudWords[i]) continue;
-        if (s.quest_hud_mismatches++ == 0u)
-            std::cout << "[hud] unexpected code at 0x" << std::hex << kQuestHud + i * 4u << ": 0x" << word << std::dec
-                      << "; not counted as the quest HUD\n";
+// True when `address` is one of the HUD functions and still begins with the
+// words it was read from. A mismatch is said once: the other overlay may
+// occupy the slot, and that is not this function.
+bool hud_function_here(State &s, const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    for (std::size_t i = 0; i < kHudFunctions.size(); ++i) {
+        const HudFunction &fn = kHudFunctions[i];
+        if (fn.address != address) continue;
+        const std::uint32_t first = memory.load32(address);
+        const std::uint32_t saved = memory.load32(address + 4u);
+        if (first == fn.first && saved == fn.saved_ra) return true;
+        if (!s.hud_word_logged[i]) {
+            s.hud_word_logged[i] = true;
+            std::cout << "[hud] unexpected code at 0x" << std::hex << address << ": 0x" << first << " 0x" << saved
+                      << std::dec << "; not counted as the HUD\n";
+        }
         return false;
     }
-    return true;
+    return false;
 }
 
 // Whether a HUD function is on the guest's call stack; the chain of return
@@ -259,7 +254,7 @@ bool from_hud(
             std::snprintf(text, sizeof(text), " %08X@%08X", ra, frame->start);
             *line += text;
         }
-        if (frame->start == kHubHud || (frame->start == kQuestHud && quest_hud_here(s, memory))) {
+        if (hud_function_here(s, memory, frame->start)) {
             hud = true;
             if (line == nullptr) break;
         }
@@ -319,10 +314,9 @@ void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContex
         entry = memory.load32(sp + kGlyphSavedEntry);
         hud = std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end();
     }
-    if (!hud && ctx.gpr[31] == kIconFiled && memory.contains(sp + kIconEmitterFrame + kIconDrawSavedRa, 4u) &&
-        memory.load32(sp + kIconEmitterSavedRa) == kIconEmitterFromIcon &&
-        memory.load32(sp + kIconEmitterFrame + kIconDrawSavedRa) == kIconDrawFromList) {
-        entry = memory.load32(sp + kIconEmitterFrame + kIconDrawSavedEntry);
+    // 0x08892A88 files an icon's packets with the list entry in s4.
+    if (!hud && (ctx.gpr[31] == kIconFiled || ctx.gpr[31] == kIconFiledAgain)) {
+        entry = ctx.gpr[20];
         hud = std::find(s.icons.begin(), s.icons.end(), entry) != s.icons.end();
     }
     note_packet(s, ctx.gpr[5], ctx.gpr[6], hud);
@@ -422,6 +416,28 @@ bool free_camera_hides() {
 }
 
 } // namespace
+
+std::span<const CodeWord> code_signature() {
+    return kSignature;
+}
+
+std::span<const HudFunction> hud_functions() {
+    return kHudFunctions;
+}
+
+bool code_matches(const psprecomp::Runtime &runtime) {
+    for (const CodeWord &expected : kSignature)
+        if (runtime.memory().load32(expected.address) != expected.word) return false;
+    return true;
+}
+
+bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    for (const HudFunction &fn : kHudFunctions) {
+        if (fn.address != address) continue;
+        return memory.load32(address) == fn.first && memory.load32(address + 4u) == fn.saved_ra;
+    }
+    return false;
+}
 
 void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
     State &s = state();

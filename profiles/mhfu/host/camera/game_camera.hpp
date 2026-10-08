@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -90,5 +91,20 @@ void game_camera_anticipate_aim(psprecomp::Runtime &runtime);
 // Full-deflection speed for the current camera: Aim speed while a bow or a
 // bowgun aims, Camera speed otherwise.
 [[nodiscard]] float game_camera_degrees_per_second();
+
+// The quest camera's eye and look-at point in world space, as its last update
+// left them (+0x0 and +0x10 of the camera structure). Nothing when no update
+// ran in the last two frames, or before the hook below is in place. The GE
+// view this game draws the world with carries no translation, so this is
+// where the camera's position is (damage numbers place themselves with it).
+struct CameraPose {
+    std::array<float, 3> eye{};
+    std::array<float, 3> look_at{};
+};
+[[nodiscard]] std::optional<CameraPose> game_camera_pose(const psprecomp::GuestMemory &memory);
+// Something besides Analog camera and lock-on needs the pose. Installs the
+// camera update's wrapper at the next flip; while nothing drives the camera
+// that wrapper only records where the camera structure is.
+void game_camera_want_pose(bool wanted);
 
 } // namespace mhfu::camera

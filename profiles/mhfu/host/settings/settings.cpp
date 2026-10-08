@@ -132,6 +132,9 @@ constexpr const char *kRetiredTypeNameKey = "input.type_name";
 // Written by earlier versions: the gamepad's trigger profile, which control
 // presets replaced. Read once to make the player's preset, then dropped.
 constexpr const char *kRetiredTriggerProfileKey = "input.trigger_profile";
+// Written by earlier versions: one size for the map, health and the item bar
+// together. A file with none of the separate sizes keeps it on those three.
+constexpr const char *kRetiredMapItemScaleKey = "video.map_item_scale";
 // settings.ini's format. Every save writes every key, defaults included, so
 // once a default changes, a file must say which version wrote it for the
 // player's choices to be told from the old defaults:
@@ -288,14 +291,30 @@ const std::vector<Field> &fields() {
             [](Settings &s, const char *t) {
                 if (!kUiTextures.parse(t, s.ui_textures)) s.ui_textures = UiTextures::Off;
             }},
-        {"video.map_item_scale", "MHFU_MAP_ITEM_SCALE",
-            [](Settings &s, const std::string &t) {
-                return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.map_item_scale);
-            },
-            [](const Settings &s) { return std::to_string(s.map_item_scale); },
+        {"video.hud.map", "MHFU_HUD_MAP",
+            [](Settings &s, const std::string &t) { return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.hud.map); },
+            [](const Settings &s) { return std::to_string(s.hud.map); },
             [](Settings &s, const char *t) {
-                std::uint32_t value = s.map_item_scale;
-                if (parse_uint(t, kMinMapItemScale, kMaxMapItemScale, value)) s.map_item_scale = value;
+                std::uint32_t value = s.hud.map;
+                if (parse_uint(t, kMinMapItemScale, kMaxMapItemScale, value)) s.hud.map = value;
+            }},
+        {"video.hud.health", "MHFU_HUD_HEALTH",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.hud.health);
+            },
+            [](const Settings &s) { return std::to_string(s.hud.health); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.hud.health;
+                if (parse_uint(t, kMinMapItemScale, kMaxMapItemScale, value)) s.hud.health = value;
+            }},
+        {"video.hud.item_bar", "MHFU_HUD_ITEM_BAR",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.hud.item_bar);
+            },
+            [](const Settings &s) { return std::to_string(s.hud.item_bar); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.hud.item_bar;
+                if (parse_uint(t, kMinMapItemScale, kMaxMapItemScale, value)) s.hud.item_bar = value;
             }},
         {"text.weight", nullptr,
             [](Settings &s, const std::string &t) { return parse_uint(t, 0u, kMaxFontWeight, s.font_weight); },
@@ -472,7 +491,7 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.menu_pause_multiplayer); },
             [](const Settings &s) { return std::string(s.menu_pause_multiplayer ? "1" : "0"); },
             [](Settings &s, const char *t) { s.menu_pause_multiplayer = variable_flag(t); }},
-        {"game.display_without_coefficient", "MHFU_DISPLAY_WITHOUT_COEFFICIENT",
+        {"game.comparable_weapons", "MHFU_COMPARABLE_WEAPONS",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.comparable_weapons); },
             [](const Settings &s) { return std::string(s.comparable_weapons ? "1" : "0"); },
             [](Settings &s, const char *t) { s.comparable_weapons = variable_flag(t); }},
@@ -813,8 +832,7 @@ void write_entries(const Settings &values, Entries &entries) {
     write_user_presets(values.user_presets, entries);
     entries.erase(kRetiredTypeNameKey);
     entries.erase(kRetiredTriggerProfileKey);
-    // The setting's earlier name. The new key is the one written above.
-    entries.erase("game.comparable_weapons");
+    entries.erase(kRetiredMapItemScaleKey);
 }
 
 // Drops what a file an earlier version wrote holds only because that
@@ -831,11 +849,13 @@ void read_entries(Settings &values, const Entries &entries) {
     for (const Field &field : all_fields())
         if (const auto found = entries.find(field.key); found != entries.end() && !field.parse(values, found->second))
             std::cerr << "[settings] ignoring " << field.key << "=" << found->second << "\n";
-    // The setting was game.comparable_weapons. A file that still has only that
-    // key keeps the choice; the next save writes the new key and drops it.
-    if (!entries.contains("game.display_without_coefficient")) {
-        if (const auto old = entries.find("game.comparable_weapons"); old != entries.end())
-            (void)parse_bool(old->second, values.comparable_weapons);
+    if (!entries.contains("video.hud.map") && !entries.contains("video.hud.health") &&
+        !entries.contains("video.hud.item_bar")) {
+        if (const auto old = entries.find(kRetiredMapItemScaleKey); old != entries.end()) {
+            std::uint32_t value = 100u;
+            if (parse_uint(old->second, kMinMapItemScale, kMaxMapItemScale, value))
+                values.hud.map = values.hud.health = values.hud.item_bar = value;
+        }
     }
     settle_controls(values, entries);
 }
@@ -875,10 +895,18 @@ void load(State &s) {
     // A fixed name in the environment is meant for unattended runs, which
     // nobody is there to type in, so it also answers at once unless
     // MHFU_OSK_MODE says otherwise.
-    if (s.overrides.count("game.display_without_coefficient") == 0u) {
-        if (const char *text = std::getenv("MHFU_COMPARABLE_WEAPONS"); text != nullptr && *text != '\0') {
-            s.values.comparable_weapons = variable_flag(text);
-            s.overrides["game.display_without_coefficient"] = "MHFU_COMPARABLE_WEAPONS";
+    // The earlier variable sized the map, health and the item bar together.
+    // A variable for one of those pieces wins over it.
+    if (const char *text = std::getenv("MHFU_MAP_ITEM_SCALE"); text != nullptr && *text != '\0') {
+        std::uint32_t value = 100u;
+        if (parse_uint(text, kMinMapItemScale, kMaxMapItemScale, value)) {
+            for (const auto &[key, piece] : {std::pair{"video.hud.map", &Settings::InterfaceScale::map},
+                     std::pair{"video.hud.health", &Settings::InterfaceScale::health},
+                     std::pair{"video.hud.item_bar", &Settings::InterfaceScale::item_bar}}) {
+                if (s.overrides.count(key) != 0u) continue;
+                s.values.hud.*piece = value;
+                s.overrides[key] = "MHFU_MAP_ITEM_SCALE";
+            }
         }
     }
     if (s.overrides.count("input.name_entry") == 0u && std::getenv("MHFU_OSK_TEXT") != nullptr) {

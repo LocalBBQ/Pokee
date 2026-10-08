@@ -7,8 +7,11 @@
 
 namespace {
 
+using mhfu::gpu::choose_vertex_hold;
 using mhfu::gpu::choose_vertex_region;
 using mhfu::gpu::kVertexFullHeap;
+using mhfu::gpu::kVertexHoldBase;
+using mhfu::gpu::kVertexHoldFull;
 using mhfu::gpu::kVertexRegionBase;
 using mhfu::gpu::kVertexRegionFull;
 using mhfu::gpu::vertex_storage_bytes;
@@ -41,10 +44,26 @@ void budgets() {
         "an unknown limit does not override a small heap");
 }
 
+void hold_budgets() {
+    check(kVertexHoldBase == 192ull << 20u, "the smaller hold is 192 MiB");
+    check(kVertexHoldFull == 384ull << 20u, "the larger hold is 384 MiB");
+    check(choose_vertex_hold(kVertexHoldFull, kVertexFullHeap) == kVertexHoldFull,
+        "a large heap that can allocate the hold takes it");
+    check(choose_vertex_hold(0u, kVertexFullHeap) == kVertexHoldFull,
+        "an unreported allocation limit still takes the larger hold when the heap can");
+    check(choose_vertex_hold(kVertexHoldFull, kVertexFullHeap - 1u) == kVertexHoldBase,
+        "a heap under 8 GiB keeps the smaller hold");
+    check(choose_vertex_hold(kVertexHoldFull - 1u, kVertexFullHeap) == kVertexHoldBase,
+        "a device that cannot allocate the larger hold keeps the smaller one");
+    check(choose_vertex_hold(0u, 6ull << 30u) == kVertexHoldBase,
+        "an unknown limit does not override a small heap for the hold");
+}
+
 } // namespace
 
 int main() {
     budgets();
+    hold_budgets();
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;

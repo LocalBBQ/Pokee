@@ -12,43 +12,57 @@
 namespace mhfu::camera {
 namespace {
 
-// NPJB-40001. The camera's initialisation (0x0882D5A4) copies four constants
-// into the camera: near 30, far 65000, aspect 480/272 and a vertical field of
-// view of 0.8722 radians. The projection (0x0882CF0C) and the culling planes
-// (0x0882BF1C) are built from those fields, and the camera's update
-// (0x0882D150) builds them again only when the field of view differs from the
-// one they were last built with, kept at +0x10.
-constexpr std::uint32_t kAspectConstant = 0x08969F74u;
+// ULUS-10391. The set-up at 0x08812A08 writes near 30, far 65000, the aspect
+// ratio 480/272 and a vertical field of view of 0.872222 radians. The reset
+// at 0x08812B9C writes that same ratio and jumps to the projection
+// (0x08815348). The perspective builder (0x088144B4) divides the x scale by
+// the aspect, and the camera's update (0x08815384) builds the projection
+// again only when the field of view differs from the one kept at +0x10.
+// The constructor stores the object at 0x089CBD04. The follow camera reads
+// the hunter from that same object, at +0xA84; the projection fields are the
+// first words.
+//
+// The 480/272 ratio and the culling depth of 1.5 are lui/ori immediates.
+// The recompiled code has those bits baked in, so writing the instruction
+// words would not change what runs. The live camera is data the update
+// loads, and that is what a frame writes. A camera created during a frame
+// keeps the game's ratio until the next update. The culling planes
+// (0x08815EC0) divide by the same aspect and then by that baked 1.5, which
+// covers the view up to an aspect ratio of about 3. Wider than that, the
+// sides can clip; the factor cannot be shrunk without changing the
+// recompiled function.
 constexpr std::uint32_t kGameAspectBits = 0x3FE1E1E2u; // 480/272
-// The culling planes put the frustum's side corners at depth 1.5 times the far
-// distance, with the sides at cot(fov/2) times it; the top and bottom are
-// divided by the aspect ratio as well. That leaves the vertical field of view
-// uncovered once the aspect ratio passes cot^2(fov/2) / 1.5, about 3.07 with
-// the usual field of view, and the horizontal one just the same. Beyond that
-// the depth factor shrinks so both stay inside the planes.
-constexpr std::uint32_t kCullDepthConstant = 0x08969ED4u;
-constexpr std::uint32_t kGameCullDepthBits = 0xBFC00000u; // -1.5
-constexpr float kCullBudget = 4.0f;                       // cot^2(0.8722 / 2) is 4.6: some margin kept
-constexpr std::uint32_t kCameraPointer = 0x08A2F958u;
+constexpr std::uint32_t kCameraPointer = 0x089CBD04u;
 constexpr std::uint32_t kNear = 0x00u;
 constexpr std::uint32_t kFar = 0x04u;
 constexpr std::uint32_t kAspect = 0x08u;
 constexpr std::uint32_t kFieldOfView = 0x0Cu;
 constexpr std::uint32_t kBuiltFieldOfView = 0x10u;
-constexpr std::uint32_t kCameraBytes = 0x11D0u;
+constexpr std::uint32_t kCameraBytes = 0x20u;
 
-constexpr std::array<CodeWord, 11> kSignature{{
-    {0x0882D5D0u, 0xC4409F74u, "lwc1 f0,-0x608c(v0): the camera's initialisation reads the aspect constant"},
-    {0x0882D5D4u, 0xE4800008u, "swc1 f0,0x8(a0): into the camera's aspect"},
-    {0x0882D7A8u, 0xAC44F958u, "sw a0,-0x6a8(v0): the camera's address, kept at 0x08A2F958"},
-    {0x0882CF1Cu, 0xC48C000Cu, "lwc1 f12,0xc(a0): the projection's field of view"},
-    {0x0882CF20u, 0xC48D0008u, "lwc1 f13,0x8(a0): the projection's aspect"},
-    {0x0882CE88u, 0x46170DC3u, "div.s f23,f1,f23: the projection's x scale is cot(fov/2) / aspect"},
-    {0x0882D18Cu, 0xC4810010u, "lwc1 f1,0x10(a0): the camera update reads the field of view last built"},
-    {0x0882D190u, 0xC480000Cu, "lwc1 f0,0xc(a0): and the current one"},
-    {0x0882D194u, 0x46000832u, "c.eq.s f1,f0: and builds the projection again when they differ"},
-    {0x0882BF64u, 0xC4850008u, "lwc1 f5,0x8(a0): the culling planes read the aspect"},
-    {0x0882BF74u, 0xC4439ED4u, "lwc1 f3,-0x612c(v0): and the depth factor constant"},
+constexpr std::array<CodeWord, 22> kSignature{{
+    {0x08812948u, 0x3C02089Du, "lui v0,0x89d: the base of the camera pointer"},
+    {0x08812954u, 0xAC50BD04u, "sw s0,-0x42fc(v0): the camera object, kept at 0x089CBD04"},
+    {0x08812A70u, 0x3C0341F0u, "lui v1,0x41f0: near plane, 30"},
+    {0x08812AA8u, 0x3C02477Du, "lui v0,0x477d: far plane, 65000"},
+    {0x08812AB0u, 0x3442E800u, "ori v0,v0,0xe800: the low half of 65000"},
+    {0x08812AACu, 0xAE030000u, "sw v1,0x0(s0): the near plane"},
+    {0x08812AB4u, 0xAE020004u, "sw v0,0x4(s0): the far plane"},
+    {0x08812AC4u, 0x3C023FE1u, "lui v0,0x3fe1: the aspect ratio 480/272"},
+    {0x08812AC8u, 0x3442E1E2u, "ori v0,v0,0xe1e2: its low half"},
+    {0x08812ACCu, 0xAE020008u, "sw v0,0x8(s0): into the camera's aspect"},
+    {0x08812BBCu, 0x3C023FE1u, "lui v0,0x3fe1: the same ratio where the camera is reset"},
+    {0x08812BC0u, 0x3442E1E2u, "ori v0,v0,0xe1e2: its low half, on the reset"},
+    {0x08812BC4u, 0xAC820008u, "sw v0,0x8(a0): into that camera's aspect"},
+    {0x08815354u, 0xC48C000Cu, "lwc1 f12,0xc(a0): the projection's field of view"},
+    {0x08815358u, 0xC48D0008u, "lwc1 f13,0x8(a0): the projection's aspect"},
+    {0x0881456Cu, 0x46160803u, "div.s f0,f1,f22: the projection's x scale is cot(fov/2) / aspect"},
+    {0x08815390u, 0xC4810010u, "lwc1 f1,0x10(a0): the field of view the projection was built with"},
+    {0x08815394u, 0xC480000Cu, "lwc1 f0,0xc(a0): and the current one"},
+    {0x08815398u, 0x46000832u, "c.eq.s f1,f0: the update builds the projection again when they differ"},
+    {0x08815EC4u, 0x3C023FC0u, "lui v0,0x3fc0: the culling depth factor, 1.5"},
+    {0x08815F50u, 0xC4800008u, "lwc1 f0,0x8(a0): the culling planes read the aspect"},
+    {0x08815F54u, 0x46000803u, "div.s f0,f1,f0: and divide by it"},
 }};
 
 struct State {
@@ -99,10 +113,6 @@ bool prepare_game_aspect(psprecomp::Runtime &runtime) {
                   << expected.what << "); the view keeps the PSP's shape\n";
         return false;
     }
-    if (memory.load32(kAspectConstant) != kGameAspectBits || memory.load32(kCullDepthConstant) != kGameCullDepthBits) {
-        std::cerr << "[aspect] the game's aspect or culling constant differs; the view keeps the PSP's shape\n";
-        return false;
-    }
     state.prepared = true;
     return true;
 }
@@ -116,27 +126,19 @@ void game_aspect_frame(psprecomp::Runtime &runtime, float aspect) {
     const bool own = !std::isfinite(aspect) || std::abs(aspect - game) < 0.002f;
     if (own && !state.changed) return;
     const float wanted = own ? game : std::clamp(aspect, 0.5f, 5.0f);
+    const std::uint32_t bits = own ? kGameAspectBits : std::bit_cast<std::uint32_t>(wanted);
 
-    if (!state.changed || wanted != state.applied) {
-        store_float(memory, kAspectConstant, wanted);
-        if (own)
-            memory.store32(kCullDepthConstant, kGameCullDepthBits);
-        else
-            store_float(memory, kCullDepthConstant, -std::min(1.5f, kCullBudget / wanted));
+    // The set-up plants 480/272. The next camera update rebuilds the
+    // projection when the field of view it last built with differs from the
+    // current one.
+    if (const std::uint32_t found = camera_address(memory); found != 0u && memory.load32(found + kAspect) != bits) {
+        memory.store32(found + kAspect, bits);
+        store_float(memory, found + kBuiltFieldOfView, -load_float(memory, found + kFieldOfView));
+        if (!state.changed || wanted != state.applied)
+            std::cout << "[aspect] the game's view is " << wanted << " wide to 1 high\n";
         state.applied = wanted;
-        std::cout << "[aspect] the game's view is " << wanted << " wide to 1 high\n";
     }
-    // The camera took its aspect from the constant when it was set up. Give
-    // it the new one and make the next camera update build the projection
-    // and the culling planes again: it does when the field of view it last
-    // built them with differs from the current one.
-    if (const std::uint32_t found = camera_address(memory); found != 0u) {
-        if (load_float(memory, found + kAspect) != wanted) {
-            store_float(memory, found + kAspect, wanted);
-            store_float(memory, found + kBuiltFieldOfView, -load_float(memory, found + kFieldOfView));
-        }
-    }
-    // Back to the game's own values once the camera has them too. Until a
+    // Back to the game's own value once the camera has it too. Until a
     // camera turns up this keeps looking, which costs one read a frame.
     const std::uint32_t camera = camera_address(memory);
     state.changed = !own || camera == 0u || memory.load32(camera + kAspect) != kGameAspectBits;

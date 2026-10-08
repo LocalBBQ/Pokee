@@ -10,14 +10,13 @@ class Runtime;
 
 // Gives the game's 3D view the shape of the picture it is drawn into.
 //
-// NPJB-40001 only. The game keeps its projection's parameters in its camera
-// object (the pointer at 0x08A2F958): near plane, far plane, aspect ratio and
-// vertical field of view at +0x0, +0x4, +0x8 and +0xC. The aspect ratio starts
-// as 480/272, a constant at 0x08969F74 that the camera's initialisation copies
-// in, and the projection matrix and the camera's culling planes are both built
-// from it. With another aspect ratio the game keeps its vertical field of view
-// and widens (or narrows) the horizontal one, and draws that view into its
-// 480x272 screen; the renderer then spreads the screen over the window.
+// USA Freedom Unite (ULUS-10391). The projection's parameters sit at the start
+// of the object whose address is stored at 0x089CBD04: near plane, far plane,
+// aspect ratio and vertical field of view at +0x0, +0x4, +0x8 and +0xC. The
+// set-up plants 480/272 with a lui/ori pair, and the camera's update builds
+// the projection again only when the field of view differs from the one kept
+// at +0x10. Those immediates are baked into the recompiled code, so this
+// writes the live camera and leaves the instructions as they are.
 namespace mhfu::camera {
 
 // Everything the aspect ratio relies on in the game's code, checked before

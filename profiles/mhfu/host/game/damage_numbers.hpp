@@ -19,7 +19,12 @@
 // The number is drawn on the monster. Its position is the three floats at
 // +0x200, the same field lock-on reads, a little above the feet. The frame's
 // 3D view and projection, the ones the world was drawn with, put that point
-// on the picture. A hit with no place on screen is not drawn.
+// on the picture. A hit with no place on screen is not drawn. The hit routine
+// does not carry the point of contact, so this body point is the nearest
+// place known; the number stays on it and does not step aside. Several hits
+// stack upward from it. The closer the camera, the taller the monster on the
+// picture and the smaller the number is drawn, so it keeps to that point
+// rather than spreading over the body.
 
 #include "psprecomp/guest_memory.hpp"
 
@@ -41,6 +46,16 @@ inline constexpr float kBodyHeight = 100.0f;
 inline constexpr int kWeakPointHitzone = 45;
 inline constexpr float kNumberSeconds = 1.60f;
 inline constexpr std::size_t kMaxOnScreen = 8u;
+// How far a number rises over its life, and how far each later hit sits
+// above the one before, as fractions of the picture's height.
+inline constexpr float kRise = 0.025f;
+inline constexpr float kStack = 0.018f;
+// The number shrinks as the monster grows on the picture: full size while
+// kBodyHeight covers up to kShrinkFrom of the picture's height, down to
+// kMinScale when it covers kShrinkTo or more.
+inline constexpr float kShrinkFrom = 0.30f;
+inline constexpr float kShrinkTo = 0.70f;
+inline constexpr float kMinScale = 0.55f;
 
 enum class Sharpness { Red, Orange, Yellow, Green, Blue, White, Purple };
 enum class Fill { Unknown, WeakPoint, Ordinary };
@@ -74,7 +89,9 @@ struct Number {
     std::uint32_t object{}; // the monster the hit landed on
     float x{};              // its place on the picture, once known
     float y{};
+    float body{};           // kBodyHeight on the picture, 0..1 of its height
     bool placed{};
+    std::uint8_t reports{}; // MHFU_TRACE_HITS lines about its placing so far
 };
 
 // The view and projection a transformed draw was made with, and the GE
@@ -96,6 +113,19 @@ struct WorldPoint {
     float z{};
 };
 
+// The camera's eye and the point it looks at, in world space, from the game's
+// camera structure (camera/game_camera.hpp). This game draws the world through
+// a GE view without translation, so the view the numbers project with is built
+// from these whenever they are known.
+struct EyePose {
+    WorldPoint eye;
+    WorldPoint look_at;
+};
+// A view looking from `eye` at `target`, y up, column major like the GE's:
+// rows right, up and back, right being forward x up. Nothing when the two
+// points coincide or the camera looks straight up or down.
+[[nodiscard]] std::optional<std::array<float, 16>> look_at_view(const WorldPoint &eye, const WorldPoint &target) noexcept;
+
 struct PicturePoint {
     float x{}; // 0..1 across the game picture
     float y{}; // 0..1 down it
@@ -105,23 +135,35 @@ struct Anchor {
     float x{}; // 0..1 across the game picture, from the left
     float y{}; // 0..1 down the game picture, from the top
     float alpha{};
+    float scale{1.0f}; // of the number's full size
 };
 
 [[nodiscard]] Number make_number(int amount, Grade grade, int lane) noexcept;
 [[nodiscard]] std::string damage_number_text(const Number &number);
 [[nodiscard]] std::vector<Number> age_numbers(std::vector<Number> numbers, float seconds);
 [[nodiscard]] Anchor number_anchor(const Number &number) noexcept;
+// The size of a number for a monster whose kBodyHeight covers `body` of the
+// picture's height: 1 when it is far, down to kMinScale when it is close.
+[[nodiscard]] float closeness_scale(float body) noexcept;
 
 // Where a world point lands on the picture. Nothing when it is behind the
 // camera or off the picture.
 [[nodiscard]] std::optional<PicturePoint> project_world(const WorldCamera &camera, float x, float y, float z) noexcept;
+// The same, for a point that may lie off the picture: only one behind the
+// camera has no place. For measuring a monster that fills the view.
+[[nodiscard]] std::optional<PicturePoint> project_point(const WorldCamera &camera, float x, float y, float z) noexcept;
 // The monster's position, when those three floats are mapped.
 [[nodiscard]] std::optional<WorldPoint> monster_position(const psprecomp::GuestMemory &memory, std::uint32_t object);
 
-// The renderer reports each transformed draw. The perspective draw with the
-// most vertices is the world camera for the numbers. An orthographic draw
-// (the HUD) is ignored. `take_world_camera` returns that draw and clears it,
-// so the next frame starts again.
+// The renderer reports each transformed draw. Draws with the same view and
+// projection are counted together, and the view with the most vertices is
+// the world camera for the numbers. A view without translation is centred on
+// the camera (the sky, a background), which on Akantor's map drew more than
+// anything else and put every monster off the picture, so such a view is
+// chosen only when there is no other. An orthographic draw (the HUD) is
+// ignored. `take_world_camera` returns the choice and clears the frame's
+// views, so the next frame starts again.
+[[nodiscard]] bool camera_centred(const WorldCamera &camera) noexcept;
 void note_world_camera(const WorldCamera &camera, std::uint32_t vertices);
 [[nodiscard]] std::optional<WorldCamera> take_world_camera();
 // True while damage numbers are on, so a draw can skip the note when they are off.
@@ -146,9 +188,12 @@ void watch_hit_enter(std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t
 [[nodiscard]] std::optional<int> monster_health(const psprecomp::GuestMemory &memory, std::uint32_t object);
 
 // Once a flip, before the interface draws. Installs the hit watch while
-// `enabled` and drops it otherwise. Direct chained calls stay on their fast
-// path either way.
-void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory = nullptr);
+// `enabled` (or while MHFU_TRACE_HITS is set; game/hit_trace.hpp) and drops
+// it otherwise. Direct chained calls stay on their fast path either way.
+// Numbers are shown only while `enabled`.
+// `pose` is the game's camera this frame, when its update ran.
+void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory = nullptr,
+    const std::optional<EyePose> &pose = std::nullopt);
 // What the interface draws this frame. Empty while the setting is off.
 [[nodiscard]] const std::vector<Number> &damage_numbers();
 void set_shown_damage_numbers(std::vector<Number> numbers);

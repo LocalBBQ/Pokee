@@ -30,4 +30,18 @@ inline constexpr std::uint64_t kVertexFullHeap = 8ull << 30u;
     return allocation_fits && host_heap >= kVertexFullHeap ? kVertexRegionFull : kVertexRegionBase;
 }
 
+// Unchanged decoded vertices, kept for the session and drawn in place. The
+// tower's static geometry is about 233 MiB. A 192 MiB hold filled, and the
+// cache then dropped every span, so the next frames decoded the whole map
+// again. Machines that take the larger per-frame budget can keep 384 MiB.
+// A smaller heap stays at 192. A refused allocation falls back, then off.
+inline constexpr std::uint64_t kVertexHoldFull = 384ull << 20u;
+inline constexpr std::uint64_t kVertexHoldBase = 192ull << 20u;
+
+[[nodiscard]] inline constexpr std::uint64_t choose_vertex_hold(
+    std::uint64_t max_allocation, std::uint64_t host_heap) {
+    const bool allocation_fits = max_allocation == 0u || max_allocation >= kVertexHoldFull;
+    return allocation_fits && host_heap >= kVertexFullHeap ? kVertexHoldFull : kVertexHoldBase;
+}
+
 } // namespace mhfu::gpu

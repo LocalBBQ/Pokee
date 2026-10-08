@@ -12,6 +12,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <map>
+#include <string>
 
 namespace mhfu::ui {
 namespace {
@@ -40,6 +42,16 @@ const char *shown_end(const char *label) {
 }
 float px(float value) {
     return std::round(value * Layer::get().scale());
+}
+
+// Up or down on the keyboard, the D-pad or the left stick, with repeat.
+int vertical_press() {
+    int delta = 0;
+    for (ImGuiKey key : {ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadLStickUp})
+        if (ImGui::IsKeyPressed(key, true)) delta = -1;
+    for (ImGuiKey key : {ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown, ImGuiKey_GamepadLStickDown})
+        if (ImGui::IsKeyPressed(key, true)) delta = 1;
+    return delta;
 }
 
 // Left or right on the keyboard, the D-pad or the left stick, with repeat.
@@ -398,6 +410,151 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
 
 void focus_next_row() {
     focus_next = true;
+}
+
+namespace {
+
+bool dropdown_swallowed = false;
+
+struct Dropdown {
+    bool open{};
+    bool just_opened{};
+    int highlight{};
+};
+
+std::map<std::string, Dropdown> &dropdowns() {
+    static std::map<std::string, Dropdown> states;
+    return states;
+}
+
+} // namespace
+
+void dropdown_new_frame() {
+    dropdown_swallowed = false;
+}
+
+void dismiss_dropdowns() {
+    for (auto &entry : dropdowns()) entry.second.open = entry.second.just_opened = false;
+}
+
+bool dropdown_swallowed_back() {
+    return dropdown_swallowed;
+}
+
+bool dropdown_row(const char *label, const char *const *items, int count, int &selected, const RowOptions &options,
+    bool back) {
+    const Row r = row(label, options);
+    selected = count > 0 ? std::clamp(selected, 0, count - 1) : 0;
+    const char *value = count > 0 ? items[selected] : "";
+    const bool live = (r.focused || r.hovered) && !options.disabled;
+    const float chevron = font() * 0.55f;
+    draw_value(r, value, options, px(16.0f) + chevron + font() * 0.35f, live ? colors::kAccentBright : colors::kText);
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    if (!options.disabled) {
+        const float mid_y = (r.min.y + r.max.y) * 0.5f;
+        const float x = r.max.x - px(16.0f) - chevron * 0.35f;
+        const ImU32 ink = live ? colors::kAccent : colors::kTextDim;
+        draw->AddTriangleFilled({x - chevron * 0.45f, mid_y - chevron * 0.2f},
+            {x + chevron * 0.45f, mid_y - chevron * 0.2f}, {x, mid_y + chevron * 0.4f}, ink);
+    }
+
+    Dropdown &state = dropdowns()[label];
+    const bool was_open = state.open;
+    if (options.disabled) state.open = false;
+    // A click on the row opens the list, and another click closes it. Confirm
+    // on a keyboard or a gamepad chooses the highlighted entry instead: the
+    // pad's own movement never reaches the list through the page behind it.
+    const bool mouse_released = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+    bool changed = false;
+    if (state.open && back) {
+        state.open = false;
+        dropdown_swallowed = true;
+    } else if (!options.disabled && r.pressed) {
+        if (!state.open) {
+            state.open = true;
+            state.just_opened = true;
+            state.highlight = selected;
+        } else if (mouse_released) {
+            state.open = false;
+        } else if (!state.just_opened) {
+            changed = state.highlight != selected;
+            selected = state.highlight;
+            state.open = false;
+        }
+    }
+    if (state.open && count > 0) {
+        const int delta = vertical_press();
+        if (delta != 0) state.highlight = (state.highlight + delta + count) % count;
+    }
+    if (!state.open || count <= 0) {
+        state.just_opened = false;
+        if (was_open) ImGui::NavMoveRequestCancel();
+        return changed;
+    }
+
+    float widest = 0.0f;
+    for (int i = 0; i < count; ++i) widest = std::max(widest, ImGui::CalcTextSize(items[i]).x);
+    const float item_height = std::round(font() * 1.7f);
+    const float pad = px(12.0f);
+    const float popup_width = widest + pad * 2.0f;
+    const float popup_height = item_height * static_cast<float>(count) + pad * 2.0f;
+    const ImVec2 popup_max{r.max.x - px(8.0f), r.max.y + px(4.0f) + popup_height};
+    ImVec2 popup_min{popup_max.x - popup_width, r.max.y + px(4.0f)};
+    const float screen_bottom = ImGui::GetIO().DisplaySize.y - px(8.0f);
+    if (popup_max.y > screen_bottom) {
+        const float lift = popup_max.y - screen_bottom;
+        popup_min.y -= lift;
+    }
+
+    const std::string window_id = std::string("##dropdown/") + label;
+    ImGui::SetNextWindowPos(popup_min);
+    ImGui::SetNextWindowSize({popup_width, popup_height});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(colors::kPanel));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(colors::kPanelEdge));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, pad * 0.5f});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, px(8.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, px(1.5f));
+    // The list must not take focus. A gamepad move would otherwise land on
+    // the first entry, or on the page behind the list, instead of the highlight.
+    const bool begun = ImGui::Begin(window_id.c_str(), nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoFocusOnAppearing);
+    if (begun) {
+        // The click that opened the list is still on the row, so it must not
+        // choose an entry or dismiss the list on that same frame.
+        if (!state.just_opened && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered())
+            state.open = false;
+        for (int i = 0; i < count && state.open; ++i) {
+            const ImVec2 item_size{popup_width, item_height};
+            ImGui::PushID(i);
+            const bool pressed = ImGui::InvisibleButton(items[i], item_size);
+            // The nav cursor reports the focused row as hovered. Only a real
+            // mouse position should move the highlight.
+            const bool item_hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
+            ImGui::PopID();
+            if (item_hovered) state.highlight = i;
+            const ImVec2 item_min = ImGui::GetItemRectMin();
+            const ImVec2 item_max = ImGui::GetItemRectMax();
+            ImDrawList *popup_draw = ImGui::GetWindowDrawList();
+            if (item_hovered || i == state.highlight)
+                popup_draw->AddRectFilled(item_min, item_max, colors::kRowFocus, px(4.0f));
+            popup_draw->AddText({item_min.x + pad, item_min.y + (item_height - font()) * 0.5f},
+                i == state.highlight ? colors::kAccentBright : colors::kText, items[i]);
+            if (pressed && !state.just_opened) {
+                const int choice = mouse_released ? i : state.highlight;
+                changed = choice != selected;
+                selected = choice;
+                state.open = false;
+            }
+        }
+    }
+    ImGui::End();
+    // The page behind the list must not take the pad's up and down.
+    if (state.open) ImGui::NavMoveRequestCancel();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+    state.just_opened = false;
+    return changed;
 }
 
 int choice_row(const char *label, const std::string &value, const RowOptions &options) {

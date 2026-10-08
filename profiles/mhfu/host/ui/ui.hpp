@@ -16,10 +16,6 @@ class VulkanRenderer;
 namespace mhfu::install {
 class InstallerUi;
 }
-namespace psprecomp {
-class Runtime;
-}
-
 namespace mhfu::ui {
 
 // Puts the interface on the renderer's window. False when it cannot start;
@@ -30,11 +26,6 @@ bool attach(gpu::VulkanRenderer &renderer);
 // the running game (the hint that says how to open the menu, the network
 // overlay, and the menu when it is open over the running game).
 void draw_over_game();
-
-// Between frames, after the menu has been drawn. When Display Without Weapon
-// Coefficient is on, the attack and element those screens print are divided
-// before the next frame draws them. Off, the game's own digits stay.
-void reprint_weapon_figures(psprecomp::Runtime &runtime);
 
 // After a game frame's window events: whether the player asked for the menu
 // (Esc, or L3+R3 on a gamepad).

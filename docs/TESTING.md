@@ -154,7 +154,7 @@ For the manual check, open **Video** in the menu and compare the three **Aspect 
 
 - **Original** with a fixed resolution looks exactly as before, bars included.
 - **Fill** fills the window with no bars. Circles (the minimap, round icons) stay round; the 3D view is not stretched: a monster turning in place keeps its proportions. The HUD sits in a centred PSP-shaped area.
-- In **Fill**, look for objects popping in or out at the left and right edges while the camera turns, especially at 21:9 or wider.
+- In **Fill**, look for objects popping in or out at the left and right edges while the camera turns, especially at 21:9 or wider. The culling depth stays the game's 1.5, so a picture wider than about 3:1 can clip there.
 - Fades, the pause menu's darkening, the blur of the item and map menus, and the quest-reward screen cover the whole window.
 - Switching the value back and forth takes effect at once; the console logs `[aspect] the game's view is … wide to 1 high`, and back at Original the game's `1.76471`.
 - With **Resolution** on Auto, resize the window, toggle fullscreen and, where possible, move it to another display: after a moment the console logs `[render] internal resolution W×H` with the window's size.

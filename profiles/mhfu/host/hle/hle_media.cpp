@@ -10,6 +10,7 @@
 #include "overlays.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/guest_ram.hpp"
+#include "game/hit_trace.hpp"
 #include "game/layered_armor.hpp"
 #include "platform/utf8_path.hpp"
 
@@ -294,6 +295,16 @@ void fly_free_camera(Runtime &rt, gpu::VulkanRenderer &renderer, float seconds) 
     if (camera::free_camera_active()) camera::discard();
 }
 
+// The quest camera's eye for damage numbers, asking for the camera hook when
+// they (or MHFU_TRACE_HITS) are on.
+std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
+    camera::game_camera_want_pose(settings::current().damage_numbers || game::hit_trace::enabled());
+    const std::optional<camera::CameraPose> pose = camera::game_camera_pose(rt.memory());
+    if (!pose) return std::nullopt;
+    return game::EyePose{{pose->eye[0], pose->eye[1], pose->eye[2]},
+        {pose->look_at[0], pose->look_at[1], pose->look_at[2]}};
+}
+
 // Draws the frame just shown again, from the free camera's place: its
 // display lists run once more from the GE state they started with. Guest
 // memory stands still while the photo mode holds the game, so they hold what
@@ -393,7 +404,9 @@ bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t ad
             return true;
         }
         replay_frame(rt, renderer);
-        game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory());
+        game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), damage_numbers_pose(rt));
+        ui::set_lock_on_marker(
+            settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
         ui::draw_over_game();
         renderer.write_back_frame(rt.memory());
         renderer.present(address);
@@ -461,10 +474,11 @@ void present_frame(Runtime &rt) {
         renderer.upload_frame(
             address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
     }
-    game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory());
+    game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), damage_numbers_pose(rt));
+    // The draws of this frame have already named the camera they used, so the
+    // marker matches the picture about to be shown, aim camera included.
+    ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
     ui::draw_over_game();
-    // After the menu, so a toggle there is in place before the next guest frame.
-    ui::reprint_weapon_figures(rt);
     renderer.write_back_frame(rt.memory());
     // A load running fast, or fast-forward, flips more often than the
     // display refreshes.
@@ -493,7 +507,6 @@ void present_frame(Runtime &rt) {
         // of the follow camera, which game_camera_frame makes sure to drive.
         if (renderer.take_lock_on_press()) camera::lock_on_tap();
         camera::game_camera_frame(rt);
-        ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
         if (const std::string why = camera::lock_on_take_note(); !why.empty()) ui::show_note(why);
         // The view's shape follows the picture's: the game builds its next
         // projection with the aspect ratio of the target it will draw into.
@@ -639,11 +652,9 @@ void register_display_ctrl(HleRegistrar &hle) {
                 right_x = 0x80u;
                 right_y = 0x80u;
             } else if (camera::game_camera_aim_boost()) {
-                // Past the dead zone, any push is remembered at full length
-                // in the same direction. The aim function is shown that
-                // direction for its call; bytes 8 and 9 stay the movement
-                // stick. With the stick idle, the mouse's direction stands
-                // in for it.
+                // The direction, at full length, is shown to the aim function
+                // for its call. Bytes 8 and 9 stay the movement stick, and
+                // with the stick idle the mouse's direction stands in.
                 int dx = static_cast<int>(right_x) - 0x80;
                 int dy = static_cast<int>(right_y) - 0x80;
                 if (dx == 0 && dy == 0) {
@@ -653,13 +664,15 @@ void register_display_ctrl(HleRegistrar &hle) {
                     }
                 }
                 const float length = std::sqrt(static_cast<float>(dx * dx + dy * dy));
-                if (length > 0.0f) {
-                    const int full_x = std::clamp(0x80 + static_cast<int>(std::lround(dx * 127.0f / length)), 0, 255);
-                    const int full_y = std::clamp(0x80 + static_cast<int>(std::lround(dy * 127.0f / length)), 0, 255);
-                    right_x = static_cast<std::uint8_t>(full_x);
-                    right_y = static_cast<std::uint8_t>(full_y);
-                    camera::game_camera_present_aim(full_x - 0x80, full_y - 0x80);
-                }
+                if (length > 0.0f)
+                    camera::game_camera_present_aim(static_cast<int>(std::lround(dx * 127.0f / length)),
+                        static_cast<int>(std::lround(dy * 127.0f / length)));
+                // The aim wrapper shows this push to the aim function. The
+                // second stick stays centred: its up and down are the game's
+                // own camera commands, and a bowgun aims from the D-pad bits
+                // written for that call, not from this stick.
+                right_x = 0x80u;
+                right_y = 0x80u;
             } else if (right_x == 0x80u && right_y == 0x80u &&
                 settings::current().right_stick == settings::RightStick::Camera) {
                 // The game's own camera: the mouse switches its turn on while

@@ -1,11 +1,16 @@
 // Damage numbers: the hitzone colour, the health drop, and the hit watch.
 // No game data. Guest memory is a stand-in.
+#include "camera/lock_on.hpp"
 #include "game/damage_numbers.hpp"
+#include "game/hit_trace.hpp"
 
 #include "psprecomp/runtime.hpp"
 
 #include <bit>
+#include <cmath>
 #include <iostream>
+#include <limits>
+#include <sstream>
 
 namespace {
 using namespace mhfu::game;
@@ -84,16 +89,35 @@ void test_text_and_place() {
     on.x = 0.40f;
     on.y = 0.55f;
     const Anchor first = number_anchor(on);
-    check(first.x == 0.40f && first.y == 0.55f && first.alpha == 1.0f, "a number starts on the monster");
-    Number left = on;
-    left.lane = 1;
-    Number right = on;
-    right.lane = 2;
-    check(number_anchor(left).x < first.x && number_anchor(right).x > first.x,
-        "the next hits step a little to either side of the monster");
+    check(first.x == 0.40f && first.y == 0.55f && first.alpha == 1.0f && first.scale == 1.0f,
+        "a number starts on the monster, at full size");
+    Number second = on;
+    second.lane = 1;
+    Number third = on;
+    third.lane = 2;
+    const Anchor stacked = number_anchor(second);
+    check(stacked.x == first.x && number_anchor(third).x == first.x,
+        "the next hits stay on the hit's point and never step aside");
+    check(stacked.y < first.y && number_anchor(third).y < stacked.y, "they stack upward from it");
     Number risen = on;
     risen.age = kNumberSeconds * 0.5f;
     check(number_anchor(risen).y < first.y && number_anchor(risen).alpha == 1.0f, "a number rises and holds its ink");
+
+    check(closeness_scale(0.0f) == 1.0f && closeness_scale(kShrinkFrom) == 1.0f,
+        "a monster far away gets the number at full size");
+    const float mid = closeness_scale((kShrinkFrom + kShrinkTo) * 0.5f);
+    check(mid < 1.0f && mid > kMinScale, "a monster nearer shrinks it");
+    check(closeness_scale(kShrinkTo) == kMinScale && closeness_scale(5.0f) == kMinScale,
+        "a monster filling the view shrinks it to its least, and no further");
+    check(closeness_scale(std::numeric_limits<float>::quiet_NaN()) == 1.0f, "a body of no size does not shrink it");
+    Number close = on;
+    close.body = kShrinkTo;
+    const Anchor near = number_anchor(close);
+    check(near.scale == kMinScale && near.x == first.x && near.y == first.y,
+        "up close the number is smaller and still on the hit's point");
+    Number close_second = close;
+    close_second.lane = 1;
+    check(first.y - stacked.y > near.y - number_anchor(close_second).y, "a smaller number stacks closer");
     Number fading = on;
     fading.age = kNumberSeconds;
     check(number_anchor(fading).alpha == 0.0f, "a number fades out at the end of its time");
@@ -163,6 +187,9 @@ void test_on_the_monster() {
     check(high && high->y == 0.0f, "a point above the camera lands at the top of the picture");
     check(!project_world(camera, 0.0f, 0.0f, 10.0f), "a point behind the camera is not drawn");
     check(!project_world(camera, 100.0f, 0.0f, -10.0f), "a point off the picture is not drawn");
+    const std::optional<PicturePoint> below = project_point(camera, 0.0f, -20.0f, -10.0f);
+    check(below && below->x == 0.5f && below->y == 1.5f, "a monster's feet off the picture still have a place");
+    check(!project_point(camera, 0.0f, 0.0f, 10.0f), "but not behind the camera");
     WorldCamera unscaled = camera;
     unscaled.x_scale = 0.0f;
     check(!project_world(unscaled, 0.0f, 0.0f, -10.0f), "a draw with no viewport is not a camera");
@@ -189,7 +216,60 @@ void test_on_the_monster() {
     note_world_camera(smaller, 3u);
     const std::optional<WorldCamera> taken = take_world_camera();
     check(taken && taken->x_offset == 240.0f && !take_world_camera(),
-        "the perspective draw with the most vertices is the world camera, once");
+        "the perspective view with the most vertices is the world camera, once");
+
+    // Akantor's map: a sky drawn through a view without translation outdraws
+    // any one draw of the world, whose view moves with the camera.
+    WorldCamera world = camera;
+    world.view[12] = 50.0f;
+    world.view[14] = -300.0f;
+    WorldCamera other = world;
+    other.view[13] = 7.0f;
+    check(camera_centred(camera) && !camera_centred(world), "a view without translation is centred on the camera");
+    note_world_camera(camera, 1000u);
+    note_world_camera(world, 300u);
+    note_world_camera(world, 300u);
+    note_world_camera(other, 500u);
+    const std::optional<WorldCamera> moving = take_world_camera();
+    check(moving && moving->view[12] == 50.0f && moving->view[13] == 0.0f,
+        "the world view wins over the sky, and its draws are counted together");
+    note_world_camera(camera, 20u);
+    const std::optional<WorldCamera> only_sky = take_world_camera();
+    check(only_sky && camera_centred(*only_sky), "a centred view is still a camera when there is no other");
+}
+
+void test_the_game_camera_view() {
+    // The game's camera far out in the world, looking down the +z axis at a
+    // monster; the GE view it draws with has no translation.
+    const WorldPoint eye{9500.0f, 300.0f, 13000.0f};
+    const WorldPoint monster{9500.0f, 300.0f, 14500.0f};
+    const std::optional<std::array<float, 16>> view = look_at_view(eye, monster);
+    check(view.has_value(), "a camera looking level has a view");
+    WorldCamera camera = test_camera();
+    camera.view = *view;
+    check(!camera_centred(camera), "the camera's own view carries its place");
+    const std::optional<PicturePoint> centre = project_world(camera, monster.x, monster.y, monster.z);
+    check(centre && std::fabs(centre->x - 0.5f) < 1e-4f && std::fabs(centre->y - 0.5f) < 1e-4f,
+        "the point the camera looks at lands in the middle of the picture");
+    const std::optional<PicturePoint> above = project_world(camera, monster.x, monster.y + 500.0f, monster.z);
+    check(above && above->y < 0.5f, "a point above it lands higher");
+    // Looking down +z, the camera's right is -x.
+    const std::optional<PicturePoint> right = project_world(camera, monster.x - 500.0f, monster.y, monster.z);
+    check(right && right->x > 0.5f, "a point to the camera's right lands on the right");
+    check(!project_world(camera, monster.x, monster.y, eye.z - 1500.0f), "a point behind it is not drawn");
+
+    const std::optional<std::array<float, 16>> tilted = look_at_view(eye, {9600.0f, 0.0f, 14000.0f});
+    float tilted_rows = 0.0f;
+    for (std::size_t row = 0; row < 3u && tilted; ++row)
+        for (std::size_t other = 0; other < 3u; ++other) {
+            float dot = 0.0f;
+            for (std::size_t axis = 0; axis < 3u; ++axis)
+                dot += (*tilted)[axis * 4u + row] * (*tilted)[axis * 4u + other];
+            tilted_rows += std::fabs(dot - (row == other ? 1.0f : 0.0f));
+        }
+    check(tilted && tilted_rows < 1e-4f, "a tilted view is a rotation");
+    check(!look_at_view(eye, eye), "a camera looking at its own eye has no view");
+    check(!look_at_view(eye, {eye.x, eye.y - 100.0f, eye.z}), "nor one looking straight down");
 }
 
 void test_the_setting_does_not_slow_direct_chains() {
@@ -211,6 +291,149 @@ void test_the_setting_does_not_slow_direct_chains() {
     psprecomp::g_runtime_chain_observers_active = original;
 }
 
+// MHFU_TRACE_HITS (game/hit_trace.hpp): the call chain walked from a return
+// address and the stack, and the lines printed, on a made-up pair of
+// functions in the quest overlay's range.
+void test_the_hit_records() {
+    namespace tr = mhfu::game::hit_trace;
+    namespace layout = mhfu::camera::lock_on_layout;
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    check(tr::players_line(memory).empty(), "outside a quest there are no players to show");
+
+    constexpr std::uint32_t record = 0x09F00000u;
+    memory.store32(record, std::bit_cast<std::uint32_t>(10122.5f));
+    memory.store32(record + 4u, std::bit_cast<std::uint32_t>(-0.5f));
+    check(tr::floats_line(memory, "r", record, 2u) == "r 09F00000: 10122.5 -0.5", "a record reads as floats");
+    check(tr::floats_line(memory, "r", 0x04000000u, 2u).empty(), "nothing outside RAM");
+
+    constexpr std::uint32_t manager = 0x09800000u;
+    constexpr std::uint32_t newest = 0x09810000u, older = 0x09810100u;
+    constexpr std::uint32_t hunter = 0x09820000u, monster = 0x09830000u;
+    memory.store32(layout::kEntityList, manager);
+    memory.store32(manager + layout::kListHead, newest);
+    memory.store32(newest + layout::kNodeEntity, monster);
+    memory.store8(newest + layout::kNodeType, 0u);
+    memory.store32(newest + layout::kNodeOlder, older);
+    memory.store32(older + layout::kNodeEntity, hunter);
+    memory.store8(older + layout::kNodeType, layout::kPlayerNode);
+    memory.store32(hunter + layout::kPosition, std::bit_cast<std::uint32_t>(1.0f));
+    memory.store32(hunter + layout::kPosition + 4u, std::bit_cast<std::uint32_t>(2.0f));
+    memory.store32(hunter + layout::kPosition + 8u, std::bit_cast<std::uint32_t>(3.0f));
+    check(tr::players_line(memory) == "[hit]   players 09820000 at 1 2 3", "the players on the list and where they are");
+    memory.store32(older + layout::kNodeOlder, newest);
+    std::string around = "[hit]   players";
+    for (std::uint32_t i = 0; i < layout::kMaxMonsters / 2u; ++i) around += " 09820000 at 1 2 3";
+    check(tr::players_line(memory) == around, "a cyclic list stops at the bound");
+}
+
+void test_the_hit_trace() {
+    namespace tr = mhfu::game::hit_trace;
+    check(tr::parse_limit(nullptr) == tr::kDefaultLimit && tr::parse_limit("") == tr::kDefaultLimit &&
+            tr::parse_limit("x") == tr::kDefaultLimit && tr::parse_limit("0") == tr::kDefaultLimit,
+        "an unset or bad limit is the default");
+    check(tr::parse_limit("25") == 25u, "a number is the limit");
+    check(tr::in_ram(0x09000000u) && !tr::in_ram(0x04000000u) && !tr::in_ram(0x0A000000u),
+        "user RAM is where the game's objects are");
+    check(tr::looks_like_code(0x09AC7A08u) && tr::looks_like_code(0x08900A1Cu) && !tr::looks_like_code(0x09AC7A0Au) &&
+            !tr::looks_like_code(0x09F52CF4u),
+        "a word in the executable's or the quest overlay's code looks like a return address");
+
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    // inner: addiu sp,sp,-0x30; sw ra,0x2C(sp); ... the call returns to +0x20.
+    constexpr std::uint32_t inner = 0x09B00000u;
+    memory.store32(inner, 0x27BDFFD0u);
+    memory.store32(inner + 4u, 0xAFBF002Cu);
+    // outer: addiu sp,sp,-0x20; sw ra,0x1C(sp); returns to +0x10.
+    constexpr std::uint32_t outer = 0x09C00000u;
+    memory.store32(outer, 0x27BDFFE0u);
+    memory.store32(outer + 4u, 0xAFBF001Cu);
+    // leaf: addiu sp,sp,-0x10; jr ra, never saving ra.
+    constexpr std::uint32_t leaf = 0x09C10000u;
+    memory.store32(leaf, 0x27BDFFF0u);
+    memory.store32(leaf + 4u, 0x03E00008u);
+    constexpr std::uint32_t sp = 0x09F00000u;
+    memory.store32(sp + 0x2Cu, outer + 0x10u);          // inner's saved ra
+    memory.store32(sp + 0x30u + 0x1Cu, leaf + 0x8u);    // outer's saved ra
+    const std::optional<tr::Frame> frame = tr::frame_of(memory, inner + 0x20u);
+    check(frame && frame->start == inner && frame->size == 0x30u && frame->ra_offset == 0x2Cu,
+        "a return address finds its function's start, frame size and saved ra");
+    const std::optional<tr::Frame> no_ra = tr::frame_of(memory, leaf + 0x8u);
+    check(no_ra && no_ra->ra_offset == ~0u, "a function that never saves ra says so");
+    check(!tr::frame_of(memory, 0x04000000u), "an address outside RAM has no frame");
+    check(tr::call_chain(memory, inner + 0x20u, sp) == " 09B00020@09B00000 09C00010@09C00000 09C10008@09C10000",
+        "the chain walks the saved return addresses up the stack until a function keeps none");
+    check(tr::call_chain(memory, inner + 0x20u, sp, 1) == " 09B00020@09B00000", "and stops at the levels asked");
+
+    memory.store32(sp, 0x00000007u);
+    memory.store32(sp + 4u, 0x09AC7A08u);
+    check(tr::words_line(memory, "stack", sp, 2u) == "stack 09F00000: 00000007 09AC7A08*",
+        "stack words are hex, code-looking ones marked");
+    check(tr::words_line(memory, "x", 0x04000000u, 2u).empty(), "words outside RAM are not read");
+
+    psprecomp::AllegrexContext ctx;
+    ctx.gpr[4] = 0x09000000u;
+    ctx.gpr[5] = 0x09000100u;
+    ctx.gpr[6] = 7u;
+    ctx.gpr[7] = 0x09000000u;
+    ctx.gpr[29] = sp;
+    ctx.gpr[31] = inner + 0x20u;
+    ctx.fpr[12] = 1.5f;
+    ctx.gpr[2] = 1u;
+    const std::string call = tr::call_line(ctx, 3u, 2u, 400);
+    check(call.rfind("[hit] call #3 depth=2 a0=09000000 a1=09000100 a2=00000007 a3=09000000", 0) == 0 &&
+            call.find(" ra=09B00020 sp=09F00000 f12..f15=1.5 0 0 0 health=400") != std::string::npos,
+        "the call line names the arguments, the saved registers, ra, sp, the floats and the health");
+    check(tr::call_line(ctx, 1u, 0u, std::nullopt).find("health=?") != std::string::npos,
+        "a monster whose health cannot be read says so");
+    check(tr::return_line(ctx, 3u, 2u, 400, 370) ==
+            "[hit] return #3 depth=2 v0=00000001 v1=00000000 health 400 -> 370 (30)",
+        "the return line pairs with the call and shows the drop");
+    const std::vector<std::string> lines = tr::describe_call(memory, ctx, 3u, 2u, 400);
+    check(lines.size() == 6u && lines[1] == "[hit]   chain 09B00020@09B00000 09C00010@09C00000 09C10008@09C10000" &&
+            lines[2].rfind("[hit]   stack 09F00000:", 0) == 0 && lines[3].rfind("[hit]   a1-> 09000100:", 0) == 0,
+        "a call prints its registers, chain, stack, and the records a1..a3 point at, but not the monster again");
+    check(lines[4].rfind("[hit]   a1 floats 09000100:", 0) == 0 && lines[5].rfind("[hit]   monster 09000200:", 0) == 0,
+        "then a1's record as floats and the monster's position; no pointer in it, and no players, print nothing");
+
+    // What is printed: a call that changes nothing names its caller once and
+    // is otherwise silent; a call that takes health off is printed whole.
+    tr::reset();
+    std::ostringstream out;
+    std::streambuf *const previous = std::cout.rdbuf(out.rdbuf());
+    tr::note_call(memory, ctx, 1u, 400);
+    check(tr::log_return(ctx, 1u, 400, 400) == 0u, "a call that changes nothing is not a hit");
+    tr::note_call(memory, ctx, 1u, 400);
+    check(tr::log_return(ctx, 1u, 400, 400) == 0u && tr::log_return(ctx, 1u, 400, 380) == 0u,
+        "nor is the same call again, and a return with no call is nothing");
+    std::string printed = out.str();
+    check(printed.find("[hit] calls from ra=09B00020 change nothing") != std::string::npos &&
+            printed.find("change nothing") == printed.rfind("change nothing") &&
+            printed.find("[hit] call #") == std::string::npos,
+        "a caller whose calls change nothing is named once, and its calls are not printed");
+    out.str({});
+    tr::note_call(memory, ctx, 1u, 400);
+    check(tr::log_return(ctx, 1u, 400, 370) == 1u, "a call that takes health off is the first hit");
+    printed = out.str();
+    check(printed.find("[hit] call #1 depth=1 a0=09000000") != std::string::npos &&
+            printed.find("[hit]   chain 09B00020@09B00000") != std::string::npos &&
+            printed.find("[hit] return #1 depth=1 v0=00000001 v1=00000000 health 400 -> 370 (30)") != std::string::npos,
+        "the hit is printed whole at its return: the call, the chain, the stack, the records and the drop");
+    // Between frames: a drop no printed call accounted for is reported.
+    out.str({});
+    memory.store16(0x09000000u + kMonsterHealth, 370u);
+    tr::frame(memory, &monster_health);
+    check(out.str().empty(), "a frame whose drop the call explained says nothing");
+    memory.store16(0x09000000u + kMonsterHealth, 350u);
+    tr::frame(memory, &monster_health);
+    check(out.str().find("[hit] health of 09000000 went 370 -> 350 between frames") != std::string::npos,
+        "a drop between frames that no call made is reported as written elsewhere");
+    out.str({});
+    tr::frame(memory, &monster_health);
+    check(out.str().empty(), "and only once");
+    std::cout.rdbuf(previous);
+    tr::reset();
+}
+
 } // namespace
 
 int main() {
@@ -220,7 +443,10 @@ int main() {
     test_the_hit_watch();
     test_health_halfword();
     test_on_the_monster();
+    test_the_game_camera_view();
     test_the_setting_does_not_slow_direct_chains();
+    test_the_hit_records();
+    test_the_hit_trace();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;

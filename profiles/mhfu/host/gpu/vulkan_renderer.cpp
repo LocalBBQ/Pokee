@@ -17,6 +17,7 @@
 #include "vertex_budget.hpp"
 #include "vertex_hold.hpp"
 
+#include "camera/lock_on.hpp"
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
 #include "platform/utf8_path.hpp"
@@ -2104,6 +2105,8 @@ struct VulkanRenderer::Impl {
     bool quit{};
     bool ready{};
     std::uint64_t frames{};
+    // Which quest HUD pieces this frame and the last one drew (gpu/hud_scale.hpp).
+    hud_scale::Frame hud_scale_frame;
     std::uint64_t draws{};
 
     // MHFU_PAD_FOLLOW=0: the game keeps the first pad, as before #147, and
@@ -7185,15 +7188,22 @@ bool VulkanRenderer::reuse_decoded_vertices(const VertexReuseLookup &lookup) {
 void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     Impl &impl = *impl_;
     if (!impl.ready) return;
-    // Damage numbers sit on the monster. The perspective draw with the most
-    // vertices is the world camera; the HUD is orthographic and is ignored.
-    if (mhfu::game::damage_numbers_watching() && !call.through && !call.clear_mode) {
+    // Damage numbers and the lock-on marker sit on the monster. The perspective
+    // draw with the most vertices is the world camera, follow or aim; the HUD
+    // is orthographic and is ignored.
+    if (!call.through && !call.clear_mode &&
+        (mhfu::game::damage_numbers_watching() ||
+            (settings::current().lock_on_marker && mhfu::camera::lock_on_status().locked))) {
         const std::uint32_t vertices = call.vertices_reused ? call.reused_count
             : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
-        mhfu::game::note_world_camera({call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
-                                           call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x,
-                                           call.viewport.offset_y},
-            vertices);
+        const mhfu::game::WorldCamera world{call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
+            call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x, call.viewport.offset_y};
+        if (mhfu::game::damage_numbers_watching()) mhfu::game::note_world_camera(world, vertices);
+        if (settings::current().lock_on_marker && mhfu::camera::lock_on_status().locked)
+            mhfu::camera::lock_on_note_view(
+                {world.view, world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset,
+                    world.origin_x, world.origin_y},
+                vertices);
     }
     const perf::SplitScope split(perf::Split::Draw);
     if (!impl.recording) begin_frame();
@@ -7446,7 +7456,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                       << " fmt=" << static_cast<int>(call.texture.format) << " filter=" << call.texture.min_filter
                       << "/" << call.texture.mag_filter << " wrap=" << call.texture.wrap_s << "/" << call.texture.wrap_t
                       << " blend=" << (call.blend.enabled ? 1 : 0) << " color=0x" << std::hex << b.color << std::dec
-                      << "\n";
+                      << " scissor=(" << call.viewport.scissor_x1 << "," << call.viewport.scissor_y1 << ")-("
+                      << call.viewport.scissor_x2 << "," << call.viewport.scissor_y2 << ")\n";
         }
     }
 
@@ -7704,16 +7715,52 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     const bool skinned = impl.interpolating && !raw && !call.through && ((call.vertex_type >> 9u) & 3u) != 0u;
     const std::uint32_t skinned_first =
         skinned ? static_cast<std::uint32_t>(impl.recording_frame.skinned.size()) : Impl::kNone;
-    // The quest map and the item bar, smaller or larger (gpu/hud_scale.hpp). The copy
-    // that is drawn is scaled; the one the vertex cache keeps is not, so 100%
-    // is the vertices the game submitted.
-    const float map_item_scale = static_cast<float>(settings::current().map_item_scale) * 0.01f;
-    const bool scale_corners = call.through && !call.clear_mode && map_item_scale != 1.0f && !direct &&
-        call.primitive == PrimitiveType::Sprites;
+    // Quest HUD pieces can each change size (gpu/hud_scale.hpp). The copy that
+    // is drawn is scaled; the one the vertex cache keeps is not, so 100% is
+    // the vertices the game submitted.
+    const settings::Settings::InterfaceScale &hud = settings::current().hud;
+    const hud_scale::Scales hud_scales = hud_scale::Scales::from_percent(hud.map, hud.health, hud.item_bar);
+    // The clock's hands and the player's arrow on the map turn, so they are
+    // drawn as one quad each: a four-vertex strip, six vertices expanded.
+    const bool turned_quad = call.primitive == PrimitiveType::TriangleStrip && count == 4u;
+    const bool scale_corners = call.through && !call.clear_mode && hud_scales.any() && !direct &&
+        (call.primitive == PrimitiveType::Sprites || turned_quad);
     std::vector<GpuVertex> corner_scaled;
+    // The area map's draw, after scaling. Its scissor is often the rectangle
+    // the game drew, so a larger map is clipped back to that size, and a
+    // smaller one can fail the depth test against the map already in the
+    // buffer. Both leave the panel looking unchanged.
+    bool map_resized = false;
+    hud_scale::Rect map_bounds{};
     if (scale_corners) {
-        corner_scaled = reused_expanded ? *reused : impl.scratch;
-        hud_scale::scale_quads(corner_scaled, map_item_scale);
+        const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
+        corner_scaled = unscaled;
+        hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame);
+        const auto bounds_of = [](const std::vector<GpuVertex> &vertices, std::size_t first) {
+            hud_scale::Rect r{vertices[first].x, vertices[first].y, vertices[first].x, vertices[first].y};
+            for (std::size_t i = 1; i < 6u; ++i) {
+                r.x0 = std::min(r.x0, vertices[first + i].x);
+                r.y0 = std::min(r.y0, vertices[first + i].y);
+                r.x1 = std::max(r.x1, vertices[first + i].x);
+                r.y1 = std::max(r.y1, vertices[first + i].y);
+            }
+            return r;
+        };
+        for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
+            bool moved = false;
+            for (std::size_t i = 0; i < 6u; ++i)
+                moved = moved || corner_scaled[first + i].x != unscaled[first + i].x ||
+                    corner_scaled[first + i].y != unscaled[first + i].y;
+            if (!moved || !hud_scale::is_map_sprite(bounds_of(unscaled, first))) continue;
+            const hud_scale::Rect scaled = bounds_of(corner_scaled, first);
+            if (!map_resized) {
+                map_bounds = scaled;
+                map_resized = true;
+            } else {
+                map_bounds = {std::min(map_bounds.x0, scaled.x0), std::min(map_bounds.y0, scaled.y0),
+                    std::max(map_bounds.x1, scaled.x1), std::max(map_bounds.y1, scaled.y1)};
+            }
+        }
     }
     // A span remembered while the hold was full has no offset. Once an area
     // stops being drawn its bytes come back, and the next hit of this span
@@ -7900,6 +7947,13 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             key.depth_test = call.depth.test_enabled || call.depth.write_enabled;
             if (call.depth.write_enabled && !call.depth.test_enabled) key.depth_function = 1u;
         }
+        // A resized area map must replace the one already in the frame. The
+        // same depth as last time fails a less/greater test once the world
+        // has stopped redrawing that corner, which leaves the old panel up.
+        if (map_resized) {
+            key.depth_test = true;
+            key.depth_function = 1u;
+        }
         key.cull = call.culling_enabled && !call.through && call.primitive != PrimitiveType::Sprites;
         key.cull_clockwise = call.cull_clockwise;
     }
@@ -8057,6 +8111,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         edges[1] = centre_y + (edges[1] - centre_y) * fit_y;
         edges[3] = centre_y + (edges[3] - centre_y) * fit_y;
     }
+    if (map_resized) hud_scale::include_in_scissor(edges[0], edges[1], edges[2], edges[3], map_bounds);
     const auto to_pixels = [](float edge, float scale, std::uint32_t size) {
         return static_cast<std::int32_t>(std::clamp(std::lround(edge * scale), 0l, static_cast<long>(size)));
     };
@@ -9289,6 +9344,7 @@ bool VulkanRenderer::present(
         impl.finish_interpolated_frame(source, impl.presented_target, moment_us);
         impl.submit_frame();
         ++impl.frames;
+        impl.hud_scale_frame.begin();
         impl.present_clock.set_presents_per_frame(pacing::presents_per_frame(impl.governor.rate()));
         impl.present_clock.flip(moment_us, to_us(now));
         impl.cycle_active = impl.newer_picture_valid;
@@ -9311,6 +9367,7 @@ bool VulkanRenderer::present(
             impl.ui_draw_data = nullptr;
             impl.submit_frame();
             ++impl.frames;
+            impl.hud_scale_frame.begin();
             return false;
         }
         impl.fast_forward_shown = now;
@@ -9320,6 +9377,7 @@ bool VulkanRenderer::present(
         impl.submit_and_present(source, true);
     }
     ++impl.frames;
+    impl.hud_scale_frame.begin();
     if (impl.frame_rate != settings::FrameRate::Fps30) impl.report_interpolation();
     impl.follow_window();
     return true;

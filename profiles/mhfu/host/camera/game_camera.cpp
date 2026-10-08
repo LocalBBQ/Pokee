@@ -87,13 +87,22 @@ constexpr std::uint32_t kHunterButtons = 1152u;
 // button word, from the 16-entry table at 0x089A619C (one entry per 22.5°).
 // Index 0 is right (0x20) and the angle runs counterclockwise: up 0x10, left
 // 0x80, down 0x40, the same bits as the D-pad. The aim function tests those
-// bits shifted up by 16. Replacing them, and the magnitude, is how a push is
-// shown to that function without the movement stick changing.
+// bits shifted up by 16 only while hunter byte +1380 is set, which a bow does
+// and a bowgun does not. With the byte clear it steps the heading by 576 from
+// the D-pad's left (0x80) and right (0x20), and the pitch byte from up (0x10)
+// and down (0x40), and never reads the stick half. A push is shown as
+// whichever of those the byte selects, so the movement stick is unchanged.
 constexpr std::uint32_t kStickDirectionMask = 0x00F00000u;
 constexpr std::uint32_t kStickUp = 0x00100000u;
 constexpr std::uint32_t kStickRight = 0x00200000u;
 constexpr std::uint32_t kStickDown = 0x00400000u;
 constexpr std::uint32_t kStickLeft = 0x00800000u;
+constexpr std::uint32_t kAimStickGate = 1380u;
+constexpr std::uint32_t kDpadMask = 0x00F0u;
+constexpr std::uint32_t kDpadUp = 0x0010u;
+constexpr std::uint32_t kDpadRight = 0x0020u;
+constexpr std::uint32_t kDpadDown = 0x0040u;
+constexpr std::uint32_t kDpadLeft = 0x0080u;
 constexpr int kStickDeadzone = 40;
 constexpr int kStickFull = 127;
 // The aim function, in game_task. Its prologue is checked before the wrapper
@@ -232,6 +241,8 @@ struct State {
     int anticipated_pitch_value{};
 };
 State state;
+// Kept apart from State, which prepare_game_camera() starts again.
+bool pose_wanted = false;
 
 bool option_on() {
     const auto &s = settings::current();
@@ -718,13 +729,17 @@ void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     if (show) {
         saved_buttons = memory.load32(hunter + kHunterButtons);
         saved_magnitude = memory.load16(hunter + kStickMagnitude);
+        // A bow sets +1380 and aims from the stick half. A bowgun leaves it
+        // clear and aims from the D-pad bits, so the same push is shown there.
+        const bool stick_aim = memory.load8(hunter + kAimStickGate) != 0u;
         std::uint32_t direction = 0u;
-        if (state.aim_x > 0) direction |= kStickRight;
-        else if (state.aim_x < 0) direction |= kStickLeft;
-        if (state.aim_y < 0) direction |= kStickUp;
-        else if (state.aim_y > 0) direction |= kStickDown;
-        memory.store32(hunter + kHunterButtons, (saved_buttons & ~kStickDirectionMask) | direction);
-        memory.store16(hunter + kStickMagnitude, static_cast<std::uint16_t>(kStickFull));
+        if (state.aim_x > 0) direction |= stick_aim ? kStickRight : kDpadRight;
+        else if (state.aim_x < 0) direction |= stick_aim ? kStickLeft : kDpadLeft;
+        if (state.aim_y < 0) direction |= stick_aim ? kStickUp : kDpadUp;
+        else if (state.aim_y > 0) direction |= stick_aim ? kStickDown : kDpadDown;
+        const auto clear = stick_aim ? kStickDirectionMask : kDpadMask;
+        memory.store32(hunter + kHunterButtons, (saved_buttons & ~clear) | direction);
+        if (stick_aim) memory.store16(hunter + kStickMagnitude, static_cast<std::uint16_t>(kStickFull));
     }
     if (state.aim_original != nullptr) state.aim_original(runtime, ctx);
     if (show && memory.raw_pointer(hunter, kHunterExtent) != nullptr) {
@@ -809,7 +824,7 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
     // who never taps pays nothing for lock-on either.
     if (!lock_on_allowed()) lock_on_release("");
     lock_on_frame(runtime.memory());
-    if (state.prepared && !state.hooked && (option_on() || (lock_on_allowed() && lock_on_wanted()))) {
+    if (state.prepared && !state.hooked && (option_on() || pose_wanted || (lock_on_allowed() && lock_on_wanted()))) {
         // Only ever at the game's flip, from an import: no generated frame is
         // live on the host stack, so the dispatch tables can change here.
         // A host registration disables this unit's direct-call shortcut, so the
@@ -827,6 +842,23 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
     }
     // Nothing takes the input while the camera update is not running.
     if (!game_camera_driving()) discard();
+}
+
+std::optional<CameraPose> game_camera_pose(const psprecomp::GuestMemory &memory) {
+    if (!state.hooked || state.address == 0u || state.frame - state.last_update > 2u ||
+        memory.raw_pointer(state.address, 0x1Cu) == nullptr)
+        return std::nullopt;
+    CameraPose pose;
+    for (std::uint32_t axis = 0; axis < 3u; ++axis) {
+        pose.eye[axis] = load_float(memory, state.address + axis * 4u);
+        pose.look_at[axis] = load_float(memory, state.address + 0x10u + axis * 4u);
+        if (!std::isfinite(pose.eye[axis]) || !std::isfinite(pose.look_at[axis])) return std::nullopt;
+    }
+    return pose;
+}
+
+void game_camera_want_pose(bool wanted) {
+    pose_wanted = wanted;
 }
 
 bool game_camera_driving() {

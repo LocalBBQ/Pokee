@@ -27,9 +27,10 @@ class GuestMemory;
 //   keeps a type byte at +36 (1 is a player).
 // - The entity's position is three floats at +0x200. Its health and most
 //   health are s16 at +0x2E4 and +0x41E. A companion's most health is 0.
-// - A large monster's vtable is at +0. The word at vtable+8 is a method in
-//   the em overlay slot (0x09D1A280..0x09D63100). Small monsters' methods
-//   stay in game_task, so they are left out.
+// - When an entity's vtable has a method in the em overlay slot, or its list
+//   node carries class id 32, 34 or 36, only those entities are locked.
+//   A quest whose monsters keep a game_task vtable (seen with em75 loaded)
+//   still locks: any other non-player with a health pool is then eligible.
 // - The camera looks from its eye at +0x0 of the camera structure to its
 //   look-at point at +0x10. Its yaw, in 65536ths of a turn, puts the eye in
 //   the direction (sin yaw, cos yaw) from the look-at point, so the camera
@@ -54,11 +55,14 @@ inline constexpr std::uint32_t kNodeOlder = 0x4u;
 inline constexpr std::uint32_t kNodeEntity = 0xCu;
 inline constexpr std::uint32_t kNodeType = 0x24u;
 inline constexpr std::uint8_t kPlayerNode = 1u;
+// game_sub 0x09C899E0 stores this halfword. em overlays pass 32, 34 or 36.
+inline constexpr std::uint32_t kNodeClass = 58u;
 inline constexpr std::uint32_t kMaxMonsters = 64u; // a bound on a corrupt or cyclic list
-// Object +0 is the vtable. Its word at +8 is a method. For a large monster
-// that method lies in the em overlay slot; a small monster's does not.
+// Object +0 is the vtable. A large monster's methods in the first slots lie
+// in the em overlay. The word at +8 is the one those overlays replace.
 inline constexpr std::uint32_t kVtable = 0x0u;
 inline constexpr std::uint32_t kVtableMethod = 0x8u;
+inline constexpr std::uint32_t kVtableSpan = 64u;
 inline constexpr std::uint32_t kEmOverlay = 0x09D1A280u;
 inline constexpr std::uint32_t kEmOverlayEnd = 0x09D63100u;
 inline constexpr std::uint32_t kPosition = 0x200u;
@@ -73,9 +77,9 @@ struct LockMonster {
     Vec3 position;
 };
 
-// The large monsters that can be locked onto: on the quest entity list while
-// a quest runs, not a player, with a health pool, and with a vtable method
-// in the large-monster overlay.
+// What a tap can lock onto: on the quest entity list while a quest runs, not
+// a player, and alive with a health pool. When any entry is marked large
+// (an em-overlay method, or class id 32, 34 or 36), only those.
 [[nodiscard]] std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory);
 
 // The camera's yaw, in its units, that looks from `from` towards `to`.
@@ -147,9 +151,34 @@ struct LockOnStatus {
 };
 [[nodiscard]] LockOnStatus lock_on_status();
 
-// The locked monster's place on the game's picture, each coordinate 0..1
-// from the top left, from the game's own view and projection; nothing when
-// there is no lock or the monster is behind the camera. For the marker.
+// The view a transformed draw was made with, and the GE viewport that maps
+// its normalised device coordinates onto the 480×272 screen. Column major,
+// as the GE holds the matrices.
+struct LockOnView {
+    std::array<float, 16> view{};
+    std::array<float, 16> projection{};
+    float x_scale{};
+    float y_scale{};
+    float x_offset{};
+    float y_offset{};
+    float origin_x{};
+    float origin_y{};
+};
+
+// One transformed draw. An orthographic draw is ignored. The perspective
+// draw with the most vertices is the camera the world was drawn with, which
+// is where the marker sits: the follow camera, or the aim camera that
+// replaces it while a bow or a bowgun aims.
+void lock_on_note_view(const LockOnView &view, std::uint32_t vertices);
+
+// Where a world point lands on the picture, each coordinate 0..1 from the
+// top left. Nothing when it is behind the camera or off the picture.
+[[nodiscard]] std::optional<std::array<float, 2>> lock_on_project(const LockOnView &view, const Vec3 &world);
+
+// The locked monster's place on that picture, a little above its feet.
+// Nothing when there is no lock, the world was not drawn, or the monster is
+// behind the camera or off the picture. Takes the view noted since the last
+// call, so a frame asks once.
 [[nodiscard]] std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory);
 
 // Lets go, for tests and when the setting goes off. `why` goes to the
