@@ -33,7 +33,9 @@ app_id=io.github.teamgdb.Pokee
 work="${POKEE_WORK:-$repo_dir/out/release-linux}"
 dist="$work/dist"
 stage="$work/stage/pokee"
-expected_executable_sha256=55c0598436c0753b04331f8e95d406f832d9217806e3a896fed0e88b33637d8c
+# USA Freedom Unite decrypted EBOOT.ELF. Same value as
+# mhfu::install::kFreedomUniteUsa.executable_sha256 in host/install/game_identity.hpp.
+expected_executable_sha256=3070954e2dc88fd0b0836c0c1dc526531aca4a213b0f18806e324963efb514f4
 
 version=""
 jobs=4
