@@ -87,6 +87,7 @@ struct State {
     float base_pitch{};
     float pitch{};
     std::uint64_t updates{};
+    bool trace_walk{}; // MHFU_TRACE_LOCK_ON: list the next walk's candidates
     std::string note;
     // The perspective draw with the most vertices since the marker last asked.
     LockOnView view{};
@@ -195,7 +196,18 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
         if (most <= 0 || health <= 0) continue; // a companion, not spawned yet, or dead
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
-        const bool marked = em_method(memory, memory.load32(at + kVtable)) || marked_large(class_id);
+        const std::uint32_t vtable = memory.load32(at + kVtable);
+        const bool em = em_method(memory, vtable);
+        const bool marked = em || marked_large(class_id);
+        if (state.trace_walk) {
+            const std::uint32_t method = vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u)
+                ? memory.load32(vtable + kVtableMethod)
+                : 0u;
+            std::cout << "[lockon] candidate 0x" << std::hex << at << std::dec << " type " << static_cast<unsigned>(kind) << " class " << class_id << " vtable 0x" << std::hex
+                      << vtable << " method 0x" << method << std::dec << " em " << (em ? 1 : 0) << " health "
+                      << health << "/" << most << " at " << position.x << "," << position.y << "," << position.z
+                      << std::endl;
+        }
         found.push_back({LockMonster{at, 0u, position}, marked});
     }
     // Prefer entities the executable marks as large. In a quest where em75 was
@@ -204,6 +216,10 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
     bool any_marked = false;
     for (const Candidate &candidate : found)
         if (candidate.marked) any_marked = true;
+    if (state.trace_walk)
+        std::cout << "[lockon] " << found.size() << " candidates, " << (any_marked ? "some" : "none")
+                  << " marked large" << std::endl;
+    state.trace_walk = false;
     for (const Candidate &candidate : found) {
         if (any_marked && !candidate.marked) continue;
         out.push_back(candidate.monster);
@@ -350,6 +366,7 @@ std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, floa
 void lock_on_tap() {
     state.tap = true;
     state.tap_age = 0u;
+    state.trace_walk = trace_on();
 }
 
 std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera) {
