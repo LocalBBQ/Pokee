@@ -9,6 +9,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <string_view>
 #include <utility>
@@ -185,6 +186,16 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
         const std::uint16_t class_id = memory.load16(node + kNodeClass);
         const std::uint32_t at = memory.load32(node + kNodeEntity);
         node = older;
+        if (state.trace_walk && at >= 0x08800000u && memory.raw_pointer(at, kExtent) != nullptr &&
+            (kind == kPlayerNode || em_method(memory, memory.load32(at + kVtable)))) {
+            // The entity's words, to find what says which area it is in.
+            std::cout << "[lockon] dump " << (kind == kPlayerNode ? "player" : "large") << " 0x" << std::hex << at;
+            for (std::uint32_t off = 0; off < kExtent; off += 4u) {
+                if (off % 64u == 0u) std::cout << "\n[lockon] dump +" << std::setw(3) << std::setfill('0') << off << ":";
+                std::cout << " " << std::setw(8) << std::setfill('0') << memory.load32(at + off);
+            }
+            std::cout << std::dec << std::setfill(' ') << std::endl;
+        }
         if (kind == kPlayerNode) continue;
         if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
         bool seen_entity = false;
