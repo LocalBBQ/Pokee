@@ -65,6 +65,7 @@
 #include <string>
 #include <utility>
 #include <set>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -7638,6 +7639,21 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             for (std::size_t i = 0; i < 6u; ++i)
                 moved = moved || corner_scaled[first + i].x != unscaled[first + i].x ||
                     corner_scaled[first + i].y != unscaled[first + i].y;
+            // MHFU_TRACE_HUD_SCALE=1: each distinct sprite the interface
+            // sizes move, once, with the piece it was taken for.
+            static const bool trace_hud_scale = std::getenv("MHFU_TRACE_HUD_SCALE") != nullptr;
+            if (moved && trace_hud_scale) {
+                static std::set<std::string> traced;
+                const hud_scale::Rect from = bounds_of(unscaled, first);
+                const hud_scale::Rect to = bounds_of(corner_scaled, first);
+                std::ostringstream line;
+                line << hud_scale::piece_name(hud_scale::piece_of(from)) << " (" << from.x0 << "," << from.y0
+                     << ")-(" << from.x1 << "," << from.y1 << ") tex=0x" << std::hex << hud_texture << " fb=0x"
+                     << call.target.color_address << std::dec;
+                if (traced.insert(line.str()).second)
+                    std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << ","
+                              << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")\n";
+            }
             if (!moved || !hud_scale::is_map_sprite(bounds_of(unscaled, first))) continue;
             const hud_scale::Rect scaled = bounds_of(corner_scaled, first);
             if (!map_resized) {
