@@ -1,6 +1,6 @@
 #pragma once
 
-// Written by profiles/mhp3rd/scripts/generate.sh. Launch registers this corpus
+// Written by profiles/mhfu/scripts/generate.sh. Launch registers this corpus
 // only for an executable with this SHA-256.
 namespace mhfu {
 
