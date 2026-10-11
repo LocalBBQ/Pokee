@@ -61,7 +61,7 @@ Las filas de [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) se comprobaron en 
 
 ## Jugar
 
-Este repositorio no publica instaladores. Compílalo desde el código fuente con tu propia imagen de disco; los pasos están en [Primeros pasos](#primeros-pasos). La configuración inicial comprueba la imagen, prepara el juego a partir de ella y guarda los ajustes y las partidas en un directorio del usuario (o en una [carpeta portátil `data`](profiles/mhfu/README.md#portable-copy) junto al ejecutable).
+Las descargas para Linux están en la [página de versiones](https://github.com/LocalBBQ/Pokee/releases). Compilar desde el código fuente sigue siendo totalmente compatible; los pasos están en [Primeros pasos](#primeros-pasos). La configuración inicial comprueba la imagen, prepara el juego a partir de ella y guarda los ajustes y las partidas en un directorio del usuario (o en una [carpeta portátil `data`](profiles/mhfu/README.md#portable-copy) junto al ejecutable).
 
 Cuando exista una compilación terminada, [`docs/LINUX.md`](docs/LINUX.md) y [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explican la instalación, el primer inicio y dónde viven las partidas. Android apunta a Android 10 o posterior de 64 bits con Vulkan 1.1; los controles táctiles se dibujan sobre el juego y los mandos también funcionan.
 

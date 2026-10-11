@@ -4,7 +4,7 @@ This guide is for players using a prebuilt release. To build Pokee yourself inst
 
 A release does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, version 1.01): its disc image, as an uncompressed `.iso` file. The first start checks that copy, accepts only that release, and sets the game up from it.
 
-Each [release](https://github.com/TeamGDB/Yakumo/releases) has two Linux downloads:
+Each [release](https://github.com/LocalBBQ/Pokee/releases) has two Linux downloads:
 
 | File | For |
 | --- | --- |

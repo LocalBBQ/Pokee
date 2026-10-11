@@ -49,7 +49,7 @@ The rows in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) were checked on Yak
 
 ## Play
 
-This repository does not publish installers. Build it from source with your own disc image; the steps are in [Getting started](#getting-started). The first-run setup checks the image, prepares the game from it and keeps settings and saves in a per-user directory (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable).
+Linux downloads are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). Building from source stays fully supported; the steps are in [Getting started](#getting-started). The first-run setup checks the image, prepares the game from it and keeps settings and saves in a per-user directory (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable).
 
 When a finished build exists, [`docs/LINUX.md`](docs/LINUX.md) and [`docs/MACOS.md`](docs/MACOS.md) cover installing, the first start and where saves live. Android targets 64-bit Android 10 or newer with Vulkan 1.1; touch controls are drawn over the game, and gamepads work too.
 
