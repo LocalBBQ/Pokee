@@ -393,23 +393,27 @@ void test_interface_sizes() {
     using mhfu::gpu::hud_scale::Frame;
     using mhfu::gpu::hud_scale::Scales;
     const Settings fresh = defaults();
-    check(fresh.hud.map == 100u && fresh.hud.health == 100u && fresh.hud.item_bar == 100u,
+    check(fresh.hud.map == 100u && fresh.hud.health == 100u && fresh.hud.item_bar == 100u && fresh.hud.names == 100u,
         "every interface piece starts at the game's size");
-    const Settings chosen =
-        from_entries({{"video.hud.map", "50"}, {"video.hud.health", "150"}, {"video.hud.item_bar", "70"}});
-    check(chosen.hud.map == 50u && chosen.hud.health == 150u && chosen.hud.item_bar == 70u,
+    const Settings chosen = from_entries({{"video.hud.map", "50"},
+        {"video.hud.health", "150"},
+        {"video.hud.item_bar", "70"},
+        {"video.hud.names", "60"}});
+    check(chosen.hud.map == 50u && chosen.hud.health == 150u && chosen.hud.item_bar == 70u && chosen.hud.names == 60u,
         "each piece reads its own size");
     const Entries written = to_entries(chosen);
     check(written.at("video.hud.map") == "50" && written.at("video.hud.health") == "150" &&
-            written.at("video.hud.item_bar") == "70",
+            written.at("video.hud.item_bar") == "70" && written.at("video.hud.names") == "60",
         "each piece writes its own size");
     check(from_entries({{"video.hud.map", "40"}}).hud.map == 50u, "below 50% stays at 50%");
     check(from_entries({{"video.hud.item_bar", "900"}}).hud.item_bar == 150u, "above 150% stays at 150%");
+    check(from_entries({{"video.hud.names", "10"}}).hud.names == 50u, "a name below 50% stays at 50%");
+    check(from_entries({{"video.hud.names", "200"}}).hud.names == 150u, "a name above 150% stays at 150%");
 
     // One size used to cover all three.
     const Settings older = from_entries({{"video.map_item_scale", "80"}});
-    check(older.hud.map == 80u && older.hud.health == 80u && older.hud.item_bar == 80u,
-        "the earlier single size carries over to all three");
+    check(older.hud.map == 80u && older.hud.health == 80u && older.hud.item_bar == 80u && older.hud.names == 100u,
+        "the earlier single size carries over to the map, status and items, and leaves names at the game's size");
     check(from_entries({{"video.map_item_scale", "80"}, {"video.hud.map", "60"}}).hud.health == 100u,
         "the earlier size is ignored once a separate size is saved");
     check(to_entries(older).count("video.map_item_scale") == 0u, "the earlier key is not written again");
@@ -463,6 +467,30 @@ void test_interface_sizes() {
     check(long_health[0].x == 32.0f && long_health[0].y == 10.0f && long_health[2].x == 203.5f &&
             long_health[2].y == 14.0f,
         "a raised health bar shrinks toward the clock's corner");
+    // At 150 either bar reaches x 452, with its end cap just past that. Both
+    // stay with the clock instead of springing back to the game's size.
+    Frame full;
+    std::vector<Vertex> full_bars(6, Vertex{56.0f, 12.0f});
+    full_bars[2] = {452.0f, 20.0f};
+    const auto add_quad = [&](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> quad(6, Vertex{x0, y0});
+        quad[2] = {x1, y1};
+        full_bars.insert(full_bars.end(), quad.begin(), quad.end());
+    };
+    add_quad(452.0f, 12.0f, 460.0f, 20.0f); // health's end cap
+    add_quad(56.0f, 21.0f, 452.0f, 29.0f);  // stamina at 150
+    add_quad(452.0f, 21.0f, 460.0f, 29.0f); // stamina's end cap
+    add_quad(56.0f, 24.0f, 452.0f, 26.0f);  // stamina's two-pixel fill
+    mhfu::gpu::hud_scale::scale_quads(full_bars, group_half, full);
+    check(full_bars[2].x == 230.0f && full_bars[2].y == 14.0f, "health at 150 shrinks toward the clock's corner");
+    check(full_bars[6].x == 230.0f && full_bars[8].x == 234.0f, "health's end cap stays on the shrunk bar");
+    check(full_bars[12].x == 32.0f && full_bars[12].y == 14.5f && full_bars[14].x == 230.0f &&
+            full_bars[14].y == 18.5f,
+        "stamina at 150 shrinks toward the clock's corner");
+    check(full_bars[20].x == 234.0f && full_bars[20].y == 18.5f, "stamina's end cap stays on the shrunk bar");
+    check(full_bars[24].y == 16.0f && full_bars[26].x == 230.0f, "stamina's fill stays inside the shrunk bar");
+    check(mhfu::gpu::hud_scale::piece_of({316.0f, 32.0f, 468.0f, 184.0f}) == mhfu::gpu::hud_scale::Piece::Map,
+        "the wider status band does not take the area map");
     // Once a monster is found the small map is the window at (371, 59)-(411, 99).
     // It shrinks toward its own top-right, and the mark on it stays on it.
     // Status size does not pull it toward the clock.
@@ -820,6 +848,29 @@ void test_interface_sizes() {
     closed_corner[2] = {328.0f, 216.0f};
     mhfu::gpu::hud_scale::scale_quads(closed_corner, bar_half, bar_closed);
     check(!bar_closed.ammo_menu_now, "the closed item bar's corner is not the ammo menu");
+
+    // A teammate's name. Glyphs share the point the game placed the text, so
+    // half size closes the gap between letters and leaves that point put.
+    // A plate filed on its own has no such point and shrinks about its centre.
+    std::vector<Vertex> glyphs = {{100.0f, 80.0f}, {108.0f, 80.0f}, {108.0f, 92.0f}, {100.0f, 80.0f}, {108.0f, 92.0f},
+        {100.0f, 92.0f}, {116.0f, 80.0f}, {124.0f, 80.0f}, {124.0f, 92.0f}, {116.0f, 80.0f}, {124.0f, 92.0f},
+        {116.0f, 92.0f}};
+    mhfu::gpu::hud_scale::scale_name(glyphs, 0.5f, true, 100.0f, 80.0f);
+    check(glyphs[0].x == 100.0f && glyphs[0].y == 80.0f && glyphs[6].x == 108.0f && glyphs[8].x == 112.0f &&
+            glyphs[8].y == 86.0f,
+        "a name shrinks toward the point the game placed it");
+    std::vector<Vertex> name_plate(6, Vertex{200.0f, 40.0f});
+    name_plate[2] = {232.0f, 56.0f};
+    mhfu::gpu::hud_scale::scale_name(name_plate, 0.5f, false, 0.0f, 0.0f);
+    check(name_plate[0].x == 208.0f && name_plate[0].y == 44.0f && name_plate[2].x == 224.0f &&
+            name_plate[2].y == 52.0f,
+        "a name plate with no text point shrinks about its own centre");
+    std::vector<Vertex> as_drawn = {{10.0f, 10.0f}, {20.0f, 30.0f}};
+    mhfu::gpu::hud_scale::scale_name(as_drawn, 1.0f, true, 0.0f, 0.0f);
+    check(as_drawn[0].x == 10.0f && as_drawn[1].y == 30.0f, "100% leaves a name where the game drew it");
+    const Scales name_half = Scales::from_percent(100u, 100u, 100u, 50u);
+    check(name_half.names == 0.5f && name_half.map == 1.0f && name_half.any(), "the name size is its own");
+    check(!Scales::from_percent(100u, 100u, 100u).any(), "an omitted name size stays at the game's size");
 }
 
 int main() {

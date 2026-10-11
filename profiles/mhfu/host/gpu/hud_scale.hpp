@@ -43,6 +43,19 @@ namespace mhfu::gpu::hud_scale {
 
 enum class Piece { None, Map, Vitals, ItemBar, Sharpness, LongSword, Bowgun };
 
+[[nodiscard]] inline const char *piece_name(Piece piece) {
+    switch (piece) {
+    case Piece::None: return "none";
+    case Piece::Map: return "map";
+    case Piece::Vitals: return "status";
+    case Piece::ItemBar: return "items";
+    case Piece::Sharpness: return "sharpness";
+    case Piece::LongSword: return "weapon";
+    case Piece::Bowgun: return "bowgun";
+    }
+    return "none";
+}
+
 struct Rect {
     float x0{};
     float y0{};
@@ -82,12 +95,13 @@ inline constexpr float kItemTop = 200.0f;
 inline constexpr float kItemRight = 472.0f;
 inline constexpr float kItemBottom = 264.0f;
 // Health and stamina, including the end caps. The health bar is
-// (56, 12)-(320, 20), and (56, 12)-(399, 20) when maximum health is raised;
-// stamina stays at (56, 21)-(320, 29). Sharpness begins at y 29 and runs past
-// this, so it is not inside.
+// (56, 12)-(320, 20) at 100, and (56, 12)-(399, 20) when maximum health is
+// raised; stamina is (56, 21)-(320, 29) at 100. Both draw 2.64 pixels per
+// point, so either one raised to 150 reaches x 452 before its end cap.
+// Sharpness begins at y 29 and runs past this, so it is not inside.
 inline constexpr float kVitalLeft = 52.0f;
 inline constexpr float kVitalTop = 6.0f;
-inline constexpr float kVitalRight = 408.0f;
+inline constexpr float kVitalRight = 464.0f;
 inline constexpr float kVitalBottom = 36.0f;
 // The sharpness frame and the colored bar under it.
 inline constexpr float kSharpLeft = 60.0f;
@@ -187,7 +201,7 @@ inline constexpr float kBowgunBottom = 200.0f;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    return width >= 200.0f && width <= 360.0f && height >= 2.0f && height <= 14.0f && r.x0 >= 48.0f && r.x0 <= 72.0f &&
+    return width >= 200.0f && width <= 410.0f && height >= 2.0f && height <= 14.0f && r.x0 >= 48.0f && r.x0 <= 72.0f &&
         contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r);
 }
 
@@ -441,22 +455,27 @@ struct Scales {
     float sharpness{1.0f};
     float long_sword{1.0f};
     float bowgun{1.0f};
+    // Names over other hunters. 1 is the size the game draws. The renderer
+    // scales those draws on their own, about the point the game placed the
+    // name, so they are not a rectangle in piece_of.
+    float names{1.0f};
 
     [[nodiscard]] static Scales uniform(float scale) {
-        return {scale, scale, scale, scale, scale, scale};
+        return {scale, scale, scale, scale, scale, scale, scale};
     }
     // The three sizes a player sets, in percent. The clock, health and the
     // weapon pieces under stamina are one group, so they stay together. The
     // bowgun's ammo bar and the bow's coatings sit on the item bar, and the
     // ammo bar opens into the ammo menu over it, so they take its size.
-    [[nodiscard]] static Scales from_percent(std::uint32_t map, std::uint32_t health, std::uint32_t item_bar) {
+    [[nodiscard]] static Scales from_percent(
+        std::uint32_t map, std::uint32_t health, std::uint32_t item_bar, std::uint32_t names = 100u) {
         const float group = static_cast<float>(health) * 0.01f;
         const float bar = static_cast<float>(item_bar) * 0.01f;
-        return {static_cast<float>(map) * 0.01f, group, bar, group, group, bar};
+        return {static_cast<float>(map) * 0.01f, group, bar, group, group, bar, static_cast<float>(names) * 0.01f};
     }
     [[nodiscard]] bool any() const {
         return map != 1.0f || vitals != 1.0f || item_bar != 1.0f || sharpness != 1.0f || long_sword != 1.0f ||
-            bowgun != 1.0f;
+            bowgun != 1.0f || names != 1.0f;
     }
 
     [[nodiscard]] float of(Piece piece) const {
@@ -511,6 +530,36 @@ struct Placement {
 inline void place_point(float &x, float &y, Placement place, float scale) {
     x = place.attach_x + (x - place.origin_x) * scale;
     y = place.attach_y + (y - place.origin_y) * scale;
+}
+
+// A teammate's name, plate and glyphs together. `scale` is 1 at the size the
+// game draws. With an origin, every vertex moves toward the point the game
+// placed the text, so the letters stay on that point and the name gets
+// shorter. Without one, the draw shrinks about its own centre: a plate filed
+// on its own has no text entry.
+template <typename Vertex>
+void scale_name(std::vector<Vertex> &vertices, float scale, bool has_origin, float origin_x, float origin_y) {
+    if (vertices.empty() || scale == 1.0f) return;
+    float anchor_x = origin_x;
+    float anchor_y = origin_y;
+    if (!has_origin) {
+        float x0 = vertices.front().x;
+        float y0 = vertices.front().y;
+        float x1 = x0;
+        float y1 = y0;
+        for (const Vertex &vertex : vertices) {
+            x0 = std::min(x0, vertex.x);
+            y0 = std::min(y0, vertex.y);
+            x1 = std::max(x1, vertex.x);
+            y1 = std::max(y1, vertex.y);
+        }
+        anchor_x = 0.5f * (x0 + x1);
+        anchor_y = 0.5f * (y0 + y1);
+    }
+    for (Vertex &vertex : vertices) {
+        vertex.x = anchor_x + (vertex.x - anchor_x) * scale;
+        vertex.y = anchor_y + (vertex.y - anchor_y) * scale;
+    }
 }
 
 // `scissor` is exclusive on x1 and y1, in the same pixels as the vertices.

@@ -71,9 +71,13 @@ struct HudFunction {
 [[nodiscard]] std::span<const HudFunction> hud_functions();
 [[nodiscard]] bool code_matches(const psprecomp::Runtime &runtime);
 [[nodiscard]] bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t address);
+// The name over another hunter: lobby_task 0x09A6C248 and game_task 0x09B62488.
+// The words still have to match before a call stack counts; this is the address only.
+[[nodiscard]] bool name_label(std::uint32_t address);
 
 // Called at every flip, where guest functions may be wrapped: puts the
-// wrappers in place once the HUD is first hidden (or MHFU_TRACE_HUD asks).
+// wrappers in place once the HUD is first hidden, a name or the map is scaled
+// off the game's size, or MHFU_TRACE_HUD asks.
 void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames);
 
 // The player's switch (the Hide HUD bind and the menu).
@@ -94,5 +98,17 @@ void toggle();
 // `command_address` is its PRIM command, `call_return` where the list's
 // innermost CALL returns to.
 [[nodiscard]] bool hides(std::uint32_t command_address, std::uint32_t call_return);
+
+// A through-mode draw of a name over another hunter, once the 2D draws are
+// being watched. `has_origin` is the point the game placed the text (the
+// entry's x and y); a plate filed on its own has none, and shrinks about its
+// own centre. Empty when this draw is not one of those names.
+struct NameDraw {
+    bool is_name{};
+    bool has_origin{};
+    float origin_x{};
+    float origin_y{};
+};
+[[nodiscard]] NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return);
 
 } // namespace mhfu::gpu::hud
