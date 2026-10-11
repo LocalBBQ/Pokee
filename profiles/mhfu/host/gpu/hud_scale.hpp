@@ -82,12 +82,13 @@ inline constexpr float kItemTop = 200.0f;
 inline constexpr float kItemRight = 472.0f;
 inline constexpr float kItemBottom = 264.0f;
 // Health and stamina, including the end caps. The health bar is
-// (56, 12)-(320, 20), and (56, 12)-(399, 20) when maximum health is raised;
-// stamina stays at (56, 21)-(320, 29). Sharpness begins at y 29 and runs past
-// this, so it is not inside.
+// (56, 12)-(320, 20) at 100, and (56, 12)-(399, 20) when maximum health is
+// raised; stamina is (56, 21)-(320, 29) at 100. Both draw 2.64 pixels per
+// point, so either one raised to 150 reaches x 452 before its end cap.
+// Sharpness begins at y 29 and runs past this, so it is not inside.
 inline constexpr float kVitalLeft = 52.0f;
 inline constexpr float kVitalTop = 6.0f;
-inline constexpr float kVitalRight = 408.0f;
+inline constexpr float kVitalRight = 464.0f;
 inline constexpr float kVitalBottom = 36.0f;
 // The sharpness frame and the colored bar under it.
 inline constexpr float kSharpLeft = 60.0f;
@@ -187,7 +188,7 @@ inline constexpr float kBowgunBottom = 200.0f;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    return width >= 200.0f && width <= 360.0f && height >= 2.0f && height <= 14.0f && r.x0 >= 48.0f && r.x0 <= 72.0f &&
+    return width >= 200.0f && width <= 410.0f && height >= 2.0f && height <= 14.0f && r.x0 >= 48.0f && r.x0 <= 72.0f &&
         contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r);
 }
 
