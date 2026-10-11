@@ -7,10 +7,6 @@
 #include "ui/bindings_editor.hpp"
 #include "ui/controllers_screen.hpp"
 #include "ui/font_menu.hpp"
-#if defined(MHFU_DEBUG_MENU)
-#include "debug/debug_tools.hpp"
-#include "ui/debug_screen.hpp"
-#endif
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
 #include "ui/layered_armor_screen.hpp"
@@ -26,7 +22,6 @@
 #include "adhoc/discovery.hpp"
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
-#include "camera/free_camera.hpp"
 #include "game/damage_numbers.hpp"
 #include "gpu/screenshot.hpp"
 #include "gpu/game_hud.hpp"
@@ -111,7 +106,7 @@ float gain(const settings::Settings &s) {
     return s.mute ? 0.0f : static_cast<float>(s.volume) / 100.0f;
 }
 
-constexpr const char *kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System", "Debug"};
+constexpr const char *kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System"};
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
 
 // Where the menu was when it last closed (#189): its page, how far that page
@@ -207,9 +202,6 @@ bool Menu::frame() {
     bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
         (tab_ == 2 && controllers_screen_open()) ||
         (tab_ == 4 && (mods_screen_open() || layered_armor_screen_open())) || (tab_ == 5 && save_screen_open());
-#if defined(MHFU_DEBUG_MENU)
-    font_list_was_open = font_list_was_open || (tab_ == 6 && debug_screen_open());
-#endif
     back_ = back || pad_back;
 
     // The touch layout's editor takes the whole screen until it is done.
@@ -220,13 +212,8 @@ bool Menu::frame() {
     }
 
     begin_panel("##menu", "Pokee", paused_ ? "Paused" : "Running", true);
-#if defined(MHFU_DEBUG_MENU)
-    // The developer tools' page, in developer builds run with MHFU_DEBUG_MENU=1.
-    const int tab_count = debug::enabled() ? 7 : 6;
-#else
     const int tab_count = 6;
-#endif
-    // A page that is not there this run (Debug) gives way to the first.
+    // A page that is not there this run gives way to the first.
     if (tab_ >= tab_count) tab_ = 0;
     static int dropdown_tab = -1;
     if (dropdown_tab != tab_) {
@@ -269,12 +256,6 @@ bool Menu::frame() {
     case 4:
         mods();
         break;
-#if defined(MHFU_DEBUG_MENU)
-    case 6:
-        debug_page(back_);
-        if (debug_page_resume()) close_ = true;
-        break;
-#endif
     default:
         system();
         break;
@@ -457,7 +438,7 @@ void Menu::video() {
         static bool open = true;
         disclosure_row("UI Scaling", open,
             {false, {},
-                "Sizes for the quest interface. Each part below has its own size, from 50% to 200%. "
+                "Sizes for the quest interface. Each part below has its own size, from 50% to 150%. "
                 "Menus stay as the game draws them."});
         if (open) {
             ImGui::Indent(ImGui::GetFontSize() * 0.75f);
@@ -1045,16 +1026,30 @@ void Menu::controls() {
         if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
         const std::string help = "A tap of Lock on" +
             (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
-            " turns the quest camera to the nearest large monster and keeps it in view. Tap again for the next "
-            "large monster in the area; after the last one, a tap lets go. Turning the camera by hand, the D-pad's "
-            "camera and L let go too. Off, the bind does nothing.";
+            " selects the nearest large monster. Tap again for the next one in the area; after the last one, a tap "
+            "lets go. Lock-on style says whether the camera stays on it. Off, the bind does nothing.";
         if (toggle_row("Lock-on", s.lock_on, options_for("input.lock_on", help.c_str()))) {
             s.lock_on = !s.lock_on;
             settings::save();
         }
-        RowOptions o = options_for("input.lock_on_marker",
-            "A small ring over the monster the camera is locked "
-            "onto.");
+        const char *const styles[] = {"Follow", "Focus"};
+        const int style = s.lock_on_style == settings::LockOnStyle::Focus ? 1 : 0;
+        RowOptions o = options_for("input.lock_on_style",
+            "Follow keeps the camera on the selected monster. Turning it by hand, the D-pad, or L lets go, and L "
+            "recenters behind the hunter. Focus keeps the selection, and a tap of L turns the camera to that "
+            "monster instead of behind the hunter. With nothing selected, L recenters behind the hunter.");
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (const int delta = choice_row("Lock-on style", styles[style], o)) {
+            const int next = std::clamp(style + delta, 0, 1);
+            s.lock_on_style = next == 0 ? settings::LockOnStyle::Follow : settings::LockOnStyle::Focus;
+            settings::save();
+        }
+        o = options_for("input.lock_on_marker",
+            "The bowgun's reticle over the monster the camera is locked onto. In Focus it shows only while L's "
+            "turn is on its way.");
         if (!s.lock_on && !o.disabled) {
             o.disabled = true;
             o.note = "Lock-on is off";
@@ -1162,7 +1157,7 @@ void Menu::controls() {
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
             {false, {},
-                "Every gamepad, keyboard, mouse, touch, name and free camera setting back to how "
+                "Every gamepad, keyboard, mouse, touch and name setting back to how "
                 "Pokee ships, with the Default preset. Your own presets and the Action layout's "
                 "arrangement are kept."})) {
         const settings::Settings &d = settings::defaults();
@@ -1192,8 +1187,6 @@ void Menu::controls() {
         restore("input.touch_camera_speed", s.touch_camera_speed, d.touch_camera_speed);
         restore("input.touch_layout", s.touch_layout, d.touch_layout);
         restore("input.touch_haptics", s.touch_haptics, d.touch_haptics);
-        restore("experimental.free_camera", s.free_camera, d.free_camera);
-        restore("experimental.free_camera_speed", s.free_camera_speed, d.free_camera_speed);
         if (settings::overridden_by("input.preset") == nullptr) settings::choose_preset(s, d.control_preset);
         preset_notice_.clear();
         settings::save();
@@ -1277,53 +1270,6 @@ void Menu::controls() {
             s.touch_camera_speed = static_cast<float>(speed);
             settings::save();
         }
-    }
-    section("Experimental");
-    if (toggle_row("Free camera", s.free_camera,
-            options_for("experimental.free_camera",
-                "Experimental, and it may break or change. F6, or Back and R3 on a gamepad, "
-                "detaches the view from the game's camera and flies it about; the same again gives "
-                "the game's camera back. The game keeps running and gets no input meanwhile. "
-                "What the game does not draw from its own camera's place is missing."))) {
-        s.free_camera = !s.free_camera;
-        settings::save();
-    }
-    {
-        RowOptions o = options_for("experimental.free_camera_speed",
-            "How fast the free camera flies, in the game's units a second. The mouse "
-            "wheel, + and -, and the D-pad change it in flight.");
-        if (!s.free_camera && !o.disabled) {
-            o.disabled = true;
-            o.note = "Free camera is off";
-        }
-        int speed = static_cast<int>(std::lround(s.free_camera_speed));
-        if (slider_row("Free camera speed", speed, 50, 5000, 50, "%d/s", o)) {
-            s.free_camera_speed = static_cast<float>(speed);
-            settings::save();
-        }
-    }
-    {
-        RowOptions o = options_for("experimental.free_camera_hide_hud",
-            "Hides the game's HUD and name tags while the free camera flies or holds a "
-            "picture: they belong to the game's own view.");
-        if (!s.free_camera && !o.disabled) {
-            o.disabled = true;
-            o.note = "Free camera is off";
-        }
-        if (toggle_row("Hide the HUD while flying", s.free_camera_hide_hud, o)) {
-            s.free_camera_hide_hud = !s.free_camera_hide_hud;
-            settings::save();
-        }
-    }
-    if (s.free_camera) {
-        info_row("On and off", "F6; Back and R3");
-        info_row("Fly", "W A S D, E and Q up and down; left stick, RB and LB");
-        info_row("Look", "Mouse; right stick");
-        info_row("Faster, slower", "Left Shift, Left Ctrl; RT, LT");
-        info_row("Photo mode", "P, or Start: the game stands still");
-        info_row("Step one frame (photo mode)", binds_of(input::Action::FrameStep));
-        info_row("Back to the game's camera", "R, or Y");
-        info_row("Screenshot", binds_of(input::Action::Screenshot));
     }
 }
 
@@ -1702,15 +1648,6 @@ void Menu::system() {
         s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
         settings::save();
     }
-    if (toggle_row("Comparable weapon numbers", s.comparable_weapons,
-            options_for("game.comparable_weapons",
-                "On: the comparison figure for attack is the printed attack divided by the class "
-                "coefficient, and for element the printed element divided by 10. A great sword "
-                "at 336 and a sword and shield at 98 are both 70. A hit still uses the attack "
-                "and element the game already uses. The shop still draws the game's own digits."))) {
-        s.comparable_weapons = !s.comparable_weapons;
-        settings::save();
-    }
     if (toggle_row("Damage numbers", s.damage_numbers,
             options_for("game.damage_numbers",
                 "On: a number shows how much health a hit takes off a monster, drawn on the monster. A weak point "
@@ -1735,7 +1672,7 @@ void Menu::system() {
     {
         RowOptions o = options_for("game.damage_number_thickness",
             "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and each "
-            "step thickens both the digits and the outline.");
+            "step thickens both the digits and the outline. 3 is the thickest that stays readable.");
         o.disabled = o.disabled || !s.damage_numbers;
         int thickness = static_cast<int>(s.damage_number_thickness);
         if (slider_row("Damage number thickness", thickness, 1,
@@ -1948,29 +1885,6 @@ void draw_network_overlay() {
     ImGui::PopStyleVar();
 }
 
-// The free camera's indicator: one small line at the top while it flies.
-// Left out of window captures, which are for pictures of the game; the game
-// frame captures never have the interface in them.
-void draw_free_camera_indicator(const camera::FreeCameraStatus &status) {
-    const ImGuiIO &io = ImGui::GetIO();
-    const float font = Layer::get().font_size();
-    ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, font * 0.4f}, ImGuiCond_Always, {0.5f, 0.0f});
-    ImGui::SetNextWindowBgAlpha(0.6f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {font * 0.5f, font * 0.2f});
-    ImGui::Begin("##freecam", nullptr,
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize |
-            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    ImGui::SetWindowFontScale(0.7f);
-    char text[160];
-    std::snprintf(text, sizeof(text), "Free camera%s  %.0f/s  %s", status.paused ? " (photo mode)" : "",
-        static_cast<double>(status.speed),
-        status.moved_draws == 0u && status.other_draws != 0u ? "- not the game's usual view here"
-                                                             : "F6 or Back+R3 to leave");
-    ImGui::TextUnformatted(text);
-    ImGui::End();
-    ImGui::PopStyleVar();
-}
-
 // While the game fast-forwards: two arrowheads and the speed, small, in the
 // top-right corner. Drawn by the interface, so it is never part of the game's
 // own frames (MHFU_SCREENSHOT_DIR).
@@ -2036,14 +1950,12 @@ void draw_note(const Note &n) {
 }
 
 // For a moment after the HUD is hidden or shown (gpu/game_hud.hpp): a short
-// line at the top, fading out. Left out of window captures, as the free
-// camera's line is.
-void draw_hud_note(double seconds_left, bool below_free_camera) {
+// line at the top, fading out. Left out of window captures.
+void draw_hud_note(double seconds_left) {
     const ImGuiIO &io = ImGui::GetIO();
     const float font = Layer::get().font_size();
     const float alpha = static_cast<float>(std::clamp(seconds_left / 0.4, 0.0, 1.0));
-    // Under the free camera's line when that is up.
-    const float top = below_free_camera ? font * 1.9f : font * 0.5f;
+    const float top = font * 0.5f;
     ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, top}, ImGuiCond_Always, {0.5f, 0.0f});
     ImGui::SetNextWindowBgAlpha(0.5f * alpha);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, alpha);
@@ -2109,24 +2021,29 @@ std::optional<std::array<float, 2>> &lock_on_marker_at() {
     return at;
 }
 
-// Lock-on's marker (camera/lock_on.hpp): a small ring with four ticks over
-// the locked monster, drawn by the interface, never into the game's frames.
+// Lock-on's marker (camera/lock_on.hpp): the bowgun's aim reticle over the
+// locked monster. A circle and four ticks outside it, in the game's pixels,
+// drawn smaller than the aim reticle so it marks the body without covering
+// it. Drawn by the interface and never into the game's frames.
 void draw_lock_on_marker(const std::array<float, 2> &at) {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
     const ImVec2 centre{
         (picture[0] + at[0] * picture[2]) * io.DisplaySize.x, (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
-    const float radius = Layer::get().font_size() * 0.55f;
+    const float pixel = picture[3] * io.DisplaySize.y / 272.0f;
+    const float radius = 3.5f * pixel;
+    const float tick_near = 4.5f * pixel;
+    const float tick_far = 7.0f * pixel;
     ImDrawList *draw = ImGui::GetForegroundDrawList();
-    const ImU32 shadow = IM_COL32(0, 0, 0, 150);
-    const ImU32 ink = IM_COL32(255, 96, 64, 230);
-    for (const auto &[colour, width] : {std::pair{shadow, 4.0f}, std::pair{ink, 2.0f}}) {
+    const ImU32 shadow = IM_COL32(0, 0, 0, 170);
+    const ImU32 ink = IM_COL32(220, 32, 28, 235);
+    for (const auto &[colour, width] : {std::pair{shadow, 1.5f * pixel}, std::pair{ink, 1.0f * pixel}}) {
         draw->AddCircle(centre, radius, colour, 24, width);
         for (int i = 0; i < 4; ++i) {
             const float dx = i == 0 ? 1.0f : i == 1 ? -1.0f : 0.0f;
             const float dy = i == 2 ? 1.0f : i == 3 ? -1.0f : 0.0f;
-            draw->AddLine({centre.x + dx * radius * 0.55f, centre.y + dy * radius * 0.55f},
-                {centre.x + dx * radius * 1.45f, centre.y + dy * radius * 1.45f}, colour, width);
+            draw->AddLine({centre.x + dx * tick_near, centre.y + dy * tick_near},
+                {centre.x + dx * tick_far, centre.y + dy * tick_far}, colour, width);
         }
     }
 }
@@ -2222,22 +2139,19 @@ void draw_over_game() {
     const bool overlay = network_overlay();
     const bool touch = !menu && layer.renderer().touch_controls_visible();
     const std::string gpu_problem = menu || gpu_problem_seen() ? std::string() : layer.renderer().gpu_problem();
-    const camera::FreeCameraStatus free_camera = camera::free_camera_status();
-    const bool flying = free_camera.active && !menu && !layer.renderer().window_capture_pending();
     const bool fast = !menu && fast_forward::active();
     const bool noted =
         !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
     const bool numbers = !menu && !layer.renderer().window_capture_pending() && !game::damage_numbers().empty();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !flying && !fast && !noted &&
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !fast && !noted &&
         hud_note <= 0.0 && !marker && !numbers)
         return;
     layer.begin_frame();
     if (numbers) draw_damage_numbers();
     if (marker) draw_lock_on_marker(*marker);
     if (noted) draw_note(note());
-    if (flying) draw_free_camera_indicator(free_camera);
     if (touch) {
         const settings::Settings &player = settings::current();
         if (player.touch_layout == settings::TouchLayout::Action)
@@ -2249,7 +2163,7 @@ void draw_over_game() {
     if (!gpu_problem.empty()) draw_gpu_problem(gpu_problem);
     if (overlay) draw_network_overlay();
     if (fast) draw_fast_forward();
-    if (hud_note > 0.0) draw_hud_note(hud_note, flying);
+    if (hud_note > 0.0) draw_hud_note(hud_note);
     if (menu && !menu->frame()) {
         const bool quit = menu->quit() || layer.window_closed();
         menu.reset();

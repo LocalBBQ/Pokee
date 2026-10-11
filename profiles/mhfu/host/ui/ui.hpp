@@ -33,8 +33,8 @@ void draw_over_game();
 
 // Saves the game's picture as it was last drawn, at full size, as a PNG in
 // screenshots/ in the data directory (#187), and says where for a moment
-// over the game. The picture is the game's own: the menu, notes and the
-// free camera's line are never in it. Returns the file's path, or an empty
+// over the game. The picture is the game's own: the menu and notes are
+// never in it. Returns the file's path, or an empty
 // string with the reason noted when nothing could be taken.
 std::string take_screenshot();
 

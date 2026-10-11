@@ -258,7 +258,6 @@ PadState state_of(const Table &table, std::span<const std::size_t> targets) {
     pad.camera_y = axis(Action::CameraUp, Action::CameraDown);
     pad.fast_forward = on[static_cast<std::size_t>(Action::FastForward)];
     pad.screenshot = on[static_cast<std::size_t>(Action::Screenshot)];
-    pad.frame_step = on[static_cast<std::size_t>(Action::FrameStep)];
     pad.hide_hud = on[static_cast<std::size_t>(Action::HideHud)];
     pad.lock_on = on[static_cast<std::size_t>(Action::LockOn)];
     return pad;

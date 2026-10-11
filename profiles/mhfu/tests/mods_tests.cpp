@@ -108,23 +108,37 @@ void test_format(const fs::path &root) {
         "Type=\"File\"\nVersion=\"HD\"\nDescription=\"Line one.\\Line two.\"\n",
         {"a.pac", "b.pac"});
     std::optional<Mod> mod = format.read(mods / "file_hd");
-    check(mod && mod->unusable.empty() && mod->changes.size() == 2u, "format: a file mod for the HD version");
+    check(mod && mod->unusable.empty() && mod->changes.size() == 2u && mod->version == "HD release",
+        "format: a file mod uses Files and Target");
     check(mod && mod->changes[1].file == 0x5D2 && mod->changes[1].kind == FileChange::Kind::Replace,
         "format: targets are hex file ids; file names match without case");
     check(mod && mod->description == "Line one.\nLine two." && mod->author == "Someone", "format: description lines");
 
     make_mod(mods / "psp", "Name=\"PSP\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nType=\"File\"\n", {"a.pac"});
     mod = format.read(mods / "psp");
-    check(mod && !mod->unusable.empty(), "format: no Version means the PSP version, which cannot be used");
+    check(mod && mod->unusable.empty() && mod->changes.size() == 1u && mod->changes[0].file == 0x601 &&
+            mod->version.empty(),
+        "format: no Version uses Files and Target");
+    make_mod(mods / "nohd", "Name=\"NOHD\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nType=\"File\"\nVersion=\"NOHD\"\n",
+        {"a.pac"});
+    mod = format.read(mods / "nohd");
+    check(mod && mod->unusable.empty() && mod->changes.size() == 1u && mod->version == "PSP release",
+        "format: NOHD is this game's file list");
 
     make_mod(mods / "both",
         "Name=\"Both\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nFilesHD=\"h.pac\"\nTargetHD=\"0602\"\n"
         "Type=\"Patch\"\nVersion=\"BOTH\"\n",
         {"a.pac", "h.pac"});
     mod = format.read(mods / "both");
-    check(mod && mod->unusable.empty() && mod->changes.size() == 1u && mod->changes[0].file == 0x602 &&
-            mod->changes[0].kind == FileChange::Kind::Patch && mod->changes[0].source.filename() == "h.pac",
-        "format: BOTH uses FilesHD and TargetHD");
+    check(mod && mod->unusable.empty() && mod->changes.size() == 1u && mod->changes[0].file == 0x601 &&
+            mod->changes[0].kind == FileChange::Kind::Patch && mod->changes[0].source.filename() == "a.pac" &&
+            mod->notes.size() == 1u,
+        "format: BOTH uses Files and Target and reports the unused HD list");
+    make_mod(mods / "hdlist", "Name=\"HD list\"\nFilesHD=\"h.pac\"\nTargetHD=\"0602\"\nType=\"File\"\nVersion=\"HD\"\n",
+        {"h.pac"});
+    mod = format.read(mods / "hdlist");
+    check(mod && !mod->unusable.empty() && mod->notes.size() == 1u,
+        "format: a mod with only an HD file list cannot be turned on");
 
     make_mod(
         mods / "count", "Files=\"a.pac;b.pac\"\nTarget=\"0601\"\nType=\"File\"\nVersion=\"HD\"\n", {"a.pac", "b.pac"});

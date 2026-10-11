@@ -1028,24 +1028,13 @@ struct VulkanRenderer::Impl {
     ImDrawData *ui_draw_data{};
     std::function<bool(const SDL_Event &)> event_hook;
     bool game_input{true};
-    bool free_camera{}; // flying: the game reads a neutral pad
-    bool still{};       // the photo mode: each frame is shown at once, never interpolated
-    FreeCameraControls free_controls;
-    bool free_toggle_held{};
-    bool free_pause_held{};
-    bool free_reset_held{};
-    bool free_faster_held{};
-    bool free_slower_held{};
-    void sample_free_camera(bool focused);
     // The port's own binds in the presets (#187): a screenshot, counted
-    // once per press, and frame step, held. Read in play, in the free camera
-    // and in its photo mode alike.
+    // once per press.
     bool screenshot_held{};
     bool screenshot_request{};
-    bool frame_step{};
     void sample_host_binds(bool focused);
-    // The Hide HUD bind (gpu/game_hud.hpp): read while the game has input,
-    // the free camera's flight included, and counted once per press.
+    // The Hide HUD bind (gpu/game_hud.hpp): read while the game has input
+    // and counted once per press.
     bool hide_hud_held{};
     bool hide_hud_pressed{};
     void sample_hide_hud(bool focused);
@@ -5945,10 +5934,6 @@ bool VulkanRenderer::pump_events() {
             impl_->mouse_buttons |= 1u << event.button.button;
         if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button < 32u)
             impl_->mouse_buttons &= ~(1u << event.button.button);
-        // The wheel changes the free camera's speed; nothing else uses it.
-        if (event.type == SDL_EVENT_MOUSE_WHEEL && impl_->mouse_captured && impl_->free_camera &&
-            event.wheel.which != SDL_TOUCH_MOUSEID && event.wheel.y != 0.0f)
-            impl_->free_controls.speed_steps += event.wheel.y > 0.0f ? 1 : -1;
         if (impl_->event_hook && impl_->event_hook(event)) continue;
         if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F3 && !event.key.repeat && impl_->overlay_ready)
             impl_->overlay_visible = !impl_->overlay_visible;
@@ -5959,7 +5944,6 @@ bool VulkanRenderer::pump_events() {
     const bool focused = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u;
     impl_->update_pointer(focused);
     impl_->sample_pad(focused);
-    impl_->sample_free_camera(focused);
     impl_->sample_host_binds(focused);
     impl_->sample_hide_hud(focused);
     impl_->sample_lock_on(focused);
@@ -6005,14 +5989,11 @@ void VulkanRenderer::Impl::resolve_bindings(bool focused) {
     // so R3 bound alone does nothing while L3 + R3 opens the menu.
     static const input::Chord kMenu =
         input::chord(input::pad(input::PadInput::LeftStick), input::pad(input::PadInput::RightStick));
-    static const input::Chord kFreeCamera =
-        input::chord(input::pad(input::PadInput::Back), input::pad(input::PadInput::RightStick));
-    const input::Chord reserved[] = {kMenu, kFreeCamera};
+    const input::Chord reserved[] = {kMenu};
     const PadTuning tuning = pad_tuning();
     mapped = pad_resolver.update(
         input::Table{player.controls.pad, player.controls.combos, true},
-        [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); }, now, window,
-        std::span<const input::Chord>(reserved, player.free_camera ? 2u : 1u));
+        [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); }, now, window, reserved);
     log("pad", pad_resolver);
     lead_request |= input::lead_requested(input::table(player.controls, true), pad_resolver.targets());
 }
@@ -6020,15 +6001,11 @@ void VulkanRenderer::Impl::resolve_bindings(bool focused) {
 void VulkanRenderer::Impl::sample_host_binds(bool focused) {
     (void)focused;
     input::PadState pressed = typed;
-    if (gamepad != nullptr) {
-        pressed.screenshot = pressed.screenshot || mapped.screenshot;
-        pressed.frame_step = pressed.frame_step || mapped.frame_step;
-    }
+    if (gamepad != nullptr) pressed.screenshot = pressed.screenshot || mapped.screenshot;
     // Nothing while a menu or the on-screen keyboard has the input; a press
     // counts when it goes down, so one held as the menu closes does not.
     if (pressed.screenshot && !screenshot_held && game_input) screenshot_request = true;
     screenshot_held = pressed.screenshot;
-    frame_step = pressed.frame_step && game_input;
 }
 
 void VulkanRenderer::Impl::sample_hide_hud(bool focused) {
@@ -6044,9 +6021,8 @@ void VulkanRenderer::Impl::sample_hide_hud(bool focused) {
 
 void VulkanRenderer::Impl::sample_lock_on(bool focused) {
     const settings::Settings &player = settings::current();
-    // Not in a menu, nor while the free camera flies: its controls are the
-    // pad's then. Forgetting a hold means a press that spans either is none.
-    if (!game_input || free_camera || !player.lock_on) {
+    // Not in a menu. Forgetting a hold means a press that spans one is none.
+    if (!game_input || !player.lock_on) {
         lock_on_keys_tap = {};
         lock_on_pad_tap = {};
         return;
@@ -6109,78 +6085,6 @@ bool VulkanRenderer::take_hide_hud_toggle() noexcept {
     return impl_ && std::exchange(impl_->hide_hud_pressed, false);
 }
 
-void VulkanRenderer::Impl::sample_free_camera(bool focused) {
-    // Off, nothing is read and nothing is held back from the game.
-    if (!settings::current().free_camera || !game_input) {
-        free_controls = FreeCameraControls{};
-        free_toggle_held = free_pause_held = free_reset_held = free_faster_held = free_slower_held = false;
-        return;
-    }
-    const bool *keys = SDL_GetKeyboardState(nullptr);
-    const auto key = [&](SDL_Scancode code) {
-        return (focused && keys[code]) || scripted_keys[static_cast<std::size_t>(code)];
-    };
-    const auto button = [&](SDL_GamepadButton id) { return gamepad != nullptr && SDL_GetGamepadButton(gamepad, id); };
-    const auto axis = [&](SDL_GamepadAxis id) {
-        if (gamepad == nullptr) return 0.0f;
-        return std::clamp(static_cast<float>(SDL_GetGamepadAxis(gamepad, id)) / 32767.0f, -1.0f, 1.0f);
-    };
-    // A press counts once: on the sample it goes down.
-    const auto pressed = [](bool now, bool &held) {
-        const bool edge = now && !held;
-        held = now;
-        return edge;
-    };
-    FreeCameraControls &c = free_controls;
-    if (pressed(key(SDL_SCANCODE_F6) || (button(SDL_GAMEPAD_BUTTON_BACK) && button(SDL_GAMEPAD_BUTTON_RIGHT_STICK)),
-            free_toggle_held))
-        c.toggle = true;
-    // Everything else only while flying, so none of it is taken from the game.
-    if (!free_camera) {
-        free_pause_held = free_reset_held = free_faster_held = free_slower_held = false;
-        return;
-    }
-    if (pressed(key(SDL_SCANCODE_P) || button(SDL_GAMEPAD_BUTTON_START), free_pause_held)) c.pause = true;
-    if (pressed(key(SDL_SCANCODE_R) || button(SDL_GAMEPAD_BUTTON_NORTH), free_reset_held)) c.reset = true;
-    if (pressed(key(SDL_SCANCODE_EQUALS) || key(SDL_SCANCODE_KP_PLUS) || button(SDL_GAMEPAD_BUTTON_DPAD_UP),
-            free_faster_held))
-        ++c.speed_steps;
-    if (pressed(key(SDL_SCANCODE_MINUS) || key(SDL_SCANCODE_KP_MINUS) || button(SDL_GAMEPAD_BUTTON_DPAD_DOWN),
-            free_slower_held))
-        --c.speed_steps;
-
-    const float dead_zone = settings::current().dead_zone;
-    const auto shaped = [&](float x, float y, float &out_x, float &out_y) {
-        const float length = std::sqrt(x * x + y * y);
-        if (length <= dead_zone) {
-            out_x = out_y = 0.0f;
-            return;
-        }
-        const float scale = std::min((length - dead_zone) / (1.0f - dead_zone), 1.0f) / length;
-        out_x = x * scale;
-        out_y = y * scale;
-    };
-    float stick_x = 0.0f, stick_y = 0.0f;
-    shaped(axis(SDL_GAMEPAD_AXIS_LEFTX), axis(SDL_GAMEPAD_AXIS_LEFTY), stick_x, stick_y);
-    const auto keys_axis = [&](SDL_Scancode plus, SDL_Scancode minus) {
-        return (key(plus) ? 1.0f : 0.0f) - (key(minus) ? 1.0f : 0.0f);
-    };
-    c.right = std::clamp(stick_x + keys_axis(SDL_SCANCODE_D, SDL_SCANCODE_A), -1.0f, 1.0f);
-    c.forward = std::clamp(-stick_y + keys_axis(SDL_SCANCODE_W, SDL_SCANCODE_S), -1.0f, 1.0f);
-    c.up = std::clamp(keys_axis(SDL_SCANCODE_E, SDL_SCANCODE_Q) +
-            (button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) ? 1.0f : 0.0f) -
-            (button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ? 1.0f : 0.0f),
-        -1.0f, 1.0f);
-    float look_x = 0.0f, look_y = 0.0f;
-    shaped(axis(SDL_GAMEPAD_AXIS_RIGHTX), axis(SDL_GAMEPAD_AXIS_RIGHTY), look_x, look_y);
-    const settings::Settings &player = settings::current();
-    c.look_x = player.invert_camera_x ? -look_x : look_x;
-    c.look_y = player.invert_camera_y ? -look_y : look_y;
-    const float trigger = player.trigger;
-    c.fast = key(SDL_SCANCODE_LSHIFT) || axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > trigger;
-    c.slow = key(SDL_SCANCODE_LCTRL) || axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > trigger;
-}
-
 void VulkanRenderer::sample_pad() {
     if (!impl_ || impl_->window == nullptr) return;
     // New input from the devices, without handling window events: those,
@@ -6197,9 +6101,8 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     // The bindings are matched on every sample, the menu's time included,
     // so a chord's timing is its own and the port's binds work anywhere.
     resolve_bindings(focused);
-    // While a menu or the on-screen keyboard is open, or the free camera
-    // flies, nothing reaches the game.
-    if (!impl_->game_input || impl_->free_camera) {
+    // While a menu or the on-screen keyboard is open, nothing reaches the game.
+    if (!impl_->game_input) {
         impl_->pad = PadState{};
         impl_->lead_in.reset();
         return;
@@ -6338,27 +6241,8 @@ void VulkanRenderer::set_game_input(bool enabled) {
     impl_->game_input = enabled;
 }
 
-void VulkanRenderer::set_free_camera(bool flying) {
-    if (!impl_ || impl_->free_camera == flying) return;
-    if (!flying) impl_->suppress_held = true;
-    impl_->free_camera = flying;
-}
-
-FreeCameraControls VulkanRenderer::take_free_camera_controls() {
-    if (!impl_) return {};
-    FreeCameraControls taken = impl_->free_controls;
-    // Presses are counted once; what is held stays until the next sample.
-    impl_->free_controls.toggle = impl_->free_controls.pause = impl_->free_controls.reset = false;
-    impl_->free_controls.speed_steps = 0;
-    return taken;
-}
-
 bool VulkanRenderer::take_screenshot_request() noexcept {
     return impl_ && std::exchange(impl_->screenshot_request, false);
-}
-
-bool VulkanRenderer::frame_step_held() const noexcept {
-    return impl_ && impl_->frame_step;
 }
 
 bool VulkanRenderer::window_capture_pending() const noexcept {
@@ -7193,13 +7077,13 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // is orthographic and is ignored.
     if (!call.through && !call.clear_mode &&
         (mhfu::game::damage_numbers_watching() ||
-            (settings::current().lock_on_marker && mhfu::camera::lock_on_status().locked))) {
+            (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted()))) {
         const std::uint32_t vertices = call.vertices_reused ? call.reused_count
             : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
         const mhfu::game::WorldCamera world{call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
             call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x, call.viewport.offset_y};
         if (mhfu::game::damage_numbers_watching()) mhfu::game::note_world_camera(world, vertices);
-        if (settings::current().lock_on_marker && mhfu::camera::lock_on_status().locked)
+        if (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted())
             mhfu::camera::lock_on_note_view(
                 {world.view, world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset,
                     world.origin_x, world.origin_y},
@@ -7735,7 +7619,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     if (scale_corners) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
         corner_scaled = unscaled;
-        hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame);
+        // The moving map window is told from other panels of the same size by
+        // the texture it samples (gpu/hud_scale.hpp).
+        const std::uint32_t hud_texture = call.texture.enabled ? call.texture.address : 0u;
+        hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture);
         const auto bounds_of = [](const std::vector<GpuVertex> &vertices, std::size_t first) {
             hud_scale::Rect r{vertices[first].x, vertices[first].y, vertices[first].x, vertices[first].y};
             for (std::size_t i = 1; i < 6u; ++i) {
@@ -8450,7 +8337,7 @@ bool VulkanRenderer::Impl::interpolation_wanted() const {
     // Emulated time running ahead of real time already presents faster than
     // the game's own rate; the keyboard's held frame is shown as it is.
     return frame_rate != settings::FrameRate::Fps30 && !settings::current().unthrottled && !holding && !fast_forward &&
-        !still && governor.rate() > 30.5;
+        governor.rate() > 30.5;
 }
 
 // Keeps what drawing a draw again needs: a new group for a draw call the
@@ -9422,12 +9309,6 @@ void VulkanRenderer::pause_interpolation() {
     // the frames' moments start over when it resumes.
     impl_->present_clock.reset();
     impl_->cycle_active = false;
-}
-
-void VulkanRenderer::set_still(bool still) {
-    if (!impl_ || impl_->still == still) return;
-    if (still) pause_interpolation();
-    impl_->still = still;
 }
 
 void VulkanRenderer::set_frame_rate(settings::FrameRate rate) {

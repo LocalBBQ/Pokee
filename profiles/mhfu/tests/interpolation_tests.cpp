@@ -225,6 +225,49 @@ void guards() {
     Matcher limited;
     check(limited.match(older, newer, few).repaired == 0u, "past the instance limit drawing order is kept");
 
+    // The hunter's house: the hunter's skinned parts outnumber the room, and
+    // turning in place must not be taken for the camera. The room's camera
+    // turns 2 degrees; each part also yaws 25 degrees about the hunter.
+    std::vector<DrawSummary> room_before = scene(20u, 0.0f);
+    std::vector<DrawSummary> room_after = scene(20u, 2.0f);
+    for (std::uint32_t i = 0u; i < 60u; ++i) {
+        DrawSummary part = draw(200u + i, 0.0f, 0.0f);
+        part.skinned = true;
+        part.world = transform(0.0f, 0.0f, 0.0f, -400.0f);
+        room_before.push_back(part);
+        DrawSummary turned = draw(200u + i, 0.0f, 2.0f);
+        turned.skinned = true;
+        turned.world = transform(25.0f, 0.0f, 0.0f, -400.0f);
+        room_after.push_back(turned);
+    }
+    mark_eligible(room_before, kShown);
+    mark_eligible(room_after, kShown);
+    Matcher house;
+    const Matching &turning_hunter = house.match(room_before, room_after, thresholds);
+    check(turning_hunter.cut == nullptr && near(turning_hunter.camera_angle_degrees, 2.0f, 0.05f),
+        "a hunter turning in a small room is not the camera's turn");
+
+    // Fewer than eight rigid draws, and the sample is every matched draw
+    // again: the same turn then reads as the camera's.
+    std::vector<DrawSummary> few_before = scene(7u, 0.0f);
+    std::vector<DrawSummary> few_after = scene(7u, 2.0f);
+    for (std::uint32_t i = 0u; i < 60u; ++i) {
+        DrawSummary part = draw(300u + i, 0.0f, 0.0f);
+        part.skinned = true;
+        part.world = transform(0.0f, 0.0f, 0.0f, -400.0f);
+        few_before.push_back(part);
+        DrawSummary turned = draw(300u + i, 0.0f, 2.0f);
+        turned.skinned = true;
+        turned.world = transform(25.0f, 0.0f, 0.0f, -400.0f);
+        few_after.push_back(turned);
+    }
+    mark_eligible(few_before, kShown);
+    mark_eligible(few_after, kShown);
+    Matcher close_up;
+    const Matching &few_room = close_up.match(few_before, few_after, thresholds);
+    check(few_room.camera_found && few_room.camera_angle_degrees > 20.0f,
+        "with too little scenery the median is taken over every matched draw");
+
     // A character walking 20 units a frame while the camera turns keeps its pair.
     std::vector<DrawSummary> before = scene(40u, 0.0f), after = scene(40u, 5.0f);
     DrawSummary walker = draw(91u, 0.0f, 0.0f), walked = draw(91u, 20.0f, 5.0f);

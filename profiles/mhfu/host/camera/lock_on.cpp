@@ -1,5 +1,8 @@
 #include "camera/lock_on.hpp"
 
+#include "camera/game_camera.hpp"
+#include "settings/settings.hpp"
+
 #include "psprecomp/runtime.hpp"
 
 #include <algorithm>
@@ -61,14 +64,21 @@ constexpr unsigned kTapFrames = 6u;
 // A tap as a zone finishes loading finds nothing: the monster is inserted a
 // moment later. The tap keeps looking for this many follow-camera updates.
 constexpr unsigned kSeekUpdates = 90u;
+// A Focus turn takes a larger share of the rest, closes the last
+// kFocusArrival units at once, and gives up after kFocusUpdates (one
+// second) if the monster keeps the rest above that by moving.
+constexpr float kFocusShare = 0.3f;
+constexpr int kFocusArrival = 364; // 2 degrees
+constexpr unsigned kFocusUpdates = 30u;
 
 struct State {
-    bool suspended{};
     bool tap{};
     unsigned tap_age{};
     bool seeking{};
     unsigned seek_left{};
     bool locked{};
+    bool focusing{}; // Focus: L's turn is in progress; the selection stays after
+    unsigned focus_left{};
     std::uint32_t target{};
     std::vector<std::uint32_t> visited;
     float manual{};
@@ -142,6 +152,10 @@ bool em_method(const psprecomp::GuestMemory &memory, std::uint32_t vtable) {
 
 bool marked_large(std::uint16_t class_id) {
     return class_id == 32u || class_id == 34u || class_id == 36u;
+}
+
+bool focus_style() {
+    return mhfu::settings::current().lock_on_style == mhfu::settings::LockOnStyle::Focus;
 }
 
 } // namespace
@@ -319,7 +333,7 @@ std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monste
     return std::nullopt;
 }
 
-std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, float weight, int sign) {
+std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, float weight, int sign, float share_of_rest) {
     weight = std::clamp(weight, 0.0f, 1.0f);
     if (weight <= 0.0f) return current;
     int rest = yaw_difference(current, wanted);
@@ -327,7 +341,7 @@ std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, floa
     if (std::abs(rest) > kHalfTurnBand && sign != 0 && (rest > 0) != (sign > 0))
         rest += sign > 0 ? 65536 : -65536; // the long way, as before
     const int way = rest > 0 ? 1 : -1;
-    const float share = static_cast<float>(std::abs(rest)) * kYawShare * weight;
+    const float share = static_cast<float>(std::abs(rest)) * share_of_rest * weight;
     const int step = std::clamp(static_cast<int>(std::lround(share)), kSmallestStep,
         std::max(kSmallestStep, static_cast<int>(static_cast<float>(kLargestStep) * weight)));
     return static_cast<std::uint16_t>(current + way * std::min(step, std::abs(rest)));
@@ -339,8 +353,17 @@ void lock_on_tap() {
 }
 
 std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera) {
-    if (state.suspended) return std::nullopt;
     ++state.updates;
+    const bool focus = focus_style();
+    if (focus && camera.snap && state.locked) {
+        state.focusing = true;
+        state.focus_left = kFocusUpdates;
+        state.turning = 0;
+        state.manual = 0.0f;
+        state.pitch_known = true;
+        state.base_pitch = camera.pitch;
+        state.pitch = camera.pitch;
+    }
     const bool tapped = std::exchange(state.tap, false);
     const bool retry = !tapped && state.seeking && !state.locked;
     if (!tapped && !state.locked && !retry) return std::nullopt;
@@ -383,21 +406,34 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
         lock_on_release("Lock-on: the monster is too far");
         return std::nullopt;
     }
+    // Focus holds the selection without turning. A stick nudge then is the
+    // player's camera, not a reason to drop the monster.
+    if (focus && !state.focusing) return std::nullopt;
     // The player takes the camera back: a camera command of the game's, or
-    // turning it by hand.
+    // turning it by hand. Focus keeps the selection and only stops the turn.
     state.manual = state.manual * kManualFade + std::fabs(camera.manual_yaw);
     if (camera.command || state.manual > kManualRelease) {
         std::cout << "[lockon] the player took the camera back ("
                   << (camera.command ? "a camera command" : "turned by hand") << ")" << std::endl;
-        lock_on_release("");
+        if (focus) state.focusing = false;
+        else
+            lock_on_release("");
         return std::nullopt;
     }
     const Vec3 aim{target->position.x, target->position.y + kAimHeight, target->position.z};
     const std::uint16_t wanted = yaw_towards(camera.look_at, aim);
-    const float near = (horizontal(camera.look_at, aim) - kNear) / kNearBlend;
-    LockOnAim out{lock_on_ease_yaw(camera.yaw, wanted, near, state.turning), std::nullopt};
+    // Follow holds the yaw while the monster is on top of the hunter, where
+    // its direction jumps from one update to the next. A Focus turn is one
+    // the player asked for and ends on arrival, so it turns at any distance.
+    const float near = focus ? 1.0f : (horizontal(camera.look_at, aim) - kNear) / kNearBlend;
+    LockOnAim out{
+        lock_on_ease_yaw(camera.yaw, wanted, near, state.turning, focus ? kFocusShare : kYawShare), std::nullopt};
+    const bool arrived = focus && std::abs(yaw_difference(out.yaw, wanted)) <= kFocusArrival;
+    if (arrived) out.yaw = wanted;
     const int step = yaw_difference(camera.yaw, out.yaw);
     state.turning = step > 0 ? 1 : (step < 0 ? -1 : 0);
+    if (focus && state.focus_left > 0u) --state.focus_left;
+    if (focus && (arrived || state.focus_left == 0u)) state.focusing = false;
     if (!camera.player_pitch && state.pitch_known) {
         const float distance = std::max(horizontal(camera.look_at, aim), 1.0f);
         const float elevation = std::atan2(aim.y - camera.look_at.y, distance) * kDegrees;
@@ -417,16 +453,11 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     return out;
 }
 
-void lock_on_suspend(bool suspended) {
-    state.suspended = suspended;
-}
-
 void lock_on_frame(const psprecomp::GuestMemory &memory) {
-    if (state.suspended) state.tap_age = 0u;
     // A tap while locked moves on or lets go, which needs no camera: done
     // here, so it counts even while the follow camera does not run (a
     // grab, an aim).
-    if (state.tap && state.locked && !state.suspended) {
+    if (state.tap && state.locked) {
         state.tap = false;
         const std::vector<LockMonster> monsters = lock_on_monsters(memory);
         const std::optional<std::uint32_t> next =
@@ -457,12 +488,116 @@ LockOnStatus lock_on_status() {
     return {state.locked, state.locked ? state.target : 0u};
 }
 
+bool lock_on_drives_camera() {
+    return state.locked && (!focus_style() || state.focusing);
+}
+
+bool lock_on_marker_wanted() {
+    return lock_on_drives_camera();
+}
+
 void lock_on_note_view(const LockOnView &view, std::uint32_t vertices) {
     if (vertices == 0u || std::fabs(view.projection[11]) < 1.0e-6f) return;
     if (vertices <= state.view_vertices) return;
     state.view = view;
     state.view_vertices = vertices;
 }
+
+namespace {
+// The marker used to read Portable 3rd's camera object at 0x08A2F958 (view
+// +0xF50, projection +0xFD0). ULUS-10391 stores the object at 0x089CBD04.
+// 0x088144B4 writes the projection at +0xC00 (x scale at +0, y scale at +0x14,
+// m[11] = -1 at +0x2C). 0x08814268 then writes the view, with its translation,
+// at +0xC80. The view a draw uploads has no translation, so a world position
+// projected through it misses the picture.
+constexpr std::uint32_t kCameraPointer = 0x089CBD04u;
+constexpr std::uint32_t kProjection = 0xC00u;
+constexpr std::uint32_t kViewMatrix = 0xC80u;
+
+bool marker_instructions(const psprecomp::GuestMemory &memory) {
+    const auto word = [&](std::uint32_t address, std::uint32_t expect) {
+        return memory.raw_pointer(address, 4u) != nullptr && memory.load32(address) == expect;
+    };
+    return word(0x08812954u, 0xAC50BD04u) && // sw s0,-0x42fc(v0): the pointer at 0x089CBD04
+           word(0x0881439Cu, 0x26640C80u) && // addiu a0,s3,0xC80: the view
+           word(0x088145D8u, 0x26050C00u);   // addiu a1,s0,0xC00: the projection
+}
+
+void load_matrix(const psprecomp::GuestMemory &memory, std::uint32_t address, std::array<float, 16> &out) {
+    for (std::uint32_t i = 0; i < 16u; ++i) out[i] = load_float(memory, address + i * 4u);
+}
+
+// A view from the follow camera's eye (+0) to its look-at point (+0x10).
+// Column major, as the GE holds matrices. Nothing when the two points
+// coincide or the camera looks straight up or down.
+std::optional<std::array<float, 16>> view_from_pose(const CameraPose &pose) {
+    float forward[3] = {pose.look_at[0] - pose.eye[0], pose.look_at[1] - pose.eye[1], pose.look_at[2] - pose.eye[2]};
+    const float length = std::sqrt(forward[0] * forward[0] + forward[1] * forward[1] + forward[2] * forward[2]);
+    if (!std::isfinite(length) || length < 1.0e-4f) return std::nullopt;
+    for (float &f : forward) f /= length;
+    float right[3] = {-forward[2], 0.0f, forward[0]};
+    const float level = std::sqrt(right[0] * right[0] + right[2] * right[2]);
+    if (level < 1.0e-4f) return std::nullopt;
+    right[0] /= level;
+    right[2] /= level;
+    const float back[3] = {-forward[0], -forward[1], -forward[2]};
+    const float up[3] = {back[1] * right[2] - back[2] * right[1], back[2] * right[0] - back[0] * right[2],
+        back[0] * right[1] - back[1] * right[0]};
+    std::array<float, 16> view{};
+    for (std::size_t axis = 0; axis < 3u; ++axis) {
+        view[axis * 4u + 0u] = right[axis];
+        view[axis * 4u + 1u] = up[axis];
+        view[axis * 4u + 2u] = back[axis];
+    }
+    view[12] = -(right[0] * pose.eye[0] + right[1] * pose.eye[1] + right[2] * pose.eye[2]);
+    view[13] = -(up[0] * pose.eye[0] + up[1] * pose.eye[1] + up[2] * pose.eye[2]);
+    view[14] = -(back[0] * pose.eye[0] + back[1] * pose.eye[1] + back[2] * pose.eye[2]);
+    view[15] = 1.0f;
+    return view;
+}
+
+// The world draw's projection and viewport, with a view built from the
+// follow camera. The view that draw uploaded has no translation, so the
+// monster's world position misses the picture through it.
+std::optional<LockOnView> posed_view(const psprecomp::GuestMemory &memory, const LockOnView &noted) {
+    if (noted.x_scale == 0.0f || noted.y_scale == 0.0f) return std::nullopt;
+    const std::optional<CameraPose> pose = game_camera_pose(memory);
+    if (!pose) return std::nullopt;
+    const std::optional<std::array<float, 16>> view = view_from_pose(*pose);
+    if (!view) return std::nullopt;
+    LockOnView out = noted;
+    out.view = *view;
+    return out;
+}
+
+// The camera object's view and projection, mapped by the viewport of the
+// world draw when one was noted, otherwise by the full 480×272 picture.
+std::optional<LockOnView> camera_object_view(const psprecomp::GuestMemory &memory, const LockOnView &noted) {
+    if (!marker_instructions(memory) || memory.raw_pointer(kCameraPointer, 4u) == nullptr) return std::nullopt;
+    const std::uint32_t camera = memory.load32(kCameraPointer);
+    if (camera < 0x08800000u ||
+        memory.raw_pointer(camera + kProjection, kViewMatrix - kProjection + 64u) == nullptr)
+        return std::nullopt;
+    LockOnView view;
+    load_matrix(memory, camera + kViewMatrix, view.view);
+    load_matrix(memory, camera + kProjection, view.projection);
+    if (std::fabs(view.projection[11]) < 1.0e-6f) return std::nullopt;
+    if (noted.x_scale != 0.0f && noted.y_scale != 0.0f) {
+        view.x_scale = noted.x_scale;
+        view.y_scale = noted.y_scale;
+        view.x_offset = noted.x_offset;
+        view.y_offset = noted.y_offset;
+        view.origin_x = noted.origin_x;
+        view.origin_y = noted.origin_y;
+    } else {
+        view.x_scale = 240.0f;
+        view.x_offset = 240.0f;
+        view.y_scale = -136.0f;
+        view.y_offset = 136.0f;
+    }
+    return view;
+}
+} // namespace
 
 std::optional<std::array<float, 2>> lock_on_project(const LockOnView &view, const Vec3 &world) {
     if (view.x_scale == 0.0f || view.y_scale == 0.0f) return std::nullopt;
@@ -492,13 +627,24 @@ std::optional<std::array<float, 2>> lock_on_project(const LockOnView &view, cons
 }
 
 std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory) {
-    const LockOnView view = state.view;
+    const LockOnView noted = state.view;
     const std::uint32_t vertices = std::exchange(state.view_vertices, 0u);
     state.view = {};
-    if (!state.locked || vertices == 0u || memory.raw_pointer(state.target, kExtent) == nullptr) return std::nullopt;
+    if (!lock_on_marker_wanted() || memory.raw_pointer(state.target, kExtent) == nullptr) return std::nullopt;
     const Vec3 feet = load_vec(memory, state.target + kPosition);
     if (!finite(feet)) return std::nullopt;
-    return lock_on_project(view, Vec3{feet.x, feet.y + kAimHeight, feet.z});
+    const Vec3 aim{feet.x, feet.y + kAimHeight, feet.z};
+    // The follow camera's eye and look-at. A matrix read from the camera
+    // object does not place the monster, and neither does the view the world
+    // was drawn with: that view has no translation, so the point is off the
+    // picture and the reticle is left out.
+    if (const std::optional<LockOnView> posed = posed_view(memory, noted))
+        if (const std::optional<std::array<float, 2>> at = lock_on_project(*posed, aim)) return at;
+    if (vertices != 0u)
+        if (const std::optional<std::array<float, 2>> at = lock_on_project(noted, aim)) return at;
+    if (const std::optional<LockOnView> tracked = camera_object_view(memory, noted))
+        return lock_on_project(*tracked, aim);
+    return std::nullopt;
 }
 
 void lock_on_release(const char *why) {
@@ -508,6 +654,8 @@ void lock_on_release(const char *why) {
                   << (why != nullptr && *why != '\0' ? std::string(": ") + why : std::string()) << std::endl;
     if (state.locked && why != nullptr && *why != '\0') state.note = why;
     state.locked = false;
+    state.focusing = false;
+    state.focus_left = 0u;
     state.target = 0u;
     state.manual = 0.0f;
     state.turning = 0;

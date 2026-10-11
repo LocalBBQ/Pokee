@@ -41,6 +41,8 @@ The built-in server (`server.cpp`, used by *Host a session* and `--adhoc-server`
 - That a file id is the `DATA.BIN` entry index in hex, one less than the number in the community's extracted file names: the community file list (github.com/Kurogami2134/MHFU-Game-FIle-List, `weapons.md`), checked against this disc's own directory with `profiles/mhfu/tools/databin.py`.
 - How the game reads `DATA.BIN`, its sizes and its load completion: this project's traces ([DATA_BIN.md](DATA_BIN.md#how-the-game-reads-it)).
 
+Freedom Unite has one archive, so this port does not apply the manager's HD selection. File and patch mods are read from `Files` and `Target`, and a target is refused when it is not a file of that archive. `FilesHD` and `TargetHD` are ignored.
+
 `Author` is not a documented key; it is read when present. The lists of which file belongs to which piece of equipment are the manager's and the community's data and were not copied: the player types an equipment mod's target file id, or the Mods page works it out from the running game's own tables (`profiles/mhfu/host/game/equipment_models.cpp`, traced as [EQUIPMENT_MODS.md](EQUIPMENT_MODS.md) describes; the community file list's armor ids served only as a hint for where to search memory). The obfuscation code in `mhfu_data_bin.cpp` is this project's own, from [DATA_BIN.md](DATA_BIN.md). Preview images are decoded with stb_image, as for texture packs. No mod, and no file of the game, is in the repository; the tests build their own from random data.
 
 ## Profile code

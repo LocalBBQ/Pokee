@@ -33,7 +33,8 @@ struct Snapshot {
     std::string sex;
     std::array<std::string, layered::kParts> worn;   // names of the pieces worn
     std::array<std::string, layered::kParts> chosen; // names of the choices
-    std::vector<layered::Offer> offers;              // the list screen's part
+    std::array<std::uint32_t, layered::kParts> owned{}; // worn plus box copies
+    std::vector<layered::Offer> offers;                 // the list screen's part
 };
 
 struct State {
@@ -62,25 +63,24 @@ void read_snapshot() {
     s.snap = {};
     const bool read = game::read([&](const game::Ram &ram) {
         Snapshot &n = s.snap;
-        const std::optional<game::Look> look = game::hunter_look(ram);
+        // The loaded hunter's record. A sex or worn piece read from anywhere
+        // else would not change when this hunter buys or sells armor.
         const std::optional<std::uint8_t> played = layered::played_sex(ram);
-        n.loaded = look.has_value() || played.has_value();
-        if (look) n.sex = game::sex_name(look->sex);
-        else if (played) n.sex = game::sex_name(*played == 0u ? game::Sex::Male : game::Sex::Female);
+        n.loaded = played.has_value();
+        if (played) n.sex = game::sex_name(*played == 0u ? game::Sex::Male : game::Sex::Female);
         for (std::uint8_t part = 0; part < layered::kParts; ++part) {
             n.chosen[part] = layered::choice_name(&ram, part, settings.layered_pieces[part]);
             if (!n.loaded) continue;
-            const std::optional<game::Piece> worn = game::worn_armor(ram, part);
-            if (worn && worn->id == 0u) {
+            const std::optional<std::uint16_t> id = layered::played_armor(ram, part);
+            if (!id || *id == 0u) {
                 n.worn[part] = "nothing";
-            } else if (worn) {
-                const std::string name = game::equipment_name(ram, part, worn->id);
-                n.worn[part] = name.empty() ? "Piece " + std::to_string(worn->id) : name;
-            } else if (const std::optional<std::uint16_t> id = layered::played_armor(ram, part)) {
-                n.worn[part] = *id == 0u ? std::string("nothing") : "Piece " + std::to_string(*id);
+            } else {
+                const std::string name = game::equipment_name(ram, part, *id);
+                n.worn[part] = name.empty() ? "Piece " + std::to_string(*id) : name;
             }
+            n.owned[part] = layered::owned_count(ram, part);
         }
-        if (s.screen == Screen::Pieces) n.offers = layered::offers(ram, s.part, settings.layered_all);
+        if (s.screen == Screen::Pieces) n.offers = layered::offers(ram, s.part);
     });
     if (!read)
         for (std::uint8_t part = 0; part < layered::kParts; ++part)
@@ -118,8 +118,9 @@ void page(bool back) {
         settings.layered_armor = !settings.layered_armor;
         settings::save();
     }
-    paragraph("A change shows the next time the game loads the hunter: when you enter another area, start or "
-              "leave a quest, or change equipment at the item box.",
+    paragraph("A change shows on the next area change or when a quest loads. Changing equipment keeps this "
+              "look. Turning it off leaves the hunter already on screen as it is; embarking after that loads "
+              "the real armor.",
         colors::kTextDim);
 
     section("Look");
@@ -127,23 +128,18 @@ void page(bool back) {
     for (const std::uint8_t part : kShownParts) {
         RowOptions o;
         o.disabled = !n.loaded;
-        o.note = n.loaded && !n.worn[part].empty() ? "Wearing " + n.worn[part] : std::string();
+        if (n.loaded && !n.worn[part].empty())
+            o.note = "Wearing " + n.worn[part] + ", " + std::to_string(n.owned[part]) + " owned";
         o.description = std::string("What the hunter's ") + layered::part_label(part) +
             " looks like. Real equipment shows the piece worn; Nothing shows the bare part, or the "
-            "inner wear where the game shows it.";
+            "inner wear where the game shows it. Only a piece this hunter wears or keeps in the equipment box "
+            "can be chosen.";
         const std::string label = std::string(layered::part_label(part)) + "##layered" + std::to_string(part);
         if (value_row(label.c_str(), n.chosen[part], o)) {
             s.part = part;
             s.screen = Screen::Pieces;
             s.focus = true;
         }
-    }
-    if (toggle_row("List all armor", settings.layered_all,
-            {false, {},
-                "The lists offer every armor piece a hunter of this sex can wear. Off, only the pieces the "
-                "hunter wears or keeps in the equipment box."})) {
-        settings.layered_all = !settings.layered_all;
-        settings::save();
     }
     if (button_row("Show the real equipment everywhere",
             {!any_chosen(settings), {}, "Sets every part back to Real equipment."})) {
@@ -185,13 +181,14 @@ void pieces(bool back) {
         s.focus = true;
         return;
     }
-    section(settings.layered_all ? ("All armor for a " + n.sex + " hunter").c_str() : "Armor you own");
+    std::uint32_t total = 0u;
+    for (const layered::Offer &offer : n.offers) total += offer.copies;
+    const std::string owned = "Armor you own (" + std::to_string(total) + ")";
+    section(owned.c_str());
     for (const layered::Offer &offer : n.offers) {
         const std::string id = "##piece" + std::to_string(offer.id);
-        const std::string detail = std::string(offer.worn                        ? "worn   "
-                                           : offer.owned && settings.layered_all ? "owned   "
-                                                                                 : "") +
-            "#" + std::to_string(offer.id);
+        std::string detail = offer.worn ? "worn" : "owned";
+        if (offer.copies > 1u) detail += " x" + std::to_string(offer.copies);
         if (list_row(id.c_str(), offer.name, detail, ListIcon::None, current == offer.id)) {
             choose(s.part, offer.id);
             s.screen = Screen::Page;
@@ -200,7 +197,7 @@ void pieces(bool back) {
         }
     }
     if (n.offers.empty())
-        paragraph(n.loaded ? "No piece to offer. Turn on List all armor to choose from every piece."
+        paragraph(n.loaded ? "No piece of this part is worn or kept in the equipment box."
                            : "Load a character first.",
             colors::kTextDim);
 }

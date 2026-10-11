@@ -192,7 +192,6 @@ constexpr ActionInfo kInfo[kActions] = {
     {"triangle_circle", "△ + ○  (together)"},
     {"fast_forward", "Fast-forward"},
     {"screenshot", "Screenshot"},
-    {"frame_step", "Frame step (photo mode)"},
     {"hide_hud", "Hide HUD"},
     {"item_left", "Item left  (L + □)"},
     {"item_right", "Item right  (L + ○)"},
@@ -222,7 +221,6 @@ constexpr std::uint32_t kButtonBits[kActions] = {
     0u,
     0u,
     0x3000u,
-    0u,
     0u,
     0u,
     0u,
@@ -406,14 +404,7 @@ const char *group_name(ActionGroup group) {
 }
 
 Context context_of(Action action) {
-    switch (action) {
-    case Action::FrameStep:
-        return Context::PhotoMode;
-    case Action::Screenshot:
-        return Context::Anywhere;
-    default:
-        return Context::Game;
-    }
+    return action == Action::Screenshot ? Context::Anywhere : Context::Game;
 }
 
 std::uint32_t buttons_of(Action action) {

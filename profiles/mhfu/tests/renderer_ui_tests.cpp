@@ -4,7 +4,6 @@
 #include "gpu/texture_pack.hpp"
 #include "gpu/game_hud.hpp"
 #include "camera_probe.hpp"
-#include "camera/free_camera.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/equipment_models.hpp"
 #include "game/game_data.hpp"
@@ -174,85 +173,6 @@ void render_contracts(gpu::VulkanRenderer &renderer) {
     expect(
         !renderer.device_name().empty() && !renderer.device_summary().empty(), "real Vulkan device identity reported");
 }
-void free_camera_lifecycle_contracts() {
-    psprecomp::Runtime runtime;
-    auto &memory = runtime.memory();
-    auto &player = settings::current();
-    player.free_camera = true;
-    player.free_camera_speed = 100.0f;
-    camera::FreeCameraRequest request;
-    request.toggle = true;
-    camera::free_camera_update(runtime, request, 0.1f);
-    expect(!camera::free_camera_active(), "free camera rejects absent game camera");
-    constexpr std::uint32_t object = 0x08900000u;
-    memory.store32(0x08A2F958u, object);
-    auto store = [&](std::uint32_t offset, float value) {
-        memory.store32(object + offset, std::bit_cast<std::uint32_t>(value));
-    };
-    store(0, 30.0f);
-    store(4, 65000.0f);
-    store(8, 480.0f / 272.0f);
-    store(12, 0.8722222f);
-    const auto original = camera::view_of_pose({{10, 20, 30}, 0, 0});
-    for (std::uint32_t i = 0; i < original.size(); ++i) store(0xf50u + i * 4, original[i]);
-    camera::free_camera_update(runtime, request, 0.1f);
-    expect(camera::free_camera_active() && !camera::free_camera_status().paused,
-        "valid public camera object starts free camera unpaused");
-    request = {};
-    request.input.forward = 1;
-    camera::free_camera_update(runtime, request, 0.1f);
-    auto hook = camera::free_camera_view_hook(memory);
-    expect(bool(hook), "active camera installs view hook");
-    gpu::DrawCall moved, other;
-    moved.view = original;
-    other.view = original;
-    other.view[12] += 99;
-    if (hook) {
-        hook(moved);
-        hook(other);
-    }
-    const auto pose = camera::pose_of_view(moved.view);
-    expect(pose && std::abs(pose->eye[2] - 40.0f) < 0.001f,
-        "free camera moves matching game view by speed times elapsed seconds");
-    expect(other.view[12] == original[12] + 99, "unrelated view remains unchanged");
-    camera::free_camera_frame_end(runtime);
-    const auto status = camera::free_camera_status();
-    expect(status.moved_draws == 1 && status.other_draws == 1,
-        "frame end publishes exact moved and untouched draw counts");
-    ui::draw_over_game();
-    auto *camera_window = ImGui::FindWindowByName("##freecam");
-    expect(camera_window && camera_window->Active && camera_window->DrawList->VtxBuffer.Size > 0,
-        "active free camera draws its real status indicator over the game");
-    ui::Layer::get().renderer().present_ui(true);
-    request = {};
-    request.pause = true;
-    request.speed_steps = 100;
-    camera::free_camera_update(runtime, request, 0);
-    expect(camera::free_camera_status().paused && camera::free_camera_status().speed == settings::kMaxFreeCameraSpeed,
-        "photo pause and maximum speed clamp apply");
-    ui::draw_over_game();
-    camera_window = ImGui::FindWindowByName("##freecam");
-    expect(camera_window && camera_window->Active && camera_window->DrawList->VtxBuffer.Size > 0,
-        "photo mode keeps the free-camera status visible");
-    ui::Layer::get().renderer().present_ui(true);
-    request.speed_steps = -100;
-    camera::free_camera_update(runtime, request, 0);
-    expect(!camera::free_camera_status().paused && camera::free_camera_status().speed == settings::kMinFreeCameraSpeed,
-        "second pause resumes and minimum speed clamps");
-    request = {};
-    request.reset = true;
-    camera::free_camera_update(runtime, request, 0);
-    moved.view = original;
-    camera::free_camera_view_hook(memory)(moved);
-    expect(camera::same_uploaded(moved.view, original), "reset restores original game pose");
-    player.free_camera = false;
-    camera::free_camera_update(runtime, {}, 0);
-    expect(!camera::free_camera_active() && !camera::free_camera_status().paused,
-        "disabling free camera leaves active and photo state");
-    expect(player.free_camera_speed == settings::kMinFreeCameraSpeed,
-        "leaving persists chosen camera speed in sandbox settings");
-}
-
 void keyboard_contracts(gpu::VulkanRenderer &renderer) {
     auto &layer = ui::Layer::get();
     expect(layer.attach(renderer), "real ImGui Vulkan layer attaches");
@@ -533,12 +453,6 @@ void primitive_contracts(gpu::VulkanRenderer &renderer) {
         "guest frame counter advances once per flip while interpolation retains requested rate");
     expect(pixel() == 0xff2255cc, "interpolation replay preserves interior opaque triangle color");
     renderer.pause_interpolation();
-    renderer.set_still(true);
-    renderer.begin_frame();
-    renderer.submit(clear, memory);
-    renderer.submit(draw, memory);
-    expect(renderer.present(0x04000000), "photo still presents directly instead of interpolating");
-    renderer.set_still(false);
     renderer.set_fast_forward(true);
     renderer.begin_frame();
     renderer.submit(clear, memory);
@@ -2031,33 +1945,6 @@ void mods_screen_contracts(
         const auto chosen = session->library().choice(gear_id);
         expect(chosen.slots.size() == 1 && chosen.slots[0] == mods::FileId{0},
             "equipment hex editor stores exact public file id");
-        frame(false, false, "Use my current armor");
-        press(ImGuiKey_Space);
-        expect(session->library().choice(gear_id).slots[0] == mods::FileId{0},
-            "absent game hunter leaves configured armor slot unchanged");
-        frame(false, false, "No armor");
-        press(ImGuiKey_Space);
-        auto &ram = runtime.memory();
-        ram.store16(game::kCharacter, 0xff34); // Public one-letter hunter.
-        ram.store8(game::kCharacter + game::kCharacterSex, 0);
-        ram.store8(game::kCharacter + game::kCharacterInnerWear, 0);
-        const auto worn = game::kCharacter + game::kCharacterArmor + 4 * game::kEquipmentRecord;
-        ram.store8(worn, 1);
-        ram.store8(worn + 1, 4);
-        ram.store16(worn + 2, 1);
-        ram.store16(game::kArmorFileBase + 8, 10);
-        ram.store16(game::kArmorFileBase + 10, 20);
-        ram.store16(game::kHeadData + game::kArmorRecord, 3);
-        ram.store8(game::kHeadData + game::kArmorRecord + 4, 0x0f);
-        frame(false, false, "Use my current armor");
-        press(ImGuiKey_Space);
-        expect(session->library().choice(gear_id).slots[0] == mods::FileId{13} && session->library().enabled(gear_id),
-            "loaded synthetic hunter selects exact worn head model and enables mod");
-        frame(false, false, "No armor");
-        press(ImGuiKey_Space);
-        expect(session->library().choice(gear_id).slots[0] == mods::FileId{10},
-            "No armor selects synthetic bare head base model");
-        ram.store16(game::kCharacter, 0);
         frame(true);
         expect(!ui::mods_screen_open(), "Back closes equipment details");
     }
@@ -2706,19 +2593,6 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button)
         SDL_SetJoystickVirtualButton(joystick, button, false);
     sample();
-    player.controls.keys[static_cast<int>(input::Action::FrameStep)][0].inputs[0] = input::key(SDL_SCANCODE_F13);
-    renderer.set_scripted_key(SDL_SCANCODE_F13, true);
-    sample();
-    expect(renderer.frame_step_held(), "frame-step binding becomes held while game input is enabled");
-    sample();
-    expect(renderer.frame_step_held(), "frame step remains held across subsequent samples");
-    renderer.set_game_input(false);
-    sample();
-    expect(!renderer.frame_step_held(), "disabled game input gates a physically held frame-step binding");
-    renderer.set_game_input(true);
-    renderer.set_scripted_key(SDL_SCANCODE_F13, false);
-    sample();
-    expect(!renderer.frame_step_held(), "releasing frame-step restores the unheld state");
     SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
     expect((sample().buttons & 0x1000) != 0, "physical virtual South button drives exact custom PSP Triangle bit");
     player.confirm_south = true;
@@ -2753,51 +2627,6 @@ void virtual_gamepad_contracts(gpu::VulkanRenderer &renderer) {
     sample();
     SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -32768);
     SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -32768);
-    player.free_camera = true;
-    renderer.set_scripted_key(SDL_SCANCODE_F6, true);
-    sample();
-    expect(renderer.take_free_camera_controls().toggle, "scripted F6 requests one free-camera toggle");
-    sample();
-    expect(!renderer.take_free_camera_controls().toggle, "held free-camera toggle does not repeat");
-    renderer.set_scripted_key(SDL_SCANCODE_F6, false);
-    renderer.set_free_camera(true);
-    for (const auto key : {SDL_SCANCODE_D, SDL_SCANCODE_W, SDL_SCANCODE_E, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_P,
-             SDL_SCANCODE_R, SDL_SCANCODE_EQUALS})
-        renderer.set_scripted_key(key, true);
-    sample();
-    const auto flying = renderer.take_free_camera_controls();
-    expect(flying.right == 1 && flying.forward == 1 && flying.up == 1 && flying.fast && !flying.slow && flying.pause &&
-            flying.reset && flying.speed_steps == 1,
-        "flying free camera receives held motion plus independent pause/reset/speed press edges");
-    sample();
-    const auto held = renderer.take_free_camera_controls();
-    expect(held.right == 1 && held.forward == 1 && held.up == 1 && !held.pause && !held.reset && held.speed_steps == 0,
-        "taking camera controls consumes press edges while preserving held movement");
-    for (const auto key : {SDL_SCANCODE_A, SDL_SCANCODE_S, SDL_SCANCODE_Q, SDL_SCANCODE_LCTRL})
-        renderer.set_scripted_key(key, true);
-    sample();
-    const auto opposing = renderer.take_free_camera_controls();
-    expect(opposing.right == 0 && opposing.forward == 0 && opposing.up == 0 && opposing.fast && opposing.slow,
-        "opposing camera motion keys cancel while fast and slow modifiers stay independent");
-    for (const auto key : {SDL_SCANCODE_D, SDL_SCANCODE_W, SDL_SCANCODE_E, SDL_SCANCODE_LSHIFT, SDL_SCANCODE_P,
-             SDL_SCANCODE_R, SDL_SCANCODE_EQUALS, SDL_SCANCODE_A, SDL_SCANCODE_S, SDL_SCANCODE_Q, SDL_SCANCODE_LCTRL})
-        renderer.set_scripted_key(key, false);
-    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
-    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 32767);
-    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, true);
-    sample();
-    const auto pad_flying = renderer.take_free_camera_controls();
-    expect(pad_flying.right == 1 && pad_flying.up == 1 && pad_flying.look_x == -1,
-        "virtual gamepad supplies shaped free-camera movement, shoulder elevation and inverted look");
-    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
-    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
-    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, false);
-    player.free_camera = false;
-    renderer.set_free_camera(false);
-    sample();
-    const auto off = renderer.take_free_camera_controls();
-    expect(!off.toggle && off.right == 0 && off.look_x == 0 && !off.fast,
-        "disabled free camera clears all held and pressed control state");
     player.lock_on = true;
     player.controls.keys[static_cast<int>(input::Action::Screenshot)][0].inputs[0] = input::key(SDL_SCANCODE_F12);
     player.controls.keys[static_cast<int>(input::Action::HideHud)][0].inputs[0] = input::key(SDL_SCANCODE_F11);
@@ -3377,6 +3206,10 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     };
     toggle_setting("Analog camera", &settings::Settings::analog_camera);
     toggle_setting("Lock-on", &settings::Settings::lock_on);
+    change_video("Lock-on style", ImGuiKey_RightArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style switches to focus");
+    change_video("Lock-on style", ImGuiKey_LeftArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style round trip restores follow");
     toggle_setting("Lock-on marker", &settings::Settings::lock_on_marker);
     toggle_setting("Invert camera horizontally", &settings::Settings::invert_camera_x);
     toggle_setting("Invert camera vertically", &settings::Settings::invert_camera_y);
@@ -3384,7 +3217,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     toggle_setting("Invert mouse horizontally", &settings::Settings::invert_mouse_x);
     toggle_setting("Invert mouse vertically", &settings::Settings::invert_mouse_y);
     toggle_setting("On-screen controls", &settings::Settings::touch_controls);
-    toggle_setting("Free camera", &settings::Settings::free_camera);
     auto slider_setting = [&](const char *label, float settings::Settings::*field, float step) {
         const float original = settings::current().*field;
         change_video(label, ImGuiKey_RightArrow);
@@ -3415,12 +3247,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     toggle_setting("Haptic feedback", &settings::Settings::touch_haptics);
     change_video("Layout", ImGuiKey_LeftArrow);
     expect(settings::current().touch_layout == original_layout, "touch layout round trip restores PSP controls");
-    change_video("Free camera", ImGuiKey_Space);
-    expect(settings::current().free_camera, "experimental free-camera settings enable dependent rows");
-    slider_setting("Free camera speed", &settings::Settings::free_camera_speed, 50);
-    toggle_setting("Hide the HUD while flying", &settings::Settings::free_camera_hide_hud);
-    change_video("Free camera", ImGuiKey_Space);
-    expect(!settings::current().free_camera, "experimental free-camera setting restores disabled mode");
 
     const auto before_control_reset = settings::current();
     settings::current().dead_zone = 0.4f;
@@ -3430,7 +3256,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     settings::current().mouse_sensitivity = 0.8f;
     settings::current().touch_size = 1.4f;
     settings::current().touch_opacity = 0.4f;
-    settings::current().free_camera_speed = 450;
     settings::current().name = "Public test hunter";
     change_video("Save as a new preset", ImGuiKey_Space);
     const auto retained_preset = settings::current().control_preset.user;
@@ -3442,7 +3267,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
             reset_controls.mouse_sensitivity == defaults.mouse_sensitivity && reset_controls.name == defaults.name &&
             reset_controls.touch_size == defaults.touch_size &&
             reset_controls.touch_opacity == defaults.touch_opacity &&
-            reset_controls.free_camera_speed == defaults.free_camera_speed &&
             reset_controls.control_preset == defaults.control_preset && reset_controls.controls == defaults.controls,
         "control defaults restore modified analog, mouse, touch, camera, name and shipped bindings");
     expect(settings::find_user_preset(settings::current(), retained_preset) != nullptr,
@@ -3773,18 +3597,33 @@ void layered_armor_ui_contracts(gpu::VulkanRenderer &renderer, psprecomp::Runtim
     expect(settings::current().layered_pieces[4] == game::layered::kReal,
         "unloaded hunter cannot choose a disabled armor part");
     frame(nullptr, true);
-    memory.store16(game::kCharacter, 'P');
-    memory.store8(game::kCharacter + game::kCharacterSex, 0);
-    memory.store8(game::kCharacter + game::kCharacterInnerWear, 0);
-    const auto worn = game::kCharacter + game::kCharacterArmor + 4 * game::kEquipmentRecord;
+    // Portable 3rd's character block and equipment box. The page must not read them.
+    constexpr std::uint32_t kOldCharacter = 0x09F4FCACu;
+    constexpr std::uint32_t kOldCharacterSex = 0x1Bu;
+    constexpr std::uint32_t kOldCharacterInnerWear = 0x1Du;
+    constexpr std::uint32_t kOldCharacterArmor = 0x50u;
+    constexpr std::uint32_t kOldEquipmentBox = 0x09F4FE14u;
+    memory.store16(kOldCharacter, 'P');
+    memory.store8(kOldCharacter + kOldCharacterSex, 0);
+    memory.store8(kOldCharacter + kOldCharacterInnerWear, 0);
+    const auto worn = kOldCharacter + kOldCharacterArmor + 4 * game::kEquipmentRecord;
     memory.store8(worn, 1);
     memory.store8(worn + 1, 4);
     memory.store16(worn + 2, 1);
-    memory.store8(game::kEquipmentBox, 1);
-    memory.store8(game::kEquipmentBox + 1, 4);
-    memory.store16(game::kEquipmentBox + 2, 2);
+    constexpr std::uint32_t block = 0x09001000u;
+    memory.store32(game::layered::kGameBlockPointer, block);
+    const std::uint32_t record = block + game::layered::kHunterRecords;
+    memory.store8(record + game::layered::kRecordSex, 0);
+    memory.store16(record + game::layered::kRecordArmorId[4], 1);
+    const std::uint32_t box = block + game::layered::kEquipmentBoxOffset;
+    memory.store8(box, game::layered::kEquipmentSlotUsed);
+    memory.store8(box + 1, 4);
+    memory.store16(box + 2, 2);
+    memory.store8(kOldEquipmentBox, 1);
+    memory.store8(kOldEquipmentBox + 1, 4);
+    memory.store16(kOldEquipmentBox + 2, 3);
     constexpr std::uint32_t table = game::kTextBlock + 0x1000;
-    memory.store32(game::kTextBlock + 29 * 4, 0x1000);
+    memory.store32(game::kTextBlock + (7 + 2) * 4, 0x1000);
     const std::array<std::string, 4> names{"", "Public worn head", "Public owned head", "Public unowned head"};
     std::uint32_t offset = 20;
     for (unsigned id = 0; id < names.size(); ++id) {
@@ -3795,11 +3634,12 @@ void layered_armor_ui_contracts(gpu::VulkanRenderer &renderer, psprecomp::Runtim
     }
     memory.store32(table + 16, 0xffffffff);
     game::GuestRam guest(memory);
-    const auto offers = game::layered::offers(guest, 4, false);
-    expect(offers.size() == 2 && offers[0].id == 1 && offers[0].worn && offers[1].id == 2 && offers[1].owned,
-        "synthetic loaded hunter offers only its independently named worn and owned armor");
+    const auto offers = game::layered::offers(guest, 4);
+    expect(offers.size() == 2 && offers[0].id == 1 && offers[0].worn && offers[0].name == "Public worn head" &&
+            offers[1].id == 2 && offers[1].owned && !offers[1].worn && offers[1].name == "Public owned head",
+        "the list is the worn piece and the one in the equipment box");
     std::vector<std::uint8_t> before;
-    for (std::uint32_t at = game::kCharacter; at < game::kEquipmentBox + game::kEquipmentRecord; ++at)
+    for (std::uint32_t at = kOldCharacter; at < kOldEquipmentBox + game::kEquipmentRecord; ++at)
         before.push_back(memory.load8(at));
     select("Layered armor");
     select("Layered armor");
@@ -3808,18 +3648,15 @@ void layered_armor_ui_contracts(gpu::VulkanRenderer &renderer, psprecomp::Runtim
     select("##nothing");
     expect(settings::current().layered_pieces[4] == 0, "Nothing stores exactly the bare-part choice");
     select("Head##layered4");
-    select("##piece2");
-    expect(settings::current().layered_pieces[4] == 2, "owned armor list selects its exact public piece id");
+    select("##piece1");
+    expect(settings::current().layered_pieces[4] == 1, "the worn piece is the one the list can select");
     select("Head##layered4");
     select("##real");
     expect(settings::current().layered_pieces[4] == game::layered::kReal,
         "Real equipment restores the sentinel rather than copying worn armor");
-    select("List all armor");
-    expect(settings::current().layered_all, "all-armor toggle changes the list policy");
     select("Head##layered4");
-    frame();
-    select("##piece3");
-    expect(settings::current().layered_pieces[4] == 3, "all-armor list allows a wearable unowned piece");
+    select("##piece2");
+    expect(settings::current().layered_pieces[4] == 2, "a piece in the equipment box can be selected");
     select("Show the real equipment everywhere");
     expect(std::all_of(settings::current().layered_pieces.begin(), settings::current().layered_pieces.end(),
                [](auto p) { return p == game::layered::kReal; }),
@@ -3833,10 +3670,12 @@ void layered_armor_ui_contracts(gpu::VulkanRenderer &renderer, psprecomp::Runtim
     expect(!ui::layered_armor_screen_open(), "piece-list back returns to page and page back closes it");
     for (unsigned i = 0; i < before.size(); ++i)
         expect(
-            memory.load8(game::kCharacter + i) == before[i], "layered UI never modifies the hunter or equipment box");
-    memory.store16(game::kCharacter, 0);
+            memory.load8(kOldCharacter + i) == before[i], "layered UI never modifies the old character block");
+    memory.store16(kOldCharacter, 0);
     memory.store8(worn, 0);
-    memory.store8(game::kEquipmentBox, 0);
+    memory.store8(kOldEquipmentBox, 0);
+    memory.store32(game::layered::kGameBlockPointer, 0);
+    memory.store8(box, 0);
     settings::current() = saved;
     settings::save();
     layer.set_interactive(false);
@@ -4342,7 +4181,6 @@ int run_contracts(int scripts) {
         "queued UI screenshot reports asynchronous write failure and preserves the blocking file");
     std::filesystem::remove(screenshot_directory);
     camera_probe_contracts(renderer, sandbox);
-    free_camera_lifecycle_contracts();
     keyboard_contracts(renderer);
     input_capture_contracts(renderer);
     widget_and_browser_contracts(renderer, sandbox);

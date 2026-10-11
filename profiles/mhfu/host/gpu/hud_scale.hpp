@@ -20,8 +20,13 @@ namespace mhfu::gpu::hud_scale {
 // clock, the name and the bars grow from the clock's corner so they stay
 // together.
 // The area map is the tile at (316, 32)-(468, 184), on the right of a quest,
-// and a mark drawn on it. It grows from its top-right. In camp that tile is
-// absent; the supply icons that sit in the same rectangle stay as drawn.
+// and a mark drawn on it, or the small window that slides inside that slot
+// as the hunter moves. It grows from its top-right. That window is a piece of
+// the area-map texture; a panel of the same size from any other texture is
+// not it, so the shop and the return-to-town prompt stay as drawn even while
+// the quest clock is up. A mark scales only when it sits on the tile or the
+// window that was actually drawn. In camp that tile is absent; the supply
+// icons that sit in the same rectangle stay as drawn.
 // Sharpness is the colored bar at y 44, (62, 44)-(166, 50), and the frame
 // just above it at (60, 29)-(104, 41). It stays on the stamina bar: when
 // health changes size, the bar and the sharpness move together, and the
@@ -52,6 +57,11 @@ struct Anchor {
 };
 
 // The area map, on the right of a quest: (316, 32)-(468, 184), 152 by 152.
+// The small window samples this texture in VRAM (256 by 256). Traced with
+// MHFU_TRACE_SPRITES across a hunt, the monster-found state and a bowgun:
+// every window of that map used 0x0419C200, and the interface panels of the
+// same size did not.
+inline constexpr std::uint32_t kAreaMapTexture = 0x0419C200u;
 inline constexpr float kMapLeft = 316.0f;
 inline constexpr float kMapTop = 32.0f;
 inline constexpr float kMapRight = 468.0f;
@@ -111,25 +121,42 @@ inline constexpr float kBowgunBottom = 200.0f;
     return i.x0 >= o.x0 && i.y0 >= o.y0 && i.x1 <= o.x1 && i.y1 <= o.y1;
 }
 
-// The area map: (316, 32)-(468, 184), 152 by 152, or a small window into the
-// same map texture. In the corner that window is about 34 by 40 at
-// (432, 76)-(466, 116), or 40 by 40 at (425, 78)-(465, 118). Once a monster
-// is found the same window sits at about (371, 59)-(411, 99); the large tile
-// is not drawn then. Traced with MHFU_TRACE_SPRITES. The quest clock is
-// neither size.
-[[nodiscard]] inline bool is_map_sprite(Rect rect) {
+// True when the two rectangles share any area. A mark can poke a pixel or two
+// past the map window and still belong on it.
+[[nodiscard]] inline bool overlaps(Rect a, Rect b) {
+    a = normalized(a);
+    b = normalized(b);
+    return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+}
+
+// The large area-map tile, (316, 32)-(468, 184). The small window is
+// travelling_map_window(); it counts only while the quest HUD is up and the
+// quad samples kAreaMapTexture. The shop and the return-to-town prompt draw
+// panels of that same size in this corner, from other textures.
+[[nodiscard]] inline bool is_fixed_map_sprite(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    const bool large = r.x0 >= 300.0f && r.x0 <= 340.0f && r.y0 >= 20.0f && r.y0 <= 48.0f && width >= 140.0f &&
-        width <= 164.0f && height >= 140.0f && height <= 164.0f;
-    const bool corner = r.x0 >= 418.0f && r.x0 <= 440.0f && r.y0 >= 68.0f && r.y0 <= 90.0f && width >= 30.0f &&
-        width <= 46.0f && height >= 36.0f && height <= 46.0f;
-    // The window moves left and up while a monster is found. It is still the
-    // map: the same texture, and the UV origin tracks the window.
-    const bool found = r.x0 >= 360.0f && r.x0 <= 400.0f && r.y0 >= 50.0f && r.y0 <= 72.0f && width >= 36.0f &&
-        width <= 46.0f && height >= 36.0f && height <= 46.0f;
-    return large || corner || found;
+    return r.x0 >= 300.0f && r.x0 <= 340.0f && r.y0 >= 20.0f && r.y0 <= 48.0f && width >= 140.0f && width <= 164.0f &&
+        height >= 140.0f && height <= 164.0f;
+}
+
+// A small map window between the traced samples: about 34 by 40 or 40 by 40,
+// anywhere in the area-map slot. Traced samples sit at (432, 76)-(466, 116),
+// (425, 78)-(465, 118), and (371, 59)-(411, 99).
+[[nodiscard]] inline bool is_travelling_map_window(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    const float diff = width > height ? width - height : height - width;
+    return width >= 32.0f && width <= 64.0f && height >= 36.0f && height <= 64.0f && diff <= 12.0f &&
+        r.x0 >= kMapLeft - 8.0f && r.y0 >= kMapTop - 8.0f && r.x1 <= kMapRight + 8.0f && r.y1 <= kMapBottom + 8.0f;
+}
+
+// The area map: (316, 32)-(468, 184), 152 by 152, or a small window into the
+// same map texture. The quest clock is neither size.
+[[nodiscard]] inline bool is_map_sprite(Rect rect) {
+    return is_fixed_map_sprite(rect) || is_travelling_map_window(rect);
 }
 
 // The quest clock: (8, 8)-(60, 56), 52 by 48, with a little room for the
@@ -315,8 +342,11 @@ inline constexpr float kBowgunBottom = 200.0f;
     // The arrival is 23 by 31, the widest a note gets, and taller than a
     // settled one. The shop's equip confirmation draws a 24 by 24 icon at
     // (240, 32)-(264, 56), in this same band; it is a pixel wider than a note.
+    // A queued note's far corner is about (234, 50), so its left edge stays
+    // near x 222. The equipment-set list draws its weapon icon just past that
+    // row, about 16 pixels square near (240, 28), and that icon is not a note.
     const bool note = width >= 10.0f && width <= 23.0f && height >= 14.0f && height <= 34.0f && r.x0 >= 140.0f &&
-        r.x0 <= 250.0f && r.y0 >= 18.0f && r.y0 <= 38.0f;
+        r.x0 <= 230.0f && r.y0 >= 18.0f && r.y0 <= 38.0f;
     const bool mark = width >= 10.0f && width <= 16.0f && height >= 14.0f && height <= 18.0f && r.x0 >= 124.0f &&
         r.x0 <= 136.0f && r.y0 >= 52.0f && r.y0 <= 60.0f;
     return staff || clef || note || mark;
@@ -350,14 +380,17 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     return corner || side || highlight;
 }
 
+// The ammo bar above the item bar: (312, 184)-(472, 200), a wide strip in the
+// band the area map does not cover. Traced with a bowgun out. The equipment
+// colour menu draws a checkbox in that same band, under the map, about 16
+// pixels square; that checkbox is not the bar.
 [[nodiscard]] inline bool is_bowgun_icon(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    // A mark on the area map sits in this corner too. It belongs to the map.
-    return width >= 12.0f && height >= 12.0f &&
-        contains({kBowgunLeft, kBowgunTop, kBowgunRight, kBowgunBottom}, r) &&
-        !contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r);
+    return width >= 100.0f && width <= 170.0f && height >= 8.0f && height <= 24.0f && r.x0 >= 300.0f &&
+        r.x0 <= 340.0f && r.y0 >= 176.0f && r.y0 <= 192.0f &&
+        contains({kBowgunLeft, kBowgunTop, kBowgunRight, kBowgunBottom}, r);
 }
 
 [[nodiscard]] inline Piece piece_of(Rect rect) {
@@ -511,11 +544,18 @@ struct Frame {
     bool bowgun_live{};
     bool list_live{};
     bool ammo_menu_now{};
+    bool travelling_now{};
     // The top-right corner of the map sprite last drawn, large or small. The
-    // map and the marks on it grow from there.
+    // map and the marks on it grow from there. `map_rect` is that sprite, so
+    // a prompt elsewhere in the slot is not carried along with the window.
     Anchor map_corner{kMapRight, kMapTop};
+    Anchor travelling_corner{kMapRight, kMapTop};
+    Rect map_rect{};
+    Rect map_rect_live{};
+    Rect travelling_rect{};
 
     void begin() {
+        map_rect_live = map_now ? map_rect : Rect{};
         map_live = map_now;
         vital_live = vital_now;
         bar_live = bar_now;
@@ -523,14 +563,23 @@ struct Frame {
         spirit_live = spirit_now;
         bowgun_live = bowgun_now;
         list_live = list_now;
-        map_now = vital_now = bar_now = sharp_now = spirit_now = bowgun_now = list_now = ammo_menu_now = false;
+        map_now = vital_now = bar_now = sharp_now = spirit_now = bowgun_now = list_now = ammo_menu_now =
+            travelling_now = false;
+        map_rect = {};
+        travelling_rect = {};
     }
 
-    void note(Rect rect) {
-        if (is_map_sprite(rect)) {
+    void note(Rect rect, std::uint32_t texture = 0) {
+        if (is_fixed_map_sprite(rect)) {
             map_now = true;
             const Rect r = normalized(rect);
             map_corner = {r.x1, r.y0};
+            map_rect = r;
+        } else if (is_travelling_map_window(rect) && texture == kAreaMapTexture) {
+            travelling_now = true;
+            const Rect r = normalized(rect);
+            travelling_corner = {r.x1, r.y0};
+            travelling_rect = r;
         }
         if (is_vital_bar(rect) || is_clock_sprite(rect) || is_monster_eye(rect)) vital_now = true;
         if (is_bar_panel(rect)) bar_now = true;
@@ -543,16 +592,32 @@ struct Frame {
         if (is_item_list(rect)) list_now = true;
     }
 
-    [[nodiscard]] bool allows(Piece piece, Rect rect) const {
+    // A window between the traced spots is the map only while the quest clock
+    // or the health bar is on screen, and only when the quad samples the
+    // area-map texture. The shop and the return-to-town prompt have panels of
+    // the same size in that corner; those panels use other textures.
+    void adopt_travelling_map() {
+        if (!travelling_now || map_now || !(vital_now || vital_live)) return;
+        map_now = true;
+        map_corner = travelling_corner;
+        map_rect = travelling_rect;
+    }
+
+    [[nodiscard]] bool allows(Piece piece, Rect rect, std::uint32_t texture) const {
         switch (piece) {
         // The item list covers the map's side of the picture. A cell of it
         // that lands in the map's rectangle stays as the game drew it. The
         // area-map tile itself is not one of those cells: it still scales
         // while the list is open, so a list-shaped sprite earlier in the
-        // frame cannot pin the map at the size the game drew.
+        // frame cannot pin the map at the size the game drew. A window
+        // between the traced spots scales only after adopt_travelling_map()
+        // has accepted it, and a mark only when it lies on that window.
         case Piece::Map:
-            if (is_map_sprite(rect)) return true;
-            return (map_now || map_live) && !list_now && !list_live;
+            if (is_fixed_map_sprite(rect)) return true;
+            if (is_travelling_map_window(rect))
+                return texture == kAreaMapTexture && (map_now || map_live) && (vital_now || vital_live);
+            return (map_now || map_live) && !list_now && !list_live &&
+                overlaps(map_now ? map_rect : map_rect_live, rect);
         case Piece::Vitals: return vital_now || vital_live;
         // The item list shares the bar's corner, and its right column shares
         // the bowgun slot. Neither is scaled while that list is on screen.
@@ -569,7 +634,8 @@ struct Frame {
 // One through sprite, or one through quad, is six vertices (two triangles)
 // after it is expanded. Groups of six are scaled when they are the map or the
 // item bar and that piece is on screen.
-template <typename Vertex> void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame) {
+template <typename Vertex>
+void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame, std::uint32_t texture = 0) {
     if (!scales.any() || vertices.size() < 6u) return;
     auto bounds_at = [&](std::size_t first) {
         float x0 = vertices[first].x;
@@ -584,7 +650,8 @@ template <typename Vertex> void scale_quads(std::vector<Vertex> &vertices, const
         }
         return Rect{x0, y0, x1, y1};
     };
-    for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) frame.note(bounds_at(first));
+    for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) frame.note(bounds_at(first), texture);
+    frame.adopt_travelling_map();
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = bounds_at(first);
         // The ammo menu is one panel over the item bar's corner, sized with
@@ -593,7 +660,7 @@ template <typename Vertex> void scale_quads(std::vector<Vertex> &vertices, const
         const bool in_ammo_menu = frame.ammo_menu_now &&
             contains({kAmmoMenuLeft, kAmmoMenuTop, kAmmoMenuRight, kAmmoMenuBottom}, bounds);
         const Piece piece = in_ammo_menu ? Piece::ItemBar : piece_of(bounds);
-        if (piece == Piece::None || (!in_ammo_menu && !frame.allows(piece, bounds))) continue;
+        if (piece == Piece::None || (!in_ammo_menu && !frame.allows(piece, bounds, texture))) continue;
         const float scale = scales.of(piece);
         const Placement place = piece == Piece::Map
             ? Placement{frame.map_corner.x, frame.map_corner.y, frame.map_corner.x, frame.map_corner.y}

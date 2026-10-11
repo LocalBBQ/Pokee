@@ -21,11 +21,7 @@
 #include "psprecomp/common.hpp"
 
 #include "camera_probe.hpp"
-#if defined(MHFU_DEBUG_MENU)
-#include "debug/debug_tools.hpp"
-#endif
 #include "camera/camera_input.hpp"
-#include "camera/free_camera.hpp"
 #include "camera/game_aspect.hpp"
 #include "camera/game_camera.hpp"
 #include "camera/lock_on.hpp"
@@ -53,7 +49,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace mhfu {
@@ -109,19 +104,6 @@ struct MediaState {
 #if defined(MHFU_HAS_RENDERER)
     std::unique_ptr<gpu::VulkanRenderer> renderer;
 #endif
-    // While the free camera flies: the GE's state when the frame's first
-    // display list started and every run of a list since, so the photo mode
-    // can draw the frame again from another place (replay_frame).
-    struct ListRun {
-        std::uint32_t pc{};
-        std::uint32_t stall{};
-    };
-    struct FrameRecording {
-        std::optional<gpu::GeState> start;
-        std::vector<ListRun> runs;
-    };
-    FrameRecording recording;
-    FrameRecording last_frame;
 };
 
 MediaState &media() {
@@ -166,11 +148,6 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
     if (found == media().ge_lists.end()) return;
     const perf::Clock::time_point start = perf::Clock::now();
     GeList &list = found->second;
-    if (camera::free_camera_active()) {
-        MediaState::FrameRecording &recording = media().recording;
-        if (!recording.start) recording.start = media().ge;
-        recording.runs.push_back({list.pc, list.stall});
-    }
     const GeCallback *callback = nullptr;
     if (const auto cb = media().ge_callbacks.find(list.callback); cb != media().ge_callbacks.end())
         callback = &cb->second;
@@ -194,7 +171,6 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
         media().ge.set_draw_sink([&renderer, &memory](const gpu::DrawCall &call) { renderer.submit(call, memory); });
         media().ge.set_vertex_reuse(
             [&renderer](const gpu::VertexReuseLookup &lookup) { return renderer.reuse_decoded_vertices(lookup); });
-        media().ge.set_view_hook(camera::free_camera_view_hook(memory));
     }
 #endif
     media().ge.set_transfer_sink([&rt](const gpu::BlockTransfer &transfer) { block_transfer(rt, transfer); });
@@ -210,7 +186,6 @@ void run_ge_list(Runtime &rt, std::uint32_t id) {
     }
     list.done = finished;
     media().ge.set_draw_sink(nullptr);
-    media().ge.set_view_hook(nullptr);
     media().ge.set_transfer_sink(nullptr);
     perf::add_render_time(perf::Clock::now() - start);
 }
@@ -245,56 +220,6 @@ void feed_mouse(gpu::VulkanRenderer &renderer) {
 #endif
 
 #if defined(MHFU_HAS_RENDERER)
-// The free camera's controls for one step of `seconds`: the keyboard's and
-// the gamepad's from the renderer, and the mouse's motion while it flies.
-void fly_free_camera(Runtime &rt, gpu::VulkanRenderer &renderer, float seconds);
-
-// fly_free_camera for the real time since it last ran, from the game's flips
-// and the photo mode's frames alike: the photo mode's frame step goes from
-// one to the other, and the camera must not jump for the time in between.
-// At most a quarter of a second, so a pause (a menu, a load) does not throw
-// the camera across the scene for a key held through it.
-void fly_free_camera_now(Runtime &rt, gpu::VulkanRenderer &renderer) {
-    static perf::Clock::time_point previous = perf::Clock::now();
-    const perf::Clock::time_point now = perf::Clock::now();
-    const float seconds = std::min(std::chrono::duration<float>(now - previous).count(), 0.25f);
-    previous = now;
-    fly_free_camera(rt, renderer, seconds);
-}
-
-void fly_free_camera(Runtime &rt, gpu::VulkanRenderer &renderer, float seconds) {
-    const gpu::FreeCameraControls controls = renderer.take_free_camera_controls();
-    camera::FreeCameraRequest request;
-    request.toggle = controls.toggle;
-    if (camera::free_camera_active()) {
-        const settings::Settings &s = settings::current();
-        request.pause = controls.pause;
-        request.reset = controls.reset;
-        request.speed_steps = controls.speed_steps;
-        request.fast = controls.fast;
-        request.slow = controls.slow;
-        request.input.right = controls.right;
-        request.input.forward = controls.forward;
-        request.input.up = controls.up;
-        // The right stick turns at Camera speed, the mouse by Mouse
-        // sensitivity, both inverted as their settings say.
-        request.input.yaw_degrees = controls.look_x * s.camera_speed * seconds;
-        request.input.pitch_degrees = controls.look_y * s.camera_speed * seconds;
-        const gpu::MouseMotion motion = renderer.take_mouse_motion();
-        const input::MouseTurn turn =
-            input::mouse_turn(motion.x, motion.y, s.mouse_sensitivity, s.invert_mouse_x, s.invert_mouse_y, 1.0f);
-        request.input.yaw_degrees += turn.yaw;
-        request.input.pitch_degrees += turn.pitch;
-        (void)renderer.take_touch_motion();
-    }
-    camera::free_camera_update(rt, request, seconds);
-    renderer.set_free_camera(camera::free_camera_active());
-    gpu::hud::set_free_camera(camera::free_camera_active());
-    camera::lock_on_suspend(camera::free_camera_active());
-    // Nothing the player does meanwhile is for the game's camera.
-    if (camera::free_camera_active()) camera::discard();
-}
-
 // The quest camera's eye for damage numbers, asking for the camera hook when
 // they (or MHFU_TRACE_HITS) are on.
 std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
@@ -303,120 +228,6 @@ std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
     if (!pose) return std::nullopt;
     return game::EyePose{{pose->eye[0], pose->eye[1], pose->eye[2]},
         {pose->look_at[0], pose->look_at[1], pose->look_at[2]}};
-}
-
-// Draws the frame just shown again, from the free camera's place: its
-// display lists run once more from the GE state they started with. Guest
-// memory stands still while the photo mode holds the game, so they hold what
-// they held; signals and the lists' own bookkeeping are left alone.
-void replay_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
-    const MediaState::FrameRecording &frame = media().last_frame;
-    if (!frame.start) return;
-    gpu::GeState ge = *frame.start;
-    const psprecomp::GuestMemory &memory = rt.memory();
-    ge.set_signal_sink(nullptr);
-    ge.set_draw_sink([&renderer, &memory](const gpu::DrawCall &call) { renderer.submit(call, memory); });
-    ge.set_transfer_sink([&rt](const gpu::BlockTransfer &transfer) { block_transfer(rt, transfer); });
-    for (const MediaState::ListRun &run : frame.runs) {
-        renderer.begin_display_list();
-        ge.set_raw_vertices(renderer.gpu_decode(), renderer.check_gpu_decode());
-        ge.set_view_hook(camera::free_camera_view_hook(memory));
-        bool finished = false;
-        try {
-            (void)ge.execute(memory, run.pc, run.stall, finished);
-        } catch (const psprecomp::Error &error) {
-            log_once(
-                "ge-replay-error", std::string("[freecam] display list aborted in the photo mode: ") + error.what());
-        }
-    }
-}
-
-// The photo mode's frame step (#187). A step leaves the photo mode's loop
-// with the pause still on, so the game runs from the flip it stood still at
-// to its next flip, which comes back into the photo mode: exactly one game
-// frame, its logic, its vblanks and its drawing as in play. Meanwhile the
-// sound stays paused and every frame is shown at once, never interpolated.
-struct FrameStep {
-    bool running{};          // the game is running the frame of a step
-    std::uint64_t vblanks{}; // the vblank count when it began
-    camera::FrameStepRepeat repeat;
-};
-FrameStep &frame_step() {
-    static FrameStep value;
-    return value;
-}
-
-// Everything the photo mode held, let go: the game plays on as before.
-void end_photo_mode(gpu::VulkanRenderer &renderer) {
-    frame_step() = {};
-    renderer.set_still(false);
-    audio::AudioSink::instance().set_paused(false);
-    kernel().resync_real_time();
-    perf::restart_measurement();
-}
-
-// The photo mode: the game stands still, as behind the paused menu, and the
-// frame it last drew is drawn again from wherever the free camera flies,
-// until the pause is lifted or the free camera left, or a frame step lets
-// the game run one frame. False: the window was closed.
-bool run_photo_mode(Runtime &rt, gpu::VulkanRenderer &renderer, std::uint32_t address) {
-    if (!media().last_frame.start) {
-        log_once("freecam-no-frame", "[freecam] no frame to hold for the photo mode");
-        camera::free_camera_leave();
-        renderer.set_free_camera(false);
-        if (frame_step().running) end_photo_mode(renderer);
-        return true;
-    }
-    FrameStep &step = frame_step();
-    if (step.running) {
-        step.running = false;
-        std::cout << "[freecam] frame step: vblank " << step.vblanks << " to " << kernel().vblank_count() << " ("
-                  << kernel().vblank_count() - step.vblanks << ")" << std::endl;
-    } else {
-        renderer.set_still(true);
-        renderer.set_fast_forward(false);
-        audio::AudioSink::instance().set_paused(true);
-    }
-    bool window_open = true;
-    while (camera::free_camera_status().paused) {
-        if (!renderer.pump_events()) {
-            window_open = false;
-            break;
-        }
-        const perf::Clock::time_point now = perf::Clock::now();
-        fly_free_camera_now(rt, renderer);
-        // The picture presented last: the frame as the free camera saw it.
-        if (renderer.take_screenshot_request()) (void)ui::take_screenshot();
-        // The HUD can be hidden and shown again on the held frame: it was
-        // sorted from the rest when the game drew it.
-        if (renderer.take_hide_hud_toggle()) gpu::hud::toggle();
-        if (ui::menu_requested() && !ui::run_menu()) {
-            rt.stop("quit from the menu");
-            break;
-        }
-        if (step.repeat.update(renderer.frame_step_held(), perf::Clock::now()) && camera::free_camera_status().paused) {
-            step.running = true;
-            step.vblanks = kernel().vblank_count();
-            // The kernel's clock picks up from real time again, as after a
-            // pause, so the frame takes its own time and no more.
-            kernel().resync_real_time();
-            perf::restart_measurement();
-            return true;
-        }
-        replay_frame(rt, renderer);
-        game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), damage_numbers_pose(rt));
-        ui::set_lock_on_marker(
-            settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
-        ui::draw_over_game();
-        renderer.write_back_frame(rt.memory());
-        renderer.present(address);
-        camera::free_camera_frame_end(rt);
-        // A display that does not hold the present back (mailbox, immediate)
-        // would draw the same frame as fast as it can; 60 a second is plenty.
-        std::this_thread::sleep_until(now + std::chrono::microseconds(16'667));
-    }
-    end_photo_mode(renderer);
-    return window_open;
 }
 #endif
 
@@ -448,11 +259,6 @@ void present_frame(Runtime &rt) {
     game::attach(rt);
     // Layered armor puts its wrappers in place here, between two frames.
     game::layered::frame(rt);
-#if defined(MHFU_DEBUG_MENU)
-    // Between two game frames: the developer tools' queued writes and held
-    // cheats land here, never while guest code runs.
-    debug::frame(rt);
-#endif
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
         perf::end_frame(kernel().now_us());
@@ -491,10 +297,6 @@ void present_frame(Runtime &rt) {
     // The frame's camera has been measured by now, so the hunt for the guest
     // variables behind it can compare RAM against it.
     probe::camera_frame(rt, media().ge.view_matrix_source());
-    camera::free_camera_frame_end(rt);
-    // The lists of the frame just shown, for the photo mode.
-    media().last_frame = std::move(media().recording);
-    media().recording = {};
     // The game's flip is the camera's frame: the camera update runs once
     // between two flips, however many presents interpolation adds. The stick is
     // already shaped and inverted by the input layer; its rate becomes degrees
@@ -536,17 +338,8 @@ void present_frame(Runtime &rt) {
                       << " draws) -> " << path_to_utf8(path) << "\n";
     }
     bool window_open = renderer.pump_events();
-    // The free camera takes the mouse's motion first while it flies, so
-    // none of it turns the game's camera.
-    fly_free_camera_now(rt, renderer);
     // The screenshot bind (#187): the frame just presented, as drawn.
     if (renderer.take_screenshot_request()) (void)ui::take_screenshot();
-    if (window_open && camera::free_camera_status().paused) {
-        window_open = run_photo_mode(rt, renderer, address);
-    } else if (frame_step().running) {
-        // The pause was lifted, or the free camera left, during a step.
-        end_photo_mode(renderer);
-    }
     // The fast-forward bind as the events just pumped left it; the kernel's
     // pacing follows it from the next wait on.
     fast_forward::note_bind(renderer.pad().fast_forward);
@@ -692,13 +485,6 @@ void register_display_ctrl(HleRegistrar &hle) {
                 // bits move cursors in the game's menus.
                 if (const int turn = camera::game_camera_mouse_stock_turn()) right_x = turn > 0 ? 0xFFu : 0x01u;
             }
-        }
-#endif
-#if defined(MHFU_HAS_RENDERER)
-        // While the free camera flies, the hunter stands still.
-        if (camera::free_camera_active()) {
-            buttons = 0u;
-            analog_x = analog_y = right_x = right_y = 0x80u;
         }
 #endif
         {

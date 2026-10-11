@@ -36,6 +36,9 @@ enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 // (gpu/ui_textures.hpp): as they are, sharp bilinear, or doubled with MMPX.
 enum class UiTextures { Off, Sharp, Mmpx };
 enum class RightStick { Camera, DPad, Off };
+// Follow keeps the quest camera on the monster Lock on selected. Focus keeps
+// that selection, and a tap of L turns the camera toward the monster.
+enum class LockOnStyle { Follow, Focus };
 // The on-screen controls' layout: the PSP's buttons (touch_controls.hpp), or
 // the action-style one (touch_action.hpp).
 enum class TouchLayout { Psp, Action };
@@ -110,11 +113,13 @@ struct Settings {
     // On by default. Off writes nothing at all, so the camera is exactly as
     // the game made it.
     bool analog_camera{true};
-    // The Lock on bind turns the quest camera towards a large monster and
-    // keeps it there (camera/lock_on.hpp). Nothing happens until the bind is
-    // pressed; off, the bind does nothing at all.
+    // The Lock on bind selects a large monster (camera/lock_on.hpp). Nothing
+    // happens until the bind is pressed; off, the bind does nothing at all.
     bool lock_on{true};
-    bool lock_on_marker{true}; // a ring over the locked monster
+    // Follow keeps the camera on the selection. Focus turns it there when L
+    // is tapped, and leaves it once the turn has arrived.
+    LockOnStyle lock_on_style{LockOnStyle::Follow};
+    bool lock_on_marker{true}; // the bowgun reticle over the locked monster
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
     // Degrees per second at full deflection while a bow or a bowgun aims.
@@ -159,11 +164,6 @@ struct Settings {
     // Interface
     bool menu_pause{true};         // opening the menu pauses the game
     bool menu_pause_multiplayer{}; // ...also during ad hoc play, where a paused game stops answering its peers
-    // Comparable weapon numbers (game/weapon_compare.hpp): off, the shop, the
-    // smithy and the status screen keep the game's figures. On, the attack
-    // figure is divided by the class coefficient and the element figure by 10.
-    // A hit still reads the attack and element the game already uses.
-    bool comparable_weapons{};
     // Damage numbers (game/damage_numbers.hpp): off, a hit is only what the
     // game already shows. On, the health that hit removed is drawn over the
     // picture.
@@ -188,17 +188,10 @@ struct Settings {
     // with a piece chosen here is drawn as that piece, while the game keeps the
     // real one for everything else. The choices are the port's, never the save's.
     bool layered_armor{};
-    bool layered_all{}; // the choice lists all armor, not only the pieces owned
+    bool layered_all{}; // kept so an older settings.ini still loads; the list is owned pieces
     // By part, in the game's order (chest, arms, waist, legs, head): the armor
     // piece's id, 0 for none (the bare part), or kLayeredReal for the piece worn.
     std::array<std::int32_t, 5> layered_pieces{-1, -1, -1, -1, -1};
-
-    // Experimental
-    // The free camera (camera/free_camera.hpp): off, nothing about the game
-    // or its picture changes; on, a key or a gamepad chord detaches the view.
-    bool free_camera{};
-    float free_camera_speed{400.0f}; // game units a second, before the fast and slow modifiers
-    bool free_camera_hide_hud{true}; // hide the game's HUD while it flies (gpu/game_hud.hpp)
 };
 
 inline constexpr std::int32_t kLayeredReal = -1;
@@ -206,11 +199,14 @@ inline constexpr std::int32_t kMaxLayeredPiece = 0xFFFF;
 inline constexpr std::uint32_t kMaxInternalScale = 8u;
 inline constexpr std::uint32_t kMaxWindowScale = 4u;
 inline constexpr std::uint32_t kMinMapItemScale = 50u;
-inline constexpr std::uint32_t kMaxMapItemScale = 200u;
+// 150% puts a normal health bar at the right edge of the 480-wide picture.
+// Higher than that only carries the quest interface off the screen.
+inline constexpr std::uint32_t kMaxMapItemScale = 150u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
 inline constexpr std::uint32_t kMinDamageNumberSize = 50u;
 inline constexpr std::uint32_t kMaxDamageNumberSize = 300u;
-inline constexpr std::uint32_t kMaxDamageNumberThickness = 5u;
+// Past 3 the outline copies fill the digits in, so 3 is as thick as stays readable.
+inline constexpr std::uint32_t kMaxDamageNumberThickness = 3u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
 inline constexpr float kMinTouchOpacity = 0.1f;
 inline constexpr float kMaxTouchOpacity = 1.0f;
@@ -219,8 +215,6 @@ inline constexpr float kMaxTouchSize = 1.6f;
 inline constexpr float kMinTouchCameraSpeed = 30.0f;
 inline constexpr float kMaxTouchCameraSpeed = 720.0f;
 inline constexpr float kMaxMouseSensitivity = 0.99f;
-inline constexpr float kMinFreeCameraSpeed = 10.0f;
-inline constexpr float kMaxFreeCameraSpeed = 20000.0f;
 
 // The platforms whose defaults differ. A phone plays full screen with a
 // finger or a pad, so a few settings start otherwise there (defaults_for).

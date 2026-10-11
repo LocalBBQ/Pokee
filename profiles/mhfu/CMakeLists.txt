@@ -59,9 +59,10 @@ if(MHFU_GENERATED)
     file(CONFIGURE OUTPUT "${MHFU_HUD_INC}" CONTENT "${hud_lines}" @ONLY)
 
     # Layered armor (host/game/layered_armor_hook.cpp) stands in for the game's
-    # lookup of an armor part's model and wraps the hunter's load step, so
-    # their units are read from the corpus too.
-    set(MHFU_LAYERED_FUNCTIONS 0885187C 088C0E58)
+    # lookup of an armor part's model, the cont_task hunter task, and the load
+    # step. The task list is not wrapped: stepping a finished load from it
+    # cleared a pointer the quest reads, and embarking then stopped.
+    set(MHFU_LAYERED_FUNCTIONS 088516A4 0885187C 08851C3C 088BC7F0 088C0E58 088D6388)
     list(JOIN MHFU_LAYERED_FUNCTIONS "|" layered_pattern)
     set(layered_lines "")
     foreach(unit IN LISTS MHFU_GENERATED)
@@ -187,7 +188,6 @@ set(MHFU_HOST_SOURCES
     host/camera/game_aspect.cpp
     host/camera/game_camera.cpp
     host/camera/lock_on.cpp
-    host/camera/free_camera.cpp
     host/gpu/game_hud.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
@@ -386,38 +386,6 @@ set_target_properties(Pokee PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     JOB_POOL_COMPILE psprecomp_generated)
 
-# Developer tools (host/debug): the menu's Debug page, with cheats for testing,
-# and the command file that drives it from a script. Never in a release build:
-# MHFU_RELEASE compiles all of it out whatever this option says. A developer
-# build still shows it only when MHFU_DEBUG_MENU=1 is set at run time.
-option(MHFU_DEBUG_MENU "Compile the developer tools (Debug page) into non-release builds" ON)
-if(MHFU_DEBUG_MENU AND NOT MHFU_RELEASE)
-    target_sources(Pokee PRIVATE
-        host/debug/debug_console.cpp
-        host/debug/debug_tools.cpp
-        host/debug/game_state.cpp
-        host/debug/quest_start.cpp)
-    if(MHFU_RENDERER)
-        target_sources(Pokee PRIVATE host/ui/debug_screen.cpp)
-    endif()
-    target_compile_definitions(Pokee PRIVATE MHFU_DEBUG_MENU=1)
-    message(STATUS "mhfu: developer tools compiled in (shown with MHFU_DEBUG_MENU=1)")
-
-    # The game's structures as the tools read and write them, on a buffer.
-    add_executable(mhfu_debug_tools_tests
-        tests/debug_tools_tests.cpp
-        host/debug/game_state.cpp
-        host/debug/quest_start.cpp
-        host/game/game_data.cpp)
-    target_include_directories(mhfu_debug_tools_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
-    set_target_properties(mhfu_debug_tools_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-    if(PSPRECOMP_BUILD_TESTS)
-        add_test(NAME mhfu_debug_tools_tests COMMAND mhfu_debug_tools_tests)
-    endif()
-else()
-    message(STATUS "mhfu: developer tools not compiled in")
-endif()
-
 # Save-data checks that need no game data: crypto test vectors and round trips.
 add_executable(mhfu_savedata_tests
     tests/savedata_tests.cpp
@@ -472,26 +440,6 @@ target_link_libraries(mhfu_lock_on_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_lock_on_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_lock_on_tests COMMAND mhfu_lock_on_tests)
-endif()
-
-# The free camera's geometry, and that it hooks nothing while off.
-add_executable(mhfu_free_camera_tests
-    tests/free_camera_tests.cpp
-    host/camera/free_camera.cpp
-    host/settings/settings.cpp
-    host/install/user_data.cpp
-    host/input/bindings.cpp
-    host/input/chords.cpp
-    host/input/presets.cpp
-    host/input/touch_action.cpp
-    host/input/touch_controls.cpp
-    host/app_paths.cpp
-    host/platform/utf8_path.cpp)
-target_include_directories(mhfu_free_camera_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
-target_link_libraries(mhfu_free_camera_tests PRIVATE psprecomp_core)
-set_target_properties(mhfu_free_camera_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-if(PSPRECOMP_BUILD_TESTS)
-    add_test(NAME mhfu_free_camera_tests COMMAND mhfu_free_camera_tests)
 endif()
 
 # The game's view shape: what is written to guest memory, and what is left.

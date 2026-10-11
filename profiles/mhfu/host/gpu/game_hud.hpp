@@ -24,15 +24,18 @@ class Runtime;
 //   order. The HUD shares its buckets with menus and dialogs, so the bucket
 //   alone cannot tell them apart.
 // - The code that asks for the packet can. In the village and the Guild Hall,
-//   lobby_task's frame (0x09ADCCD0) draws its text layer from 0x09AE38F8.
-//   In a quest, game_task's frame (0x09A66198) draws the interface that files
-//   its packets from 0x09A665F0 (through 0x09A6EB30 and 0x09A6EC50), and the
-//   labels that queue their own text from 0x09B62488. Menus are drawn by
-//   other code. A packet is HUD when one of those three is on the guest's
-//   call stack when it is filed; the stack is read the way the game's code
-//   builds it (each function's addiu sp, sp, -N and sw ra). Each function's
-//   first two words are checked, because the two overlays replace each other
-//   in the same slot.
+//   lobby_task draws its text layer from 0x09AE38F8, and the name over the
+//   hunter (and the mark beside it) from 0x09A6C248. In a quest, the HUD is
+//   a task callback, not the frame function: traced with MHFU_TRACE_HUD in
+//   the training quest, the health bar, the map, the item bar and their text
+//   are filed while 0x09A60298 is on the stack (through 0x09A62740 and
+//   0x09A627B8). 0x09A617A8 and 0x09A62400 file the same sprites for the
+//   quest's other HUD states. Name tags queue their own text from
+//   0x09B62488. Menus are other callbacks and stay. A packet is HUD when one
+//   of those is on the guest's call stack when it is filed; the stack is
+//   read the way the game's code builds it (each function's addiu sp, sp, -N
+//   and sw ra). Each function's first two words are checked, because the two
+//   overlays replace each other in the same slot.
 // - Most text is not drawn where it is asked for. 0x08A632C8 points at the
 //   text context, which keeps six queues, and the game draws every queue at
 //   the end of the frame, far from the code that asked. The four functions
@@ -41,9 +44,8 @@ class Runtime;
 //   When a queue is drawn, the entry each glyph comes from is read off the
 //   drawing function's stack frame, and so is the list entry of each button
 //   icon in the text.
-// - The GE draws a list while the game fills the next elsewhere, and the
-//   photo mode draws the last one again, so a HUD packet's range is kept until
-//   another packet is filed over it.
+// - The GE draws a list while the game fills the next elsewhere, so a HUD
+//   packet's range is kept until another packet is filed over it.
 //
 // The renderer then leaves out the draws of HUD packets, and only those,
 // while the HUD is hidden. The packets' other commands still run, so the GE
@@ -78,9 +80,6 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames);
 void set_hidden(bool hidden);
 void toggle();
 [[nodiscard]] bool hidden();
-// While the free camera flies (or holds a photo), with
-// experimental.free_camera_hide_hud on, the HUD is hidden too.
-void set_free_camera(bool active);
 // Whether the renderer leaves the HUD out now.
 [[nodiscard]] bool active();
 // False when the game's code is not the code the classification was traced

@@ -9,8 +9,8 @@
 // Screenshots (#187): the game's picture as the renderer drew it, at the full
 // size it was drawn at, saved as PNG files in screenshots/ in the data
 // directory. The picture is the game's own render target, so nothing the
-// port draws over the window (the menu, notes, the free camera's line, the
-// performance overlay) is ever in it. Nothing here needs SDL or Vulkan.
+// port draws over the window (the menu, notes, the performance overlay) is
+// ever in it. Nothing here needs SDL or Vulkan.
 namespace mhfu::screenshot {
 
 // screenshots/ in the data directory, portable or per user.

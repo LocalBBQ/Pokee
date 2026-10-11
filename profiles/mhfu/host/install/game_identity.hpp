@@ -24,8 +24,7 @@ struct SupportedRelease {
     std::uint32_t guest_ram_bytes;
 };
 
-// Monster Hunter Portable 3rd HD Ver. The installer does not accept it. The
-// equipment name tables and the equipment box are still this executable's.
+// Monster Hunter Portable 3rd HD Ver. The installer does not accept it.
 inline constexpr SupportedRelease kPortable3rdHd{
     "NPJB40001",
     "NPJB-40001",
@@ -50,9 +49,8 @@ inline constexpr SupportedRelease kFreedomUniteUsa{
 inline constexpr SupportedRelease kSupportedReleases[] = {kFreedomUniteUsa};
 
 // Names of the release this build runs. Texture packs and the in-game menu
-// use them. The analog camera, the projection, hiding the HUD and layered
-// armor read this executable. The equipment name tables and the equipment box
-// are still the Portable 3rd addresses.
+// use them. The analog camera, the projection, hiding the HUD, layered armor
+// and the armor name tables read this executable.
 inline constexpr const char *kDiscId = kFreedomUniteUsa.disc_id;
 inline constexpr const char *kDiscIdDisplay = kFreedomUniteUsa.disc_id_display;
 inline constexpr const char *kGameTitle = kFreedomUniteUsa.title;

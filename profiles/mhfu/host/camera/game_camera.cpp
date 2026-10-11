@@ -14,6 +14,8 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
+#include <utility>
 
 namespace mhfu::camera {
 
@@ -151,7 +153,7 @@ constexpr float kMouseStockTurn = 0.5f;
 // Game code the driver depends on, read from ULUS-10391. If any word differs,
 // the executable is not the one these facts were read from, and the driver
 // stays out rather than write to places that may mean something else.
-constexpr std::array<CodeWord, 29> kSignature{{
+constexpr std::array<CodeWord, 33> kSignature{{
     {0x08886E50u, 0x27BDFE30u, "addiu sp,sp,-464: the camera update"},
     {0x08886EC8u, 0x26B400A0u, "addiu s4,s5,160: the camera is the parent object plus 0xA0"},
     {0x08887470u, 0x96850084u, "lhu a1,0x84(s4): the turn buttons"},
@@ -164,6 +166,10 @@ constexpr std::array<CodeWord, 29> kSignature{{
     {0x08887618u, 0x86830082u, "lh v1,0x82(s4): and the filtered yaw"},
     {0x08887624u, 0x00021083u, "sra v0,v0,2: a quarter of the difference"},
     {0x08887630u, 0xA6820082u, "sh v0,0x82(s4): the filtered yaw"},
+    {0x088874F4u, 0x8E6401F4u, "lw a0,500(s3): L's recenter reads the hunter's facing"},
+    {0x0888750Cu, 0xA283008Eu, "sb v1,0x8E(s4): and sets the snap byte"},
+    {0x08887650u, 0x2C621000u, "sltiu v0,v1,4096: within 22.5 degrees of the target"},
+    {0x08887658u, 0xA280008Eu, "sb zero,0x8E(s4): the snap is dropped at once"},
     {0x08887530u, 0x82860091u, "lb a2,0x91(s4): the behind-the-hunter gate"},
     {0x08887534u, 0x04C00029u, "bltz a2: a negative gate skips that placement"},
     {0x08887814u, 0xC4400004u, "lwc1 f0,4(v0): the preset's eye-offset height"},
@@ -203,6 +209,8 @@ struct State {
     float saved_height{};
     float saved_distance{};
     unsigned updates{};
+    // L's recenter, which the game took and dropped in the same update.
+    bool recenter_dropped{};
     bool aiming{};
     // The generated aim function, and the centred deflection to show it.
     RotationFunction aim_original{};
@@ -341,12 +349,20 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
     const auto buttons = memory.load16(address + kButtons);
     const auto vertical = memory.load16(address + kVerticalButtons);
     const bool snap = memory.load8(address + kSnap) != 0u;
+    const bool dropped = std::exchange(state.recenter_dropped, false);
+    // Focus takes L's recenter while a monster is selected and turns toward
+    // it. The snap byte is cleared so this update does not also place the
+    // camera behind the hunter. With nothing selected, L is left to the game.
+    const bool focus_snap = (snap || dropped) && lock_on_allowed() &&
+        settings::current().lock_on_style == settings::LockOnStyle::Focus && lock_on_status().locked;
+    if (focus_snap) memory.store8(address + kSnap, 0u);
     // A non-negative gate is the behind-the-hunter placement. That update,
     // a snap, and the D-pad's own turn and tilt stay the game's.
     const bool behind = static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0;
     const bool turn_command = (buttons & kTurnBits) != 0u;
     const bool vertical_command = (vertical & kVerticalBits) != 0u;
-    const bool yielded = behind || snap || turn_command || vertical_command;
+    const bool game_snap = snap && !focus_snap;
+    const bool yielded = behind || game_snap || turn_command || vertical_command;
 
     const auto preset = memory.load32(address + kPreset);
     const bool preset_ok = memory.raw_pointer(preset, 0x20u) != nullptr;
@@ -364,13 +380,14 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
         camera.look_at = {load_float(memory, address + 0x10u), load_float(memory, address + 0x14u),
             load_float(memory, address + 0x18u)};
         camera.manual_yaw = !yielded && turn.yaw_held ? turn.yaw_degrees : 0.0f;
-        camera.command = snap || turn_command || vertical_command;
+        camera.command = game_snap || turn_command || vertical_command;
+        camera.snap = focus_snap;
         camera.pitch = state.pitch_owned ? state.pitch : stock_pitch;
         camera.player_pitch = (active && turn.pitch_held && !yielded) || (state.pitch_owned && !state.pitch_by_lock);
         lock = lock_on_update(memory, camera);
     }
     const bool lock_pitch = lock && lock->pitch;
-    if ((!active && !lock_pitch) || behind || snap || vertical_command) state.pitch_owned = false;
+    if ((!active && !lock_pitch) || behind || game_snap || vertical_command) state.pitch_owned = false;
 
     if (yielded) {
         state.yaw_remainder = 0.0f;
@@ -448,10 +465,6 @@ void trace_flip(const psprecomp::GuestMemory &memory) {
     const Rate stick = rate(Source::Stick);
     *out << state.frame << ",flip,s1=" << std::hex << state.address << std::dec << ",stick=" << stick.yaw << ':'
          << stick.pitch << ",aim=" << static_cast<int>(static_cast<std::int8_t>(memory.load8(state.address + kAim)));
-    // The flag 0x088E53E8 tests before asking the weapon at all.
-    const std::uint32_t game = memory.load32(0x08AB3640u);
-    if (memory.raw_pointer(game + 0x60474u, 4u) != nullptr)
-        *out << ",aimflag=" << std::hex << memory.load32(game + 0x60474u) << std::dec;
     dump_camera(*out, memory, state.address);
     *out << std::endl;
 }
@@ -833,6 +846,42 @@ void install_aim_hook(psprecomp::Runtime &runtime) {
     runtime.register_function(kAimFunction, &aim_step, "mhfu_aim_step");
 }
 
+// L's recenter writes the hunter's facing plus half a turn to the target yaw
+// and sets the snap byte (0x08887508), and the same update clears that byte
+// again when the camera is already within 22.5 degrees of it (0x08887650).
+// Focus then never sees the snap, so the target is watched across the update
+// instead. A target already holding that yaw is moved by one unit first, so
+// the write shows, and put back when none came.
+struct RecenterWatch {
+    std::uint32_t address{};
+    std::uint16_t behind{};
+    std::uint16_t before{};
+    bool nudged{};
+};
+
+std::optional<RecenterWatch> watch_recenter(psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t hunter) {
+    if (hunter == 0u || !lock_on_allowed() || settings::current().lock_on_style != settings::LockOnStyle::Focus ||
+        !lock_on_status().locked)
+        return std::nullopt;
+    if (memory.load8(address + kSnap) != 0u || static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0 ||
+        (memory.load16(address + kButtons) & kTurnBits) != 0u)
+        return std::nullopt;
+    RecenterWatch watch{address, static_cast<std::uint16_t>(memory.load32(hunter + kFacing) + 0x8000u),
+        memory.load16(address + kYawTarget), false};
+    watch.nudged = watch.before == watch.behind;
+    if (watch.nudged) memory.store16(address + kYawTarget, static_cast<std::uint16_t>(watch.before + 1u));
+    return watch;
+}
+
+void check_recenter(psprecomp::GuestMemory &memory, const RecenterWatch &watch) {
+    const auto after = memory.load16(watch.address + kYawTarget);
+    if (after == watch.behind && memory.load8(watch.address + kSnap) == 0u) {
+        state.recenter_dropped = true;
+    } else if (watch.nudged && after == static_cast<std::uint16_t>(watch.before + 1u)) {
+        memory.store16(watch.address + kYawTarget, watch.before);
+    }
+}
+
 void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     trace_modes(runtime.memory(), ctx);
     auto &memory = runtime.memory();
@@ -840,16 +889,19 @@ void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
     const auto address = parent + kCameraFromParent;
     const bool camera = parent >= 0x08800000u && memory.raw_pointer(address, 0x98u) != nullptr;
     const auto hunter = followed_hunter(memory);
+    std::optional<RecenterWatch> watch;
     if (hunter_aiming(memory, hunter)) {
         drive_aim(memory, hunter, camera ? address : 0u);
     } else if (camera) {
         drive_follow(memory, address);
+        watch = watch_recenter(memory, address, hunter);
     } else if (state.aiming) {
         release();
     }
     // Continue the original update with the same CPU context and return PC.
     // Do not invoke an isolated guest call: normal scheduling must be retained.
     state.original(runtime, ctx);
+    if (watch) check_recenter(memory, *watch);
     restore_preset(memory);
 }
 
@@ -912,7 +964,7 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
     const bool still_aiming = hunter_aiming(runtime.memory(), followed_hunter(runtime.memory()));
     if (state.frame - state.last_update > 1u && !still_aiming) release();
     state.hunter_aiming = still_aiming;
-    if (!driving_allowed() && !(state.pitch_by_lock && lock_on_status().locked)) {
+    if (!driving_allowed() && !(state.pitch_by_lock && lock_on_drives_camera())) {
         state.pitch_owned = false;
         state.yaw_remainder = 0.0f;
     }
@@ -938,7 +990,7 @@ void game_camera_want_pose(bool wanted) {
 }
 
 bool game_camera_driving() {
-    return (driving_allowed() || (state.hooked && lock_on_status().locked)) && state.available;
+    return (driving_allowed() || (state.hooked && lock_on_drives_camera())) && state.available;
 }
 
 bool game_camera_aim_boost() {
