@@ -434,6 +434,11 @@ void Menu::video() {
                 "ammo bar and a bow's coating bar, and their menus. The item list stays as the game draws it. "
                 "100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::item_bar},
+            {"Names", "video.hud.names",
+                "The names over other hunters in a quest and in the gathering hall, and the mark beside each. "
+                "Each name stays on the point the game places it, and the map's size does not change it. "
+                "100% is the size the game draws.",
+                &settings::Settings::InterfaceScale::names},
         };
         static bool open = true;
         disclosure_row("UI Scaling", open,
@@ -673,6 +678,7 @@ void Menu::video() {
         restore("video.hud.map", s.hud.map, d.hud.map);
         restore("video.hud.health", s.hud.health, d.hud.health);
         restore("video.hud.item_bar", s.hud.item_bar, d.hud.item_bar);
+        restore("video.hud.names", s.hud.names, d.hud.names);
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
         renderer().set_window_scale(s.window_scale);

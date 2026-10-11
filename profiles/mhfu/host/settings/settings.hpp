@@ -84,6 +84,8 @@ struct Settings {
         std::uint32_t health{100u};
         // The item bar, the bowgun ammo bar, the bow coating bar and their menus.
         std::uint32_t item_bar{100u};
+        // Names over other hunters, in a quest and in the gathering hall, and the mark beside each.
+        std::uint32_t names{100u};
     };
     InterfaceScale hud{};
 
