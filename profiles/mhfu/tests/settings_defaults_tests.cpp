@@ -385,6 +385,12 @@ void test_lock_on_and_damage_numbers() {
     check(edges.damage_number_size == kMinDamageNumberSize &&
             edges.damage_number_thickness == kMaxDamageNumberThickness,
         "the ends of both ranges are allowed");
+    check(fresh.fast_item_box, "the fast item box starts on");
+    Entries box = to_entries(fresh);
+    check(box.at("game.fast_item_box") == "1", "the file records it");
+    box["game.fast_item_box"] = "0";
+    check(!from_entries(box).fast_item_box, "the file turns it off");
+    check(!from_entries(to_entries(from_entries(box))).fast_item_box, "and off survives a round trip");
 }
 
 // The Video page's Interface sizes: the area map, the clock with health and
@@ -467,7 +473,7 @@ void test_interface_sizes() {
     check(long_health[0].x == 32.0f && long_health[0].y == 10.0f && long_health[2].x == 203.5f &&
             long_health[2].y == 14.0f,
         "a raised health bar shrinks toward the clock's corner");
-    // At 150 either bar reaches x 452, with its end cap just past that. Both
+    // At 150 either bar reaches x 452, and its 24 by 12 end cap x 476. Both
     // stay with the clock instead of springing back to the game's size.
     Frame full;
     std::vector<Vertex> full_bars(6, Vertex{56.0f, 12.0f});
@@ -477,20 +483,25 @@ void test_interface_sizes() {
         quad[2] = {x1, y1};
         full_bars.insert(full_bars.end(), quad.begin(), quad.end());
     };
-    add_quad(452.0f, 12.0f, 460.0f, 20.0f); // health's end cap
+    add_quad(452.0f, 9.0f, 476.0f, 21.0f);  // health's end cap
     add_quad(56.0f, 21.0f, 452.0f, 29.0f);  // stamina at 150
-    add_quad(452.0f, 21.0f, 460.0f, 29.0f); // stamina's end cap
+    add_quad(452.0f, 21.0f, 476.0f, 33.0f); // stamina's end cap
     add_quad(56.0f, 24.0f, 452.0f, 26.0f);  // stamina's two-pixel fill
     mhfu::gpu::hud_scale::scale_quads(full_bars, group_half, full);
     check(full_bars[2].x == 230.0f && full_bars[2].y == 14.0f, "health at 150 shrinks toward the clock's corner");
-    check(full_bars[6].x == 230.0f && full_bars[8].x == 234.0f, "health's end cap stays on the shrunk bar");
+    check(full_bars[6].x == 230.0f && full_bars[6].y == 8.5f && full_bars[8].x == 242.0f && full_bars[8].y == 14.5f,
+        "health's end cap stays on the shrunk bar");
     check(full_bars[12].x == 32.0f && full_bars[12].y == 14.5f && full_bars[14].x == 230.0f &&
             full_bars[14].y == 18.5f,
         "stamina at 150 shrinks toward the clock's corner");
-    check(full_bars[20].x == 234.0f && full_bars[20].y == 18.5f, "stamina's end cap stays on the shrunk bar");
+    check(full_bars[20].x == 242.0f && full_bars[20].y == 20.5f, "stamina's end cap stays on the shrunk bar");
     check(full_bars[24].y == 16.0f && full_bars[26].x == 230.0f, "stamina's fill stays inside the shrunk bar");
     check(mhfu::gpu::hud_scale::piece_of({316.0f, 32.0f, 468.0f, 184.0f}) == mhfu::gpu::hud_scale::Piece::Map,
         "the wider status band does not take the area map");
+    check(mhfu::gpu::hud_scale::piece_of({232.0f, 28.0f, 456.0f, 36.0f}) == mhfu::gpu::hud_scale::Piece::None,
+        "a strip past the bars' end that is not a bar or a cap is not status");
+    check(mhfu::gpu::hud_scale::piece_of({386.0f, 21.0f, 410.0f, 33.0f}) == mhfu::gpu::hud_scale::Piece::Vitals,
+        "a cap just past the old status edge, stamina at 125, is status");
     // Once a monster is found the small map is the window at (371, 59)-(411, 99).
     // It shrinks toward its own top-right, and the mark on it stays on it.
     // Status size does not pull it toward the clock.
