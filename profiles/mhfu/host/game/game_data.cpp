@@ -12,11 +12,15 @@ constexpr std::uint32_t kMostEntries = 4096u;
 constexpr std::size_t kLongestText = 256u;
 
 // Where table `index` of the text block starts and how many entries it has,
-// or nothing when it does not look like a table.
+// or nothing when it does not look like a table. 0x0885148C skips the first
+// two words of the block.
 std::optional<std::pair<std::uint32_t, std::uint32_t>> find_table(const Ram &ram, std::uint32_t block, int index) {
-    const std::uint32_t entry = block + static_cast<std::uint32_t>(index) * 4u;
-    if (index < 0 || !ram.contains(entry, 4u)) return std::nullopt;
-    const std::uint32_t table = block + read32(ram, entry);
+    if (index < 0) return std::nullopt;
+    const std::uint32_t entry = block + static_cast<std::uint32_t>(index + 2) * 4u;
+    if (!ram.contains(entry, 4u)) return std::nullopt;
+    const std::uint32_t relative = read32(ram, entry);
+    if (relative < 8u) return std::nullopt;
+    const std::uint32_t table = block + relative;
     if (!ram.contains(table, 8u)) return std::nullopt;
     // The first offset points just past the list and its end marker.
     const std::uint32_t first = read32(ram, table);
@@ -44,31 +48,6 @@ std::string read_text(const Ram &ram, std::uint32_t address) {
     return text;
 }
 
-bool character_loaded(const Ram &ram) { return !hunter_name(ram).empty(); }
-
-std::string hunter_name(const Ram &ram) {
-    std::string name;
-    if (!ram.contains(kHunterName, kHunterNameUnits * 2u)) return name;
-    for (std::size_t i = 0; i < kHunterNameUnits; ++i) {
-        std::uint32_t c = ram.load16(kHunterName + static_cast<std::uint32_t>(i * 2u));
-        if (c == 0u) break;
-        // The game keeps ASCII names as their fullwidth forms.
-        if (c >= 0xFF01u && c <= 0xFF5Eu) c -= 0xFEE0u;
-        if (c == 0x3000u) c = ' ';
-        if (c < 0x80u) {
-            name += static_cast<char>(c);
-        } else if (c < 0x800u) {
-            name += static_cast<char>(0xC0u | (c >> 6u));
-            name += static_cast<char>(0x80u | (c & 0x3Fu));
-        } else {
-            name += static_cast<char>(0xE0u | (c >> 12u));
-            name += static_cast<char>(0x80u | ((c >> 6u) & 0x3Fu));
-            name += static_cast<char>(0x80u | (c & 0x3Fu));
-        }
-    }
-    return name;
-}
-
 std::vector<std::string> text_table(const Ram &ram, std::uint32_t block, int index) {
     std::vector<std::string> out;
     const auto table = find_table(ram, block, index);
@@ -91,15 +70,15 @@ std::uint32_t text_count(const Ram &ram, std::uint32_t block, int index) {
 }
 
 const std::vector<EquipmentKind> &equipment_kinds() {
-    // Kinds and tables as traced: the equipment box sorted by the game lists
-    // the weapon kinds in the order below, and each kind's ids fit only its
-    // own name table.
+    // Armor tables as 0x0885151C and the thunks after it pass them: head 7,
+    // chest 9, arms 11, waist 13, legs 15. Weapon classes still have no table
+    // of their own in that list (a negative table reads as no names).
     static const std::vector<EquipmentKind> kinds{
-        {4, 29, "Head"},          {0, 31, "Chest"},         {1, 33, "Arms"},       {2, 35, "Waist"},
-        {3, 37, "Legs"},          {5, 5, "Great Sword"},    {12, 17, "Long Sword"}, {6, 7, "Sword and Shield"},
-        {16, 25, "Dual Blades"},  {7, 9, "Hammer"},         {17, 27, "Hunting Horn"}, {8, 11, "Lance"},
-        {14, 21, "Gunlance"},     {13, 19, "Switch Axe"},   {11, 15, "Light Bowgun"}, {9, 13, "Heavy Bowgun"},
-        {15, 23, "Bow"},
+        {4, 7, "Head"},           {0, 9, "Chest"},          {1, 11, "Arms"},       {2, 13, "Waist"},
+        {3, 15, "Legs"},          {5, -1, "Great Sword"},   {12, -1, "Long Sword"}, {6, -1, "Sword and Shield"},
+        {16, -1, "Dual Blades"},  {7, -1, "Hammer"},        {17, -1, "Hunting Horn"}, {8, -1, "Lance"},
+        {14, -1, "Gunlance"},     {13, -1, "Switch Axe"},   {11, -1, "Light Bowgun"}, {9, -1, "Heavy Bowgun"},
+        {15, -1, "Bow"},
     };
     return kinds;
 }

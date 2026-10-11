@@ -10,8 +10,9 @@ namespace psprecomp {
 class GuestMemory;
 }
 
-// Lock-on (#163): a tap of the Lock on bind turns the quest camera towards a
-// large monster and keeps it there while the monster moves.
+// Lock-on (#163): a tap of the Lock on bind selects a large monster. Follow
+// keeps the quest camera on it. Focus leaves the camera where it is until L
+// is tapped, then turns it toward the selection and stops.
 //
 // It is not a camera of its own. The follow camera's driver (game_camera.hpp)
 // asks it, on every update of the game's ordinary follow camera, which yaw
@@ -101,9 +102,10 @@ inline constexpr float kInView = 60.0f; // degrees either side of where the came
 // neither too small to finish nor so large that the turn jumps. `weight`
 // (0..1) scales the step, down to none; `sign` (+1, -1, 0 for none) is the
 // way the previous step went, kept while the rest is near half a turn, where
-// the short way round flips from one update to the next.
+// the short way round flips from one update to the next. `share` is the part
+// of the rest taken each update.
 [[nodiscard]] std::uint16_t lock_on_ease_yaw(
-    std::uint16_t current, std::uint16_t wanted, float weight = 1.0f, int sign = 0);
+    std::uint16_t current, std::uint16_t wanted, float weight = 1.0f, int sign = 0, float share = 0.2f);
 
 // --- The running lock -------------------------------------------------------
 
@@ -121,6 +123,9 @@ struct LockOnCamera {
     // the game a camera command (the D-pad's turn or tilt, recentring).
     float manual_yaw{};
     bool command{};
+    // L's recenter, taken for a Focus turn instead of the game's placement
+    // behind the hunter. Follow leaves it as a command.
+    bool snap{};
     // The camera's pitch now, from the game's eye offset, in degrees.
     float pitch{};
     bool player_pitch{}; // the player has tilted the camera by hand
@@ -131,10 +136,6 @@ struct LockOnAim {
 };
 // Nothing when there is no lock, or it has just been let go.
 [[nodiscard]] std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera);
-
-// While the free camera flies (camera/free_camera.hpp) a lock is held but
-// does not turn the game's camera, and taps wait.
-void lock_on_suspend(bool suspended);
 
 // Once a flip: lets a lock go whose monster is no longer there (killed,
 // captured, gone to another area, the quest over), and a tap that no camera
@@ -151,6 +152,13 @@ struct LockOnStatus {
 };
 [[nodiscard]] LockOnStatus lock_on_status();
 
+// The camera driver should keep the second stick and write the yaw: Follow
+// while a monster is selected, Focus only during the turn L started.
+[[nodiscard]] bool lock_on_drives_camera();
+// The reticle is shown: Follow while a monster is selected, Focus only while
+// L's turn is on its way, so it goes once the camera has arrived.
+[[nodiscard]] bool lock_on_marker_wanted();
+
 // The view a transformed draw was made with, and the GE viewport that maps
 // its normalised device coordinates onto the 480×272 screen. Column major,
 // as the GE holds the matrices.
@@ -166,19 +174,22 @@ struct LockOnView {
 };
 
 // One transformed draw. An orthographic draw is ignored. The perspective
-// draw with the most vertices is the camera the world was drawn with, which
-// is where the marker sits: the follow camera, or the aim camera that
-// replaces it while a bow or a bowgun aims.
+// draw with the most vertices supplies the projection and viewport the marker
+// maps through. The view that draw uploaded has no translation, so the marker
+// replaces it with one built from the follow camera's eye and look-at.
 void lock_on_note_view(const LockOnView &view, std::uint32_t vertices);
 
 // Where a world point lands on the picture, each coordinate 0..1 from the
 // top left. Nothing when it is behind the camera or off the picture.
 [[nodiscard]] std::optional<std::array<float, 2>> lock_on_project(const LockOnView &view, const Vec3 &world);
 
-// The locked monster's place on that picture, a little above its feet.
-// Nothing when there is no lock, the world was not drawn, or the monster is
-// behind the camera or off the picture. Takes the view noted since the last
-// call, so a frame asks once.
+// The locked monster's place on the picture, a little above its feet.
+// The view a draw uploads has no translation, so the monster is placed with
+// a view built from the follow camera's eye (+0) and look-at (+0x10), through
+// the projection and viewport of the world draw. Nothing when there is no
+// lock, that camera has not updated, or the monster is behind the camera or
+// off the picture. Takes the viewport noted since the last call, so a frame
+// asks once.
 [[nodiscard]] std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory);
 
 // Lets go, for tests and when the setting goes off. `why` goes to the

@@ -270,8 +270,7 @@ public:
     // Block transfers are carried out by the sink, which can write guest memory.
     void set_transfer_sink(TransferSink sink) { transfer_sink_ = std::move(sink); }
     // Sees every transformed draw before the sink and may change its view
-    // matrix, which is how the free camera (camera/free_camera.hpp) moves the
-    // scene without the game knowing. Null, the default, costs nothing.
+    // matrix. Null, the default, costs nothing.
     using ViewHook = std::function<void(DrawCall &)>;
     void set_view_hook(ViewHook hook) { view_hook_ = std::move(hook); }
     // Asked before a transformed draw is decoded. True means the sink already

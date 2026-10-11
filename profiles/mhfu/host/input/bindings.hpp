@@ -50,10 +50,8 @@ enum class Action : std::uint8_t {
     // Not a PSP control: runs the game faster than real time while held, or
     // turns that on and off (kernel/fast_forward.hpp). Single player only.
     FastForward,
-    // Not PSP controls either (#187): saves the game's picture as a PNG, and
-    // in the free camera's photo mode runs the game on by one frame.
+    // Not a PSP control (#187): saves the game's picture as a PNG.
     Screenshot,
-    FrameStep,
     // Not a PSP control: hides the game's HUD and brings it back
     // (gpu/game_hud.hpp).
     HideHud,
@@ -200,10 +198,9 @@ inline constexpr std::size_t kActionGroups = static_cast<std::size_t>(ActionGrou
 [[nodiscard]] ActionGroup group_of(Action action);
 [[nodiscard]] const char *group_name(ActionGroup group);
 // When an action's bindings are read. The PSP's controls and fast-forward
-// reach the game only while it has input; frame step is read only in the
-// free camera's photo mode, when the game has none, so it may share an input
-// with them; a screenshot is taken whenever the game is on screen.
-enum class Context : std::uint8_t { Game, PhotoMode, Anywhere };
+// reach the game only while it has input; a screenshot is taken whenever
+// the game is on screen.
+enum class Context : std::uint8_t { Game, Anywhere };
 [[nodiscard]] Context context_of(Action action);
 // The SceCtrlButtons an action presses; 0 for the sticks and the port's own.
 [[nodiscard]] std::uint32_t buttons_of(Action action);
@@ -331,9 +328,8 @@ struct PadState {
     int camera_x{}; // the second stick
     int camera_y{};
     bool fast_forward{}; // the fast-forward bind is held
-    bool screenshot{};   // the screenshot bind is held
-    bool frame_step{};   // the frame step bind is held
-    bool hide_hud{};     // the hide-HUD bind is held
+    bool screenshot{}; // the screenshot bind is held
+    bool hide_hud{};   // the hide-HUD bind is held
     bool lock_on{};      // the lock-on bind is held
 };
 // At once, with no memory of what came before (Resolver has it): among the

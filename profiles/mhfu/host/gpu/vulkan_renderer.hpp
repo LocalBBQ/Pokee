@@ -53,23 +53,6 @@ struct MouseMotion {
     float y{};
 };
 
-// What the free camera (camera/free_camera.hpp) is asked to do, read from the
-// keyboard, the mouse wheel and the gamepad while Experimental > Free camera
-// is on. Presses count once, from one take to the next; the rest is held.
-struct FreeCameraControls {
-    bool toggle{};     // F6, or Back (Select) + R3 on a gamepad
-    bool pause{};      // P, or Start: the photo mode's pause
-    bool reset{};      // R, or Y (north): back to where the game's camera is
-    int speed_steps{}; // mouse wheel, + and -, D-pad up and down
-    float right{};     // D and A, the left stick
-    float forward{};   // W and S, the left stick
-    float up{};        // E and Q, RB and LB
-    float look_x{};    // the right stick past its dead zone, -1..1, inverted as the camera settings say
-    float look_y{};
-    bool fast{}; // Left Shift, RT
-    bool slow{}; // Left Ctrl, LT
-};
-
 // The camera the game itself set, read back from the view matrix it uploads.
 // Only filled while MHFU_TRACE_CAMERA or MHFU_FIND_CAMERA is on.
 struct CameraReading {
@@ -178,10 +161,6 @@ public:
     void present_until(std::chrono::steady_clock::time_point wake);
     // Drops the presents scheduled, as the game pauses.
     void pause_interpolation();
-    // While on, present() shows each frame at once, as at 30 frames a second:
-    // the free camera's photo mode draws the game's last frame again and
-    // again while the game stands still, with nothing in between to blend.
-    void set_still(bool still);
     // A load running faster than real time (kernel/fast_loading.hpp) flips
     // several times per refresh of the display. While it does, a flip reaches
     // the window only if the one before it was shown at least
@@ -207,7 +186,7 @@ public:
     // Writes the last rendered frame as a BMP; returns false if it could not be
     // read back. Used for screenshots without touching the window system.
     bool capture_frame(const std::filesystem::path &path);
-    // The last frame the game flipped to (or the photo mode drew again), as
+    // The last frame the game flipped to, as
     // the game's render target holds it: `width` x `height` pixels at the
     // size the game is drawn at, R G B A, top row first, with nothing the
     // port draws over the window. Waits for the GPU. False if there is none.
@@ -280,19 +259,9 @@ public:
     // buttons still held until they are released, so the button that closed
     // a menu does not reach the game.
     void set_game_input(bool enabled);
-    // While on, the game reads a neutral pad and the keyboard, the mouse and
-    // the gamepad fly the free camera instead. Turning it off ignores the
-    // buttons still held until they are released, as set_game_input does.
-    void set_free_camera(bool flying);
-    // The free camera's controls since the last take; nothing unless the
-    // free camera setting is on and the game has input.
-    [[nodiscard]] FreeCameraControls take_free_camera_controls();
     // The screenshot bind was pressed since the last take (#187). Read in
-    // play, in the free camera and in its photo mode, not while a menu has
-    // the input.
+    // play, not while a menu has the input.
     [[nodiscard]] bool take_screenshot_request() noexcept;
-    // The frame step bind is held now (#187); only the photo mode acts on it.
-    [[nodiscard]] bool frame_step_held() const noexcept;
     // A press of the Hide HUD bind since the last take (gpu/game_hud.hpp).
     [[nodiscard]] bool take_hide_hud_toggle() noexcept;
     // A tap of the Lock on bind since the last call (camera/lock_on.hpp).

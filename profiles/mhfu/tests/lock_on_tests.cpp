@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 namespace mhfu::settings {
@@ -53,7 +54,21 @@ void check(bool condition, const char *message) {
     }
 }
 
-void original(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+constexpr std::uint32_t hunter_list = 0x089CBD04u;
+constexpr std::uint32_t hunters = 0x09400000u;
+constexpr std::uint32_t hunter = 0x09410000u;
+// The game's L recenter with the camera already near behind the hunter: the
+// target becomes the facing plus half a turn and the snap byte is set and
+// cleared in the same update.
+bool game_recenters{};
+
+void original(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    if (std::exchange(game_recenters, false)) {
+        auto &memory = runtime.memory();
+        memory.store16(
+            camera_address + 0x80u, static_cast<std::uint16_t>(memory.load32(hunter + 500u) + 0x8000u));
+        memory.store8(camera_address + 0x8Eu, 0u);
+    }
     ctx.pc = ctx.gpr[31];
 }
 
@@ -238,6 +253,12 @@ void test_lock_follows_and_lets_go() {
     f.frame();
     memory.store16(camera_address + 0x84u, 0u);
     check(!lock_on_status().locked, "a camera command of the game's lets go");
+    lock_on_tap();
+    f.frame();
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(!lock_on_status().locked && memory.load8(camera_address + 0x8Eu) == 1u,
+        "recentring with L lets go and stays the game's recenter");
 
     lock_on_tap();
     f.frame();
@@ -280,6 +301,143 @@ void test_tap_waits_for_the_monster() {
     place(memory, monster_b, 0.0f, -3000.0f);
     f.frame();
     check(!lock_on_status().locked, "a tap that found nothing gives up after a few seconds");
+}
+
+void test_focus_turns_when_facing_away() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x00008000u); // facing +z, so behind is yaw 0, where the camera looks
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked && lock_on_status().target == monster_b, "focus selects the monster ahead");
+    for (int i = 0; i < 5; ++i) f.frame();
+    check(memory.load16(camera_address + 0x80u) == 0u && f.yaw() == 0u,
+        "a target already behind the hunter is put back after each update without L");
+    place(memory, monster_b, 0.0f, 3000.0f); // now straight behind the camera
+
+    game_recenters = true;
+    f.frame();
+    f.frame();
+    check(f.yaw() != 0u, "a recenter the game dropped still starts the turn");
+    for (int i = 0; i < 40; ++i) f.frame();
+    check(std::abs(yaw_difference(f.yaw(), 32768u)) < 64, "L turns the camera a half turn to the monster behind it");
+    check(!game_camera_driving(), "and hands it back on arrival");
+
+    const std::uint16_t landed = f.yaw();
+    for (int i = 0; i < 10; ++i) f.frame();
+    check(f.yaw() == landed && memory.load16(camera_address + 0x80u) == landed,
+        "updates without L leave the target alone");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
+void test_focus_turn_lets_go_promptly() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    lock_on_tap();
+    f.frame();
+    place(memory, monster_b, 3000.0f, 0.0f);
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    int updates = 1;
+    while (game_camera_driving() && updates < 60) {
+        f.frame();
+        ++updates;
+    }
+    check(updates <= 15, "a quarter turn lets go of the camera within half a second");
+    check(f.yaw() == 49152u, "and lands exactly on the monster");
+
+    memory.store8(camera_address + 0x8Eu, 1u);
+    updates = 0;
+    float angle = 0.0f;
+    do {
+        angle += 0.14f;
+        place(memory, monster_b, 3000.0f * std::cos(angle), 3000.0f * std::sin(angle));
+        f.frame();
+        ++updates;
+    } while (game_camera_driving() && updates < 120);
+    check(updates <= 31, "a monster circling the hunter is given up on after a second");
+    check(lock_on_status().locked, "and stays selected");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
+void test_focus_turns_on_l_and_keeps_the_selection() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked && lock_on_status().target == monster_b, "focus selects the monster in view");
+    check(!game_camera_driving(), "and does not take the camera while it only holds the selection");
+    place(memory, monster_b, 3000.0f, 0.0f);
+    const std::uint16_t held = f.yaw();
+    for (int i = 0; i < 40; ++i) f.frame();
+    check(f.yaw() == held && lock_on_status().locked, "the camera stays put as the monster moves");
+
+    memory.store8(camera_address + 0x8Eu, 1u);
+    for (int i = 0; i < 40; ++i) f.frame();
+    check(memory.load8(camera_address + 0x8Eu) == 0u, "L's recenter is taken");
+    check(std::abs(yaw_difference(f.yaw(), 49152u)) < 64, "and the camera turns to the selected monster");
+    check(lock_on_status().locked && lock_on_status().target == monster_b, "the selection stays");
+    check(!game_camera_driving(), "the turn has arrived, so the camera is the player's again");
+    place(memory, monster_b, 0.0f, 3000.0f);
+    const std::uint16_t landed = f.yaw();
+    for (int i = 0; i < 10; ++i) f.frame();
+    check(f.yaw() == landed && lock_on_status().locked, "after the turn the camera does not follow");
+
+    place(memory, monster_b, 0.0f, 3000.0f);
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    f.frame(1.0f);
+    f.frame(1.0f);
+    check(lock_on_status().locked, "turning by hand during the turn keeps the monster selected");
+    const std::uint16_t stopped = f.yaw();
+    place(memory, monster_b, 0.0f, -3000.0f);
+    for (int i = 0; i < 10; ++i) f.frame();
+    check(f.yaw() == stopped, "and the turn does not resume");
+
+    lock_on_release("");
+    const std::uint16_t before = f.yaw();
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(memory.load8(camera_address + 0x8Eu) == 1u && f.yaw() == before,
+        "with nothing selected, L still recenters behind the hunter");
+    lock_on_tap();
+    f.frame();
+    const std::uint32_t first = lock_on_status().target;
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked && lock_on_status().target != first, "another tap moves to the next monster");
+    lock_on_tap();
+    f.frame();
+    check(!lock_on_status().locked, "after the last one, a tap lets go");
+}
+
+void test_focus_reticle_and_close_turn() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    // Beside the hunter, inside the distance where Follow holds its yaw.
+    place(memory, monster_b, 150.0f, 0.0f);
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked && lock_on_status().target == monster_b, "focus selects the monster beside the hunter");
+    check(!lock_on_marker_wanted(), "no reticle while only selected");
+
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(lock_on_marker_wanted(), "the reticle shows while L's turn is on its way");
+    for (int i = 0; i < 60; ++i) f.frame();
+    check(std::abs(yaw_difference(f.yaw(), 49152u)) < 64, "a monster that close is still turned to");
+    check(!lock_on_marker_wanted(), "the reticle goes once the camera has arrived");
+    check(!lock_on_marker(memory), "and none is drawn");
+    check(lock_on_status().locked, "the selection stays after the turn");
+
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+    check(lock_on_marker_wanted(), "follow shows the reticle for the whole selection");
 }
 
 void test_off_changes_nothing() {
@@ -345,6 +503,112 @@ void test_marker_sits_on_the_drawn_view() {
     lock_on_reset();
 }
 
+// The three instructions the marker requires before it reads the camera object:
+// the pointer store, the view's addiu, and the projection's addiu.
+void allow_camera_object(psprecomp::GuestMemory &memory) {
+    memory.store32(0x08812954u, 0xAC50BD04u);
+    memory.store32(0x0881439Cu, 0x26640C80u);
+    memory.store32(0x088145D8u, 0x26050C00u);
+}
+
+void store_matrix(psprecomp::GuestMemory &memory, std::uint32_t address, const std::array<float, 16> &matrix) {
+    for (std::uint32_t i = 0; i < 16u; ++i) write_float(memory, address + i * 4u, matrix[i]);
+}
+
+void test_marker_tracks_the_camera_object() {
+    Fixture f;
+    f.frame();
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked, "locked, so the marker has a monster");
+    const std::uint32_t target = lock_on_status().target;
+    auto &memory = f.runtime.memory();
+    // Far from the origin. A view with no translation leaves this off the picture.
+    const float eye_x = 1000.0f;
+    const float eye_y = 200.0f;
+    const float eye_z = -400.0f;
+    place(memory, target, eye_x, eye_z - 10.0f);
+    write_float(memory, target + game::kPosition + 4u, eye_y - 100.0f);
+    const LockOnView drawn = picture_camera();
+    lock_on_note_view(drawn, 100u);
+    check(!lock_on_marker(memory), "the draw's view has no translation, so the monster is not on that picture");
+
+    constexpr std::uint32_t object = 0x09400000u;
+    allow_camera_object(memory);
+    memory.store32(0x089CBD04u, object);
+    LockOnView tracked = picture_camera();
+    tracked.view[12] = -eye_x;
+    tracked.view[13] = -eye_y;
+    tracked.view[14] = -eye_z;
+    store_matrix(memory, object + 0xC80u, tracked.view);
+    store_matrix(memory, object + 0xC00u, tracked.projection);
+    lock_on_note_view(drawn, 100u);
+    const auto at = lock_on_marker(memory);
+    check(at && (*at)[0] == 0.5f && (*at)[1] == 0.5f,
+        "the ring sits on the monster through the camera object's view and projection");
+
+    LockOnView shifted = drawn;
+    shifted.x_offset = 0.0f;
+    lock_on_note_view(shifted, 100u);
+    const auto edge = lock_on_marker(memory);
+    check(edge && (*edge)[0] == 0.0f, "the world draw still supplies the viewport");
+
+    const auto unprompted = lock_on_marker(memory);
+    check(unprompted && (*unprompted)[0] == 0.5f && (*unprompted)[1] == 0.5f,
+        "with no draw noted, the full picture is the viewport");
+
+    place(memory, target, eye_x, eye_z + 10.0f);
+    write_float(memory, target + game::kPosition + 4u, eye_y - 100.0f);
+    check(!lock_on_marker(memory), "a monster behind that camera is not marked");
+
+    place(memory, target, eye_x + 10000.0f, eye_z - 10.0f);
+    write_float(memory, target + game::kPosition + 4u, eye_y - 100.0f);
+    check(!lock_on_marker(memory), "a monster off that picture is not marked");
+
+    write_float(memory, object + 0xC00u + 11u * 4u, 0.0f);
+    place(memory, target, 0.0f, -10.0f);
+    write_float(memory, target + game::kPosition + 4u, -100.0f);
+    lock_on_note_view(drawn, 100u);
+    const auto fallback = lock_on_marker(memory);
+    check(fallback && (*fallback)[0] == 0.5f && (*fallback)[1] == 0.5f,
+        "a projection that was not built falls back to the draw");
+
+    memory.store32(0x089CBD04u, 0u);
+    lock_on_note_view(drawn, 100u);
+    const auto missing = lock_on_marker(memory);
+    check(missing && (*missing)[0] == 0.5f, "a missing camera object falls back to the draw");
+    lock_on_reset();
+}
+
+void test_marker_follows_the_camera_eye() {
+    Fixture f;
+    f.frame();
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked, "locked, so the eye can place a reticle");
+    const std::uint32_t target = lock_on_status().target;
+    auto &memory = f.runtime.memory();
+    const float eye_x = 1000.0f;
+    const float eye_y = 200.0f;
+    const float eye_z = -400.0f;
+    place(memory, target, eye_x, eye_z - 10.0f);
+    write_float(memory, target + game::kPosition + 4u, eye_y - 100.0f);
+    lock_on_note_view(picture_camera(), 100u);
+    check(!lock_on_marker(memory), "the uploaded view has no translation, so the monster is off that picture");
+
+    write_float(memory, camera_address + 0u, eye_x);
+    write_float(memory, camera_address + 4u, eye_y);
+    write_float(memory, camera_address + 8u, eye_z);
+    write_float(memory, camera_address + 0x10u, eye_x);
+    write_float(memory, camera_address + 0x14u, eye_y);
+    write_float(memory, camera_address + 0x18u, eye_z - 100.0f);
+    lock_on_note_view(picture_camera(), 100u);
+    const auto at = lock_on_marker(memory);
+    check(at && std::fabs((*at)[0] - 0.5f) < 0.02f && std::fabs((*at)[1] - 0.5f) < 0.02f,
+        "the reticle sits on the monster through the camera's eye and look-at");
+    lock_on_reset();
+}
+
 void test_binds() {
     using namespace mhfu::input;
     TapDetector tap;
@@ -395,9 +659,15 @@ int main() {
     test_monsters_and_pick();
     test_unmarked_monsters_still_lock();
     test_lock_follows_and_lets_go();
+    test_focus_turns_on_l_and_keeps_the_selection();
+    test_focus_reticle_and_close_turn();
+    test_focus_turn_lets_go_promptly();
+    test_focus_turns_when_facing_away();
     test_tap_waits_for_the_monster();
     test_off_changes_nothing();
     test_marker_sits_on_the_drawn_view();
+    test_marker_tracks_the_camera_object();
+    test_marker_follows_the_camera_eye();
     test_binds();
     std::cout << (failures ? "FAIL" : "PASS") << ": lock-on (" << failures << " failures)\n";
     return failures ? 1 : 0;

@@ -131,20 +131,16 @@ public:
     Reader(const ModFolderFormat &format, std::uint32_t entries, const fs::path &folder, Mod &mod)
         : format_(format), entries_(entries), folder_(folder), mod_(mod) {}
 
-    // Files and targets as the Version key selects them.
-    void file_changes(
-        const IniFile &ini, const std::string &section, const std::string &version, FileChange::Kind kind) {
-        std::string files = ini.get(section, "Files");
-        std::string targets = ini.get(section, "Target");
-        if (version == "BOTH") {
-            if (const std::string *hd = ini.find(section, "FilesHD")) files = *hd;
-            if (const std::string *hd = ini.find(section, "TargetHD")) targets = *hd;
-        } else if (version != "HD") {
-            unusable("Made for the PSP version" +
-                std::string(version.empty() ? " (it gives no Version, which means PSP)" : "") +
-                ": its file ids are not the HD version's.");
-            return;
+    // Files and Target are this game's file ids. FilesHD and TargetHD name the
+    // HD release's archive, which Freedom Unite does not have.
+    void file_changes(const IniFile &ini, const std::string &section, FileChange::Kind kind) {
+        if (ini.find(section, "FilesHD") != nullptr || ini.find(section, "TargetHD") != nullptr) {
+            const std::string text = "Its HD file list is not used: Freedom Unite has one archive, and Files and "
+                                     "Target are its file ids.";
+            if (std::find(mod_.notes.begin(), mod_.notes.end(), text) == mod_.notes.end()) mod_.notes.push_back(text);
         }
+        const std::string files = ini.get(section, "Files");
+        const std::string targets = ini.get(section, "Target");
         const std::vector<std::string> names = split_list(files);
         const std::vector<std::string> ids = split_list(targets);
         if (names.empty()) {
@@ -206,10 +202,13 @@ private:
     Mod &mod_;
 };
 
+// What the mod author wrote in Version, for the mod's screen. Empty when they
+// wrote nothing: a missing Version is this game's file list, not a refusal.
 std::string version_label(const std::string &version) {
-    if (version == "HD") return "HD version";
-    if (version == "BOTH") return "PSP and HD versions";
-    return "PSP version";
+    if (version == "HD") return "HD release";
+    if (version == "BOTH") return "PSP and HD releases";
+    if (version == "NOHD") return "PSP release";
+    return version;
 }
 
 // A folder without a mod.ini, holding files named by file id.
@@ -234,10 +233,8 @@ std::optional<Mod> read_id_files(const ModFolderFormat &format, std::uint32_t en
     const bool files = std::any_of(mod.changes.begin(), mod.changes.end(),
         [](const FileChange &c) { return c.kind == FileChange::Kind::Replace; });
     mod.type = files && patches ? "Files and patches" : patches ? "Patch" : "Files";
-    mod.version = "HD version (assumed)";
     mod.description = "No mod.ini: its files are named by the file id they replace (" +
-        format.file_name(mod.changes.front().file) +
-        "), as in the community loader's files folder. Taken to be made for the HD version.";
+        format.file_name(mod.changes.front().file) + "), as in the community loader's files folder.";
     return mod;
 }
 
@@ -280,10 +277,10 @@ std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
     mod.version = version_label(version);
     if (iequals(type, "File")) {
         mod.type = "Files";
-        reader.file_changes(*ini, kInfo, version, FileChange::Kind::Replace);
+        reader.file_changes(*ini, kInfo, FileChange::Kind::Replace);
     } else if (iequals(type, "Patch")) {
         mod.type = "Patch";
-        reader.file_changes(*ini, kInfo, version, FileChange::Kind::Patch);
+        reader.file_changes(*ini, kInfo, FileChange::Kind::Patch);
     } else if (iequals(type, "Code")) {
         mod.type = "Code";
         reader.unusable("A code mod runs its own PSP code inside the game. Pokee runs the game as recompiled "
@@ -300,9 +297,9 @@ std::optional<Mod> ModFolderFormat::read(const fs::path &folder) const {
             Mod part;
             Reader sub_reader(*this, entries_, folder, part);
             if (iequals(sub_type, "File"))
-                sub_reader.file_changes(*ini, sub, version, FileChange::Kind::Replace);
+                sub_reader.file_changes(*ini, sub, FileChange::Kind::Replace);
             else if (iequals(sub_type, "Patch"))
-                sub_reader.file_changes(*ini, sub, version, FileChange::Kind::Patch);
+                sub_reader.file_changes(*ini, sub, FileChange::Kind::Patch);
             else
                 part.unusable = "its type " + (sub_type.empty() ? std::string("is missing") : sub_type) +
                     " cannot be part of a pack here";

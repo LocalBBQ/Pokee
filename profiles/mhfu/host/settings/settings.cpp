@@ -115,6 +115,7 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"}, {PerfDisplay:
     {PerfDisplay::OverlayAndLog, "overlay+log"}, {PerfDisplay::Log, "log"}}};
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
+const Names<LockOnStyle> kLockOnStyles{{{LockOnStyle::Follow, "follow"}, {LockOnStyle::Focus, "focus"}}};
 const Names<TouchLayout> kTouchLayouts{{{TouchLayout::Psp, "psp"}, {TouchLayout::Action, "action"}}};
 const Names<fast_forward::Mode> kFastForwardModes{
     {{fast_forward::Mode::Hold, "hold"}, {fast_forward::Mode::Toggle, "toggle"}, {fast_forward::Mode::Off, "off"}}};
@@ -135,6 +136,9 @@ constexpr const char *kRetiredTriggerProfileKey = "input.trigger_profile";
 // Written by earlier versions: one size for the map, health and the item bar
 // together. A file with none of the separate sizes keeps it on those three.
 constexpr const char *kRetiredMapItemScaleKey = "video.map_item_scale";
+// Written by earlier versions: a switch that was going to show attack and
+// element with the class coefficient divided out. Nothing reads it now.
+constexpr const char *kRetiredComparableWeaponsKey = "game.comparable_weapons";
 // settings.ini's format. Every save writes every key, defaults included, so
 // once a default changes, a file must say which version wrote it for the
 // player's choices to be told from the old defaults:
@@ -398,6 +402,13 @@ const std::vector<Field> &fields() {
         {"input.lock_on", "MHFU_LOCK_ON", [](Settings &s, const std::string &t) { return parse_bool(t, s.lock_on); },
             [](const Settings &s) { return std::string(s.lock_on ? "1" : "0"); },
             [](Settings &s, const char *t) { s.lock_on = variable_flag(t); }},
+        {"input.lock_on_style", "MHFU_LOCK_ON_STYLE",
+            [](Settings &s, const std::string &t) { return kLockOnStyles.parse(t, s.lock_on_style); },
+            [](const Settings &s) { return kLockOnStyles.format(s.lock_on_style); },
+            [](Settings &s, const char *t) {
+                LockOnStyle style = s.lock_on_style;
+                if (kLockOnStyles.parse(t, style)) s.lock_on_style = style;
+            }},
         BOOL_FIELD("input.lock_on_marker", lock_on_marker),
         {"input.camera_speed", "MHFU_CAMERA_SPEED",
             [](Settings &s, const std::string &t) { return parse_float(t, 20.0f, 720.0f, s.camera_speed); },
@@ -491,10 +502,6 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.menu_pause_multiplayer); },
             [](const Settings &s) { return std::string(s.menu_pause_multiplayer ? "1" : "0"); },
             [](Settings &s, const char *t) { s.menu_pause_multiplayer = variable_flag(t); }},
-        {"game.comparable_weapons", "MHFU_COMPARABLE_WEAPONS",
-            [](Settings &s, const std::string &t) { return parse_bool(t, s.comparable_weapons); },
-            [](const Settings &s) { return std::string(s.comparable_weapons ? "1" : "0"); },
-            [](Settings &s, const char *t) { s.comparable_weapons = variable_flag(t); }},
         {"game.damage_numbers", "MHFU_DAMAGE_NUMBERS",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_numbers); },
             [](const Settings &s) { return std::string(s.damage_numbers ? "1" : "0"); },
@@ -551,22 +558,6 @@ const std::vector<Field> &fields() {
         LAYERED_PIECE_FIELD("look.layered_waist", 2),
         LAYERED_PIECE_FIELD("look.layered_legs", 3),
         LAYERED_PIECE_FIELD("look.layered_head", 4),
-        {"experimental.free_camera", "MHFU_FREE_CAMERA",
-            [](Settings &s, const std::string &t) { return parse_bool(t, s.free_camera); },
-            [](const Settings &s) { return std::string(s.free_camera ? "1" : "0"); },
-            [](Settings &s, const char *t) { s.free_camera = variable_flag(t); }},
-        {"experimental.free_camera_speed", "MHFU_FREE_CAMERA_SPEED",
-            [](Settings &s, const std::string &t) {
-                return parse_float(t, kMinFreeCameraSpeed, kMaxFreeCameraSpeed, s.free_camera_speed);
-            },
-            [](const Settings &s) { return format_float(s.free_camera_speed); },
-            [](Settings &s, const char *t) {
-                s.free_camera_speed = variable_float(t, 400.0f, kMinFreeCameraSpeed, kMaxFreeCameraSpeed);
-            }},
-        {"experimental.free_camera_hide_hud", "MHFU_FREE_CAMERA_HIDE_HUD",
-            [](Settings &s, const std::string &t) { return parse_bool(t, s.free_camera_hide_hud); },
-            [](const Settings &s) { return std::string(s.free_camera_hide_hud ? "1" : "0"); },
-            [](Settings &s, const char *t) { s.free_camera_hide_hud = variable_flag(t); }},
         BOOL_FIELD("ui.menu_hint_seen", menu_hint_seen),
         BOOL_FIELD("saves.backup_timestamp", backup_timestamp),
         BOOL_FIELD("saves.backup_reminder", backup_reminder),
@@ -851,6 +842,7 @@ void write_entries(const Settings &values, Entries &entries) {
     entries.erase(kRetiredTypeNameKey);
     entries.erase(kRetiredTriggerProfileKey);
     entries.erase(kRetiredMapItemScaleKey);
+    entries.erase(kRetiredComparableWeaponsKey);
 }
 
 // Drops what a file an earlier version wrote holds only because that
@@ -910,6 +902,8 @@ void load(State &s) {
     if (std::getenv("MHFU_PAD_TRIGGERS") != nullptr)
         std::cerr << "[settings] MHFU_PAD_TRIGGERS is retired: choose a control preset (MHFU_CONTROL_PRESET, "
                      "or Controls in the menu)\n";
+    if (std::getenv("MHFU_COMPARABLE_WEAPONS") != nullptr)
+        std::cerr << "[settings] MHFU_COMPARABLE_WEAPONS is retired: weapon numbers stay as the game prints them\n";
     // A fixed name in the environment is meant for unattended runs, which
     // nobody is there to type in, so it also answers at once unless
     // MHFU_OSK_MODE says otherwise.

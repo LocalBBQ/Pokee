@@ -146,19 +146,30 @@ const Matching &Matcher::match(
     // How the camera moved: this game keeps the view matrix almost fixed and
     // puts the camera's rotation into every world matrix, so the camera shows
     // in how each matched draw moved in eye space (view times world). Most of
-    // a scene stands still, so the median over the matched draws is the
-    // camera's turn and move, and characters moving on their own do not
-    // count. A sample of up to 256 pairs spread over the frame is enough.
+    // a scene stands still, so the median turn is the camera's. A skinned
+    // draw is a character. In the hunter's house those parts outnumber the
+    // room, and the median was then the hunter's own turn, which swung the
+    // room around them. The sample is the rigid scenery when enough of it
+    // matched, and every matched draw otherwise (a close view of one
+    // character, where the old median still applies). Up to 256 pairs,
+    // spread over that sample, are enough.
     struct Sample {
         float turn;
         Matrix motion;
     };
+    constexpr std::size_t kMinScenery = 8u;
+    std::size_t scenery = 0u;
+    for (std::size_t i = 0; i < older.size(); ++i) {
+        if (out.newer_of[i] >= 0 && !older[i].skinned) ++scenery;
+    }
+    const bool rigid_only = scenery >= kMinScenery;
+    const std::size_t population = rigid_only ? scenery : out.matched;
     std::vector<Sample> samples;
-    const std::size_t stride = std::max<std::size_t>(1u, out.matched / 256u);
+    const std::size_t stride = std::max<std::size_t>(1u, population / 256u);
     std::size_t seen = 0u;
     for (std::size_t i = 0; i < older.size(); ++i) {
         const std::int32_t partner = out.newer_of[i];
-        if (partner < 0 || seen++ % stride != 0u) continue;
+        if (partner < 0 || (rigid_only && older[i].skinned) || seen++ % stride != 0u) continue;
         const DrawSummary &from = older[i];
         const DrawSummary &to = newer[static_cast<std::size_t>(partner)];
         Matrix before_inverse{};

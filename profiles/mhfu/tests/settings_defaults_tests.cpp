@@ -1,5 +1,4 @@
 // Which defaults each platform starts from; no settings.ini is read.
-#include "game/weapon_compare.hpp"
 #include "gpu/hud_scale.hpp"
 #include "settings/settings.hpp"
 
@@ -345,15 +344,20 @@ void test_crisp_text() {
     check(!from_entries(off).crisp_text, "and off stays off");
 }
 
-// The comparison figures. A hit is not this number: 336 and 98 are the same
-// attack once the class coefficient is divided out, and 180 element is 18.
-void test_comparable_weapons() {
+// Lock-on style and damage numbers. Comparable weapon numbers used to be a
+// setting; a file that still has the key drops it.
+void test_lock_on_and_damage_numbers() {
     const Settings fresh = from_entries({});
-    check(!fresh.comparable_weapons, "comparable weapon numbers start off");
-    Entries on = to_entries(fresh);
-    on["game.comparable_weapons"] = "1";
-    check(from_entries(on).comparable_weapons, "the file turns them on");
-    check(from_entries(to_entries(from_entries(on))).comparable_weapons, "and they survive a round trip");
+    check(to_entries(from_entries({{"game.comparable_weapons", "1"}})).count("game.comparable_weapons") == 0u,
+        "a saved comparable-weapons switch is not kept");
+    check(fresh.lock_on_style == LockOnStyle::Follow, "lock-on follows the monster until the style says otherwise");
+    Entries style = to_entries(fresh);
+    style["input.lock_on_style"] = "focus";
+    check(from_entries(style).lock_on_style == LockOnStyle::Focus, "the file selects focus");
+    check(from_entries(to_entries(from_entries(style))).lock_on_style == LockOnStyle::Focus,
+        "and focus survives a round trip");
+    style["input.lock_on_style"] = "nope";
+    check(from_entries(style).lock_on_style == LockOnStyle::Follow, "an unknown style keeps follow");
     check(!fresh.damage_numbers, "damage numbers start off");
     Entries hits = to_entries(fresh);
     hits["game.damage_numbers"] = "1";
@@ -363,38 +367,24 @@ void test_comparable_weapons() {
         "damage numbers start at the interface's size and the thinnest stroke");
     Entries look = to_entries(fresh);
     look["game.damage_number_size"] = "250";
-    look["game.damage_number_thickness"] = "4";
+    look["game.damage_number_thickness"] = "2";
     const Settings bigger = from_entries(to_entries(from_entries(look)));
-    check(bigger.damage_number_size == 250u && bigger.damage_number_thickness == 4u,
+    check(bigger.damage_number_size == 250u && bigger.damage_number_thickness == 2u,
         "their size and thickness come from the file and survive a round trip");
+    look["game.damage_number_thickness"] = "5";
+    check(from_entries(look).damage_number_thickness == kMaxDamageNumberThickness,
+        "a thickness past the readable limit clamps to it");
     look["game.damage_number_size"] = std::to_string(kMaxDamageNumberSize + 1u);
     look["game.damage_number_thickness"] = "0";
     const Settings outside = from_entries(look);
-    check(outside.damage_number_size == 100u && outside.damage_number_thickness == 1u,
-        "a size or thickness out of range keeps the default");
+    check(outside.damage_number_size == kMaxDamageNumberSize && outside.damage_number_thickness == 1u,
+        "a size past the limit clamps to it, and a thickness of 0 clamps to the thinnest");
     look["game.damage_number_size"] = std::to_string(kMinDamageNumberSize);
     look["game.damage_number_thickness"] = std::to_string(kMaxDamageNumberThickness);
     const Settings edges = from_entries(look);
     check(edges.damage_number_size == kMinDamageNumberSize &&
             edges.damage_number_thickness == kMaxDamageNumberThickness,
         "the ends of both ranges are allowed");
-
-    using mhfu::game::comparable_attack;
-    using mhfu::game::comparable_element;
-    check(comparable_attack(336, 5) == 70, "a great sword at 336 reads 70");
-    check(comparable_attack(336, 12) == 70, "a long sword uses the same 4.8");
-    check(comparable_attack(98, 6) == 70 && comparable_attack(98, 16) == 70,
-        "sword and shield and dual blades at 98 read 70");
-    check(comparable_attack(364, 7) == 70 && comparable_attack(364, 17) == 70,
-        "hammer and hunting horn at 364 read 70");
-    check(comparable_attack(161, 8) == 70 && comparable_attack(161, 14) == 70, "lance and gunlance at 161 read 70");
-    check(comparable_attack(84, 15) == 70 && comparable_attack(84, 9) == 70 && comparable_attack(84, 11) == 70,
-        "bow and bowguns at 84 read 70");
-    check(comparable_attack(378, 13) == 70, "a switch axe at 378 reads 70");
-    check(comparable_attack(336, 0) == 336, "a kind that is not a weapon is left as printed");
-    check(comparable_element(180) == 18 && comparable_element(520) == 52 && comparable_element(0) == 0,
-        "element is the printed figure divided by 10");
-    check(comparable_element(-10) == -10, "a negative element is left as printed");
 }
 
 // The Video page's Interface sizes: the area map, the clock with health and
@@ -414,7 +404,7 @@ void test_interface_sizes() {
             written.at("video.hud.item_bar") == "70",
         "each piece writes its own size");
     check(from_entries({{"video.hud.map", "40"}}).hud.map == 50u, "below 50% stays at 50%");
-    check(from_entries({{"video.hud.item_bar", "900"}}).hud.item_bar == 200u, "above 200% stays at 200%");
+    check(from_entries({{"video.hud.item_bar", "900"}}).hud.item_bar == 150u, "above 150% stays at 150%");
 
     // One size used to cover all three.
     const Settings older = from_entries({{"video.map_item_scale", "80"}});
@@ -442,7 +432,10 @@ void test_interface_sizes() {
     Frame quest;
     std::vector<Vertex> small(6, Vertex{425.0f, 78.0f});
     small[2] = {465.0f, 118.0f};
-    mhfu::gpu::hud_scale::scale_quads(small, map_half, quest);
+    std::vector<Vertex> quest_clock(6, Vertex{8.0f, 8.0f});
+    quest_clock[2] = {60.0f, 56.0f};
+    small.insert(small.end(), quest_clock.begin(), quest_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(small, map_half, quest, mhfu::gpu::hud_scale::kAreaMapTexture);
     check(small[0].x == 445.0f && small[0].y == 78.0f && small[2].x == 465.0f && small[2].y == 98.0f,
         "the small map shrinks toward its top-right corner");
     std::vector<Vertex> arrow(6, Vertex{438.0f, 95.0f});
@@ -480,7 +473,10 @@ void test_interface_sizes() {
     map_mark[2] = {399.0f, 86.0f};
     std::vector<Vertex> found_map(map_window);
     found_map.insert(found_map.end(), map_mark.begin(), map_mark.end());
-    mhfu::gpu::hud_scale::scale_quads(found_map, map_half, found);
+    std::vector<Vertex> found_clock(6, Vertex{8.0f, 8.0f});
+    found_clock[2] = {60.0f, 56.0f};
+    found_map.insert(found_map.end(), found_clock.begin(), found_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(found_map, map_half, found, mhfu::gpu::hud_scale::kAreaMapTexture);
     check(found_map[0].x == 391.0f && found_map[0].y == 59.0f && found_map[2].x == 411.0f && found_map[2].y == 79.0f,
         "the map window shown once a monster is found shrinks toward its top-right");
     check(found_map[6].x == 398.0f && found_map[6].y == 66.5f && found_map[8].x == 405.0f && found_map[8].y == 72.5f,
@@ -494,9 +490,65 @@ void test_interface_sizes() {
     Frame corner_map;
     std::vector<Vertex> narrow(6, Vertex{432.0f, 76.0f});
     narrow[2] = {466.0f, 116.0f};
-    mhfu::gpu::hud_scale::scale_quads(narrow, map_half, corner_map);
+    std::vector<Vertex> narrow_clock(6, Vertex{8.0f, 8.0f});
+    narrow_clock[2] = {60.0f, 56.0f};
+    narrow.insert(narrow.end(), narrow_clock.begin(), narrow_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(narrow, map_half, corner_map, mhfu::gpu::hud_scale::kAreaMapTexture);
     check(narrow[0].x == 449.0f && narrow[0].y == 76.0f && narrow[2].x == 466.0f && narrow[2].y == 96.0f,
         "the 34 by 40 map window shrinks toward its top-right");
+    // The window slides inside the area-map slot as the hunter moves. With the
+    // quest clock on screen, a spot between the traced samples is still the
+    // map, and the mark on it follows. The clock's own size is unchanged here.
+    Frame walking;
+    std::vector<Vertex> walked(6, Vertex{400.0f, 100.0f});
+    walked[2] = {440.0f, 140.0f};
+    std::vector<Vertex> walked_mark(6, Vertex{412.0f, 112.0f});
+    walked_mark[2] = {426.0f, 124.0f};
+    std::vector<Vertex> walked_clock(6, Vertex{8.0f, 8.0f});
+    walked_clock[2] = {60.0f, 56.0f};
+    std::vector<Vertex> walked_map(walked);
+    walked_map.insert(walked_map.end(), walked_mark.begin(), walked_mark.end());
+    walked_map.insert(walked_map.end(), walked_clock.begin(), walked_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(walked_map, map_half, walking, mhfu::gpu::hud_scale::kAreaMapTexture);
+    check(walked_map[0].x == 420.0f && walked_map[0].y == 100.0f && walked_map[2].x == 440.0f &&
+            walked_map[2].y == 120.0f,
+        "a map window between the traced spots shrinks toward its own top-right");
+    check(walked_map[6].x == 426.0f && walked_map[6].y == 106.0f && walked_map[8].x == 433.0f &&
+            walked_map[8].y == 112.0f,
+        "the mark on a moving map window stays on it");
+    check(walked_map[12].x == 8.0f && walked_map[12].y == 8.0f, "the quest clock is not moved by the map's size");
+    // The same panel in the shop, with no quest clock or health bar. The
+    // label drawn inside the map's rectangle stays with it.
+    Frame shop_panel;
+    std::vector<Vertex> panel(6, Vertex{400.0f, 100.0f});
+    panel[2] = {440.0f, 140.0f};
+    std::vector<Vertex> shop_label(6, Vertex{350.0f, 80.0f});
+    shop_label[2] = {390.0f, 96.0f};
+    std::vector<Vertex> shop_row(panel);
+    shop_row.insert(shop_row.end(), shop_label.begin(), shop_label.end());
+    mhfu::gpu::hud_scale::scale_quads(shop_row, map_half, shop_panel);
+    check(shop_row[0].x == 400.0f && shop_row[0].y == 100.0f && shop_row[2].x == 440.0f && shop_row[2].y == 140.0f &&
+            shop_row[6].x == 350.0f && shop_row[6].y == 80.0f,
+        "a shop panel in the map's slot is left as the game drew it");
+    // The same panel while returning to town: the quest clock is up, and the
+    // prompt sits in the map's slot, but it is not drawn from the area-map
+    // texture. The label beside it stays with the panel.
+    Frame town;
+    std::vector<Vertex> town_clock(6, Vertex{8.0f, 8.0f});
+    town_clock[2] = {60.0f, 56.0f};
+    std::vector<Vertex> town_row(panel);
+    town_row.insert(town_row.end(), shop_label.begin(), shop_label.end());
+    town_row.insert(town_row.end(), town_clock.begin(), town_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(town_row, map_half, town, 0x040CC000u);
+    check(town_row[0].x == 400.0f && town_row[0].y == 100.0f && town_row[2].x == 440.0f && town_row[2].y == 140.0f &&
+            town_row[6].x == 350.0f && town_row[6].y == 80.0f && town_row[12].x == 8.0f,
+        "the return-to-town prompt stays put while the quest clock is up");
+    Frame camp_icon;
+    std::vector<Vertex> icon(6, Vertex{400.0f, 100.0f});
+    icon[2] = {424.0f, 124.0f};
+    mhfu::gpu::hud_scale::scale_quads(icon, map_half, camp_icon);
+    check(icon[0].x == 400.0f && icon[0].y == 100.0f && icon[2].x == 424.0f && icon[2].y == 124.0f,
+        "a smaller icon in the map slot is not the moving window");
     Frame stray_mark;
     std::vector<Vertex> lone_mark(6, Vertex{385.0f, 74.0f});
     lone_mark[2] = {399.0f, 86.0f};
@@ -547,6 +599,15 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(ammo, group_half, gunner);
     check(ammo[2].x == 470.0f && ammo[2].y == 200.0f && ammo[0].x == 398.0f && ammo[0].y == 192.0f,
         "the ammo bar shrinks into its corner above the item bar");
+    // The item box's colour menu draws a checkbox under the area map, in the
+    // strip the ammo bar uses. It must not be taken for that bar: at the
+    // player's item-bar size it was sliding down onto the row's label.
+    Frame box_menu;
+    std::vector<Vertex> checkbox(6, Vertex{328.0f, 172.0f});
+    checkbox[2] = {344.0f, 188.0f};
+    mhfu::gpu::hud_scale::scale_quads(checkbox, Scales::from_percent(75u, 90u, 90u), box_menu);
+    check(checkbox[0].x == 328.0f && checkbox[0].y == 172.0f && checkbox[2].x == 344.0f && checkbox[2].y == 188.0f,
+        "a menu checkbox under the map is not scaled with the ammo bar");
 
     // A bow's coatings under stamina, in each of their states, move like the
     // loaded rounds: (60, 29) follows the clock's corner to (34, 18.5).
@@ -615,6 +676,22 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(note, group_half, horn);
     check(note[0].x == 79.0f && note[0].y == 18.0f && note[2].x == 85.0f && note[2].y == 26.0f,
         "a queued note above the staff shrinks with it");
+    // The last queued note reaches about (234, 50). It still belongs to the horn.
+    Frame last_note;
+    std::vector<Vertex> far_note(6, Vertex{222.0f, 34.0f});
+    far_note[2] = {234.0f, 50.0f};
+    mhfu::gpu::hud_scale::scale_quads(far_note, group_half, last_note);
+    check(far_note[0].x == 115.0f && far_note[0].y == 21.0f && far_note[2].x == 121.0f && far_note[2].y == 29.0f,
+        "the last queued note shrinks with the horn");
+    // The equipment-set list's weapon icon is the same size as a note and sits
+    // just past the last one. The status size was sliding it into the frame.
+    Frame equip_set;
+    std::vector<Vertex> weapon_icon(6, Vertex{240.0f, 28.0f});
+    weapon_icon[2] = {256.0f, 44.0f};
+    mhfu::gpu::hud_scale::scale_quads(weapon_icon, Scales::from_percent(75u, 90u, 90u), equip_set);
+    check(weapon_icon[0].x == 240.0f && weapon_icon[0].y == 28.0f && weapon_icon[2].x == 256.0f &&
+            weapon_icon[2].y == 44.0f,
+        "the equipment-set weapon icon is not scaled with the horn");
     Frame recital;
     std::vector<Vertex> grown(6, Vertex{149.0f, 26.0f});
     grown[2] = {164.0f, 47.0f};
@@ -749,7 +826,7 @@ int main() {
     test_interface_sizes();
     test_crisp_text();
     test_layered_armor();
-    test_comparable_weapons();
+    test_lock_on_and_damage_numbers();
     test_desktop_is_the_declared_defaults();
     test_android();
     test_this_build();

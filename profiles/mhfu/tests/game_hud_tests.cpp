@@ -40,10 +40,13 @@ void test_hud_functions() {
     psprecomp::Runtime runtime;
     auto &memory = runtime.memory();
     const auto functions = hud_functions();
-    check(functions.size() == 3u, "village, quest status and quest labels");
+    check(functions.size() == 6u, "village text and labels, the quest HUD and the labels");
     check(functions[0].address == 0x09AE38F8u, "the village layer");
-    check(functions[1].address == 0x09A665F0u, "the quest status layer");
-    check(functions[2].address == 0x09B62488u, "the quest labels");
+    check(functions[1].address == 0x09A6C248u, "the village name tag");
+    check(functions[2].address == 0x09A60298u, "the quest HUD");
+    check(functions[3].address == 0x09A617A8u, "a quest HUD state");
+    check(functions[4].address == 0x09A62400u, "another quest HUD state");
+    check(functions[5].address == 0x09B62488u, "the quest labels");
 
     for (const HudFunction &fn : functions) {
         memory.store32(fn.address, fn.first);
@@ -56,8 +59,8 @@ void test_hud_functions() {
     check(!hud_function_matches(memory, 0x088596C8u), "the packet insert is not a HUD function");
     // The quest slot and the village slot are the same load address, so a
     // quest function's bytes are not the village function.
-    memory.store32(functions[0].address, functions[1].first);
-    memory.store32(functions[0].address + 4u, functions[1].saved_ra);
+    memory.store32(functions[0].address, functions[2].first);
+    memory.store32(functions[0].address + 4u, functions[2].saved_ra);
     check(!hud_function_matches(memory, functions[0].address), "the other overlay's words do not count");
 }
 

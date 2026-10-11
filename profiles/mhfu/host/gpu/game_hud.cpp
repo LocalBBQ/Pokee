@@ -77,9 +77,12 @@ constexpr std::uint32_t wrapped_address(std::size_t index) {
 // The functions the HUD is drawn from. Both overlays load at 0x09A5F300, so
 // the words are checked before a match counts: the other overlay's bytes at
 // the same address are not this function.
-constexpr std::array<HudFunction, 3> kHudFunctions = {{
-    {0x09AE38F8u, 0x27BDFFF0u, 0xAFBF000Cu}, // lobby_task: addiu sp,-16; sw ra,12(sp)
-    {0x09A665F0u, 0x27BDFFB0u, 0xAFBF001Cu}, // game_task status: addiu sp,-80; sw ra,28(sp)
+constexpr std::array<HudFunction, 6> kHudFunctions = {{
+    {0x09AE38F8u, 0x27BDFFF0u, 0xAFBF000Cu}, // lobby_task text: addiu sp,-16; sw ra,12(sp)
+    {0x09A6C248u, 0x27BDFFF0u, 0xAFBF000Cu}, // lobby_task labels: addiu sp,-16; sw ra,12(sp)
+    {0x09A60298u, 0x27BDFFA0u, 0xAFBF001Cu}, // game_task HUD: addiu sp,-96; sw ra,28(sp)
+    {0x09A617A8u, 0x27BDFFE0u, 0xAFBF000Cu}, // game_task HUD state: addiu sp,-32; sw ra,12(sp)
+    {0x09A62400u, 0x27BDFFF0u, 0xAFBF000Cu}, // game_task HUD state: addiu sp,-16; sw ra,12(sp)
     {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu}, // game_task labels: addiu sp,-96; sw ra,28(sp)
 }};
 
@@ -146,8 +149,6 @@ struct Frame {
 
 struct State {
     bool hidden{};
-    bool free_camera{};
-    bool shown_in_flight{}; // the player showed the HUD while the free camera hid it
     bool installed{};
     bool checked{};
     bool available{};
@@ -155,9 +156,8 @@ struct State {
     Clock::time_point note_until{};
     std::array<psprecomp::Runtime::RecompiledFunction, kWrapped> originals{};
     // HUD packets by start address, to their end. The GE draws a list while
-    // the game fills the next one elsewhere, and the photo mode draws the last
-    // shown one again, so a packet's range is kept until another packet is
-    // filed over it.
+    // the game fills the next one elsewhere, so a packet's range is kept
+    // until another packet is filed over it.
     std::map<std::uint32_t, std::uint32_t> packets;
     // Text queue entries the HUD asked for, and the queues' lengths at the
     // last watched call.
@@ -411,10 +411,6 @@ bool check_code(const psprecomp::Runtime &runtime) {
     return true;
 }
 
-bool free_camera_hides() {
-    return settings::current().free_camera_hide_hud;
-}
-
 } // namespace
 
 std::span<const CodeWord> code_signature() {
@@ -454,9 +450,8 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
     }
     // Only at the flip, from an import: no generated frame is live on the
     // host stack, so the dispatch tables may change. Put in place once first
-    // needed, then kept, so that hiding and showing the HUD again works at
-    // once, in the photo mode too, whose frame was sorted when it was drawn.
-    const bool wanted = s.hidden || (s.free_camera && free_camera_hides()) || s.trace_first != ~0ull;
+    // needed, then kept, so that hiding and showing the HUD again works at once.
+    const bool wanted = s.hidden || s.trace_first != ~0ull;
     if (!s.installed && wanted && s.available) {
         s.installed = true;
         if (!install_all(runtime, std::make_index_sequence<kWrapped>{})) {
@@ -472,7 +467,7 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
 namespace {
 
 bool hidden_now(const State &s) {
-    return s.hidden || (s.free_camera && free_camera_hides() && !s.shown_in_flight);
+    return s.hidden;
 }
 
 void note_change(State &s, bool before) {
@@ -489,25 +484,15 @@ void set_hidden(bool hidden) {
     State &s = state();
     const bool before = hidden_now(s);
     s.hidden = hidden;
-    if (!hidden && s.free_camera && free_camera_hides()) s.shown_in_flight = true;
     note_change(s, before);
 }
 
-// Turns what is on screen around: while the free camera hides the HUD,
-// the key shows it for the rest of the flight.
 void toggle() {
     set_hidden(!hidden_now(state()));
 }
 
 bool hidden() {
     return hidden_now(state());
-}
-
-void set_free_camera(bool active) {
-    State &s = state();
-    // No note: the free camera's own line says it flies.
-    s.free_camera = active;
-    if (!active) s.shown_in_flight = false;
 }
 
 bool active() {

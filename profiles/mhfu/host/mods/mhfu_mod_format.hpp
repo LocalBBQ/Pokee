@@ -7,17 +7,22 @@
 #include <filesystem>
 #include <vector>
 
-// The mod folders this game's community already uses, so that mods made for
-// the community mod loader and its mod manager work unchanged. Implemented from their
-// published documentation and from the files themselves, not from their code
-// (see docs/SOURCE_PROVENANCE.md):
+// Mod folders in the community mod loader's layout. Implemented from its
+// published documentation and from the files themselves, not from its code
+// (see docs/SOURCE_PROVENANCE.md). That manager also describes a PSP release
+// and an HD release with different file ids. Freedom Unite has one archive,
+// so the HD list is not used:
 //
 // - A mod is a folder with a mod.ini whose [MOD INFO] section names it, its
 //   Type, its Files, and for file and patch mods the Target file ids.
-// - A file id is a DATA.BIN entry index in four upper-case hex digits.
+// - A file id is a DATA.BIN entry index in four upper-case hex digits. A
+//   target past this game's archive cannot be turned on. A mod with no
+//   Version is read from Files and Target.
+// - Version, FilesHD and TargetHD name the HD release. Version is shown; the
+//   HD list is left unused.
 // - A folder without a mod.ini that holds files named by file id (0601) and
-//   patches named by file id and P (0601P), as the community loader's files folder
-//   does, is taken as one mod.
+//   patches named by file id and P (0601P), as the community loader's files
+//   folder does, is taken as one mod.
 //
 // Game-specific: the machinery that uses this is in mod_library.hpp.
 namespace mhfu::mods::p3rd {
