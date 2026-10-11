@@ -43,6 +43,19 @@ namespace mhfu::gpu::hud_scale {
 
 enum class Piece { None, Map, Vitals, ItemBar, Sharpness, LongSword, Bowgun };
 
+[[nodiscard]] inline const char *piece_name(Piece piece) {
+    switch (piece) {
+    case Piece::None: return "none";
+    case Piece::Map: return "map";
+    case Piece::Vitals: return "status";
+    case Piece::ItemBar: return "items";
+    case Piece::Sharpness: return "sharpness";
+    case Piece::LongSword: return "weapon";
+    case Piece::Bowgun: return "bowgun";
+    }
+    return "none";
+}
+
 struct Rect {
     float x0{};
     float y0{};
