@@ -97,12 +97,18 @@ inline constexpr float kItemBottom = 264.0f;
 // Health and stamina, including the end caps. The health bar is
 // (56, 12)-(320, 20) at 100, and (56, 12)-(399, 20) when maximum health is
 // raised; stamina is (56, 21)-(320, 29) at 100. Both draw 2.64 pixels per
-// point, so either one raised to 150 reaches x 452 before its end cap.
-// Sharpness begins at y 29 and runs past this, so it is not inside.
+// point, so either one raised to 150 reaches x 452. Each end cap is 24 by 12
+// past the bar's end, (320, 9)-(344, 21) and (320, 21)-(344, 33) at 100, so at
+// 150 the caps reach x 476. Sharpness begins at y 29 and runs past this, so
+// it is not inside.
 inline constexpr float kVitalLeft = 52.0f;
 inline constexpr float kVitalTop = 6.0f;
-inline constexpr float kVitalRight = 464.0f;
+inline constexpr float kVitalRight = 408.0f;
 inline constexpr float kVitalBottom = 36.0f;
+// Past kVitalRight only the bars themselves and their caps count. A strip at
+// (232, 28)-(456, 36), with a piece at (216, 28)-(232, 36), is drawn in this
+// band for two frames and is neither.
+inline constexpr float kRaisedVitalRight = 480.0f;
 // The sharpness frame and the colored bar under it.
 inline constexpr float kSharpLeft = 60.0f;
 inline constexpr float kSharpTop = 29.0f;
@@ -202,7 +208,21 @@ inline constexpr float kBowgunBottom = 200.0f;
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
     return width >= 200.0f && width <= 410.0f && height >= 2.0f && height <= 14.0f && r.x0 >= 48.0f && r.x0 <= 72.0f &&
-        contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r);
+        contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r);
+}
+
+// A health or stamina bar, fill or end cap that runs past kVitalRight when
+// the most health or stamina is raised. Bars and fills start at the bars'
+// left edge; a cap is 24 by 12 with its top on the health or stamina row.
+[[nodiscard]] inline bool is_raised_vital(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (!contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r) || height < 2.0f) return false;
+    const bool bar = r.x0 >= 48.0f && r.x0 <= 72.0f && height <= 14.0f;
+    const bool cap = width >= 20.0f && width <= 28.0f && height >= 10.0f && height <= 14.0f &&
+        ((r.y0 >= 6.0f && r.y0 <= 12.0f) || (r.y0 >= 18.0f && r.y0 <= 24.0f));
+    return bar || cap;
 }
 
 // The item list ("Please select an item") is a window on the right of the
@@ -420,7 +440,7 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     // The health and stamina fills are two pixels tall. The clock's hand is
     // drawn inside the gauge.
     if (width >= 2.0f && height >= 2.0f &&
-        (contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r) ||
+        (contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r) || is_raised_vital(r) ||
             contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)))
         return Piece::Vitals;
     if (width < 4.0f || height < 4.0f) return Piece::None;
