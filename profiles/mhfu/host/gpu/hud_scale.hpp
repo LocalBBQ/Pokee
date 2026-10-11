@@ -103,12 +103,8 @@ inline constexpr float kItemBottom = 264.0f;
 // it is not inside.
 inline constexpr float kVitalLeft = 52.0f;
 inline constexpr float kVitalTop = 6.0f;
-inline constexpr float kVitalRight = 408.0f;
-inline constexpr float kVitalBottom = 36.0f;
-// Past kVitalRight only the bars themselves and their caps count. A strip at
-// (232, 28)-(456, 36), with a piece at (216, 28)-(232, 36), is drawn in this
-// band for two frames and is neither.
 inline constexpr float kRaisedVitalRight = 480.0f;
+inline constexpr float kVitalBottom = 36.0f;
 // The sharpness frame and the colored bar under it.
 inline constexpr float kSharpLeft = 60.0f;
 inline constexpr float kSharpTop = 29.0f;
@@ -211,18 +207,24 @@ inline constexpr float kBowgunBottom = 200.0f;
         contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r);
 }
 
-// A health or stamina bar, fill or end cap that runs past kVitalRight when
-// the most health or stamina is raised. Bars and fills start at the bars'
-// left edge; a cap is 24 by 12 with its top on the health or stamina row.
-[[nodiscard]] inline bool is_raised_vital(Rect rect) {
+// A piece of health or stamina, out to where a raised bar's cap ends. Bars,
+// fills and frames start at the bars' left edge; a cap is 24 by 12 with its
+// top on the health or stamina row; a segment inside a bar is at most four
+// pixels tall. Other panels share this band while the bars are up, traced
+// with MHFU_TRACE_HUD_SCALE: the item box's top edge, (216, 28)-(456, 36),
+// and a message window at (152, 8)-(328, 32) with 7 by 14 glyphs on it.
+// They are none of these.
+[[nodiscard]] inline bool is_vital_piece(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    if (!contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r) || height < 2.0f) return false;
+    if (!contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r) || width < 2.0f || height < 2.0f)
+        return false;
     const bool bar = r.x0 >= 48.0f && r.x0 <= 72.0f && height <= 14.0f;
     const bool cap = width >= 20.0f && width <= 28.0f && height >= 10.0f && height <= 14.0f &&
         ((r.y0 >= 6.0f && r.y0 <= 12.0f) || (r.y0 >= 18.0f && r.y0 <= 24.0f));
-    return bar || cap;
+    const bool segment = height <= 4.0f && r.y0 >= 10.0f && r.y0 <= 28.0f;
+    return bar || cap || segment;
 }
 
 // The item list ("Please select an item") is a window on the right of the
@@ -439,9 +441,8 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     if (is_clock_sprite(r)) return Piece::Vitals;
     // The health and stamina fills are two pixels tall. The clock's hand is
     // drawn inside the gauge.
-    if (width >= 2.0f && height >= 2.0f &&
-        (contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r) || is_raised_vital(r) ||
-            contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)))
+    if (is_vital_piece(r) ||
+        (width >= 2.0f && height >= 2.0f && contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)))
         return Piece::Vitals;
     if (width < 4.0f || height < 4.0f) return Piece::None;
     // The hunter's name under the clock. It grows from the clock's corner

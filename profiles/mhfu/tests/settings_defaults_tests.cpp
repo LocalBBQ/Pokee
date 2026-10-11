@@ -502,6 +502,19 @@ void test_interface_sizes() {
         "a strip past the bars' end that is not a bar or a cap is not status");
     check(mhfu::gpu::hud_scale::piece_of({386.0f, 21.0f, 410.0f, 33.0f}) == mhfu::gpu::hud_scale::Piece::Vitals,
         "a cap just past the old status edge, stamina at 125, is status");
+    // Panels drawn in the status band while the bars are up, traced with
+    // MHFU_TRACE_HUD_SCALE: the item box's top edge, and a message window
+    // with its text. Shrunk with the status they were pulled off their panel.
+    for (const mhfu::gpu::hud_scale::Rect other : {mhfu::gpu::hud_scale::Rect{216.0f, 28.0f, 232.0f, 36.0f},
+             mhfu::gpu::hud_scale::Rect{152.0f, 8.0f, 168.0f, 24.0f},
+             mhfu::gpu::hud_scale::Rect{168.0f, 8.0f, 312.0f, 24.0f},
+             mhfu::gpu::hud_scale::Rect{168.0f, 24.0f, 312.0f, 32.0f},
+             mhfu::gpu::hud_scale::Rect{174.0f, 9.0f, 181.0f, 23.0f}})
+        check(mhfu::gpu::hud_scale::piece_of(other) == mhfu::gpu::hud_scale::Piece::None,
+            "another panel in the status band is not status");
+    check(mhfu::gpu::hud_scale::piece_of({56.0f, 17.0f, 320.0f, 19.0f}) == mhfu::gpu::hud_scale::Piece::Vitals &&
+            mhfu::gpu::hud_scale::piece_of({200.0f, 13.0f, 260.0f, 17.0f}) == mhfu::gpu::hud_scale::Piece::Vitals,
+        "a fill, and a segment inside a bar, stay status");
     // Once a monster is found the small map is the window at (371, 59)-(411, 99).
     // It shrinks toward its own top-right, and the mark on it stays on it.
     // Status size does not pull it toward the clock.
