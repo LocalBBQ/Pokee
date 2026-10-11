@@ -393,23 +393,27 @@ void test_interface_sizes() {
     using mhfu::gpu::hud_scale::Frame;
     using mhfu::gpu::hud_scale::Scales;
     const Settings fresh = defaults();
-    check(fresh.hud.map == 100u && fresh.hud.health == 100u && fresh.hud.item_bar == 100u,
+    check(fresh.hud.map == 100u && fresh.hud.health == 100u && fresh.hud.item_bar == 100u && fresh.hud.names == 100u,
         "every interface piece starts at the game's size");
-    const Settings chosen =
-        from_entries({{"video.hud.map", "50"}, {"video.hud.health", "150"}, {"video.hud.item_bar", "70"}});
-    check(chosen.hud.map == 50u && chosen.hud.health == 150u && chosen.hud.item_bar == 70u,
+    const Settings chosen = from_entries({{"video.hud.map", "50"},
+        {"video.hud.health", "150"},
+        {"video.hud.item_bar", "70"},
+        {"video.hud.names", "60"}});
+    check(chosen.hud.map == 50u && chosen.hud.health == 150u && chosen.hud.item_bar == 70u && chosen.hud.names == 60u,
         "each piece reads its own size");
     const Entries written = to_entries(chosen);
     check(written.at("video.hud.map") == "50" && written.at("video.hud.health") == "150" &&
-            written.at("video.hud.item_bar") == "70",
+            written.at("video.hud.item_bar") == "70" && written.at("video.hud.names") == "60",
         "each piece writes its own size");
     check(from_entries({{"video.hud.map", "40"}}).hud.map == 50u, "below 50% stays at 50%");
     check(from_entries({{"video.hud.item_bar", "900"}}).hud.item_bar == 150u, "above 150% stays at 150%");
+    check(from_entries({{"video.hud.names", "10"}}).hud.names == 50u, "a name below 50% stays at 50%");
+    check(from_entries({{"video.hud.names", "200"}}).hud.names == 150u, "a name above 150% stays at 150%");
 
     // One size used to cover all three.
     const Settings older = from_entries({{"video.map_item_scale", "80"}});
-    check(older.hud.map == 80u && older.hud.health == 80u && older.hud.item_bar == 80u,
-        "the earlier single size carries over to all three");
+    check(older.hud.map == 80u && older.hud.health == 80u && older.hud.item_bar == 80u && older.hud.names == 100u,
+        "the earlier single size carries over to the map, status and items, and leaves names at the game's size");
     check(from_entries({{"video.map_item_scale", "80"}, {"video.hud.map", "60"}}).hud.health == 100u,
         "the earlier size is ignored once a separate size is saved");
     check(to_entries(older).count("video.map_item_scale") == 0u, "the earlier key is not written again");
@@ -844,6 +848,29 @@ void test_interface_sizes() {
     closed_corner[2] = {328.0f, 216.0f};
     mhfu::gpu::hud_scale::scale_quads(closed_corner, bar_half, bar_closed);
     check(!bar_closed.ammo_menu_now, "the closed item bar's corner is not the ammo menu");
+
+    // A teammate's name. Glyphs share the point the game placed the text, so
+    // half size closes the gap between letters and leaves that point put.
+    // A plate filed on its own has no such point and shrinks about its centre.
+    std::vector<Vertex> glyphs = {{100.0f, 80.0f}, {108.0f, 80.0f}, {108.0f, 92.0f}, {100.0f, 80.0f}, {108.0f, 92.0f},
+        {100.0f, 92.0f}, {116.0f, 80.0f}, {124.0f, 80.0f}, {124.0f, 92.0f}, {116.0f, 80.0f}, {124.0f, 92.0f},
+        {116.0f, 92.0f}};
+    mhfu::gpu::hud_scale::scale_name(glyphs, 0.5f, true, 100.0f, 80.0f);
+    check(glyphs[0].x == 100.0f && glyphs[0].y == 80.0f && glyphs[6].x == 108.0f && glyphs[8].x == 112.0f &&
+            glyphs[8].y == 86.0f,
+        "a name shrinks toward the point the game placed it");
+    std::vector<Vertex> name_plate(6, Vertex{200.0f, 40.0f});
+    name_plate[2] = {232.0f, 56.0f};
+    mhfu::gpu::hud_scale::scale_name(name_plate, 0.5f, false, 0.0f, 0.0f);
+    check(name_plate[0].x == 208.0f && name_plate[0].y == 44.0f && name_plate[2].x == 224.0f &&
+            name_plate[2].y == 52.0f,
+        "a name plate with no text point shrinks about its own centre");
+    std::vector<Vertex> as_drawn = {{10.0f, 10.0f}, {20.0f, 30.0f}};
+    mhfu::gpu::hud_scale::scale_name(as_drawn, 1.0f, true, 0.0f, 0.0f);
+    check(as_drawn[0].x == 10.0f && as_drawn[1].y == 30.0f, "100% leaves a name where the game drew it");
+    const Scales name_half = Scales::from_percent(100u, 100u, 100u, 50u);
+    check(name_half.names == 0.5f && name_half.map == 1.0f && name_half.any(), "the name size is its own");
+    check(!Scales::from_percent(100u, 100u, 100u).any(), "an omitted name size stays at the game's size");
 }
 
 int main() {

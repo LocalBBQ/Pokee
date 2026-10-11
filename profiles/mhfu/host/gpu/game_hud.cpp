@@ -85,6 +85,9 @@ constexpr std::array<HudFunction, 6> kHudFunctions = {{
     {0x09A62400u, 0x27BDFFF0u, 0xAFBF000Cu}, // game_task HUD state: addiu sp,-16; sw ra,12(sp)
     {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu}, // game_task labels: addiu sp,-96; sw ra,28(sp)
 }};
+// The name over another hunter, and the mark beside it. Both are already in
+// kHudFunctions; this is which of those the name size scales.
+constexpr std::array<std::uint32_t, 2> kNameLabels = {0x09A6C248u, 0x09B62488u};
 
 // The text context, and in it each queue's length (u8 at +308 + queue) and
 // entries (a pointer at +320 + 4 * queue, entries of 12 bytes). The flush
@@ -163,11 +166,23 @@ struct State {
     // last watched call.
     std::vector<std::uint32_t> text_entries;
     std::array<std::uint8_t, kQueues> lengths{};
+    // Text queued by a name label, and the point the game placed it (the
+    // entry's x and y). Icons of that text keep the same point.
+    std::vector<std::uint32_t> name_entries;
+    struct NamePacket {
+        std::uint32_t end{};
+        bool has_origin{};
+        float x{};
+        float y{};
+    };
+    std::map<std::uint32_t, NamePacket> name_packets;
+    std::unordered_map<std::uint32_t, std::pair<float, float>> icon_origin;
     // Icons in HUD text, and each queue's icon count when last looked at.
     std::vector<std::uint32_t> icons;
     std::array<std::uint8_t, kQueues> icon_counts{};
     std::uint64_t icon_frame{~0ull};
     bool last_call_hud{};
+    bool last_call_name{};
     std::array<bool, kHudFunctions.size()> hud_word_logged{};
     std::unordered_map<std::uint32_t, Frame> frames;
     // MHFU_TRACE_HUD
@@ -241,11 +256,12 @@ bool hud_function_here(State &s, const psprecomp::GuestMemory &memory, std::uint
 
 // Whether a HUD function is on the guest's call stack; the chain of return
 // addresses and function starts goes to `line` when one is given.
-bool from_hud(
-    State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::string *line) {
+bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::string *line,
+    bool *name) {
     std::uint32_t ra = ctx.gpr[31];
     std::uint32_t sp = ctx.gpr[29];
     bool hud = false;
+    bool found_name = false;
     for (int depth = 0; depth < 12; ++depth) {
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
@@ -256,13 +272,23 @@ bool from_hud(
         }
         if (hud_function_here(s, memory, frame->start)) {
             hud = true;
+            found_name = found_name || name_label(frame->start);
             if (line == nullptr) break;
         }
         if (frame->ra_offset == ~0u || !memory.contains(sp + frame->ra_offset, 4u)) break;
         ra = memory.load32(sp + frame->ra_offset);
         sp += frame->size;
     }
+    if (name != nullptr) *name = found_name;
     return hud;
+}
+
+// The text entry's x and y, the point 0x08890DFC stored before the glyphs.
+bool entry_origin(const psprecomp::GuestMemory &memory, std::uint32_t entry, float &x, float &y) {
+    if (!memory.contains(entry, 4u)) return false;
+    x = static_cast<float>(static_cast<std::int16_t>(memory.load16(entry)));
+    y = static_cast<float>(static_cast<std::int16_t>(memory.load16(entry + 2u)));
+    return true;
 }
 
 // The queue entries added since the last watched call belong to the code
@@ -278,11 +304,17 @@ void settle_text(State &s, const psprecomp::GuestMemory &memory) {
         if (length < known) {
             // Drawn and emptied: its entries are someone else's from now on.
             const std::uint32_t end = entries + 256u * kEntryBytes;
-            std::erase_if(s.text_entries, [&](std::uint32_t e) { return e >= entries && e < end; });
+            const auto gone = [&](std::uint32_t e) { return e >= entries && e < end; };
+            std::erase_if(s.text_entries, gone);
+            std::erase_if(s.name_entries, gone);
             known = 0u;
         }
-        if (s.last_call_hud)
-            for (std::uint32_t i = known; i < length; ++i) s.text_entries.push_back(entries + i * kEntryBytes);
+        if (s.last_call_hud || s.last_call_name)
+            for (std::uint32_t i = known; i < length; ++i) {
+                const std::uint32_t at = entries + i * kEntryBytes;
+                if (s.last_call_hud) s.text_entries.push_back(at);
+                if (s.last_call_name) s.name_entries.push_back(at);
+            }
         known = length;
     }
 }
@@ -297,29 +329,56 @@ void note_packet(State &s, std::uint32_t packet, std::uint32_t words, bool hud) 
     if (s.packets.size() > 65536u) s.packets.clear(); // never expected; bounds a runaway
 }
 
+void note_name_packet(
+    State &s, std::uint32_t packet, std::uint32_t words, bool name, bool has_origin, float x, float y) {
+    const std::uint32_t end = packet + words * 4u;
+    auto it = s.name_packets.lower_bound(packet);
+    if (it != s.name_packets.begin() && std::prev(it)->second.end > packet) --it;
+    while (it != s.name_packets.end() && it->first < end) it = s.name_packets.erase(it);
+    if (name) s.name_packets.emplace(packet, State::NamePacket{end, has_origin, x, y});
+    if (s.name_packets.size() > 65536u) s.name_packets.clear();
+}
+
 void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext &ctx) {
     State &s = state();
     const psprecomp::GuestMemory &memory = runtime.memory();
     settle_text(s, memory);
     const bool trace = tracing(s);
     std::string chain;
-    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr);
+    bool name = false;
+    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name);
     // Text a HUD function queues after drawing a packet of its own, as the
-    // name plate does, is the HUD's too.
+    // name plate does, is the HUD's too. The stack here is the filer, so a
+    // name is the label function on that stack, or text it queued earlier.
     s.last_call_hud = hud;
+    s.last_call_name = name;
     const std::uint32_t sp = ctx.gpr[29];
     std::uint32_t entry = 0u;
-    if (!hud && ctx.gpr[31] == kGlyphFiled && memory.contains(sp + kGlyphSavedRa, 4u) &&
+    bool has_origin = false;
+    float origin_x = 0.0f;
+    float origin_y = 0.0f;
+    if (ctx.gpr[31] == kGlyphFiled && memory.contains(sp + kGlyphSavedRa, 4u) &&
         memory.load32(sp + kGlyphSavedRa) == kGlyphFromQueue) {
         entry = memory.load32(sp + kGlyphSavedEntry);
-        hud = std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end();
+        if (!hud) hud = std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end();
+        if (std::find(s.name_entries.begin(), s.name_entries.end(), entry) != s.name_entries.end()) {
+            name = true;
+            has_origin = entry_origin(memory, entry, origin_x, origin_y);
+        }
     }
     // 0x08892A88 files an icon's packets with the list entry in s4.
-    if (!hud && (ctx.gpr[31] == kIconFiled || ctx.gpr[31] == kIconFiledAgain)) {
+    if (ctx.gpr[31] == kIconFiled || ctx.gpr[31] == kIconFiledAgain) {
         entry = ctx.gpr[20];
-        hud = std::find(s.icons.begin(), s.icons.end(), entry) != s.icons.end();
+        if (!hud) hud = std::find(s.icons.begin(), s.icons.end(), entry) != s.icons.end();
+        if (const auto placed = s.icon_origin.find(entry); placed != s.icon_origin.end()) {
+            name = true;
+            has_origin = true;
+            origin_x = placed->second.first;
+            origin_y = placed->second.second;
+        }
     }
     note_packet(s, ctx.gpr[5], ctx.gpr[6], hud);
+    note_name_packet(s, ctx.gpr[5], ctx.gpr[6], name, has_origin, origin_x, origin_y);
     if (trace) {
         char head[160];
         std::snprintf(head, sizeof(head), "[hud] f=%llu packet=%08X words=%u bucket=%u list=%08X %s |",
@@ -348,6 +407,7 @@ void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexCo
         s.icon_frame = s.frame;
         s.icon_counts.fill(0u);
         s.icons.clear();
+        s.icon_origin.clear();
     }
     if (!memory.contains(context + kQueueEntries, kQueues * 4u) || !memory.contains(context + kIconCounts, kQueues))
         return;
@@ -358,11 +418,23 @@ void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexCo
         const std::uint32_t list = context + kIconLists + queue * kIconListStride;
         std::uint8_t &known = s.icon_counts[queue];
         if (count < known) {
-            std::erase_if(s.icons, [&](std::uint32_t e) { return e >= list && e < list + kIconListStride; });
+            const auto in_list = [&](std::uint32_t e) { return e >= list && e < list + kIconListStride; };
+            std::erase_if(s.icons, in_list);
+            std::erase_if(s.icon_origin, [&](const auto &placed) { return in_list(placed.first); });
             known = 0u;
         }
-        if (std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end())
-            for (std::uint32_t i = known; i < count; ++i) s.icons.push_back(list + i * kIconBytes);
+        const bool hud_text = std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end();
+        const bool name_text = std::find(s.name_entries.begin(), s.name_entries.end(), entry) != s.name_entries.end();
+        if (hud_text || name_text) {
+            float origin_x = 0.0f;
+            float origin_y = 0.0f;
+            const bool has_origin = name_text && entry_origin(memory, entry, origin_x, origin_y);
+            for (std::uint32_t i = known; i < count; ++i) {
+                const std::uint32_t icon = list + i * kIconBytes;
+                if (hud_text) s.icons.push_back(icon);
+                if (has_origin) s.icon_origin.emplace(icon, std::pair{origin_x, origin_y});
+            }
+        }
         known = count;
         return;
     }
@@ -374,7 +446,9 @@ void on_text_call(std::size_t which, psprecomp::Runtime &runtime, const psprecom
     settle_text(s, memory);
     const bool trace = tracing(s);
     std::string chain;
-    s.last_call_hud = from_hud(s, memory, ctx, trace ? &chain : nullptr);
+    bool name = false;
+    s.last_call_hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name);
+    s.last_call_name = name;
     if (trace)
         std::cout << "[hud] f=" << s.frame << " text 0x" << std::hex << wrapped_address(which) << std::dec
                   << (s.last_call_hud ? " HUD" : " -") << " |" << chain << "\n";
@@ -435,6 +509,10 @@ bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t ad
     return false;
 }
 
+bool name_label(std::uint32_t address) {
+    return std::find(kNameLabels.begin(), kNameLabels.end(), address) != kNameLabels.end();
+}
+
 void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
     State &s = state();
     s.frame = presented_frames;
@@ -451,7 +529,10 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
     // Only at the flip, from an import: no generated frame is live on the
     // host stack, so the dispatch tables may change. Put in place once first
     // needed, then kept, so that hiding and showing the HUD again works at once.
-    const bool wanted = s.hidden || s.trace_first != ~0ull;
+    // A name, or the map at another size, has to be told from the other 2D
+    // draws or the map's rectangle scales a name that happens to cross it.
+    const settings::Settings::InterfaceScale &hud = settings::current().hud;
+    const bool wanted = s.hidden || s.trace_first != ~0ull || hud.names != 100u || hud.map != 100u;
     if (!s.installed && wanted && s.available) {
         s.installed = true;
         if (!install_all(runtime, std::make_index_sequence<kWrapped>{})) {
@@ -523,6 +604,20 @@ bool hides(std::uint32_t command_address, std::uint32_t call_return) {
         return it != s.packets.begin() && address < std::prev(it)->second;
     };
     return inside(command_address) || inside(call_return);
+}
+
+NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return) {
+    const State &s = state();
+    if (!s.installed) return {};
+    const auto found = [&](std::uint32_t address) -> NameDraw {
+        if (address == 0u) return {};
+        auto it = s.name_packets.upper_bound(address);
+        if (it == s.name_packets.begin() || address >= std::prev(it)->second.end) return {};
+        const State::NamePacket &packet = std::prev(it)->second;
+        return {true, packet.has_origin, packet.x, packet.y};
+    };
+    const NameDraw command = found(command_address);
+    return command.is_name ? command : found(call_return);
 }
 
 } // namespace mhfu::gpu::hud

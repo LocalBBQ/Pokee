@@ -7604,64 +7604,95 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // is drawn is scaled; the one the vertex cache keeps is not, so 100% is
     // the vertices the game submitted.
     const settings::Settings::InterfaceScale &hud = settings::current().hud;
-    const hud_scale::Scales hud_scales = hud_scale::Scales::from_percent(hud.map, hud.health, hud.item_bar);
+    const hud_scale::Scales hud_scales = hud_scale::Scales::from_percent(hud.map, hud.health, hud.item_bar, hud.names);
     // The clock's hands and the player's arrow on the map turn, so they are
     // drawn as one quad each: a four-vertex strip, six vertices expanded.
     const bool turned_quad = call.primitive == PrimitiveType::TriangleStrip && count == 4u;
     const bool scale_corners = call.through && !call.clear_mode && hud_scales.any() && !direct &&
         (call.primitive == PrimitiveType::Sprites || turned_quad);
+    // A name over another hunter. Told apart from the map so a name that
+    // crosses the map keeps this size, not the map's.
+    const hud::NameDraw named = scale_corners ? hud::name_at(call.command_address, call.call_return) : hud::NameDraw{};
     std::vector<GpuVertex> corner_scaled;
     // The area map's draw, after scaling. Its scissor is often the rectangle
     // the game drew, so a larger map is clipped back to that size, and a
     // smaller one can fail the depth test against the map already in the
     // buffer. Both leave the panel looking unchanged.
     bool map_resized = false;
+    bool name_resized = false;
     hud_scale::Rect map_bounds{};
+    hud_scale::Rect name_bounds{};
     if (scale_corners) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
         corner_scaled = unscaled;
-        // The moving map window is told from other panels of the same size by
-        // the texture it samples (gpu/hud_scale.hpp).
-        const std::uint32_t hud_texture = call.texture.enabled ? call.texture.address : 0u;
-        hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture);
-        const auto bounds_of = [](const std::vector<GpuVertex> &vertices, std::size_t first) {
-            hud_scale::Rect r{vertices[first].x, vertices[first].y, vertices[first].x, vertices[first].y};
-            for (std::size_t i = 1; i < 6u; ++i) {
-                r.x0 = std::min(r.x0, vertices[first + i].x);
-                r.y0 = std::min(r.y0, vertices[first + i].y);
-                r.x1 = std::max(r.x1, vertices[first + i].x);
-                r.y1 = std::max(r.y1, vertices[first + i].y);
+        if (named.is_name) {
+            float origin_x = named.origin_x;
+            float origin_y = named.origin_y;
+            // Fit pulls the 2D interface in about the screen's centre. The
+            // text entry's point is still in the game's pixels, so it moves
+            // with the glyphs.
+            if (named.has_origin && fitted) {
+                const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+                const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+                origin_x = centre_x + (origin_x - centre_x) * fit_x;
+                origin_y = centre_y + (origin_y - centre_y) * fit_y;
             }
-            return r;
-        };
-        for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
-            bool moved = false;
-            for (std::size_t i = 0; i < 6u; ++i)
-                moved = moved || corner_scaled[first + i].x != unscaled[first + i].x ||
-                    corner_scaled[first + i].y != unscaled[first + i].y;
-            // MHFU_TRACE_HUD_SCALE=1: each distinct sprite the interface
-            // sizes move, once, with the piece it was taken for.
-            static const bool trace_hud_scale = std::getenv("MHFU_TRACE_HUD_SCALE") != nullptr;
-            if (moved && trace_hud_scale) {
-                static std::set<std::string> traced;
-                const hud_scale::Rect from = bounds_of(unscaled, first);
-                const hud_scale::Rect to = bounds_of(corner_scaled, first);
-                std::ostringstream line;
-                line << hud_scale::piece_name(hud_scale::piece_of(from)) << " (" << from.x0 << "," << from.y0
-                     << ")-(" << from.x1 << "," << from.y1 << ") tex=0x" << std::hex << hud_texture << " fb=0x"
-                     << call.target.color_address << std::dec;
-                if (traced.insert(line.str()).second)
-                    std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << ","
-                              << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")\n";
+            hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
+            if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
+                name_bounds = {corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
+                    corner_scaled.front().y};
+                for (const GpuVertex &vertex : corner_scaled) {
+                    name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
+                    name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
+                    name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
+                    name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
+                }
+                name_resized = true;
             }
-            if (!moved || !hud_scale::is_map_sprite(bounds_of(unscaled, first))) continue;
-            const hud_scale::Rect scaled = bounds_of(corner_scaled, first);
-            if (!map_resized) {
-                map_bounds = scaled;
-                map_resized = true;
-            } else {
-                map_bounds = {std::min(map_bounds.x0, scaled.x0), std::min(map_bounds.y0, scaled.y0),
-                    std::max(map_bounds.x1, scaled.x1), std::max(map_bounds.y1, scaled.y1)};
+        } else {
+            // The moving map window is told from other panels of the same size by
+            // the texture it samples (gpu/hud_scale.hpp).
+            const std::uint32_t hud_texture = call.texture.enabled ? call.texture.address : 0u;
+            hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture);
+            const auto bounds_of = [](const std::vector<GpuVertex> &vertices, std::size_t first) {
+                hud_scale::Rect r{vertices[first].x, vertices[first].y, vertices[first].x, vertices[first].y};
+                for (std::size_t i = 1; i < 6u; ++i) {
+                    r.x0 = std::min(r.x0, vertices[first + i].x);
+                    r.y0 = std::min(r.y0, vertices[first + i].y);
+                    r.x1 = std::max(r.x1, vertices[first + i].x);
+                    r.y1 = std::max(r.y1, vertices[first + i].y);
+                }
+                return r;
+            };
+            for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
+                bool moved = false;
+                for (std::size_t i = 0; i < 6u; ++i)
+                    moved = moved || corner_scaled[first + i].x != unscaled[first + i].x ||
+                        corner_scaled[first + i].y != unscaled[first + i].y;
+                // MHFU_TRACE_HUD_SCALE=1: each distinct sprite the interface
+                // sizes move, once, with the piece it was taken for.
+                static const bool trace_hud_scale = std::getenv("MHFU_TRACE_HUD_SCALE") != nullptr;
+                if (moved && trace_hud_scale) {
+                    static std::set<std::string> traced;
+                    const hud_scale::Rect from = bounds_of(unscaled, first);
+                    const hud_scale::Rect to = bounds_of(corner_scaled, first);
+                    std::ostringstream line;
+                    line << hud_scale::piece_name(hud_scale::piece_of(from)) << " (" << from.x0 << "," << from.y0
+                         << ")-(" << from.x1 << "," << from.y1 << ") tex=0x" << std::hex << hud_texture << " fb=0x"
+                         << call.target.color_address << std::dec;
+                    if (traced.insert(line.str()).second)
+                        std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << ","
+                                  << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")\n";
+                }
+                if (!moved || !hud_scale::is_map_sprite(bounds_of(unscaled, first))) continue;
+                const hud_scale::Rect scaled = bounds_of(corner_scaled, first);
+                if (!map_resized) {
+                    map_bounds = scaled;
+                    map_resized = true;
+                } else {
+                    map_bounds = {std::min(map_bounds.x0, scaled.x0), std::min(map_bounds.y0, scaled.y0),
+                        std::max(map_bounds.x1, scaled.x1), std::max(map_bounds.y1, scaled.y1)};
+                }
             }
         }
     }
@@ -8015,6 +8046,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         edges[3] = centre_y + (edges[3] - centre_y) * fit_y;
     }
     if (map_resized) hud_scale::include_in_scissor(edges[0], edges[1], edges[2], edges[3], map_bounds);
+    if (name_resized) hud_scale::include_in_scissor(edges[0], edges[1], edges[2], edges[3], name_bounds);
     const auto to_pixels = [](float edge, float scale, std::uint32_t size) {
         return static_cast<std::int32_t>(std::clamp(std::lround(edge * scale), 0l, static_cast<long>(size)));
     };

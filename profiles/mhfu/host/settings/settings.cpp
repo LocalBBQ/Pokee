@@ -320,6 +320,15 @@ const std::vector<Field> &fields() {
                 std::uint32_t value = s.hud.item_bar;
                 if (parse_uint(t, kMinMapItemScale, kMaxMapItemScale, value)) s.hud.item_bar = value;
             }},
+        {"video.hud.names", "MHFU_HUD_NAMES",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.hud.names);
+            },
+            [](const Settings &s) { return std::to_string(s.hud.names); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.hud.names;
+                if (parse_uint(t, kMinMapItemScale, kMaxMapItemScale, value)) s.hud.names = value;
+            }},
         {"text.weight", nullptr,
             [](Settings &s, const std::string &t) { return parse_uint(t, 0u, kMaxFontWeight, s.font_weight); },
             [](const Settings &s) { return std::to_string(s.font_weight); }, nullptr},

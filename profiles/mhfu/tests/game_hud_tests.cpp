@@ -62,6 +62,9 @@ void test_hud_functions() {
     memory.store32(functions[0].address, functions[2].first);
     memory.store32(functions[0].address + 4u, functions[2].saved_ra);
     check(!hud_function_matches(memory, functions[0].address), "the other overlay's words do not count");
+    check(name_label(0x09A6C248u), "the gathering hall name is a name");
+    check(name_label(0x09B62488u), "the quest name is a name");
+    check(!name_label(0x09A60298u), "the quest HUD is not a teammate's name");
 }
 
 } // namespace
