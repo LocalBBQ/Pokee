@@ -9,8 +9,10 @@
 
 #include "overlays.hpp"
 #include "game/damage_numbers.hpp"
+#include "game/gather_icon.hpp"
 #include "game/guest_ram.hpp"
 #include "game/hit_trace.hpp"
+#include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
 #include "platform/utf8_path.hpp"
 
@@ -24,6 +26,7 @@
 #include "camera/camera_input.hpp"
 #include "camera/game_aspect.hpp"
 #include "camera/game_camera.hpp"
+#include "camera/hunt_icon.hpp"
 #include "camera/lock_on.hpp"
 #include "input/bindings.hpp"
 #include "settings/settings.hpp"
@@ -220,10 +223,11 @@ void feed_mouse(gpu::VulkanRenderer &renderer) {
 #endif
 
 #if defined(MHFU_HAS_RENDERER)
-// The quest camera's eye for damage numbers, asking for the camera hook when
-// they (or MHFU_TRACE_HITS) are on.
+// The quest camera's eye for damage numbers and the gather mark, asking for
+// the camera hook when either of those, or MHFU_TRACE_HITS, is on.
 std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
-    camera::game_camera_want_pose(settings::current().damage_numbers || game::hit_trace::enabled());
+    camera::game_camera_want_pose(settings::current().damage_numbers || settings::current().gather_icon ||
+        game::hit_trace::enabled());
     const std::optional<camera::CameraPose> pose = camera::game_camera_pose(rt.memory());
     if (!pose) return std::nullopt;
     return game::EyePose{{pose->eye[0], pose->eye[1], pose->eye[2]},
@@ -259,6 +263,7 @@ void present_frame(Runtime &rt) {
     game::attach(rt);
     // Layered armor puts its wrappers in place here, between two frames.
     game::layered::frame(rt);
+    game::item_box::frame(rt);
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
         perf::end_frame(kernel().now_us());
@@ -280,10 +285,24 @@ void present_frame(Runtime &rt) {
         renderer.upload_frame(
             address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
     }
-    game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), damage_numbers_pose(rt));
+    const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
+    game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), pose);
     // The draws of this frame have already named the camera they used, so the
     // marker matches the picture about to be shown, aim camera included.
     ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
+    if (!settings::current().lock_on) {
+        ui::set_hunt_portraits({});
+    } else {
+        camera::refresh_hunt_icons(rt.memory());
+        const camera::LockOnStatus locked = camera::lock_on_status();
+        ui::set_hunt_portraits(
+            camera::place_hunt_portraits(camera::hunt_monsters(rt.memory()), locked.target, locked.locked));
+    }
+    std::optional<game::GatherPose> gather_pose;
+    if (pose)
+        gather_pose = game::GatherPose{
+            pose->eye.x, pose->eye.y, pose->eye.z, pose->look_at.x, pose->look_at.y, pose->look_at.z};
+    ui::set_gather_mark(game::gather_mark(rt.memory(), gather_pose));
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more
@@ -310,6 +329,7 @@ void present_frame(Runtime &rt) {
         // A tap of Lock on (camera/lock_on.hpp) waits for the next update
         // of the follow camera, which game_camera_frame makes sure to drive.
         if (renderer.take_lock_on_press()) camera::lock_on_tap();
+        camera::set_focus_camera_held(renderer.focus_camera_held());
         camera::game_camera_frame(rt);
         if (const std::string why = camera::lock_on_take_note(); !why.empty()) ui::show_note(why);
         // The view's shape follows the picture's: the game builds its next
@@ -487,6 +507,7 @@ void register_display_ctrl(HleRegistrar &hle) {
             }
         }
 #endif
+        buttons = game::gather_hold(buttons, rt.memory());
         {
             static const bool trace_reads = std::getenv("MHFU_TRACE_PAD_READS") != nullptr;
             if (trace_reads)

@@ -3,6 +3,7 @@
 // real camera driver dispatching the camera update.
 #include "camera/camera_input.hpp"
 #include "camera/game_camera.hpp"
+#include "camera/hunt_icon.hpp"
 #include "camera/lock_on.hpp"
 #include "input/bindings.hpp"
 #include "input/presets.hpp"
@@ -61,19 +62,91 @@ constexpr std::uint32_t hunter = 0x09410000u;
 // target becomes the facing plus half a turn and the snap byte is set and
 // cleared in the same update.
 bool game_recenters{};
+// L while the camera is not yet that close: the target is written behind the
+// hunter, the filtered yaw steps a quarter of the way there, and the snap
+// stays set.
+bool game_pulls_recenter{};
+// Set when the stand-in places the eye behind the hunter inside the update.
+// The recenter check can do that without the button bit, and so can the
+// facing step that runs when camera +0x91 is not negative.
+bool game_placed_recenter_eye{};
+
+void write_float(psprecomp::GuestMemory &memory, std::uint32_t address, float value);
+
+// The pad sample the update writes back onto the hunter list, undoing a clear
+// made before the update. 0x09A6EE48 can also make the recenter check return 1
+// without that bit.
+std::uint16_t pad_recenter = 0u;
+bool overlay_recenters = false;
+
+void place_behind_eye(psprecomp::GuestMemory &memory) {
+    const auto behind = static_cast<std::uint16_t>(memory.load32(hunter + 500u) + 0x8000u);
+    const auto current = memory.load16(camera_address + 0x82u);
+    const int step = static_cast<std::int16_t>(static_cast<std::uint16_t>(behind - current)) >> 2;
+    memory.store16(camera_address + 0x80u, behind);
+    memory.store16(camera_address + 0x82u, static_cast<std::uint16_t>(current + step));
+    memory.store8(camera_address + 0x8Eu, 1u);
+    write_float(memory, camera_address, 50.0f);
+    memory.store8(camera_address + 0x8Du, 20u);
+    game_placed_recenter_eye = true;
+}
+
+// The game's recenter check. Returns 1 when the button bit survived, or when
+// the overlay says to recenter without it.
+void recenter_stand_in(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    auto &memory = runtime.memory();
+    const auto camera = ctx.gpr[4] + 0xA0u;
+    const bool bits = (memory.load16(camera + 0x86u) & 0x200u) != 0u && (memory.load32(hunter + 1152u) & 0x200u) != 0u;
+    ctx.gpr[2] = (bits || overlay_recenters) ? 1u : 0u;
+    ctx.pc = ctx.gpr[31];
+}
 
 void original(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    auto &memory = runtime.memory();
+    const auto behind = static_cast<std::uint16_t>(memory.load32(hunter + 500u) + 0x8000u);
     if (std::exchange(game_recenters, false)) {
-        auto &memory = runtime.memory();
-        memory.store16(
-            camera_address + 0x80u, static_cast<std::uint16_t>(memory.load32(hunter + 500u) + 0x8000u));
+        memory.store16(camera_address + 0x80u, behind);
         memory.store8(camera_address + 0x8Eu, 0u);
+    }
+    if (std::exchange(game_pulls_recenter, false)) {
+        const auto current = memory.load16(camera_address + 0x82u);
+        const int step = static_cast<std::int16_t>(static_cast<std::uint16_t>(behind - current)) >> 2;
+        memory.store16(camera_address + 0x80u, behind);
+        memory.store16(camera_address + 0x82u, static_cast<std::uint16_t>(current + step));
+        memory.store8(camera_address + 0x8Eu, 1u);
+        // The eye is placed from that stepped yaw, and +0x8D starts at 20.
+        write_float(memory, camera_address, 50.0f);
+        memory.store8(camera_address + 0x8Du, 20u);
+    }
+    // The update refreshes the list halfword, then copies it onto the camera,
+    // then asks 0x0888E494. A clear made before this does not survive the refresh.
+    const auto list = memory.load32(hunter_list);
+    if (list >= 0x08800000u) {
+        if (pad_recenter != 0u) memory.store16(list + 0xA72u, pad_recenter);
+        memory.store16(camera_address + 0x86u, memory.load16(list + 0xA72u));
+    }
+    psprecomp::AllegrexContext gate = ctx;
+    gate.gpr[4] = parent_address;
+    gate.gpr[31] = 0x088874ECu;
+    gate.gpr[2] = 0u;
+    gate.pc = 0x0888E494u;
+    if (auto check = runtime.function_at(0x0888E494u)) check(runtime, gate);
+    if (gate.gpr[2] != 0u) {
+        place_behind_eye(memory);
+    } else if (static_cast<std::int8_t>(memory.load8(camera_address + 0x91u)) >= 0) {
+        // 0x0888755C: the check returned 0, and the gate is not negative, so
+        // the update still steps toward where the hunter is facing.
+        place_behind_eye(memory);
     }
     ctx.pc = ctx.gpr[31];
 }
 
 void write_float(psprecomp::GuestMemory &memory, std::uint32_t address, float value) {
     memory.store32(address, std::bit_cast<std::uint32_t>(value));
+}
+
+float read_float(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    return std::bit_cast<float>(memory.load32(address));
 }
 
 void place(psprecomp::GuestMemory &memory, std::uint32_t monster, float x, float z, std::int16_t health = 1000,
@@ -83,6 +156,20 @@ void place(psprecomp::GuestMemory &memory, std::uint32_t monster, float x, float
     write_float(memory, monster + game::kPosition + 8u, z);
     memory.store16(monster + game::kHealth, static_cast<std::uint16_t>(health));
     memory.store16(monster + game::kMostHealth, static_cast<std::uint16_t>(most));
+}
+
+// GameSys and the stage the quest has loaded. Zone 21 is this area; 39 is not.
+constexpr std::uint32_t game_sys = 0x09800000u;
+constexpr std::uint16_t zone_here = 21u;
+constexpr std::uint16_t zone_away = 39u;
+
+void set_loaded_stage(psprecomp::GuestMemory &memory, std::uint16_t stage) {
+    memory.store32(game::kGameSysPointer, game_sys);
+    memory.store16(game_sys + game::kGameSysStage, stage);
+}
+
+void set_stage(psprecomp::GuestMemory &memory, std::uint32_t monster, std::uint16_t stage) {
+    memory.store16(monster + game::kStageId, stage);
 }
 
 // Newest node first, each +4 the next older one, as the game's insert leaves it.
@@ -109,8 +196,12 @@ struct Fixture {
     Fixture() {
         mhfu::settings::current() = {};
         mhfu::settings::current().analog_camera = false;
+        set_focus_camera_held(false);
+        pad_recenter = 0u;
+        overlay_recenters = false;
         runtime.register_generated_unit(29u, 0x08886000u, 0x1000u, &original, nullptr);
         runtime.register_function(helper, &original, "recomp_unit_test");
+        runtime.register_function(0x0888E494u, &recenter_stand_in, "recomp_unit_test_recenter");
         auto &memory = runtime.memory();
         for (const CodeWord &word : game_code_signature()) memory.store32(word.address, word.word);
         check(prepare_game_camera(runtime, &original), "the matching game code is accepted");
@@ -149,6 +240,11 @@ struct Fixture {
         memory.store32(companion + game::kVtable, large_vtable);
         place(memory, player, 0.0f, -50.0f); // a player node, even with health
         memory.store32(player + game::kVtable, large_vtable);
+        // The followed hunter, at the origin, for the camera tests.
+        memory.store32(hunter_list, hunters);
+        memory.store32(hunters + 2692u, hunter);
+        memory.store16(hunters + 0xA72u, 0u);
+        place(memory, hunter, 0.0f, 0.0f);
     }
     void update() {
         check(runtime.invoke_isolated_aot(helper, ctx), "the camera update dispatches");
@@ -203,6 +299,9 @@ void test_monsters_and_pick() {
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     check(lock_on_monsters(memory).size() == 1u, "a dead monster cannot be locked");
     place(memory, monster_b, 0.0f, -3000.0f, 1000, 0);
+    check(lock_on_monsters(memory).empty(),
+        "a dead large monster still keeps a small one from taking the lock");
+    place(memory, monster_a, 1000.0f, 0.0f, 1000, 0);
     check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == small,
         "with no marked monster left, the healthy small one remains");
     memory.store8(game::kTaskSlot + 32u, 'l');
@@ -224,10 +323,17 @@ void test_lock_follows_and_lets_go() {
     for (int i = 0; i < 40; ++i) f.frame();
     check(std::abs(yaw_difference(f.yaw(), 49152u)) < 64, "the camera turns to keep the monster ahead");
     check(memory.load16(camera_address + 0x80u) == f.yaw(), "the game's target yaw is kept with it");
-    // A push of the stick is the player taking the camera back.
+    // The right stick pauses tracking and hides the reticle. The monster, and
+    // its portrait, stay.
+    check(lock_on_marker_wanted(), "follow shows the reticle while tracking");
     f.frame(1.0f);
+    check(lock_on_status().locked && lock_on_status().target == monster_b && !game_camera_driving() &&
+            !lock_on_marker_wanted(),
+        "the right stick turns follow off, hides the reticle, and keeps the monster");
     f.frame(1.0f);
-    check(!lock_on_status().locked, "turning by hand lets go");
+    check(lock_on_status().locked && !game_camera_driving() && !lock_on_marker_wanted(),
+        "holding the stick does not drop the selection or bring the reticle back");
+    lock_on_release("");
     f.frame();
     check(!game_camera_driving(), "and the stick goes back to the game");
 
@@ -236,13 +342,14 @@ void test_lock_follows_and_lets_go() {
     check(lock_on_status().target == monster_a, "locked again, onto the nearer monster now in view");
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     f.frame();
-    check(!lock_on_status().locked, "a monster killed lets go");
+    check(!lock_on_status().locked && lock_on_take_note().empty(), "a monster killed lets go, without a note");
     lock_on_tap();
     f.frame();
     check(lock_on_status().target == monster_b, "the next tap takes the one that is left");
     place(memory, monster_b, 8000.0f, 0.0f);
     f.frame();
-    check(!lock_on_status().locked, "one farther than the release distance lets go");
+    check(!lock_on_status().locked && lock_on_take_note().empty(),
+        "one farther than the release distance lets go, without a note");
     place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
 
     place(memory, monster_a, 1000.0f, 0.0f);
@@ -265,6 +372,143 @@ void test_lock_follows_and_lets_go() {
     lock_on_tap();
     f.frame();
     check(!lock_on_status().locked, "with one monster a second tap lets go");
+}
+
+void test_monster_in_another_area() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    place(memory, monster_b, 8095.14f, 5898.45f);
+    write_float(memory, monster_b + game::kPosition + 4u, 1000.0f);
+    check(lock_on_monsters(memory).size() == 2u, "with no loaded stage, a far hold is still a target");
+    set_loaded_stage(memory, zone_here);
+    set_stage(memory, monster_a, zone_here);
+    set_stage(memory, monster_b, zone_here);
+    place(memory, monster_b, 200.0f, -200.0f);
+    write_float(memory, monster_b + game::kPosition + 4u, 1000.0f);
+    check(lock_on_monsters(memory).size() == 2u, "the same zone is this area, even at the hold height");
+    place(memory, monster_b, 0.0f, -3000.0f);
+    set_stage(memory, monster_b, zone_away);
+    const std::vector<LockMonster> away = lock_on_monsters(memory);
+    check(away.size() == 1u && away[0].address == monster_a, "a different zone is not a target, even close by");
+    set_stage(memory, monster_b, zone_here);
+    place(memory, monster_b, 0.0f, -3000.0f);
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_b, "a tap locks the monster in this area");
+    set_stage(memory, monster_b, zone_away);
+    f.frame();
+    check(!lock_on_status().locked && lock_on_take_note() == "Lock-on: the monster is in another area",
+        "the lock lets go when the monster leaves for another area");
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_a && lock_on_status().locked,
+        "the next tap takes the monster that is still here");
+    place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
+    f.frame();
+    check(!lock_on_status().locked && lock_on_take_note().empty(),
+        "the lock lets go when the monster dies, without a note");
+    lock_on_tap();
+    f.frame();
+    check(!lock_on_status().locked && !lock_on_marker_wanted(),
+        "with no large monster in this area, R3 locks nothing and shows no reticle");
+}
+
+void test_hunt_portrait_keeps_the_id_in_another_area() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    memory.store8(monster_a + game::kMonsterId, 11u);
+    memory.store8(monster_b + game::kMonsterId, 1u);
+    memory.store8(small + game::kMonsterId, 5u);
+    set_loaded_stage(memory, zone_here);
+    set_stage(memory, monster_a, zone_here);
+    set_stage(memory, monster_b, zone_away);
+    const std::vector<HuntMonster> hunt = hunt_monsters(memory);
+    check(hunt.size() == 2u, "the card keeps the large monster that is in another area");
+    const HuntMonster *here = nullptr;
+    const HuntMonster *away = nullptr;
+    for (const HuntMonster &monster : hunt) {
+        if (monster.address == monster_a) here = &monster;
+        if (monster.address == monster_b) away = &monster;
+    }
+    check(here != nullptr && here->id == 11u && !here->other_area, "the monster here keeps its id");
+    check(away != nullptr && away->id == 1u && away->other_area, "the monster in another area keeps its id");
+    check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == monster_a,
+        "lock-on still will not select the monster in another area");
+
+    const std::vector<HuntPortrait> placed = place_hunt_portraits(hunt, monster_a, true);
+    check(placed.size() == 2u, "one card each");
+    check(placed[0].other_area && !placed[0].locked && !placed[0].dead && placed[0].id == 1u,
+        "the corner icon stays the first monster on the list, even in another area");
+    check(!placed[1].other_area && placed[1].locked && placed[1].id == 11u,
+        "the next icon is the monster here, and the brackets follow the lock");
+    check(placed[0].x < placed[1].x && placed[0].y == placed[1].y, "the cards sit in a row");
+    check(placed[0].width == kHuntCardWidth && placed[0].height == kHuntCardHeight &&
+            placed[1].width == kHuntCardWidth && placed[1].height == kHuntCardHeight,
+        "each card is three quarters of the first portrait");
+    mhfu::settings::current().hunt_portrait_size = 200u;
+    const std::vector<HuntPortrait> large = place_hunt_portraits(hunt, monster_a, true);
+    check(large.size() == 2u && large[0].width == kHuntCardWidth * 2.0f && large[0].height == kHuntCardHeight * 2.0f &&
+            large[1].x + large[1].width <= 480.0f,
+        "twice the usual size still fits the row on the picture");
+    mhfu::settings::current().hunt_portrait_size = 50u;
+    const std::vector<HuntPortrait> half = place_hunt_portraits(hunt, monster_a, true);
+    check(half[0].width == kHuntCardWidth * 0.5f && half[0].height == kHuntCardHeight * 0.5f,
+        "half the usual size is half the card");
+    mhfu::settings::current().hunt_portrait_size = 100u;
+    check(placed[0].x >= 0.0f && placed[1].x + placed[1].width <= 480.0f && placed[0].y >= 0.0f &&
+            placed[0].y + placed[0].height <= 272.0f,
+        "the row stays on the 480 by 272 picture");
+    const std::optional<HuntIconCell> rathalos = hunt_icon_cell(11u);
+    const std::optional<HuntIconCell> rathian = hunt_icon_cell(1u);
+    const std::optional<HuntIconCell> tigrex = hunt_icon_cell(0x4Bu);
+    check(rathalos && rathalos->u == 0x90u && rathalos->v == 0x24u, "Rathalos is the icon at u 144, v 36");
+    check(rathian && rathian->u == 0xB4u && rathian->v == 0x24u, "Rathian is the icon beside it");
+    check(tigrex && tigrex->u == 0u && tigrex->v == 0xB4u, "Tigrex is the icon at the start of its row");
+    check(!hunt_icon_cell(0u), "an id the sheet does not carry has no icon");
+    bool inside = true;
+    unsigned cells = 0u;
+    for (unsigned id = 0u; id < 256u; ++id) {
+        const std::optional<HuntIconCell> cell = hunt_icon_cell(static_cast<std::uint8_t>(id));
+        if (!cell) continue;
+        ++cells;
+        if (cell->u + kHuntIconTexels > 256u || cell->v + kHuntIconTexels > 512u) inside = false;
+    }
+    check(cells == 77u && inside, "every icon cell is 36 texels and stays inside the 256 by 512 sheet");
+
+    const std::vector<HuntPortrait> idle = place_hunt_portraits(hunt, monster_a, false);
+    check(!idle[0].locked && !idle[1].locked, "with nothing locked, neither card has brackets");
+
+    const std::vector<HuntMonster> returned_order = hunt;
+    set_stage(memory, monster_b, zone_here);
+    const std::vector<HuntMonster> returned = hunt_monsters(memory);
+    check(returned.size() == returned_order.size() && returned[0].address == monster_b && !returned[0].other_area &&
+            returned[1].address == monster_a,
+        "coming back to this area does not move the icon");
+
+    set_stage(memory, monster_a, zone_away);
+    set_stage(memory, monster_b, zone_away);
+    const std::vector<HuntMonster> both_away = hunt_monsters(memory);
+    check(both_away.size() == 2u && both_away[0].address == monster_b && both_away[0].other_area &&
+            both_away[1].address == monster_a && both_away[1].other_area,
+        "with both large monsters in another area, a small monster does not take the card");
+    check(lock_on_monsters(memory).empty(),
+        "and lock-on has nothing to select, so R3 does not put a reticle on the small one");
+    set_stage(memory, monster_a, zone_here);
+    set_stage(memory, monster_b, zone_here);
+
+    const std::vector<HuntPortrait> before_death = place_hunt_portraits(hunt_monsters(memory), 0u, false);
+    place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
+    const std::vector<HuntMonster> after_death = hunt_monsters(memory);
+    const HuntMonster *corpse = nullptr;
+    for (const HuntMonster &monster : after_death)
+        if (monster.address == monster_b) corpse = &monster;
+    check(corpse != nullptr && corpse->dead && !corpse->other_area, "a dead monster stays on the icon, marked dead");
+    check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == monster_a,
+        "and lock-on will not select it");
+    const std::vector<HuntPortrait> dead_row = place_hunt_portraits(after_death, monster_b, true);
+    check(dead_row.size() == before_death.size() && dead_row[0].dead && !dead_row[0].locked && dead_row[0].id == 1u &&
+            dead_row[1].x == before_death[1].x && !dead_row[1].dead,
+        "dying greys that icon in place and does not move the other one");
 }
 
 void test_unmarked_monsters_still_lock() {
@@ -364,6 +608,41 @@ void test_focus_turn_lets_go_promptly() {
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
 }
 
+void test_focus_centers_a_monster_already_on_screen() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    lock_on_tap();
+    f.frame();
+    // About 15 degrees off the camera's look, inside the picture.
+    place(memory, monster_b, 800.0f, -3000.0f);
+    const std::uint16_t before = f.yaw();
+    const std::uint16_t wanted = yaw_towards({0.0f, 190.0f, 0.0f}, {800.0f, 100.0f, -3000.0f});
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    const std::uint16_t stepped = f.yaw();
+    check(stepped != before && std::abs(yaw_difference(stepped, wanted)) < std::abs(yaw_difference(before, wanted)),
+        "a monster already on screen starts an eased turn toward it");
+    check(std::abs(yaw_difference(before, stepped)) < std::abs(yaw_difference(before, wanted)),
+        "the first update does not snap onto the monster");
+    for (int i = 0; i < 40; ++i) f.frame();
+    check(f.yaw() == wanted, "the tap lands on the monster");
+    check(!game_camera_driving(), "and then leaves the camera");
+    check(lock_on_status().locked, "the selection stays");
+
+    // The double-tap window has closed. This L is a new tap, and the frame
+    // does not jump behind the hunter.
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x00001000u);
+    const std::uint16_t landed = f.yaw();
+    game_recenters = true;
+    f.frame();
+    check(f.yaw() == landed && memory.load16(camera_address + 0x80u) == landed,
+        "L's recenter is put back, so the camera does not jump behind the hunter");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
 void test_focus_turns_on_l_and_keeps_the_selection() {
     Fixture f;
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
@@ -416,6 +695,314 @@ void test_focus_turns_on_l_and_keeps_the_selection() {
     check(!lock_on_status().locked, "after the last one, a tap lets go");
 }
 
+void test_focus_keeps_the_picture_when_the_hunter_is_aside() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    // Behind the hunter is a quarter turn off the camera, so the hunter is
+    // off at the side of the picture. The monster is straight ahead.
+    memory.store32(hunter + 500u, 0x0000C000u);
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked, "focus selects the monster ahead");
+    write_float(memory, camera_address, 0.0f);
+    game_pulls_recenter = true;
+    f.frame();
+    check(f.yaw() == 0u && memory.load16(camera_address + 0x80u) == 0u,
+        "L's quarter-step behind the hunter is put back in the same update");
+    check(read_float(memory, camera_address) == 0.0f, "and the eye it placed is put back with it");
+    check(memory.load8(camera_address + 0x8Eu) == 0u && memory.load8(camera_address + 0x8Du) == 0u,
+        "the snap and its countdown are dropped");
+    for (int i = 0; i < 10; ++i) f.frame();
+    check(f.yaw() == 0u && !game_camera_driving(), "a monster the camera already faces is left on it");
+    // Past the double-tap window, so the next L focuses instead of recentering.
+    for (int i = 0; i < 12; ++i) f.frame();
+
+    place(memory, monster_b, 3000.0f, 0.0f);
+    game_pulls_recenter = true;
+    f.frame();
+    check(f.yaw() == 0u && read_float(memory, camera_address) == 0.0f,
+        "off the picture, that same frame still shows the camera where it was");
+    f.frame();
+    check(f.yaw() != 0u && game_camera_driving(), "and the turn starts from there on the next update");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
+void hold_recenter(psprecomp::GuestMemory &memory) {
+    // L is 0x100 on the hunter's button word. The overlay recenters without
+    // the R bit, which is what a tap of L does.
+    pad_recenter = 0x100u;
+    overlay_recenters = true;
+    memory.store16(hunters + 0xA72u, 0x100u);
+    memory.store32(hunter + 1152u, 0x100u);
+}
+
+void release_recenter(psprecomp::GuestMemory &memory) {
+    pad_recenter = 0u;
+    overlay_recenters = false;
+    memory.store16(hunters + 0xA72u, 0u);
+    memory.store16(camera_address + 0x86u, 0u);
+    memory.store32(hunter + 1152u, 0u);
+}
+
+void test_focus_l_does_not_place_the_eye_behind_the_hunter() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    // Behind the hunter is a quarter turn off, so the hunter stands at the
+    // side of the picture. The monster is already in view, about 15° off.
+    memory.store32(hunter + 500u, 0x0000C000u);
+    place(memory, monster_b, 800.0f, -3000.0f);
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked, "focus selects the monster in view");
+    const std::uint16_t wanted = yaw_towards({0.0f, 190.0f, 0.0f}, {800.0f, 100.0f, -3000.0f});
+    const std::uint16_t behind = static_cast<std::uint16_t>(0x0000C000u + 0x8000u);
+    write_float(memory, camera_address, 0.0f);
+    // Non-negative, this gate steps the yaw toward the hunter's facing even
+    // when the recenter check returns 0.
+    memory.store8(camera_address + 0x91u, 0u);
+    hold_recenter(memory);
+    game_placed_recenter_eye = false;
+    f.frame();
+    check(game_placed_recenter_eye && read_float(memory, camera_address) == 0.0f,
+        "L's eye placement is put back, and the focus turn is the only move");
+    check((memory.load32(hunter + 1152u) & 0x100u) != 0u, "L stays down");
+    check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(0u, wanted)),
+        "the same update turns toward the monster");
+    check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(f.yaw(), behind)),
+        "and not toward where the hunter is facing");
+    std::uint16_t previous = f.yaw();
+    for (int i = 0; i < 3; ++i) {
+        game_placed_recenter_eye = false;
+        f.frame();
+        check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(f.yaw(), behind)),
+            "holding L does not swing the camera behind the hunter");
+        check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(previous, wanted)),
+            "holding L keeps the turn toward the monster");
+        previous = f.yaw();
+    }
+    // Idle frames are not a Focus turn. A non-negative gate would keep stepping
+    // toward the hunter, so put back the negative gate the fixture started with.
+    memory.store8(camera_address + 0x91u, 0xFFu);
+
+    release_recenter(memory);
+    f.frame();
+    hold_recenter(memory);
+    game_placed_recenter_eye = false;
+    f.frame();
+    check(game_placed_recenter_eye && read_float(memory, camera_address) == 50.0f,
+        "a second tap, after L was released, still recenters behind the hunter");
+    check(lock_on_status().locked, "and the monster stays selected");
+
+    release_recenter(memory);
+    memory.store8(camera_address + 0x8Eu, 0u);
+    memory.store8(camera_address + 0x8Du, 0u);
+    f.frame();
+    for (int i = 0; i < 12; ++i) f.frame();
+    write_float(memory, camera_address, 0.0f);
+    memory.store8(camera_address + 0x91u, 0u);
+    hold_recenter(memory);
+    game_placed_recenter_eye = false;
+    const std::uint16_t parked = f.yaw();
+    f.frame();
+    check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(f.yaw(), behind)),
+        "a later tap centers on the monster again");
+    check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(parked, wanted)),
+        "and that tap moves toward the monster");
+
+    release_recenter(memory);
+    lock_on_release("");
+    hold_recenter(memory);
+    game_placed_recenter_eye = false;
+    f.frame();
+    check(game_placed_recenter_eye, "with nothing selected, L still recenters behind the hunter");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
+void test_r_does_not_turn_toward_the_monster() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x0000C000u);
+    place(memory, monster_b, 800.0f, -3000.0f);
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked && lock_on_marker_wanted(), "the monster is selected and marked");
+    const std::uint16_t before = f.yaw();
+    const std::uint16_t wanted = yaw_towards({0.0f, 190.0f, 0.0f}, {800.0f, 100.0f, -3000.0f});
+    pad_recenter = 0x200u;
+    overlay_recenters = false;
+    memory.store16(hunters + 0xA72u, 0x200u);
+    memory.store32(hunter + 1152u, 0x200u);
+    memory.store8(camera_address + 0x91u, 0xFFu);
+    f.frame();
+    check(lock_on_status().locked, "R leaves the monster selected");
+    check(std::abs(yaw_difference(f.yaw(), wanted)) >= std::abs(yaw_difference(before, wanted)),
+        "R does not turn the camera toward the monster");
+    check(lock_on_marker_wanted(), "R does not drop the reticle");
+    for (int i = 0; i < 8; ++i) f.frame();
+    check(lock_on_marker_wanted() && lock_on_status().locked, "R does not expire the reticle");
+    f.frame();
+    check(!lock_on_marker_wanted() && lock_on_status().locked, "the selection reticle expires on its own");
+    release_recenter(memory);
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked, "follow selects the monster");
+    pad_recenter = 0x200u;
+    memory.store16(hunters + 0xA72u, 0x200u);
+    memory.store32(hunter + 1152u, 0x200u);
+    f.frame();
+    f.frame();
+    check(lock_on_status().locked, "R does not drop the follow lock");
+    release_recenter(memory);
+}
+
+void test_focus_camera_bind_replaces_l() {
+    using namespace mhfu::input;
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x0000C000u);
+    place(memory, monster_b, 800.0f, -3000.0f);
+    lock_on_tap();
+    f.frame();
+    const std::uint16_t wanted = yaw_towards({0.0f, 190.0f, 0.0f}, {800.0f, 100.0f, -3000.0f});
+    const std::uint16_t behind = static_cast<std::uint16_t>(0x0000C000u + 0x8000u);
+    auto &keys = mhfu::settings::current().controls.keys[static_cast<std::size_t>(Action::FocusCamera)];
+    keys[0] = single(from_name("F"));
+    set_focus_camera_held(true);
+    memory.store8(camera_address + 0x91u, 0xFFu);
+    const std::uint16_t before = f.yaw();
+    f.frame();
+    check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(before, wanted)),
+        "the Focus camera bind centers on the monster without L");
+    check(lock_on_marker_wanted() && lock_on_status().locked, "that press shows the reticle and keeps the selection");
+    set_focus_camera_held(false);
+    for (int i = 0; i < 12; ++i) f.frame();
+    check(!lock_on_marker_wanted() && lock_on_status().locked,
+        "the reticle expires after the bind, and the selection stays");
+
+    memory.store8(camera_address + 0x8Eu, 1u);
+    memory.store8(camera_address + 0x91u, 0xFFu);
+    hold_recenter(memory);
+    const std::uint16_t parked = f.yaw();
+    f.frame();
+    check(std::abs(yaw_difference(f.yaw(), behind)) < std::abs(yaw_difference(parked, behind)),
+        "with Focus camera bound, L recenters behind the hunter");
+    check(std::abs(yaw_difference(f.yaw(), wanted)) > std::abs(yaw_difference(parked, wanted)),
+        "and that recenter does not turn toward the monster");
+    check(lock_on_status().locked, "the monster stays selected");
+    release_recenter(memory);
+    memory.store8(camera_address + 0x8Eu, 0u);
+    memory.store8(camera_address + 0x8Du, 0u);
+    for (int i = 0; i < 12; ++i) f.frame();
+    // The snap byte is still clear, so the game marks the recenter inside the
+    // update. That pose has to stay behind the hunter.
+    memory.store16(camera_address + 0x80u, 0u);
+    memory.store16(camera_address + 0x82u, 0u);
+    write_float(memory, camera_address, 0.0f);
+    memory.store8(camera_address + 0x91u, 0xFFu);
+    hold_recenter(memory);
+    game_placed_recenter_eye = false;
+    f.frame();
+    check(game_placed_recenter_eye && read_float(memory, camera_address) == 50.0f,
+        "L's recenter stays behind the hunter when Focus camera is bound elsewhere");
+    check(std::abs(yaw_difference(f.yaw(), behind)) < std::abs(yaw_difference(0u, behind)),
+        "and that press moves the camera behind the hunter");
+    const std::uint16_t after_l = f.yaw();
+    release_recenter(memory);
+    f.frame();
+    check(std::abs(yaw_difference(f.yaw(), wanted)) >= std::abs(yaw_difference(after_l, wanted)),
+        "letting go of L does not then aim at the monster");
+    memory.store8(camera_address + 0x8Eu, 0u);
+    memory.store8(camera_address + 0x8Du, 0u);
+
+    set_focus_camera_held(true);
+    pad_recenter = 0x200u;
+    overlay_recenters = false;
+    memory.store16(hunters + 0xA72u, 0x200u);
+    memory.store32(hunter + 1152u, 0x200u);
+    memory.store8(camera_address + 0x91u, 0xFFu);
+    const std::uint16_t aside = f.yaw();
+    f.frame();
+    check(std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(aside, wanted)),
+        "Focus camera bound to a press the game reads as R still aims at the monster");
+    check(memory.load32(hunter + 500u) == 0x0000C000u, "the hunter's facing is put back");
+    check(lock_on_status().locked, "and the monster stays selected");
+    set_focus_camera_held(false);
+    release_recenter(memory);
+    keys[0] = {};
+}
+
+void test_focus_double_tap_recenters_behind_the_hunter() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x00008000u); // behind the hunter is yaw 0, where the camera started
+    lock_on_tap();
+    f.frame();
+    place(memory, monster_b, 3000.0f, 0.0f); // a quarter turn off the camera
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(game_camera_driving(), "the first tap starts the turn");
+    const std::uint16_t mid = f.yaw();
+    memory.store8(camera_address + 0x8Eu, 1u);
+    game_pulls_recenter = true;
+    f.frame();
+    check(lock_on_status().locked, "a second L keeps the monster selected");
+    check(std::abs(yaw_difference(f.yaw(), 0u)) < std::abs(yaw_difference(mid, 0u)),
+        "and steps the camera back behind the hunter");
+    check(read_float(memory, camera_address) == 50.0f, "the eye that recenter placed is left there");
+    const std::uint16_t behind = f.yaw();
+    for (int i = 0; i < 5; ++i) f.frame();
+    check(f.yaw() == behind, "the turn does not resume while that recenter is the game's");
+
+    memory.store8(camera_address + 0x8Eu, 0u);
+    memory.store8(camera_address + 0x8Du, 0u);
+    f.frame();
+    for (int i = 0; i < 12; ++i) f.frame();
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(game_camera_driving() && std::abs(yaw_difference(f.yaw(), 49152u)) < std::abs(yaw_difference(behind, 49152u)),
+        "after that window, L centers on the monster again");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
+void test_focus_later_l_keeps_the_turn() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x00008000u); // behind the hunter is yaw 0
+    lock_on_tap();
+    f.frame();
+    // Far enough that the turn is still going after the double-tap window.
+    place(memory, monster_b, 0.0f, 3000.0f);
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    for (int i = 0; i < 12; ++i) f.frame();
+    check(game_camera_driving(), "the turn is still on its way after the double-tap window");
+    const std::uint16_t mid = f.yaw();
+    game_pulls_recenter = true;
+    f.frame();
+    check(game_camera_driving() && lock_on_status().locked, "a later L does not let the camera go");
+    check(std::abs(yaw_difference(f.yaw(), 32768u)) < std::abs(yaw_difference(mid, 32768u)),
+        "and the camera keeps moving toward the monster");
+    check(read_float(memory, camera_address) == 0.0f, "the recenter behind the hunter is put back");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
 void test_focus_reticle_and_close_turn() {
     Fixture f;
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
@@ -425,19 +1012,57 @@ void test_focus_reticle_and_close_turn() {
     lock_on_tap();
     f.frame();
     check(lock_on_status().locked && lock_on_status().target == monster_b, "focus selects the monster beside the hunter");
-    check(!lock_on_marker_wanted(), "no reticle while only selected");
+    check(lock_on_marker_wanted(), "the reticle shows on the selection");
+    for (int i = 0; i < 9; ++i) f.frame();
+    check(lock_on_marker_wanted() && lock_on_status().locked, "it stays for a third of a second");
+    f.frame();
+    check(!lock_on_marker_wanted() && lock_on_status().locked, "then the selection reticle expires");
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_a && lock_on_marker_wanted(), "another selection shows the reticle again");
 
     memory.store8(camera_address + 0x8Eu, 1u);
     f.frame();
-    check(lock_on_marker_wanted(), "the reticle shows while L's turn is on its way");
+    check(lock_on_marker_wanted(), "L shows the reticle");
+    for (int i = 0; i < 9; ++i) f.frame();
+    check(lock_on_marker_wanted(), "it stays for a third of a second after L");
+    f.frame();
+    check(!lock_on_marker_wanted(), "then the reticle expires");
+    check(!lock_on_marker(memory), "and none is drawn");
+    check(lock_on_status().locked, "the selection stays");
     for (int i = 0; i < 60; ++i) f.frame();
     check(std::abs(yaw_difference(f.yaw(), 49152u)) < 64, "a monster that close is still turned to");
-    check(!lock_on_marker_wanted(), "the reticle goes once the camera has arrived");
-    check(!lock_on_marker(memory), "and none is drawn");
-    check(lock_on_status().locked, "the selection stays after the turn");
+    check(!lock_on_marker_wanted() && lock_on_status().locked, "the reticle stays gone after the turn");
+
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(lock_on_marker_wanted(), "another L shows the reticle again");
+    for (int i = 0; i < 10; ++i) f.frame();
+    check(!lock_on_marker_wanted() && lock_on_status().locked, "and that one expires too");
 
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
     check(lock_on_marker_wanted(), "follow shows the reticle for the whole selection");
+}
+
+void test_focus_tilts_toward_a_monster_above() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    place(memory, monster_b, 0.0f, -3000.0f);
+    // About 30 degrees above the look-at point. Follow would stop 10 degrees
+    // up from the preset; this tap goes most of the way to the monster.
+    write_float(memory, monster_b + game::kPosition + 4u, 1822.0f);
+    lock_on_tap();
+    f.frame();
+    const float eye = read_float(memory, camera_address + 4u);
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    for (int i = 0; i < 20; ++i) f.frame();
+    check(read_float(memory, camera_address + 4u) < eye - 100.0f,
+        "a monster above the hunter pulls the camera up past the old ten-degree cap");
+    check(!game_camera_driving(), "the tap still ends");
+    check(lock_on_status().locked, "and the monster stays selected");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
 }
 
 void test_off_changes_nothing() {
@@ -606,6 +1231,12 @@ void test_marker_follows_the_camera_eye() {
     const auto at = lock_on_marker(memory);
     check(at && std::fabs((*at)[0] - 0.5f) < 0.02f && std::fabs((*at)[1] - 0.5f) < 0.02f,
         "the reticle sits on the monster through the camera's eye and look-at");
+    // Back near the origin, in front of a view that has no translation. The
+    // eye at x 1000 cannot see it. That draw must not put a reticle up.
+    place(memory, target, 0.0f, -10.0f);
+    write_float(memory, target + game::kPosition + 4u, -100.0f);
+    lock_on_note_view(picture_camera(), 100u);
+    check(!lock_on_marker(memory), "a monster the camera cannot see draws no reticle");
     lock_on_reset();
 }
 
@@ -637,6 +1268,27 @@ void test_binds() {
     check(d.keys[static_cast<std::size_t>(Action::LockOn)][0] == single(mouse_button(2)) &&
             d.keys[static_cast<std::size_t>(Action::LockOn)][1] == single(from_name("T")),
         "the middle mouse button and T lock on from the keyboard");
+    check(buttons_of(Action::FocusCamera) == 0u && group_of(Action::FocusCamera) == ActionGroup::Camera &&
+            !acts_on_release(Action::FocusCamera),
+        "Focus camera is a camera bind and presses no PSP button");
+    {
+        const Slots &lock = d.pad[static_cast<std::size_t>(Action::LockOn)];
+        const Chord shot = d.pad[static_cast<std::size_t>(Action::Screenshot)][0];
+        check(extends_lock_on(lock, shot), "the screenshot chord contains lock-on, so it does not also lock on");
+        check(extends_lock_on(lock, chord(pad(PadInput::LeftStick), pad(PadInput::RightStick))),
+            "L3 + R3 contains lock-on, so the menu does not also lock on");
+        check(!extends_lock_on(lock, single(pad(PadInput::RightShoulder))),
+            "holding R, as for a sprint, still leaves the lock-on press");
+        check(!extends_lock_on(lock, single(pad(PadInput::RightStick))), "R3 on its own is the lock-on press");
+        check(!extends_lock_on(lock, chord(pad(PadInput::RightShoulder), pad(PadInput::South))),
+            "two other buttons, with no lock-on input, are not that chord");
+    }
+    for (std::size_t i = 0; i < kPresets; ++i) {
+        const Layout &l = layout(static_cast<Preset>(i));
+        const auto slot = static_cast<std::size_t>(Action::FocusCamera);
+        check(l.keys[slot][0].empty() && l.pad[slot][0].empty(),
+            "shipped presets leave Focus camera unbound, so L does it");
+    }
     {
         // A tap's chord inside a longer one is no conflict either way; the
         // same chord inside a longer one for anything else still is.
@@ -654,14 +1306,74 @@ void test_binds() {
 
 } // namespace
 
+void test_follow_toggle_uses_the_focus_camera_bind() {
+    using namespace mhfu::input;
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    auto &keys = mhfu::settings::current().controls.keys[static_cast<std::size_t>(Action::FocusCamera)];
+    keys[0] = single(from_name("F"));
+    set_focus_camera_held(true);
+    f.frame();
+    set_focus_camera_held(false);
+    f.frame();
+    check(!lock_on_status().locked, "with nothing selected, the focus button does not lock on");
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked && game_camera_driving(), "follow starts with the camera on the monster");
+    place(memory, monster_b, 3000.0f, 0.0f);
+    f.frame();
+    const std::uint16_t moving = f.yaw();
+    check(moving != 0u, "the camera has started toward the monster");
+    set_focus_camera_held(true);
+    f.frame();
+    const std::uint16_t paused = f.yaw();
+    check(lock_on_status().locked && !lock_on_marker_wanted() && !game_camera_driving(),
+        "the focus button turns follow off, hides the reticle, and keeps the monster");
+    for (int i = 0; i < 5; ++i) f.frame();
+    check(f.yaw() == paused && lock_on_status().locked, "holding the button does not turn follow back on");
+    f.frame(1.0f);
+    f.frame(1.0f);
+    check(lock_on_status().locked && !lock_on_marker_wanted() && f.yaw() == paused,
+        "looking around while follow is off does not let go or bring the reticle back");
+    set_focus_camera_held(false);
+    f.frame();
+    set_focus_camera_held(true);
+    f.frame();
+    set_focus_camera_held(false);
+    for (int i = 0; i < 20; ++i) f.frame();
+    check(lock_on_status().locked && lock_on_marker_wanted() &&
+            std::abs(yaw_difference(f.yaw(), 49152u)) < std::abs(yaw_difference(paused, 49152u)),
+        "the same button turns follow back on");
+    f.frame(1.0f);
+    check(lock_on_status().locked && !lock_on_marker_wanted() && !game_camera_driving(),
+        "the right stick turns tracking off and the reticle with it");
+    set_focus_camera_held(true);
+    f.frame();
+    set_focus_camera_held(false);
+    check(lock_on_status().locked && lock_on_marker_wanted() && game_camera_driving(),
+        "the same button turns tracking and the reticle back on");
+    keys[0] = {};
+}
+
 int main() {
     test_geometry();
     test_monsters_and_pick();
+    test_monster_in_another_area();
+    test_hunt_portrait_keeps_the_id_in_another_area();
     test_unmarked_monsters_still_lock();
     test_lock_follows_and_lets_go();
+    test_follow_toggle_uses_the_focus_camera_bind();
     test_focus_turns_on_l_and_keeps_the_selection();
+    test_focus_keeps_the_picture_when_the_hunter_is_aside();
+    test_focus_l_does_not_place_the_eye_behind_the_hunter();
+    test_r_does_not_turn_toward_the_monster();
+    test_focus_camera_bind_replaces_l();
+    test_focus_double_tap_recenters_behind_the_hunter();
+    test_focus_later_l_keeps_the_turn();
     test_focus_reticle_and_close_turn();
     test_focus_turn_lets_go_promptly();
+    test_focus_centers_a_monster_already_on_screen();
+    test_focus_tilts_toward_a_monster_above();
     test_focus_turns_when_facing_away();
     test_tap_waits_for_the_monster();
     test_off_changes_nothing();

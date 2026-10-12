@@ -215,7 +215,11 @@ void Layer::set_interactive(bool interactive) {
 }
 
 bool Layer::confirm_south() const {
-    return settings::current().confirm_south;
+    static const bool follow_game = [] {
+        const char *value = std::getenv("MHFU_MENU_CONFIRM");
+        return value != nullptr && std::string(value) == "game";
+    }();
+    return follow_game ? settings::current().confirm_south : true;
 }
 
 void Layer::begin_binding_capture(Capture device) {

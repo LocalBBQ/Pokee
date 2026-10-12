@@ -6,6 +6,9 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <vector>
+
+#include "camera/lock_on.hpp"
 
 // The port's own interface, drawn with Dear ImGui over the game's window: the
 // in-game menu and the first-run setup screens. Only builds with the renderer
@@ -46,6 +49,16 @@ void show_note(const std::string &text);
 // from its top left (camera/lock_on.hpp), or nothing to draw none. Set once
 // a flip; draw_over_game() draws it while the game runs.
 void set_lock_on_marker(std::optional<std::array<float, 2>> at);
+
+// Monster icons for the bottom left of the picture (camera/lock_on.hpp): the
+// monster's id, darkened with "Diff. Area" when that monster is in another
+// area, and red brackets while lock-on has it selected. Set once a flip.
+void set_hunt_portraits(std::vector<camera::HuntPortrait> portraits);
+
+// Where the gather mark goes on the game's picture, each coordinate 0..1
+// from its top left (game/gather_icon.hpp), or nothing to draw none. Set
+// once a flip; draw_over_game() draws it while the game runs.
+void set_gather_mark(std::optional<std::array<float, 2>> at);
 
 // Whether the menu, opened now, pauses the game. Settings decide: "Pause the
 // game when the menu opens", and during ad hoc play "Pause during

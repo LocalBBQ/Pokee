@@ -369,6 +369,14 @@ void test_read() {
     const Bindings &p = default_pad();
     held = {pad(PadInput::South), pad(PadInput::LeftTrigger), pad(PadInput::DpadUp)};
     check(read_held(p).buttons == (0x4000u | 0x0100u | 0x0010u), "pad buttons and triggers press their buttons");
+
+    Bindings focus{};
+    focus[static_cast<std::size_t>(Action::FocusCamera)] = {single(from_name("F"))};
+    held = {from_name("F")};
+    state = read_held(focus);
+    check(state.focus_camera && state.buttons == 0u, "Focus camera is held without pressing a PSP button");
+    held = {};
+    check(!read_held(focus).focus_camera, "and it is up when the key is");
 }
 
 // The chord resolver over time (#198). Times in milliseconds.

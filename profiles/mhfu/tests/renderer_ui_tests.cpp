@@ -3193,7 +3193,9 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     const auto original_confirm = settings::current().confirm_south;
     change_video("Confirm button", ImGuiKey_RightArrow);
     expect(settings::current().confirm_south != original_confirm, "controls menu switches confirm convention");
+    expect(ui::Layer::get().confirm_south(), "the menu confirms with the south button whatever the game's setting");
     change_video("Confirm button", ImGuiKey_LeftArrow);
+    expect(ui::Layer::get().confirm_south(), "the menu keeps the south button after the round trip");
     expect(settings::current().confirm_south == original_confirm, "confirm convention round trip restores setting");
     auto toggle_setting = [&](const char *label, bool settings::Settings::*field) {
         const bool original = settings::current().*field;
@@ -3437,6 +3439,27 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
             "damage number size and thickness round trip");
         settings::current().damage_numbers = numbers;
     }
+    {
+        const bool icon = settings::current().gather_icon;
+        const std::uint32_t size = settings::current().gather_icon_size;
+        const std::uint32_t thickness = settings::current().gather_icon_thickness;
+        settings::current().gather_icon = false;
+        change_video("Gather icon size", ImGuiKey_RightArrow);
+        change_video("Gather icon thickness", ImGuiKey_RightArrow);
+        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
+            "gather icon size and thickness are locked while the icon is off");
+        settings::current().gather_icon = true;
+        change_video("Gather icon size", ImGuiKey_RightArrow);
+        change_video("Gather icon thickness", ImGuiKey_RightArrow);
+        expect(settings::current().gather_icon_size == size + 10u &&
+                settings::current().gather_icon_thickness == thickness + 1u,
+            "gather icon size steps by 10% and thickness by 1");
+        change_video("Gather icon size", ImGuiKey_LeftArrow);
+        change_video("Gather icon thickness", ImGuiKey_LeftArrow);
+        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
+            "gather icon size and thickness round trip");
+        settings::current().gather_icon = icon;
+    }
     for (const char *action : {"Quit game", "Set up game data again…"}) {
         change_video(action, ImGuiKey_Space);
         frame();
@@ -3504,6 +3527,25 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         "a damage number is drawn over the game from the health a hit removed");
     game::set_shown_damage_numbers({});
     ui::set_lock_on_marker(std::nullopt);
+    frame();
+    const int bare = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+    const std::uint32_t saved_gather_size = settings::current().gather_icon_size;
+    const std::uint32_t saved_gather_thickness = settings::current().gather_icon_thickness;
+    settings::current().gather_icon_size = 100u;
+    settings::current().gather_icon_thickness = 1u;
+    ui::set_gather_mark(std::array<float, 2>{0.5f, 0.5f});
+    frame();
+    const int usual = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+    settings::current().gather_icon_thickness = 3u;
+    frame();
+    const int bold = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+    settings::current().gather_icon_size = settings::kMaxGatherIconSize;
+    frame();
+    const int large = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+    expect(usual > bare && bold > usual && large > bold, "the gather mark is drawn, and thickness and size add ink");
+    settings::current().gather_icon_size = saved_gather_size;
+    settings::current().gather_icon_thickness = saved_gather_thickness;
+    ui::set_gather_mark(std::nullopt);
     auto &layer = ui::Layer::get();
     layer.set_interactive(true);
     ui::open_touch_editor();
