@@ -351,6 +351,15 @@ void test_lock_on_and_damage_numbers() {
     check(to_entries(from_entries({{"game.comparable_weapons", "1"}})).count("game.comparable_weapons") == 0u,
         "a saved comparable-weapons switch is not kept");
     check(fresh.lock_on_style == LockOnStyle::Follow, "lock-on follows the monster until the style says otherwise");
+    check(fresh.hunt_portrait_size == 100u, "the hunt portrait starts at its usual size");
+    Entries portrait = to_entries(fresh);
+    portrait["video.hunt_portrait"] = "150";
+    check(from_entries(to_entries(from_entries(portrait))).hunt_portrait_size == 150u,
+        "the portrait size survives a round trip");
+    portrait["video.hunt_portrait"] = "10";
+    check(from_entries(portrait).hunt_portrait_size == kMinHuntPortraitSize, "a size under the limit clamps up");
+    portrait["video.hunt_portrait"] = "400";
+    check(from_entries(portrait).hunt_portrait_size == kMaxHuntPortraitSize, "a size past the limit clamps down");
     Entries style = to_entries(fresh);
     style["input.lock_on_style"] = "focus";
     check(from_entries(style).lock_on_style == LockOnStyle::Focus, "the file selects focus");
@@ -385,12 +394,6 @@ void test_lock_on_and_damage_numbers() {
     check(edges.damage_number_size == kMinDamageNumberSize &&
             edges.damage_number_thickness == kMaxDamageNumberThickness,
         "the ends of both ranges are allowed");
-    check(fresh.fast_item_box, "the fast item box starts on");
-    Entries box = to_entries(fresh);
-    check(box.at("game.fast_item_box") == "1", "the file records it");
-    box["game.fast_item_box"] = "0";
-    check(!from_entries(box).fast_item_box, "the file turns it off");
-    check(!from_entries(to_entries(from_entries(box))).fast_item_box, "and off survives a round trip");
 }
 
 // The Video page's Interface sizes: the area map, the clock with health and
@@ -512,6 +515,131 @@ void test_interface_sizes() {
              mhfu::gpu::hud_scale::Rect{174.0f, 9.0f, 181.0f, 23.0f}})
         check(mhfu::gpu::hud_scale::piece_of(other) == mhfu::gpu::hud_scale::Piece::None,
             "another panel in the status band is not status");
+    // The notice on a cart and on a carve. It starts in that band, then slides
+    // down. Traced with MHFU_TRACE_HUD_SCALE: the right border crosses the area
+    // map, then sits on the ammo menu's corner, and the last letters follow it.
+    Frame cart_banner;
+    std::vector<Vertex> banner(6, Vertex{152.0f, 8.0f});
+    banner[2] = {328.0f, 24.0f};
+    std::vector<Vertex> banner_letter(6, Vertex{195.0f, 9.0f});
+    banner_letter[2] = {202.0f, 23.0f};
+    std::vector<Vertex> banner_clock(6, Vertex{8.0f, 8.0f});
+    banner_clock[2] = {60.0f, 56.0f};
+    std::vector<Vertex> banner_row(banner);
+    banner_row.insert(banner_row.end(), banner_letter.begin(), banner_letter.end());
+    banner_row.insert(banner_row.end(), banner_clock.begin(), banner_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(banner_row, group_half, cart_banner);
+    check(banner_row[0].x == 152.0f && banner_row[0].y == 8.0f && banner_row[6].x == 195.0f &&
+            banner_row[6].y == 9.0f && banner_row[14].x == 34.0f && banner_row[14].y == 32.0f,
+        "the notice at the top of the picture stays put while the clock shrinks");
+    Frame carving;
+    std::vector<Vertex> area(6, Vertex{316.0f, 32.0f});
+    area[2] = {468.0f, 184.0f};
+    std::vector<Vertex> cap_top(6, Vertex{328.0f, 42.0f});
+    cap_top[2] = {344.0f, 50.0f};
+    std::vector<Vertex> cap_mid(6, Vertex{328.0f, 50.0f});
+    cap_mid[2] = {344.0f, 66.0f};
+    std::vector<Vertex> cap_low(6, Vertex{328.0f, 66.0f});
+    cap_low[2] = {344.0f, 74.0f};
+    std::vector<Vertex> cap_letter(6, Vertex{317.0f, 51.0f});
+    cap_letter[2] = {324.0f, 65.0f};
+    std::vector<Vertex> carving_row(area);
+    carving_row.insert(carving_row.end(), cap_top.begin(), cap_top.end());
+    carving_row.insert(carving_row.end(), cap_mid.begin(), cap_mid.end());
+    carving_row.insert(carving_row.end(), cap_low.begin(), cap_low.end());
+    carving_row.insert(carving_row.end(), cap_letter.begin(), cap_letter.end());
+    mhfu::gpu::hud_scale::scale_quads(carving_row, map_half, carving);
+    check(carving_row[0].x == 392.0f && carving_row[2].x == 468.0f && carving_row[6].x == 328.0f &&
+            carving_row[6].y == 42.0f && carving_row[12].x == 328.0f && carving_row[18].x == 328.0f &&
+            carving_row[24].x == 317.0f && carving_row[24].y == 51.0f,
+        "the notice's border and its letters stay put while they cross the area map");
+    // A long carve or cart line reaches into the map. Traced with
+    // MHFU_TRACE_HUD_SCALE: the cap, the rows, and the player's arrow, which
+    // is the same size as the 16-tall border and must still follow the map.
+    Frame long_notice;
+    std::vector<Vertex> long_map(6, Vertex{316.0f, 32.0f});
+    long_map[2] = {468.0f, 184.0f};
+    std::vector<Vertex> long_cap(6, Vertex{344.0f, 160.0f});
+    long_cap[2] = {360.0f, 168.0f};
+    std::vector<Vertex> long_strip(6, Vertex{360.0f, 160.0f});
+    long_strip[2] = {456.0f, 168.0f};
+    std::vector<Vertex> long_row(6, Vertex{350.0f, 46.0f});
+    long_row[2] = {466.0f, 61.0f};
+    std::vector<Vertex> long_row_b(6, Vertex{350.0f, 95.0f});
+    long_row_b[2] = {466.0f, 112.0f};
+    std::vector<Vertex> long_strip_b(6, Vertex{376.0f, 168.0f});
+    long_strip_b[2] = {456.0f, 176.0f};
+    std::vector<Vertex> long_mid(6, Vertex{344.0f, 168.0f});
+    long_mid[2] = {360.0f, 184.0f};
+    std::vector<Vertex> long_arrow(6, Vertex{427.0f, 151.0f});
+    long_arrow[2] = {443.0f, 167.0f};
+    std::vector<Vertex> long_all(long_map);
+    long_all.insert(long_all.end(), long_cap.begin(), long_cap.end());
+    long_all.insert(long_all.end(), long_strip.begin(), long_strip.end());
+    long_all.insert(long_all.end(), long_row.begin(), long_row.end());
+    long_all.insert(long_all.end(), long_row_b.begin(), long_row_b.end());
+    long_all.insert(long_all.end(), long_strip_b.begin(), long_strip_b.end());
+    long_all.insert(long_all.end(), long_mid.begin(), long_mid.end());
+    long_all.insert(long_all.end(), long_arrow.begin(), long_arrow.end());
+    mhfu::gpu::hud_scale::scale_quads(long_all, map_half, long_notice);
+    check(long_all[6].x == 344.0f && long_all[6].y == 160.0f && long_all[12].x == 360.0f && long_all[18].x == 350.0f &&
+            long_all[18].y == 46.0f && long_all[24].y == 95.0f && long_all[30].x == 376.0f &&
+            long_all[36].x == 344.0f && long_all[36].y == 168.0f && long_all[42].x == 447.5f &&
+            long_all[42].y == 91.5f,
+        "a long notice stays put inside the area map, and the player's arrow still follows the map");
+    const Scales bar_notice{1.0f, 1.0f, 0.5f, 1.0f, 1.0f, 0.5f};
+    Frame notice_center;
+    std::vector<Vertex> edge_top(6, Vertex{312.0f, 120.0f});
+    edge_top[2] = {328.0f, 128.0f};
+    std::vector<Vertex> edge_mid(6, Vertex{312.0f, 128.0f});
+    edge_mid[2] = {328.0f, 144.0f};
+    std::vector<Vertex> edge_low(6, Vertex{312.0f, 144.0f});
+    edge_low[2] = {328.0f, 152.0f};
+    std::vector<Vertex> edge_letter(6, Vertex{303.0f, 129.0f});
+    edge_letter[2] = {310.0f, 143.0f};
+    std::vector<Vertex> center_row(edge_top);
+    center_row.insert(center_row.end(), edge_mid.begin(), edge_mid.end());
+    center_row.insert(center_row.end(), edge_low.begin(), edge_low.end());
+    center_row.insert(center_row.end(), edge_letter.begin(), edge_letter.end());
+    mhfu::gpu::hud_scale::scale_quads(center_row, bar_notice, notice_center);
+    check(!notice_center.ammo_menu_now && center_row[0].x == 312.0f && center_row[0].y == 120.0f &&
+            center_row[6].x == 312.0f && center_row[12].x == 312.0f && center_row[18].x == 303.0f &&
+            center_row[18].y == 129.0f,
+        "the notice over the item bar is not the ammo menu");
+    // The border's top tile passes through the menu's corner row. The tile 24
+    // pixels below it is the rest of the border, so the menu stays shut and
+    // the letter beside the border stays where the game drew it.
+    Frame notice_passing;
+    std::vector<Vertex> pass_top(6, Vertex{312.0f, 128.0f});
+    pass_top[2] = {328.0f, 136.0f};
+    std::vector<Vertex> pass_low(6, Vertex{312.0f, 152.0f});
+    pass_low[2] = {328.0f, 160.0f};
+    std::vector<Vertex> pass_letter(6, Vertex{300.0f, 129.0f});
+    pass_letter[2] = {307.0f, 143.0f};
+    std::vector<Vertex> pass_row(pass_top);
+    pass_row.insert(pass_row.end(), pass_low.begin(), pass_low.end());
+    pass_row.insert(pass_row.end(), pass_letter.begin(), pass_letter.end());
+    mhfu::gpu::hud_scale::scale_quads(pass_row, bar_notice, notice_passing);
+    check(!notice_passing.ammo_menu_now && pass_row[0].x == 312.0f && pass_row[0].y == 128.0f &&
+            pass_row[12].x == 300.0f && pass_row[12].y == 129.0f,
+        "the notice's border on the ammo menu's corner row does not open the menu");
+    Frame notice_gun;
+    std::vector<Vertex> gun_bar(6, Vertex{324.0f, 184.0f});
+    gun_bar[2] = {468.0f, 200.0f};
+    std::vector<Vertex> gun_cap(6, Vertex{312.0f, 128.0f});
+    gun_cap[2] = {328.0f, 144.0f};
+    std::vector<Vertex> gun_letter(6, Vertex{312.0f, 140.0f});
+    gun_letter[2] = {319.0f, 154.0f};
+    std::vector<Vertex> gun_count(6, Vertex{346.0f, 186.0f});
+    gun_count[2] = {353.0f, 200.0f};
+    std::vector<Vertex> gun_row(gun_bar);
+    gun_row.insert(gun_row.end(), gun_cap.begin(), gun_cap.end());
+    gun_row.insert(gun_row.end(), gun_letter.begin(), gun_letter.end());
+    gun_row.insert(gun_row.end(), gun_count.begin(), gun_count.end());
+    mhfu::gpu::hud_scale::scale_quads(gun_row, group_half, notice_gun);
+    check(gun_row[6].x == 312.0f && gun_row[6].y == 128.0f && gun_row[12].x == 312.0f && gun_row[12].y == 140.0f &&
+            gun_row[18].x == 409.0f && gun_row[18].y == 193.0f,
+        "the notice above the ammo bar stays put, and the ammo bar's own letter shrinks with it");
     check(mhfu::gpu::hud_scale::piece_of({56.0f, 17.0f, 320.0f, 19.0f}) == mhfu::gpu::hud_scale::Piece::Vitals &&
             mhfu::gpu::hud_scale::piece_of({200.0f, 13.0f, 260.0f, 17.0f}) == mhfu::gpu::hud_scale::Piece::Vitals,
         "a fill, and a segment inside a bar, stay status");
@@ -569,6 +697,102 @@ void test_interface_sizes() {
             walked_map[8].y == 112.0f,
         "the mark on a moving map window stays on it");
     check(walked_map[12].x == 8.0f && walked_map[12].y == 8.0f, "the quest clock is not moved by the map's size");
+    // Each area draws its map at its own size. A 72 by 48 window is neither the
+    // 152 tile nor the traced 40-wide window; it is still the map, and the
+    // arrow on it follows that window's top-right.
+    Frame area_bounds;
+    std::vector<Vertex> wide(6, Vertex{380.0f, 60.0f});
+    wide[2] = {452.0f, 108.0f};
+    std::vector<Vertex> wide_arrow(6, Vertex{400.0f, 72.0f});
+    wide_arrow[2] = {414.0f, 86.0f};
+    std::vector<Vertex> wide_clock(6, Vertex{8.0f, 8.0f});
+    wide_clock[2] = {60.0f, 56.0f};
+    std::vector<Vertex> wide_map(wide);
+    wide_map.insert(wide_map.end(), wide_arrow.begin(), wide_arrow.end());
+    wide_map.insert(wide_map.end(), wide_clock.begin(), wide_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(wide_map, map_half, area_bounds, mhfu::gpu::hud_scale::kAreaMapTexture);
+    check(wide_map[0].x == 416.0f && wide_map[0].y == 60.0f && wide_map[2].x == 452.0f && wide_map[2].y == 84.0f &&
+            wide_map[6].x == 426.0f && wide_map[6].y == 66.0f && wide_map[12].x == 8.0f,
+        "a map of another area's size shrinks toward its own top-right, arrow included");
+    Frame not_area;
+    std::vector<Vertex> foreign(wide);
+    foreign.insert(foreign.end(), wide_clock.begin(), wide_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(foreign, map_half, not_area, 0x040CC000u);
+    check(foreign[0].x == 380.0f && foreign[0].y == 60.0f && foreign[2].x == 452.0f && foreign[2].y == 108.0f,
+        "a panel of that size from another texture is not the map");
+    // Two quads of one map: the bounds are their union, and the arrow grows
+    // from that union's top-right rather than from whichever piece was last.
+    Frame pieces;
+    std::vector<Vertex> left_piece(6, Vertex{340.0f, 50.0f});
+    left_piece[2] = {400.0f, 130.0f};
+    std::vector<Vertex> right_piece(6, Vertex{400.0f, 40.0f});
+    right_piece[2] = {460.0f, 140.0f};
+    std::vector<Vertex> piece_arrow(6, Vertex{410.0f, 80.0f});
+    piece_arrow[2] = {424.0f, 94.0f};
+    std::vector<Vertex> piece_clock(6, Vertex{8.0f, 8.0f});
+    piece_clock[2] = {60.0f, 56.0f};
+    std::vector<Vertex> piece_map(left_piece);
+    piece_map.insert(piece_map.end(), right_piece.begin(), right_piece.end());
+    piece_map.insert(piece_map.end(), piece_arrow.begin(), piece_arrow.end());
+    piece_map.insert(piece_map.end(), piece_clock.begin(), piece_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(piece_map, map_half, pieces, mhfu::gpu::hud_scale::kAreaMapTexture);
+    check(piece_map[0].x == 400.0f && piece_map[0].y == 45.0f && piece_map[6].x == 430.0f && piece_map[6].y == 40.0f &&
+            piece_map[12].x == 435.0f && piece_map[12].y == 60.0f,
+        "pieces of one map share the union's top-right, and the arrow follows it");
+    // The arrow turns. Near the top of the large map its box leaves the slot,
+    // and it used to be drawn at the size the game chose.
+    Frame edge_frame;
+    std::vector<Vertex> edge_map(6, Vertex{316.0f, 32.0f});
+    edge_map[2] = {468.0f, 184.0f};
+    std::vector<Vertex> edge_arrow(6, Vertex{430.0f, 24.0f});
+    edge_arrow[2] = {444.0f, 40.0f};
+    std::vector<Vertex> edge_all(edge_map);
+    edge_all.insert(edge_all.end(), edge_arrow.begin(), edge_arrow.end());
+    mhfu::gpu::hud_scale::scale_quads(edge_all, map_half, edge_frame);
+    check(edge_all[0].x == 392.0f && edge_all[0].y == 32.0f && edge_all[6].x == 449.0f && edge_all[6].y == 28.0f &&
+            edge_all[8].x == 456.0f && edge_all[8].y == 36.0f,
+        "the player's arrow still follows the map when its box crosses the top edge");
+    // The arrow is its own draw, after the map, and again on the next frame
+    // before the map is submitted.
+    edge_frame.begin();
+    std::vector<Vertex> next_arrow(6, Vertex{430.0f, 24.0f});
+    next_arrow[2] = {444.0f, 40.0f};
+    mhfu::gpu::hud_scale::scale_quads(next_arrow, map_half, edge_frame);
+    check(next_arrow[0].x == 449.0f && next_arrow[0].y == 28.0f && next_arrow[2].x == 456.0f &&
+            next_arrow[2].y == 36.0f,
+        "the arrow drawn before the map this frame still follows last frame's bounds");
+    // A mark inside the large slot but off the window that was drawn stays put.
+    Frame off_window;
+    std::vector<Vertex> off_map(6, Vertex{400.0f, 100.0f});
+    off_map[2] = {440.0f, 140.0f};
+    std::vector<Vertex> off_mark(6, Vertex{320.0f, 40.0f});
+    off_mark[2] = {334.0f, 54.0f};
+    std::vector<Vertex> off_clock(6, Vertex{8.0f, 8.0f});
+    off_clock[2] = {60.0f, 56.0f};
+    std::vector<Vertex> off_all(off_map);
+    off_all.insert(off_all.end(), off_mark.begin(), off_mark.end());
+    off_all.insert(off_all.end(), off_clock.begin(), off_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(off_all, map_half, off_window, mhfu::gpu::hud_scale::kAreaMapTexture);
+    check(off_all[6].x == 320.0f && off_all[6].y == 40.0f && off_all[0].x == 420.0f,
+        "a mark off the drawn map window stays at the size the game chose");
+    // The camp icon is about the size of a map window and is drawn on its own,
+    // from another texture. It follows the map. It is not itself a window.
+    Frame camp_mark;
+    std::vector<Vertex> camp_map(6, Vertex{316.0f, 32.0f});
+    camp_map[2] = {468.0f, 184.0f};
+    mhfu::gpu::hud_scale::scale_quads(camp_map, map_half, camp_mark, mhfu::gpu::hud_scale::kAreaMapTexture);
+    std::vector<Vertex> house(6, Vertex{400.0f, 90.0f});
+    house[2] = {432.0f, 122.0f};
+    mhfu::gpu::hud_scale::scale_quads(house, map_half, camp_mark, 0x091874a0u);
+    check(house[0].x == 434.0f && house[0].y == 61.0f && house[2].x == 450.0f && house[2].y == 77.0f,
+        "the camp icon on the map shrinks with the map");
+    Frame house_alone;
+    std::vector<Vertex> lone_house(6, Vertex{400.0f, 90.0f});
+    lone_house[2] = {432.0f, 122.0f};
+    mhfu::gpu::hud_scale::scale_quads(lone_house, map_half, house_alone, 0x091874a0u);
+    check(lone_house[0].x == 400.0f && lone_house[0].y == 90.0f && lone_house[2].x == 432.0f &&
+            lone_house[2].y == 122.0f,
+        "the camp icon is not a map window on its own");
     // The same panel in the shop, with no quest clock or health bar. The
     // label drawn inside the map's rectangle stays with it.
     Frame shop_panel;
@@ -660,6 +884,15 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(checkbox, Scales::from_percent(75u, 90u, 90u), box_menu);
     check(checkbox[0].x == 328.0f && checkbox[0].y == 172.0f && checkbox[2].x == 344.0f && checkbox[2].y == 188.0f,
         "a menu checkbox under the map is not scaled with the ammo bar");
+    Frame box_with_map;
+    std::vector<Vertex> box_map(6, Vertex{316.0f, 32.0f});
+    box_map[2] = {468.0f, 184.0f};
+    std::vector<Vertex> box_check(checkbox);
+    std::vector<Vertex> box_row(box_map);
+    box_row.insert(box_row.end(), box_check.begin(), box_check.end());
+    mhfu::gpu::hud_scale::scale_quads(box_row, map_half, box_with_map);
+    check(box_row[0].x == 392.0f && box_row[6].x == 328.0f && box_row[6].y == 172.0f && box_row[8].y == 188.0f,
+        "the checkbox stays put while the area map above it shrinks");
 
     // A bow's coatings under stamina, in each of their states, move like the
     // loaded rounds: (60, 29) follows the clock's corner to (34, 18.5).
@@ -892,6 +1125,10 @@ void test_interface_sizes() {
     std::vector<Vertex> as_drawn = {{10.0f, 10.0f}, {20.0f, 30.0f}};
     mhfu::gpu::hud_scale::scale_name(as_drawn, 1.0f, true, 0.0f, 0.0f);
     check(as_drawn[0].x == 10.0f && as_drawn[1].y == 30.0f, "100% leaves a name where the game drew it");
+    check(mhfu::gpu::hud_scale::is_name_tag({100.0f, 80.0f, 108.0f, 94.0f}), "a glyph is a name tag");
+    check(mhfu::gpu::hud_scale::is_name_tag({8.0f, 40.0f, 104.0f, 56.0f}), "a name plate is a name tag");
+    check(!mhfu::gpu::hud_scale::is_name_tag({40.0f, 20.0f, 280.0f, 140.0f}), "a village window is not a name tag");
+    check(!mhfu::gpu::hud_scale::is_name_tag({10.0f, 10.0f, 40.0f, 80.0f}), "a tall panel is not a name tag");
     const Scales name_half = Scales::from_percent(100u, 100u, 100u, 50u);
     check(name_half.names == 0.5f && name_half.map == 1.0f && name_half.any(), "the name size is its own");
     check(!Scales::from_percent(100u, 100u, 100u).any(), "an omitted name size stays at the game's size");

@@ -7626,28 +7626,53 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
         corner_scaled = unscaled;
         if (named.is_name) {
-            float origin_x = named.origin_x;
-            float origin_y = named.origin_y;
-            // Fit pulls the 2D interface in about the screen's centre. The
-            // text entry's point is still in the game's pixels, so it moves
-            // with the glyphs.
-            if (named.has_origin && fitted) {
-                const float centre_x = 0.5f * static_cast<float>(kPspWidth);
-                const float centre_y = 0.5f * static_cast<float>(kPspHeight);
-                origin_x = centre_x + (origin_x - centre_x) * fit_x;
-                origin_y = centre_y + (origin_y - centre_y) * fit_y;
-            }
-            hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
-            if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
-                name_bounds = {corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
+            // A village label can also file a plate larger than the name. That
+            // draw stays as the game drew it. The size is the game's pixels:
+            // fit has already pulled this draw in about the screen's centre.
+            bool name_sized = true;
+            if (named.tag_only && !corner_scaled.empty()) {
+                hud_scale::Rect drawn{corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
                     corner_scaled.front().y};
                 for (const GpuVertex &vertex : corner_scaled) {
-                    name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
-                    name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
-                    name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
-                    name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
+                    drawn.x0 = std::min(drawn.x0, vertex.x);
+                    drawn.y0 = std::min(drawn.y0, vertex.y);
+                    drawn.x1 = std::max(drawn.x1, vertex.x);
+                    drawn.y1 = std::max(drawn.y1, vertex.y);
                 }
-                name_resized = true;
+                if (fitted && fit_x > 0.0f && fit_y > 0.0f) {
+                    const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+                    const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+                    drawn.x0 = centre_x + (drawn.x0 - centre_x) / fit_x;
+                    drawn.x1 = centre_x + (drawn.x1 - centre_x) / fit_x;
+                    drawn.y0 = centre_y + (drawn.y0 - centre_y) / fit_y;
+                    drawn.y1 = centre_y + (drawn.y1 - centre_y) / fit_y;
+                }
+                name_sized = hud_scale::is_name_tag(drawn);
+            }
+            if (name_sized) {
+                float origin_x = named.origin_x;
+                float origin_y = named.origin_y;
+                // Fit pulls the 2D interface in about the screen's centre. The
+                // text entry's point is still in the game's pixels, so it moves
+                // with the glyphs.
+                if (named.has_origin && fitted) {
+                    const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+                    const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+                    origin_x = centre_x + (origin_x - centre_x) * fit_x;
+                    origin_y = centre_y + (origin_y - centre_y) * fit_y;
+                }
+                hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
+                if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
+                    name_bounds = {corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
+                        corner_scaled.front().y};
+                    for (const GpuVertex &vertex : corner_scaled) {
+                        name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
+                        name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
+                        name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
+                        name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
+                    }
+                    name_resized = true;
+                }
             }
         } else {
             // The moving map window is told from other panels of the same size by

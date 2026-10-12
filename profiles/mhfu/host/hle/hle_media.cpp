@@ -11,6 +11,7 @@
 #include "game/damage_numbers.hpp"
 #include "game/guest_ram.hpp"
 #include "game/hit_trace.hpp"
+#include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
 #include "platform/utf8_path.hpp"
 
@@ -24,6 +25,7 @@
 #include "camera/camera_input.hpp"
 #include "camera/game_aspect.hpp"
 #include "camera/game_camera.hpp"
+#include "camera/hunt_icon.hpp"
 #include "camera/lock_on.hpp"
 #include "input/bindings.hpp"
 #include "settings/settings.hpp"
@@ -259,6 +261,7 @@ void present_frame(Runtime &rt) {
     game::attach(rt);
     // Layered armor puts its wrappers in place here, between two frames.
     game::layered::frame(rt);
+    game::item_box::frame(rt);
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
         perf::end_frame(kernel().now_us());
@@ -284,6 +287,14 @@ void present_frame(Runtime &rt) {
     // The draws of this frame have already named the camera they used, so the
     // marker matches the picture about to be shown, aim camera included.
     ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
+    if (!settings::current().lock_on) {
+        ui::set_hunt_portraits({});
+    } else {
+        camera::refresh_hunt_icons(rt.memory());
+        const camera::LockOnStatus locked = camera::lock_on_status();
+        ui::set_hunt_portraits(
+            camera::place_hunt_portraits(camera::hunt_monsters(rt.memory()), locked.target, locked.locked));
+    }
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more

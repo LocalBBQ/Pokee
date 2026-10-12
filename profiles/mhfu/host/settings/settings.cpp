@@ -419,6 +419,15 @@ const std::vector<Field> &fields() {
                 if (kLockOnStyles.parse(t, style)) s.lock_on_style = style;
             }},
         BOOL_FIELD("input.lock_on_marker", lock_on_marker),
+        {"video.hunt_portrait", "MHFU_HUNT_PORTRAIT",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinHuntPortraitSize, kMaxHuntPortraitSize, s.hunt_portrait_size);
+            },
+            [](const Settings &s) { return std::to_string(s.hunt_portrait_size); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.hunt_portrait_size;
+                if (parse_uint(t, kMinHuntPortraitSize, kMaxHuntPortraitSize, value)) s.hunt_portrait_size = value;
+            }},
         {"input.camera_speed", "MHFU_CAMERA_SPEED",
             [](Settings &s, const std::string &t) { return parse_float(t, 20.0f, 720.0f, s.camera_speed); },
             [](const Settings &s) { return format_float(s.camera_speed); },

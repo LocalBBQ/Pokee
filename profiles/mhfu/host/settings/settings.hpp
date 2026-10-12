@@ -122,6 +122,8 @@ struct Settings {
     // is tapped, and leaves it once the turn has arrived.
     LockOnStyle lock_on_style{LockOnStyle::Follow};
     bool lock_on_marker{true}; // the bowgun reticle over the locked monster
+    // The hunt icon at the bottom left, as a percent of its usual size.
+    std::uint32_t hunt_portrait_size{100u};
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
     // Degrees per second at full deflection while a bow or a bowgun aims.
@@ -205,6 +207,8 @@ inline constexpr std::uint32_t kMinMapItemScale = 50u;
 // Higher than that only carries the quest interface off the screen.
 inline constexpr std::uint32_t kMaxMapItemScale = 150u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
+inline constexpr std::uint32_t kMinHuntPortraitSize = 50u;
+inline constexpr std::uint32_t kMaxHuntPortraitSize = 200u;
 inline constexpr std::uint32_t kMinDamageNumberSize = 50u;
 inline constexpr std::uint32_t kMaxDamageNumberSize = 300u;
 // Past 3 the outline copies fill the digits in, so 3 is as thick as stays readable.
