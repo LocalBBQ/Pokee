@@ -37,9 +37,11 @@ class GuestMemory;
 //   zone. That entity is not a target. A dead monster, health at or below
 //   zero, is not either.
 // - When an entity's vtable has a method in the em overlay slot, or its list
-//   node carries class id 32, 34 or 36, only those entities are locked.
-//   A quest whose monsters keep a game_task vtable (seen with em75 loaded)
-//   still locks: any other non-player with a health pool is then eligible.
+//   node carries class id 32, 34 or 36, only those entities are locked, and
+//   one that is elsewhere or dead still counts: a small monster does not
+//   take its place, and a tap then locks nothing. A quest whose monsters
+//   keep a game_task vtable (seen with em75 loaded) still locks: any other
+//   non-player with a health pool is then eligible.
 // - The camera looks from its eye at +0x0 of the camera structure to its
 //   look-at point at +0x10. Its yaw, in 65536ths of a turn, puts the eye in
 //   the direction (sin yaw, cos yaw) from the look-at point, so the camera
@@ -98,7 +100,9 @@ struct LockMonster {
 
 // What a tap can lock onto: on the quest entity list while a quest runs, not
 // a player, and alive with a health pool. When any entry is marked large
-// (an em-overlay method, or class id 32, 34 or 36), only those.
+// (an em-overlay method, or class id 32, 34 or 36), only those, including
+// when every one of them is in another area or dead: a small monster does
+// not take the lock, and the reticle stays off.
 [[nodiscard]] std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory);
 
 // A large monster shown on the monster icon, including one in another zone

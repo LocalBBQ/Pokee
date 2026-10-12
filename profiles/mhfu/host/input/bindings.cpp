@@ -448,6 +448,15 @@ bool acts_on_release(Action action) {
     return action == Action::LockOn;
 }
 
+bool extends_lock_on(const Slots &lock_on, const Chord &longer) {
+    if (!longer.combined()) return false;
+    for (const Chord &mine : lock_on) {
+        if (mine.empty() || !mine.part_of(longer) || longer == mine) continue;
+        return true;
+    }
+    return false;
+}
+
 std::string name(Binding binding) {
     if (const int button = mouse_button_of(binding)) return kMouseNames[button - 1];
     if (const PadName *p = pad_name(binding)) return std::string(kPadPrefix) + p->name;

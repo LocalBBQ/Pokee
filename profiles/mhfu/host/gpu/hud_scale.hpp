@@ -791,6 +791,13 @@ struct Frame {
     int notice_edges_live{};
     bool notice_pair{};
     bool menu_body{};
+    // The obtain window ("Herb obtained."). It slides down from the top of
+    // the picture and settles in the middle. A horizontal edge is a short
+    // wide strip; on the way down the body is the taller panel the message
+    // window starts as. The right end overlaps the enlarged area map, and a
+    // cap or the item icon there was taken for a mark and pulled onto the map.
+    Rect obtain_banner{};
+    bool obtain_banner_now{};
     // The slot's top-right. The window slides inside the slot as the hunter
     // runs; the map, the arrow and the camp icon grow from this corner, not
     // from the window. `map_rect` is the sprite drawn this frame, so a prompt
@@ -818,7 +825,7 @@ struct Frame {
         bowgun_live = bowgun_now;
         list_live = list_now;
         map_now = vital_now = bar_now = sharp_now = spirit_now = bowgun_now = list_now = ammo_menu_now =
-            travelling_now = false;
+            travelling_now = obtain_banner_now = false;
         map_rect = {};
         travelling_rect = {};
         map_zoomed = false;
@@ -852,6 +859,26 @@ struct Frame {
             notice_edge_y[notice_edges] = r.y0;
             ++notice_edges;
         }
+    }
+
+    // A horizontal edge of the obtain window, or the panel it is while it
+    // slides down from the top. The area map's window is much taller.
+    void remember_obtain_banner(Rect rect) {
+        const Rect r = normalized(rect);
+        const float width = r.x1 - r.x0;
+        const float height = r.y1 - r.y0;
+        if (width < 70.0f || width > 220.0f || height < 2.0f || height > 28.0f) return;
+        if (r.x0 < 80.0f || r.x1 > 400.0f || r.y0 < -40.0f || r.y0 > 180.0f) return;
+        include_rect(obtain_banner, r, obtain_banner_now);
+    }
+
+    // A cap or the item icon sitting on that window. The map's own picture
+    // and its marks are not part of the banner.
+    [[nodiscard]] bool on_obtain_banner(Rect rect, std::uint32_t texture) const {
+        if (!obtain_banner_now || texture == kAreaMapTexture || texture == kMapIconTexture) return false;
+        const Rect grown{obtain_banner.x0 - 8.0f, obtain_banner.y0 - 4.0f, obtain_banner.x1 + 24.0f,
+            obtain_banner.y1 + 8.0f};
+        return overlaps(grown, normalized(rect));
     }
 
     [[nodiscard]] bool notice_partner(float x, float y) const {
@@ -1037,6 +1064,7 @@ struct Frame {
         if (is_ammo_menu_body(rect)) menu_body = true;
         if (is_ammo_menu_sprite(rect)) ammo_menu_now = true;
         remember_notice_edge(rect);
+        remember_obtain_banner(rect);
         if (is_bowgun_icon(rect)) bowgun_now = true;
         if (is_item_list(rect)) list_now = true;
     }
@@ -1059,7 +1087,7 @@ struct Frame {
     // border is not a mark.
     [[nodiscard]] bool on_map(Rect rect, std::uint32_t texture = 0) const {
         if (!(map_now || map_live) || list_now || list_live) return false;
-        if (is_notice_piece(rect, texture)) return false;
+        if (is_notice_piece(rect, texture) || on_obtain_banner(rect, texture)) return false;
         if (!is_map_mark(rect)) return false;
         if (overlaps(map_now ? map_rect : map_rect_live, rect)) return true;
         return in_map_slot(rect);
@@ -1145,6 +1173,9 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         // the map it belongs to is the one drawn this frame.
         if (!in_ammo_menu && (piece == Piece::None || piece == Piece::Bowgun) && frame.on_map(bounds, texture))
             piece = Piece::Map;
+        // The obtain window's right end overlaps the enlarged map. Leave it
+        // where the game drew it, cap and item icon included.
+        if (frame.on_obtain_banner(bounds, texture) && piece == Piece::Map) piece = Piece::None;
         // The long notice's 16-tall border sits on its 8-tall cap. It is the
         // size of a map mark, so the mark rule would take it.
         if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.beside_notice_edge(bounds)) continue;

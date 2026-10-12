@@ -524,6 +524,32 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_numbers); },
             [](const Settings &s) { return std::string(s.damage_numbers ? "1" : "0"); },
             [](Settings &s, const char *t) { s.damage_numbers = variable_flag(t); }},
+        {"game.gather_icon", "MHFU_GATHER_ICON",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_icon); },
+            [](const Settings &s) { return std::string(s.gather_icon ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.gather_icon = variable_flag(t); }},
+        {"game.gather_hold", "MHFU_GATHER_HOLD",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_hold); },
+            [](const Settings &s) { return std::string(s.gather_hold ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.gather_hold = variable_flag(t); }},
+        {"game.gather_icon_size", "MHFU_GATHER_ICON_SIZE",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, s.gather_icon_size);
+            },
+            [](const Settings &s) { return std::to_string(s.gather_icon_size); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.gather_icon_size;
+                if (parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, value)) s.gather_icon_size = value;
+            }},
+        {"game.gather_icon_thickness", "MHFU_GATHER_ICON_THICKNESS",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, 1u, kMaxGatherIconThickness, s.gather_icon_thickness);
+            },
+            [](const Settings &s) { return std::to_string(s.gather_icon_thickness); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.gather_icon_thickness;
+                if (parse_uint(t, 1u, kMaxGatherIconThickness, value)) s.gather_icon_thickness = value;
+            }},
         {"game.damage_number_size", "MHFU_DAMAGE_NUMBER_SIZE",
             [](Settings &s, const std::string &t) {
                 return parse_uint(t, kMinDamageNumberSize, kMaxDamageNumberSize, s.damage_number_size);

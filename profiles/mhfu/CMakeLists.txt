@@ -256,6 +256,7 @@ set(MHFU_HOST_SOURCES
     host/game/layered_armor.cpp
     host/game/layered_armor_hook.cpp
     host/game/damage_numbers.cpp
+    host/game/gather_icon.cpp
     host/game/hit_trace.cpp
     host/game/item_box.cpp
     third_party/tiny_aes/aes.c
@@ -501,6 +502,25 @@ add_executable(mhfu_damage_numbers_tests
     tests/damage_numbers_tests.cpp
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp)
+
+# Gather marks: the radius the game searches, and where the mark sits.
+add_executable(mhfu_gather_icon_tests
+    tests/gather_icon_tests.cpp
+    host/game/gather_icon.cpp
+    host/game/damage_numbers.cpp
+    host/game/hit_trace.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_gather_icon_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_gather_icon_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_gather_icon_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_gather_icon_tests COMMAND mhfu_gather_icon_tests)
+endif()
 target_include_directories(mhfu_damage_numbers_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
 target_link_libraries(mhfu_damage_numbers_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_damage_numbers_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

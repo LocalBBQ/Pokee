@@ -289,20 +289,19 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
 }
 
 // `present` keeps a monster in another zone, and a dead one, for the
-// icon. The marked-large preference then sees that monster, so a small one
-// does not take its place. Lock-on drops the held monster and the dead one
-// first, and only then applies that preference, which is how a tap behaves
-// when every large monster is elsewhere or dead.
+// icon. Whether anything is marked large is decided on the whole quest, so
+// a large monster elsewhere or dead still keeps a small one out. Lock-on
+// then has nothing to select, and the reticle stays off.
 std::vector<Candidate> select_monsters(const std::vector<Candidate> &found, bool present) {
-    std::vector<Candidate> usable;
-    for (const Candidate &candidate : found)
-        if (present || (!candidate.other_area && !candidate.dead)) usable.push_back(candidate);
     bool any_marked = false;
-    for (const Candidate &candidate : usable)
+    for (const Candidate &candidate : found)
         if (candidate.marked) any_marked = true;
     std::vector<Candidate> out;
-    for (const Candidate &candidate : usable)
-        if (!any_marked || candidate.marked) out.push_back(candidate);
+    for (const Candidate &candidate : found) {
+        if (!present && (candidate.other_area || candidate.dead)) continue;
+        if (any_marked && !candidate.marked) continue;
+        out.push_back(candidate);
+    }
     return out;
 }
 
@@ -884,12 +883,11 @@ std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory 
     const Vec3 feet = load_vec(memory, state.target + kPosition);
     if (!finite(feet)) return std::nullopt;
     const Vec3 aim{feet.x, feet.y + kAimHeight, feet.z};
-    // The follow camera's eye and look-at. A matrix read from the camera
-    // object does not place the monster, and neither does the view the world
-    // was drawn with: that view has no translation, so the point is off the
-    // picture and the reticle is left out.
-    if (const std::optional<LockOnView> posed = posed_view(memory, noted))
-        if (const std::optional<std::array<float, 2>> at = lock_on_project(*posed, aim)) return at;
+    // The follow camera's eye and look-at. When that pose is known, it is the
+    // only view: a monster it cannot see stays unmarked. The view a draw
+    // uploaded has no translation, so a point near the world origin can land
+    // on the picture even though the camera is looking somewhere else.
+    if (const std::optional<LockOnView> posed = posed_view(memory, noted)) return lock_on_project(*posed, aim);
     if (vertices != 0u)
         if (const std::optional<std::array<float, 2>> at = lock_on_project(noted, aim)) return at;
     if (const std::optional<LockOnView> tracked = camera_object_view(memory, noted))

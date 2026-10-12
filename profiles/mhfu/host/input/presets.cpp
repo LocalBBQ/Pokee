@@ -48,9 +48,9 @@ public:
     // left-handed layout does.
     //
     // Lock-on goes on the camera stick's button itself. The game never reads
-    // it, and a lock-on acts only on a press of that button alone (see
-    // acts_on_release), so the screenshot chord and L3 + R3 for the menu,
-    // which both hold it, never lock on.
+    // it. It still acts when other buttons are held, such as a sprint. A
+    // longer chord that contains it does not: the screenshot, and L3 + R3
+    // for the menu.
     Builder &host_pad(bool mirrored = false) {
         set(Action::LockOn, pad(mirrored ? PadInput::LeftStick : PadInput::RightStick));
         if (mirrored)
