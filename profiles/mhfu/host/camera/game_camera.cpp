@@ -60,6 +60,10 @@ constexpr std::uint32_t kYawCurrent = 0x82u;
 constexpr std::uint32_t kButtons = 0x84u;
 constexpr std::uint32_t kVerticalButtons = 0x86u;
 constexpr std::uint32_t kSnap = 0x8Eu;
+// L's recenter writes 20 here (0x08887510) and the same update counts it
+// down while it is not zero (0x08887F50). The eye is placed for that snap
+// for as long as it lasts.
+constexpr std::uint32_t kSnapCount = 0x8Du;
 // Non-negative, this byte selects the behind-the-hunter placement (0x08887530)
 // and the follow driver leaves that update to the game.
 constexpr std::uint32_t kAim = 0x91u;
@@ -847,15 +851,24 @@ void install_aim_hook(psprecomp::Runtime &runtime) {
 }
 
 // L's recenter writes the hunter's facing plus half a turn to the target yaw
-// and sets the snap byte (0x08887508), and the same update clears that byte
-// again when the camera is already within 22.5 degrees of it (0x08887650).
-// Focus then never sees the snap, so the target is watched across the update
-// instead. A target already holding that yaw is moved by one unit first, so
-// the write shows, and put back when none came.
+// and sets the snap byte (0x08887508). Within 22.5 degrees the same update
+// clears that byte (0x08887650). Farther away the filter steps the current
+// yaw a quarter of the way (0x08887624) and the eye is placed from it before
+// this update returns. That is one frame of the camera jumping behind the
+// hunter: when the hunter is off at the side of the picture, the eye lands
+// inside the hunter or a wall and the frame is black. Focus puts the yaw,
+// the eye and the snap's countdown back before the update returns. A target
+// already holding that yaw is moved by one unit first, so the write shows,
+// and put back when none came.
 struct RecenterWatch {
     std::uint32_t address{};
     std::uint16_t behind{};
     std::uint16_t before{};
+    std::uint16_t current{};
+    float eye_x{};
+    float eye_y{};
+    float eye_z{};
+    std::uint8_t snap_count{};
     bool nudged{};
 };
 
@@ -867,19 +880,48 @@ std::optional<RecenterWatch> watch_recenter(psprecomp::GuestMemory &memory, std:
         (memory.load16(address + kButtons) & kTurnBits) != 0u)
         return std::nullopt;
     RecenterWatch watch{address, static_cast<std::uint16_t>(memory.load32(hunter + kFacing) + 0x8000u),
-        memory.load16(address + kYawTarget), false};
+        memory.load16(address + kYawTarget), memory.load16(address + kYawCurrent), load_float(memory, address),
+        load_float(memory, address + kEyeY), load_float(memory, address + 8u), memory.load8(address + kSnapCount),
+        false};
     watch.nudged = watch.before == watch.behind;
     if (watch.nudged) memory.store16(address + kYawTarget, static_cast<std::uint16_t>(watch.before + 1u));
     return watch;
 }
 
+// The game has already placed the eye from the snapped yaw. Put the pose
+// back so the rest of the frame draws the camera where it was.
+void undo_recenter(psprecomp::GuestMemory &memory, const RecenterWatch &watch) {
+    memory.store16(watch.address + kYawTarget, watch.before);
+    memory.store16(watch.address + kYawCurrent, watch.current);
+    store_float(memory, watch.address, watch.eye_x);
+    store_float(memory, watch.address + kEyeY, watch.eye_y);
+    store_float(memory, watch.address + 8u, watch.eye_z);
+    memory.store8(watch.address + kSnap, 0u);
+    memory.store8(watch.address + kSnapCount, watch.snap_count);
+}
+
 void check_recenter(psprecomp::GuestMemory &memory, const RecenterWatch &watch) {
     const auto after = memory.load16(watch.address + kYawTarget);
-    if (after == watch.behind && memory.load8(watch.address + kSnap) == 0u) {
-        state.recenter_dropped = true;
-    } else if (watch.nudged && after == static_cast<std::uint16_t>(watch.before + 1u)) {
-        memory.store16(watch.address + kYawTarget, watch.before);
+    if (after != watch.behind) {
+        if (watch.nudged && after == static_cast<std::uint16_t>(watch.before + 1u))
+            memory.store16(watch.address + kYawTarget, watch.before);
+        return;
     }
+    // The turn is already on its way. L wrote the target behind the hunter
+    // and the filter stepped the current yaw toward it, which meets the
+    // focus step and the camera stops. Put the pose back and drop the snap,
+    // so this press does not start another turn either.
+    if (lock_on_drives_camera()) {
+        undo_recenter(memory, watch);
+        return;
+    }
+    const Vec3 look_at{load_float(memory, watch.address + 0x10u), load_float(memory, watch.address + 0x14u),
+        load_float(memory, watch.address + 0x18u)};
+    // On screen, L leaves the camera where it is. Off the picture, the same
+    // pose is put back and the next update turns from it: this frame never
+    // shows the jump behind the hunter.
+    undo_recenter(memory, watch);
+    if (!lock_on_monster_in_view(memory, watch.current, look_at)) state.recenter_dropped = true;
 }
 
 void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {

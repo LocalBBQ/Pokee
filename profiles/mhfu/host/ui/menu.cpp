@@ -4,6 +4,8 @@
 
 #include "ui/ui.hpp"
 
+#include "camera/hunt_icon.hpp"
+
 #include "ui/bindings_editor.hpp"
 #include "ui/controllers_screen.hpp"
 #include "ui/font_menu.hpp"
@@ -32,6 +34,7 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "kernel/fast_forward.hpp"
+#include "kernel/fast_loading.hpp"
 #include "platform/utf8_path.hpp"
 #include "perf/frame_stats.hpp"
 #include "save_data/save_transfer.hpp"
@@ -435,8 +438,10 @@ void Menu::video() {
                 "100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::item_bar},
             {"Names", "video.hud.names",
-                "The names over other hunters in a quest and in the gathering hall, and the mark beside each. "
+                "The names over other hunters in a quest, and the mark beside each. "
                 "Each name stays on the point the game places it, and the map's size does not change it. "
+                "The village and the gathering hall stay at the size the game draws, names included. "
+                "The name under the quest clock follows Status. "
                 "100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::names},
         };
@@ -470,6 +475,62 @@ void Menu::video() {
             o.note = "Not with this game's code";
         }
         if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
+    }
+    section("Lock-on");
+    {
+        const auto slot = static_cast<std::size_t>(input::Action::LockOn);
+        std::string bind = input::format(s.controls.keys[slot]);
+        const std::string pad = input::format(s.controls.pad[slot]);
+        if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
+        const std::string help = "A tap of Lock on" +
+            (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
+            " selects the nearest large monster. Tap again for the next one in the area; after the last one, a tap "
+            "lets go. Lock-on style says whether the camera stays on it. Off, the bind does nothing and the hunt "
+            "icon is hidden.";
+        if (toggle_row("Lock-on", s.lock_on, options_for("input.lock_on", help.c_str()))) {
+            s.lock_on = !s.lock_on;
+            settings::save();
+        }
+        const char *const styles[] = {"Follow", "Focus"};
+        const int style = s.lock_on_style == settings::LockOnStyle::Focus ? 1 : 0;
+        RowOptions o = options_for("input.lock_on_style",
+            "Follow keeps the camera on the selected monster. Turning it by hand, the D-pad, or L lets go, and L "
+            "recenters behind the hunter. Focus keeps the selection, and a tap of L turns the camera to that "
+            "monster instead of behind the hunter. A tap while that turn is still moving does not stop it. "
+            "With nothing selected, L recenters behind the hunter.");
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (const int delta = choice_row("Lock-on style", styles[style], o)) {
+            const int next = std::clamp(style + delta, 0, 1);
+            s.lock_on_style = next == 0 ? settings::LockOnStyle::Follow : settings::LockOnStyle::Focus;
+            settings::save();
+        }
+        o = options_for("input.lock_on_marker",
+            "The bowgun's reticle over the monster the camera is locked onto. In Focus it shows only while L's "
+            "turn is on its way.");
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (toggle_row("Lock-on marker", s.lock_on_marker, o)) {
+            s.lock_on_marker = !s.lock_on_marker;
+            settings::save();
+        }
+        int portrait = static_cast<int>(s.hunt_portrait_size);
+        o = options_for("video.hunt_portrait",
+            "The monster icon at the bottom left, as a percent of its usual size. "
+            "A loading screen shows none. Off with Lock-on.");
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (slider_row("Hunt portrait", portrait, static_cast<int>(settings::kMinHuntPortraitSize),
+                static_cast<int>(settings::kMaxHuntPortraitSize), 10, "%d%%", o)) {
+            s.hunt_portrait_size = static_cast<std::uint32_t>(portrait);
+            settings::save();
+        }
     }
     {
         RowOptions o = options_for("video.texture_pack",
@@ -679,6 +740,10 @@ void Menu::video() {
         restore("video.hud.health", s.hud.health, d.hud.health);
         restore("video.hud.item_bar", s.hud.item_bar, d.hud.item_bar);
         restore("video.hud.names", s.hud.names, d.hud.names);
+        restore("input.lock_on", s.lock_on, d.lock_on);
+        restore("input.lock_on_style", s.lock_on_style, d.lock_on_style);
+        restore("input.lock_on_marker", s.lock_on_marker, d.lock_on_marker);
+        restore("video.hunt_portrait", s.hunt_portrait_size, d.hunt_portrait_size);
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
         renderer().set_window_scale(s.window_scale);
@@ -952,9 +1017,10 @@ void Menu::controls() {
     }
     if (choice_row("Confirm button", s.confirm_south ? "Bottom (Western)" : "Right, ○ (Japanese)",
             options_for("input.confirm",
-                "Which face button confirms, in the game and in this menu. The "
-                "game's prompts show ○ to confirm and × to go back. It swaps the "
-                "bottom and right buttons in every preset."))) {
+                "Which face button confirms in the game. The game's prompts show "
+                "○ to confirm and × to go back. It swaps the bottom and right "
+                "buttons in every preset. This menu always confirms with the bottom "
+                "button and goes back with the right one."))) {
         s.confirm_south = !s.confirm_south;
         settings::save();
     }
@@ -1022,46 +1088,6 @@ void Menu::controls() {
         int aim = static_cast<int>(s.aim_speed);
         if (slider_row("Aim speed", aim, 10, 360, 5, "%d deg/s", o)) {
             s.aim_speed = static_cast<float>(aim);
-            settings::save();
-        }
-    }
-    {
-        const auto slot = static_cast<std::size_t>(input::Action::LockOn);
-        std::string bind = input::format(s.controls.keys[slot]);
-        const std::string pad = input::format(s.controls.pad[slot]);
-        if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
-        const std::string help = "A tap of Lock on" +
-            (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
-            " selects the nearest large monster. Tap again for the next one in the area; after the last one, a tap "
-            "lets go. Lock-on style says whether the camera stays on it. Off, the bind does nothing.";
-        if (toggle_row("Lock-on", s.lock_on, options_for("input.lock_on", help.c_str()))) {
-            s.lock_on = !s.lock_on;
-            settings::save();
-        }
-        const char *const styles[] = {"Follow", "Focus"};
-        const int style = s.lock_on_style == settings::LockOnStyle::Focus ? 1 : 0;
-        RowOptions o = options_for("input.lock_on_style",
-            "Follow keeps the camera on the selected monster. Turning it by hand, the D-pad, or L lets go, and L "
-            "recenters behind the hunter. Focus keeps the selection, and a tap of L turns the camera to that "
-            "monster instead of behind the hunter. With nothing selected, L recenters behind the hunter.");
-        if (!s.lock_on && !o.disabled) {
-            o.disabled = true;
-            o.note = "Lock-on is off";
-        }
-        if (const int delta = choice_row("Lock-on style", styles[style], o)) {
-            const int next = std::clamp(style + delta, 0, 1);
-            s.lock_on_style = next == 0 ? settings::LockOnStyle::Follow : settings::LockOnStyle::Focus;
-            settings::save();
-        }
-        o = options_for("input.lock_on_marker",
-            "The bowgun's reticle over the monster the camera is locked onto. In Focus it shows only while L's "
-            "turn is on its way.");
-        if (!s.lock_on && !o.disabled) {
-            o.disabled = true;
-            o.note = "Lock-on is off";
-        }
-        if (toggle_row("Lock-on marker", s.lock_on_marker, o)) {
-            s.lock_on_marker = !s.lock_on_marker;
             settings::save();
         }
     }
@@ -2027,6 +2053,108 @@ std::optional<std::array<float, 2>> &lock_on_marker_at() {
     return at;
 }
 
+std::vector<camera::HuntPortrait> &hunt_portraits_at() {
+    static std::vector<camera::HuntPortrait> portraits;
+    return portraits;
+}
+
+struct HuntIconTexture {
+    ImTextureData *texture{};
+    std::uint64_t generation{};
+};
+
+HuntIconTexture &hunt_icon_texture() {
+    static HuntIconTexture value;
+    return value;
+}
+
+// Uploads the decoded icon sheet once per change. The first create is picked
+// up by the frame; later edits ask for an upload of the same texture.
+void upload_hunt_icons(const camera::HuntIconSheet &sheet) {
+    if (!sheet.ready || sheet.pixels == nullptr || sheet.width == 0u || sheet.height == 0u) return;
+    HuntIconTexture &icons = hunt_icon_texture();
+    if (icons.generation == sheet.generation && icons.texture != nullptr) return;
+    if (icons.texture == nullptr) {
+        icons.texture = new ImTextureData();
+        icons.texture->Create(ImTextureFormat_RGBA32, static_cast<int>(sheet.width), static_cast<int>(sheet.height));
+        ImGui::RegisterUserTexture(icons.texture);
+    }
+    std::memcpy(icons.texture->GetPixels(), sheet.pixels,
+        static_cast<std::size_t>(sheet.width) * sheet.height * sizeof(std::uint32_t));
+    if (icons.texture->Status == ImTextureStatus_OK || icons.texture->Status == ImTextureStatus_WantUpdates)
+        ImTextureDataQueueUpload(icons.texture, 0, 0, static_cast<int>(sheet.width), static_cast<int>(sheet.height));
+    icons.generation = sheet.generation;
+}
+
+// The monster's icon, bottom left of the game's picture, with no panel behind
+// it. The icon stays up when the monster is in another area; it is darkened
+// and labelled, because lock-on cannot select it. Thin red corner brackets
+// mark the monster lock-on has selected. A loading screen shows nothing: no
+// stand-in while the icon is not the one for this area.
+void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
+    if (fast_loading::active()) return;
+    const ImGuiIO &io = ImGui::GetIO();
+    const std::array<float, 4> picture = Layer::get().renderer().game_picture();
+    const float pixel = picture[3] * io.DisplaySize.y / 272.0f;
+    const camera::HuntIconSheet sheet = camera::hunt_icon_sheet();
+    upload_hunt_icons(sheet);
+    const HuntIconTexture &icons = hunt_icon_texture();
+    const bool icons_ready = sheet.ready && icons.texture != nullptr && icons.generation == sheet.generation;
+    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    ImFont *font = ImGui::GetFont();
+    const auto screen = [&](float psp_x, float psp_y) {
+        return ImVec2{(picture[0] + psp_x / 480.0f * picture[2]) * io.DisplaySize.x,
+            (picture[1] + psp_y / 272.0f * picture[3]) * io.DisplaySize.y};
+    };
+    for (const camera::HuntPortrait &portrait : portraits) {
+        const float side = std::min(portrait.width, portrait.height);
+        const float icon_x = portrait.x + (portrait.width - side) * 0.5f;
+        const float icon_y = portrait.y + (portrait.height - side) * 0.5f;
+        const std::optional<camera::HuntIconCell> cell = camera::hunt_icon_cell(portrait.id);
+        if (!icons_ready || !cell || cell->u + camera::kHuntIconTexels > sheet.width ||
+            cell->v + camera::kHuntIconTexels > sheet.height)
+            continue;
+        const float u0 = static_cast<float>(cell->u) / static_cast<float>(sheet.width);
+        const float v0 = static_cast<float>(cell->v) / static_cast<float>(sheet.height);
+        const float u1 = static_cast<float>(cell->u + camera::kHuntIconTexels) / static_cast<float>(sheet.width);
+        const float v1 = static_cast<float>(cell->v + camera::kHuntIconTexels) / static_cast<float>(sheet.height);
+        const ImU32 tint = portrait.other_area ? IM_COL32(80, 80, 80, 255) : IM_COL32(255, 255, 255, 255);
+        draw->AddImage(icons.texture->GetTexRef(), screen(icon_x, icon_y), screen(icon_x + side, icon_y + side),
+            {u0, v0}, {u1, v1}, tint);
+        const float portrait_scale = side / camera::kHuntCardHeight;
+        if (portrait.other_area) {
+            const char *label = "Diff. Area";
+            const float label_size = 7.0f * pixel * portrait_scale;
+            const ImVec2 label_extent = font->CalcTextSizeA(label_size, FLT_MAX, 0.0f, label);
+            const ImVec2 label_at = screen(icon_x + side * 0.5f, icon_y + side - 1.0f);
+            draw->AddText(font, label_size, {label_at.x - label_extent.x * 0.5f, label_at.y - label_extent.y},
+                IM_COL32(220, 220, 220, 235), label);
+        }
+        if (!portrait.locked) continue;
+        const float kArm = 6.0f * portrait_scale;
+        const float kOutset = 1.5f * portrait_scale;
+        const float x0 = icon_x - kOutset;
+        const float y0 = icon_y - kOutset;
+        const float x1 = icon_x + side + kOutset;
+        const float y1 = icon_y + side + kOutset;
+        const ImU32 bracket = IM_COL32(220, 32, 28, 235);
+        const float thick = std::max(1.0f, pixel * 0.5f);
+        const float shade = std::max(thick, pixel * 0.75f);
+        const ImVec2 corners[4][3] = {
+            {screen(x0, y0), screen(x0 + kArm, y0), screen(x0, y0 + kArm)},
+            {screen(x1, y0), screen(x1 - kArm, y0), screen(x1, y0 + kArm)},
+            {screen(x0, y1), screen(x0 + kArm, y1), screen(x0, y1 - kArm)},
+            {screen(x1, y1), screen(x1 - kArm, y1), screen(x1, y1 - kArm)},
+        };
+        for (const ImVec2 (&corner)[3] : corners) {
+            draw->AddLine(corner[0], corner[1], IM_COL32(0, 0, 0, 170), shade);
+            draw->AddLine(corner[0], corner[2], IM_COL32(0, 0, 0, 170), shade);
+            draw->AddLine(corner[0], corner[1], bracket, thick);
+            draw->AddLine(corner[0], corner[2], bracket, thick);
+        }
+    }
+}
+
 // Lock-on's marker (camera/lock_on.hpp): the bowgun's aim reticle over the
 // locked monster. A circle and four ticks outside it, in the game's pixels,
 // drawn smaller than the aim reticle so it marks the body without covering
@@ -2057,6 +2185,10 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
 
 void set_lock_on_marker(std::optional<std::array<float, 2>> at) {
     lock_on_marker_at() = at;
+}
+
+void set_hunt_portraits(std::vector<camera::HuntPortrait> portraits) {
+    hunt_portraits_at() = std::move(portraits);
 }
 
 namespace {
@@ -2150,12 +2282,14 @@ void draw_over_game() {
         !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
+    const std::vector<camera::HuntPortrait> portraits = menu ? std::vector<camera::HuntPortrait>{} : hunt_portraits_at();
     const bool numbers = !menu && !layer.renderer().window_capture_pending() && !game::damage_numbers().empty();
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !fast && !noted &&
-        hud_note <= 0.0 && !marker && !numbers)
+        hud_note <= 0.0 && !marker && portraits.empty() && !numbers)
         return;
     layer.begin_frame();
     if (numbers) draw_damage_numbers();
+    if (!portraits.empty()) draw_hunt_portraits(portraits);
     if (marker) draw_lock_on_marker(*marker);
     if (noted) draw_note(note());
     if (touch) {

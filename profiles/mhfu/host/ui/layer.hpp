@@ -94,8 +94,9 @@ public:
     void set_pad_blocked(bool blocked) noexcept { pad_blocked_ = blocked; }
     // What the player last used, for the button hints.
     [[nodiscard]] InputDevice input_device() const noexcept { return device_; }
-    // Whether confirm is the south face button (the pad setting); the menu
-    // follows the game's convention.
+    // Whether the interface confirms with the south face button and goes back
+    // with the east one. Always, whatever the game's Confirm button setting
+    // is; MHFU_MENU_CONFIRM=game makes the interface follow that setting.
     [[nodiscard]] bool confirm_south() const;
 
     // Text size in pixels for the current window, and the matching factor

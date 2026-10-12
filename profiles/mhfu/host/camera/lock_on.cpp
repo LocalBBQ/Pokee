@@ -1,6 +1,7 @@
 #include "camera/lock_on.hpp"
 
 #include "camera/game_camera.hpp"
+#include "camera/hunt_icon.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/runtime.hpp"
@@ -9,7 +10,6 @@
 #include <bit>
 #include <cmath>
 #include <cstdlib>
-#include <iomanip>
 #include <iostream>
 #include <string_view>
 #include <utility>
@@ -71,6 +71,11 @@ constexpr unsigned kSeekUpdates = 90u;
 constexpr float kFocusShare = 0.3f;
 constexpr int kFocusArrival = 364; // 2 degrees
 constexpr unsigned kFocusUpdates = 30u;
+// The picture's half width, from the projection's vertical field of view
+// (camera/game_aspect.cpp) at the game's 480 by 272. While the monster is
+// already inside it, Focus leaves the camera where it is.
+constexpr float kVerticalFov = 0.872222f;
+constexpr float kPictureAspect = 480.0f / 272.0f;
 
 struct State {
     bool tap{};
@@ -111,6 +116,14 @@ Vec3 load_vec(const psprecomp::GuestMemory &memory, std::uint32_t address) {
 
 bool finite(const Vec3 &v) {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
+// A large monster in another area stays on the quest list, health and all.
+// Traced with MHFU_TRACE_LOCK_ON: its position is held at y 1000 exactly
+// (8095.14, 1000, 5898.45, then 9632.91, 1000, 5143.63) and does not move,
+// while in the hunter's area it stands on the ground (y 284, or 0).
+bool held_in_another_area(const Vec3 &position) {
+    return position.y == 1000.0f;
 }
 
 bool on_quest(const psprecomp::GuestMemory &memory) {
@@ -162,16 +175,25 @@ bool focus_style() {
 
 } // namespace
 
-std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) {
-    struct Candidate {
-        LockMonster monster;
-        bool marked{};
-    };
-    std::vector<LockMonster> out;
-    if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return out;
-    const std::uint32_t manager = memory.load32(kEntityList);
-    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) return out;
+namespace {
+
+struct Candidate {
+    LockMonster monster;
+    bool marked{};
+    bool other_area{};
+    std::uint8_t id{};
+};
+
+// Large monsters on the quest list, including one whose position is held in
+// another area. When `trace` is set, the walk is printed and the flag cleared,
+// and only once the list can actually be read.
+std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bool *trace_flag) {
     std::vector<Candidate> found;
+    if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return found;
+    const std::uint32_t manager = memory.load32(kEntityList);
+    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) return found;
+    const bool trace = trace_flag != nullptr && *trace_flag;
+    if (trace_flag != nullptr) *trace_flag = false;
     std::uint32_t node = memory.load32(manager + kListHead);
     std::uint32_t seen[kMaxMonsters]{};
     for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
@@ -186,16 +208,6 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
         const std::uint16_t class_id = memory.load16(node + kNodeClass);
         const std::uint32_t at = memory.load32(node + kNodeEntity);
         node = older;
-        if (state.trace_walk && at >= 0x08800000u && memory.raw_pointer(at, kExtent) != nullptr &&
-            (kind == kPlayerNode || em_method(memory, memory.load32(at + kVtable)))) {
-            // The entity's words, to find what says which area it is in.
-            std::cout << "[lockon] dump " << (kind == kPlayerNode ? "player" : "large") << " 0x" << std::hex << at;
-            for (std::uint32_t off = 0; off < kExtent; off += 4u) {
-                if (off % 64u == 0u) std::cout << "\n[lockon] dump +" << std::setw(3) << std::setfill('0') << off << ":";
-                std::cout << " " << std::setw(8) << std::setfill('0') << memory.load32(at + off);
-            }
-            std::cout << std::dec << std::setfill(' ') << std::endl;
-        }
         if (kind == kPlayerNode) continue;
         if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
         bool seen_entity = false;
@@ -207,34 +219,94 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
         if (most <= 0 || health <= 0) continue; // a companion, not spawned yet, or dead
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
+        const bool other_area = held_in_another_area(position);
         const std::uint32_t vtable = memory.load32(at + kVtable);
         const bool em = em_method(memory, vtable);
         const bool marked = em || marked_large(class_id);
-        if (state.trace_walk) {
+        if (trace) {
             const std::uint32_t method = vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u)
                 ? memory.load32(vtable + kVtableMethod)
                 : 0u;
-            std::cout << "[lockon] candidate 0x" << std::hex << at << std::dec << " type " << static_cast<unsigned>(kind) << " class " << class_id << " vtable 0x" << std::hex
-                      << vtable << " method 0x" << method << std::dec << " em " << (em ? 1 : 0) << " health "
-                      << health << "/" << most << " at " << position.x << "," << position.y << "," << position.z
-                      << std::endl;
+            std::cout << "[lockon] candidate 0x" << std::hex << at << std::dec << " type "
+                      << static_cast<unsigned>(kind) << " class " << class_id << " vtable 0x" << std::hex << vtable
+                      << " method 0x" << method << std::dec << " em " << (em ? 1 : 0) << " id "
+                      << static_cast<unsigned>(memory.load8(at + kMonsterId)) << " health " << health << "/" << most
+                      << " at " << position.x << "," << position.y << "," << position.z
+                      << (other_area ? " other-area" : "") << std::endl;
         }
-        found.push_back({LockMonster{at, 0u, position}, marked});
+        found.push_back({LockMonster{at, 0u, position}, marked, other_area, memory.load8(at + kMonsterId)});
     }
-    // Prefer entities the executable marks as large. In a quest where em75 was
-    // loaded, every list entity's vtable methods stayed in game_task, so with
-    // none marked the whole health pool is what a tap can lock onto.
-    bool any_marked = false;
-    for (const Candidate &candidate : found)
-        if (candidate.marked) any_marked = true;
-    if (state.trace_walk)
-        std::cout << "[lockon] " << found.size() << " candidates, " << (any_marked ? "some" : "none")
+    if (trace) {
+        bool any_marked = false;
+        unsigned lockable = 0;
+        for (const Candidate &candidate : found) {
+            if (candidate.other_area) continue;
+            ++lockable;
+            if (candidate.marked) any_marked = true;
+        }
+        std::cout << "[lockon] " << lockable << " candidates, " << (any_marked ? "some" : "none")
                   << " marked large" << std::endl;
-    state.trace_walk = false;
-    for (const Candidate &candidate : found) {
-        if (any_marked && !candidate.marked) continue;
+    }
+    return found;
+}
+
+// `present` keeps a monster held in another area. The marked-large preference
+// then sees that monster, so a small one does not take its place on the card.
+// Lock-on drops the held monster first, and only then applies that preference,
+// which is how a tap behaves when every large monster is in another area.
+std::vector<Candidate> select_monsters(const std::vector<Candidate> &found, bool present) {
+    std::vector<Candidate> usable;
+    for (const Candidate &candidate : found)
+        if (present || !candidate.other_area) usable.push_back(candidate);
+    bool any_marked = false;
+    for (const Candidate &candidate : usable)
+        if (candidate.marked) any_marked = true;
+    std::vector<Candidate> out;
+    for (const Candidate &candidate : usable)
+        if (!any_marked || candidate.marked) out.push_back(candidate);
+    return out;
+}
+
+} // namespace
+
+std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) {
+    std::vector<LockMonster> out;
+    for (const Candidate &candidate : select_monsters(collect_monsters(memory, &state.trace_walk), false)) {
         out.push_back(candidate.monster);
         out.back().slot = static_cast<std::uint32_t>(out.size() - 1u);
+    }
+    return out;
+}
+
+std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory) {
+    std::vector<HuntMonster> out;
+    for (const Candidate &candidate : select_monsters(collect_monsters(memory, nullptr), true))
+        out.push_back(HuntMonster{candidate.monster.address, candidate.id, candidate.other_area});
+    return out;
+}
+
+std::vector<HuntPortrait> place_hunt_portraits(
+    const std::vector<HuntMonster> &monsters, std::uint32_t locked_target, bool locked) {
+    // Bottom left of the 480×272 picture, in a row. This area first. The
+    // player's size is a percent of the usual card.
+    const float scale = static_cast<float>(std::clamp(settings::current().hunt_portrait_size,
+                            settings::kMinHuntPortraitSize, settings::kMaxHuntPortraitSize)) /
+        100.0f;
+    const float kWidth = kHuntCardWidth * scale;
+    const float kHeight = kHuntCardHeight * scale;
+    constexpr float kMargin = 6.0f;
+    const float kGap = 4.0f * scale;
+    std::vector<HuntMonster> ordered = monsters;
+    std::stable_partition(
+        ordered.begin(), ordered.end(), [](const HuntMonster &monster) { return !monster.other_area; });
+    std::vector<HuntPortrait> out;
+    for (std::size_t i = 0; i < ordered.size(); ++i) {
+        const float x = kMargin + static_cast<float>(i) * (kWidth + kGap);
+        if (x + kWidth > 480.0f - kMargin) break;
+        const HuntMonster &monster = ordered[i];
+        out.push_back(HuntPortrait{monster.id, monster.other_area,
+            locked && !monster.other_area && monster.address == locked_target, x, 272.0f - kMargin - kHeight, kWidth,
+            kHeight});
     }
     return out;
 }
@@ -360,7 +432,21 @@ std::optional<std::uint32_t> lock_on_pick(const std::vector<LockMonster> &monste
     return std::nullopt;
 }
 
-std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, float weight, int sign, float share_of_rest) {
+int screen_half_yaw() {
+    const float half = std::atan(kPictureAspect * std::tan(kVerticalFov * 0.5f));
+    return static_cast<int>(std::lround(half / (2.0f * kPi) * kUnitsPerTurn));
+}
+
+bool lock_on_monster_in_view(const psprecomp::GuestMemory &memory, std::uint16_t yaw, const Vec3 &look_at) {
+    if (!state.locked) return false;
+    const LockMonster *target = find(lock_on_monsters(memory), state.target);
+    if (target == nullptr || !finite(target->position)) return false;
+    const Vec3 aim{target->position.x, target->position.y + kAimHeight, target->position.z};
+    return std::abs(yaw_difference(yaw, yaw_towards(look_at, aim))) <= screen_half_yaw();
+}
+
+std::uint16_t lock_on_ease_yaw(
+    std::uint16_t current, std::uint16_t wanted, float weight, int sign, float share_of_rest, int largest_step) {
     weight = std::clamp(weight, 0.0f, 1.0f);
     if (weight <= 0.0f) return current;
     int rest = yaw_difference(current, wanted);
@@ -370,7 +456,7 @@ std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, floa
     const int way = rest > 0 ? 1 : -1;
     const float share = static_cast<float>(std::abs(rest)) * share_of_rest * weight;
     const int step = std::clamp(static_cast<int>(std::lround(share)), kSmallestStep,
-        std::max(kSmallestStep, static_cast<int>(static_cast<float>(kLargestStep) * weight)));
+        std::max(kSmallestStep, static_cast<int>(static_cast<float>(largest_step) * weight)));
     return static_cast<std::uint16_t>(current + way * std::min(step, std::abs(rest)));
 }
 
@@ -383,7 +469,13 @@ void lock_on_tap() {
 std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera) {
     ++state.updates;
     const bool focus = focus_style();
-    if (focus && camera.snap && state.locked) {
+    // Only the L that starts a turn. Another L while the camera is already
+    // moving toward the monster must not look like a new turn: that check
+    // below leaves the camera where it is once the monster is in the picture,
+    // which would stop the turn halfway.
+    bool starting_turn = false;
+    if (focus && camera.snap && state.locked && !state.focusing) {
+        starting_turn = true;
         state.focusing = true;
         state.focus_left = kFocusUpdates;
         state.turning = 0;
@@ -450,12 +542,18 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     }
     const Vec3 aim{target->position.x, target->position.y + kAimHeight, target->position.z};
     const std::uint16_t wanted = yaw_towards(camera.look_at, aim);
+    // Already in the picture: do not move. A step written onto both yaw
+    // fields, or a tilt written onto the eye, is a jump.
+    if (starting_turn && std::abs(yaw_difference(camera.yaw, wanted)) <= screen_half_yaw()) {
+        state.focusing = false;
+        return LockOnAim{camera.yaw, std::nullopt};
+    }
     // Follow holds the yaw while the monster is on top of the hunter, where
     // its direction jumps from one update to the next. A Focus turn is one
     // the player asked for and ends on arrival, so it turns at any distance.
     const float near = focus ? 1.0f : (horizontal(camera.look_at, aim) - kNear) / kNearBlend;
-    LockOnAim out{
-        lock_on_ease_yaw(camera.yaw, wanted, near, state.turning, focus ? kFocusShare : kYawShare), std::nullopt};
+    LockOnAim out{lock_on_ease_yaw(camera.yaw, wanted, near, state.turning, focus ? kFocusShare : kYawShare),
+        std::nullopt};
     const bool arrived = focus && std::abs(yaw_difference(out.yaw, wanted)) <= kFocusArrival;
     if (arrived) out.yaw = wanted;
     const int step = yaw_difference(camera.yaw, out.yaw);
@@ -696,6 +794,106 @@ void lock_on_reset() {
 
 std::string lock_on_take_note() {
     return std::exchange(state.note, std::string());
+}
+
+namespace {
+
+// Species id, then the icon's top-left texel. The coordinate pair is the one
+// the icon draw stores in a vertex: the low 16 bits are u and the high 16
+// bits are v, and the opposite corner is 36 texels on from both. Subspecies
+// that share a picture share a cell.
+struct IconCell {
+    std::uint8_t id;
+    std::uint16_t u;
+    std::uint16_t v;
+};
+
+constexpr IconCell kIconCells[] = {
+    {0x01, 0x00B4, 0x0024}, // Rathian
+    {0x03, 0x00D8, 0x0000}, // Kelbi
+    {0x04, 0x0024, 0x00D8}, // Mosswine
+    {0x05, 0x0048, 0x006C}, // Bullfango
+    {0x06, 0x0000, 0x0024}, // Yian Kut-Ku
+    {0x07, 0x0000, 0x006C}, // Lao-Shan Lung
+    {0x08, 0x0048, 0x0024}, // Cephadrome
+    {0x09, 0x00D8, 0x00B4}, // Felyne
+    {0x0B, 0x0090, 0x0024}, // Rathalos
+    {0x0C, 0x00D8, 0x0090}, // Aptonoth
+    {0x0D, 0x0024, 0x0000}, // Genprey
+    {0x0E, 0x0090, 0x0048}, // Diablos
+    {0x0F, 0x0000, 0x0048}, // Khezu
+    {0x10, 0x0000, 0x0000}, // Velociprey
+    {0x11, 0x0024, 0x0048}, // Gravios
+    {0x13, 0x00D8, 0x0024}, // Vespoid
+    {0x14, 0x0024, 0x0024}, // Gypceros
+    {0x15, 0x006C, 0x0024}, // Plesioth
+    {0x16, 0x0048, 0x0048}, // Basarios
+    {0x17, 0x0000, 0x00D8}, // Melynx
+    {0x18, 0x00D8, 0x0048}, // Hornetaur
+    {0x19, 0x00D8, 0x006C}, // Apceros
+    {0x1A, 0x006C, 0x0048}, // Monoblos
+    {0x1B, 0x006C, 0x0000}, // Velocidrome
+    {0x1C, 0x0090, 0x0000}, // Gendrome
+    {0x1E, 0x0048, 0x0000}, // Ioprey
+    {0x1F, 0x00B4, 0x0000}, // Iodrome
+    {0x21, 0x00B4, 0x0048}, // Kirin
+    {0x22, 0x0048, 0x0024}, // Cephalos
+    {0x23, 0x0048, 0x00D8}, // Giaprey
+    {0x25, 0x00B4, 0x0024}, // Pink Rathian
+    {0x26, 0x0000, 0x0024}, // Blue Yian Kut-Ku
+    {0x27, 0x0024, 0x0024}, // Purple Gypceros
+    {0x28, 0x0024, 0x006C}, // One-Eared Yian Garuga
+    {0x29, 0x0090, 0x0024}, // Silver Rathalos
+    {0x2A, 0x00B4, 0x0024}, // Gold Rathian
+    {0x2B, 0x0090, 0x0048}, // Black Diablos
+    {0x2C, 0x006C, 0x0048}, // White Monoblos
+    {0x2D, 0x0000, 0x0048}, // Red Khezu
+    {0x2E, 0x006C, 0x0024}, // Green Plesioth
+    {0x2F, 0x0024, 0x0048}, // Black Gravios
+    {0x30, 0x0000, 0x0090}, // Daimyo Hermitaur
+    {0x31, 0x0090, 0x0024}, // Azure Rathalos
+    {0x32, 0x0000, 0x006C}, // Ashen Lao-Shan Lung
+    {0x33, 0x006C, 0x006C}, // Blangonga
+    {0x34, 0x0048, 0x00B4}, // Congalala
+    {0x35, 0x00B4, 0x006C}, // Rajang
+    {0x36, 0x0048, 0x0090}, // Kushala Daora
+    {0x37, 0x0090, 0x00FC}, // Shen Gaoren
+    {0x38, 0x0090, 0x006C}, // Great Thunderbug
+    {0x39, 0x006C, 0x00FC}, // Shakalaka
+    {0x3B, 0x006C, 0x0090}, // Chameleos
+    {0x3C, 0x0048, 0x0090}, // Rusted Kushala Daora
+    {0x3D, 0x0090, 0x00B4}, // Blango
+    {0x3E, 0x00B4, 0x00B4}, // Conga
+    {0x3F, 0x0090, 0x00D8}, // Remobra
+    {0x40, 0x0090, 0x0090}, // Lunastra
+    {0x41, 0x00B4, 0x0090}, // Teostra
+    {0x42, 0x0000, 0x0090}, // Hermitaur
+    {0x43, 0x0024, 0x0090}, // Shogun Ceanataur
+    {0x44, 0x0048, 0x006C}, // Bulldrome
+    {0x45, 0x00B4, 0x00D8}, // Anteka
+    {0x46, 0x00D8, 0x00D8}, // Popo
+    {0x48, 0x0048, 0x00FC}, // Yama Tsukami
+    {0x49, 0x0024, 0x0090}, // Ceanataur
+    {0x4B, 0x0000, 0x00B4}, // Tigrex
+    {0x4D, 0x006C, 0x00D8}, // Giadrome
+    {0x4E, 0x0024, 0x006C}, // Yian Garuga
+    {0x50, 0x00D8, 0x0024}, // Vespoid Queen
+    {0x51, 0x00B4, 0x00FC}, // Nargacuga
+    {0x52, 0x0024, 0x00FC}, // Hypnocatrice
+    {0x53, 0x0000, 0x00FC}, // Lavasioth
+    {0x54, 0x006C, 0x006C}, // Copper Blangonga
+    {0x55, 0x0048, 0x00B4}, // Emerald Congalala
+    {0x56, 0x0000, 0x0090}, // Plum Daimyo Hermitaur
+    {0x57, 0x0024, 0x0090}, // Terra Shogun Ceanataur
+    {0x59, 0x00B4, 0x006C}, // Furious Rajang
+};
+
+} // namespace
+
+std::optional<HuntIconCell> hunt_icon_cell(std::uint8_t id) {
+    for (const IconCell &cell : kIconCells)
+        if (cell.id == id) return HuntIconCell{cell.u, cell.v};
+    return std::nullopt;
 }
 
 } // namespace mhfu::camera

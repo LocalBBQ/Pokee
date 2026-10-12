@@ -28,6 +28,8 @@ class GuestMemory;
 //   keeps a type byte at +36 (1 is a player).
 // - The entity's position is three floats at +0x200. Its health and most
 //   health are s16 at +0x2E4 and +0x41E. A companion's most health is 0.
+//   In another area the position is held at y 1000 exactly, and that entity
+//   is not a target.
 // - When an entity's vtable has a method in the em overlay slot, or its list
 //   node carries class id 32, 34 or 36, only those entities are locked.
 //   A quest whose monsters keep a game_task vtable (seen with em75 loaded)
@@ -69,6 +71,10 @@ inline constexpr std::uint32_t kEmOverlayEnd = 0x09D63100u;
 inline constexpr std::uint32_t kPosition = 0x200u;
 inline constexpr std::uint32_t kHealth = 0x2E4u;
 inline constexpr std::uint32_t kMostHealth = 0x41Eu;
+// Species. 0x088135D0 loads this byte and compares it with species constants.
+// The health halfword at +0x2E4 is read from the same pointer, so the id stays
+// on a monster whose position is held in another area.
+inline constexpr std::uint32_t kMonsterId = 0x1E8u;
 inline constexpr std::uint32_t kExtent = 0x420u;
 } // namespace lock_on_layout
 
@@ -82,6 +88,36 @@ struct LockMonster {
 // a player, and alive with a health pool. When any entry is marked large
 // (an em-overlay method, or class id 32, 34 or 36), only those.
 [[nodiscard]] std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory);
+
+// A large monster the hunt card can show, including one held in another area.
+// `id` is the species byte at +0x1E8. `other_area` is the position held at
+// y 1000, which lock-on will not select.
+struct HuntMonster {
+    std::uint32_t address{};
+    std::uint8_t id{};
+    bool other_area{};
+};
+[[nodiscard]] std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory);
+
+// The card on the 480×272 picture, in PSP pixels: three quarters of the first
+// 68×52 card.
+inline constexpr float kHuntCardWidth = 51.0f;
+inline constexpr float kHuntCardHeight = 39.0f;
+
+// One card, top left in PSP pixels. Monsters in this area come first.
+// `locked` is the card whose monster lock-on has selected, and it is never
+// set for a monster in another area.
+struct HuntPortrait {
+    std::uint8_t id{};
+    bool other_area{};
+    bool locked{};
+    float x{};
+    float y{};
+    float width{};
+    float height{};
+};
+[[nodiscard]] std::vector<HuntPortrait> place_hunt_portraits(const std::vector<HuntMonster> &monsters,
+    std::uint32_t locked_target, bool locked);
 
 // The camera's yaw, in its units, that looks from `from` towards `to`.
 [[nodiscard]] std::uint16_t yaw_towards(const Vec3 &from, const Vec3 &to);
@@ -104,8 +140,10 @@ inline constexpr float kInView = 60.0f; // degrees either side of where the came
 // way the previous step went, kept while the rest is near half a turn, where
 // the short way round flips from one update to the next. `share` is the part
 // of the rest taken each update.
-[[nodiscard]] std::uint16_t lock_on_ease_yaw(
-    std::uint16_t current, std::uint16_t wanted, float weight = 1.0f, int sign = 0, float share = 0.2f);
+// `largest_step` caps one update, in the camera's yaw units. 2048 is 11.25
+// degrees, the sweep used while the monster is off the picture.
+[[nodiscard]] std::uint16_t lock_on_ease_yaw(std::uint16_t current, std::uint16_t wanted, float weight = 1.0f,
+    int sign = 0, float share = 0.2f, int largest_step = 2048);
 
 // --- The running lock -------------------------------------------------------
 
@@ -136,6 +174,10 @@ struct LockOnAim {
 };
 // Nothing when there is no lock, or it has just been let go.
 [[nodiscard]] std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera);
+
+// The selected monster is inside the picture at this yaw. Focus then leaves
+// the camera where it is, including L's recenter behind the hunter.
+[[nodiscard]] bool lock_on_monster_in_view(const psprecomp::GuestMemory &memory, std::uint16_t yaw, const Vec3 &look_at);
 
 // Once a flip: lets a lock go whose monster is no longer there (killed,
 // captured, gone to another area, the quest over), and a tap that no camera

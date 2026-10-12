@@ -79,15 +79,31 @@ constexpr std::uint32_t wrapped_address(std::size_t index) {
 // the same address are not this function.
 constexpr std::array<HudFunction, 6> kHudFunctions = {{
     {0x09AE38F8u, 0x27BDFFF0u, 0xAFBF000Cu}, // lobby_task text: addiu sp,-16; sw ra,12(sp)
-    {0x09A6C248u, 0x27BDFFF0u, 0xAFBF000Cu}, // lobby_task labels: addiu sp,-16; sw ra,12(sp)
+    {0x09A6C248u, 0x27BDFFF0u, 0xAFBF000Cu}, // lobby_task callback: addiu sp,-16; sw ra,12(sp)
     {0x09A60298u, 0x27BDFFA0u, 0xAFBF001Cu}, // game_task HUD: addiu sp,-96; sw ra,28(sp)
     {0x09A617A8u, 0x27BDFFE0u, 0xAFBF000Cu}, // game_task HUD state: addiu sp,-32; sw ra,12(sp)
     {0x09A62400u, 0x27BDFFF0u, 0xAFBF000Cu}, // game_task HUD state: addiu sp,-16; sw ra,12(sp)
     {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu}, // game_task labels: addiu sp,-96; sw ra,28(sp)
 }};
-// The name over another hunter, and the mark beside it. Both are already in
-// kHudFunctions; this is which of those the name size scales.
-constexpr std::array<std::uint32_t, 2> kNameLabels = {0x09A6C248u, 0x09B62488u};
+// The name over another hunter in a quest, and the mark beside it. The first
+// two words have to match: the other overlay occupies the same addresses.
+//
+// The village and the gathering hall have no separate name. lobby_task draws
+// a hunter's label from the same functions that file the rest of that screen
+// (0x09A6C248 calls through the mode at object+44, and 0x09A80660 draws the
+// label together with the surrounding interface). Sizing any of those moves
+// the shops, prompts and dialogs with the multiplayer names, so those names
+// stay at the size the game draws. The quest labels draw the name and its
+// mark and nothing else.
+struct NameFunction {
+    std::uint32_t address;
+    std::uint32_t first;
+    std::uint32_t saved_ra;
+    bool tag_only;
+};
+constexpr NameFunction kNameFunctions[] = {
+    {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu, false}, // game_task labels: addiu sp,-96; sw ra,28(sp)
+};
 
 // The text context, and in it each queue's length (u8 at +308 + queue) and
 // entries (a pointer at +320 + 4 * queue, entries of 12 bytes). The flush
@@ -167,22 +183,34 @@ struct State {
     std::vector<std::uint32_t> text_entries;
     std::array<std::uint8_t, kQueues> lengths{};
     // Text queued by a name label, and the point the game placed it (the
-    // entry's x and y). Icons of that text keep the same point.
-    std::vector<std::uint32_t> name_entries;
+    // entry's x and y). Icons of that text keep the same point. `tag_only`
+    // is a lobby name: the draw is scaled only when it is the size of a tag.
+    struct NameEntry {
+        std::uint32_t address{};
+        bool tag_only{};
+    };
+    std::vector<NameEntry> name_entries;
     struct NamePacket {
         std::uint32_t end{};
         bool has_origin{};
+        bool tag_only{};
         float x{};
         float y{};
     };
     std::map<std::uint32_t, NamePacket> name_packets;
-    std::unordered_map<std::uint32_t, std::pair<float, float>> icon_origin;
+    struct IconOrigin {
+        float x{};
+        float y{};
+        bool tag_only{};
+    };
+    std::unordered_map<std::uint32_t, IconOrigin> icon_origin;
     // Icons in HUD text, and each queue's icon count when last looked at.
     std::vector<std::uint32_t> icons;
     std::array<std::uint8_t, kQueues> icon_counts{};
     std::uint64_t icon_frame{~0ull};
     bool last_call_hud{};
     bool last_call_name{};
+    bool last_call_tag_only{};
     std::array<bool, kHudFunctions.size()> hud_word_logged{};
     std::unordered_map<std::uint32_t, Frame> frames;
     // MHFU_TRACE_HUD
@@ -254,14 +282,26 @@ bool hud_function_here(State &s, const psprecomp::GuestMemory &memory, std::uint
     return false;
 }
 
+// A name label still has to begin with the words it was read from. The quest
+// overlay and the lobby overlay share these addresses.
+const NameFunction *name_function_here(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    for (const NameFunction &fn : kNameFunctions) {
+        if (fn.address != address) continue;
+        if (memory.load32(address) == fn.first && memory.load32(address + 4u) == fn.saved_ra) return &fn;
+        return nullptr;
+    }
+    return nullptr;
+}
+
 // Whether a HUD function is on the guest's call stack; the chain of return
 // addresses and function starts goes to `line` when one is given.
 bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::string *line,
-    bool *name) {
+    bool *name, bool *tag_only) {
     std::uint32_t ra = ctx.gpr[31];
     std::uint32_t sp = ctx.gpr[29];
     bool hud = false;
     bool found_name = false;
+    bool limit = false;
     for (int depth = 0; depth < 12; ++depth) {
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
@@ -270,9 +310,16 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
             std::snprintf(text, sizeof(text), " %08X@%08X", ra, frame->start);
             *line += text;
         }
+        // The quest label is the name. The village callback is a HUD function
+        // and stays on the stack for that whole interface, so the walk stops
+        // there without treating it as a name.
+        if (!found_name)
+            if (const NameFunction *named = name_function_here(memory, frame->start)) {
+                found_name = true;
+                limit = named->tag_only;
+            }
         if (hud_function_here(s, memory, frame->start)) {
             hud = true;
-            found_name = found_name || name_label(frame->start);
             if (line == nullptr) break;
         }
         if (frame->ra_offset == ~0u || !memory.contains(sp + frame->ra_offset, 4u)) break;
@@ -280,7 +327,14 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
         sp += frame->size;
     }
     if (name != nullptr) *name = found_name;
+    if (tag_only != nullptr) *tag_only = limit;
     return hud;
+}
+
+const State::NameEntry *find_name(const State &s, std::uint32_t entry) {
+    for (const State::NameEntry &e : s.name_entries)
+        if (e.address == entry) return &e;
+    return nullptr;
 }
 
 // The text entry's x and y, the point 0x08890DFC stored before the glyphs.
@@ -306,14 +360,14 @@ void settle_text(State &s, const psprecomp::GuestMemory &memory) {
             const std::uint32_t end = entries + 256u * kEntryBytes;
             const auto gone = [&](std::uint32_t e) { return e >= entries && e < end; };
             std::erase_if(s.text_entries, gone);
-            std::erase_if(s.name_entries, gone);
+            std::erase_if(s.name_entries, [&](const State::NameEntry &e) { return gone(e.address); });
             known = 0u;
         }
         if (s.last_call_hud || s.last_call_name)
             for (std::uint32_t i = known; i < length; ++i) {
                 const std::uint32_t at = entries + i * kEntryBytes;
                 if (s.last_call_hud) s.text_entries.push_back(at);
-                if (s.last_call_name) s.name_entries.push_back(at);
+                if (s.last_call_name) s.name_entries.push_back(State::NameEntry{at, s.last_call_tag_only});
             }
         known = length;
     }
@@ -329,13 +383,13 @@ void note_packet(State &s, std::uint32_t packet, std::uint32_t words, bool hud) 
     if (s.packets.size() > 65536u) s.packets.clear(); // never expected; bounds a runaway
 }
 
-void note_name_packet(
-    State &s, std::uint32_t packet, std::uint32_t words, bool name, bool has_origin, float x, float y) {
+void note_name_packet(State &s, std::uint32_t packet, std::uint32_t words, bool name, bool has_origin, bool tag_only,
+    float x, float y) {
     const std::uint32_t end = packet + words * 4u;
     auto it = s.name_packets.lower_bound(packet);
     if (it != s.name_packets.begin() && std::prev(it)->second.end > packet) --it;
     while (it != s.name_packets.end() && it->first < end) it = s.name_packets.erase(it);
-    if (name) s.name_packets.emplace(packet, State::NamePacket{end, has_origin, x, y});
+    if (name) s.name_packets.emplace(packet, State::NamePacket{end, has_origin, tag_only, x, y});
     if (s.name_packets.size() > 65536u) s.name_packets.clear();
 }
 
@@ -346,12 +400,14 @@ void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContex
     const bool trace = tracing(s);
     std::string chain;
     bool name = false;
-    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name);
+    bool tag_only = false;
+    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only);
     // Text a HUD function queues after drawing a packet of its own, as the
     // name plate does, is the HUD's too. The stack here is the filer, so a
     // name is the label function on that stack, or text it queued earlier.
     s.last_call_hud = hud;
     s.last_call_name = name;
+    s.last_call_tag_only = tag_only;
     const std::uint32_t sp = ctx.gpr[29];
     std::uint32_t entry = 0u;
     bool has_origin = false;
@@ -361,8 +417,9 @@ void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContex
         memory.load32(sp + kGlyphSavedRa) == kGlyphFromQueue) {
         entry = memory.load32(sp + kGlyphSavedEntry);
         if (!hud) hud = std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end();
-        if (std::find(s.name_entries.begin(), s.name_entries.end(), entry) != s.name_entries.end()) {
+        if (const State::NameEntry *named = find_name(s, entry)) {
             name = true;
+            tag_only = named->tag_only;
             has_origin = entry_origin(memory, entry, origin_x, origin_y);
         }
     }
@@ -372,13 +429,14 @@ void on_file_packet(psprecomp::Runtime &runtime, const psprecomp::AllegrexContex
         if (!hud) hud = std::find(s.icons.begin(), s.icons.end(), entry) != s.icons.end();
         if (const auto placed = s.icon_origin.find(entry); placed != s.icon_origin.end()) {
             name = true;
+            tag_only = placed->second.tag_only;
             has_origin = true;
-            origin_x = placed->second.first;
-            origin_y = placed->second.second;
+            origin_x = placed->second.x;
+            origin_y = placed->second.y;
         }
     }
     note_packet(s, ctx.gpr[5], ctx.gpr[6], hud);
-    note_name_packet(s, ctx.gpr[5], ctx.gpr[6], name, has_origin, origin_x, origin_y);
+    note_name_packet(s, ctx.gpr[5], ctx.gpr[6], name, has_origin, tag_only, origin_x, origin_y);
     if (trace) {
         char head[160];
         std::snprintf(head, sizeof(head), "[hud] f=%llu packet=%08X words=%u bucket=%u list=%08X %s |",
@@ -424,15 +482,16 @@ void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexCo
             known = 0u;
         }
         const bool hud_text = std::find(s.text_entries.begin(), s.text_entries.end(), entry) != s.text_entries.end();
-        const bool name_text = std::find(s.name_entries.begin(), s.name_entries.end(), entry) != s.name_entries.end();
-        if (hud_text || name_text) {
+        const State::NameEntry *named = find_name(s, entry);
+        if (hud_text || named != nullptr) {
             float origin_x = 0.0f;
             float origin_y = 0.0f;
-            const bool has_origin = name_text && entry_origin(memory, entry, origin_x, origin_y);
+            const bool has_origin = named != nullptr && entry_origin(memory, entry, origin_x, origin_y);
             for (std::uint32_t i = known; i < count; ++i) {
                 const std::uint32_t icon = list + i * kIconBytes;
                 if (hud_text) s.icons.push_back(icon);
-                if (has_origin) s.icon_origin.emplace(icon, std::pair{origin_x, origin_y});
+                if (has_origin)
+                    s.icon_origin.emplace(icon, State::IconOrigin{origin_x, origin_y, named->tag_only});
             }
         }
         known = count;
@@ -447,8 +506,10 @@ void on_text_call(std::size_t which, psprecomp::Runtime &runtime, const psprecom
     const bool trace = tracing(s);
     std::string chain;
     bool name = false;
-    s.last_call_hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name);
+    bool tag_only = false;
+    s.last_call_hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only);
     s.last_call_name = name;
+    s.last_call_tag_only = tag_only;
     if (trace)
         std::cout << "[hud] f=" << s.frame << " text 0x" << std::hex << wrapped_address(which) << std::dec
                   << (s.last_call_hud ? " HUD" : " -") << " |" << chain << "\n";
@@ -510,7 +571,15 @@ bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t ad
 }
 
 bool name_label(std::uint32_t address) {
-    return std::find(kNameLabels.begin(), kNameLabels.end(), address) != kNameLabels.end();
+    for (const NameFunction &fn : kNameFunctions)
+        if (fn.address == address) return true;
+    return false;
+}
+
+bool name_tag_only(std::uint32_t address) {
+    for (const NameFunction &fn : kNameFunctions)
+        if (fn.address == address) return fn.tag_only;
+    return false;
 }
 
 void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
@@ -614,7 +683,7 @@ NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return) {
         auto it = s.name_packets.upper_bound(address);
         if (it == s.name_packets.begin() || address >= std::prev(it)->second.end) return {};
         const State::NamePacket &packet = std::prev(it)->second;
-        return {true, packet.has_origin, packet.x, packet.y};
+        return {true, packet.has_origin, packet.tag_only, packet.x, packet.y};
     };
     const NameDraw command = found(command_address);
     return command.is_name ? command : found(call_return);

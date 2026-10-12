@@ -3,6 +3,7 @@
 // real camera driver dispatching the camera update.
 #include "camera/camera_input.hpp"
 #include "camera/game_camera.hpp"
+#include "camera/hunt_icon.hpp"
 #include "camera/lock_on.hpp"
 #include "input/bindings.hpp"
 #include "input/presets.hpp"
@@ -61,19 +62,39 @@ constexpr std::uint32_t hunter = 0x09410000u;
 // target becomes the facing plus half a turn and the snap byte is set and
 // cleared in the same update.
 bool game_recenters{};
+// L while the camera is not yet that close: the target is written behind the
+// hunter, the filtered yaw steps a quarter of the way there, and the snap
+// stays set.
+bool game_pulls_recenter{};
+
+void write_float(psprecomp::GuestMemory &memory, std::uint32_t address, float value);
 
 void original(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    auto &memory = runtime.memory();
+    const auto behind = static_cast<std::uint16_t>(memory.load32(hunter + 500u) + 0x8000u);
     if (std::exchange(game_recenters, false)) {
-        auto &memory = runtime.memory();
-        memory.store16(
-            camera_address + 0x80u, static_cast<std::uint16_t>(memory.load32(hunter + 500u) + 0x8000u));
+        memory.store16(camera_address + 0x80u, behind);
         memory.store8(camera_address + 0x8Eu, 0u);
+    }
+    if (std::exchange(game_pulls_recenter, false)) {
+        const auto current = memory.load16(camera_address + 0x82u);
+        const int step = static_cast<std::int16_t>(static_cast<std::uint16_t>(behind - current)) >> 2;
+        memory.store16(camera_address + 0x80u, behind);
+        memory.store16(camera_address + 0x82u, static_cast<std::uint16_t>(current + step));
+        memory.store8(camera_address + 0x8Eu, 1u);
+        // The eye is placed from that stepped yaw, and +0x8D starts at 20.
+        write_float(memory, camera_address, 50.0f);
+        memory.store8(camera_address + 0x8Du, 20u);
     }
     ctx.pc = ctx.gpr[31];
 }
 
 void write_float(psprecomp::GuestMemory &memory, std::uint32_t address, float value) {
     memory.store32(address, std::bit_cast<std::uint32_t>(value));
+}
+
+float read_float(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    return std::bit_cast<float>(memory.load32(address));
 }
 
 void place(psprecomp::GuestMemory &memory, std::uint32_t monster, float x, float z, std::int16_t health = 1000,
@@ -267,6 +288,104 @@ void test_lock_follows_and_lets_go() {
     check(!lock_on_status().locked, "with one monster a second tap lets go");
 }
 
+void test_monster_in_another_area() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    write_float(memory, monster_b + game::kPosition + 4u, 1000.0f);
+    const std::vector<LockMonster> parked = lock_on_monsters(memory);
+    check(parked.size() == 1u && parked[0].address == monster_a,
+        "a large monster held at y 1000, in another area, is not a target");
+    write_float(memory, monster_b + game::kPosition + 4u, 1000.5f);
+    check(lock_on_monsters(memory).size() == 2u, "a monster standing near that height still is");
+    write_float(memory, monster_b + game::kPosition + 4u, 0.0f);
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_b, "a tap locks the monster in this area");
+    write_float(memory, monster_b + game::kPosition + 4u, 1000.0f);
+    f.frame();
+    check(!lock_on_status().locked, "the lock lets go when the monster leaves for another area");
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_a && lock_on_status().locked,
+        "the next tap takes the monster that is still here");
+}
+
+void test_hunt_portrait_keeps_the_id_in_another_area() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    memory.store8(monster_a + game::kMonsterId, 11u);
+    memory.store8(monster_b + game::kMonsterId, 1u);
+    memory.store8(small + game::kMonsterId, 5u);
+    write_float(memory, monster_b + game::kPosition + 4u, 1000.0f);
+    const std::vector<HuntMonster> hunt = hunt_monsters(memory);
+    check(hunt.size() == 2u, "the card keeps the large monster that is in another area");
+    const HuntMonster *here = nullptr;
+    const HuntMonster *away = nullptr;
+    for (const HuntMonster &monster : hunt) {
+        if (monster.address == monster_a) here = &monster;
+        if (monster.address == monster_b) away = &monster;
+    }
+    check(here != nullptr && here->id == 11u && !here->other_area, "the monster here keeps its id");
+    check(away != nullptr && away->id == 1u && away->other_area, "the monster in another area keeps its id");
+    check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == monster_a,
+        "lock-on still will not select the monster in another area");
+
+    const std::vector<HuntPortrait> placed = place_hunt_portraits(hunt, monster_a, true);
+    check(placed.size() == 2u, "one card each");
+    check(!placed[0].other_area && placed[0].locked && placed[0].id == 11u,
+        "the corner card is the monster here, and the brackets follow the lock");
+    check(placed[1].other_area && !placed[1].locked && placed[1].id == 1u,
+        "the other card stays up, without brackets, for the other area");
+    check(placed[0].x < placed[1].x && placed[0].y == placed[1].y, "the cards sit in a row");
+    check(placed[0].width == kHuntCardWidth && placed[0].height == kHuntCardHeight &&
+            placed[1].width == kHuntCardWidth && placed[1].height == kHuntCardHeight,
+        "each card is three quarters of the first portrait");
+    mhfu::settings::current().hunt_portrait_size = 200u;
+    const std::vector<HuntPortrait> large = place_hunt_portraits(hunt, monster_a, true);
+    check(large.size() == 2u && large[0].width == kHuntCardWidth * 2.0f && large[0].height == kHuntCardHeight * 2.0f &&
+            large[1].x + large[1].width <= 480.0f,
+        "twice the usual size still fits the row on the picture");
+    mhfu::settings::current().hunt_portrait_size = 50u;
+    const std::vector<HuntPortrait> half = place_hunt_portraits(hunt, monster_a, true);
+    check(half[0].width == kHuntCardWidth * 0.5f && half[0].height == kHuntCardHeight * 0.5f,
+        "half the usual size is half the card");
+    mhfu::settings::current().hunt_portrait_size = 100u;
+    check(placed[0].x >= 0.0f && placed[1].x + placed[1].width <= 480.0f && placed[0].y >= 0.0f &&
+            placed[0].y + placed[0].height <= 272.0f,
+        "the row stays on the 480 by 272 picture");
+    const std::optional<HuntIconCell> rathalos = hunt_icon_cell(11u);
+    const std::optional<HuntIconCell> rathian = hunt_icon_cell(1u);
+    const std::optional<HuntIconCell> tigrex = hunt_icon_cell(0x4Bu);
+    check(rathalos && rathalos->u == 0x90u && rathalos->v == 0x24u, "Rathalos is the icon at u 144, v 36");
+    check(rathian && rathian->u == 0xB4u && rathian->v == 0x24u, "Rathian is the icon beside it");
+    check(tigrex && tigrex->u == 0u && tigrex->v == 0xB4u, "Tigrex is the icon at the start of its row");
+    check(!hunt_icon_cell(0u), "an id the sheet does not carry has no icon");
+    bool inside = true;
+    unsigned cells = 0u;
+    for (unsigned id = 0u; id < 256u; ++id) {
+        const std::optional<HuntIconCell> cell = hunt_icon_cell(static_cast<std::uint8_t>(id));
+        if (!cell) continue;
+        ++cells;
+        if (cell->u + kHuntIconTexels > 256u || cell->v + kHuntIconTexels > 512u) inside = false;
+    }
+    check(cells == 77u && inside, "every icon cell is 36 texels and stays inside the 256 by 512 sheet");
+
+    const std::vector<HuntPortrait> idle = place_hunt_portraits(hunt, monster_a, false);
+    check(!idle[0].locked && !idle[1].locked, "with nothing locked, neither card has brackets");
+
+    write_float(memory, monster_a + game::kPosition + 4u, 1000.0f);
+    const std::vector<HuntMonster> both_away = hunt_monsters(memory);
+    check(both_away.size() == 2u && both_away[0].other_area && both_away[1].other_area,
+        "with both large monsters in another area, a small monster does not take the card");
+    write_float(memory, monster_a + game::kPosition + 4u, 0.0f);
+
+    place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
+    bool still = false;
+    for (const HuntMonster &monster : hunt_monsters(memory))
+        if (monster.address == monster_b) still = true;
+    check(!still, "a dead monster, even one that was in another area, is not shown");
+}
+
 void test_unmarked_monsters_still_lock() {
     Fixture f;
     auto &memory = f.runtime.memory();
@@ -364,6 +483,34 @@ void test_focus_turn_lets_go_promptly() {
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
 }
 
+void test_focus_holds_when_the_monster_is_on_screen() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    lock_on_tap();
+    f.frame();
+    // About 15 degrees off the camera's look, inside the picture.
+    place(memory, monster_b, 800.0f, -3000.0f);
+    const std::uint16_t before = f.yaw();
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(f.yaw() == before && memory.load16(camera_address + 0x80u) == before,
+        "a monster already on screen does not move the camera");
+    for (int i = 0; i < 40; ++i) f.frame();
+    check(f.yaw() == before, "and it stays there");
+    check(!game_camera_driving(), "the camera is not taken");
+    check(lock_on_status().locked, "the selection stays");
+
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x00001000u); // behind the hunter is not where the camera looks
+    game_recenters = true;
+    f.frame();
+    check(f.yaw() == before && memory.load16(camera_address + 0x80u) == before,
+        "L's recenter is put back when the monster is on screen");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
 void test_focus_turns_on_l_and_keeps_the_selection() {
     Fixture f;
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
@@ -414,6 +561,74 @@ void test_focus_turns_on_l_and_keeps_the_selection() {
     lock_on_tap();
     f.frame();
     check(!lock_on_status().locked, "after the last one, a tap lets go");
+}
+
+void test_focus_keeps_the_picture_when_the_hunter_is_aside() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    // Behind the hunter is a quarter turn off the camera, so the hunter is
+    // off at the side of the picture. The monster is straight ahead.
+    memory.store32(hunter + 500u, 0x0000C000u);
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked, "focus selects the monster ahead");
+    write_float(memory, camera_address, 0.0f);
+    game_pulls_recenter = true;
+    f.frame();
+    check(f.yaw() == 0u && memory.load16(camera_address + 0x80u) == 0u,
+        "L's quarter-step behind the hunter is put back in the same update");
+    check(read_float(memory, camera_address) == 0.0f, "and the eye it placed is put back with it");
+    check(memory.load8(camera_address + 0x8Eu) == 0u && memory.load8(camera_address + 0x8Du) == 0u,
+        "the snap and its countdown are dropped");
+    for (int i = 0; i < 10; ++i) f.frame();
+    check(f.yaw() == 0u && !game_camera_driving(), "a monster already on screen does not start a turn");
+
+    place(memory, monster_b, 3000.0f, 0.0f);
+    game_pulls_recenter = true;
+    f.frame();
+    check(f.yaw() == 0u && read_float(memory, camera_address) == 0.0f,
+        "off the picture, that same frame still shows the camera where it was");
+    f.frame();
+    check(f.yaw() != 0u && game_camera_driving(), "and the turn starts from there on the next update");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+}
+
+void test_focus_second_l_keeps_the_turn() {
+    Fixture f;
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    auto &memory = f.runtime.memory();
+    memory.store32(hunter_list, hunters);
+    memory.store32(hunters + 2692u, hunter);
+    memory.store32(hunter + 500u, 0x00008000u); // behind the hunter is yaw 0, where the camera started
+    lock_on_tap();
+    f.frame();
+    place(memory, monster_b, 3000.0f, 0.0f); // a quarter turn off the camera
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    int guard = 0;
+    while (std::abs(yaw_difference(f.yaw(), 49152u)) > 6000 && guard < 20) {
+        f.frame();
+        ++guard;
+    }
+    check(guard < 20 && game_camera_driving(), "the turn is under way with the monster in view");
+    const std::uint16_t mid = f.yaw();
+    memory.store8(camera_address + 0x8Eu, 1u);
+    f.frame();
+    check(game_camera_driving() && lock_on_status().locked, "another L while turning does not let the camera go");
+    check(std::abs(yaw_difference(f.yaw(), 49152u)) < std::abs(yaw_difference(mid, 49152u)),
+        "and the camera keeps moving toward the monster");
+
+    const std::uint16_t pulled = f.yaw();
+    game_pulls_recenter = true;
+    f.frame();
+    check(game_camera_driving(), "the game's recenter during the turn does not stop it");
+    check(std::abs(yaw_difference(f.yaw(), 49152u)) < std::abs(yaw_difference(pulled, 49152u)),
+        "and does not pull the camera back behind the hunter");
+    check(memory.load8(camera_address + 0x8Eu) == 0u, "the snap from that recenter is dropped");
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
 }
 
 void test_focus_reticle_and_close_turn() {
@@ -657,11 +872,16 @@ void test_binds() {
 int main() {
     test_geometry();
     test_monsters_and_pick();
+    test_monster_in_another_area();
+    test_hunt_portrait_keeps_the_id_in_another_area();
     test_unmarked_monsters_still_lock();
     test_lock_follows_and_lets_go();
     test_focus_turns_on_l_and_keeps_the_selection();
+    test_focus_keeps_the_picture_when_the_hunter_is_aside();
+    test_focus_second_l_keeps_the_turn();
     test_focus_reticle_and_close_turn();
     test_focus_turn_lets_go_promptly();
+    test_focus_holds_when_the_monster_is_on_screen();
     test_focus_turns_when_facing_away();
     test_tap_waits_for_the_monster();
     test_off_changes_nothing();

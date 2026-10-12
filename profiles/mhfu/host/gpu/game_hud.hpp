@@ -24,14 +24,17 @@ class Runtime;
 //   order. The HUD shares its buckets with menus and dialogs, so the bucket
 //   alone cannot tell them apart.
 // - The code that asks for the packet can. In the village and the Guild Hall,
-//   lobby_task draws its text layer from 0x09AE38F8, and the name over the
-//   hunter (and the mark beside it) from 0x09A6C248. In a quest, the HUD is
-//   a task callback, not the frame function: traced with MHFU_TRACE_HUD in
+//   lobby_task draws its text layer from 0x09AE38F8, and its task callback
+//   0x09A6C248 is on the stack for the village interface (it calls through
+//   the mode at object+44). In a quest, the HUD is a task callback, not the
+//   frame function: traced with MHFU_TRACE_HUD in
 //   the training quest, the health bar, the map, the item bar and their text
 //   are filed while 0x09A60298 is on the stack (through 0x09A62740 and
 //   0x09A627B8). 0x09A617A8 and 0x09A62400 file the same sprites for the
-//   quest's other HUD states. Name tags queue their own text from
-//   0x09B62488. Menus are other callbacks and stay. A packet is HUD when one
+//   quest's other HUD states. Name tags in a quest queue their own text from
+//   0x09B62488. In the village the same names are drawn with the rest of that
+//   interface, so the name size leaves them as the game draws them.
+//   Menus are other callbacks and stay. A packet is HUD when one
 //   of those is on the guest's call stack when it is filed; the stack is
 //   read the way the game's code builds it (each function's addiu sp, sp, -N
 //   and sw ra). Each function's first two words are checked, because the two
@@ -71,9 +74,12 @@ struct HudFunction {
 [[nodiscard]] std::span<const HudFunction> hud_functions();
 [[nodiscard]] bool code_matches(const psprecomp::Runtime &runtime);
 [[nodiscard]] bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t address);
-// The name over another hunter: lobby_task 0x09A6C248 and game_task 0x09B62488.
-// The words still have to match before a call stack counts; this is the address only.
+// The name over another hunter in a quest: game_task 0x09B62488. The village
+// and the gathering hall draw those names with the rest of that interface, so
+// they are not names for this size. The words still have to match before a
+// call stack counts; this is the address only.
 [[nodiscard]] bool name_label(std::uint32_t address);
+[[nodiscard]] bool name_tag_only(std::uint32_t address);
 
 // Called at every flip, where guest functions may be wrapped: puts the
 // wrappers in place once the HUD is first hidden, a name or the map is scaled
@@ -102,10 +108,12 @@ void toggle();
 // A through-mode draw of a name over another hunter, once the 2D draws are
 // being watched. `has_origin` is the point the game placed the text (the
 // entry's x and y); a plate filed on its own has none, and shrinks about its
-// own centre. Empty when this draw is not one of those names.
+// own centre. `tag_only` limits a name to a name-sized draw. The quest name is
+// the whole draw, so it is not set. Empty when this draw is not a name.
 struct NameDraw {
     bool is_name{};
     bool has_origin{};
+    bool tag_only{};
     float origin_x{};
     float origin_y{};
 };

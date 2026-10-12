@@ -3193,7 +3193,9 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     const auto original_confirm = settings::current().confirm_south;
     change_video("Confirm button", ImGuiKey_RightArrow);
     expect(settings::current().confirm_south != original_confirm, "controls menu switches confirm convention");
+    expect(ui::Layer::get().confirm_south(), "the menu confirms with the south button whatever the game's setting");
     change_video("Confirm button", ImGuiKey_LeftArrow);
+    expect(ui::Layer::get().confirm_south(), "the menu keeps the south button after the round trip");
     expect(settings::current().confirm_south == original_confirm, "confirm convention round trip restores setting");
     auto toggle_setting = [&](const char *label, bool settings::Settings::*field) {
         const bool original = settings::current().*field;
