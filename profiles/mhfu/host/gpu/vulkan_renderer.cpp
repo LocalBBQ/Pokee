@@ -3981,8 +3981,8 @@ void VulkanRenderer::Impl::submit_and_present(
             transition(
                 commands, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         } else {
-            // Behind the setup screens: the dark brown of the project's logo.
-            const VkClearColorValue background{{0.075f, 0.055f, 0.045f, 1.0f}};
+            // Behind the setup screens: the jungle black of the box art.
+            const VkClearColorValue background{{0.063f, 0.075f, 0.051f, 1.0f}};
             const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u};
             vkCmdClearColorImage(commands, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &background, 1u, &range);
         }

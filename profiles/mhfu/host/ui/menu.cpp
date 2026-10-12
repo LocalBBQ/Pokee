@@ -595,8 +595,8 @@ void Menu::video() {
         o = options_for("input.lock_on_marker",
             "A red ring, a cross through it, and four ticks, over the monster the camera is locked onto. "
             "Follow keeps it up while the camera is tracking. The right stick or Focus/Follow Camera turns it off "
-            "with that tracking; the selection stays, and the same button turns both back on. In Focus it expires a "
-            "second after the selection, and again for that long after the focus button.");
+            "with that tracking; the selection stays, and the same button turns both back on. In Focus, selecting "
+            "leaves it off. The focus button shows it for a third of a second.");
         if (!s.lock_on && !o.disabled) {
             o.disabled = true;
             o.note = "Lock-on is off";

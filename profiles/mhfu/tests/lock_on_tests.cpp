@@ -509,6 +509,38 @@ void test_hunt_portrait_keeps_the_id_in_another_area() {
     check(dead_row.size() == before_death.size() && dead_row[0].dead && !dead_row[0].locked && dead_row[0].id == 1u &&
             dead_row[1].x == before_death[1].x && !dead_row[1].dead,
         "dying greys that icon in place and does not move the other one");
+
+    const std::vector<HuntMonster> before_shuffle = hunt_monsters(memory);
+    const std::vector<HuntPortrait> before_places = place_hunt_portraits(before_shuffle, 0u, false);
+    memory.store32(manager + game::kListHead, node_a);
+    memory.store32(node_a + game::kNodeOlder, node_b);
+    memory.store32(node_b + game::kNodeOlder, node_small);
+    const std::vector<HuntMonster> shuffled = hunt_monsters(memory);
+    check(shuffled.size() == before_shuffle.size() && shuffled[0].address == before_shuffle[0].address &&
+            shuffled[1].address == before_shuffle[1].address,
+        "reinserting a monster at the head of the list does not move its icon");
+    const std::vector<HuntPortrait> after_places = place_hunt_portraits(shuffled, 0u, false);
+    check(after_places.size() == before_places.size() && after_places[0].x == before_places[0].x &&
+            after_places[1].x == before_places[1].x && after_places[0].id == before_places[0].id,
+        "and the cards stay in the places they first took");
+
+    memory.store32(companion + game::kVtable, large_vtable);
+    place(memory, companion, 50.0f, -50.0f);
+    memory.store8(companion + game::kMonsterId, 7u);
+    memory.store32(manager + game::kListHead, node_companion);
+    memory.store32(node_companion + game::kNodeOlder, node_a);
+    const std::vector<HuntMonster> with_new = hunt_monsters(memory);
+    check(with_new.size() == 3u && with_new[0].address == before_shuffle[0].address &&
+            with_new[1].address == before_shuffle[1].address && with_new[2].address == companion,
+        "a monster that joins later takes the next icon, not the first");
+
+    memory.store8(game::kTaskSlot + 32u, 'l');
+    check(hunt_monsters(memory).empty(), "leaving the quest clears the icon order");
+    start_quest(memory);
+    const std::vector<HuntMonster> fresh = hunt_monsters(memory);
+    check(fresh.size() == 3u && fresh[0].address == companion && fresh[1].address == monster_a &&
+            fresh[2].address == monster_b,
+        "a new quest takes the list's order again");
 }
 
 void test_unmarked_monsters_still_lock() {
@@ -832,7 +864,7 @@ void test_r_does_not_turn_toward_the_monster() {
     place(memory, monster_b, 800.0f, -3000.0f);
     lock_on_tap();
     f.frame();
-    check(lock_on_status().locked && lock_on_marker_wanted(), "the monster is selected and marked");
+    check(lock_on_status().locked && !lock_on_marker_wanted(), "R3 selects the monster and leaves the reticle off");
     const std::uint16_t before = f.yaw();
     const std::uint16_t wanted = yaw_towards({0.0f, 190.0f, 0.0f}, {800.0f, 100.0f, -3000.0f});
     pad_recenter = 0x200u;
@@ -844,11 +876,9 @@ void test_r_does_not_turn_toward_the_monster() {
     check(lock_on_status().locked, "R leaves the monster selected");
     check(std::abs(yaw_difference(f.yaw(), wanted)) >= std::abs(yaw_difference(before, wanted)),
         "R does not turn the camera toward the monster");
-    check(lock_on_marker_wanted(), "R does not drop the reticle");
-    for (int i = 0; i < 8; ++i) f.frame();
-    check(lock_on_marker_wanted() && lock_on_status().locked, "R does not expire the reticle");
-    f.frame();
-    check(!lock_on_marker_wanted() && lock_on_status().locked, "the selection reticle expires on its own");
+    check(!lock_on_marker_wanted(), "R leaves the reticle off");
+    for (int i = 0; i < 9; ++i) f.frame();
+    check(!lock_on_marker_wanted() && lock_on_status().locked, "holding R does not bring the reticle up");
     release_recenter(memory);
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
     lock_on_tap();
@@ -1012,14 +1042,12 @@ void test_focus_reticle_and_close_turn() {
     lock_on_tap();
     f.frame();
     check(lock_on_status().locked && lock_on_status().target == monster_b, "focus selects the monster beside the hunter");
-    check(lock_on_marker_wanted(), "the reticle shows on the selection");
-    for (int i = 0; i < 9; ++i) f.frame();
-    check(lock_on_marker_wanted() && lock_on_status().locked, "it stays for a third of a second");
-    f.frame();
-    check(!lock_on_marker_wanted() && lock_on_status().locked, "then the selection reticle expires");
+    check(!lock_on_marker_wanted(), "R3 selects without a reticle");
+    for (int i = 0; i < 10; ++i) f.frame();
+    check(!lock_on_marker_wanted() && lock_on_status().locked, "the selection stays unmarked");
     lock_on_tap();
     f.frame();
-    check(lock_on_status().target == monster_a && lock_on_marker_wanted(), "another selection shows the reticle again");
+    check(lock_on_status().target == monster_a && !lock_on_marker_wanted(), "another selection leaves the reticle off");
 
     memory.store8(camera_address + 0x8Eu, 1u);
     f.frame();

@@ -413,7 +413,7 @@ void draw_field(ImDrawList *draw, float width) {
     const ImVec2 min = ImGui::GetCursorScreenPos();
     const ImVec2 max{min.x + width, min.y + height};
     ImGui::Dummy({width, height});
-    draw->AddRectFilled(min, max, IM_COL32(8, 5, 3, 150), px(6.0f));
+    draw->AddRectFilled(min, max, colors::kShade, px(6.0f));
     draw->AddRect(min, max, colors::kAccent, px(6.0f), 0, px(1.5f));
 
     // The counter on the right, red while the text is full or a key was
@@ -578,8 +578,9 @@ void text_input_frame() {
     ImGui::PopStyleColor();
     ImGui::PopFont();
     const ImVec2 line = ImGui::GetCursorScreenPos();
-    draw->AddRectFilledMultiColor(line, {line.x + inner, line.y + px(2.0f)}, colors::kAccent, IM_COL32(143, 93, 36, 0),
-        IM_COL32(143, 93, 36, 0), colors::kAccent);
+    const ImU32 fade = colors::with_alpha(colors::kEmber, 0);
+    draw->AddRectFilledMultiColor(line, {line.x + inner, line.y + px(2.0f)}, colors::kEmber, fade, fade,
+        colors::kEmber);
     ImGui::Dummy({0.0f, px(8.0f)});
     if (!k.request.prompt.empty()) {
         paragraph(k.request.prompt, colors::kTextDim);
@@ -594,7 +595,7 @@ void text_input_frame() {
     }
 
     draw->AddLine({line.x, ImGui::GetCursorScreenPos().y}, {line.x + inner, ImGui::GetCursorScreenPos().y},
-        IM_COL32(143, 93, 36, 90), px(1.0f));
+        colors::with_alpha(colors::kPanelEdge, 110), px(1.0f));
     ImGui::Dummy({0.0f, px(8.0f)});
     if (layer.input_device() == InputDevice::Gamepad) {
         hints({{Control::Confirm, "Type"}, {Control::Delete, "Delete"}, {Control::Shift, "Shift"},

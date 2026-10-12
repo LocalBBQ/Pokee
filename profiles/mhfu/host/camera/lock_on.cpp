@@ -81,9 +81,9 @@ constexpr float kFocusPitchFollow = 0.85f;
 // A second L within this many camera updates (a third of a second) of the
 // tap that started the turn is the game's recenter behind the hunter.
 constexpr unsigned kDoubleTap = 10u;
-// Focus shows the reticle on a selection, and again when the focus button is
-// pressed. Either lasts this many camera updates, a third of a second, and
-// then it goes. The selection stays.
+// Focus shows the reticle when the focus button is pressed, for this many
+// camera updates, a third of a second, and then it goes. Selecting with R3
+// leaves it off. The selection stays.
 constexpr unsigned kMarkerLife = 10u;
 // The picture's half width, from the projection's vertical field of view
 // (camera/game_aspect.cpp) at the game's 480 by 272.
@@ -116,6 +116,10 @@ struct State {
     std::uint64_t updates{};
     bool trace_walk{}; // MHFU_TRACE_LOCK_ON: list the next walk's candidates
     std::string note;
+    // Monster icons, in the order each one was first shown this quest. The
+    // entity list puts the newest node first, and the game reinserts a
+    // monster when it changes area, which would move its icon.
+    std::vector<std::uint32_t> icon_order;
     // The perspective draw with the most vertices since the marker last asked.
     LockOnView view{};
     std::uint32_t view_vertices{};
@@ -184,8 +188,10 @@ void lock(std::uint32_t target, const char *how) {
     state.follow_paused = false;
     state.target = target;
     state.reconciled = false;
-    state.marker_expired = false;
-    state.marker_left = focus_style() ? kMarkerLife : 0u;
+    // Focus leaves the reticle off until the focus button. Follow keeps it
+    // for the whole selection.
+    state.marker_expired = focus_style();
+    state.marker_left = 0u;
     state.manual = 0.0f;
     state.turning = 0;
     state.visited.push_back(target);
@@ -317,9 +323,23 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
 }
 
 std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory) {
-    std::vector<HuntMonster> out;
+    if (!on_quest(memory)) {
+        state.icon_order.clear();
+        return {};
+    }
+    std::vector<HuntMonster> found;
     for (const Candidate &candidate : select_monsters(collect_monsters(memory, nullptr), true))
-        out.push_back(HuntMonster{candidate.monster.address, candidate.id, candidate.other_area, candidate.dead});
+        found.push_back(HuntMonster{candidate.monster.address, candidate.id, candidate.other_area, candidate.dead});
+    for (const HuntMonster &monster : found) {
+        bool known = false;
+        for (const std::uint32_t address : state.icon_order)
+            if (address == monster.address) known = true;
+        if (!known) state.icon_order.push_back(monster.address);
+    }
+    std::vector<HuntMonster> out;
+    for (const std::uint32_t address : state.icon_order)
+        for (const HuntMonster &monster : found)
+            if (monster.address == address) out.push_back(monster);
     return out;
 }
 
@@ -338,9 +358,10 @@ const char *why_target_left(const psprecomp::GuestMemory &memory, std::uint32_t 
 
 std::vector<HuntPortrait> place_hunt_portraits(
     const std::vector<HuntMonster> &monsters, std::uint32_t locked_target, bool locked) {
-    // Bottom left of the 480×272 picture, in the quest list's order. A monster
-    // leaving the area, or dying, keeps its place. The player's size is a
-    // percent of the usual icon.
+    // Bottom left of the 480×272 picture, in the order each monster was first
+    // shown this quest. A later reshuffle of the entity list, leaving the
+    // area, or dying, keeps that place. The player's size is a percent of
+    // the usual icon.
     const float scale = static_cast<float>(std::clamp(settings::current().hunt_portrait_size,
                             settings::kMinHuntPortraitSize, settings::kMaxHuntPortraitSize)) /
         100.0f;

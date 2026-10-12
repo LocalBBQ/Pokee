@@ -123,9 +123,11 @@ struct HuntMonster {
 inline constexpr float kHuntCardWidth = 51.0f;
 inline constexpr float kHuntCardHeight = 39.0f;
 
-// One icon, top left in PSP pixels, in the quest list's order. A change of
-// area does not move it. `locked` is the icon lock-on has selected, and it
-// is never set for a monster in another area or a dead one.
+// One icon, top left in PSP pixels. Each monster keeps the place it took the
+// first time it was shown this quest, so a later reshuffle of the entity list
+// does not move it, and neither does a change of area. `locked` is the icon
+// lock-on has selected, and it is never set for a monster in another area or
+// a dead one.
 struct HuntPortrait {
     std::uint8_t id{};
     bool other_area{};
@@ -241,9 +243,9 @@ void lock_on_toggle_follow();
 void lock_on_focus_reticle();
 // The reticle over the selected monster. Follow keeps it up while the camera
 // is tracking. The right stick or Focus/Follow Camera turns it off with that
-// tracking; the selection stays, and the same button turns both back on. Focus shows it for a
-// third of a second after the selection, and again for that long after the
-// focus button.
+// tracking; the selection stays, and the same button turns both back on.
+// Focus leaves it off when R3 selects, and the focus button shows it for a
+// third of a second.
 [[nodiscard]] bool lock_on_marker_wanted();
 
 // The view a transformed draw was made with, and the GE viewport that maps

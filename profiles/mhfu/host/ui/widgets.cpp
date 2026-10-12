@@ -260,18 +260,18 @@ ImGuiStyle make_style(float scale, float font_size) {
     c[ImGuiCol_TextDisabled] = rgba(colors::kTextDisabled);
     c[ImGuiCol_WindowBg] = rgba(colors::kPanel);
     c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
-    c[ImGuiCol_PopupBg] = rgba(IM_COL32(38, 27, 19, 252));
-    c[ImGuiCol_ModalWindowDimBg] = rgba(IM_COL32(8, 5, 3, 150));
+    c[ImGuiCol_PopupBg] = rgba(colors::kPopup);
+    c[ImGuiCol_ModalWindowDimBg] = rgba(colors::kShade);
     c[ImGuiCol_Border] = rgba(colors::kPanelEdge);
-    c[ImGuiCol_FrameBg] = rgba(IM_COL32(255, 240, 210, 20));
+    c[ImGuiCol_FrameBg] = rgba(colors::with_alpha(colors::kText, 18));
     c[ImGuiCol_FrameBgHovered] = rgba(colors::kRowHover);
     c[ImGuiCol_FrameBgActive] = rgba(colors::kRowFocus);
-    c[ImGuiCol_TextSelectedBg] = rgba(IM_COL32(217, 166, 75, 110));
+    c[ImGuiCol_TextSelectedBg] = rgba(colors::with_alpha(colors::kAccent, 110));
     c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
-    c[ImGuiCol_ScrollbarGrab] = rgba(IM_COL32(143, 93, 36, 160));
-    c[ImGuiCol_ScrollbarGrabHovered] = rgba(IM_COL32(176, 122, 54, 200));
+    c[ImGuiCol_ScrollbarGrab] = rgba(colors::with_alpha(colors::kPanelEdge, 160));
+    c[ImGuiCol_ScrollbarGrabHovered] = rgba(colors::with_alpha(colors::kAccent, 200));
     c[ImGuiCol_ScrollbarGrabActive] = rgba(colors::kAccent);
-    c[ImGuiCol_Separator] = rgba(IM_COL32(143, 93, 36, 120));
+    c[ImGuiCol_Separator] = rgba(colors::with_alpha(colors::kPanelEdge, 120));
     // Rows draw their own focus; ImGui's rectangle would double it.
     c[ImGuiCol_NavCursor] = ImVec4(0, 0, 0, 0);
     return style;
@@ -304,8 +304,9 @@ void begin_panel(const char *id, const std::string &title, const std::string &su
     }
     const ImVec2 line = ImGui::GetCursorScreenPos();
     const float line_width = ImGui::GetContentRegionAvail().x;
-    draw->AddRectFilledMultiColor(line, {line.x + line_width, line.y + px(2.0f)}, colors::kAccent,
-        IM_COL32(143, 93, 36, 0), IM_COL32(143, 93, 36, 0), colors::kAccent);
+    const ImU32 fade = colors::with_alpha(colors::kEmber, 0);
+    draw->AddRectFilledMultiColor(line, {line.x + line_width, line.y + px(2.0f)}, colors::kEmber, fade, fade,
+        colors::kEmber);
     ImGui::Dummy({0.0f, px(10.0f)});
 }
 
@@ -333,8 +334,8 @@ void begin_footer() {
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const ImVec2 line = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;
-    draw->AddLine(
-        {line.x, line.y + px(4.0f)}, {line.x + width, line.y + px(4.0f)}, IM_COL32(143, 93, 36, 90), px(1.0f));
+    draw->AddLine({line.x, line.y + px(4.0f)}, {line.x + width, line.y + px(4.0f)},
+        colors::with_alpha(colors::kPanelEdge, 110), px(1.0f));
     ImGui::Dummy({0.0f, px(10.0f)});
     // Two lines for the description, whatever it holds, so the hints stay put.
     const float description_height = font() * 2.4f;
@@ -400,7 +401,7 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
             active ? colors::kAccentBright : colors::kTextDim, labels[i]);
         if (active)
             draw->AddRectFilled({min.x + tab_width * 0.18f, max.y - px(3.0f)}, {max.x - tab_width * 0.18f, max.y},
-                colors::kAccent, px(2.0f));
+                colors::kEmber, px(2.0f));
     }
     ImGui::PopItemFlag();
     ImGui::SetCursorScreenPos({start.x, start.y + height + px(8.0f)});

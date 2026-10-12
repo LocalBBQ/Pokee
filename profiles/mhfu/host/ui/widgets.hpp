@@ -10,22 +10,30 @@
 // window, and every control works with a gamepad, a keyboard and a mouse.
 namespace mhfu::ui {
 
-// Colours from the project's logo: dark brown, bronze and gold.
+// Colours from the North American box art: the jungle at night, the gold of
+// "Monster Hunter", and the orange of "Freedom Unite".
 namespace colors {
-inline constexpr ImU32 kBackdrop = IM_COL32(12, 8, 5, 170);
-inline constexpr ImU32 kPanel = IM_COL32(30, 21, 15, 246);
-inline constexpr ImU32 kPanelEdge = IM_COL32(143, 93, 36, 255);
-inline constexpr ImU32 kRow = IM_COL32(255, 240, 210, 10);
-inline constexpr ImU32 kRowHover = IM_COL32(233, 199, 122, 28);
-inline constexpr ImU32 kRowFocus = IM_COL32(217, 166, 75, 64);
-inline constexpr ImU32 kAccent = IM_COL32(217, 166, 75, 255);
-inline constexpr ImU32 kAccentBright = IM_COL32(251, 230, 166, 255);
-inline constexpr ImU32 kText = IM_COL32(246, 220, 174, 255);
-inline constexpr ImU32 kTextDim = IM_COL32(179, 154, 124, 255);
-inline constexpr ImU32 kTextDisabled = IM_COL32(120, 103, 86, 255);
-inline constexpr ImU32 kDanger = IM_COL32(214, 102, 76, 255);
-inline constexpr ImU32 kGood = IM_COL32(150, 196, 120, 255);
-inline constexpr ImU32 kTrack = IM_COL32(255, 240, 210, 36);
+[[nodiscard]] constexpr ImU32 with_alpha(ImU32 color, int alpha) {
+    return (color & ~IM_COL32_A_MASK) | (static_cast<ImU32>(alpha) << IM_COL32_A_SHIFT);
+}
+
+inline constexpr ImU32 kBackdrop = IM_COL32(6, 10, 6, 170);
+inline constexpr ImU32 kPanel = IM_COL32(18, 26, 16, 246);
+inline constexpr ImU32 kPopup = IM_COL32(26, 36, 24, 252);
+inline constexpr ImU32 kShade = IM_COL32(6, 10, 6, 150);
+inline constexpr ImU32 kPanelEdge = IM_COL32(166, 124, 48, 255);
+inline constexpr ImU32 kRow = IM_COL32(220, 232, 214, 12);
+inline constexpr ImU32 kRowHover = IM_COL32(244, 216, 120, 28);
+inline constexpr ImU32 kRowFocus = IM_COL32(244, 216, 120, 56);
+inline constexpr ImU32 kAccent = IM_COL32(212, 172, 72, 255);
+inline constexpr ImU32 kAccentBright = IM_COL32(244, 216, 120, 255);
+inline constexpr ImU32 kEmber = IM_COL32(232, 117, 30, 255);
+inline constexpr ImU32 kText = IM_COL32(228, 234, 220, 255);
+inline constexpr ImU32 kTextDim = IM_COL32(164, 176, 154, 255);
+inline constexpr ImU32 kTextDisabled = IM_COL32(108, 118, 100, 255);
+inline constexpr ImU32 kDanger = IM_COL32(232, 96, 72, 255);
+inline constexpr ImU32 kGood = IM_COL32(132, 174, 96, 255);
+inline constexpr ImU32 kTrack = IM_COL32(220, 232, 214, 36);
 } // namespace colors
 
 ImGuiStyle make_style(float scale, float font_size);
