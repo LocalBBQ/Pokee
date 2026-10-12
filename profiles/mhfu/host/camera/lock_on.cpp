@@ -93,6 +93,9 @@ constexpr float kPictureAspect = 480.0f / 272.0f;
 struct State {
     bool tap{};
     unsigned tap_age{};
+    // The shared lock-on trigger asked for a Focus turn. The camera update
+    // takes it; a hold of that trigger is not itself the focus button.
+    bool shared_focus{};
     bool seeking{};
     unsigned seek_left{};
     bool locked{};
@@ -115,7 +118,6 @@ struct State {
     float pitch{};
     std::uint64_t updates{};
     bool trace_walk{}; // MHFU_TRACE_LOCK_ON: list the next walk's candidates
-    std::string note;
     // Monster icons, in the order each one was first shown this quest. The
     // entity list puts the newest node first, and the game reinserts a
     // monster when it changes area, which would move its icon.
@@ -213,6 +215,22 @@ bool marked_large(std::uint16_t class_id) {
 
 bool focus_style() {
     return mhfu::settings::current().lock_on_style == mhfu::settings::LockOnStyle::Focus;
+}
+
+// Lock on and Focus/Follow Camera on the same chord: one tap does both.
+bool trigger_initiates_camera() {
+    const input::Layout &layout = settings::current().controls;
+    const auto focus = static_cast<std::size_t>(input::Action::FocusCamera);
+    const auto lock = static_cast<std::size_t>(input::Action::LockOn);
+    for (const bool pad : {false, true}) {
+        const input::Bindings &table = pad ? layout.pad : layout.keys;
+        for (const input::Chord &mine : table[lock]) {
+            if (mine.empty()) continue;
+            for (const input::Chord &theirs : table[focus])
+                if (!theirs.empty() && mine == theirs) return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -536,6 +554,14 @@ void lock_on_tap() {
     state.trace_walk = trace_on();
 }
 
+bool lock_on_trigger_initiates_camera() {
+    return trigger_initiates_camera();
+}
+
+bool lock_on_take_focus_press() {
+    return std::exchange(state.shared_focus, false);
+}
+
 std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera) {
     ++state.updates;
     const bool focus = focus_style();
@@ -569,7 +595,6 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
             } else if (tapped) {
                 state.seeking = true;
                 state.seek_left = kSeekUpdates;
-                state.note = "No large monster to lock onto";
                 explain_miss(memory);
             } else if (state.seek_left > 0u) {
                 --state.seek_left;
@@ -585,6 +610,18 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
             state.pitch_known = true;
             state.base_pitch = camera.pitch;
             state.pitch = camera.pitch;
+            // The same tap that selects also starts a Focus turn, when that
+            // button is the focus button. Follow starts on its own.
+            if (focus && trigger_initiates_camera()) {
+                state.focusing = true;
+                state.focus_left = kFocusUpdates;
+                state.double_tap_left = kDoubleTap;
+                state.reconciled = false;
+                state.turning = 0;
+                state.manual = 0.0f;
+                state.marker_expired = false;
+                state.marker_left = kMarkerLife;
+            }
         }
     }
     const LockMonster *target = find(monsters, state.target);
@@ -675,6 +712,21 @@ void lock_on_frame(const psprecomp::GuestMemory &memory) {
     // A tap while locked moves on or lets go, which needs no camera: done
     // here, so it counts even while the follow camera does not run (a
     // grab, an aim).
+    // The trigger is both buttons. While locked, a Focus tap centers instead
+    // of moving on, and a Follow tap while tracking is paused turns it on
+    // again instead of moving on. An ordinary Follow tap still moves on.
+    if (state.tap && state.locked && trigger_initiates_camera()) {
+        if (focus_style()) {
+            state.tap = false;
+            state.shared_focus = true;
+        } else if (state.follow_paused) {
+            state.tap = false;
+            state.follow_paused = false;
+            state.manual = 0.0f;
+            state.turning = 0;
+            std::cout << "[lockon] follow on" << std::endl;
+        }
+    }
     if (state.tap && state.locked) {
         state.tap = false;
         const std::vector<LockMonster> monsters = lock_on_monsters(memory);
@@ -688,10 +740,7 @@ void lock_on_frame(const psprecomp::GuestMemory &memory) {
     if (state.tap && ++state.tap_age > kTapFrames) {
         // No follow camera took it: the village, a cutscene, aiming.
         state.tap = false;
-        if (!state.locked) {
-            state.note = "Lock-on works in quests, with the camera following the hunter";
-            std::cout << "[lockon] tap with no follow camera to turn" << std::endl;
-        }
+        if (!state.locked) std::cout << "[lockon] tap with no follow camera to turn" << std::endl;
     }
     if (focus_style() && state.marker_left > 0u && --state.marker_left == 0u) state.marker_expired = true;
     if (!state.locked) return;
@@ -916,24 +965,13 @@ std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory 
     return std::nullopt;
 }
 
-namespace {
-
-// Dying and running out of range happen in the middle of a hunt. The lock
-// still lets go, and the log still says why. A note on screen does not.
-bool tells_the_player(const char *why) {
-    if (why == nullptr || *why == '\0') return false;
-    const std::string_view text = why;
-    return text != "Lock-on: the monster is dead" && text != "Lock-on: the monster is too far";
-}
-
-} // namespace
-
 void lock_on_release(const char *why) {
     state.seeking = false;
-    if (state.locked)
-        std::cout << "[lockon] let go of the monster at 0x" << std::hex << state.target << std::dec
-                  << (why != nullptr && *why != '\0' ? std::string(": ") + why : std::string()) << std::endl;
-    if (state.locked && tells_the_player(why)) state.note = why;
+    if (state.locked) {
+        std::cout << "[lockon] let go of the monster at 0x" << std::hex << state.target << std::dec;
+        if (why != nullptr && *why != '\0') std::cout << ": " << why;
+        std::cout << std::endl;
+    }
     state.locked = false;
     state.follow_paused = false;
     state.focusing = false;
@@ -951,10 +989,6 @@ void lock_on_release(const char *why) {
 
 void lock_on_reset() {
     state = State{};
-}
-
-std::string lock_on_take_note() {
-    return std::exchange(state.note, std::string());
 }
 
 namespace {

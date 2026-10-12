@@ -646,6 +646,12 @@ std::vector<Conflict> conflicts(const Table &table, std::size_t target) {
             for (const Chord &theirs : table.slots(other)) {
                 if (theirs.empty()) continue;
                 if (theirs == c) {
+                    // Lock on and Focus/Follow Camera may share a button. The
+                    // release selects the monster and starts follow or a focus
+                    // turn; it is not two actions fighting over one press.
+                    const auto lock = static_cast<std::size_t>(Action::LockOn);
+                    const auto focus = static_cast<std::size_t>(Action::FocusCamera);
+                    if ((target == lock && other == focus) || (target == focus && other == lock)) continue;
                     found.push_back({Conflict::Kind::Same, other, c, theirs});
                 } else if (theirs.part_of(c)) {
                     // Theirs is part of mine: it waits for mine, or is let go

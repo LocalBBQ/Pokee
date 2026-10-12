@@ -158,15 +158,15 @@ Bindings left_handed_keys() {
     return b.done();
 }
 
-// The PSP's layout on a gamepad: the face buttons where the PSP has them,
-// the shoulders and the triggers both L and R.
+// The PSP's face buttons. LB is L: the camera behind the hunter, and item
+// use. LT locks on and starts focus or follow. RB and RT are R.
 Bindings default_pad() {
     Builder b;
     b.set(Action::Triangle, pad(PadInput::North))
         .set(Action::Circle, pad(PadInput::East))
         .set(Action::Cross, pad(PadInput::South))
         .set(Action::Square, pad(PadInput::West))
-        .set(Action::L, pad(PadInput::LeftShoulder), pad(PadInput::LeftTrigger))
+        .set(Action::L, pad(PadInput::LeftShoulder))
         .set(Action::R, pad(PadInput::RightShoulder), pad(PadInput::RightTrigger))
         .set(Action::Start, pad(PadInput::Start))
         .set(Action::Select, pad(PadInput::Back))
@@ -176,6 +176,10 @@ Bindings default_pad() {
         .set(Action::Right, pad(PadInput::DpadRight))
         .items(false)
         .host_pad();
+    // host_pad puts lock-on on the stick click. LT takes that, and it is the
+    // focus/follow camera as well, so LB stays the game's L.
+    b.set(Action::LockOn, pad(PadInput::LeftTrigger));
+    b.set(Action::FocusCamera, pad(PadInput::LeftTrigger));
     return b.done();
 }
 
@@ -219,7 +223,7 @@ Bindings left_handed_pad() {
         .set(Action::Circle, pad(PadInput::DpadRight))
         .set(Action::Cross, pad(PadInput::DpadDown))
         .set(Action::Square, pad(PadInput::DpadLeft))
-        .set(Action::L, pad(PadInput::RightShoulder), pad(PadInput::RightTrigger))
+        .set(Action::L, pad(PadInput::RightShoulder))
         .set(Action::R, pad(PadInput::LeftShoulder), pad(PadInput::LeftTrigger))
         .set(Action::Start, pad(PadInput::Start))
         .set(Action::Select, pad(PadInput::Back))
@@ -229,6 +233,10 @@ Bindings left_handed_pad() {
         .set(Action::Right, pad(PadInput::East))
         .items(false)
         .host_pad(true);
+    // The default pad's LT, on the other side: RT locks on and starts focus
+    // or follow. RB stays L.
+    b.set(Action::LockOn, pad(PadInput::RightTrigger));
+    b.set(Action::FocusCamera, pad(PadInput::RightTrigger));
     return b.done();
 }
 
@@ -243,7 +251,8 @@ std::array<Layout, kPresets> make_layouts() {
 
 constexpr PresetInfo kInfo[kPresets] = {
     {"default", "Default",
-        "W A S D and the mouse; the PSP's buttons where a gamepad has them, with the triggers as L and R."},
+        "W A S D and the mouse; on a gamepad LB is L, for the camera and items, LT locks on for focus and follow, "
+        "and RT is R."},
     {"modern", "Modern",
         "Like recent action games: on a gamepad RT attacks and shoots a bow, RB does the second attack and fires a "
         "bowgun, LT guards and aims. On the keyboard, the side mouse button or C does △ + ○."},
@@ -357,6 +366,10 @@ Layout layout_from_earlier(const Bindings &keys, std::string_view trigger_profil
     const auto slots = [&](Action action) -> Slots & { return result.pad[static_cast<std::size_t>(action)]; };
     slots(Action::L) = {single(pad(PadInput::LeftShoulder)), {}};
     slots(Action::R) = {single(pad(PadInput::RightShoulder)), single(pad(PadInput::LeftTrigger))};
+    // LT aims, so it is not the lock-on trigger. Lock-on stays on the stick
+    // click, as it did before these profiles, and L remains the focus tap.
+    slots(Action::LockOn) = {single(pad(PadInput::RightStick)), {}};
+    slots(Action::FocusCamera) = {};
     if (bows)
         slots(Action::Triangle) = {single(pad(PadInput::North)), single(pad(PadInput::RightTrigger))};
     else

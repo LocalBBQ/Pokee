@@ -426,8 +426,14 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
     const bool l_down = (hunter_buttons & kFocusButton) != 0u;
     const bool r_down = (hunter_buttons & kRecenterBit) != 0u;
     const bool bound = focus_camera_is_bound();
-    const bool focus_down = bound ? focus_bind_held_now : l_down;
-    const bool focus_press = focus_down && !state.focus_held;
+    // LT (the default) is Lock on and Focus/Follow Camera. The release is the
+    // tap. Holding the trigger must not also count as the focus button, or
+    // the press and the release would both act, and L would no longer be the
+    // camera on its own.
+    const bool shared = lock_on_trigger_initiates_camera();
+    const bool focus_down = shared ? false : (bound ? focus_bind_held_now : l_down);
+    bool focus_press = focus_down && !state.focus_held;
+    if (shared && lock_on_take_focus_press()) focus_press = true;
     state.focus_held = focus_down;
     // Follow uses this same bind as a toggle. A hold is one press. With the
     // bind empty, L stays the game's recenter and does not toggle.
@@ -1089,7 +1095,10 @@ void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
             memory.store8(address + kAim, 0xFFu);
             restore_gate = true;
         }
-        const bool focus_elsewhere = focus_camera_is_bound() && !focus_bind_held_now;
+        // A shared trigger is not "focus held": L's recenter is left where the
+        // game put it. Holding LT must not put that recenter back.
+        const bool focus_held = focus_bind_held_now && !lock_on_trigger_initiates_camera();
+        const bool focus_elsewhere = focus_camera_is_bound() && !focus_held;
         if (!state.facing_substituted && !focus_elsewhere) watch = watch_recenter(memory, address, hunter);
     } else if (state.aiming) {
         release();

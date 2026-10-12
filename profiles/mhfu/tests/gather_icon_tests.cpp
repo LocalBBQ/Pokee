@@ -307,6 +307,115 @@ void test_holding_circle() {
     repeat.reset();
     check(repeat.apply(kSquare, true, 0u) == kSquare && repeat.apply(kSquare, true, 40u) == kSquare,
         "□ is not the gather button, so a hold of it is left alone");
+
+    repeat.reset();
+    bool ignored = true;
+    for (unsigned read = 0; read < kGatherAccept; ++read)
+        ignored = ignored && held(true, 0u) == kCircle;
+    bool lifted = true;
+    for (unsigned read = 0; read < kGatherHoldGap; ++read)
+        lifted = lifted && (held(true, 0u) & kCircle) == 0u;
+    check(ignored && lifted && held(true, 0u) == kCircle,
+        "a press the game does not take is lifted and sent again");
+
+    repeat.reset();
+    check(held(true, 0u) == kCircle, "a gather starts before a long action");
+    check((held(true, 40u) & kCircle) == 0u, "the long action lifts ○");
+    bool waiting = true;
+    for (unsigned read = 0; read < kGatherGiveUp; ++read)
+        waiting = waiting && (held(true, 40u) & kCircle) == 0u;
+    bool resumed = true;
+    for (unsigned read = 0; read < kGatherHoldGap; ++read)
+        resumed = resumed && (held(true, 40u) & kCircle) == 0u;
+    check(waiting && resumed && held(true, 40u) == kCircle,
+        "an action that never returns still gets another press");
+
+    repeat.reset();
+    check(held(true, 0u) == kCircle, "a gather starts");
+    check((held(true, 40u) & kCircle) == 0u, "the gather is underway");
+    check(repeat.apply(0u, true, 40u) == 0u, "letting go during the gather releases ○");
+    check((held(true, 40u) & kCircle) == 0u, "pressing again during the gather keeps ○ up");
+    check((held(true, 40u) & kCircle) == 0u, "○ stays up until that gather ends");
+    bool again = true;
+    for (unsigned read = 0; read < kGatherHoldGap; ++read)
+        again = again && (held(true, 0u) & kCircle) == 0u;
+    check(again && held(true, 0u) == kCircle, "when the gather ends, ○ presses and gathering continues");
+
+    repeat.reset();
+    check(held(true, 0u) == kCircle, "a gather starts before a tap");
+    check((held(true, 40u) & kCircle) == 0u, "that gather is underway");
+    check(repeat.apply(0u, true, 40u) == 0u, "letting go");
+    check((repeat.apply(kCircle, true, 40u) & kCircle) == 0u, "a press during the gather is kept while it is held");
+    check(repeat.apply(0u, true, 40u) == 0u, "letting go of that press cancels the next gather");
+    bool walked = true;
+    for (unsigned read = 0; read < kGatherHoldGap + 2u; ++read)
+        walked = walked && repeat.apply(0u, true, 0u) == 0u;
+    check(walked, "after letting go, walking does not gather");
+
+    repeat.reset();
+    check(held(true, 0u) == kCircle, "another gather starts");
+    check((held(true, 40u) & kCircle) == 0u, "it is underway");
+    check(repeat.apply(0u, true, 40u) == 0u, "letting go");
+    check(repeat.apply(0u, true, 0u) == 0u, "staying released does not press when the gather ends");
+    check(repeat.apply(0u, true, 0u) == 0u, "and does not press on a later step");
+
+    repeat.reset();
+    check(held(true, 0u) == kCircle, "a hold reaches the end of a gather");
+    check((held(true, 40u) & kCircle) == 0u, "the animation is playing");
+    check((held(true, 0u) & kCircle) == 0u, "the animation has ended and the next press is waiting");
+    check(repeat.apply(0u, true, 0u) == 0u, "letting go then cancels that press");
+    check(repeat.apply(0u, true, 0u) == 0u, "walking afterward does not gather");
+    check(repeat.apply(kCircle, true, 0u) == kCircle, "a press after the gather is a new one");
+}
+
+// The pad read that reaches the game. Releasing ○ used to skip the action,
+// so a press during the animation could not continue the pulse.
+void test_pressing_again_on_the_pad() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 4u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    plant_node(memory, nodes, 0.0f, 0.0f, 0.0f, 30.0f, 2u, 0u);
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x200u, 0.0f);
+    write_float(memory, hunter + 0x204u, 0.0f);
+    write_float(memory, hunter + 0x208u, 0.0f);
+    memory.store16(hunter + 0x29Au, 4u);
+    memory.store16(hunter + 804u, 0u);
+    plant_words(memory);
+
+    auto &settings = mhfu::settings::current();
+    settings.gather_hold = false;
+    check(gather_hold(0u, memory) == 0u, "hold to gather off leaves the button alone");
+    settings.gather_hold = true;
+
+    const auto press = [&](std::uint16_t action, std::uint32_t buttons) {
+        memory.store16(hunter + 804u, action);
+        return gather_hold(buttons, memory);
+    };
+    check(press(0u, kCircle) == kCircle, "holding ○ on the point starts a gather");
+    check((press(40u, kCircle) & kCircle) == 0u, "the animation lifts ○");
+    check(press(40u, 0u) == 0u, "letting go during the animation keeps the gather in mind");
+    check((press(40u, kCircle) & kCircle) == 0u, "pressing ○ again during the animation does not stick it down");
+    bool gap = true;
+    for (unsigned read = 0; read < kGatherHoldGap; ++read)
+        gap = gap && (press(0u, kCircle) & kCircle) == 0u;
+    check(gap && press(0u, kCircle) == kCircle, "when the animation ends the pulse continues");
+    check((press(40u, kCircle) & kCircle) == 0u, "the next gather lifts ○ again");
 }
 
 } // namespace
@@ -319,6 +428,7 @@ int main() {
     test_on_the_picture();
     test_size_and_thickness();
     test_holding_circle();
+    test_pressing_again_on_the_pad();
     std::cout << (failures ? "FAIL" : "PASS") << ": gather icon (" << failures << " failures)\n";
     return failures ? 1 : 0;
 }

@@ -196,6 +196,11 @@ struct Fixture {
     Fixture() {
         mhfu::settings::current() = {};
         mhfu::settings::current().analog_camera = false;
+        // The default pad binds Focus/Follow Camera to LT. These tests press L,
+        // or a bind they set themselves, so they start with that button empty.
+        const auto focus = static_cast<std::size_t>(mhfu::input::Action::FocusCamera);
+        mhfu::settings::current().controls.keys[focus] = {};
+        mhfu::settings::current().controls.pad[focus] = {};
         set_focus_camera_held(false);
         pad_recenter = 0u;
         overlay_recenters = false;
@@ -342,14 +347,13 @@ void test_lock_follows_and_lets_go() {
     check(lock_on_status().target == monster_a, "locked again, onto the nearer monster now in view");
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     f.frame();
-    check(!lock_on_status().locked && lock_on_take_note().empty(), "a monster killed lets go, without a note");
+    check(!lock_on_status().locked, "a monster killed lets go");
     lock_on_tap();
     f.frame();
     check(lock_on_status().target == monster_b, "the next tap takes the one that is left");
     place(memory, monster_b, 8000.0f, 0.0f);
     f.frame();
-    check(!lock_on_status().locked && lock_on_take_note().empty(),
-        "one farther than the release distance lets go, without a note");
+    check(!lock_on_status().locked, "one farther than the release distance lets go");
     place(memory, monster_b, 0.0f, -3000.0f, 0, 1000);
 
     place(memory, monster_a, 1000.0f, 0.0f);
@@ -397,16 +401,14 @@ void test_monster_in_another_area() {
     check(lock_on_status().target == monster_b, "a tap locks the monster in this area");
     set_stage(memory, monster_b, zone_away);
     f.frame();
-    check(!lock_on_status().locked && lock_on_take_note() == "Lock-on: the monster is in another area",
-        "the lock lets go when the monster leaves for another area");
+    check(!lock_on_status().locked, "the lock lets go when the monster leaves for another area");
     lock_on_tap();
     f.frame();
     check(lock_on_status().target == monster_a && lock_on_status().locked,
         "the next tap takes the monster that is still here");
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     f.frame();
-    check(!lock_on_status().locked && lock_on_take_note().empty(),
-        "the lock lets go when the monster dies, without a note");
+    check(!lock_on_status().locked, "the lock lets go when the monster dies");
     lock_on_tap();
     f.frame();
     check(!lock_on_status().locked && !lock_on_marker_wanted(),
@@ -1287,12 +1289,21 @@ void test_binds() {
             check(conflicts(l.keys, static_cast<Action>(a)).empty(), "nor on the keyboard");
     }
     const Layout &d = layout(Preset::Default);
-    check(d.pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::RightStick)),
-        "R3 locks on in the default preset");
+    check(d.pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::LeftTrigger)),
+        "LT locks on in the default preset");
+    check(d.pad[static_cast<std::size_t>(Action::FocusCamera)][0] == single(pad(PadInput::LeftTrigger)),
+        "and that tap starts focus and follow");
+    check(d.pad[static_cast<std::size_t>(Action::L)][0] == single(pad(PadInput::LeftShoulder)) &&
+            d.pad[static_cast<std::size_t>(Action::L)][1].empty(),
+        "LB is L: the camera and item use");
     check(acts_on_release(Action::LockOn) && !acts_on_release(Action::Screenshot), "only lock-on acts on release");
-    check(
-        layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::LeftStick)),
-        "and L3 in the left-handed one");
+    check(layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::LockOn)][0] ==
+                single(pad(PadInput::RightTrigger)) &&
+            layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::L)][0] ==
+                single(pad(PadInput::RightShoulder)),
+        "left-handed puts lock-on on RT and L on RB");
+    check(layout(Preset::Modern).pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::RightStick)),
+        "Modern keeps lock-on on R3, since LT guards");
     check(d.keys[static_cast<std::size_t>(Action::LockOn)][0] == single(mouse_button(2)) &&
             d.keys[static_cast<std::size_t>(Action::LockOn)][1] == single(from_name("T")),
         "the middle mouse button and T lock on from the keyboard");
@@ -1302,20 +1313,28 @@ void test_binds() {
     {
         const Slots &lock = d.pad[static_cast<std::size_t>(Action::LockOn)];
         const Chord shot = d.pad[static_cast<std::size_t>(Action::Screenshot)][0];
-        check(extends_lock_on(lock, shot), "the screenshot chord contains lock-on, so it does not also lock on");
-        check(extends_lock_on(lock, chord(pad(PadInput::LeftStick), pad(PadInput::RightStick))),
-            "L3 + R3 contains lock-on, so the menu does not also lock on");
+        check(!extends_lock_on(lock, shot), "the screenshot chord is the stick click, not LT");
+        check(!extends_lock_on(lock, chord(pad(PadInput::LeftStick), pad(PadInput::RightStick))),
+            "L3 + R3 is the menu, not the lock-on press");
         check(!extends_lock_on(lock, single(pad(PadInput::RightShoulder))),
             "holding R, as for a sprint, still leaves the lock-on press");
-        check(!extends_lock_on(lock, single(pad(PadInput::RightStick))), "R3 on its own is the lock-on press");
+        check(!extends_lock_on(lock, single(pad(PadInput::LeftTrigger))), "LT on its own is the lock-on press");
+        check(extends_lock_on(lock, chord(pad(PadInput::LeftTrigger), pad(PadInput::South))),
+            "a longer chord that contains LT does not also lock on");
         check(!extends_lock_on(lock, chord(pad(PadInput::RightShoulder), pad(PadInput::South))),
             "two other buttons, with no lock-on input, are not that chord");
     }
     for (std::size_t i = 0; i < kPresets; ++i) {
         const Layout &l = layout(static_cast<Preset>(i));
         const auto slot = static_cast<std::size_t>(Action::FocusCamera);
-        check(l.keys[slot][0].empty() && l.pad[slot][0].empty(),
-            "shipped presets leave Focus camera unbound, so L does it");
+        check(l.keys[slot][0].empty(), "no keyboard preset binds Focus camera, so that tap stays L");
+        if (static_cast<Preset>(i) == Preset::Modern) {
+            check(l.pad[slot][0].empty(), "Modern leaves Focus camera unbound, so L does it");
+            continue;
+        }
+        const PadInput trigger =
+            static_cast<Preset>(i) == Preset::LeftHanded ? PadInput::RightTrigger : PadInput::LeftTrigger;
+        check(l.pad[slot][0] == single(pad(trigger)), "the other presets start focus and follow on the lock-on trigger");
     }
     {
         // A tap's chord inside a longer one is no conflict either way; the
@@ -1333,6 +1352,42 @@ void test_binds() {
 }
 
 } // namespace
+
+void test_shared_trigger_initiates_focus_and_follow() {
+    using namespace mhfu::input;
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    const auto lock = static_cast<std::size_t>(Action::LockOn);
+    const auto focus = static_cast<std::size_t>(Action::FocusCamera);
+    const Chord trigger = single(pad(PadInput::LeftTrigger));
+    mhfu::settings::current().controls.pad[lock][0] = trigger;
+    mhfu::settings::current().controls.pad[focus][0] = trigger;
+    place(memory, monster_b, 800.0f, -3000.0f);
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().locked && lock_on_status().target == monster_b && game_camera_driving(),
+        "LT locks on and follow starts");
+    f.frame(1.0f);
+    check(lock_on_status().locked && !game_camera_driving(), "the stick pauses follow");
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_b && game_camera_driving() && lock_on_marker_wanted(),
+        "LT turns follow back on without moving to the next monster");
+    lock_on_reset();
+    mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Focus;
+    const std::uint16_t wanted = yaw_towards({0.0f, 190.0f, 0.0f}, {800.0f, 100.0f, -3000.0f});
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_b &&
+            std::abs(yaw_difference(f.yaw(), wanted)) < std::abs(yaw_difference(0u, wanted)),
+        "the same tap starts a focus turn, without L");
+    for (int i = 0; i < 15; ++i) f.frame();
+    lock_on_tap();
+    f.frame();
+    check(lock_on_status().target == monster_b, "another LT centers again instead of moving to the next monster");
+    mhfu::settings::current().controls.pad[focus][0] = {};
+}
 
 void test_follow_toggle_uses_the_focus_camera_bind() {
     using namespace mhfu::input;
@@ -1390,6 +1445,7 @@ int main() {
     test_hunt_portrait_keeps_the_id_in_another_area();
     test_unmarked_monsters_still_lock();
     test_lock_follows_and_lets_go();
+    test_shared_trigger_initiates_focus_and_follow();
     test_follow_toggle_uses_the_focus_camera_bind();
     test_focus_turns_on_l_and_keeps_the_selection();
     test_focus_keeps_the_picture_when_the_hunter_is_aside();

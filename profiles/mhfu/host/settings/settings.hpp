@@ -121,10 +121,11 @@ struct Settings {
     // Follow keeps the camera on the selection. Focus/Follow Camera turns
     // that tracking off and on again without dropping the selection, and the
     // reticle goes with the tracking. The right stick turns both off and leaves
-    // the portrait. Focus eases onto it when that button is tapped (L, until
-    // the bind is set). While that tap is L, the game's own recenter stays off,
-    // so the press does not move the camera twice. A second tap within a third
-    // of a second recenters behind the hunter.
+    // the portrait. Focus eases onto it when that button is tapped. The default
+    // pad binds it to LT, and LB stays L. With the bind empty, the tap is L,
+    // and the game's own recenter stays off so the press does not move the
+    // camera twice. A second tap within a third of a second recenters behind
+    // the hunter.
     LockOnStyle lock_on_style{LockOnStyle::Follow};
     // Ring, cross and ticks. Focus leaves it off until the focus button, then drops it shortly after.
     bool lock_on_marker{true};
