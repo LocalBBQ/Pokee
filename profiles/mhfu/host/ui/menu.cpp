@@ -25,6 +25,7 @@
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
 #include "game/damage_numbers.hpp"
+#include "game/gather_icon.hpp"
 #include "gpu/screenshot.hpp"
 #include "gpu/game_hud.hpp"
 #include "gpu/vulkan_renderer.hpp"
@@ -475,6 +476,78 @@ void Menu::video() {
             o.note = "Not with this game's code";
         }
         if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
+    }
+    section("Overlays");
+    if (toggle_row("Damage numbers", s.damage_numbers,
+            options_for("game.damage_numbers",
+                "On: a number shows how much health a hit takes off a monster, drawn on the monster. A weak point "
+                "(hitzone 45 or more, after sharpness for a blade) is orange and any other part "
+                "is gray. The number stays white until that part is known, and a critical hit "
+                "keeps its own mark. Off: nothing is added."))) {
+        s.damage_numbers = !s.damage_numbers;
+        settings::save();
+    }
+    {
+        RowOptions o = options_for("game.damage_number_size",
+            "How large damage numbers are drawn, in percent of the interface text. They still shrink when "
+            "the camera is close to the monster.");
+        o.disabled = o.disabled || !s.damage_numbers;
+        int size = static_cast<int>(s.damage_number_size);
+        if (slider_row("Damage number size", size, static_cast<int>(settings::kMinDamageNumberSize),
+                static_cast<int>(settings::kMaxDamageNumberSize), 10, "%d%%", o)) {
+            s.damage_number_size = static_cast<std::uint32_t>(size);
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("game.damage_number_thickness",
+            "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and each "
+            "step thickens both the digits and the outline. 3 is the thickest that stays readable.");
+        o.disabled = o.disabled || !s.damage_numbers;
+        int thickness = static_cast<int>(s.damage_number_thickness);
+        if (slider_row("Damage number thickness", thickness, 1,
+                static_cast<int>(settings::kMaxDamageNumberThickness), 1, "%d", o)) {
+            s.damage_number_thickness = static_cast<std::uint32_t>(thickness);
+            settings::save();
+        }
+    }
+    if (toggle_row("Gather icon", s.gather_icon,
+            options_for("game.gather_icon",
+                "On: a ? floats above a gather point while you are close enough for ○ to gather it. "
+                "Off: no mark, and the gather list is not read."))) {
+        s.gather_icon = !s.gather_icon;
+        settings::save();
+    }
+    {
+        RowOptions o = options_for("game.gather_icon_size",
+            "How large the gather mark is, in percent of its usual size. The disc and the ? grow together, "
+            "and the ring grows with them.");
+        o.disabled = o.disabled || !s.gather_icon;
+        int size = static_cast<int>(s.gather_icon_size);
+        if (slider_row("Gather icon size", size, static_cast<int>(settings::kMinGatherIconSize),
+                static_cast<int>(settings::kMaxGatherIconSize), 10, "%d%%", o)) {
+            s.gather_icon_size = static_cast<std::uint32_t>(size);
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("game.gather_icon_thickness",
+            "How bold the gather mark is: 1 is a one-pixel ring and the font's own ?. Each step thickens the "
+            "ring and the ?, and that weight grows with the size. 3 is the thickest that still leaves the ? clear.");
+        o.disabled = o.disabled || !s.gather_icon;
+        int thickness = static_cast<int>(s.gather_icon_thickness);
+        if (slider_row("Gather icon thickness", thickness, 1, static_cast<int>(settings::kMaxGatherIconThickness), 1,
+                "%d", o)) {
+            s.gather_icon_thickness = static_cast<std::uint32_t>(thickness);
+            settings::save();
+        }
+    }
+    if (toggle_row("Hold to gather", s.gather_hold,
+            options_for("game.gather_hold",
+                "On: hold ○ on a gather point and it gathers again each time you can. "
+                "Off: ○ gathers once per press. L+○ still uses the item bar."))) {
+        s.gather_hold = !s.gather_hold;
+        settings::save();
     }
     section("Lock-on");
     {
@@ -1694,39 +1767,6 @@ void Menu::system() {
         s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
         settings::save();
     }
-    if (toggle_row("Damage numbers", s.damage_numbers,
-            options_for("game.damage_numbers",
-                "On: a number shows how much health a hit takes off a monster, drawn on the monster. A weak point "
-                "(hitzone 45 or more, after sharpness for a blade) is orange and any other part "
-                "is gray. The number stays white until that part is known, and a critical hit "
-                "keeps its own mark. Off: nothing is added."))) {
-        s.damage_numbers = !s.damage_numbers;
-        settings::save();
-    }
-    {
-        RowOptions o = options_for("game.damage_number_size",
-            "How large damage numbers are drawn, in percent of the interface text. They still shrink when "
-            "the camera is close to the monster.");
-        o.disabled = o.disabled || !s.damage_numbers;
-        int size = static_cast<int>(s.damage_number_size);
-        if (slider_row("Damage number size", size, static_cast<int>(settings::kMinDamageNumberSize),
-                static_cast<int>(settings::kMaxDamageNumberSize), 10, "%d%%", o)) {
-            s.damage_number_size = static_cast<std::uint32_t>(size);
-            settings::save();
-        }
-    }
-    {
-        RowOptions o = options_for("game.damage_number_thickness",
-            "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and each "
-            "step thickens both the digits and the outline. 3 is the thickest that stays readable.");
-        o.disabled = o.disabled || !s.damage_numbers;
-        int thickness = static_cast<int>(s.damage_number_thickness);
-        if (slider_row("Damage number thickness", thickness, 1,
-                static_cast<int>(settings::kMaxDamageNumberThickness), 1, "%d", o)) {
-            s.damage_number_thickness = static_cast<std::uint32_t>(thickness);
-            settings::save();
-        }
-    }
 #if defined(MHFU_ANDROID_APP)
     // An Android app's data folder is out of the file manager's reach; its
     // log goes where the player picks instead, to send with a report.
@@ -2179,6 +2219,11 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
     }
 }
 
+std::optional<std::array<float, 2>> &gather_mark_at() {
+    static std::optional<std::array<float, 2>> at;
+    return at;
+}
+
 // Lock-on's marker (camera/lock_on.hpp): a red ring, a cross through it, and
 // four ticks outside it, in the game's pixels, over the locked monster.
 // Drawn by the interface and never into the game's frames.
@@ -2207,6 +2252,36 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
         }
     }
 }
+
+// The gather mark (game/gather_icon.hpp): a dark disc and ?, in the game's
+// pixels, above the node. Drawn by the interface and never into the game's frames.
+void draw_gather_mark(const std::array<float, 2> &at) {
+    const ImGuiIO &io = ImGui::GetIO();
+    const std::array<float, 4> picture = Layer::get().renderer().game_picture();
+    const ImVec2 centre{
+        (picture[0] + at[0] * picture[2]) * io.DisplaySize.x, (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
+    const float pixel = picture[3] * io.DisplaySize.y / 272.0f;
+    const settings::Settings &player = settings::current();
+    const game::GatherShape shape = game::gather_mark_shape(player.gather_icon_size, player.gather_icon_thickness);
+    const float radius = shape.radius * pixel;
+    const float ring = std::max(1.0f, shape.ring * pixel);
+    const int segments = std::clamp(static_cast<int>(shape.radius * 3.0f), 16, 48);
+    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    draw->AddCircleFilled(centre, radius, IM_COL32(20, 16, 12, 210), segments);
+    draw->AddCircle(centre, radius, IM_COL32(0, 0, 0, 180), segments, ring);
+    const char *label = "?";
+    const float size = shape.glyph * pixel;
+    ImFont *font = ImGui::GetFont();
+    const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
+    const ImVec2 origin{centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f};
+    const ImU32 ink = IM_COL32(245, 236, 214, 240);
+    const float weight = shape.weight * pixel;
+    if (weight >= 0.25f)
+        for (const game::Offset &offset : game::stroke_offsets(weight, 2))
+            if (offset.x != 0.0f || offset.y != 0.0f)
+                draw->AddText(font, size, {origin.x + offset.x, origin.y + offset.y}, ink, label);
+    draw->AddText(font, size, origin, ink, label);
+}
 } // namespace
 
 void set_lock_on_marker(std::optional<std::array<float, 2>> at) {
@@ -2215,6 +2290,10 @@ void set_lock_on_marker(std::optional<std::array<float, 2>> at) {
 
 void set_hunt_portraits(std::vector<camera::HuntPortrait> portraits) {
     hunt_portraits_at() = std::move(portraits);
+}
+
+void set_gather_mark(std::optional<std::array<float, 2>> at) {
+    gather_mark_at() = at;
 }
 
 namespace {
@@ -2309,14 +2388,16 @@ void draw_over_game() {
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
     const std::vector<camera::HuntPortrait> portraits = menu ? std::vector<camera::HuntPortrait>{} : hunt_portraits_at();
+    const std::optional<std::array<float, 2>> gather = menu ? std::nullopt : gather_mark_at();
     const bool numbers = !menu && !layer.renderer().window_capture_pending() && !game::damage_numbers().empty();
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !fast && !noted &&
-        hud_note <= 0.0 && !marker && portraits.empty() && !numbers)
+        hud_note <= 0.0 && !marker && portraits.empty() && !gather && !numbers)
         return;
     layer.begin_frame();
     if (numbers) draw_damage_numbers();
     if (!portraits.empty()) draw_hunt_portraits(portraits);
     if (marker) draw_lock_on_marker(*marker);
+    if (gather) draw_gather_mark(*gather);
     if (noted) draw_note(note());
     if (touch) {
         const settings::Settings &player = settings::current();

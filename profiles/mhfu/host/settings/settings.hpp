@@ -178,6 +178,18 @@ struct Settings {
     // game already shows. On, the health that hit removed is drawn over the
     // picture.
     bool damage_numbers{};
+    // A ? over a gather node the game would accept (game/gather_icon.hpp).
+    // On by default. Off, the list is not read for the mark.
+    bool gather_icon{true};
+    // Holding ○ gathers again each time the hunter is free on a node
+    // (game/gather_icon.hpp). On by default. Off, ○ is one press.
+    bool gather_hold{true};
+    // The mark's size, in percent of the usual disc (kMinGatherIconSize to
+    // kMaxGatherIconSize), and the weight of its ring and ? (1 to
+    // kMaxGatherIconThickness). A larger mark keeps the same proportions, and
+    // a thicker one widens the ring and the ?.
+    std::uint32_t gather_icon_size{100};
+    std::uint32_t gather_icon_thickness{1};
     // Their size, in percent of the interface font's (kMinDamageNumberSize to
     // kMaxDamageNumberSize), and the weight of their strokes and dark outline
     // (1 to kMaxDamageNumberThickness, 1 the thinnest). Both scale with the
@@ -219,6 +231,10 @@ inline constexpr std::uint32_t kMinDamageNumberSize = 50u;
 inline constexpr std::uint32_t kMaxDamageNumberSize = 300u;
 // Past 3 the outline copies fill the digits in, so 3 is as thick as stays readable.
 inline constexpr std::uint32_t kMaxDamageNumberThickness = 3u;
+inline constexpr std::uint32_t kMinGatherIconSize = 50u;
+inline constexpr std::uint32_t kMaxGatherIconSize = 300u;
+// Past 3 the ring and the ? stroke meet, so 3 is as thick as stays readable.
+inline constexpr std::uint32_t kMaxGatherIconThickness = 3u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
 inline constexpr float kMinTouchOpacity = 0.1f;
 inline constexpr float kMaxTouchOpacity = 1.0f;

@@ -208,12 +208,14 @@ enum class Context : std::uint8_t { Game, Anywhere };
 [[nodiscard]] Context context_of(Action action);
 // The SceCtrlButtons an action presses; 0 for the sticks and the port's own.
 [[nodiscard]] std::uint32_t buttons_of(Action action);
-// Actions that act when their input is let go, and only if it was pressed
-// alone: nothing else on the same device held as it went down, and nothing
-// else pressed before it came up (TapDetector). Their chords may therefore be
-// part of longer chords, such as R3 for lock-on inside R3 + D-pad left for a
-// screenshot, without clashing with them.
+// Actions that act when their input is let go. A longer chord that contains
+// the bind (R3 inside R3 + D-pad left, or L3 + R3) does not set them off, so
+// those chords do not clash. Other buttons held at the same time, such as
+// sprint, still do.
 [[nodiscard]] bool acts_on_release(Action action);
+// True when `longer` holds every input of one of `lock_on`'s chords and at
+// least one more. Holding that chord is not a lock-on tap.
+[[nodiscard]] bool extends_lock_on(const Slots &lock_on, const Chord &longer);
 
 // The PSP's buttons an action of the player's may press together (#198).
 inline constexpr std::uint32_t kComboButtons = 0xF3F9u; // △ ○ × □ L R START SELECT and the D-pad

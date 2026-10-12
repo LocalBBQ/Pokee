@@ -299,6 +299,9 @@ void test_monsters_and_pick() {
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     check(lock_on_monsters(memory).size() == 1u, "a dead monster cannot be locked");
     place(memory, monster_b, 0.0f, -3000.0f, 1000, 0);
+    check(lock_on_monsters(memory).empty(),
+        "a dead large monster still keeps a small one from taking the lock");
+    place(memory, monster_a, 1000.0f, 0.0f, 1000, 0);
     check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == small,
         "with no marked monster left, the healthy small one remains");
     memory.store8(game::kTaskSlot + 32u, 'l');
@@ -404,6 +407,10 @@ void test_monster_in_another_area() {
     f.frame();
     check(!lock_on_status().locked && lock_on_take_note().empty(),
         "the lock lets go when the monster dies, without a note");
+    lock_on_tap();
+    f.frame();
+    check(!lock_on_status().locked && !lock_on_marker_wanted(),
+        "with no large monster in this area, R3 locks nothing and shows no reticle");
 }
 
 void test_hunt_portrait_keeps_the_id_in_another_area() {
@@ -484,6 +491,8 @@ void test_hunt_portrait_keeps_the_id_in_another_area() {
     check(both_away.size() == 2u && both_away[0].address == monster_b && both_away[0].other_area &&
             both_away[1].address == monster_a && both_away[1].other_area,
         "with both large monsters in another area, a small monster does not take the card");
+    check(lock_on_monsters(memory).empty(),
+        "and lock-on has nothing to select, so R3 does not put a reticle on the small one");
     set_stage(memory, monster_a, zone_here);
     set_stage(memory, monster_b, zone_here);
 
@@ -1222,6 +1231,12 @@ void test_marker_follows_the_camera_eye() {
     const auto at = lock_on_marker(memory);
     check(at && std::fabs((*at)[0] - 0.5f) < 0.02f && std::fabs((*at)[1] - 0.5f) < 0.02f,
         "the reticle sits on the monster through the camera's eye and look-at");
+    // Back near the origin, in front of a view that has no translation. The
+    // eye at x 1000 cannot see it. That draw must not put a reticle up.
+    place(memory, target, 0.0f, -10.0f);
+    write_float(memory, target + game::kPosition + 4u, -100.0f);
+    lock_on_note_view(picture_camera(), 100u);
+    check(!lock_on_marker(memory), "a monster the camera cannot see draws no reticle");
     lock_on_reset();
 }
 
@@ -1256,6 +1271,18 @@ void test_binds() {
     check(buttons_of(Action::FocusCamera) == 0u && group_of(Action::FocusCamera) == ActionGroup::Camera &&
             !acts_on_release(Action::FocusCamera),
         "Focus camera is a camera bind and presses no PSP button");
+    {
+        const Slots &lock = d.pad[static_cast<std::size_t>(Action::LockOn)];
+        const Chord shot = d.pad[static_cast<std::size_t>(Action::Screenshot)][0];
+        check(extends_lock_on(lock, shot), "the screenshot chord contains lock-on, so it does not also lock on");
+        check(extends_lock_on(lock, chord(pad(PadInput::LeftStick), pad(PadInput::RightStick))),
+            "L3 + R3 contains lock-on, so the menu does not also lock on");
+        check(!extends_lock_on(lock, single(pad(PadInput::RightShoulder))),
+            "holding R, as for a sprint, still leaves the lock-on press");
+        check(!extends_lock_on(lock, single(pad(PadInput::RightStick))), "R3 on its own is the lock-on press");
+        check(!extends_lock_on(lock, chord(pad(PadInput::RightShoulder), pad(PadInput::South))),
+            "two other buttons, with no lock-on input, are not that chord");
+    }
     for (std::size_t i = 0; i < kPresets; ++i) {
         const Layout &l = layout(static_cast<Preset>(i));
         const auto slot = static_cast<std::size_t>(Action::FocusCamera);

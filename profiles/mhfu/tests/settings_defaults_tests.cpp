@@ -367,6 +367,37 @@ void test_lock_on_and_damage_numbers() {
         "and focus survives a round trip");
     style["input.lock_on_style"] = "nope";
     check(from_entries(style).lock_on_style == LockOnStyle::Follow, "an unknown style keeps follow");
+    check(fresh.gather_icon && fresh.gather_hold, "the gather mark and holding ○ to gather start on");
+    Entries gather = to_entries(fresh);
+    gather["game.gather_icon"] = "0";
+    check(!from_entries(gather).gather_icon, "the file turns the gather mark off");
+    check(!from_entries(to_entries(from_entries(gather))).gather_icon, "and off survives a round trip");
+    gather["game.gather_hold"] = "0";
+    check(!from_entries(gather).gather_hold, "the file turns holding ○ to gather off");
+    check(!from_entries(to_entries(from_entries(gather))).gather_hold, "and that off survives a round trip");
+    check(fresh.gather_icon_size == 100u && fresh.gather_icon_thickness == 1u,
+        "the gather mark starts at its usual size and the thinnest ring");
+    Entries mark = to_entries(fresh);
+    mark["game.gather_icon_size"] = "180";
+    mark["game.gather_icon_thickness"] = "2";
+    const Settings sized = from_entries(to_entries(from_entries(mark)));
+    check(sized.gather_icon_size == 180u && sized.gather_icon_thickness == 2u,
+        "the gather mark's size and thickness come from the file and survive a round trip");
+    mark["game.gather_icon_size"] = std::to_string(kMaxGatherIconSize + 1u);
+    mark["game.gather_icon_thickness"] = "9";
+    const Settings huge = from_entries(mark);
+    check(huge.gather_icon_size == kMaxGatherIconSize && huge.gather_icon_thickness == kMaxGatherIconThickness,
+        "a gather mark past either limit clamps to it");
+    mark["game.gather_icon_size"] = "1";
+    mark["game.gather_icon_thickness"] = "0";
+    const Settings tiny = from_entries(mark);
+    check(tiny.gather_icon_size == kMinGatherIconSize && tiny.gather_icon_thickness == 1u,
+        "a gather mark under either limit clamps up");
+    mark["game.gather_icon_size"] = std::to_string(kMinGatherIconSize);
+    mark["game.gather_icon_thickness"] = std::to_string(kMaxGatherIconThickness);
+    const Settings ends = from_entries(mark);
+    check(ends.gather_icon_size == kMinGatherIconSize && ends.gather_icon_thickness == kMaxGatherIconThickness,
+        "the ends of the gather mark's ranges are allowed");
     check(!fresh.damage_numbers, "damage numbers start off");
     Entries hits = to_entries(fresh);
     hits["game.damage_numbers"] = "1";
@@ -710,6 +741,70 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(beside, map_half, zoomed, 0x09164420u);
     check(beside[0].x == 280.0f && beside[0].y == 16.0f && beside[2].x == 456.0f && beside[2].y == 136.0f,
         "the panel just left of the slot is not the found-monster window");
+    // "Herb obtained." sits in the middle of the picture. Its right end and
+    // the item icon overlap the enlarged map and were pulled onto it.
+    std::vector<Vertex> obtain_top(6, Vertex{176.0f, 122.0f});
+    obtain_top[2] = {286.0f, 126.0f};
+    std::vector<Vertex> obtain_bottom(6, Vertex{176.0f, 148.0f});
+    obtain_bottom[2] = {286.0f, 152.0f};
+    std::vector<Vertex> obtain_cap(6, Vertex{286.0f, 122.0f});
+    obtain_cap[2] = {302.0f, 146.0f};
+    std::vector<Vertex> obtain_icon(6, Vertex{248.0f, 128.0f});
+    obtain_icon[2] = {264.0f, 144.0f};
+    std::vector<Vertex> obtain(obtain_top);
+    obtain.insert(obtain.end(), obtain_bottom.begin(), obtain_bottom.end());
+    obtain.insert(obtain.end(), obtain_cap.begin(), obtain_cap.end());
+    obtain.insert(obtain.end(), obtain_icon.begin(), obtain_icon.end());
+    mhfu::gpu::hud_scale::scale_quads(obtain, map_half, zoomed, 0x040CC000u);
+    check(obtain[0].x == 176.0f && obtain[0].y == 122.0f && obtain[6].x == 176.0f && obtain[6].y == 148.0f &&
+            obtain[12].x == 286.0f && obtain[12].y == 122.0f && obtain[18].x == 248.0f && obtain[18].y == 128.0f,
+        "the obtain window stays whole while its right end overlaps the enlarged map");
+    // The same window on the way down, still crossing that enlarged map.
+    // Its edges are above the settled row, and the body is the taller panel
+    // it starts as.
+    Frame descending;
+    std::vector<Vertex> descend_map(6, Vertex{276.0f, 70.0f});
+    descend_map[2] = {336.0f, 130.0f};
+    std::vector<Vertex> descend_clock(6, Vertex{8.0f, 8.0f});
+    descend_clock[2] = {60.0f, 56.0f};
+    descend_map.insert(descend_map.end(), descend_clock.begin(), descend_clock.end());
+    mhfu::gpu::hud_scale::scale_quads(descend_map, map_half, descending, mhfu::gpu::hud_scale::kAreaMapTexture);
+    std::vector<Vertex> slide_top(6, Vertex{176.0f, 64.0f});
+    slide_top[2] = {286.0f, 68.0f};
+    std::vector<Vertex> slide_bottom(6, Vertex{176.0f, 90.0f});
+    slide_bottom[2] = {286.0f, 94.0f};
+    std::vector<Vertex> slide_cap(6, Vertex{286.0f, 64.0f});
+    slide_cap[2] = {302.0f, 88.0f};
+    std::vector<Vertex> slide_icon(6, Vertex{248.0f, 70.0f});
+    slide_icon[2] = {264.0f, 86.0f};
+    std::vector<Vertex> slide_arrow(6, Vertex{290.0f, 80.0f});
+    slide_arrow[2] = {304.0f, 94.0f};
+    std::vector<Vertex> slide(slide_top);
+    slide.insert(slide.end(), slide_bottom.begin(), slide_bottom.end());
+    slide.insert(slide.end(), slide_cap.begin(), slide_cap.end());
+    slide.insert(slide.end(), slide_icon.begin(), slide_icon.end());
+    mhfu::gpu::hud_scale::scale_quads(slide, map_half, descending, 0x040CC000u);
+    mhfu::gpu::hud_scale::scale_quads(slide_arrow, map_half, descending, mhfu::gpu::hud_scale::kMapIconTexture);
+    check(slide[0].y == 64.0f && slide[6].y == 90.0f && slide[12].x == 286.0f && slide[12].y == 64.0f &&
+            slide[18].x == 248.0f && slide[18].y == 70.0f && slide_arrow[0].x == 379.0f && slide_arrow[0].y == 56.0f,
+        "the obtain window stays whole while it slides across the enlarged map");
+    Frame slide_start;
+    std::vector<Vertex> start_map(6, Vertex{316.0f, 32.0f});
+    start_map[2] = {468.0f, 184.0f};
+    std::vector<Vertex> start_body(6, Vertex{168.0f, 8.0f});
+    start_body[2] = {312.0f, 32.0f};
+    std::vector<Vertex> start_end(6, Vertex{312.0f, 8.0f});
+    start_end[2] = {328.0f, 32.0f};
+    std::vector<Vertex> start_mark(6, Vertex{400.0f, 80.0f});
+    start_mark[2] = {414.0f, 94.0f};
+    std::vector<Vertex> start_panel(start_map);
+    start_panel.insert(start_panel.end(), start_body.begin(), start_body.end());
+    start_panel.insert(start_panel.end(), start_end.begin(), start_end.end());
+    mhfu::gpu::hud_scale::scale_quads(start_panel, map_half, slide_start);
+    mhfu::gpu::hud_scale::scale_quads(start_mark, map_half, slide_start, mhfu::gpu::hud_scale::kMapIconTexture);
+    check(start_panel[6].x == 168.0f && start_panel[6].y == 8.0f && start_panel[12].x == 312.0f &&
+            start_panel[12].y == 8.0f && start_mark[0].x == 434.0f && start_mark[0].y == 56.0f,
+        "the obtain window's panel stays whole at the start of the slide");
     // Without the Map item the same texels are drawn at sizes and places the
     // slot test misses. The window still shrinks toward the slot's top-right,
     // and the arrow, drawn after it, follows that corner.

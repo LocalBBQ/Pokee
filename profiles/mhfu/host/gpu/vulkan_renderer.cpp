@@ -3,6 +3,7 @@
 #include "frame_interpolation.hpp"
 #include "frame_pacing.hpp"
 #include "game/damage_numbers.hpp"
+#include "game/gather_icon.hpp"
 #include "game_hud.hpp"
 #include "hud_scale.hpp"
 #include "replacement_textures.hpp"
@@ -1041,9 +1042,9 @@ struct VulkanRenderer::Impl {
     bool hide_hud_pressed{};
     void sample_hide_hud(bool focused);
     // The Lock on bind (camera/lock_on.hpp): read while the game has input
-    // and counted once per tap (input::TapDetector), so a chord that holds
-    // the same input, R3 + D-pad left for a screenshot or L3 + R3 for the
-    // menu, never locks on too.
+    // and counted once per tap (input::TapDetector). Sprint and the other
+    // buttons may be held. A longer chord that contains the bind, R3 + D-pad
+    // left for a screenshot or L3 + R3 for the menu, does not lock on too.
     input::TapDetector lock_on_keys_tap;
     input::TapDetector lock_on_pad_tap;
     bool lock_on_pressed{};
@@ -6057,7 +6058,9 @@ void VulkanRenderer::Impl::sample_lock_on(bool focused) {
                 scripted_keys[static_cast<std::size_t>(position)]);
     });
     // Keys and mouse buttons act on their own, so moving on W A S D never
-    // spoils a tap; only the pad's inputs are also parts of other chords.
+    // spoils a tap. On a pad, sprint and the other buttons may be held too.
+    // Only a longer chord that contains the bind spoils it: R3 + D-pad left,
+    // L3 + R3, or one the player bound.
     if (lock_on_keys_tap.update(typed_now, false)) lock_on_pressed = true;
     bool pad_now = false;
     bool others = false;
@@ -6066,19 +6069,17 @@ void VulkanRenderer::Impl::sample_lock_on(bool focused) {
         const input::Slots &slots = player.controls.pad[action];
         const auto held = [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); };
         pad_now = chord_held(slots, held);
-        const auto part_of_lock_on = [&](input::Binding binding) {
-            for (const input::Chord &c : slots)
-                if (c.contains(binding)) return true;
-            return false;
+        const auto spoils = [&](const input::Chord &c) {
+            if (!input::extends_lock_on(slots, c)) return;
+            for (const input::Binding b : c.held())
+                if (!held(b)) return;
+            others = true;
         };
-        for (int n = 0; n < static_cast<int>(input::PadInput::ButtonCount); ++n) {
-            const input::Binding binding = input::pad(static_cast<input::PadInput>(n));
-            if (!part_of_lock_on(binding) && held(binding)) others = true;
-        }
-        for (const input::PadInput trigger : {input::PadInput::LeftTrigger, input::PadInput::RightTrigger}) {
-            const input::Binding binding = input::pad(trigger);
-            if (!part_of_lock_on(binding) && held(binding)) others = true;
-        }
+        for (const input::Slots &action_slots : player.controls.pad)
+            for (const input::Chord &c : action_slots) spoils(c);
+        for (const input::Combo &combo : player.controls.combos)
+            for (const input::Chord &c : combo.pad) spoils(c);
+        spoils(input::chord(input::pad(input::PadInput::LeftStick), input::pad(input::PadInput::RightStick)));
     }
     if (lock_on_pad_tap.update(pad_now, others)) lock_on_pressed = true;
 }
@@ -7086,13 +7087,18 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // draw with the most vertices is the world camera, follow or aim; the HUD
     // is orthographic and is ignored.
     if (!call.through && !call.clear_mode &&
-        (mhfu::game::damage_numbers_watching() ||
+        (mhfu::game::damage_numbers_watching() || settings::current().gather_icon ||
             (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted()))) {
         const std::uint32_t vertices = call.vertices_reused ? call.reused_count
             : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
         const mhfu::game::WorldCamera world{call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
             call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x, call.viewport.offset_y};
         if (mhfu::game::damage_numbers_watching()) mhfu::game::note_world_camera(world, vertices);
+        if (settings::current().gather_icon)
+            mhfu::game::gather_note_draw(
+                {world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset, world.origin_x,
+                    world.origin_y},
+                vertices);
         if (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted())
             mhfu::camera::lock_on_note_view(
                 {world.view, world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset,

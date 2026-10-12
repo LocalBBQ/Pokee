@@ -55,6 +55,11 @@ void set_lock_on_marker(std::optional<std::array<float, 2>> at);
 // area, and red brackets while lock-on has it selected. Set once a flip.
 void set_hunt_portraits(std::vector<camera::HuntPortrait> portraits);
 
+// Where the gather mark goes on the game's picture, each coordinate 0..1
+// from its top left (game/gather_icon.hpp), or nothing to draw none. Set
+// once a flip; draw_over_game() draws it while the game runs.
+void set_gather_mark(std::optional<std::array<float, 2>> at);
+
 // Whether the menu, opened now, pauses the game. Settings decide: "Pause the
 // game when the menu opens", and during ad hoc play "Pause during
 // multiplayer", off by default because a paused game stops answering its
