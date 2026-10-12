@@ -126,29 +126,49 @@ void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices);
 // before the next press.
 inline constexpr unsigned kGatherHoldGap = 3u;
 
+// How many reads ○ may stay down without the gather action starting. The game
+// gathers on ○ going down, so a press it is not ready for would otherwise
+// stay down and never come again. Past this, ○ is lifted and pressed again.
+inline constexpr unsigned kGatherAccept = 8u;
+
+// How many reads a gather action may run without returning to the action the
+// hold started on. Past this the current action is taken as free and ○ is
+// pressed again, so a hold cannot stick with ○ held up.
+inline constexpr unsigned kGatherGiveUp = 150u;
+
 // Holding ○ on a gather point. Gather is ○ (B on an Xbox pad), and the game
 // starts one when ○ goes down, so a bit that stays down is one gather. While
 // the hunter's action (the halfword at +804) is away from the action this
 // hold started on, ○ is held up. When that action is back, ○ stays up for
-// kGatherHoldGap reads and then goes down. Away from a node, with L down, or
-// with the setting off, the buttons pass through. L+○ is the item bar.
+// kGatherHoldGap reads and then goes down. A press that does not start a
+// gather is sent again. Letting go stops the next one, even at the end of the
+// animation: ○ is never pressed unless it is still held. Pressing it again
+// and holding it through the end continues. Away from a node, with L down,
+// or with the setting off, the buttons pass through. L+○ is the item bar.
 class GatherRepeat {
 public:
     // `ready` is the gather search accepting ○. `action` is the hunter's
     // current action; nothing means the action cannot be read.
     [[nodiscard]] std::uint32_t apply(std::uint32_t buttons, bool ready, std::optional<std::uint16_t> action);
     void reset() { *this = GatherRepeat{}; }
+    // A gather started here has not finished. ○ coming up does not end it:
+    // the release, and a press during the animation, still belong to it.
+    [[nodiscard]] bool underway() const { return phase_ != Phase::Idle; }
 
 private:
-    enum class Phase : std::uint8_t { Idle, Down, Busy, Gap };
+    enum class Phase : std::uint8_t { Idle, Down, Busy, Gap, Released };
     Phase phase_{Phase::Idle};
     bool input_down_{};
     std::uint16_t free_action_{};
     unsigned gap_{};
+    unsigned down_reads_{};
+    unsigned busy_reads_{};
 };
 
-// The buttons the game should see for this pad read. Off, or with no node,
-// `buttons` comes back unchanged and the gather list is not read.
+// The buttons the game should see for this pad read. Off, or idle with ○ up,
+// `buttons` comes back unchanged and the gather list is not read. While a
+// gather from this hold is still playing, the list and the hunter's action
+// are read even if ○ is up, so letting go does not forget the animation.
 [[nodiscard]] std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory);
 
 } // namespace mhfu::game

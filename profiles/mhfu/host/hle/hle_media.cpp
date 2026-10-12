@@ -331,7 +331,6 @@ void present_frame(Runtime &rt) {
         if (renderer.take_lock_on_press()) camera::lock_on_tap();
         camera::set_focus_camera_held(renderer.focus_camera_held());
         camera::game_camera_frame(rt);
-        if (const std::string why = camera::lock_on_take_note(); !why.empty()) ui::show_note(why);
         // The view's shape follows the picture's: the game builds its next
         // projection with the aspect ratio of the target it will draw into.
         camera::game_aspect_frame(rt, renderer.game_aspect());

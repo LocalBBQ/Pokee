@@ -545,6 +545,7 @@ void Menu::video() {
     if (toggle_row("Hold to gather", s.gather_hold,
             options_for("game.gather_hold",
                 "On: hold ○ on a gather point and it gathers again each time you can. "
+                "Letting go stops the next gather. Pressing ○ again and holding it continues. "
                 "Off: ○ gathers once per press. L+○ still uses the item bar."))) {
         s.gather_hold = !s.gather_hold;
         settings::save();

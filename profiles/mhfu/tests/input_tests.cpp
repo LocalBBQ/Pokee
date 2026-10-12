@@ -126,6 +126,9 @@ void test_presets() {
                     const Context ca = context_of(static_cast<Action>(a));
                     const Context cb = context_of(static_cast<Action>(b));
                     if (ca != cb && ca != Context::Anywhere && cb != Context::Anywhere) continue;
+                    // Lock on and Focus/Follow Camera share the trigger on purpose.
+                    if (static_cast<Action>(a) == Action::LockOn && static_cast<Action>(b) == Action::FocusCamera)
+                        continue;
                     for (const Chord &x : (*table)[a])
                         for (const Chord &y : (*table)[b])
                             if (!x.empty() && x == y) unique = false;
@@ -190,14 +193,16 @@ void test_presets() {
             slots_of(c, Action::Select)[0] == single(from_name("Right Shift")) &&
             slots_of(c, Action::Select)[1] == single(from_name("Backspace")),
         "the classic layout is the one earlier versions had");
-    // The pad as it was before presets: fixed buttons, the triggers L and R.
+    // LB is L. LT locks on and starts focus or follow. RT is still R.
     const Bindings &p = default_pad();
     check(slots_of(p, Action::Cross)[0] == single(pad(PadInput::South)) &&
             slots_of(p, Action::Circle)[0] == single(pad(PadInput::East)) &&
-            slots_of(p, Action::L)[1] == single(pad(PadInput::LeftTrigger)) &&
+            slots_of(p, Action::L)[0] == single(pad(PadInput::LeftShoulder)) && slots_of(p, Action::L)[1].empty() &&
+            slots_of(p, Action::LockOn)[0] == single(pad(PadInput::LeftTrigger)) &&
+            slots_of(p, Action::FocusCamera)[0] == single(pad(PadInput::LeftTrigger)) &&
             slots_of(p, Action::R)[1] == single(pad(PadInput::RightTrigger)) &&
             slots_of(p, Action::Select)[0] == single(pad(PadInput::Back)),
-        "the default pad is the fixed mapping of earlier versions");
+        "the default pad keeps LB as L and puts lock-on on LT");
     check(layout(Preset::LeftHanded).swap_sticks && !layout(Preset::Default).swap_sticks,
         "the left-handed preset moves with the right stick");
 }
@@ -211,8 +216,10 @@ void test_earlier_versions() {
     check(slots_of(bows.pad, Action::R)[1] == single(pad(PadInput::LeftTrigger)) &&
             slots_of(bows.pad, Action::Triangle)[1] == single(pad(PadInput::RightTrigger)) &&
             slots_of(bows.pad, Action::L)[1].empty() &&
-            slots_of(bows.pad, Action::R)[0] == single(pad(PadInput::RightShoulder)),
-        "bows: R on LT, △ on RT, the shoulders unchanged");
+            slots_of(bows.pad, Action::R)[0] == single(pad(PadInput::RightShoulder)) &&
+            slots_of(bows.pad, Action::LockOn)[0] == single(pad(PadInput::RightStick)) &&
+            slots_of(bows.pad, Action::FocusCamera)[0].empty(),
+        "bows: R on LT, △ on RT, the shoulders unchanged, lock-on back on R3");
     const Layout bowguns = layout_from_earlier(default_keys(), "bowguns");
     check(slots_of(bowguns.pad, Action::Circle)[1] == single(pad(PadInput::RightTrigger)) &&
             slots_of(bowguns.pad, Action::Triangle)[1].empty(),
@@ -365,10 +372,14 @@ void test_read() {
     held = {key(225), mouse_button(3)};
     check(read_held(b).buttons == (0x2000u | 0x0200u), "the other input's other binding still works");
 
-    // The pad of the Default preset.
+    // The pad of the Default preset. LT is lock-on, not L.
     const Bindings &p = default_pad();
     held = {pad(PadInput::South), pad(PadInput::LeftTrigger), pad(PadInput::DpadUp)};
-    check(read_held(p).buttons == (0x4000u | 0x0100u | 0x0010u), "pad buttons and triggers press their buttons");
+    state = read_held(p);
+    check(state.buttons == (0x4000u | 0x0010u) && state.lock_on && state.focus_camera,
+        "the face button and the D-pad press, and LT locks on and starts focus");
+    held = {pad(PadInput::LeftShoulder)};
+    check(read_held(p).buttons == 0x0100u && !read_held(p).lock_on, "LB presses L and does not lock on");
 
     Bindings focus{};
     focus[static_cast<std::size_t>(Action::FocusCamera)] = {single(from_name("F"))};

@@ -283,28 +283,76 @@ std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::option
     // L+○ scrolls the item bar. Leave it, and leave a gap that is already running.
     if ((buttons & kLead) != 0u) return buttons;
     const bool down = (buttons & kCircle) != 0u;
-    if (!down || !ready || !action) {
+    if (!ready || !action) {
         input_down_ = down;
+        down_reads_ = 0;
+        busy_reads_ = 0;
         phase_ = Phase::Idle;
         return buttons;
     }
+    if (!down) {
+        input_down_ = false;
+        down_reads_ = 0;
+        // Letting go during the gather remembers it only so a new hold can
+        // continue. ○ itself stays up: a gather is never started after release.
+        if (*action != free_action_ && (phase_ == Phase::Busy || phase_ == Phase::Released)) {
+            phase_ = Phase::Released;
+            return buttons;
+        }
+        busy_reads_ = 0;
+        phase_ = Phase::Idle;
+        return buttons;
+    }
+    // Pressed again while that gather is still playing. ○ stays up until the
+    // hunter is free. The next press happens only if ○ is still held then.
+    if (phase_ == Phase::Released && *action != free_action_) {
+        input_down_ = true;
+        phase_ = Phase::Busy;
+        return buttons & ~kCircle;
+    }
     // ○ was already down on the read before this point was in range, so
     // the game has no new press until ○ comes up and goes down again.
-    if (phase_ == Phase::Idle) {
+    if (phase_ == Phase::Idle || phase_ == Phase::Released) {
         free_action_ = *action;
         gap_ = 0;
+        down_reads_ = 0;
+        busy_reads_ = 0;
         phase_ = input_down_ ? Phase::Gap : Phase::Down;
     }
     input_down_ = true;
     if (phase_ == Phase::Down) {
-        if (*action == free_action_) return buttons;
-        phase_ = Phase::Busy;
-        return buttons & ~kCircle;
-    }
-    if (phase_ == Phase::Busy) {
-        if (*action != free_action_) return buttons & ~kCircle;
+        if (*action != free_action_) {
+            down_reads_ = 0;
+            busy_reads_ = 0;
+            phase_ = Phase::Busy;
+            return buttons & ~kCircle;
+        }
+        // Still the same action: the game did not take the press. Lift ○ and
+        // send it again, or the bit stays down and the hold ends.
+        if (down_reads_ < kGatherAccept) {
+            ++down_reads_;
+            return buttons;
+        }
+        down_reads_ = 0;
         phase_ = Phase::Gap;
         gap_ = 0;
+    }
+    if (phase_ == Phase::Busy) {
+        if (*action != free_action_) {
+            if (busy_reads_ < kGatherGiveUp) {
+                ++busy_reads_;
+                return buttons & ~kCircle;
+            }
+            // The gather did not come back to the action it started from.
+            free_action_ = *action;
+            busy_reads_ = 0;
+            phase_ = Phase::Gap;
+            gap_ = 0;
+        } else {
+            busy_reads_ = 0;
+            phase_ = Phase::Gap;
+            gap_ = 0;
+        }
     }
     if (*action != free_action_) {
         phase_ = Phase::Busy;
@@ -316,6 +364,7 @@ std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::option
     }
     phase_ = Phase::Down;
     free_action_ = *action;
+    down_reads_ = 1;
     if (trace_on()) std::cout << "[gather] hold" << std::endl;
     return buttons;
 }
@@ -330,7 +379,11 @@ std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &m
     std::optional<std::uint16_t> action;
     constexpr std::uint32_t kCircle = 0x2000u;
     constexpr std::uint32_t kLead = 0x0100u;
-    if ((buttons & kLead) == 0u && (buttons & kCircle) != 0u) {
+    // ○ up during a gather is still that gather. Dropping the action here
+    // made a later press look like a new hold on the animation itself, and
+    // the pulse never came back.
+    const bool pressed = (buttons & kLead) == 0u && (buttons & kCircle) != 0u;
+    if (pressed || repeat.underway()) {
         ready = gather_node(memory).has_value();
         if (ready) action = hunter_action(memory);
     }

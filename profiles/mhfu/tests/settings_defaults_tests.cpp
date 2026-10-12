@@ -259,9 +259,10 @@ void test_controls_from_main() {
     check(read.controls.keys[action(input::Action::ItemLeft)][0] == input::single(input::mouse_button(4)),
         "and the keyboard's item keys are added where free");
     check(
-        read.controls.pad[action(input::Action::LockOn)][0] == input::single(input::pad(input::PadInput::RightStick)) &&
+        read.controls.pad[action(input::Action::LockOn)][0] ==
+                input::single(input::pad(input::PadInput::LeftTrigger)) &&
             read.controls.keys[action(input::Action::LockOn)][0] == input::single(input::mouse_button(2)),
-        "lock-on takes R3 and the middle mouse button, which nothing else there has");
+        "lock-on takes LT and the middle mouse button, which the old file left free");
     for (std::size_t i = 0; i < input::kActions; ++i)
         for (const bool pad : {false, true})
             check(input::conflicts(input::table(read.controls, pad), i).size() ==

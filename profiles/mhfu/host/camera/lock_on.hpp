@@ -3,7 +3,6 @@
 #include <array>
 #include <cstdint>
 #include <optional>
-#include <string>
 #include <vector>
 
 namespace psprecomp {
@@ -172,6 +171,14 @@ inline constexpr float kInView = 60.0f; // degrees either side of where the came
 // A tap of the bind, from the flip.
 void lock_on_tap();
 
+// True when Lock on and Focus/Follow Camera are the same chord. That button
+// initiates both, and holding it is not a second focus press, so L stays the
+// game's camera.
+[[nodiscard]] bool lock_on_trigger_initiates_camera();
+// The shared button asked for a Focus turn instead of the next monster. The
+// camera update takes it once.
+[[nodiscard]] bool lock_on_take_focus_press();
+
 // What the follow camera's driver hands over on each update, and what it
 // gets back: the yaw to put the camera at, and the pitch (degrees, the eye
 // above the look-at point) when lock-on tilts it too.
@@ -282,12 +289,7 @@ void lock_on_note_view(const LockOnView &view, std::uint32_t vertices);
 [[nodiscard]] std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory);
 
 // Lets go, for tests and when the setting goes off. `why` goes to the log.
-// A note is shown except when the monster died or got too far away.
 void lock_on_release(const char *why);
 void lock_on_reset();
-
-// Why the last tap did nothing, once, for a note on screen: "" when there is
-// none to show.
-[[nodiscard]] std::string lock_on_take_note();
 
 } // namespace mhfu::camera
