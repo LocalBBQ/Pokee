@@ -2,6 +2,7 @@
 
 #include "camera/camera_input.hpp"
 #include "camera/lock_on.hpp"
+#include "input/bindings.hpp"
 #include "platform/utf8_path.hpp"
 #include "settings/settings.hpp"
 #include "psprecomp/runtime.hpp"
@@ -20,6 +21,16 @@
 namespace mhfu::camera {
 
 namespace {
+
+// Set each game flip from the Focus camera bind (input/bindings.hpp). Tests
+// set it directly. With the bind empty, the focus turn is L.
+bool focus_bind_held_now{};
+
+bool focus_camera_is_bound() {
+    const input::Layout &controls = settings::current().controls;
+    const auto slot = static_cast<std::size_t>(input::Action::FocusCamera);
+    return input::count(controls.keys[slot]) != 0u || input::count(controls.pad[slot]) != 0u;
+}
 // The mouse and a drag on a touch screen move the camera the same way,
 // aiming included: a pointer's motion rather than a held rate.
 Turn combine(const Turn &a, const Turn &b) {
@@ -59,6 +70,25 @@ constexpr std::uint32_t kYawTarget = 0x80u;
 constexpr std::uint32_t kYawCurrent = 0x82u;
 constexpr std::uint32_t kButtons = 0x84u;
 constexpr std::uint32_t kVerticalButtons = 0x86u;
+// 0x0888E494 returns non-zero, and the recenter at 0x08887508 runs, when this
+// bit is set on the halfword at camera +0x86 (0x0888E54C) and on the hunter's
+// button word at +1152 (0x0888E55C). It also returns 1 when 0x09A6EE48 does,
+// without reading the bit (0x0888E534): that helper returns 1 when the word
+// at hunter +1160 has L's bit, 0x100. The camera update copies the halfword
+// from the hunter list at +0xA72 onto the camera first (0x0888D054, stored at
+// 0x0888D05C). The recenter loads the hunter's facing at 0x088874F4 and stores
+// that plus half a turn. While Focus owns that L press, the port eases the
+// camera itself and puts the game's snap back, so L does not move the camera
+// and then get overridden. A non-negative gate at +0x91 steps toward the
+// facing (0x0888755C); that gate is held negative for the same update only.
+// 0x0200 is R in the pad sample. The game's recenter check reads it, and R is
+// also guard, aim and draw. Focus must not treat that press as its turn
+// unless Focus camera is bound to it. When that bind is R, the facing stands
+// in for the monster for the update and is put back afterwards.
+constexpr std::uint16_t kRecenterBit = 0x0200u;
+// L in the pad sample. With Focus camera unbound, a tap of this button is
+// the focus turn. A bind replaces it.
+constexpr std::uint16_t kFocusButton = 0x0100u;
 constexpr std::uint32_t kSnap = 0x8Eu;
 // L's recenter writes 20 here (0x08887510) and the same update counts it
 // down while it is not zero (0x08887F50). The eye is placed for that snap
@@ -157,7 +187,7 @@ constexpr float kMouseStockTurn = 0.5f;
 // Game code the driver depends on, read from ULUS-10391. If any word differs,
 // the executable is not the one these facts were read from, and the driver
 // stays out rather than write to places that may mean something else.
-constexpr std::array<CodeWord, 33> kSignature{{
+constexpr std::array<CodeWord, 38> kSignature{{
     {0x08886E50u, 0x27BDFE30u, "addiu sp,sp,-464: the camera update"},
     {0x08886EC8u, 0x26B400A0u, "addiu s4,s5,160: the camera is the parent object plus 0xA0"},
     {0x08887470u, 0x96850084u, "lhu a1,0x84(s4): the turn buttons"},
@@ -191,6 +221,13 @@ constexpr std::array<CodeWord, 33> kSignature{{
     {0x08887D0Cu, 0xC6820004u, "lwc1 f2,4(s4): the eye height the ease reads"},
     {0x08887D10u, 0x3C023E00u, "lui v0,0x3e00: one eighth, the eye-height ease"},
     {0x08887D24u, 0xE6800004u, "swc1 f0,4(s4): the eased eye height"},
+    // The camera update copies this halfword onto camera +0x86 before it tests
+    // L. Clearing the camera's copy is undone by that copy.
+    {0x08886F14u, 0x0E223401u, "jal 0x0888D004: copies the button halfwords onto the camera"},
+    {0x0888D054u, 0x96230A72u, "lhu v1,0xA72(s1): the recenter bit, on the hunter list"},
+    {0x0888D05Cu, 0xA6030086u, "sh v1,0x86(s0): written to the camera in the branch delay"},
+    {0x088874E4u, 0x0E223925u, "jal 0x0888E494: the recenter check"},
+    {0x0888E494u, 0x27BDFFF0u, "addiu sp,sp,-16: the recenter check"},
 }};
 
 struct State {
@@ -215,6 +252,22 @@ struct State {
     unsigned updates{};
     // L's recenter, which the game took and dropped in the same update.
     bool recenter_dropped{};
+    // L was down on the previous update. A hold is one tap; a second tap is a
+    // press after it has been released.
+    bool focus_held{};
+    // R is down, or it started the snap that is still set. That snap is not a
+    // focus press and not a camera command.
+    bool r_latch{};
+    // This hold already recentered behind the hunter. It does not aim at the
+    // monster again until L has been released.
+    bool yielded_this_hold{};
+    // The hunter's facing, replaced for this update when the focus bind is R,
+    // so the game's recenter looks at the monster, and put back afterwards.
+    bool facing_substituted{};
+    std::uint32_t saved_facing{};
+    // Focus owns this L press. The game's recenter still runs, and is put
+    // back: the port's ease is the only move. Not a second tap.
+    bool quiet_l{};
     bool aiming{};
     // The generated aim function, and the centred deflection to show it.
     RotationFunction aim_original{};
@@ -321,6 +374,8 @@ void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, const Tu
     if (state.updates % 30u == 0u) out.flush();
 }
 
+std::uint32_t followed_hunter(const psprecomp::GuestMemory &memory);
+
 void restore_preset(psprecomp::GuestMemory &memory) {
     if (!state.preset_patched) return;
     state.preset_patched = false;
@@ -348,25 +403,104 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
 
     const bool active = driving_allowed();
     // Taken even while this update is left to the game, so nothing built up
-    // is spent the moment the port drives again.
+    // is spent the moment the port drives again. The stick's held rate is
+    // noted first: in Follow it pauses tracking without dropping the monster.
+    const Rate stick_rate = rate(Source::Stick);
     const Turn turn = take();
     const auto buttons = memory.load16(address + kButtons);
     const auto vertical = memory.load16(address + kVerticalButtons);
     const bool snap = memory.load8(address + kSnap) != 0u;
     const bool dropped = std::exchange(state.recenter_dropped, false);
-    // Focus takes L's recenter while a monster is selected and turns toward
-    // it. The snap byte is cleared so this update does not also place the
-    // camera behind the hunter. With nothing selected, L is left to the game.
-    const bool focus_snap = (snap || dropped) && lock_on_allowed() &&
+    // A quick second L is the game's recenter behind the hunter. Leave its
+    // snap alone until that recenter finishes, then a later tap can focus.
+    if (lock_on_yielding_recenter() && !snap && memory.load8(address + kSnapCount) == 0u) lock_on_finish_yield();
+    // Focus camera unbound means L. A bind is that button instead, and L
+    // recenters behind the hunter again. While Focus owns an L press, the
+    // game's recenter is put back after the update and the port eases on its
+    // own. A second tap, after the button was released, is the game's recenter
+    // behind the hunter. With nothing selected, L is that recenter too.
+    // Follow never takes the press. When the focus bind is R, the facing
+    // stands in for the monster so the game's own snap aims there.
+    const auto hunter = followed_hunter(memory);
+    const auto hunter_buttons = hunter != 0u ? memory.load32(hunter + kHunterButtons) : 0u;
+    const bool l_down = (hunter_buttons & kFocusButton) != 0u;
+    const bool r_down = (hunter_buttons & kRecenterBit) != 0u;
+    const bool bound = focus_camera_is_bound();
+    const bool focus_down = bound ? focus_bind_held_now : l_down;
+    const bool focus_press = focus_down && !state.focus_held;
+    state.focus_held = focus_down;
+    // Follow uses this same bind as a toggle. A hold is one press. With the
+    // bind empty, L stays the game's recenter and does not toggle.
+    if (focus_press && bound && lock_on_allowed() &&
+        settings::current().lock_on_style == settings::LockOnStyle::Follow)
+        lock_on_toggle_follow();
+    // R shares the bit the game's recenter check reads. A snap it starts has
+    // to be ignored after the button is up as well, until that snap is gone,
+    // or the next update treats it as the focus button. The focus bind itself
+    // is that button even when it is R.
+    if (r_down && !focus_down) state.r_latch = true;
+    if (focus_press) state.r_latch = false;
+    if (state.r_latch && !r_down && !snap && memory.load8(address + kSnapCount) == 0u) state.r_latch = false;
+    if (!focus_down) state.yielded_this_hold = false;
+    const bool focus_selected = lock_on_allowed() &&
         settings::current().lock_on_style == settings::LockOnStyle::Focus && lock_on_status().locked;
-    if (focus_snap) memory.store8(address + kSnap, 0u);
+    const bool second_tap = focus_press && lock_on_focus_double_tap();
+    // Accept before the aim is chosen. A hold of that second tap must not
+    // start aiming at the monster once the behind-the-hunter snap has finished.
+    if (second_tap) {
+        lock_on_accept_double_tap();
+        state.yielded_this_hold = true;
+    }
+    // R beside L, with nothing bound to Focus camera, is not the turn.
+    const bool steal_recenter = focus_down && !(r_down && !bound) && focus_selected && !lock_on_yielding_recenter() &&
+        !second_tap && !state.yielded_this_hold;
+    // L is the game's recenter. While this press is the focus turn, that
+    // recenter is put back and the ease below is what the frame shows. R, when
+    // it is the focus bind, still recenters through the game, aimed below.
+    state.quiet_l = steal_recenter && l_down;
+    const bool game_will_recenter = r_down && !state.quiet_l;
+    if (!state.quiet_l && steal_recenter && game_will_recenter &&
+        memory.raw_pointer(hunter + kFacing, 4u) != nullptr &&
+        memory.raw_pointer(address + 0x18u, 4u) != nullptr) {
+        const Vec3 look_at{load_float(memory, address + 0x10u), load_float(memory, address + 0x14u),
+            load_float(memory, address + 0x18u)};
+        if (const std::optional<std::uint16_t> yaw = lock_on_focus_aim_yaw(memory, look_at)) {
+            const auto word = memory.load32(hunter + kFacing);
+            state.saved_facing = word;
+            state.facing_substituted = true;
+            // 0x08887500 adds half a turn to this word and stores the low 16
+            // bits as the target yaw. The value that survives that add is the
+            // direction of the monster.
+            memory.store32(hunter + kFacing, (word & 0xFFFF0000u) | static_cast<std::uint16_t>(*yaw - 0x8000u));
+        }
+    }
+    // The snap byte is cleared so a recenter already marked does not also
+    // place the camera behind the hunter. With a bind, a snap from L is the
+    // game's recenter, not this turn.
+    const bool snap_is_ours = snap && (bound ? focus_down : true);
+    const bool focus_snap = !lock_on_yielding_recenter() && !state.r_latch &&
+        (snap_is_ours || dropped || (focus_press && steal_recenter)) && lock_on_allowed() &&
+        settings::current().lock_on_style == settings::LockOnStyle::Focus && lock_on_status().locked;
+    // A snap byte left set by this same hold is the turn, not a second tap.
+    // A snap that appears while the focus button is up, inside the window, is
+    // the second tap the tests and the game mark with that byte.
+    if (focus_snap && lock_on_focus_double_tap() && !focus_down)
+        lock_on_accept_double_tap();
+    else if (focus_snap)
+        memory.store8(address + kSnap, 0u);
+    // One press starts the reticle's short life. The frames of a hold are the
+    // same press, and a snap byte while the button is up is the press the tests use.
+    if (focus_selected && (focus_press || (focus_snap && !focus_down))) lock_on_focus_reticle();
     // A non-negative gate is the behind-the-hunter placement. That update,
-    // a snap, and the D-pad's own turn and tilt stay the game's.
-    const bool behind = static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0;
+    // a snap, and the D-pad's own turn and tilt stay the game's. While the
+    // facing stands in for the monster, the game's placement is the turn.
+    // The gate is ignored for an L press Focus owns: it is held negative for
+    // the update, and the ease has to be written before that.
+    const bool behind = !state.quiet_l && static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0;
     const bool turn_command = (buttons & kTurnBits) != 0u;
     const bool vertical_command = (vertical & kVerticalBits) != 0u;
-    const bool game_snap = snap && !focus_snap;
-    const bool yielded = behind || game_snap || turn_command || vertical_command;
+    const bool game_snap = snap && !focus_snap && !state.r_latch;
+    const bool yielded = behind || game_snap || turn_command || vertical_command || state.facing_substituted;
 
     const auto preset = memory.load32(address + kPreset);
     const bool preset_ok = memory.raw_pointer(preset, 0x20u) != nullptr;
@@ -384,8 +518,9 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
         camera.look_at = {load_float(memory, address + 0x10u), load_float(memory, address + 0x14u),
             load_float(memory, address + 0x18u)};
         camera.manual_yaw = !yielded && turn.yaw_held ? turn.yaw_degrees : 0.0f;
+        camera.stick = !yielded && (stick_rate.yaw != 0.0f || stick_rate.pitch != 0.0f);
         camera.command = game_snap || turn_command || vertical_command;
-        camera.snap = focus_snap;
+        camera.snap = focus_snap && !lock_on_yielding_recenter();
         camera.pitch = state.pitch_owned ? state.pitch : stock_pitch;
         camera.player_pitch = (active && turn.pitch_held && !yielded) || (state.pitch_owned && !state.pitch_by_lock);
         lock = lock_on_update(memory, camera);
@@ -907,24 +1042,30 @@ void check_recenter(psprecomp::GuestMemory &memory, const RecenterWatch &watch) 
             memory.store16(watch.address + kYawTarget, watch.before);
         return;
     }
-    // The turn is already on its way. L wrote the target behind the hunter
-    // and the filter stepped the current yaw toward it, which meets the
-    // focus step and the camera stops. Put the pose back and drop the snap,
-    // so this press does not start another turn either.
-    if (lock_on_drives_camera()) {
+    // The press that just started the turn also opens the double-tap window,
+    // so that window is not this snap. Put the game's pose back. A held L,
+    // after the turn has arrived, would start another one if it were remembered.
+    if (lock_on_drives_camera() || state.quiet_l) {
         undo_recenter(memory, watch);
         return;
     }
-    const Vec3 look_at{load_float(memory, watch.address + 0x10u), load_float(memory, watch.address + 0x14u),
-        load_float(memory, watch.address + 0x18u)};
-    // On screen, L leaves the camera where it is. Off the picture, the same
-    // pose is put back and the next update turns from it: this frame never
-    // shows the jump behind the hunter.
+    // A second L within a third of a second of the focus tap. The game has
+    // placed the camera behind the hunter; leave that pose.
+    if (lock_on_focus_double_tap()) {
+        lock_on_accept_double_tap();
+        return;
+    }
+    if (lock_on_yielding_recenter()) return;
+    // Put the pose back so this frame never shows the jump behind the hunter.
+    // The next update eases toward the monster from the camera where it was,
+    // including when the monster is already on screen.
     undo_recenter(memory, watch);
-    if (!lock_on_monster_in_view(memory, watch.current, look_at)) state.recenter_dropped = true;
+    state.recenter_dropped = true;
 }
 
 void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    state.facing_substituted = false;
+    state.quiet_l = false;
     trace_modes(runtime.memory(), ctx);
     auto &memory = runtime.memory();
     const auto parent = ctx.gpr[4];
@@ -932,22 +1073,45 @@ void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
     const bool camera = parent >= 0x08800000u && memory.raw_pointer(address, 0x98u) != nullptr;
     const auto hunter = followed_hunter(memory);
     std::optional<RecenterWatch> watch;
+    std::uint8_t saved_gate = 0u;
+    bool restore_gate = false;
     if (hunter_aiming(memory, hunter)) {
         drive_aim(memory, hunter, camera ? address : 0u);
     } else if (camera) {
         drive_follow(memory, address);
-        watch = watch_recenter(memory, address, hunter);
+        // The facing stands in for the monster, so the game's recenter is the
+        // turn. Watching it would put that turn back. With Focus camera bound
+        // to something else, L is the game's recenter behind the hunter and
+        // must be left there. While Focus owns L, a non-negative gate would
+        // also step toward the hunter; hold it negative for this update only.
+        if (state.quiet_l && static_cast<std::int8_t>(memory.load8(address + kAim)) >= 0) {
+            saved_gate = memory.load8(address + kAim);
+            memory.store8(address + kAim, 0xFFu);
+            restore_gate = true;
+        }
+        const bool focus_elsewhere = focus_camera_is_bound() && !focus_bind_held_now;
+        if (!state.facing_substituted && !focus_elsewhere) watch = watch_recenter(memory, address, hunter);
     } else if (state.aiming) {
         release();
     }
     // Continue the original update with the same CPU context and return PC.
     // Do not invoke an isolated guest call: normal scheduling must be retained.
     state.original(runtime, ctx);
+    if (restore_gate) memory.store8(address + kAim, saved_gate);
     if (watch) check_recenter(memory, *watch);
     restore_preset(memory);
+    if (state.facing_substituted) {
+        state.facing_substituted = false;
+        if (hunter != 0u && memory.raw_pointer(hunter + kFacing, 4u) != nullptr)
+            memory.store32(hunter + kFacing, state.saved_facing);
+    }
 }
 
 } // namespace
+
+void set_focus_camera_held(bool held) {
+    focus_bind_held_now = held;
+}
 
 std::span<const CodeWord> game_code_signature() {
     return kSignature;

@@ -691,15 +691,16 @@ void write_combos(const std::vector<input::Combo> &combos, const std::string &pr
     }
 }
 
-// Actions added since a layout was written (the item bar's, #198, and
-// lock-on, #163), which the file has no key for, take what the shipped preset `from` has for them,
-// each chord only if it clashes with nothing the layout has: settings from
-// before keep every binding they had. Other missing keys are left as they
-// always were.
+// Actions added since a layout was written (the item bar's, #198, lock-on,
+// #163, and Focus camera), which the file has no key for, take what the
+// shipped preset `from` has for them, each chord only if it clashes with
+// nothing the layout has: settings from before keep every binding they had.
+// Other missing keys are left as they always were. Focus camera's preset is
+// empty, so an older file keeps L as that button.
 void fill_new_actions(
     input::Layout &layout, const input::Layout &from, const std::function<bool(std::size_t, bool)> &written) {
     static constexpr input::Action kAdded[] = {
-        input::Action::ItemLeft, input::Action::ItemRight, input::Action::LockOn};
+        input::Action::ItemLeft, input::Action::ItemRight, input::Action::LockOn, input::Action::FocusCamera};
     for (const bool pad : {false, true}) {
         input::Bindings &table = pad ? layout.pad : layout.keys;
         const input::Bindings &defaults = pad ? from.pad : from.keys;

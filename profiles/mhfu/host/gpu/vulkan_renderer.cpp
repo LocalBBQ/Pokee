@@ -17,6 +17,7 @@
 #include "vertex_budget.hpp"
 #include "vertex_hold.hpp"
 
+#include "camera/game_camera.hpp"
 #include "camera/lock_on.hpp"
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
@@ -1047,6 +1048,9 @@ struct VulkanRenderer::Impl {
     input::TapDetector lock_on_pad_tap;
     bool lock_on_pressed{};
     void sample_lock_on(bool focused);
+    // Focus camera (camera/game_camera.hpp): held while its bind is down.
+    // Empty means L, and this stays false.
+    bool focus_camera_held{};
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
     // The bindings matched over time (input/chords.hpp), one resolver for
@@ -6003,6 +6007,7 @@ void VulkanRenderer::Impl::sample_host_binds(bool focused) {
     (void)focused;
     input::PadState pressed = typed;
     if (gamepad != nullptr) pressed.screenshot = pressed.screenshot || mapped.screenshot;
+    focus_camera_held = game_input && (typed.focus_camera || (gamepad != nullptr && mapped.focus_camera));
     // Nothing while a menu or the on-screen keyboard has the input; a press
     // counts when it goes down, so one held as the menu closes does not.
     if (pressed.screenshot && !screenshot_held && game_input) screenshot_request = true;
@@ -6080,6 +6085,10 @@ void VulkanRenderer::Impl::sample_lock_on(bool focused) {
 
 bool VulkanRenderer::take_lock_on_press() noexcept {
     return impl_ && std::exchange(impl_->lock_on_pressed, false);
+}
+
+bool VulkanRenderer::focus_camera_held() const noexcept {
+    return impl_ && impl_->focus_camera_held;
 }
 
 bool VulkanRenderer::take_hide_hud_toggle() noexcept {
@@ -7709,7 +7718,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                         std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << ","
                                   << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")\n";
                 }
-                if (!moved || !hud_scale::is_map_sprite(bounds_of(unscaled, first))) continue;
+                if (!moved || !hud_scale::is_drawn_map(bounds_of(unscaled, first), hud_texture)) continue;
                 const hud_scale::Rect scaled = bounds_of(corner_scaled, first);
                 if (!map_resized) {
                     map_bounds = scaled;

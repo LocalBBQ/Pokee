@@ -427,7 +427,7 @@ void Menu::video() {
                 &settings::Settings::InterfaceScale::map},
             {"Status", "video.hud.health",
                 "The quest clock, the name under it, health and stamina, the eye shown when a monster is found, "
-                "sharpness, the long sword's spirit gauge, "
+                "the status icons beside that name, sharpness, the long sword's spirit gauge, "
                 "a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a hunting horn's notes, from the "
                 "clock's corner so they stay together. "
                 "100% is the size the game draws.",
@@ -493,11 +493,23 @@ void Menu::video() {
         }
         const char *const styles[] = {"Follow", "Focus"};
         const int style = s.lock_on_style == settings::LockOnStyle::Focus ? 1 : 0;
-        RowOptions o = options_for("input.lock_on_style",
-            "Follow keeps the camera on the selected monster. Turning it by hand, the D-pad, or L lets go, and L "
-            "recenters behind the hunter. Focus keeps the selection, and a tap of L turns the camera to that "
-            "monster instead of behind the hunter. A tap while that turn is still moving does not stop it. "
-            "With nothing selected, L recenters behind the hunter.");
+        const auto focus = static_cast<std::size_t>(input::Action::FocusCamera);
+        std::string focus_bind = input::format(s.controls.keys[focus]);
+        const std::string focus_pad = input::format(s.controls.pad[focus]);
+        if (!focus_pad.empty()) focus_bind += (focus_bind.empty() ? "" : " / ") + focus_pad;
+        const std::string focus_button = focus_bind.empty() ? std::string("L") : focus_bind;
+        const std::string style_help =
+            "Follow keeps the camera on the selected monster. " +
+            (focus_bind.empty() ? std::string("Focus/Follow Camera, once bound,") : focus_button) +
+            " turns that tracking off and on again; the selection stays. "
+            "Turning it by hand, the D-pad, or L lets go, and L "
+            "recenters behind the hunter. Focus keeps the selection, and a tap of " +
+            focus_button +
+            " centers the camera on that monster, even when it is already on screen, and L's own camera move stays "
+            "off for that tap. A second tap within a third of a second recenters behind the hunter; the selection stays. A "
+            "later tap centers again. With nothing selected, L recenters behind the hunter. Focus/Follow Camera in Controls "
+            "chooses that tap; with nothing bound, it is L.";
+        RowOptions o = options_for("input.lock_on_style", std::move(style_help));
         if (!s.lock_on && !o.disabled) {
             o.disabled = true;
             o.note = "Lock-on is off";
@@ -508,8 +520,10 @@ void Menu::video() {
             settings::save();
         }
         o = options_for("input.lock_on_marker",
-            "The bowgun's reticle over the monster the camera is locked onto. In Focus it shows only while L's "
-            "turn is on its way.");
+            "A red ring, a cross through it, and four ticks, over the monster the camera is locked onto. "
+            "Follow keeps it up while the camera is tracking. The right stick or Focus/Follow Camera turns it off "
+            "with that tracking; the selection stays, and the same button turns both back on. In Focus it expires a "
+            "second after the selection, and again for that long after the focus button.");
         if (!s.lock_on && !o.disabled) {
             o.disabled = true;
             o.note = "Lock-on is off";
@@ -526,7 +540,7 @@ void Menu::video() {
             o.disabled = true;
             o.note = "Lock-on is off";
         }
-        if (slider_row("Hunt portrait", portrait, static_cast<int>(settings::kMinHuntPortraitSize),
+        if (slider_row("Monster Icon", portrait, static_cast<int>(settings::kMinHuntPortraitSize),
                 static_cast<int>(settings::kMaxHuntPortraitSize), 10, "%d%%", o)) {
             s.hunt_portrait_size = static_cast<std::uint32_t>(portrait);
             settings::save();
@@ -2118,16 +2132,26 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
         const float v0 = static_cast<float>(cell->v) / static_cast<float>(sheet.height);
         const float u1 = static_cast<float>(cell->u + camera::kHuntIconTexels) / static_cast<float>(sheet.width);
         const float v1 = static_cast<float>(cell->v + camera::kHuntIconTexels) / static_cast<float>(sheet.height);
-        const ImU32 tint = portrait.other_area ? IM_COL32(80, 80, 80, 255) : IM_COL32(255, 255, 255, 255);
+        const ImU32 tint = portrait.other_area || portrait.dead ? IM_COL32(80, 80, 80, 255)
+                                                                : IM_COL32(255, 255, 255, 255);
         draw->AddImage(icons.texture->GetTexRef(), screen(icon_x, icon_y), screen(icon_x + side, icon_y + side),
             {u0, v0}, {u1, v1}, tint);
         const float portrait_scale = side / camera::kHuntCardHeight;
-        if (portrait.other_area) {
+        if (portrait.other_area && !portrait.dead) {
             const char *label = "Diff. Area";
-            const float label_size = 7.0f * pixel * portrait_scale;
-            const ImVec2 label_extent = font->CalcTextSizeA(label_size, FLT_MAX, 0.0f, label);
-            const ImVec2 label_at = screen(icon_x + side * 0.5f, icon_y + side - 1.0f);
-            draw->AddText(font, label_size, {label_at.x - label_extent.x * 0.5f, label_at.y - label_extent.y},
+            const ImVec2 icon_min = screen(icon_x, icon_y);
+            const ImVec2 icon_max = screen(icon_x + side, icon_y + side);
+            const float span = std::max(1.0f, icon_max.x - icon_min.x);
+            // Inset from the icon's edges. Monster Icon changes the icon, and
+            // the type shrinks with it, then again so it stays inside that inset.
+            const float box = std::max(1.0f, span * 0.72f);
+            float label_size = 6.0f * pixel * portrait_scale;
+            ImVec2 label_extent = font->CalcTextSizeA(label_size, FLT_MAX, 0.0f, label);
+            if (label_extent.x > box) label_size *= box / label_extent.x;
+            label_extent = font->CalcTextSizeA(label_size, FLT_MAX, 0.0f, label);
+            const float pad_y = (icon_max.y - icon_min.y) * 0.08f;
+            draw->AddText(font, label_size,
+                {icon_min.x + (span - label_extent.x) * 0.5f, icon_max.y - pad_y - label_extent.y},
                 IM_COL32(220, 220, 220, 235), label);
         }
         if (!portrait.locked) continue;
@@ -2155,10 +2179,9 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
     }
 }
 
-// Lock-on's marker (camera/lock_on.hpp): the bowgun's aim reticle over the
-// locked monster. A circle and four ticks outside it, in the game's pixels,
-// drawn smaller than the aim reticle so it marks the body without covering
-// it. Drawn by the interface and never into the game's frames.
+// Lock-on's marker (camera/lock_on.hpp): a red ring, a cross through it, and
+// four ticks outside it, in the game's pixels, over the locked monster.
+// Drawn by the interface and never into the game's frames.
 void draw_lock_on_marker(const std::array<float, 2> &at) {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
@@ -2166,6 +2189,7 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
         (picture[0] + at[0] * picture[2]) * io.DisplaySize.x, (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
     const float pixel = picture[3] * io.DisplaySize.y / 272.0f;
     const float radius = 3.5f * pixel;
+    const float arm = radius * 1.25f;
     const float tick_near = 4.5f * pixel;
     const float tick_far = 7.0f * pixel;
     ImDrawList *draw = ImGui::GetForegroundDrawList();
@@ -2173,6 +2197,8 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
     const ImU32 ink = IM_COL32(220, 32, 28, 235);
     for (const auto &[colour, width] : {std::pair{shadow, 1.5f * pixel}, std::pair{ink, 1.0f * pixel}}) {
         draw->AddCircle(centre, radius, colour, 24, width);
+        draw->AddLine({centre.x - arm, centre.y}, {centre.x + arm, centre.y}, colour, width);
+        draw->AddLine({centre.x, centre.y - arm}, {centre.x, centre.y + arm}, colour, width);
         for (int i = 0; i < 4; ++i) {
             const float dx = i == 0 ? 1.0f : i == 1 ? -1.0f : 0.0f;
             const float dy = i == 2 ? 1.0f : i == 3 ? -1.0f : 0.0f;

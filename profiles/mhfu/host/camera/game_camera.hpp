@@ -111,4 +111,8 @@ struct CameraPose {
 // that wrapper only records where the camera structure is.
 void game_camera_want_pose(bool wanted);
 
+// Whether Focus camera (input/bindings.hpp) is held this frame. With nothing
+// bound to it, the focus turn stays on L and this is ignored.
+void set_focus_camera_held(bool held);
+
 } // namespace mhfu::camera

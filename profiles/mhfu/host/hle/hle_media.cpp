@@ -321,6 +321,7 @@ void present_frame(Runtime &rt) {
         // A tap of Lock on (camera/lock_on.hpp) waits for the next update
         // of the follow camera, which game_camera_frame makes sure to drive.
         if (renderer.take_lock_on_press()) camera::lock_on_tap();
+        camera::set_focus_camera_held(renderer.focus_camera_held());
         camera::game_camera_frame(rt);
         if (const std::string why = camera::lock_on_take_note(); !why.empty()) ui::show_note(why);
         // The view's shape follows the picture's: the game builds its next

@@ -62,6 +62,10 @@ enum class Action : std::uint8_t {
     // Not a PSP control: locks the camera onto a large monster and lets it
     // go again (camera/lock_on.hpp).
     LockOn,
+    // Not a PSP control. Shown as Focus/Follow Camera. In Focus, a tap centers
+    // the camera on the locked monster (camera/game_camera.cpp). In Follow it
+    // turns tracking off and on. With nothing bound, L does the Focus tap.
+    FocusCamera,
     Count
 };
 inline constexpr std::size_t kActions = static_cast<std::size_t>(Action::Count);
@@ -330,7 +334,8 @@ struct PadState {
     bool fast_forward{}; // the fast-forward bind is held
     bool screenshot{}; // the screenshot bind is held
     bool hide_hud{};   // the hide-HUD bind is held
-    bool lock_on{};      // the lock-on bind is held
+    bool lock_on{};        // the lock-on bind is held
+    bool focus_camera{};   // the Focus camera bind is held
 };
 // At once, with no memory of what came before (Resolver has it): among the
 // held inputs, the longest bound chord wins and its inputs do nothing else;

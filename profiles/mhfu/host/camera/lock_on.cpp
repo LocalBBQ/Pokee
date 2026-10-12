@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -65,15 +66,27 @@ constexpr unsigned kTapFrames = 6u;
 // A tap as a zone finishes loading finds nothing: the monster is inserted a
 // moment later. The tap keeps looking for this many follow-camera updates.
 constexpr unsigned kSeekUpdates = 90u;
-// A Focus turn takes a larger share of the rest, closes the last
+// A Focus tap takes a larger share of the rest, closes the last
 // kFocusArrival units at once, and gives up after kFocusUpdates (one
-// second) if the monster keeps the rest above that by moving.
+// second) if the monster keeps the rest above that by moving. Off the
+// picture the step is at most kFocusSweep; inside it, kLargestStep, so a
+// monster already on screen is centered rather than jumped to.
 constexpr float kFocusShare = 0.3f;
 constexpr int kFocusArrival = 364; // 2 degrees
+constexpr int kFocusSweep = 4096;  // 22.5 degrees
 constexpr unsigned kFocusUpdates = 30u;
+// How far a Focus tap tilts toward the monster's elevation. The result is
+// the camera's own pitch limits, not a band around the angle L was pressed at.
+constexpr float kFocusPitchFollow = 0.85f;
+// A second L within this many camera updates (a third of a second) of the
+// tap that started the turn is the game's recenter behind the hunter.
+constexpr unsigned kDoubleTap = 10u;
+// Focus shows the reticle on a selection, and again when the focus button is
+// pressed. Either lasts this many camera updates, a third of a second, and
+// then it goes. The selection stays.
+constexpr unsigned kMarkerLife = 10u;
 // The picture's half width, from the projection's vertical field of view
-// (camera/game_aspect.cpp) at the game's 480 by 272. While the monster is
-// already inside it, Focus leaves the camera where it is.
+// (camera/game_aspect.cpp) at the game's 480 by 272.
 constexpr float kVerticalFov = 0.872222f;
 constexpr float kPictureAspect = 480.0f / 272.0f;
 
@@ -83,8 +96,16 @@ struct State {
     bool seeking{};
     unsigned seek_left{};
     bool locked{};
+    // Follow: tracking is off, and the reticle with it. The selection stays.
+    // Focus/Follow Camera turns both on again. The right stick only turns them off.
+    bool follow_paused{};
     bool focusing{}; // Focus: L's turn is in progress; the selection stays after
     unsigned focus_left{};
+    unsigned double_tap_left{}; // updates left in which a second L recenters behind
+    bool yielding{};            // that second L: the game's recenter owns the camera
+    bool reconciled{}; // Focus: L's turn has landed
+    unsigned marker_left{}; // Focus: updates left before the reticle expires
+    bool marker_expired{};
     std::uint32_t target{};
     std::vector<std::uint32_t> visited;
     float manual{};
@@ -114,16 +135,31 @@ Vec3 load_vec(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     return {load_float(memory, address), load_float(memory, address + 4u), load_float(memory, address + 8u)};
 }
 
+bool focus_style();
+
 bool finite(const Vec3 &v) {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
 
-// A large monster in another area stays on the quest list, health and all.
-// Traced with MHFU_TRACE_LOCK_ON: its position is held at y 1000 exactly
-// (8095.14, 1000, 5898.45, then 9632.91, 1000, 5143.63) and does not move,
-// while in the hunter's area it stands on the ground (y 284, or 0).
-bool held_in_another_area(const Vec3 &position) {
-    return position.y == 1000.0f;
+float horizontal(const Vec3 &from, const Vec3 &to) {
+    return std::hypot(to.x - from.x, to.z - from.z);
+}
+
+// The stage the quest has loaded, or nothing when GameSys is not up yet.
+std::optional<std::uint16_t> loaded_stage(const psprecomp::GuestMemory &memory) {
+    if (memory.raw_pointer(kGameSysPointer, 4u) == nullptr) return std::nullopt;
+    const std::uint32_t sys = memory.load32(kGameSysPointer);
+    if (sys < 0x08800000u || memory.raw_pointer(sys + kGameSysStage, 2u) == nullptr) return std::nullopt;
+    return memory.load16(sys + kGameSysStage);
+}
+
+// Another zone is the object's stage id not matching the loaded stage, the
+// same compare 0x08813630 makes. Where it stands does not count. With no
+// loaded stage the zone is unknown, so the monster stays selectable.
+bool in_another_zone(const psprecomp::GuestMemory &memory, std::uint32_t entity) {
+    const std::optional<std::uint16_t> loaded = loaded_stage(memory);
+    if (!loaded) return false;
+    return memory.load16(entity + kStageId) != *loaded;
 }
 
 bool on_quest(const psprecomp::GuestMemory &memory) {
@@ -137,10 +173,6 @@ bool on_quest(const psprecomp::GuestMemory &memory) {
     return memory.load8(kTaskSlot + 32u + static_cast<std::uint32_t>(kQuestOverlay.size())) == 0u;
 }
 
-float horizontal(const Vec3 &from, const Vec3 &to) {
-    return std::hypot(to.x - from.x, to.z - from.z);
-}
-
 const LockMonster *find(const std::vector<LockMonster> &monsters, std::uint32_t address) {
     for (const LockMonster &m : monsters)
         if (m.address == address) return &m;
@@ -149,7 +181,11 @@ const LockMonster *find(const std::vector<LockMonster> &monsters, std::uint32_t 
 
 void lock(std::uint32_t target, const char *how) {
     state.locked = true;
+    state.follow_paused = false;
     state.target = target;
+    state.reconciled = false;
+    state.marker_expired = false;
+    state.marker_left = focus_style() ? kMarkerLife : 0u;
     state.manual = 0.0f;
     state.turning = 0;
     state.visited.push_back(target);
@@ -181,11 +217,12 @@ struct Candidate {
     LockMonster monster;
     bool marked{};
     bool other_area{};
+    bool dead{};
     std::uint8_t id{};
 };
 
-// Large monsters on the quest list, including one whose position is held in
-// another area. When `trace` is set, the walk is printed and the flag cleared,
+// Large monsters on the quest list, including one in another zone. When
+// `trace` is set, the walk is printed and the flag cleared,
 // and only once the list can actually be read.
 std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bool *trace_flag) {
     std::vector<Candidate> found;
@@ -216,10 +253,11 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
         if (seen_entity) continue;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
-        if (most <= 0 || health <= 0) continue; // a companion, not spawned yet, or dead
+        if (most <= 0) continue; // a companion, or not a monster with a health pool
+        const bool dead = health <= 0;
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
-        const bool other_area = held_in_another_area(position);
+        const bool other_area = in_another_zone(memory, at);
         const std::uint32_t vtable = memory.load32(at + kVtable);
         const bool em = em_method(memory, vtable);
         const bool marked = em || marked_large(class_id);
@@ -232,15 +270,15 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
                       << " method 0x" << method << std::dec << " em " << (em ? 1 : 0) << " id "
                       << static_cast<unsigned>(memory.load8(at + kMonsterId)) << " health " << health << "/" << most
                       << " at " << position.x << "," << position.y << "," << position.z
-                      << (other_area ? " other-area" : "") << std::endl;
+                      << (other_area ? " other-area" : "") << (dead ? " dead" : "") << std::endl;
         }
-        found.push_back({LockMonster{at, 0u, position}, marked, other_area, memory.load8(at + kMonsterId)});
+        found.push_back({LockMonster{at, 0u, position}, marked, other_area, dead, memory.load8(at + kMonsterId)});
     }
     if (trace) {
         bool any_marked = false;
         unsigned lockable = 0;
         for (const Candidate &candidate : found) {
-            if (candidate.other_area) continue;
+            if (candidate.other_area || candidate.dead) continue;
             ++lockable;
             if (candidate.marked) any_marked = true;
         }
@@ -250,14 +288,15 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
     return found;
 }
 
-// `present` keeps a monster held in another area. The marked-large preference
-// then sees that monster, so a small one does not take its place on the card.
-// Lock-on drops the held monster first, and only then applies that preference,
-// which is how a tap behaves when every large monster is in another area.
+// `present` keeps a monster in another zone, and a dead one, for the
+// icon. The marked-large preference then sees that monster, so a small one
+// does not take its place. Lock-on drops the held monster and the dead one
+// first, and only then applies that preference, which is how a tap behaves
+// when every large monster is elsewhere or dead.
 std::vector<Candidate> select_monsters(const std::vector<Candidate> &found, bool present) {
     std::vector<Candidate> usable;
     for (const Candidate &candidate : found)
-        if (present || !candidate.other_area) usable.push_back(candidate);
+        if (present || (!candidate.other_area && !candidate.dead)) usable.push_back(candidate);
     bool any_marked = false;
     for (const Candidate &candidate : usable)
         if (candidate.marked) any_marked = true;
@@ -281,14 +320,28 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
 std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory) {
     std::vector<HuntMonster> out;
     for (const Candidate &candidate : select_monsters(collect_monsters(memory, nullptr), true))
-        out.push_back(HuntMonster{candidate.monster.address, candidate.id, candidate.other_area});
+        out.push_back(HuntMonster{candidate.monster.address, candidate.id, candidate.other_area, candidate.dead});
     return out;
 }
 
+namespace {
+
+const char *why_target_left(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    for (const HuntMonster &monster : hunt_monsters(memory)) {
+        if (monster.address != address) continue;
+        if (monster.dead) return "Lock-on: the monster is dead";
+        if (monster.other_area) return "Lock-on: the monster is in another area";
+    }
+    return "Lock-on: the monster is gone";
+}
+
+} // namespace
+
 std::vector<HuntPortrait> place_hunt_portraits(
     const std::vector<HuntMonster> &monsters, std::uint32_t locked_target, bool locked) {
-    // Bottom left of the 480×272 picture, in a row. This area first. The
-    // player's size is a percent of the usual card.
+    // Bottom left of the 480×272 picture, in the quest list's order. A monster
+    // leaving the area, or dying, keeps its place. The player's size is a
+    // percent of the usual icon.
     const float scale = static_cast<float>(std::clamp(settings::current().hunt_portrait_size,
                             settings::kMinHuntPortraitSize, settings::kMaxHuntPortraitSize)) /
         100.0f;
@@ -296,17 +349,14 @@ std::vector<HuntPortrait> place_hunt_portraits(
     const float kHeight = kHuntCardHeight * scale;
     constexpr float kMargin = 6.0f;
     const float kGap = 4.0f * scale;
-    std::vector<HuntMonster> ordered = monsters;
-    std::stable_partition(
-        ordered.begin(), ordered.end(), [](const HuntMonster &monster) { return !monster.other_area; });
     std::vector<HuntPortrait> out;
-    for (std::size_t i = 0; i < ordered.size(); ++i) {
+    for (std::size_t i = 0; i < monsters.size(); ++i) {
         const float x = kMargin + static_cast<float>(i) * (kWidth + kGap);
         if (x + kWidth > 480.0f - kMargin) break;
-        const HuntMonster &monster = ordered[i];
-        out.push_back(HuntPortrait{monster.id, monster.other_area,
-            locked && !monster.other_area && monster.address == locked_target, x, 272.0f - kMargin - kHeight, kWidth,
-            kHeight});
+        const HuntMonster &monster = monsters[i];
+        out.push_back(HuntPortrait{monster.id, monster.other_area, monster.dead,
+            locked && !monster.other_area && !monster.dead && monster.address == locked_target, x,
+            272.0f - kMargin - kHeight, kWidth, kHeight});
     }
     return out;
 }
@@ -469,15 +519,15 @@ void lock_on_tap() {
 std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera) {
     ++state.updates;
     const bool focus = focus_style();
-    // Only the L that starts a turn. Another L while the camera is already
-    // moving toward the monster must not look like a new turn: that check
-    // below leaves the camera where it is once the monster is in the picture,
-    // which would stop the turn halfway.
-    bool starting_turn = false;
-    if (focus && camera.snap && state.locked && !state.focusing) {
-        starting_turn = true;
+    if (state.double_tap_left > 0u) --state.double_tap_left;
+    // Only the L that starts a turn. A second one inside the double-tap
+    // window is claimed before this runs, and left to the game. One after
+    // that window, while the turn is still moving, must not restart it.
+    if (focus && camera.snap && state.locked && !state.focusing && !state.yielding) {
         state.focusing = true;
         state.focus_left = kFocusUpdates;
+        state.double_tap_left = kDoubleTap;
+        state.reconciled = false;
         state.turning = 0;
         state.manual = 0.0f;
         state.pitch_known = true;
@@ -519,16 +569,33 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     }
     const LockMonster *target = find(monsters, state.target);
     if (target == nullptr) {
-        lock_on_release("Lock-on: the monster is gone");
+        lock_on_release(why_target_left(memory, state.target));
         return std::nullopt;
     }
     if (horizontal(camera.look_at, target->position) > kFarthest) {
         lock_on_release("Lock-on: the monster is too far");
         return std::nullopt;
     }
+    // The right stick pauses Follow and takes the reticle with it. The monster
+    // stays selected, portrait included. The Focus/Follow Camera button turns
+    // tracking, and the reticle, on again. Another push does not.
+    if (!focus && camera.stick) {
+        if (!state.follow_paused) {
+            state.follow_paused = true;
+            state.manual = 0.0f;
+            state.turning = 0;
+            std::cout << "[lockon] follow off" << std::endl;
+        }
+        return std::nullopt;
+    }
+    // Follow, with tracking turned off. The selection stays, and turning the
+    // camera by hand does not let go: that is how the player looks around
+    // until the Focus/Follow Camera button turns tracking on again.
+    if (!focus && state.follow_paused) return std::nullopt;
     // Focus holds the selection without turning. A stick nudge then is the
-    // player's camera, not a reason to drop the monster.
-    if (focus && !state.focusing) return std::nullopt;
+    // player's camera, not a reason to drop the monster. So is the game's
+    // recenter after a quick second L.
+    if (focus && (!state.focusing || state.yielding)) return std::nullopt;
     // The player takes the camera back: a camera command of the game's, or
     // turning it by hand. Focus keeps the selection and only stops the turn.
     state.manual = state.manual * kManualFade + std::fabs(camera.manual_yaw);
@@ -542,20 +609,20 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     }
     const Vec3 aim{target->position.x, target->position.y + kAimHeight, target->position.z};
     const std::uint16_t wanted = yaw_towards(camera.look_at, aim);
-    // Already in the picture: do not move. A step written onto both yaw
-    // fields, or a tilt written onto the eye, is a jump.
-    if (starting_turn && std::abs(yaw_difference(camera.yaw, wanted)) <= screen_half_yaw()) {
-        state.focusing = false;
-        return LockOnAim{camera.yaw, std::nullopt};
-    }
     // Follow holds the yaw while the monster is on top of the hunter, where
     // its direction jumps from one update to the next. A Focus turn is one
-    // the player asked for and ends on arrival, so it turns at any distance.
+    // the player asked for and ends on arrival, so it turns at any distance,
+    // including when the monster is already on screen.
     const float near = focus ? 1.0f : (horizontal(camera.look_at, aim) - kNear) / kNearBlend;
-    LockOnAim out{lock_on_ease_yaw(camera.yaw, wanted, near, state.turning, focus ? kFocusShare : kYawShare),
+    const int sweep = std::abs(yaw_difference(camera.yaw, wanted)) > screen_half_yaw() ? kFocusSweep : kLargestStep;
+    LockOnAim out{lock_on_ease_yaw(camera.yaw, wanted, near, state.turning, focus ? kFocusShare : kYawShare,
+                     focus ? sweep : kLargestStep),
         std::nullopt};
     const bool arrived = focus && std::abs(yaw_difference(out.yaw, wanted)) <= kFocusArrival;
-    if (arrived) out.yaw = wanted;
+    if (arrived) {
+        out.yaw = wanted;
+        state.reconciled = true;
+    }
     const int step = yaw_difference(camera.yaw, out.yaw);
     state.turning = step > 0 ? 1 : (step < 0 ? -1 : 0);
     if (focus && state.focus_left > 0u) --state.focus_left;
@@ -563,9 +630,14 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     if (!camera.player_pitch && state.pitch_known) {
         const float distance = std::max(horizontal(camera.look_at, aim), 1.0f);
         const float elevation = std::atan2(aim.y - camera.look_at.y, distance) * kDegrees;
-        const float goal = std::clamp(
-            state.base_pitch - elevation * kPitchFollow, state.base_pitch - kPitchDown, state.base_pitch + kPitchUp);
-        state.pitch += (std::clamp(goal, kPitchLowest, kPitchHighest) - state.pitch) * kPitchShare;
+        // Follow stays near the angle the lock began at. A Focus tap looks
+        // toward the monster, the way MH4U's target cam adjusts for height.
+        const float goal = focus ? std::clamp(-elevation * kFocusPitchFollow, kPitchLowest, kPitchHighest)
+                                 : std::clamp(std::clamp(state.base_pitch - elevation * kPitchFollow,
+                                                   state.base_pitch - kPitchDown, state.base_pitch + kPitchUp),
+                                       kPitchLowest, kPitchHighest);
+        state.pitch += (goal - state.pitch) * (focus ? kFocusShare : kPitchShare);
+        if (arrived) state.pitch = goal;
         out.pitch = state.pitch;
     } else {
         state.pitch_known = false;
@@ -601,9 +673,11 @@ void lock_on_frame(const psprecomp::GuestMemory &memory) {
             std::cout << "[lockon] tap with no follow camera to turn" << std::endl;
         }
     }
+    if (focus_style() && state.marker_left > 0u && --state.marker_left == 0u) state.marker_expired = true;
     if (!state.locked) return;
     const std::vector<LockMonster> monsters = lock_on_monsters(memory);
-    if (find(monsters, state.target) == nullptr) lock_on_release("Lock-on: the monster is gone");
+    if (find(monsters, state.target) == nullptr)
+        lock_on_release(why_target_left(memory, state.target));
 }
 
 bool lock_on_wanted() {
@@ -614,12 +688,62 @@ LockOnStatus lock_on_status() {
     return {state.locked, state.locked ? state.target : 0u};
 }
 
+bool lock_on_focus_double_tap() {
+    return state.double_tap_left > 0u && !state.yielding;
+}
+
+void lock_on_accept_double_tap() {
+    state.focusing = false;
+    state.focus_left = 0u;
+    state.double_tap_left = 0u;
+    state.yielding = true;
+    state.reconciled = false;
+    state.turning = 0;
+    state.manual = 0.0f;
+}
+
+bool lock_on_yielding_recenter() {
+    return state.yielding;
+}
+
+void lock_on_finish_yield() {
+    state.yielding = false;
+}
+
+void lock_on_toggle_follow() {
+    if (focus_style() || !state.locked) return;
+    state.follow_paused = !state.follow_paused;
+    state.manual = 0.0f;
+    state.turning = 0;
+    std::cout << "[lockon] follow " << (state.follow_paused ? "off" : "on") << std::endl;
+}
+
 bool lock_on_drives_camera() {
-    return state.locked && (!focus_style() || state.focusing);
+    // Follow stays on the monster unless the Focus camera button turned that
+    // off. Focus eases only for a turn it started itself.
+    return state.locked && !state.yielding && (focus_style() ? state.focusing : !state.follow_paused);
+}
+
+std::optional<std::uint16_t> lock_on_focus_aim_yaw(const psprecomp::GuestMemory &memory, const Vec3 &look_at) {
+    if (!focus_style() || !state.locked || state.yielding) return std::nullopt;
+    const std::vector<LockMonster> monsters = lock_on_monsters(memory);
+    const LockMonster *target = find(monsters, state.target);
+    if (target == nullptr) return std::nullopt;
+    const Vec3 aim{target->position.x, target->position.y + kAimHeight, target->position.z};
+    return yaw_towards(look_at, aim);
+}
+
+void lock_on_focus_reticle() {
+    if (!focus_style() || !state.locked) return;
+    state.marker_expired = false;
+    state.marker_left = kMarkerLife;
 }
 
 bool lock_on_marker_wanted() {
-    return lock_on_drives_camera();
+    if (!state.locked) return false;
+    if (!focus_style() && state.follow_paused) return false;
+    if (focus_style() && state.marker_expired) return false;
+    return true;
 }
 
 void lock_on_note_view(const LockOnView &view, std::uint32_t vertices) {
@@ -773,15 +897,33 @@ std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory 
     return std::nullopt;
 }
 
+namespace {
+
+// Dying and running out of range happen in the middle of a hunt. The lock
+// still lets go, and the log still says why. A note on screen does not.
+bool tells_the_player(const char *why) {
+    if (why == nullptr || *why == '\0') return false;
+    const std::string_view text = why;
+    return text != "Lock-on: the monster is dead" && text != "Lock-on: the monster is too far";
+}
+
+} // namespace
+
 void lock_on_release(const char *why) {
     state.seeking = false;
     if (state.locked)
         std::cout << "[lockon] let go of the monster at 0x" << std::hex << state.target << std::dec
                   << (why != nullptr && *why != '\0' ? std::string(": ") + why : std::string()) << std::endl;
-    if (state.locked && why != nullptr && *why != '\0') state.note = why;
+    if (state.locked && tells_the_player(why)) state.note = why;
     state.locked = false;
+    state.follow_paused = false;
     state.focusing = false;
     state.focus_left = 0u;
+    state.double_tap_left = 0u;
+    state.yielding = false;
+    state.reconciled = false;
+    state.marker_left = 0u;
+    state.marker_expired = false;
     state.target = 0u;
     state.manual = 0.0f;
     state.turning = 0;

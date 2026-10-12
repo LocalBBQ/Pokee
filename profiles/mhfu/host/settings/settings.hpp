@@ -37,7 +37,7 @@ enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class UiTextures { Off, Sharp, Mmpx };
 enum class RightStick { Camera, DPad, Off };
 // Follow keeps the quest camera on the monster Lock on selected. Focus keeps
-// that selection, and a tap of L turns the camera toward the monster.
+// that selection, and a tap of L centers the camera on the monster.
 enum class LockOnStyle { Follow, Focus };
 // The on-screen controls' layout: the PSP's buttons (touch_controls.hpp), or
 // the action-style one (touch_action.hpp).
@@ -79,8 +79,8 @@ struct Settings {
     struct InterfaceScale {
         std::uint32_t map{100u}; // the area map on the right
         // The quest clock, the name under it, health, stamina, the eye shown when a monster is found,
-        // sharpness, the long sword spirit gauge, a bowgun's loaded shots, a bow's coatings, a gunlance's shells
-        // and a hunting horn's notes.
+        // the status icons beside that name, sharpness, the long sword spirit gauge, a bowgun's loaded shots,
+        // a bow's coatings, a gunlance's shells and a hunting horn's notes.
         std::uint32_t health{100u};
         // The item bar, the bowgun ammo bar, the bow coating bar and their menus.
         std::uint32_t item_bar{100u};
@@ -118,11 +118,17 @@ struct Settings {
     // The Lock on bind selects a large monster (camera/lock_on.hpp). Nothing
     // happens until the bind is pressed; off, the bind does nothing at all.
     bool lock_on{true};
-    // Follow keeps the camera on the selection. Focus turns it there when L
-    // is tapped, and leaves it once the turn has arrived.
+    // Follow keeps the camera on the selection. Focus/Follow Camera turns
+    // that tracking off and on again without dropping the selection, and the
+    // reticle goes with the tracking. The right stick turns both off and leaves
+    // the portrait. Focus eases onto it when that button is tapped (L, until
+    // the bind is set). While that tap is L, the game's own recenter stays off,
+    // so the press does not move the camera twice. A second tap within a third
+    // of a second recenters behind the hunter.
     LockOnStyle lock_on_style{LockOnStyle::Follow};
-    bool lock_on_marker{true}; // the bowgun reticle over the locked monster
-    // The hunt icon at the bottom left, as a percent of its usual size.
+    // Ring, cross and ticks. Focus drops it shortly after the selection and after the focus button.
+    bool lock_on_marker{true};
+    // The monster icon at the bottom left, as a percent of its usual size.
     std::uint32_t hunt_portrait_size{100u};
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
