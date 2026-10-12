@@ -11,8 +11,13 @@ class GuestMemory;
 }
 
 // Lock-on (#163): a tap of the Lock on bind selects a large monster. Follow
-// keeps the quest camera on it. Focus leaves the camera where it is until L
-// is tapped, then turns it toward the selection and stops.
+// keeps the quest camera on it until the Focus camera button turns that
+// tracking off; the same button turns it on again and the selection stays.
+// Focus leaves the camera where it is until the
+// focus button is tapped, then eases onto the selection, even when the monster
+// is already in view, and stops. While that button is L, the game's own
+// recenter stays off for the press. A second tap within a third of a second
+// is the game's recenter behind the hunter; the selection stays.
 //
 // It is not a camera of its own. The follow camera's driver (game_camera.hpp)
 // asks it, on every update of the game's ordinary follow camera, which yaw
@@ -28,8 +33,9 @@ class GuestMemory;
 //   keeps a type byte at +36 (1 is a player).
 // - The entity's position is three floats at +0x200. Its health and most
 //   health are s16 at +0x2E4 and +0x41E. A companion's most health is 0.
-//   In another area the position is held at y 1000 exactly, and that entity
-//   is not a target.
+//   In another area the position is held at y 1000, outside the hunter's
+//   zone. That entity is not a target. A dead monster, health at or below
+//   zero, is not either.
 // - When an entity's vtable has a method in the em overlay slot, or its list
 //   node carries class id 32, 34 or 36, only those entities are locked.
 //   A quest whose monsters keep a game_task vtable (seen with em75 loaded)
@@ -75,6 +81,12 @@ inline constexpr std::uint32_t kMostHealth = 0x41Eu;
 // The health halfword at +0x2E4 is read from the same pointer, so the id stays
 // on a monster whose position is held in another area.
 inline constexpr std::uint32_t kMonsterId = 0x1E8u;
+// Zone. 0x08813630 loads this halfword and compares it with the loaded stage,
+// the halfword at GameSys + 0x6AF0E. The GameSys pointer is the word at
+// 0x089CC558. A mismatch is another zone.
+inline constexpr std::uint32_t kStageId = 0x29Au;
+inline constexpr std::uint32_t kGameSysPointer = 0x089CC558u;
+inline constexpr std::uint32_t kGameSysStage = 0x6AF0Eu;
 inline constexpr std::uint32_t kExtent = 0x420u;
 } // namespace lock_on_layout
 
@@ -89,13 +101,16 @@ struct LockMonster {
 // (an em-overlay method, or class id 32, 34 or 36), only those.
 [[nodiscard]] std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory);
 
-// A large monster the hunt card can show, including one held in another area.
-// `id` is the species byte at +0x1E8. `other_area` is the position held at
-// y 1000, which lock-on will not select.
+// A large monster shown on the monster icon, including one in another zone
+// and one that has died. `id` is the species byte at +0x1E8.
+// `other_area` is a stage id at +0x29A that is not the loaded stage, which
+// lock-on will not select. `dead` is health at or below zero while a health
+// pool remains; lock-on will not select that either.
 struct HuntMonster {
     std::uint32_t address{};
     std::uint8_t id{};
     bool other_area{};
+    bool dead{};
 };
 [[nodiscard]] std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory);
 
@@ -104,12 +119,13 @@ struct HuntMonster {
 inline constexpr float kHuntCardWidth = 51.0f;
 inline constexpr float kHuntCardHeight = 39.0f;
 
-// One card, top left in PSP pixels. Monsters in this area come first.
-// `locked` is the card whose monster lock-on has selected, and it is never
-// set for a monster in another area.
+// One icon, top left in PSP pixels, in the quest list's order. A change of
+// area does not move it. `locked` is the icon lock-on has selected, and it
+// is never set for a monster in another area or a dead one.
 struct HuntPortrait {
     std::uint8_t id{};
     bool other_area{};
+    bool dead{};
     bool locked{};
     float x{};
     float y{};
@@ -161,6 +177,9 @@ struct LockOnCamera {
     // the game a camera command (the D-pad's turn or tilt, recentring).
     float manual_yaw{};
     bool command{};
+    // The right stick asked for a turn or a tilt. In Follow that pauses
+    // tracking, hides the reticle, and leaves the monster selected.
+    bool stick{};
     // L's recenter, taken for a Focus turn instead of the game's placement
     // behind the hunter. Follow leaves it as a command.
     bool snap{};
@@ -175,9 +194,17 @@ struct LockOnAim {
 // Nothing when there is no lock, or it has just been let go.
 [[nodiscard]] std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera);
 
-// The selected monster is inside the picture at this yaw. Focus then leaves
-// the camera where it is, including L's recenter behind the hunter.
+// The selected monster is inside the picture at this yaw.
 [[nodiscard]] bool lock_on_monster_in_view(const psprecomp::GuestMemory &memory, std::uint16_t yaw, const Vec3 &look_at);
+
+// A second L within a third of a second of the tap that started a Focus turn.
+// The driver leaves that press to the game, which recenters behind the hunter.
+[[nodiscard]] bool lock_on_focus_double_tap();
+void lock_on_accept_double_tap();
+// True while that recenter is still the game's: the snap byte or its countdown
+// has not cleared. The driver does not take the camera during it.
+[[nodiscard]] bool lock_on_yielding_recenter();
+void lock_on_finish_yield();
 
 // Once a flip: lets a lock go whose monster is no longer there (killed,
 // captured, gone to another area, the quest over), and a tap that no camera
@@ -195,10 +222,24 @@ struct LockOnStatus {
 [[nodiscard]] LockOnStatus lock_on_status();
 
 // The camera driver should keep the second stick and write the yaw: Follow
-// while a monster is selected, Focus only during the turn L started.
+// while a monster is selected and tracking is on, and Focus while a turn it
+// started is still on its way.
 [[nodiscard]] bool lock_on_drives_camera();
-// The reticle is shown: Follow while a monster is selected, Focus only while
-// L's turn is on its way, so it goes once the camera has arrived.
+// Follow only. The Focus camera button turns tracking off, or on again. The
+// selection stays. Nothing in Focus, and nothing when no monster is selected.
+void lock_on_toggle_follow();
+// The yaw the game's L recenter should use so the camera looks at the locked
+// monster. Nothing unless Focus has one selected, in this area.
+[[nodiscard]] std::optional<std::uint16_t> lock_on_focus_aim_yaw(const psprecomp::GuestMemory &memory,
+    const Vec3 &look_at);
+// Focus: the focus button was just pressed. The reticle stays for a third of
+// a second, then goes. The selection stays. A hold does not start that time again.
+void lock_on_focus_reticle();
+// The reticle over the selected monster. Follow keeps it up while the camera
+// is tracking. The right stick or Focus/Follow Camera turns it off with that
+// tracking; the selection stays, and the same button turns both back on. Focus shows it for a
+// third of a second after the selection, and again for that long after the
+// focus button.
 [[nodiscard]] bool lock_on_marker_wanted();
 
 // The view a transformed draw was made with, and the GE viewport that maps
@@ -234,8 +275,8 @@ void lock_on_note_view(const LockOnView &view, std::uint32_t vertices);
 // asks once.
 [[nodiscard]] std::optional<std::array<float, 2>> lock_on_marker(const psprecomp::GuestMemory &memory);
 
-// Lets go, for tests and when the setting goes off. `why` goes to the
-// trace (MHFU_TRACE_LOCK_ON) and, when not empty, to a note on screen.
+// Lets go, for tests and when the setting goes off. `why` goes to the log.
+// A note is shown except when the monster died or got too far away.
 void lock_on_release(const char *why);
 void lock_on_reset();
 

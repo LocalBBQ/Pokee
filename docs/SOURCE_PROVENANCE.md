@@ -51,7 +51,7 @@ A profile owns its generated AOT corpus, address-specific lowering, HLE behavior
 
 ## Analog camera
 
-`profiles/mhfu/host/camera/` was written from this project's own reading of the USA Freedom Unite executable. The camera update, its parent-object argument, the yaw fields and the preset offset it reads are observed facts. Continuous pitch rewrites that offset for the update and restores it afterwards, and adds the player's change in height to the eye so the game's eighth-step ease does not lag the stick. Bow and bowgun aim resizes the steps of the aim action read in `game_task`: the heading halfword, the pitch byte and the facing word. No third-party camera-mod code is included or adapted.
+`profiles/mhfu/host/camera/` was written from this project's own reading of the USA Freedom Unite executable. The camera update, its parent-object argument, the yaw fields and the preset offset it reads are observed facts. Continuous pitch rewrites that offset for the update and restores it afterwards, and adds the player's change in height to the eye so the game's eighth-step ease does not lag the stick. Bow and bowgun aim resizes the steps of the aim action read in `game_task`: the heading halfword, the pitch byte and the facing word. No third-party camera-mod code is included or adapted. The ring, cross and ticks of the lock-on reticle follow the behavior of [pggkun/mhfu_target_camera](https://github.com/pggkun/mhfu_target_camera). That repository has no licence, so none of its code or its image is included; the behavior was reimplemented here. Focus eases the camera itself and leaves the game's L recenter off for that press.
 
 ## Third-party components
 

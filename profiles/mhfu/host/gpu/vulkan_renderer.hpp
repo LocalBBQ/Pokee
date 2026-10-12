@@ -266,6 +266,8 @@ public:
     [[nodiscard]] bool take_hide_hud_toggle() noexcept;
     // A tap of the Lock on bind since the last call (camera/lock_on.hpp).
     [[nodiscard]] bool take_lock_on_press() noexcept;
+    // Focus camera is held (camera/game_camera.hpp). False when that bind is empty.
+    [[nodiscard]] bool focus_camera_held() const noexcept;
     // A window capture (capture_window) waits for the next present, so the
     // interface can leave out what does not belong in a picture.
     [[nodiscard]] bool window_capture_pending() const noexcept;
