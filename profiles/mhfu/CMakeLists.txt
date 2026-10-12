@@ -188,6 +188,7 @@ set(MHFU_HOST_SOURCES
     host/camera/game_aspect.cpp
     host/camera/game_camera.cpp
     host/camera/lock_on.cpp
+    host/camera/hunt_icon.cpp
     host/gpu/game_hud.cpp
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
@@ -255,7 +256,9 @@ set(MHFU_HOST_SOURCES
     host/game/layered_armor.cpp
     host/game/layered_armor_hook.cpp
     host/game/damage_numbers.cpp
+    host/game/gather_icon.cpp
     host/game/hit_trace.cpp
+    host/game/item_box.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -499,11 +502,51 @@ add_executable(mhfu_damage_numbers_tests
     tests/damage_numbers_tests.cpp
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp)
+
+# Gather marks: the radius the game searches, and where the mark sits.
+add_executable(mhfu_gather_icon_tests
+    tests/gather_icon_tests.cpp
+    host/game/gather_icon.cpp
+    host/game/damage_numbers.cpp
+    host/game/hit_trace.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_gather_icon_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_gather_icon_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_gather_icon_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_gather_icon_tests COMMAND mhfu_gather_icon_tests)
+endif()
 target_include_directories(mhfu_damage_numbers_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
 target_link_libraries(mhfu_damage_numbers_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_damage_numbers_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_damage_numbers_tests COMMAND mhfu_damage_numbers_tests)
+endif()
+
+# Fast item box: the shortened wait, the lobby_task code check, and the wrapper
+# around a stand-in transfer menu. No game data.
+add_executable(mhfu_item_box_tests
+    tests/item_box_tests.cpp
+    host/game/item_box.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_item_box_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_item_box_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_item_box_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_item_box_tests COMMAND mhfu_item_box_tests)
 endif()
 
 # Installer release identities, and preparation of a supported executable when

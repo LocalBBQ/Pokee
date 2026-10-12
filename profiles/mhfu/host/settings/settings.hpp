@@ -37,7 +37,7 @@ enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class UiTextures { Off, Sharp, Mmpx };
 enum class RightStick { Camera, DPad, Off };
 // Follow keeps the quest camera on the monster Lock on selected. Focus keeps
-// that selection, and a tap of L turns the camera toward the monster.
+// that selection, and a tap of L centers the camera on the monster.
 enum class LockOnStyle { Follow, Focus };
 // The on-screen controls' layout: the PSP's buttons (touch_controls.hpp), or
 // the action-style one (touch_action.hpp).
@@ -79,8 +79,8 @@ struct Settings {
     struct InterfaceScale {
         std::uint32_t map{100u}; // the area map on the right
         // The quest clock, the name under it, health, stamina, the eye shown when a monster is found,
-        // sharpness, the long sword spirit gauge, a bowgun's loaded shots, a bow's coatings, a gunlance's shells
-        // and a hunting horn's notes.
+        // the status icons beside that name, sharpness, the long sword spirit gauge, a bowgun's loaded shots,
+        // a bow's coatings, a gunlance's shells and a hunting horn's notes.
         std::uint32_t health{100u};
         // The item bar, the bowgun ammo bar, the bow coating bar and their menus.
         std::uint32_t item_bar{100u};
@@ -118,10 +118,18 @@ struct Settings {
     // The Lock on bind selects a large monster (camera/lock_on.hpp). Nothing
     // happens until the bind is pressed; off, the bind does nothing at all.
     bool lock_on{true};
-    // Follow keeps the camera on the selection. Focus turns it there when L
-    // is tapped, and leaves it once the turn has arrived.
+    // Follow keeps the camera on the selection. Focus/Follow Camera turns
+    // that tracking off and on again without dropping the selection, and the
+    // reticle goes with the tracking. The right stick turns both off and leaves
+    // the portrait. Focus eases onto it when that button is tapped (L, until
+    // the bind is set). While that tap is L, the game's own recenter stays off,
+    // so the press does not move the camera twice. A second tap within a third
+    // of a second recenters behind the hunter.
     LockOnStyle lock_on_style{LockOnStyle::Follow};
-    bool lock_on_marker{true}; // the bowgun reticle over the locked monster
+    // Ring, cross and ticks. Focus drops it shortly after the selection and after the focus button.
+    bool lock_on_marker{true};
+    // The monster icon at the bottom left, as a percent of its usual size.
+    std::uint32_t hunt_portrait_size{100u};
     // Degrees per second at full deflection, before the stick's own curve.
     float camera_speed{190.0f};
     // Degrees per second at full deflection while a bow or a bowgun aims.
@@ -170,6 +178,18 @@ struct Settings {
     // game already shows. On, the health that hit removed is drawn over the
     // picture.
     bool damage_numbers{};
+    // A ? over a gather node the game would accept (game/gather_icon.hpp).
+    // On by default. Off, the list is not read for the mark.
+    bool gather_icon{true};
+    // Holding ○ gathers again each time the hunter is free on a node
+    // (game/gather_icon.hpp). On by default. Off, ○ is one press.
+    bool gather_hold{true};
+    // The mark's size, in percent of the usual disc (kMinGatherIconSize to
+    // kMaxGatherIconSize), and the weight of its ring and ? (1 to
+    // kMaxGatherIconThickness). A larger mark keeps the same proportions, and
+    // a thicker one widens the ring and the ?.
+    std::uint32_t gather_icon_size{100};
+    std::uint32_t gather_icon_thickness{1};
     // Their size, in percent of the interface font's (kMinDamageNumberSize to
     // kMaxDamageNumberSize), and the weight of their strokes and dark outline
     // (1 to kMaxDamageNumberThickness, 1 the thinnest). Both scale with the
@@ -205,10 +225,16 @@ inline constexpr std::uint32_t kMinMapItemScale = 50u;
 // Higher than that only carries the quest interface off the screen.
 inline constexpr std::uint32_t kMaxMapItemScale = 150u;
 inline constexpr std::uint32_t kMaxFontWeight = 2u;
+inline constexpr std::uint32_t kMinHuntPortraitSize = 50u;
+inline constexpr std::uint32_t kMaxHuntPortraitSize = 200u;
 inline constexpr std::uint32_t kMinDamageNumberSize = 50u;
 inline constexpr std::uint32_t kMaxDamageNumberSize = 300u;
 // Past 3 the outline copies fill the digits in, so 3 is as thick as stays readable.
 inline constexpr std::uint32_t kMaxDamageNumberThickness = 3u;
+inline constexpr std::uint32_t kMinGatherIconSize = 50u;
+inline constexpr std::uint32_t kMaxGatherIconSize = 300u;
+// Past 3 the ring and the ? stroke meet, so 3 is as thick as stays readable.
+inline constexpr std::uint32_t kMaxGatherIconThickness = 3u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
 inline constexpr float kMinTouchOpacity = 0.1f;
 inline constexpr float kMaxTouchOpacity = 1.0f;

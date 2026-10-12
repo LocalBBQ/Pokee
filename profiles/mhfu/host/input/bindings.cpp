@@ -196,6 +196,7 @@ constexpr ActionInfo kInfo[kActions] = {
     {"item_left", "Item left  (L + □)"},
     {"item_right", "Item right  (L + ○)"},
     {"lock_on", "Lock on"},
+    {"focus_camera", "Focus/Follow Camera"},
 };
 
 // SceCtrlButtons for the actions that are buttons.
@@ -226,6 +227,7 @@ constexpr std::uint32_t kButtonBits[kActions] = {
     0u,
     0x8100u,
     0x2100u,
+    0u,
     0u,
 };
 
@@ -377,6 +379,7 @@ ActionGroup group_of(Action action) {
     case Action::Down:
     case Action::Right:
     case Action::LockOn:
+    case Action::FocusCamera:
         return ActionGroup::Camera;
     case Action::Start:
     case Action::Select:
@@ -443,6 +446,15 @@ bool parse_buttons(std::string_view text, std::uint32_t &buttons) {
 
 bool acts_on_release(Action action) {
     return action == Action::LockOn;
+}
+
+bool extends_lock_on(const Slots &lock_on, const Chord &longer) {
+    if (!longer.combined()) return false;
+    for (const Chord &mine : lock_on) {
+        if (mine.empty() || !mine.part_of(longer) || longer == mine) continue;
+        return true;
+    }
+    return false;
 }
 
 std::string name(Binding binding) {

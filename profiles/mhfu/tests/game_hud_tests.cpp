@@ -42,7 +42,7 @@ void test_hud_functions() {
     const auto functions = hud_functions();
     check(functions.size() == 6u, "village text and labels, the quest HUD and the labels");
     check(functions[0].address == 0x09AE38F8u, "the village layer");
-    check(functions[1].address == 0x09A6C248u, "the village name tag");
+    check(functions[1].address == 0x09A6C248u, "the lobby task callback");
     check(functions[2].address == 0x09A60298u, "the quest HUD");
     check(functions[3].address == 0x09A617A8u, "a quest HUD state");
     check(functions[4].address == 0x09A62400u, "another quest HUD state");
@@ -62,9 +62,16 @@ void test_hud_functions() {
     memory.store32(functions[0].address, functions[2].first);
     memory.store32(functions[0].address + 4u, functions[2].saved_ra);
     check(!hud_function_matches(memory, functions[0].address), "the other overlay's words do not count");
-    check(name_label(0x09A6C248u), "the gathering hall name is a name");
+    check(!name_label(0x09A6C248u), "the lobby callback is not a name; it draws the village interface");
+    check(!name_label(0x09A81220u), "a village hunter label is not a separate name");
+    check(!name_label(0x09A825B8u), "the village name is drawn with the rest of that screen");
+    check(!name_label(0x09A82AD0u), "the other village name is drawn with the rest of that screen");
+    check(!name_label(0x09A85C90u), "the mark beside a village name is drawn with that screen");
+    check(!name_label(0x09A79030u), "the gathering-hall name is drawn with that screen");
     check(name_label(0x09B62488u), "the quest name is a name");
+    check(!name_tag_only(0x09B62488u), "a quest name is scaled with its mark");
     check(!name_label(0x09A60298u), "the quest HUD is not a teammate's name");
+    check(!name_tag_only(0x09A60298u), "the quest HUD is not a name tag");
 }
 
 } // namespace

@@ -20,13 +20,22 @@ namespace mhfu::gpu::hud_scale {
 // clock, the name and the bars grow from the clock's corner so they stay
 // together.
 // The area map is the tile at (316, 32)-(468, 184), on the right of a quest,
-// and a mark drawn on it, or the small window that slides inside that slot
-// as the hunter moves. It grows from its top-right. That window is a piece of
-// the area-map texture; a panel of the same size from any other texture is
-// not it, so the shop and the return-to-town prompt stay as drawn even while
-// the quest clock is up. A mark scales only when it sits on the tile or the
-// window that was actually drawn. In camp that tile is absent; the supply
-// icons that sit in the same rectangle stay as drawn.
+// and a mark drawn on it, or the window that slides inside that slot as the
+// hunter moves. The window, the arrow and the camp icon grow from the slot's
+// top-right, (468, 32). With the Map item a texel of the area-map texture is
+// drawn at the slot's top-left plus that texel, so the picture stays put
+// while the window slides over it. Without the Map item the same texels are
+// drawn larger, 40 texels at 60 pixels from (276, 70). That draw is put back
+// on the slot's placement before the Map size, and the arrow and the camp
+// icon drawn with it come back with it. The camp icon keeps the pixel size
+// the game gave it; the arrow's vertices are in the enlarged picture. Each
+// area draws that window at its own size; the bounds are the rectangle drawn,
+// not one fixed size. A panel of the same size from any other texture is not
+// it, so the shop and the return-to-town prompt stay as drawn even while the
+// quest clock is up. A mark in the slot keeps the map's size even when this
+// frame's window does not cover it, and the player's arrow still follows the
+// map when the turned quad crosses the edge. In camp that tile is absent; the
+// supply icons that sit in the same rectangle stay as drawn.
 // Sharpness is the colored bar at y 44, (62, 44)-(166, 50), and the frame
 // just above it at (60, 29)-(104, 41). It stays on the stamina bar: when
 // health changes size, the bar and the sharpness move together, and the
@@ -75,6 +84,10 @@ struct Anchor {
 // every window of that map used 0x0419C200, and the interface panels of the
 // same size did not.
 inline constexpr std::uint32_t kAreaMapTexture = 0x0419C200u;
+// The atlas for the marks drawn on that map: the player's arrow, the camp
+// icon, a monster dot. Traced with MHFU_TRACE_SPRITES. The notice's letters
+// are a different texture, so a mark of a letter's size is still a mark.
+inline constexpr std::uint32_t kMapIconTexture = 0x091874A0u;
 inline constexpr float kMapLeft = 316.0f;
 inline constexpr float kMapTop = 32.0f;
 inline constexpr float kMapRight = 468.0f;
@@ -97,11 +110,13 @@ inline constexpr float kItemBottom = 264.0f;
 // Health and stamina, including the end caps. The health bar is
 // (56, 12)-(320, 20) at 100, and (56, 12)-(399, 20) when maximum health is
 // raised; stamina is (56, 21)-(320, 29) at 100. Both draw 2.64 pixels per
-// point, so either one raised to 150 reaches x 452 before its end cap.
-// Sharpness begins at y 29 and runs past this, so it is not inside.
+// point, so either one raised to 150 reaches x 452. Each end cap is 24 by 12
+// past the bar's end, (320, 9)-(344, 21) and (320, 21)-(344, 33) at 100, so at
+// 150 the caps reach x 476. Sharpness begins at y 29 and runs past this, so
+// it is not inside.
 inline constexpr float kVitalLeft = 52.0f;
 inline constexpr float kVitalTop = 6.0f;
-inline constexpr float kVitalRight = 464.0f;
+inline constexpr float kRaisedVitalRight = 480.0f;
 inline constexpr float kVitalBottom = 36.0f;
 // The sharpness frame and the colored bar under it.
 inline constexpr float kSharpLeft = 60.0f;
@@ -155,22 +170,61 @@ inline constexpr float kBowgunBottom = 200.0f;
         height >= 140.0f && height <= 164.0f;
 }
 
-// A small map window between the traced samples: about 34 by 40 or 40 by 40,
-// anywhere in the area-map slot. Traced samples sit at (432, 76)-(466, 116),
-// (425, 78)-(465, 118), and (371, 59)-(411, 99).
-[[nodiscard]] inline bool is_travelling_map_window(Rect rect) {
+// For a few frames as a monster is found, the same texels are drawn at 60 by
+// 60 from (276, 70). Only a pixel around that quad is accepted. The panel at
+// (280, 16), 176 by 120, starts just as far left and is not the map: it uses
+// another texture. Traced with MHFU_TRACE_SPRITES.
+[[nodiscard]] inline bool is_found_monster_window(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    const float diff = width > height ? width - height : height - width;
-    return width >= 32.0f && width <= 64.0f && height >= 36.0f && height <= 64.0f && diff <= 12.0f &&
-        r.x0 >= kMapLeft - 8.0f && r.y0 >= kMapTop - 8.0f && r.x1 <= kMapRight + 8.0f && r.y1 <= kMapBottom + 8.0f;
+    if (width < 59.0f || width > 61.0f || height < 59.0f || height > 61.0f) return false;
+    return r.x0 >= 275.0f && r.x0 <= 277.0f && r.y0 >= 69.0f && r.y0 <= 71.0f &&
+        overlaps({kMapLeft, kMapTop, kMapRight, kMapBottom}, r);
+}
+
+// A map window in the area-map slot, larger than a mark. Traced samples are
+// about 34 by 40 and 40 by 40, at (432, 76)-(466, 116), (425, 78)-(465, 118)
+// and (371, 59)-(411, 99). Other areas draw other sizes from the same
+// texture, so the size is not fixed; the large tile is is_fixed_map_sprite.
+// The found-monster zoom is the one window accepted left of that slack.
+[[nodiscard]] inline bool is_travelling_map_window(Rect rect) {
+    if (is_found_monster_window(rect)) return true;
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (width < 28.0f || height < 28.0f || width > 200.0f || height > 200.0f || is_fixed_map_sprite(rect))
+        return false;
+    return r.x0 >= kMapLeft - 24.0f && r.y0 >= kMapTop - 24.0f && r.x1 <= kMapRight + 24.0f &&
+        r.y1 <= kMapBottom + 24.0f && overlaps({kMapLeft, kMapTop, kMapRight, kMapBottom}, r);
+}
+
+// With the Map item a texel is drawn at (316, 32) plus that texel, so the
+// south of an area is drawn below the slot. The slot test ends at y 208, and
+// the old screen test ended at y 240. On the bottom edge of Forest and Hills
+// zone 1 the window sits lower than that and was left at the game's size
+// until the hunter stepped back up. The picture is 480 by 272; the quad can
+// sit a little past it, and the edge of the map can clip the window below
+// the usual 28. A panel of the same size from another texture is not this.
+[[nodiscard]] inline bool is_area_map_texture_window(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (width < 16.0f || height < 16.0f || width > 200.0f || height > 200.0f || is_fixed_map_sprite(rect))
+        return false;
+    return r.x0 >= 160.0f && r.y0 >= -16.0f && r.x1 <= 512.0f && r.y1 <= 304.0f;
 }
 
 // The area map: (316, 32)-(468, 184), 152 by 152, or a small window into the
 // same map texture. The quest clock is neither size.
 [[nodiscard]] inline bool is_map_sprite(Rect rect) {
     return is_fixed_map_sprite(rect) || is_travelling_map_window(rect);
+}
+
+// The area map drawn this frame: the large tile, a window in the slot, or
+// any other window sampled from the area-map texture.
+[[nodiscard]] inline bool is_drawn_map(Rect rect, std::uint32_t texture) {
+    return is_map_sprite(rect) || (texture == kAreaMapTexture && is_area_map_texture_window(rect));
 }
 
 // The quest clock: (8, 8)-(60, 56), 52 by 48, with a little room for the
@@ -195,6 +249,20 @@ inline constexpr float kBowgunBottom = 200.0f;
         r.y0 >= 52.0f && r.y0 <= 64.0f;
 }
 
+// Poison, paralysis, sleep, stun, snowman, muddy, stench, defense down and
+// fatigue, on the name row. The yellow eye is 12 by 16 at (104, 56) and the
+// queued-note mark is 12 by 16 at (128, 56); these icons are the same kind of
+// mark, about 12 wide and 14 to 16 tall, stepping right from the plate. The
+// note mark is recognised first and keeps the horn's size, which is this same
+// percent. A bubble or the stars drawn on the hunter are not this row.
+[[nodiscard]] inline bool is_status_icon(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 10.0f && width <= 16.0f && height >= 12.0f && height <= 18.0f && r.x0 >= 112.0f &&
+        r.x0 <= 236.0f && r.y0 >= 52.0f && r.y0 <= 64.0f;
+}
+
 // The long health and stamina bars, frames and fills. The fills are two pixels
 // tall; a menu strip in the same corner is not this wide and this short.
 [[nodiscard]] inline bool is_vital_bar(Rect rect) {
@@ -202,7 +270,27 @@ inline constexpr float kBowgunBottom = 200.0f;
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
     return width >= 200.0f && width <= 410.0f && height >= 2.0f && height <= 14.0f && r.x0 >= 48.0f && r.x0 <= 72.0f &&
-        contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r);
+        contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r);
+}
+
+// A piece of health or stamina, out to where a raised bar's cap ends. Bars,
+// fills and frames start at the bars' left edge; a cap is 24 by 12 with its
+// top on the health or stamina row; a segment inside a bar is at most four
+// pixels tall. Other panels share this band while the bars are up, traced
+// with MHFU_TRACE_HUD_SCALE: the item box's top edge, (216, 28)-(456, 36),
+// and a message window at (152, 8)-(328, 32) with 7 by 14 glyphs on it.
+// They are none of these.
+[[nodiscard]] inline bool is_vital_piece(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (!contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r) || width < 2.0f || height < 2.0f)
+        return false;
+    const bool bar = r.x0 >= 48.0f && r.x0 <= 72.0f && height <= 14.0f;
+    const bool cap = width >= 20.0f && width <= 28.0f && height >= 10.0f && height <= 14.0f &&
+        ((r.y0 >= 6.0f && r.y0 <= 12.0f) || (r.y0 >= 18.0f && r.y0 <= 24.0f));
+    const bool segment = height <= 4.0f && r.y0 >= 10.0f && r.y0 <= 28.0f;
+    return bar || cap || segment;
 }
 
 // The item list ("Please select an item") is a window on the right of the
@@ -377,21 +465,94 @@ inline constexpr float kAmmoMenuTop = 120.0f;
 inline constexpr float kAmmoMenuRight = 480.0f;
 inline constexpr float kAmmoMenuBottom = 264.0f;
 
-// A sprite only the open menu draws. Its frame's top-left corner, 16 by 8,
-// is the first sprite of the menu, so the frame is recognised before any of
-// it is drawn; the closed item bar draws the same corner at y 208. The tall
-// left side of the frame and the highlight bar also count.
-[[nodiscard]] inline bool is_ammo_menu_sprite(Rect rect) {
+// The notice that slides down the picture while returning to camp and while
+// an item is carved. Its right border is a 16-wide cap. A short line ends at
+// x 312 or x 328. A long line, traced with MHFU_TRACE_HUD_SCALE, ends further
+// right: the cap (344, 160)-(360, 168). The 8-tall cap is that border
+// wherever it sits on the right. The 16-tall piece between the caps is only
+// known at x 312 and x 328; further right it is recognised because it sits
+// on an 8-tall cap. The closed item bar's own corner is the 16 by 8 tile at
+// y 208, and the item-bar rule keeps that one.
+[[nodiscard]] inline bool is_notice_cap(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    const bool corner = width >= 14.0f && width <= 18.0f && height >= 6.0f && height <= 10.0f && r.x0 >= 310.0f &&
-        r.x0 <= 314.0f && r.y0 >= 120.0f && r.y0 <= 160.0f;
+    const bool tile = width >= 14.0f && width <= 18.0f &&
+        ((height >= 6.0f && height <= 10.0f) || (height >= 14.0f && height <= 18.0f));
+    if (!tile || r.y0 >= 180.0f) return false;
+    const bool at_narrow = r.x0 >= 308.0f && r.x0 <= 316.0f;
+    const bool at_wide = r.x0 >= 324.0f && r.x0 <= 332.0f;
+    const bool thin_right = height <= 10.0f && r.x0 >= 300.0f && r.x0 <= 460.0f;
+    return at_narrow || at_wide || thin_right;
+}
+
+// A row of the long notice, the part that reaches into the area map. Traced
+// while carving a long name: (360, 160)-(456, 168), (376, 168)-(456, 176),
+// and the untextured rows (350, 46)-(466, 61) and (350, 95)-(466, 112).
+// A mark on the map is far smaller than these.
+[[nodiscard]] inline bool is_long_notice(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 48.0f && height >= 4.0f && height <= 24.0f && r.x0 >= 300.0f && r.x1 <= 472.0f;
+}
+
+// A letter, 7 by 14. The notice's text is these. The player's arrow, turned
+// to point up or down, is about 10 by 12, the same box; it is told apart by
+// its texture. The ammo bar's own letters sit on the bar, at y 184 and below.
+[[nodiscard]] inline bool is_text_glyph(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 6.0f && width <= 10.0f && height >= 12.0f && height <= 16.0f;
+}
+
+// A mark on the area map: the player's arrow, the camp icon, a monster dot.
+// The camp icon is about 32 pixels. A window is 28 or wider, but the panels
+// that must stay as drawn (the shop, the return-to-town prompt) are 40, so
+// 36 keeps the icon and leaves those panels to the window test.
+[[nodiscard]] inline bool is_map_mark(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 4.0f && height >= 4.0f && width <= 36.0f && height <= 36.0f;
+}
+
+// The arrow can leave the top of the slot. The band under the map is the ammo
+// bar and a menu checkbox, not a mark on the map.
+[[nodiscard]] inline bool in_map_slot(Rect rect) {
+    const Rect r = normalized(rect);
+    if (r.y0 >= kMapBottom - 8.0f) return false;
+    return overlaps({kMapLeft - 16.0f, kMapTop - 16.0f, kMapRight + 16.0f, kMapBottom}, r);
+}
+
+// The ammo menu's top-left corner, 16 by 8 at y 128. The notice's border is
+// the same tile at other rows, so only this row opens the menu. The closed
+// item bar draws it at y 208.
+[[nodiscard]] inline bool is_ammo_menu_corner(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 14.0f && width <= 18.0f && height >= 6.0f && height <= 10.0f && r.x0 >= 310.0f && r.x0 <= 314.0f &&
+        r.y0 >= 124.0f && r.y0 <= 136.0f;
+}
+
+// A sprite only the open menu draws, apart from its corner: the tall left
+// side of the frame and the highlight bar. The corner is the first sprite,
+// so the frame is recognised before any of it is drawn.
+[[nodiscard]] inline bool is_ammo_menu_body(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
     const bool side = width >= 14.0f && width <= 18.0f && height >= 80.0f && height <= 140.0f && r.x0 >= 310.0f &&
         r.x0 <= 314.0f && r.y1 >= 254.0f && r.y1 <= 258.0f;
     const bool highlight = width >= 150.0f && width <= 162.0f && height >= 18.0f && height <= 22.0f &&
         r.x0 >= 310.0f && r.x0 <= 318.0f && r.y0 >= 136.0f && r.y0 <= 190.0f;
-    return corner || side || highlight;
+    return side || highlight;
+}
+
+[[nodiscard]] inline bool is_ammo_menu_sprite(Rect rect) {
+    return is_ammo_menu_corner(rect) || is_ammo_menu_body(rect);
 }
 
 // The ammo bar above the item bar: (312, 184)-(472, 200), a wide strip in the
@@ -407,7 +568,15 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
         contains({kBowgunLeft, kBowgunTop, kBowgunRight, kBowgunBottom}, r);
 }
 
-[[nodiscard]] inline Piece piece_of(Rect rect) {
+// The notice's border and its letters share the map's rectangle. A mark from
+// the map-icon atlas is neither, including the arrow when its box is a
+// letter's size.
+[[nodiscard]] inline bool is_notice_piece(Rect rect, std::uint32_t texture) {
+    if (texture == kMapIconTexture) return false;
+    return is_notice_cap(rect) || is_long_notice(rect) || is_text_glyph(rect);
+}
+
+[[nodiscard]] inline Piece piece_of(Rect rect, std::uint32_t texture = 0) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
@@ -419,22 +588,29 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     if (is_clock_sprite(r)) return Piece::Vitals;
     // The health and stamina fills are two pixels tall. The clock's hand is
     // drawn inside the gauge.
-    if (width >= 2.0f && height >= 2.0f &&
-        (contains({kVitalLeft, kVitalTop, kVitalRight, kVitalBottom}, r) ||
-            contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)))
+    if (is_vital_piece(r) ||
+        (width >= 2.0f && height >= 2.0f && contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)))
         return Piece::Vitals;
     if (width < 4.0f || height < 4.0f) return Piece::None;
     // The hunter's name under the clock. It grows from the clock's corner
     // with the bars, so it stays under the clock. The yellow eye is the icon
-    // just past the plate's right end.
-    if (contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r) || is_monster_eye(r)) return Piece::Vitals;
-    // A marker drawn on the map, inside the tile. Anything that sticks out
-    // is not one.
-    if (contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r)) return Piece::Map;
+    // just past the plate's right end, and the status icons continue along
+    // that row.
+    if (contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r) || is_monster_eye(r) || is_status_icon(r))
+        return Piece::Vitals;
+    // A marker drawn on the map, inside the tile. The player's arrow turns, so
+    // its box can cross the edge; that one is caught from the map's own
+    // bounds in on_map. The notice's right border and its letters cross this
+    // rectangle while the window slides; a mark is neither of those.
+    if (contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r))
+        return is_notice_piece(r, texture) ? Piece::None : Piece::Map;
     if (contains({kItemLeft, kItemTop, kItemRight, kItemBottom}, r)) return Piece::ItemBar;
     if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r))
         return Piece::LongSword;
-    if (contains({kBowgunLeft, kBowgunTop, kBowgunRight, kBowgunBottom}, r)) return Piece::Bowgun;
+    // The notice's border and the letters above the ammo bar cross this slot
+    // too. The ammo bar's own letters are the glyphs at y 184 and below.
+    if (contains({kBowgunLeft, kBowgunTop, kBowgunRight, kBowgunBottom}, r))
+        return is_notice_cap(r) || (is_text_glyph(r) && r.y1 <= 176.0f) ? Piece::None : Piece::Bowgun;
     return Piece::None;
 }
 
@@ -532,6 +708,16 @@ inline void place_point(float &x, float &y, Placement place, float scale) {
     y = place.attach_y + (y - place.origin_y) * scale;
 }
 
+// A name over a hunter: a glyph is about 8 by 14, and the plate is about 16
+// tall and under 160 wide. The lobby callback that files that name also files
+// the village windows. Those are taller or wider, so they are not a name tag.
+[[nodiscard]] inline bool is_name_tag(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 4.0f && width <= 160.0f && height >= 4.0f && height <= 24.0f;
+}
+
 // A teammate's name, plate and glyphs together. `scale` is 1 at the size the
 // game draws. With an origin, every vertex moves toward the point the game
 // placed the text, so the letters stay on that point and the name gets
@@ -594,14 +780,40 @@ struct Frame {
     bool list_live{};
     bool ammo_menu_now{};
     bool travelling_now{};
-    // The top-right corner of the map sprite last drawn, large or small. The
-    // map and the marks on it grow from there. `map_rect` is that sprite, so
-    // a prompt elsewhere in the slot is not carried along with the window.
+    // The notice's 8-tall border tiles seen this frame, and whether two of
+    // them are the top and bottom of that border (24 pixels apart). A tile
+    // at the ammo menu's corner row is that menu only when it has no partner.
+    float notice_edge_x[8]{};
+    float notice_edge_y[8]{};
+    int notice_edges{};
+    float notice_edge_x_live[8]{};
+    float notice_edge_y_live[8]{};
+    int notice_edges_live{};
+    bool notice_pair{};
+    bool menu_body{};
+    // The obtain window ("Herb obtained."). It slides down from the top of
+    // the picture and settles in the middle. A horizontal edge is a short
+    // wide strip; on the way down the body is the taller panel the message
+    // window starts as. The right end overlaps the enlarged area map, and a
+    // cap or the item icon there was taken for a mark and pulled onto the map.
+    Rect obtain_banner{};
+    bool obtain_banner_now{};
+    // The slot's top-right. The window slides inside the slot as the hunter
+    // runs; the map, the arrow and the camp icon grow from this corner, not
+    // from the window. `map_rect` is the sprite drawn this frame, so a prompt
+    // that is not a mark in the slot is not carried along with the window.
     Anchor map_corner{kMapRight, kMapTop};
-    Anchor travelling_corner{kMapRight, kMapTop};
     Rect map_rect{};
     Rect map_rect_live{};
     Rect travelling_rect{};
+    // Without the Map item the window is an enlargement of the slot's
+    // placement: screen = zoom * (slot + texel) + bias. Marks drawn with that
+    // window use the same enlargement. 1 means the Map item's own placement.
+    bool map_zoomed{};
+    float zoom_x{1.0f};
+    float zoom_y{1.0f};
+    float bias_x{};
+    float bias_y{};
 
     void begin() {
         map_rect_live = map_now ? map_rect : Rect{};
@@ -613,30 +825,246 @@ struct Frame {
         bowgun_live = bowgun_now;
         list_live = list_now;
         map_now = vital_now = bar_now = sharp_now = spirit_now = bowgun_now = list_now = ammo_menu_now =
-            travelling_now = false;
+            travelling_now = obtain_banner_now = false;
         map_rect = {};
         travelling_rect = {};
+        map_zoomed = false;
+        zoom_x = zoom_y = 1.0f;
+        notice_edges_live = notice_edges;
+        for (int i = 0; i < notice_edges; ++i) {
+            notice_edge_x_live[i] = notice_edge_x[i];
+            notice_edge_y_live[i] = notice_edge_y[i];
+        }
+        notice_edges = 0;
+        notice_pair = false;
+        menu_body = false;
+    }
+
+    // An 8-tall piece of the notice border. The two of them are 24 pixels
+    // apart, with the 16-tall piece between. The ammo menu's corner is one
+    // such tile with no partner.
+    void remember_notice_edge(Rect rect) {
+        const Rect r = normalized(rect);
+        const float width = r.x1 - r.x0;
+        const float height = r.y1 - r.y0;
+        if (width < 14.0f || width > 18.0f || height < 6.0f || height > 10.0f || r.y0 >= 180.0f) return;
+        if (r.x0 < 300.0f || r.x0 > 460.0f) return;
+        for (int i = 0; i < notice_edges; ++i) {
+            const float dx = r.x0 > notice_edge_x[i] ? r.x0 - notice_edge_x[i] : notice_edge_x[i] - r.x0;
+            const float dy = r.y0 > notice_edge_y[i] ? r.y0 - notice_edge_y[i] : notice_edge_y[i] - r.y0;
+            if (dx <= 4.0f && dy >= 20.0f && dy <= 28.0f) notice_pair = true;
+        }
+        if (notice_edges < 8) {
+            notice_edge_x[notice_edges] = r.x0;
+            notice_edge_y[notice_edges] = r.y0;
+            ++notice_edges;
+        }
+    }
+
+    // A horizontal edge of the obtain window, or the panel it is while it
+    // slides down from the top. The area map's window is much taller.
+    void remember_obtain_banner(Rect rect) {
+        const Rect r = normalized(rect);
+        const float width = r.x1 - r.x0;
+        const float height = r.y1 - r.y0;
+        if (width < 70.0f || width > 220.0f || height < 2.0f || height > 28.0f) return;
+        if (r.x0 < 80.0f || r.x1 > 400.0f || r.y0 < -40.0f || r.y0 > 180.0f) return;
+        include_rect(obtain_banner, r, obtain_banner_now);
+    }
+
+    // A cap or the item icon sitting on that window. The map's own picture
+    // and its marks are not part of the banner.
+    [[nodiscard]] bool on_obtain_banner(Rect rect, std::uint32_t texture) const {
+        if (!obtain_banner_now || texture == kAreaMapTexture || texture == kMapIconTexture) return false;
+        const Rect grown{obtain_banner.x0 - 8.0f, obtain_banner.y0 - 4.0f, obtain_banner.x1 + 24.0f,
+            obtain_banner.y1 + 8.0f};
+        return overlaps(grown, normalized(rect));
+    }
+
+    [[nodiscard]] bool notice_partner(float x, float y) const {
+        for (int i = 0; i < notice_edges; ++i) {
+            const float dx = x > notice_edge_x[i] ? x - notice_edge_x[i] : notice_edge_x[i] - x;
+            const float dy = y > notice_edge_y[i] ? y - notice_edge_y[i] : notice_edge_y[i] - y;
+            if (dx <= 4.0f && dy >= 20.0f && dy <= 28.0f) return true;
+        }
+        return false;
+    }
+
+    // The notice's border passes through the ammo menu's corner on the way
+    // down. That tile opens the menu only when it is on its own. The menu's
+    // side and highlight are never part of the notice, so they keep it open.
+    void dismiss_false_menu() {
+        if (!notice_pair || menu_body) return;
+        for (int i = 0; i < notice_edges; ++i) {
+            const bool corner_row = notice_edge_y[i] >= 124.0f && notice_edge_y[i] <= 136.0f;
+            const bool corner_x = notice_edge_x[i] >= 310.0f && notice_edge_x[i] <= 314.0f;
+            if (corner_row && corner_x && !notice_partner(notice_edge_x[i], notice_edge_y[i])) return;
+        }
+        ammo_menu_now = false;
+    }
+
+    // The 16-tall piece of a long notice's border, directly above or below
+    // one of its 8-tall caps. A mark of that size has no such cap.
+    [[nodiscard]] bool beside_notice_edge(Rect rect) const {
+        const Rect r = normalized(rect);
+        const float width = r.x1 - r.x0;
+        const float height = r.y1 - r.y0;
+        if (width < 14.0f || width > 18.0f || height < 14.0f || height > 18.0f) return false;
+        auto stacked = [&](float edge_x, float edge_y) {
+            const float dx = r.x0 > edge_x ? r.x0 - edge_x : edge_x - r.x0;
+            if (dx > 4.0f) return false;
+            const float above = r.y0 - edge_y;
+            const float below = edge_y - r.y0;
+            return (above >= 6.0f && above <= 12.0f) || (below >= 12.0f && below <= 20.0f);
+        };
+        for (int i = 0; i < notice_edges; ++i)
+            if (stacked(notice_edge_x[i], notice_edge_y[i])) return true;
+        for (int i = 0; i < notice_edges_live; ++i)
+            if (stacked(notice_edge_x_live[i], notice_edge_y_live[i])) return true;
+        return false;
+    }
+
+    // The map's bounds are every quad of that map drawn this frame. The scale
+    // anchor stays the slot corner; the union is only which pixels are the map.
+    static void include_rect(Rect &dest, Rect incoming, bool &now) {
+        const Rect r = normalized(incoming);
+        if (!now)
+            dest = r;
+        else
+            dest = {std::min(dest.x0, r.x0), std::min(dest.y0, r.y0), std::max(dest.x1, r.x1), std::max(dest.y1, r.y1)};
+        now = true;
+    }
+
+    // The enlarged window, traced at 60 pixels for 40 texels. A window already
+    // on the slot (pixel span matching the texels) clears it. The first vertex
+    // carries the texel drawn at its own pixel, which fixes the bias.
+    template <typename Vertex>
+    void note_map_zoom(const std::vector<Vertex> &vertices, std::size_t first) {
+        map_zoomed = false;
+        if constexpr (requires { vertices[first].u; vertices[first].v; }) {
+            float x0 = vertices[first].x;
+            float x1 = x0;
+            float y0 = vertices[first].y;
+            float y1 = y0;
+            float u0 = vertices[first].u;
+            float u1 = u0;
+            float v0 = vertices[first].v;
+            float v1 = v0;
+            for (std::size_t i = 1; i < 6u; ++i) {
+                x0 = std::min(x0, vertices[first + i].x);
+                x1 = std::max(x1, vertices[first + i].x);
+                y0 = std::min(y0, vertices[first + i].y);
+                y1 = std::max(y1, vertices[first + i].y);
+                u0 = std::min(u0, vertices[first + i].u);
+                u1 = std::max(u1, vertices[first + i].u);
+                v0 = std::min(v0, vertices[first + i].v);
+                v1 = std::max(v1, vertices[first + i].v);
+            }
+            const float pw = x1 - x0;
+            const float ph = y1 - y0;
+            const float tw = u1 - u0;
+            const float th = v1 - v0;
+            if (pw < 8.0f || ph < 8.0f || tw < 8.0f || th < 8.0f) return;
+            const float zx = pw / tw;
+            const float zy = ph / th;
+            if (zx < 1.15f || zy < 1.15f || zx > 2.5f || zy > 2.5f) return;
+            if (zx - zy > 0.08f || zy - zx > 0.08f) return;
+            zoom_x = zx;
+            zoom_y = zy;
+            bias_x = vertices[first].x - zx * (kMapLeft + vertices[first].u);
+            bias_y = vertices[first].y - zy * (kMapTop + vertices[first].v);
+            map_zoomed = true;
+        }
+    }
+
+    // Put one quad back on the slot's placement. The map window's own texels
+    // say where it belongs. A sprite the game drew at its texel size (the camp
+    // icon) keeps that size and only its centre moves. The arrow's vertices
+    // are in the enlarged picture, so each one comes back.
+    template <typename Vertex>
+    void unzoom_quad(std::vector<Vertex> &vertices, std::size_t first, bool window) {
+        if (!map_zoomed) return;
+        if (window) {
+            if constexpr (requires { vertices[first].u; vertices[first].v; }) {
+                for (std::size_t i = 0; i < 6u; ++i) {
+                    vertices[first + i].x = kMapLeft + vertices[first + i].u;
+                    vertices[first + i].y = kMapTop + vertices[first + i].v;
+                }
+                return;
+            }
+        }
+        const bool texel_sized = [&] {
+            if constexpr (requires { vertices[first].u; vertices[first].v; }) {
+                float x0 = vertices[first].x;
+                float x1 = x0;
+                float y0 = vertices[first].y;
+                float y1 = y0;
+                float u0 = vertices[first].u;
+                float u1 = u0;
+                float v0 = vertices[first].v;
+                float v1 = v0;
+                for (std::size_t i = 1; i < 6u; ++i) {
+                    x0 = std::min(x0, vertices[first + i].x);
+                    x1 = std::max(x1, vertices[first + i].x);
+                    y0 = std::min(y0, vertices[first + i].y);
+                    y1 = std::max(y1, vertices[first + i].y);
+                    u0 = std::min(u0, vertices[first + i].u);
+                    u1 = std::max(u1, vertices[first + i].u);
+                    v0 = std::min(v0, vertices[first + i].v);
+                    v1 = std::max(v1, vertices[first + i].v);
+                }
+                const float tw = u1 - u0;
+                const float th = v1 - v0;
+                if (tw < 4.0f || th < 4.0f) return false;
+                const float rx = (x1 - x0) / tw;
+                const float ry = (y1 - y0) / th;
+                return rx > 0.8f && rx < 1.25f && ry > 0.8f && ry < 1.25f;
+            }
+            return false;
+        }();
+        if (texel_sized) {
+            float x0 = vertices[first].x;
+            float x1 = x0;
+            float y0 = vertices[first].y;
+            float y1 = y0;
+            for (std::size_t i = 1; i < 6u; ++i) {
+                x0 = std::min(x0, vertices[first + i].x);
+                x1 = std::max(x1, vertices[first + i].x);
+                y0 = std::min(y0, vertices[first + i].y);
+                y1 = std::max(y1, vertices[first + i].y);
+            }
+            const float dx = ((0.5f * (x0 + x1) - bias_x) / zoom_x) - 0.5f * (x0 + x1);
+            const float dy = ((0.5f * (y0 + y1) - bias_y) / zoom_y) - 0.5f * (y0 + y1);
+            for (std::size_t i = 0; i < 6u; ++i) {
+                vertices[first + i].x += dx;
+                vertices[first + i].y += dy;
+            }
+            return;
+        }
+        for (std::size_t i = 0; i < 6u; ++i) {
+            vertices[first + i].x = (vertices[first + i].x - bias_x) / zoom_x;
+            vertices[first + i].y = (vertices[first + i].y - bias_y) / zoom_y;
+        }
     }
 
     void note(Rect rect, std::uint32_t texture = 0) {
         if (is_fixed_map_sprite(rect)) {
-            map_now = true;
-            const Rect r = normalized(rect);
-            map_corner = {r.x1, r.y0};
-            map_rect = r;
-        } else if (is_travelling_map_window(rect) && texture == kAreaMapTexture) {
-            travelling_now = true;
-            const Rect r = normalized(rect);
-            travelling_corner = {r.x1, r.y0};
-            travelling_rect = r;
-        }
-        if (is_vital_bar(rect) || is_clock_sprite(rect) || is_monster_eye(rect)) vital_now = true;
+            include_rect(map_rect, rect, map_now);
+            map_corner = {kMapRight, kMapTop};
+        } else if (texture == kAreaMapTexture &&
+            (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
+            include_rect(travelling_rect, rect, travelling_now);
+        if (is_vital_bar(rect) || is_clock_sprite(rect) || is_monster_eye(rect) || is_status_icon(rect))
+            vital_now = true;
         if (is_bar_panel(rect)) bar_now = true;
         if (is_sharpness_bar(rect) || is_sharpness_frame(rect)) sharp_now = true;
         if (is_spirit_bar(rect) || is_spirit_fill(rect) || is_loaded_round(rect) || is_bow_coating(rect) ||
             is_gunlance_shell(rect) || is_hunting_horn(rect))
             spirit_now = true;
+        if (is_ammo_menu_body(rect)) menu_body = true;
         if (is_ammo_menu_sprite(rect)) ammo_menu_now = true;
+        remember_notice_edge(rect);
+        remember_obtain_banner(rect);
         if (is_bowgun_icon(rect)) bowgun_now = true;
         if (is_item_list(rect)) list_now = true;
     }
@@ -648,8 +1076,21 @@ struct Frame {
     void adopt_travelling_map() {
         if (!travelling_now || map_now || !(vital_now || vital_live)) return;
         map_now = true;
-        map_corner = travelling_corner;
+        map_corner = {kMapRight, kMapTop};
         map_rect = travelling_rect;
+    }
+
+    // A small mark on the map whose box is not wholly inside the large slot.
+    // The player's arrow is a turned quad: near the edge its box leaves the
+    // slot and piece_of misses it, so it was drawn at the game's size. A mark
+    // in the slot still counts when the window has slid off it. The notice's
+    // border is not a mark.
+    [[nodiscard]] bool on_map(Rect rect, std::uint32_t texture = 0) const {
+        if (!(map_now || map_live) || list_now || list_live) return false;
+        if (is_notice_piece(rect, texture) || on_obtain_banner(rect, texture)) return false;
+        if (!is_map_mark(rect)) return false;
+        if (overlaps(map_now ? map_rect : map_rect_live, rect)) return true;
+        return in_map_slot(rect);
     }
 
     [[nodiscard]] bool allows(Piece piece, Rect rect, std::uint32_t texture) const {
@@ -660,11 +1101,21 @@ struct Frame {
         // while the list is open, so a list-shaped sprite earlier in the
         // frame cannot pin the map at the size the game drew. A window
         // between the traced spots scales only after adopt_travelling_map()
-        // has accepted it, and a mark only when it lies on that window.
+        // has accepted it. A mark in the slot keeps that size when the
+        // window has moved off it; one on a window outside the slot follows
+        // the window's rectangle.
         case Piece::Map:
             if (is_fixed_map_sprite(rect)) return true;
-            if (is_travelling_map_window(rect))
-                return texture == kAreaMapTexture && (map_now || map_live) && (vital_now || vital_live);
+            // Only the area-map texture is the window. The camp icon is the
+            // same sort of size and sits in the slot, but it is another
+            // texture, so it is a mark. Without the Map item the window
+            // leaves the slot; that one is the texture too.
+            if (texture == kAreaMapTexture &&
+                (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
+                return (map_now || map_live) && (vital_now || vital_live);
+            if ((map_now || map_live) && !list_now && !list_live && is_map_mark(rect) && in_map_slot(rect) &&
+                !is_notice_piece(rect, texture))
+                return true;
             return (map_now || map_live) && !list_now && !list_live &&
                 overlaps(map_now ? map_rect : map_rect_live, rect);
         case Piece::Vitals: return vital_now || vital_live;
@@ -699,7 +1150,12 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         }
         return Rect{x0, y0, x1, y1};
     };
-    for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) frame.note(bounds_at(first), texture);
+    for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
+        const Rect bounds = bounds_at(first);
+        frame.note(bounds, texture);
+        if (texture == kAreaMapTexture && is_drawn_map(bounds, texture)) frame.note_map_zoom(vertices, first);
+    }
+    frame.dismiss_false_menu();
     frame.adopt_travelling_map();
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = bounds_at(first);
@@ -708,8 +1164,27 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         // closes draws the ammo bar in the same place.
         const bool in_ammo_menu = frame.ammo_menu_now &&
             contains({kAmmoMenuLeft, kAmmoMenuTop, kAmmoMenuRight, kAmmoMenuBottom}, bounds);
-        const Piece piece = in_ammo_menu ? Piece::ItemBar : piece_of(bounds);
+        Piece piece = in_ammo_menu ? Piece::ItemBar : piece_of(bounds, texture);
+        // A window from the area-map texture that sits outside the slot is
+        // still the map. piece_of only knows the slot.
+        if (!in_ammo_menu && texture == kAreaMapTexture && is_area_map_texture_window(bounds))
+            piece = Piece::Map;
+        // The arrow's box crosses the map, or lands in the bowgun slot, while
+        // the map it belongs to is the one drawn this frame.
+        if (!in_ammo_menu && (piece == Piece::None || piece == Piece::Bowgun) && frame.on_map(bounds, texture))
+            piece = Piece::Map;
+        // The obtain window's right end overlaps the enlarged map. Leave it
+        // where the game drew it, cap and item icon included.
+        if (frame.on_obtain_banner(bounds, texture) && piece == Piece::Map) piece = Piece::None;
+        // The long notice's 16-tall border sits on its 8-tall cap. It is the
+        // size of a map mark, so the mark rule would take it.
+        if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.beside_notice_edge(bounds)) continue;
         if (piece == Piece::None || (!in_ammo_menu && !frame.allows(piece, bounds, texture))) continue;
+        // The no-map window and the marks on it are enlarged. Put them on the
+        // slot's placement first, then apply the Map size. At 100% the
+        // placement is the whole change.
+        if (piece == Piece::Map && frame.map_zoomed)
+            frame.unzoom_quad(vertices, first, texture == kAreaMapTexture && is_drawn_map(bounds, texture));
         const float scale = scales.of(piece);
         const Placement place = piece == Piece::Map
             ? Placement{frame.map_corner.x, frame.map_corner.y, frame.map_corner.x, frame.map_corner.y}

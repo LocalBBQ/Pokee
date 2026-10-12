@@ -3,6 +3,7 @@
 #include "frame_interpolation.hpp"
 #include "frame_pacing.hpp"
 #include "game/damage_numbers.hpp"
+#include "game/gather_icon.hpp"
 #include "game_hud.hpp"
 #include "hud_scale.hpp"
 #include "replacement_textures.hpp"
@@ -17,6 +18,7 @@
 #include "vertex_budget.hpp"
 #include "vertex_hold.hpp"
 
+#include "camera/game_camera.hpp"
 #include "camera/lock_on.hpp"
 #include "install/game_identity.hpp"
 #include "install/user_data.hpp"
@@ -1040,13 +1042,16 @@ struct VulkanRenderer::Impl {
     bool hide_hud_pressed{};
     void sample_hide_hud(bool focused);
     // The Lock on bind (camera/lock_on.hpp): read while the game has input
-    // and counted once per tap (input::TapDetector), so a chord that holds
-    // the same input, R3 + D-pad left for a screenshot or L3 + R3 for the
-    // menu, never locks on too.
+    // and counted once per tap (input::TapDetector). Sprint and the other
+    // buttons may be held. A longer chord that contains the bind, R3 + D-pad
+    // left for a screenshot or L3 + R3 for the menu, does not lock on too.
     input::TapDetector lock_on_keys_tap;
     input::TapDetector lock_on_pad_tap;
     bool lock_on_pressed{};
     void sample_lock_on(bool focused);
+    // Focus camera (camera/game_camera.hpp): held while its bind is down.
+    // Empty means L, and this stays false.
+    bool focus_camera_held{};
     bool suppress_held{};
     std::uint32_t suppressed_buttons{};
     // The bindings matched over time (input/chords.hpp), one resolver for
@@ -6003,6 +6008,7 @@ void VulkanRenderer::Impl::sample_host_binds(bool focused) {
     (void)focused;
     input::PadState pressed = typed;
     if (gamepad != nullptr) pressed.screenshot = pressed.screenshot || mapped.screenshot;
+    focus_camera_held = game_input && (typed.focus_camera || (gamepad != nullptr && mapped.focus_camera));
     // Nothing while a menu or the on-screen keyboard has the input; a press
     // counts when it goes down, so one held as the menu closes does not.
     if (pressed.screenshot && !screenshot_held && game_input) screenshot_request = true;
@@ -6052,7 +6058,9 @@ void VulkanRenderer::Impl::sample_lock_on(bool focused) {
                 scripted_keys[static_cast<std::size_t>(position)]);
     });
     // Keys and mouse buttons act on their own, so moving on W A S D never
-    // spoils a tap; only the pad's inputs are also parts of other chords.
+    // spoils a tap. On a pad, sprint and the other buttons may be held too.
+    // Only a longer chord that contains the bind spoils it: R3 + D-pad left,
+    // L3 + R3, or one the player bound.
     if (lock_on_keys_tap.update(typed_now, false)) lock_on_pressed = true;
     bool pad_now = false;
     bool others = false;
@@ -6061,25 +6069,27 @@ void VulkanRenderer::Impl::sample_lock_on(bool focused) {
         const input::Slots &slots = player.controls.pad[action];
         const auto held = [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); };
         pad_now = chord_held(slots, held);
-        const auto part_of_lock_on = [&](input::Binding binding) {
-            for (const input::Chord &c : slots)
-                if (c.contains(binding)) return true;
-            return false;
+        const auto spoils = [&](const input::Chord &c) {
+            if (!input::extends_lock_on(slots, c)) return;
+            for (const input::Binding b : c.held())
+                if (!held(b)) return;
+            others = true;
         };
-        for (int n = 0; n < static_cast<int>(input::PadInput::ButtonCount); ++n) {
-            const input::Binding binding = input::pad(static_cast<input::PadInput>(n));
-            if (!part_of_lock_on(binding) && held(binding)) others = true;
-        }
-        for (const input::PadInput trigger : {input::PadInput::LeftTrigger, input::PadInput::RightTrigger}) {
-            const input::Binding binding = input::pad(trigger);
-            if (!part_of_lock_on(binding) && held(binding)) others = true;
-        }
+        for (const input::Slots &action_slots : player.controls.pad)
+            for (const input::Chord &c : action_slots) spoils(c);
+        for (const input::Combo &combo : player.controls.combos)
+            for (const input::Chord &c : combo.pad) spoils(c);
+        spoils(input::chord(input::pad(input::PadInput::LeftStick), input::pad(input::PadInput::RightStick)));
     }
     if (lock_on_pad_tap.update(pad_now, others)) lock_on_pressed = true;
 }
 
 bool VulkanRenderer::take_lock_on_press() noexcept {
     return impl_ && std::exchange(impl_->lock_on_pressed, false);
+}
+
+bool VulkanRenderer::focus_camera_held() const noexcept {
+    return impl_ && impl_->focus_camera_held;
 }
 
 bool VulkanRenderer::take_hide_hud_toggle() noexcept {
@@ -7077,13 +7087,18 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // draw with the most vertices is the world camera, follow or aim; the HUD
     // is orthographic and is ignored.
     if (!call.through && !call.clear_mode &&
-        (mhfu::game::damage_numbers_watching() ||
+        (mhfu::game::damage_numbers_watching() || settings::current().gather_icon ||
             (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted()))) {
         const std::uint32_t vertices = call.vertices_reused ? call.reused_count
             : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
         const mhfu::game::WorldCamera world{call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
             call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x, call.viewport.offset_y};
         if (mhfu::game::damage_numbers_watching()) mhfu::game::note_world_camera(world, vertices);
+        if (settings::current().gather_icon)
+            mhfu::game::gather_note_draw(
+                {world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset, world.origin_x,
+                    world.origin_y},
+                vertices);
         if (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted())
             mhfu::camera::lock_on_note_view(
                 {world.view, world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset,
@@ -7626,28 +7641,53 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
         corner_scaled = unscaled;
         if (named.is_name) {
-            float origin_x = named.origin_x;
-            float origin_y = named.origin_y;
-            // Fit pulls the 2D interface in about the screen's centre. The
-            // text entry's point is still in the game's pixels, so it moves
-            // with the glyphs.
-            if (named.has_origin && fitted) {
-                const float centre_x = 0.5f * static_cast<float>(kPspWidth);
-                const float centre_y = 0.5f * static_cast<float>(kPspHeight);
-                origin_x = centre_x + (origin_x - centre_x) * fit_x;
-                origin_y = centre_y + (origin_y - centre_y) * fit_y;
-            }
-            hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
-            if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
-                name_bounds = {corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
+            // A village label can also file a plate larger than the name. That
+            // draw stays as the game drew it. The size is the game's pixels:
+            // fit has already pulled this draw in about the screen's centre.
+            bool name_sized = true;
+            if (named.tag_only && !corner_scaled.empty()) {
+                hud_scale::Rect drawn{corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
                     corner_scaled.front().y};
                 for (const GpuVertex &vertex : corner_scaled) {
-                    name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
-                    name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
-                    name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
-                    name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
+                    drawn.x0 = std::min(drawn.x0, vertex.x);
+                    drawn.y0 = std::min(drawn.y0, vertex.y);
+                    drawn.x1 = std::max(drawn.x1, vertex.x);
+                    drawn.y1 = std::max(drawn.y1, vertex.y);
                 }
-                name_resized = true;
+                if (fitted && fit_x > 0.0f && fit_y > 0.0f) {
+                    const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+                    const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+                    drawn.x0 = centre_x + (drawn.x0 - centre_x) / fit_x;
+                    drawn.x1 = centre_x + (drawn.x1 - centre_x) / fit_x;
+                    drawn.y0 = centre_y + (drawn.y0 - centre_y) / fit_y;
+                    drawn.y1 = centre_y + (drawn.y1 - centre_y) / fit_y;
+                }
+                name_sized = hud_scale::is_name_tag(drawn);
+            }
+            if (name_sized) {
+                float origin_x = named.origin_x;
+                float origin_y = named.origin_y;
+                // Fit pulls the 2D interface in about the screen's centre. The
+                // text entry's point is still in the game's pixels, so it moves
+                // with the glyphs.
+                if (named.has_origin && fitted) {
+                    const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+                    const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+                    origin_x = centre_x + (origin_x - centre_x) * fit_x;
+                    origin_y = centre_y + (origin_y - centre_y) * fit_y;
+                }
+                hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
+                if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
+                    name_bounds = {corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
+                        corner_scaled.front().y};
+                    for (const GpuVertex &vertex : corner_scaled) {
+                        name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
+                        name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
+                        name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
+                        name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
+                    }
+                    name_resized = true;
+                }
             }
         } else {
             // The moving map window is told from other panels of the same size by
@@ -7684,7 +7724,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                         std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << ","
                                   << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")\n";
                 }
-                if (!moved || !hud_scale::is_map_sprite(bounds_of(unscaled, first))) continue;
+                if (!moved || !hud_scale::is_drawn_map(bounds_of(unscaled, first), hud_texture)) continue;
                 const hud_scale::Rect scaled = bounds_of(corner_scaled, first);
                 if (!map_resized) {
                     map_bounds = scaled;

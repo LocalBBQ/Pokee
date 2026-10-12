@@ -419,6 +419,15 @@ const std::vector<Field> &fields() {
                 if (kLockOnStyles.parse(t, style)) s.lock_on_style = style;
             }},
         BOOL_FIELD("input.lock_on_marker", lock_on_marker),
+        {"video.hunt_portrait", "MHFU_HUNT_PORTRAIT",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinHuntPortraitSize, kMaxHuntPortraitSize, s.hunt_portrait_size);
+            },
+            [](const Settings &s) { return std::to_string(s.hunt_portrait_size); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.hunt_portrait_size;
+                if (parse_uint(t, kMinHuntPortraitSize, kMaxHuntPortraitSize, value)) s.hunt_portrait_size = value;
+            }},
         {"input.camera_speed", "MHFU_CAMERA_SPEED",
             [](Settings &s, const std::string &t) { return parse_float(t, 20.0f, 720.0f, s.camera_speed); },
             [](const Settings &s) { return format_float(s.camera_speed); },
@@ -515,6 +524,32 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_numbers); },
             [](const Settings &s) { return std::string(s.damage_numbers ? "1" : "0"); },
             [](Settings &s, const char *t) { s.damage_numbers = variable_flag(t); }},
+        {"game.gather_icon", "MHFU_GATHER_ICON",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_icon); },
+            [](const Settings &s) { return std::string(s.gather_icon ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.gather_icon = variable_flag(t); }},
+        {"game.gather_hold", "MHFU_GATHER_HOLD",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_hold); },
+            [](const Settings &s) { return std::string(s.gather_hold ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.gather_hold = variable_flag(t); }},
+        {"game.gather_icon_size", "MHFU_GATHER_ICON_SIZE",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, s.gather_icon_size);
+            },
+            [](const Settings &s) { return std::to_string(s.gather_icon_size); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.gather_icon_size;
+                if (parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, value)) s.gather_icon_size = value;
+            }},
+        {"game.gather_icon_thickness", "MHFU_GATHER_ICON_THICKNESS",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, 1u, kMaxGatherIconThickness, s.gather_icon_thickness);
+            },
+            [](const Settings &s) { return std::to_string(s.gather_icon_thickness); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.gather_icon_thickness;
+                if (parse_uint(t, 1u, kMaxGatherIconThickness, value)) s.gather_icon_thickness = value;
+            }},
         {"game.damage_number_size", "MHFU_DAMAGE_NUMBER_SIZE",
             [](Settings &s, const std::string &t) {
                 return parse_uint(t, kMinDamageNumberSize, kMaxDamageNumberSize, s.damage_number_size);
@@ -682,15 +717,16 @@ void write_combos(const std::vector<input::Combo> &combos, const std::string &pr
     }
 }
 
-// Actions added since a layout was written (the item bar's, #198, and
-// lock-on, #163), which the file has no key for, take what the shipped preset `from` has for them,
-// each chord only if it clashes with nothing the layout has: settings from
-// before keep every binding they had. Other missing keys are left as they
-// always were.
+// Actions added since a layout was written (the item bar's, #198, lock-on,
+// #163, and Focus camera), which the file has no key for, take what the
+// shipped preset `from` has for them, each chord only if it clashes with
+// nothing the layout has: settings from before keep every binding they had.
+// Other missing keys are left as they always were. Focus camera's preset is
+// empty, so an older file keeps L as that button.
 void fill_new_actions(
     input::Layout &layout, const input::Layout &from, const std::function<bool(std::size_t, bool)> &written) {
     static constexpr input::Action kAdded[] = {
-        input::Action::ItemLeft, input::Action::ItemRight, input::Action::LockOn};
+        input::Action::ItemLeft, input::Action::ItemRight, input::Action::LockOn, input::Action::FocusCamera};
     for (const bool pad : {false, true}) {
         input::Bindings &table = pad ? layout.pad : layout.keys;
         const input::Bindings &defaults = pad ? from.pad : from.keys;
