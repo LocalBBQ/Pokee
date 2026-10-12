@@ -126,7 +126,7 @@ struct Settings {
     // so the press does not move the camera twice. A second tap within a third
     // of a second recenters behind the hunter.
     LockOnStyle lock_on_style{LockOnStyle::Follow};
-    // Ring, cross and ticks. Focus drops it shortly after the selection and after the focus button.
+    // Ring, cross and ticks. Focus leaves it off until the focus button, then drops it shortly after.
     bool lock_on_marker{true};
     // The monster icon at the bottom left, as a percent of its usual size.
     std::uint32_t hunt_portrait_size{100u};

@@ -341,7 +341,7 @@ ChipResult chip(const char *id, ImVec2 at, float width, const std::string &text,
     draw->AddRect(min, max, edge, rounding, 0, r.focused ? px(2.5f) : px(1.5f));
     if (r.focused && !live)
         draw->AddRect({min.x - px(3.0f), min.y - px(3.0f)}, {max.x + px(3.0f), max.y + px(3.0f)},
-            IM_COL32(251, 230, 166, 90), rounding + px(3.0f), 0, px(1.5f));
+            colors::with_alpha(colors::kAccentBright, 90), rounding + px(3.0f), 0, px(1.5f));
 
     ImU32 ink = locked ? colors::kTextDisabled : warning ? colors::kDanger : colors::kText;
     if (kind == ChipKind::Add && !hot) ink = colors::kTextDim;
@@ -637,7 +637,7 @@ void action_row(Target action, const Columns &c, bool locked, input::PadStyle st
     ImDrawList *draw = ImGui::GetWindowDrawList();
     const bool row_focused = st.last_focus_action == action;
     if (row_focused) {
-        draw->AddRectFilled(top, bottom, IM_COL32(217, 166, 75, 26), px(6.0f));
+        draw->AddRectFilled(top, bottom, colors::with_alpha(colors::kAccent, 26), px(6.0f));
         draw->AddRectFilled(top, {top.x + px(4.0f), bottom.y}, colors::kAccent, px(6.0f), ImDrawFlags_RoundCornersLeft);
     }
     const std::vector<input::Conflict> key_clashes = input::conflicts(input::table(s.controls, false), action);
@@ -925,7 +925,7 @@ void bindings_capture_prompt() {
     ImDrawList *draw = ImGui::GetForegroundDrawList();
     ImFont *f = ImGui::GetFont();
     const float base = ImGui::GetStyle().FontSizeBase;
-    draw->AddRectFilled({0.0f, 0.0f}, io.DisplaySize, IM_COL32(8, 5, 3, 150));
+    draw->AddRectFilled({0.0f, 0.0f}, io.DisplaySize, colors::kShade);
 
     const bool pad = c.pad;
     const settings::Settings &s = settings::current();
