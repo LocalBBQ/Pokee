@@ -3015,7 +3015,8 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     change_video("Lock-on style", ImGuiKey_RightArrow);
     expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style switches to focus");
     change_video("Lock-on style", ImGuiKey_LeftArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style round trip restores follow");
+    expect(
+        settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style round trip restores follow");
     toggle_setting("Lock-on marker", &settings::Settings::lock_on_marker);
     {
         const bool lock_on = settings::current().lock_on;
@@ -3036,8 +3037,8 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         settings::current().damage_numbers = false;
         change_video("Damage number size", ImGuiKey_RightArrow);
         change_video("Damage number thickness", ImGuiKey_RightArrow);
-        expect(settings::current().damage_number_size == size &&
-                settings::current().damage_number_thickness == thickness,
+        expect(
+            settings::current().damage_number_size == size && settings::current().damage_number_thickness == thickness,
             "damage number size and thickness are locked while the numbers are off");
         settings::current().damage_numbers = true;
         change_video("Damage number size", ImGuiKey_RightArrow);
@@ -3047,8 +3048,8 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
             "damage number size steps by 10% and thickness by 1");
         change_video("Damage number size", ImGuiKey_LeftArrow);
         change_video("Damage number thickness", ImGuiKey_LeftArrow);
-        expect(settings::current().damage_number_size == size &&
-                settings::current().damage_number_thickness == thickness,
+        expect(
+            settings::current().damage_number_size == size && settings::current().damage_number_thickness == thickness,
             "damage number size and thickness round trip");
         settings::current().damage_numbers = numbers;
     }
@@ -3723,8 +3724,7 @@ void layered_armor_ui_contracts(gpu::VulkanRenderer &renderer, psprecomp::Runtim
     frame(nullptr, true);
     expect(!ui::layered_armor_screen_open(), "piece-list back returns to page and page back closes it");
     for (unsigned i = 0; i < before.size(); ++i)
-        expect(
-            memory.load8(kOldCharacter + i) == before[i], "layered UI never modifies the old character block");
+        expect(memory.load8(kOldCharacter + i) == before[i], "layered UI never modifies the old character block");
     memory.store16(kOldCharacter, 0);
     memory.store8(worn, 0);
     memory.store8(kOldEquipmentBox, 0);

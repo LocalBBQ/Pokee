@@ -141,8 +141,8 @@ struct HuntPortrait {
     float width{};
     float height{};
 };
-[[nodiscard]] std::vector<HuntPortrait> place_hunt_portraits(const std::vector<HuntMonster> &monsters,
-    std::uint32_t locked_target, bool locked);
+[[nodiscard]] std::vector<HuntPortrait> place_hunt_portraits(
+    const std::vector<HuntMonster> &monsters, std::uint32_t locked_target, bool locked);
 
 // The camera's yaw, in its units, that looks from `from` towards `to`.
 [[nodiscard]] std::uint16_t yaw_towards(const Vec3 &from, const Vec3 &to);
@@ -212,7 +212,8 @@ struct LockOnAim {
 [[nodiscard]] std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, const LockOnCamera &camera);
 
 // The selected monster is inside the picture at this yaw.
-[[nodiscard]] bool lock_on_monster_in_view(const psprecomp::GuestMemory &memory, std::uint16_t yaw, const Vec3 &look_at);
+[[nodiscard]] bool lock_on_monster_in_view(
+    const psprecomp::GuestMemory &memory, std::uint16_t yaw, const Vec3 &look_at);
 
 // A second L within a third of a second of the tap that started a Focus turn.
 // The driver leaves that press to the game, which recenters behind the hunter.
@@ -247,8 +248,8 @@ struct LockOnStatus {
 void lock_on_toggle_follow();
 // The yaw the game's L recenter should use so the camera looks at the locked
 // monster. Nothing unless Focus has one selected, in this area.
-[[nodiscard]] std::optional<std::uint16_t> lock_on_focus_aim_yaw(const psprecomp::GuestMemory &memory,
-    const Vec3 &look_at);
+[[nodiscard]] std::optional<std::uint16_t> lock_on_focus_aim_yaw(
+    const psprecomp::GuestMemory &memory, const Vec3 &look_at);
 // Focus: the focus button was just pressed. The reticle stays for a third of
 // a second, then goes. The selection stays. A hold does not start that time again.
 void lock_on_focus_reticle();

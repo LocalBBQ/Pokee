@@ -226,12 +226,12 @@ void feed_mouse(gpu::VulkanRenderer &renderer) {
 // The quest camera's eye for damage numbers and the gather mark, asking for
 // the camera hook when either of those, or MHFU_TRACE_HITS, is on.
 std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
-    camera::game_camera_want_pose(settings::current().damage_numbers || settings::current().gather_icon ||
-        game::hit_trace::enabled());
+    camera::game_camera_want_pose(
+        settings::current().damage_numbers || settings::current().gather_icon || game::hit_trace::enabled());
     const std::optional<camera::CameraPose> pose = camera::game_camera_pose(rt.memory());
     if (!pose) return std::nullopt;
-    return game::EyePose{{pose->eye[0], pose->eye[1], pose->eye[2]},
-        {pose->look_at[0], pose->look_at[1], pose->look_at[2]}};
+    return game::EyePose{
+        {pose->eye[0], pose->eye[1], pose->eye[2]}, {pose->look_at[0], pose->look_at[1], pose->look_at[2]}};
 }
 #endif
 
@@ -300,16 +300,15 @@ void present_frame(Runtime &rt) {
     }
     std::optional<game::GatherPose> gather_pose;
     if (pose)
-        gather_pose = game::GatherPose{
-            pose->eye.x, pose->eye.y, pose->eye.z, pose->look_at.x, pose->look_at.y, pose->look_at.z};
+        gather_pose =
+            game::GatherPose{pose->eye.x, pose->eye.y, pose->eye.z, pose->look_at.x, pose->look_at.y, pose->look_at.z};
     ui::set_gather_mark(game::gather_mark(rt.memory(), gather_pose));
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more
     // often than the display refreshes. Without this, Vsync's wait for the
     // next image holds the game to the display rate.
-    renderer.set_fast_forward(
-        fast_loading::active() || fast_forward::active() || settings::current().unthrottled);
+    renderer.set_fast_forward(fast_loading::active() || fast_forward::active() || settings::current().unthrottled);
     // The real time the frame stands for, which frame interpolation spaces
     // its presents by: that of the vblank the game's frame started from.
     const bool presented = renderer.present(address, kernel().real_time_of(frame_start_us(kernel().last_vblank_us())));
@@ -489,8 +488,8 @@ void register_display_ctrl(HleRegistrar &hle) {
                     const int sx = static_cast<int>(std::lround(dx * 127.0f / length));
                     const int sy = static_cast<int>(std::lround(dy * 127.0f / length));
                     if (stick)
-                        camera::game_camera_present_aim(sx, sy, static_cast<float>(dx) / 127.0f,
-                            static_cast<float>(dy) / 127.0f);
+                        camera::game_camera_present_aim(
+                            sx, sy, static_cast<float>(dx) / 127.0f, static_cast<float>(dy) / 127.0f);
                     else
                         camera::game_camera_present_aim(sx, sy);
                 }
