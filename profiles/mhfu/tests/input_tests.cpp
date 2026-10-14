@@ -193,16 +193,21 @@ void test_presets() {
             slots_of(c, Action::Select)[0] == single(from_name("Right Shift")) &&
             slots_of(c, Action::Select)[1] == single(from_name("Backspace")),
         "the classic layout is the one earlier versions had");
-    // LB is L. LT locks on and starts focus or follow. RT is still R.
+    // LB is L. R3 locks on, and LT is the focus or follow camera. RT is still R.
     const Bindings &p = default_pad();
     check(slots_of(p, Action::Cross)[0] == single(pad(PadInput::South)) &&
             slots_of(p, Action::Circle)[0] == single(pad(PadInput::East)) &&
             slots_of(p, Action::L)[0] == single(pad(PadInput::LeftShoulder)) && slots_of(p, Action::L)[1].empty() &&
-            slots_of(p, Action::LockOn)[0] == single(pad(PadInput::LeftTrigger)) &&
+            slots_of(p, Action::LockOn)[0] == single(pad(PadInput::RightStick)) &&
+            slots_of(p, Action::LockOn)[1].empty() &&
             slots_of(p, Action::FocusCamera)[0] == single(pad(PadInput::LeftTrigger)) &&
             slots_of(p, Action::R)[1] == single(pad(PadInput::RightTrigger)) &&
             slots_of(p, Action::Select)[0] == single(pad(PadInput::Back)),
-        "the default pad keeps LB as L and puts lock-on on LT");
+        "the default pad keeps LB as L, puts lock-on on R3 and focus on LT");
+    const Bindings &left = layout(Preset::LeftHanded).pad;
+    check(slots_of(left, Action::LockOn)[0] == single(pad(PadInput::LeftStick)) &&
+            slots_of(left, Action::FocusCamera)[0] == single(pad(PadInput::RightTrigger)),
+        "the left-handed pad mirrors it: L3 locks on and RT is focus");
     check(layout(Preset::LeftHanded).swap_sticks && !layout(Preset::Default).swap_sticks,
         "the left-handed preset moves with the right stick");
 }
@@ -372,12 +377,15 @@ void test_read() {
     held = {key(225), mouse_button(3)};
     check(read_held(b).buttons == (0x2000u | 0x0200u), "the other input's other binding still works");
 
-    // The pad of the Default preset. LT is lock-on, not L.
+    // The pad of the Default preset. LT is the focus camera, not L, and R3 locks on.
     const Bindings &p = default_pad();
     held = {pad(PadInput::South), pad(PadInput::LeftTrigger), pad(PadInput::DpadUp)};
     state = read_held(p);
-    check(state.buttons == (0x4000u | 0x0010u) && state.lock_on && state.focus_camera,
-        "the face button and the D-pad press, and LT locks on and starts focus");
+    check(state.buttons == (0x4000u | 0x0010u) && !state.lock_on && state.focus_camera,
+        "the face button and the D-pad press, and LT is focus without locking on");
+    held = {pad(PadInput::RightStick)};
+    state = read_held(p);
+    check(state.buttons == 0u && state.lock_on && !state.focus_camera, "R3 locks on and is not focus");
     held = {pad(PadInput::LeftShoulder)};
     check(read_held(p).buttons == 0x0100u && !read_held(p).lock_on, "LB presses L and does not lock on");
 
