@@ -25,9 +25,8 @@
 namespace mhfu::ui {
 namespace {
 
-// The preview line: English as the patched game shows it, and some of the
-// Japanese it still has.
-constexpr char32_t kPreviewText[] = U"Urgent Quest  Yukumo Chief  1500z  装備 アイテム";
+// The preview line: words from the game's own English text.
+constexpr char32_t kPreviewText[] = U"Urgent Quest  Village Chief  1500z  Pokke Farm";
 // Text height in PSP pixels of most of the game's text.
 constexpr float kPreviewTextSize = 14.0f;
 constexpr int kPreviewWidth = 1024;

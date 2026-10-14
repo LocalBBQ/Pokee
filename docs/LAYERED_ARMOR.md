@@ -15,12 +15,22 @@ chest, arms, waist and legs are tables 7, 9, 11, 13 and 15 (`0x08851598` and
 the direct thunks after it). The equipment box is the 1000 records of 12
 bytes at `load32(0x089CC558) + 0x548` (`0x08901788` walks them; `0x08850e58`
 makes the count 1000). A layered piece has to be one the hunter wears or
-keeps there. Watched on a loaded hunter: the block pointer was `0x09999DA0`,
-so the box began at `0x0999A2E8`. The worn arms id `0x0168` was a used slot
-128 records in (kind 1, the arms). Slot 137 held a head, kind 4, id `0x0166`,
-which that hunter was not wearing (the worn head was `0x01B3`). The worn
-chest `0x03E0` was on the hunter and was not also stored as a box record.
-Names were not checked against the screen.
+keeps there. A record's byte 1 is the kind, and the box does not number the
+parts the way the port's menu does: legs 0, head 1, chest 2, arms 3, waist 4,
+blademaster weapons 5 and gunner weapons 6. `0x0885C83C` picks the armor table
+by that byte through the jump table at `0x089315AC` (0 legs `0x08973954`, 1
+head, 2 chest, 3 arms, 4 waist, then the two weapon tables), and `0x08901788`
+turns its equipment classes into the same byte through the bytes at
+`0x089B9260`. `0x08850720` writes a record with that kind (below 7). The worn
+pieces are kept in the same order, legs first (`0x08850D04`, from
+`block + 0x4A0 + 0x2C`). An earlier version compared the byte with the menu's
+part number, so it listed another part's pieces under this part's names and
+missed the pieces really kept, such as a new hunter's starting armor. Watched
+on a loaded hunter, before that was found: the block pointer was
+`0x09999DA0`, so the box began at `0x0999A2E8`; slot 128 was a used kind 1
+record with id `0x0168`, and slot 137 a kind 4 record with id `0x0166`. Read
+with the kinds above, those are a head and a waist; they were not checked
+against the screen.
 
 The code is `profiles/mhfu/host/game/layered_armor.{hpp,cpp}` (pure
 functions over a `Ram`, tested on made-up tables in

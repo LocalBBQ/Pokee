@@ -838,7 +838,7 @@ gpu::VulkanRenderer *ensure_renderer() {
         const std::string text = "Pokee cannot draw on this device's GPU:\n\n" + error + "\n\n" +
             (device.empty() ? std::string("No GPU chosen yet") : device) + "\n" + android::system_summary() + "\n" +
             std::string(kPokeeVersion) +
-            "\n\nPlease report it at github.com/TeamGDB/Yakumo/issues with a screenshot and "
+            "\n\nPlease report it at github.com/LocalBBQ/Pokee/issues with a screenshot and "
             "the log.";
         android::fatal_error("Pokee: graphics error", text, 4);
 #else
