@@ -233,6 +233,9 @@ public:
     // Where the game's picture is in the window: left, top, width and
     // height, each a fraction of the window's.
     [[nodiscard]] std::array<float, 4> game_picture() const noexcept;
+    // The quest clock was drawn this frame or the one before
+    // (hud_scale::QuestClock): the quest HUD is on screen.
+    [[nodiscard]] bool quest_hud_up() const noexcept;
     // The size the game is drawn at, in pixels.
     [[nodiscard]] std::array<std::uint32_t, 2> target_size() const noexcept;
 

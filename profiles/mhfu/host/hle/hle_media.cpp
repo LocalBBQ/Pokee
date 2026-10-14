@@ -52,6 +52,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace mhfu {
@@ -295,8 +296,18 @@ void present_frame(Runtime &rt) {
     } else {
         camera::refresh_hunt_icons(rt.memory());
         const camera::LockOnStatus locked = camera::lock_on_status();
-        ui::set_hunt_portraits(
-            camera::place_hunt_portraits(camera::hunt_monsters(rt.memory()), locked.target, locked.locked));
+        // Read every frame, so the order of the icons still starts again with
+        // a new quest. They are shown only with the quest HUD: the clock is
+        // gone once the screens after a quest begin. While the player hides
+        // the HUD its clock is not drawn, so the icon stays as before.
+        // MHFU_HUNT_ICON_WITH_HUD=0 shows them whenever a quest runs.
+        static const bool with_hud = [] {
+            const char *value = std::getenv("MHFU_HUNT_ICON_WITH_HUD");
+            return value == nullptr || std::string_view(value) != "0";
+        }();
+        std::vector<camera::HuntMonster> monsters = camera::hunt_monsters(rt.memory());
+        if (with_hud && !gpu::hud::active() && !renderer.quest_hud_up()) monsters.clear();
+        ui::set_hunt_portraits(camera::place_hunt_portraits(monsters, locked.target, locked.locked));
     }
     std::optional<game::GatherPose> gather_pose;
     if (pose)
