@@ -591,7 +591,8 @@ void Menu::video() {
             o.note = "Lock-on is off";
         }
         if (const int delta = choice_row("Lock-on style", styles[style], o)) {
-            const int next = std::clamp(style + delta, 0, 1);
+            // Either way, or confirm, moves to the other style, as the other choice rows wrap.
+            const int next = cycle(style, delta, 2);
             s.lock_on_style = next == 0 ? settings::LockOnStyle::Follow : settings::LockOnStyle::Focus;
             settings::save();
         }

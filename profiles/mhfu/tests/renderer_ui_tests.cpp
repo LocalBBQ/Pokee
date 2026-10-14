@@ -2942,6 +2942,22 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     } else {
         cycle_setting("GPU compatibility", &settings::Settings::gpu_compat);
     }
+    // Lock-on style wraps like the other choice rows: from either style, left
+    // or right moves to the other one. It used to stop at each end.
+    const auto original_style = settings::current().lock_on_style;
+    settings::current().lock_on = true;
+    settings::current().lock_on_style = settings::LockOnStyle::Follow;
+    change_video("Lock-on style", ImGuiKey_RightArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style steps right to Focus");
+    change_video("Lock-on style", ImGuiKey_RightArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow,
+        "lock-on style wraps right from Focus back to Follow");
+    change_video("Lock-on style", ImGuiKey_LeftArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus,
+        "lock-on style wraps left from Follow to Focus");
+    change_video("Lock-on style", ImGuiKey_LeftArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style steps left to Follow");
+    settings::current().lock_on_style = original_style;
     const auto original_window_scale = settings::current().window_scale;
     change_video("Window size", ImGuiKey_RightArrow);
     expect(settings::current().window_scale == original_window_scale + 1,
