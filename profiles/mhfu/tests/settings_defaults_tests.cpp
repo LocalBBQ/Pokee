@@ -1583,6 +1583,24 @@ void test_interface_sizes() {
     check(header[0].x == 65.0f && header[0].y == 33.0f && header[6].x == 114.0f && header[6].y == 33.0f &&
             header[12].x == 240.0f && header[12].y == 32.0f,
         "shop header letters in the weapon slot are not scaled");
+    // The Abandon Quest window's top-left border tile, 16 by 8, sits in the
+    // weapon slot while a bow's coating plate is up. It stays where the window
+    // draws it; the plate still shrinks. Traced with MHFU_TRACE_HUD_SCALE.
+    check(piece_of({232.0f, 40.0f, 248.0f, 48.0f}) == Piece::None &&
+            piece_of({160.0f, 42.0f, 176.0f, 50.0f}) == Piece::None &&
+            piece_of({160.0f, 34.0f, 176.0f, 42.0f}) == Piece::None,
+        "a window's border tile in the weapon slot is not a weapon piece");
+    Frame abandon;
+    std::vector<Vertex> coating_plate(6, Vertex{60.0f, 32.0f});
+    coating_plate[2] = {94.0f, 44.0f};
+    std::vector<Vertex> window_corner(6, Vertex{232.0f, 40.0f});
+    window_corner[2] = {248.0f, 48.0f};
+    std::vector<Vertex> abandon_row(coating_plate);
+    abandon_row.insert(abandon_row.end(), window_corner.begin(), window_corner.end());
+    mhfu::gpu::hud_scale::scale_quads(abandon_row, group_half, abandon);
+    check(abandon_row[0].x == 34.0f && abandon_row[0].y == 20.0f && abandon_row[6].x == 232.0f &&
+            abandon_row[6].y == 40.0f && abandon_row[8].x == 248.0f && abandon_row[8].y == 48.0f,
+        "the Abandon Quest window's corner stays put while the coating plate shrinks");
 
     // The ammo menu shrinks as one panel into the item bar's corner (472, 264).
     const Scales bar_half{1.0f, 1.0f, 0.5f, 1.0f, 1.0f, 1.0f};
@@ -1843,9 +1861,66 @@ void test_hud_scale_draws() {
     check(!mhfu::gpu::hud_scale::moved_map_bounds(drawn, drawn, 0u), "an unmoved map needs no scissor");
 }
 
+// A bowgun's reticle moves with the aim. Crossing the map's slot it is the
+// size of a mark, and it must stay the size the game draws it.
+void test_aim_reticle_is_not_a_map_mark() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const Scales map_half = Scales::from_percent(50u, 100u, 100u);
+    constexpr std::uint32_t kReticle = 0x09123450u;
+    const auto quest = [&](Frame &frame) {
+        std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+        scale_quads(clock, map_half, frame, 0u, Owner::QuestHud);
+        std::vector<Vertex> tile = quad(316.0f, 32.0f, 468.0f, 184.0f);
+        scale_quads(tile, map_half, frame, 0u, Owner::QuestHud);
+    };
+
+    // Not aiming: a sprite of that size in the slot is a mark.
+    Frame idle;
+    quest(idle);
+    std::vector<Vertex> mark = quad(420.0f, 60.0f, 444.0f, 84.0f);
+    scale_quads(mark, map_half, idle, kReticle, Owner::QuestHud);
+    check(mark[0].x != 420.0f, "a mark in the slot takes the map's size");
+
+    Frame aiming;
+    aiming.aiming = true;
+    quest(aiming);
+    std::vector<Vertex> centre = quad(228.0f, 124.0f, 252.0f, 148.0f);
+    scale_quads(centre, map_half, aiming, kReticle, Owner::QuestHud);
+    check(centre[0].x == 228.0f && centre[2].y == 148.0f, "the reticle in the middle stays as drawn");
+    std::vector<Vertex> right = quad(420.0f, 60.0f, 444.0f, 84.0f);
+    scale_quads(right, map_half, aiming, kReticle, Owner::QuestHud);
+    check(right[0].x == 420.0f && right[0].y == 60.0f && right[2].x == 444.0f,
+        "the reticle aimed into the map's slot stays as drawn");
+    std::vector<Vertex> arrow = quad(420.0f, 60.0f, 444.0f, 84.0f);
+    scale_quads(arrow, map_half, aiming, mhfu::gpu::hud_scale::kMapIconTexture, Owner::QuestHud);
+    check(arrow[0].x != 420.0f, "a mark from the map's atlas still takes the map's size while aiming");
+    std::vector<Vertex> other = quad(420.0f, 60.0f, 450.0f, 90.0f);
+    scale_quads(other, map_half, aiming, kReticle, Owner::QuestHud);
+    check(other[0].x != 420.0f, "a sprite of another size from that texture is still a mark");
+
+    // The aim ends: the reticle is forgotten.
+    aiming.aiming = false;
+    std::vector<Vertex> after = quad(420.0f, 60.0f, 444.0f, 84.0f);
+    scale_quads(after, map_half, aiming, kReticle, Owner::QuestHud);
+    check(after[0].x != 420.0f, "after the aim that size is a mark again");
+}
+
 int main() {
     test_interface_sizes();
     test_interface_sizes_by_owner();
+    test_aim_reticle_is_not_a_map_mark();
     test_hud_scale_draws();
     test_crisp_text();
     test_layered_armor();

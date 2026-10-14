@@ -475,6 +475,9 @@ void register_display_ctrl(HleRegistrar &hle) {
                 int dx = static_cast<int>(right_x) - 0x80;
                 int dy = static_cast<int>(right_y) - 0x80;
                 const bool stick = dx != 0 || dy != 0;
+                // A bow aims only from the D-pad, in code no wrapper reaches:
+                // the stick is pressed there in the sample (game_camera.hpp).
+                if (stick) buttons |= camera::game_camera_aim_dpad(dx, dy);
                 if (!stick) {
                     if (const auto mouse = camera::game_camera_mouse_aim()) {
                         dx = static_cast<int>(std::lround(mouse->x * 127.0f));

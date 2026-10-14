@@ -34,6 +34,9 @@ struct CodeWord {
 // function is in an overlay, so it is not in memory when the camera driver
 // starts.
 [[nodiscard]] std::span<const CodeWord> aim_code_signature();
+// The same for 0x09AAA158, the aim function that aims in the action its
+// caller passes.
+[[nodiscard]] std::span<const CodeWord> action_aim_code_signature();
 
 // Checks the game's code against game_code_signature() and remembers the
 // generated function behind the camera update. Nothing is hooked yet: that
@@ -54,6 +57,16 @@ void game_camera_frame(psprecomp::Runtime &runtime);
 // right stick, or the mouse, for that call only; the movement stick is left
 // as the player is holding it.
 [[nodiscard]] bool game_camera_aim_boost();
+
+// A bow or a bowgun is aiming, read at the last flip from the game's own aim
+// functions, whether or not the driver is on.
+[[nodiscard]] bool game_camera_hunter_aiming();
+
+// While a bow aims under the driver: the D-pad bits (PSP up 0x10, right 0x20,
+// down 0x40, left 0x80) to add to the pad sample for the right stick at `x`
+// and `y`, each -127 to 127, centred. The bow's aim reads only the D-pad, from
+// code no wrapper can reach. 0 otherwise, and for an axis pushed too little.
+[[nodiscard]] std::uint32_t game_camera_aim_dpad(int x, int y);
 
 // The deflection, already centred, to show the aim function on its next call.
 // Zero on both axes leaves the stick the game copied from the pad. `scale_x`

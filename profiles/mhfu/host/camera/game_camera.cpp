@@ -123,18 +123,21 @@ constexpr std::uint32_t kHunterButtons = 1152u;
 // The stick reader at 0x08868F50 packs a direction into the high half of the
 // button word, from the 16-entry table at 0x089A619C (one entry per 22.5°).
 // Index 0 is right (0x20) and the angle runs counterclockwise: up 0x10, left
-// 0x80, down 0x40, the same bits as the D-pad. The aim function tests those
-// bits shifted up by 16 only while hunter byte +1380 is set, which a bow does
-// and a bowgun does not. With the byte clear it steps the heading by 576 from
-// the D-pad's left (0x80) and right (0x20), and the pitch byte from up (0x10)
-// and down (0x40), and never reads the stick half. A push is shown as
-// whichever of those the byte selects, so the movement stick is unchanged.
+// 0x80, down 0x40, the same bits as the D-pad. Each aim function below picks
+// one of two branches every call. Read from 0x09AA4E2C on: while the byte at
+// hunter +1380 is non-zero, or bit 0x1000 of the word at +1556 is set, it
+// takes the stick branch (0x09AA5008), which reads those bits shifted up by
+// 16 and the magnitude, and the D-pad bits too when 0x088D27CC returns 0.
+// Otherwise it takes the D-pad branch, which steps the heading by 576 from
+// the D-pad's left (0x80) and right (0x20) and the pitch from up (0x10) and
+// down (0x40). +1380 is a timer the function itself sets to 5 or 10 after a
+// step, not a weapon flag. A push is shown on both, so whichever branch the
+// game takes sees it, and the movement stick is unchanged.
 constexpr std::uint32_t kStickDirectionMask = 0x00F00000u;
 constexpr std::uint32_t kStickUp = 0x00100000u;
 constexpr std::uint32_t kStickRight = 0x00200000u;
 constexpr std::uint32_t kStickDown = 0x00400000u;
 constexpr std::uint32_t kStickLeft = 0x00800000u;
-constexpr std::uint32_t kAimStickGate = 1380u;
 constexpr std::uint32_t kDpadMask = 0x00F0u;
 constexpr std::uint32_t kDpadUp = 0x0010u;
 constexpr std::uint32_t kDpadRight = 0x0020u;
@@ -142,8 +145,11 @@ constexpr std::uint32_t kDpadDown = 0x0040u;
 constexpr std::uint32_t kDpadLeft = 0x0080u;
 constexpr int kStickDeadzone = 40;
 constexpr int kStickFull = 127;
-// The aim function, in game_task. Its prologue is checked before the wrapper
-// is installed, because this address belongs to whichever overlay is loaded.
+// The aim functions, in game_task. Each prologue is checked before its wrapper
+// is installed, because these addresses belong to whichever overlay is loaded.
+// 0x09AA4DD0 aims in action 1001. 0x09AAA158 is the same code for the action
+// its caller passes in a1 (8 from 0x09AA3D4C, 0x09AA3D5C and 0x09AA3D70); it
+// returns unless +804 equals that action (0x09AAA188).
 constexpr std::uint32_t kAimFunction = 0x09AA4DD0u;
 constexpr std::array<CodeWord, 4> kAimSignature{{
     {0x09AA4DD0u, 0x27BDFFE0u, "addiu sp,sp,-32"},
@@ -151,6 +157,32 @@ constexpr std::array<CodeWord, 4> kAimSignature{{
     {0x09AA4DD8u, 0xAFB30018u, "sw s3,24(sp)"},
     {0x09AA4DDCu, 0xAFB20014u, "sw s2,20(sp)"},
 }};
+constexpr std::uint32_t kActionAimFunction = 0x09AAA158u;
+constexpr std::array<CodeWord, 5> kActionAimSignature{{
+    {0x09AAA158u, 0x27BDFFF0u, "addiu sp,sp,-16"},
+    {0x09AAA15Cu, 0xAFBF000Cu, "sw ra,12(sp)"},
+    {0x09AAA160u, 0xAFB00008u, "sw s0,8(sp)"},
+    {0x09AAA188u, 0x96040324u, "lhu a0,804(s0): the hunter's action"},
+    {0x09AAA18Cu, 0x30A3FFFFu, "andi v1,a1,0xffff: the action it aims in"},
+}};
+// The bow aims in its own actions, 1400 and up (traced with MHFU_TRACE_AIM:
+// 1401 while the arrow's line is up, 1405 and 1408 as it draws). The bow's
+// handler 0x09BB5440 calls 0x09BB6D98 from 0x09BB57D4, and that call is a
+// jump inside one generated unit, so no host wrapper sees it. 0x09BB6D98
+// aims from the D-pad alone: while R (0x200) is down in the button word, bit
+// 0x8 of the word at +1040 is set (0x09BB6E2C) and bit 0x8 of the word at
+// +4380 is clear (0x09BB6E68), it steps the heading by 576 from D-pad left and
+// right and the pitch from up and down. So while those hold, the right stick
+// is pressed on the D-pad in the pad sample itself, and drive_aim resizes each
+// step from the stick, as it does for the left stick.
+constexpr std::uint16_t kBowActions = 1400u;
+constexpr std::uint16_t kBowActionsEnd = 1500u;
+constexpr std::uint32_t kBowAimReady = 1040u;
+constexpr std::uint32_t kBowAimBlocked = 4380u;
+constexpr std::uint32_t kBowAimBit = 0x8u;
+// How far an axis of the right stick is pushed (of 127) before it presses
+// that way on the D-pad.
+constexpr int kBowDpadThreshold = 24;
 // The largest step the aim function adds in one call, with the D-pad's 576
 // and the stick's 400 both able to land. Anything larger is the game setting
 // the heading for another reason.
@@ -270,12 +302,17 @@ struct State {
     // back: the port's ease is the only move. Not a second tap.
     bool quiet_l{};
     bool aiming{};
-    // MHFU_TRACE_AIM: calls of the aim wrapper, and those that showed it a
-    // push, since the last [aim] line.
-    std::uint64_t aim_calls{};
+    // The action 0x09AAA158 was last asked to aim in (its a1); 0 before it ran.
+    std::uint16_t action_aim{};
+    // The bow is aiming (bow_aiming), as of the last flip.
+    bool bow_aiming{};
+    // MHFU_TRACE_AIM: calls of each aim wrapper (1001, then a1's action), and
+    // those that showed it a push, since the last [aim] line.
+    std::array<std::uint64_t, 2> aim_calls{};
     std::uint64_t aim_pushes{};
     // The generated aim function, and the centred deflection to show it.
     RotationFunction aim_original{};
+    RotationFunction action_aim_original{};
     int aim_x{};
     int aim_y{};
     // How far the stick is pushed on each axis, -1 to 1. Zero: the follow
@@ -644,8 +681,21 @@ std::uint32_t followed_hunter(const psprecomp::GuestMemory &memory) {
     return hunter;
 }
 
+// The bow's aim, by the conditions 0x09BB6D98 tests before it steps.
+bool bow_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
+    if (hunter == 0u || memory.raw_pointer(hunter, kBowAimBlocked + 4u) == nullptr) return false;
+    const auto action = memory.load16(hunter + kAimAction);
+    return action >= kBowActions && action < kBowActionsEnd &&
+        (memory.load32(hunter + kHunterButtons) & kRecenterBit) != 0u &&
+        (memory.load32(hunter + kBowAimReady) & kBowAimBit) != 0u &&
+        (memory.load32(hunter + kBowAimBlocked) & kBowAimBit) == 0u;
+}
+
 bool hunter_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
-    return hunter != 0u && memory.load16(hunter + kAimAction) == kAimingAction;
+    if (hunter == 0u) return false;
+    const auto action = memory.load16(hunter + kAimAction);
+    if (action == kAimingAction || (state.action_aim != 0u && action == state.action_aim)) return true;
+    return bow_aiming(memory, hunter);
 }
 
 // MHFU_TRACE_AIM=path.csv: one line per aiming camera update with what the
@@ -946,9 +996,9 @@ void resize_shown_aim(psprecomp::GuestMemory &memory, std::uint32_t hunter, std:
     }
 }
 
-// Shows aim_x/aim_y to the aim function, then puts the hunter's stick back,
+// Shows aim_x/aim_y to an aim function, then puts the hunter's stick back,
 // so walking still follows the stick the player is holding.
-void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+void show_aim(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, RotationFunction original) {
     auto &memory = runtime.memory();
     const auto hunter = ctx.gpr[4];
     const bool show = (state.aim_x != 0 || state.aim_y != 0) && memory.raw_pointer(hunter, kHunterExtent) != nullptr;
@@ -956,7 +1006,6 @@ void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     std::uint16_t saved_magnitude = 0u;
     std::uint16_t heading_before = 0u;
     std::array<int, kPitchFields.size()> pitch_before{};
-    ++state.aim_calls;
     if (show) {
         ++state.aim_pushes;
         saved_buttons = memory.load32(hunter + kHunterButtons);
@@ -964,19 +1013,23 @@ void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
         heading_before = memory.load16(hunter + kAimHeading);
         for (std::size_t i = 0; i < kPitchFields.size(); ++i)
             pitch_before[i] = load_pitch(memory, hunter, kPitchFields[i]);
-        // A bow sets +1380 and aims from the stick half. A bowgun leaves it
-        // clear and aims from the D-pad bits, so the same push is shown there.
-        const bool stick_aim = memory.load8(hunter + kAimStickGate) != 0u;
+        // On the stick half and on the D-pad bits: the function picks its
+        // branch as it runs (see kStickDirectionMask), and either one then
+        // sees this push.
         std::uint32_t direction = 0u;
-        if (state.aim_x > 0) direction |= stick_aim ? kStickRight : kDpadRight;
-        else if (state.aim_x < 0) direction |= stick_aim ? kStickLeft : kDpadLeft;
-        if (state.aim_y < 0) direction |= stick_aim ? kStickUp : kDpadUp;
-        else if (state.aim_y > 0) direction |= stick_aim ? kStickDown : kDpadDown;
-        const auto clear = stick_aim ? kStickDirectionMask : kDpadMask;
+        if (state.aim_x > 0)
+            direction |= kStickRight | kDpadRight;
+        else if (state.aim_x < 0)
+            direction |= kStickLeft | kDpadLeft;
+        if (state.aim_y < 0)
+            direction |= kStickUp | kDpadUp;
+        else if (state.aim_y > 0)
+            direction |= kStickDown | kDpadDown;
+        const auto clear = kStickDirectionMask | kDpadMask;
         memory.store32(hunter + kHunterButtons, (saved_buttons & ~clear) | direction);
-        if (stick_aim) memory.store16(hunter + kStickMagnitude, static_cast<std::uint16_t>(kStickFull));
+        memory.store16(hunter + kStickMagnitude, static_cast<std::uint16_t>(kStickFull));
     }
-    if (state.aim_original != nullptr) state.aim_original(runtime, ctx);
+    if (original != nullptr) original(runtime, ctx);
     if (show && memory.raw_pointer(hunter, kHunterExtent) != nullptr) {
         memory.store32(hunter + kHunterButtons, saved_buttons);
         memory.store16(hunter + kStickMagnitude, saved_magnitude);
@@ -984,19 +1037,45 @@ void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     }
 }
 
-// The aim function lives in an overlay, so the wrapper is put back whenever
+void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    ++state.aim_calls[0];
+    show_aim(runtime, ctx, state.aim_original);
+}
+
+// 0x09AAA158 aims in the action passed in a1. That action counts as aiming
+// from now on, so the right stick is shown to it rather than to the camera.
+void action_aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    ++state.aim_calls[1];
+    const auto action = static_cast<std::uint16_t>(ctx.gpr[5]);
+    if (action != 0u && action != state.action_aim) {
+        state.action_aim = action;
+        if (aim_trace() != nullptr) std::cout << "[aim] 0x09AAA158 aims in action " << action << std::endl;
+    }
+    show_aim(runtime, ctx, state.action_aim_original);
+}
+
+// The aim functions live in an overlay, so each wrapper is put back whenever
 // that overlay is installed again. A different image at the same address is
 // left alone.
+template <std::size_t N>
+void install_one(psprecomp::Runtime &runtime, std::uint32_t address, const std::array<CodeWord, N> &signature,
+    RotationFunction wrapper, RotationFunction &original, const char *name) {
+    const RotationFunction current = runtime.function_at(address);
+    if (current == nullptr || current == wrapper) return;
+    const auto &memory = runtime.memory();
+    for (const CodeWord &expected : signature)
+        if (memory.load32(expected.address) != expected.word) return;
+    original = current;
+    runtime.register_function(address, wrapper, name);
+    if (aim_trace() != nullptr)
+        std::cout << "[aim] wrapper installed at 0x" << std::hex << address << std::dec << std::endl;
+}
+
 void install_aim_hook(psprecomp::Runtime &runtime) {
     if (!option_on()) return;
-    const RotationFunction current = runtime.function_at(kAimFunction);
-    if (current == nullptr || current == &aim_step) return;
-    const auto &memory = runtime.memory();
-    for (const CodeWord &expected : kAimSignature)
-        if (memory.load32(expected.address) != expected.word) return;
-    state.aim_original = current;
-    runtime.register_function(kAimFunction, &aim_step, "mhfu_aim_step");
-    if (aim_trace() != nullptr) std::cout << "[aim] wrapper installed at 0x09AA4DD0" << std::endl;
+    install_one(runtime, kAimFunction, kAimSignature, &aim_step, state.aim_original, "mhfu_aim_step");
+    install_one(runtime, kActionAimFunction, kActionAimSignature, &action_aim_step, state.action_aim_original,
+        "mhfu_action_aim_step");
 }
 
 // MHFU_TRACE_WEAPON=1: on each press of R (guard, aim, draw), the followed
@@ -1034,6 +1113,18 @@ void trace_weapon(const psprecomp::GuestMemory &memory) {
 // reaches the aim function only while `boost` is 1 and `driving` is 0.
 void trace_aim_state(psprecomp::Runtime &runtime, bool aiming) {
     if (aim_trace() == nullptr) return;
+    // The hunter's action whenever R is held and it changes, aiming or not:
+    // which actions a weapon aims in.
+    static std::uint16_t last_action = 0xFFFFu;
+    const std::uint32_t hunter = followed_hunter(runtime.memory());
+    if (hunter != 0u && (runtime.memory().load32(hunter + kHunterButtons) & kRecenterBit) != 0u) {
+        const auto action = runtime.memory().load16(hunter + kAimAction);
+        if (action != last_action)
+            std::cout << "[aim] frame=" << state.frame << " R held, action " << action << std::endl;
+        last_action = action;
+    } else {
+        last_action = 0xFFFFu;
+    }
     static bool was_aiming = false;
     static std::uint64_t last_line = 0u;
     const bool changed = aiming != was_aiming;
@@ -1041,14 +1132,15 @@ void trace_aim_state(psprecomp::Runtime &runtime, bool aiming) {
     if (!changed && !(aiming && state.frame - last_line >= 30u)) return;
     last_line = state.frame;
     std::cout << "[aim] frame=" << state.frame << (changed ? (aiming ? " start" : " end") : " held")
-              << " wrapper=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0)
-              << " option=" << (option_on() ? 1 : 0) << " hooked=" << (state.hooked ? 1 : 0)
-              << " available=" << (state.available ? 1 : 0)
+              << " wrappers=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0)
+              << (runtime.function_at(kActionAimFunction) == &action_aim_step ? 1 : 0)
+              << " bow=" << (state.bow_aiming ? 1 : 0) << " option=" << (option_on() ? 1 : 0)
+              << " hooked=" << (state.hooked ? 1 : 0) << " available=" << (state.available ? 1 : 0)
               << " lock_on_drives=" << (lock_on_drives_camera() ? 1 : 0)
               << " driving=" << (game_camera_driving() ? 1 : 0) << " boost=" << (game_camera_aim_boost() ? 1 : 0)
-              << " update_age=" << (state.frame - state.last_update) << " calls=" << state.aim_calls
-              << " pushes=" << state.aim_pushes << std::endl;
-    state.aim_calls = 0u;
+              << " update_age=" << (state.frame - state.last_update) << " calls=" << state.aim_calls[0] << '/'
+              << state.aim_calls[1] << " pushes=" << state.aim_pushes << std::endl;
+    state.aim_calls = {};
     state.aim_pushes = 0u;
 }
 
@@ -1191,6 +1283,28 @@ std::span<const CodeWord> aim_code_signature() {
     return kAimSignature;
 }
 
+std::span<const CodeWord> action_aim_code_signature() {
+    return kActionAimSignature;
+}
+
+bool game_camera_hunter_aiming() {
+    return state.hunter_aiming;
+}
+
+std::uint32_t game_camera_aim_dpad(int x, int y) {
+    if (!driving_allowed() || !state.bow_aiming) return 0u;
+    std::uint32_t dpad = 0u;
+    if (x >= kBowDpadThreshold)
+        dpad |= kDpadRight;
+    else if (x <= -kBowDpadThreshold)
+        dpad |= kDpadLeft;
+    if (y <= -kBowDpadThreshold)
+        dpad |= kDpadUp;
+    else if (y >= kBowDpadThreshold)
+        dpad |= kDpadDown;
+    return dpad;
+}
+
 bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original) {
     state = State{};
     reset();
@@ -1240,6 +1354,7 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
     const bool still_aiming = hunter_aiming(runtime.memory(), followed_hunter(runtime.memory()));
     if (state.frame - state.last_update > 1u && !still_aiming) release();
     state.hunter_aiming = still_aiming;
+    state.bow_aiming = bow_aiming(runtime.memory(), followed_hunter(runtime.memory()));
     trace_aim_state(runtime, still_aiming);
     trace_weapon(runtime.memory());
     if (!driving_allowed() && !(state.pitch_by_lock && lock_on_drives_camera())) {
