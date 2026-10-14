@@ -2103,6 +2103,8 @@ struct VulkanRenderer::Impl {
     std::uint64_t frames{};
     // Which quest HUD pieces this frame and the last one drew (gpu/hud_scale.hpp).
     hud_scale::Frame hud_scale_frame;
+    // Whether the quest clock was drawn, for the monster icon.
+    hud_scale::QuestClock quest_clock;
     std::uint64_t draws{};
 
     // MHFU_PAD_FOLLOW=0: the game keeps the first pad, as before #147, and
@@ -6496,6 +6498,10 @@ float VulkanRenderer::game_aspect() const noexcept {
     return static_cast<float>(impl_->target_extent.width) / static_cast<float>(impl_->target_extent.height);
 }
 
+bool VulkanRenderer::quest_hud_up() const noexcept {
+    return impl_ && impl_->quest_clock.up();
+}
+
 std::array<float, 4> VulkanRenderer::game_picture() const noexcept {
     if (!impl_ || impl_->swapchain_extent.width == 0u || impl_->swapchain_extent.height == 0u)
         return {0.0f, 0.0f, 1.0f, 1.0f};
@@ -7580,6 +7586,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     const Impl::FramebufferTexture framebuffer_source = call.texture.enabled && !call.clear_mode && !no_fb_textures
         ? impl.find_framebuffer_texture(memory, call.texture)
         : Impl::FramebufferTexture{};
+
+    // The quest clock where the game drew it, before Fill or the HUD sizes
+    // move it: the monster icon is shown only while it is up.
+    if (call.through && !call.clear_mode && call.primitive == PrimitiveType::Sprites &&
+        framebuffer_source.target == nullptr && impl.shows(call.target.color_address))
+        impl.quest_clock.note(reused_expanded ? *reused : impl.scratch);
 
     // Under Fill the game's 480x272 screen is spread over a target of the
     // window's shape, which suits the 3D view the game now draws at that
@@ -9248,6 +9260,7 @@ bool VulkanRenderer::present(
         impl.submit_frame();
         ++impl.frames;
         impl.hud_scale_frame.begin();
+        impl.quest_clock.begin();
         impl.present_clock.set_presents_per_frame(pacing::presents_per_frame(impl.governor.rate()));
         impl.present_clock.flip(moment_us, to_us(now));
         impl.cycle_active = impl.newer_picture_valid;
@@ -9272,6 +9285,7 @@ bool VulkanRenderer::present(
             impl.submit_frame();
             ++impl.frames;
             impl.hud_scale_frame.begin();
+            impl.quest_clock.begin();
             return false;
         }
         impl.fast_forward_shown = now;
@@ -9282,6 +9296,7 @@ bool VulkanRenderer::present(
     }
     ++impl.frames;
     impl.hud_scale_frame.begin();
+    impl.quest_clock.begin();
     if (impl.frame_rate != settings::FrameRate::Fps30) impl.report_interpolation();
     impl.follow_window();
     return true;
