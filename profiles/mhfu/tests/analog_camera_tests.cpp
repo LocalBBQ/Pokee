@@ -393,7 +393,7 @@ void test_aim_stick_is_not_movement() {
     f.ctx.gpr[31] = 0x09C00000u;
     check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches");
     check(seen_magnitude == 127u, "the aim function is shown a full push");
-    check(seen_buttons == 0x00300001u, "right and up replace the stick direction and the real button stays");
+    check(seen_buttons == 0x00300031u, "right and up replace the stick and D-pad directions; the real button stays");
     check(memory.load16(kHunter + kMagnitude) == 10u, "the movement magnitude is put back");
     check(memory.load32(kHunter + kButtons) == 0x00800001u, "the movement direction is put back");
 
@@ -402,14 +402,107 @@ void test_aim_stick_is_not_movement() {
     check(seen_magnitude == 10u, "no push leaves the stick the game copied");
     check(seen_buttons == 0x00800001u, "and leaves its direction");
 
-    // A bowgun leaves +1380 clear, and the aim function then steps from the
-    // D-pad bits rather than the stick half.
+    // +1380 is the function's own repeat timer. With it clear the game may
+    // take either branch (bit 0x1000 of +1556 decides), so the push is the
+    // same: both the stick half and the D-pad bits.
     memory.store8(kHunter + 1380u, 0u);
-    game_camera_present_aim(127, -40);
-    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the bowgun aim function dispatches");
-    check(seen_buttons == 0x00800031u, "a bowgun aim is shown as D-pad right and up");
-    check(seen_magnitude == 10u, "and the movement magnitude is not replaced");
-    check(memory.load32(kHunter + kButtons) == 0x00800001u, "the bowgun's movement direction is put back");
+    memory.store32(kHunter + kButtons, 0x00000041u);
+    game_camera_present_aim(-127, 0);
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches with the timer clear");
+    check(seen_buttons == 0x00800081u, "left on both, and the held D-pad down is replaced");
+    check(seen_magnitude == 127u, "a full push with the timer clear too");
+    check(memory.load32(kHunter + kButtons) == 0x00000041u, "the held D-pad is put back");
+}
+
+// The bow aims from the D-pad in code no wrapper reaches (0x09BB6D98, called
+// inside its unit). While its conditions hold, the right stick is pressed on
+// the D-pad, and the camera update resizes the game's 576 step from the stick.
+void plant_bow_aim(psprecomp::GuestMemory &memory) {
+    plant_hunter(memory, 1401u);
+    memory.store32(kHunter + 1152u, 0x0200u); // R
+    memory.store32(kHunter + 1040u, 0x8u);
+    memory.store32(kHunter + 4380u, 0u);
+}
+
+void test_bow_aim_presses_the_dpad() {
+    Fixture f;
+    f.enable();
+    mhfu::settings::current().aim_speed = 90.0f;
+    auto &memory = f.runtime.memory();
+    plant_bow_aim(memory);
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_boost(), "the bow's aim with R held is aiming");
+    check(game_camera_aim_dpad(127, 0) == 0x20u, "right on the stick is D-pad right");
+    check(game_camera_aim_dpad(-127, -127) == 0x90u, "up and left on the stick are D-pad up and left");
+    check(game_camera_aim_dpad(0, 127) == 0x40u, "down on the stick is D-pad down");
+    check(game_camera_aim_dpad(10, -10) == 0u, "a push too small to aim presses nothing");
+
+    // The camera update's first aim update learns; then the game's D-pad step
+    // is replaced by Aim speed times the stick's deflection.
+    f.update();
+    game_steps(memory, 576, 0);
+    f.flip(0.5f, 0.0f);
+    f.update();
+    check(memory.load16(kHunter + kHeading) == 10273u, "half a push is half of Aim speed, not the D-pad's 576");
+
+    memory.store32(kHunter + 4380u, 0x8u);
+    f.flip(0.0f, 0.0f);
+    check(
+        !game_camera_aim_boost() && game_camera_aim_dpad(127, 0) == 0u, "with +4380 bit 0x8 set the bow is not aiming");
+    plant_bow_aim(memory);
+    memory.store32(kHunter + 1152u, 0u);
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_dpad(127, 0) == 0u, "without R the bow is not aiming");
+    plant_bow_aim(memory);
+    memory.store32(kHunter + 1040u, 0u);
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_dpad(127, 0) == 0u, "without the +1040 bit the bow is not aiming");
+    plant_bow_aim(memory);
+    memory.store16(kHunter + kAction, 3u);
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_dpad(127, 0) == 0u, "another action with R held is not the bow's aim");
+    plant_bow_aim(memory);
+    mhfu::settings::current().analog_camera = false;
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_dpad(127, 0) == 0u, "with Analog camera off the stick is not pressed on the D-pad");
+}
+
+// 0x09AAA158 aims in the action its caller passes. Once it has run, that
+// action is aiming: the right stick goes to the aim, not the camera.
+void test_action_aim_function() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    for (const CodeWord &word : action_aim_code_signature()) memory.store32(word.address, word.word);
+    f.runtime.register_function(0x09AAA158u, &aim_original, "recomp_unit_action_aim_test");
+    plant_hunter(memory, 8u);
+    f.flip(0.0f, 0.0f);
+    check(!game_camera_aim_boost(), "action 8 is not aiming before that function has run");
+
+    memory.store32(kHunter + 1152u, 0u);
+    game_camera_present_aim(0, 127);
+    f.ctx.gpr[4] = kHunter;
+    f.ctx.gpr[5] = 8u;
+    f.ctx.gpr[31] = 0x09C00000u;
+    check(f.runtime.invoke_isolated_aot(0x09AAA158u, f.ctx), "the action aim function dispatches");
+    check(seen_buttons == 0x00400040u && seen_magnitude == 127u, "it is shown the push as down on both");
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_boost(), "its action is aiming once it has run");
+
+    plant_hunter(memory, 1u);
+    f.flip(0.0f, 0.0f);
+    check(!game_camera_aim_boost(), "another action is not aiming");
+
+    // Other words at that address are another overlay's code.
+    Fixture g;
+    g.enable();
+    auto &other = g.runtime.memory();
+    for (const CodeWord &word : action_aim_code_signature()) other.store32(word.address, word.word);
+    other.store32(0x09AAA188u, 0u);
+    g.runtime.register_function(0x09AAA158u, &aim_original, "recomp_unit_action_aim_other");
+    plant_hunter(other, 8u);
+    g.flip(0.0f, 0.0f);
+    check(g.runtime.function_at(0x09AAA158u) == &aim_original, "a different image is not wrapped");
 }
 
 // The aim camera reads the heading after the aim function returns. The game's
@@ -542,6 +635,8 @@ int main() {
     test_motion_source();
     test_mouse_stock_turn();
     test_aim_stick_is_not_movement();
+    test_action_aim_function();
+    test_bow_aim_presses_the_dpad();
     test_aim_speed_follows_the_stick();
     test_proportional_aim();
     check(original_calls > 0u, "original camera update is called");

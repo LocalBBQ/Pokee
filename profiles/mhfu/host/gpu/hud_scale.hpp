@@ -628,6 +628,18 @@ inline constexpr int kNamePlates = 4;
     return staff || clef || note || mark;
 }
 
+// A 16 by 8 tile of a window's border. Dialogs drawn during a quest build
+// their frame from these, and a corner can land in the weapon slot under
+// stamina: the Abandon Quest window's top-left is (232, 40)-(248, 48), traced
+// with MHFU_TRACE_HUD_SCALE with a bow out. The same run moved such tiles at
+// (160, 34) and (160, 42) as well. No weapon piece is this shape.
+[[nodiscard]] inline bool is_window_tile(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 15.5f && width <= 16.5f && height >= 7.5f && height <= 8.5f;
+}
+
 // The ammo selection menu, opened over the item bar with a bowgun out: the
 // item bar's frame grown to (312, 128)-(472, 264), an arrow at
 // (384, 124)-(400, 140), a title at y 140, two rows of shots at
@@ -781,7 +793,8 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     if (contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r))
         return is_notice_piece(r, texture) ? Piece::None : Piece::Map;
     if (contains({kItemLeft, kItemTop, kItemRight, kItemBottom}, r)) return Piece::ItemBar;
-    if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r))
+    if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r) &&
+        !is_window_tile(r))
         return Piece::LongSword;
     // The notice's border and the letters above the ammo bar cross this slot
     // too. The ammo bar's own letters are the glyphs at y 184 and below.
@@ -981,6 +994,38 @@ struct Frame {
     float zoom_y{1.0f};
     float bias_x{};
     float bias_y{};
+
+    // A bow or a bowgun is aiming (camera/game_camera.hpp), set by the
+    // renderer before each draw. Its reticle moves with the aim and can cross
+    // the map's slot, where a sprite its size would be taken for a mark.
+    // While it aims, each sprite drawn near the middle of the picture that is
+    // no piece of the HUD is the reticle; its texture and size are kept, and
+    // a sprite with both is left as drawn wherever it goes. Nothing of the
+    // map is ever drawn there. Forgotten when the aim ends.
+    bool aiming{};
+    struct Reticle {
+        std::uint32_t texture{};
+        float width{};
+        float height{};
+    };
+    Reticle reticle[8]{};
+    int reticles{};
+
+    void learn_reticle(Rect rect, std::uint32_t texture) {
+        if (is_reticle(rect, texture) || reticles >= 8) return;
+        const Rect r = normalized(rect);
+        reticle[reticles++] = {texture, r.x1 - r.x0, r.y1 - r.y0};
+    }
+
+    [[nodiscard]] bool is_reticle(Rect rect, std::uint32_t texture) const {
+        const Rect r = normalized(rect);
+        for (int i = 0; i < reticles; ++i) {
+            const float dw = (r.x1 - r.x0) - reticle[i].width;
+            const float dh = (r.y1 - r.y0) - reticle[i].height;
+            if (reticle[i].texture == texture && dw >= -1.5f && dw <= 1.5f && dh >= -1.5f && dh <= 1.5f) return true;
+        }
+        return false;
+    }
 
     void begin() {
         map_rect_live = map_now ? map_rect : Rect{};
@@ -1369,6 +1414,17 @@ std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales 
     return name_bounds;
 }
 
+// The middle of the picture, (240, 136), where an aim's reticle starts. No
+// piece of the HUD is drawn there.
+[[nodiscard]] inline bool in_reticle_area(Rect rect) {
+    const Rect r = normalized(rect);
+    const float cx = 0.5f * (r.x0 + r.x1);
+    const float cy = 0.5f * (r.y0 + r.y1);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return cx >= 176.0f && cx <= 304.0f && cy >= 88.0f && cy <= 184.0f && width <= 128.0f && height <= 128.0f;
+}
+
 // Whether a draw from `owner` may be resized at all. Other code's draws
 // still pass through scale_quads, so the frame knows a menu is on screen.
 [[nodiscard]] inline bool may_resize(hud::Owner owner) {
@@ -1392,6 +1448,7 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
     frame.dismiss_false_menu();
     frame.adopt_travelling_map();
     if (!may_resize(owner)) return;
+    if (!frame.aiming) frame.reticles = 0;
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = quad_bounds(vertices, first);
         // The ammo menu is one panel over the item bar's corner, sized with
@@ -1419,6 +1476,10 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         // The long notice's 16-tall border sits on its 8-tall cap. It is the
         // size of a map mark, so the mark rule would take it.
         if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.beside_notice_edge(bounds)) continue;
+        if (frame.aiming && texture != 0u) {
+            if (piece == Piece::None && in_reticle_area(bounds)) frame.learn_reticle(bounds, texture);
+            if (frame.is_reticle(bounds, texture)) continue;
+        }
         if (piece == Piece::None || (!in_ammo_menu && !frame.allows(piece, bounds, texture))) continue;
         // The no-map window and the marks on it are enlarged. Put them on the
         // slot's placement first, then apply the Map size. At 100% the

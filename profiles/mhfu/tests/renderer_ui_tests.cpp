@@ -3001,6 +3001,78 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(settings::current().internal_scale == original_resolution &&
             renderer.target_size() == std::array<std::uint32_t, 2>{480, 272},
         "resolution menu restores native offscreen target dimensions");
+    auto toggle_setting = [&](const char *label, bool settings::Settings::*field) {
+        const bool original = settings::current().*field;
+        change_video(label, ImGuiKey_Space);
+        expect(settings::current().*field != original,
+            (std::string(label) + " control menu toggle changes its own setting").c_str());
+        change_video(label, ImGuiKey_Space);
+        expect(settings::current().*field == original,
+            (std::string(label) + " control menu toggle round trip restores its own setting").c_str());
+    };
+    // Lock-on, damage numbers and the gather icon are on the Video page.
+    toggle_setting("Lock-on", &settings::Settings::lock_on);
+    change_video("Lock-on style", ImGuiKey_RightArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style switches to focus");
+    change_video("Lock-on style", ImGuiKey_LeftArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style round trip restores follow");
+    toggle_setting("Lock-on marker", &settings::Settings::lock_on_marker);
+    {
+        const bool lock_on = settings::current().lock_on;
+        const auto style = settings::current().lock_on_style;
+        const bool marker = settings::current().lock_on_marker;
+        settings::current().lock_on = false;
+        change_video("Lock-on style", ImGuiKey_RightArrow);
+        change_video("Lock-on marker", ImGuiKey_Space);
+        expect(settings::current().lock_on_style == style && settings::current().lock_on_marker == marker,
+            "lock-on style and marker are locked while lock-on is off");
+        settings::current().lock_on = lock_on;
+    }
+    toggle_setting("Damage numbers", &settings::Settings::damage_numbers);
+    {
+        const bool numbers = settings::current().damage_numbers;
+        const std::uint32_t size = settings::current().damage_number_size;
+        const std::uint32_t thickness = settings::current().damage_number_thickness;
+        settings::current().damage_numbers = false;
+        change_video("Damage number size", ImGuiKey_RightArrow);
+        change_video("Damage number thickness", ImGuiKey_RightArrow);
+        expect(settings::current().damage_number_size == size &&
+                settings::current().damage_number_thickness == thickness,
+            "damage number size and thickness are locked while the numbers are off");
+        settings::current().damage_numbers = true;
+        change_video("Damage number size", ImGuiKey_RightArrow);
+        change_video("Damage number thickness", ImGuiKey_RightArrow);
+        expect(settings::current().damage_number_size == size + 10u &&
+                settings::current().damage_number_thickness == thickness + 1u,
+            "damage number size steps by 10% and thickness by 1");
+        change_video("Damage number size", ImGuiKey_LeftArrow);
+        change_video("Damage number thickness", ImGuiKey_LeftArrow);
+        expect(settings::current().damage_number_size == size &&
+                settings::current().damage_number_thickness == thickness,
+            "damage number size and thickness round trip");
+        settings::current().damage_numbers = numbers;
+    }
+    {
+        const bool icon = settings::current().gather_icon;
+        const std::uint32_t size = settings::current().gather_icon_size;
+        const std::uint32_t thickness = settings::current().gather_icon_thickness;
+        settings::current().gather_icon = false;
+        change_video("Gather icon size", ImGuiKey_RightArrow);
+        change_video("Gather icon thickness", ImGuiKey_RightArrow);
+        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
+            "gather icon size and thickness are locked while the icon is off");
+        settings::current().gather_icon = true;
+        change_video("Gather icon size", ImGuiKey_RightArrow);
+        change_video("Gather icon thickness", ImGuiKey_RightArrow);
+        expect(settings::current().gather_icon_size == size + 10u &&
+                settings::current().gather_icon_thickness == thickness + 1u,
+            "gather icon size steps by 10% and thickness by 1");
+        change_video("Gather icon size", ImGuiKey_LeftArrow);
+        change_video("Gather icon thickness", ImGuiKey_LeftArrow);
+        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
+            "gather icon size and thickness round trip");
+        settings::current().gather_icon = icon;
+    }
     const auto before_video_reset = settings::current();
     settings::current().sharp_screen = !settings::defaults().sharp_screen;
     settings::current().sharp_textures = !settings::defaults().sharp_textures;
@@ -3197,22 +3269,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     change_video("Confirm button", ImGuiKey_LeftArrow);
     expect(ui::Layer::get().confirm_south(), "the menu keeps the south button after the round trip");
     expect(settings::current().confirm_south == original_confirm, "confirm convention round trip restores setting");
-    auto toggle_setting = [&](const char *label, bool settings::Settings::*field) {
-        const bool original = settings::current().*field;
-        change_video(label, ImGuiKey_Space);
-        expect(settings::current().*field != original,
-            (std::string(label) + " control menu toggle changes its own setting").c_str());
-        change_video(label, ImGuiKey_Space);
-        expect(settings::current().*field == original,
-            (std::string(label) + " control menu toggle round trip restores its own setting").c_str());
-    };
     toggle_setting("Analog camera", &settings::Settings::analog_camera);
-    toggle_setting("Lock-on", &settings::Settings::lock_on);
-    change_video("Lock-on style", ImGuiKey_RightArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style switches to focus");
-    change_video("Lock-on style", ImGuiKey_LeftArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style round trip restores follow");
-    toggle_setting("Lock-on marker", &settings::Settings::lock_on_marker);
     toggle_setting("Invert camera horizontally", &settings::Settings::invert_camera_x);
     toggle_setting("Invert camera vertically", &settings::Settings::invert_camera_y);
     toggle_setting("Mouse", &settings::Settings::mouse);
@@ -3415,51 +3472,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(menu_screenshots == 1, "System screenshot action saves exactly one real PNG in the isolated folder");
     toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
     toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
-    toggle_setting("Damage numbers", &settings::Settings::damage_numbers);
-    {
-        const bool numbers = settings::current().damage_numbers;
-        const std::uint32_t size = settings::current().damage_number_size;
-        const std::uint32_t thickness = settings::current().damage_number_thickness;
-        settings::current().damage_numbers = false;
-        change_video("Damage number size", ImGuiKey_RightArrow);
-        change_video("Damage number thickness", ImGuiKey_RightArrow);
-        expect(settings::current().damage_number_size == size &&
-                settings::current().damage_number_thickness == thickness,
-            "damage number size and thickness are locked while the numbers are off");
-        settings::current().damage_numbers = true;
-        change_video("Damage number size", ImGuiKey_RightArrow);
-        change_video("Damage number thickness", ImGuiKey_RightArrow);
-        expect(settings::current().damage_number_size == size + 10u &&
-                settings::current().damage_number_thickness == thickness + 1u,
-            "damage number size steps by 10% and thickness by 1");
-        change_video("Damage number size", ImGuiKey_LeftArrow);
-        change_video("Damage number thickness", ImGuiKey_LeftArrow);
-        expect(settings::current().damage_number_size == size &&
-                settings::current().damage_number_thickness == thickness,
-            "damage number size and thickness round trip");
-        settings::current().damage_numbers = numbers;
-    }
-    {
-        const bool icon = settings::current().gather_icon;
-        const std::uint32_t size = settings::current().gather_icon_size;
-        const std::uint32_t thickness = settings::current().gather_icon_thickness;
-        settings::current().gather_icon = false;
-        change_video("Gather icon size", ImGuiKey_RightArrow);
-        change_video("Gather icon thickness", ImGuiKey_RightArrow);
-        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
-            "gather icon size and thickness are locked while the icon is off");
-        settings::current().gather_icon = true;
-        change_video("Gather icon size", ImGuiKey_RightArrow);
-        change_video("Gather icon thickness", ImGuiKey_RightArrow);
-        expect(settings::current().gather_icon_size == size + 10u &&
-                settings::current().gather_icon_thickness == thickness + 1u,
-            "gather icon size steps by 10% and thickness by 1");
-        change_video("Gather icon size", ImGuiKey_LeftArrow);
-        change_video("Gather icon thickness", ImGuiKey_LeftArrow);
-        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
-            "gather icon size and thickness round trip");
-        settings::current().gather_icon = icon;
-    }
     for (const char *action : {"Quit game", "Set up game data again…"}) {
         change_video(action, ImGuiKey_Space);
         frame();

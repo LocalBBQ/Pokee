@@ -7657,6 +7657,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             // The moving map window is told from other panels of the same size by
             // the texture it samples (gpu/hud_scale.hpp).
             const std::uint32_t hud_texture = call.texture.enabled ? call.texture.address : 0u;
+            impl.hud_scale_frame.aiming = mhfu::camera::game_camera_hunter_aiming();
             hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner);
             map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture);
             // MHFU_TRACE_HUD_SCALE=1: each distinct sprite the interface sizes
