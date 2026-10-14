@@ -7201,10 +7201,15 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // keep the expansion too.
     static const bool legacy_vertices = std::getenv("MHFU_NO_DIRECT_VERTICES") != nullptr;
     static const bool check_direct = std::getenv("MHFU_CHECK_DIRECT_VERTICES") != nullptr;
-    // A small orthographic icon, such as the cat face, is expanded so it can
-    // take the same size as the through-mode name plates. A world mesh stays
-    // on the direct path.
-    const bool small_icon = count <= 16u && std::fabs(call.projection[11]) < 1e-6f;
+    // Quest HUD pieces can each change size (gpu/hud_scale.hpp). The copy that
+    // is drawn is scaled; the one the vertex cache keeps is not, so 100% is
+    // the vertices the game submitted.
+    const settings::Settings::InterfaceScale &hud = settings::current().hud;
+    const hud_scale::Scales hud_scales = hud_scale::Scales::from_percent(hud.map, hud.health, hud.item_bar, hud.names);
+    // A small orthographic draw, such as the cat's face in the party list, is
+    // expanded while a size is set so it can take Status with the plates
+    // beside it. A world mesh stays on the direct path.
+    const bool small_icon = hud_scales.any() && count <= 16u && std::fabs(call.projection[11]) < 1e-6f;
     const bool direct = raw ||
         !legacy_vertices && !perf::alternate_off(perf::NewPath::Direct) && !call.through && !small_icon &&
             (call.primitive == PrimitiveType::Triangles || call.primitive == PrimitiveType::TriangleStrip ||
@@ -7619,22 +7624,27 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     const bool skinned = impl.interpolating && !raw && !call.through && ((call.vertex_type >> 9u) & 3u) != 0u;
     const std::uint32_t skinned_first =
         skinned ? static_cast<std::uint32_t>(impl.recording_frame.skinned.size()) : Impl::kNone;
-    // Quest HUD pieces can each change size (gpu/hud_scale.hpp). The copy that
-    // is drawn is scaled; the one the vertex cache keeps is not, so 100% is
-    // the vertices the game submitted.
-    const settings::Settings::InterfaceScale &hud = settings::current().hud;
-    const hud_scale::Scales hud_scales = hud_scale::Scales::from_percent(hud.map, hud.health, hud.item_bar, hud.names);
+    // Who filed this draw (gpu/game_hud.hpp). Only the quest HUD's own draws
+    // are resized; a menu in the same corner keeps the game's size whatever
+    // its rectangle. MHFU_HUD_SCALE_GEOMETRY=1 goes back to rectangles alone,
+    // to compare both on the same screen.
+    static const bool hud_scale_geometry = [] {
+        const char *value = std::getenv("MHFU_HUD_SCALE_GEOMETRY");
+        return value != nullptr && *value == '1';
+    }();
+    const hud::Owner hud_owner = !hud_scales.any() || hud_scale_geometry
+        ? hud::Owner::Unknown
+        : hud::owner_of(call.command_address, call.call_return);
     // The clock's hands and the player's arrow on the map turn, so they are
     // drawn as one quad each: a four-vertex strip, six vertices expanded.
     const bool turned_quad = call.primitive == PrimitiveType::TriangleStrip && count == 4u;
-    // Non-through sprites are still 2D quads. The cat face is one of them: the
-    // name plates are through-mode and take Status, and this icon does not, so
-    // it stayed at the size and place the game drew.
     bool scale_corners = call.through && !call.clear_mode && hud_scales.any() && !direct &&
         (call.primitive == PrimitiveType::Sprites || turned_quad);
-    const bool cat_sprites = !scale_corners && !call.clear_mode && !direct && hud_scales.any() &&
-        (call.primitive == PrimitiveType::Sprites || call.primitive == PrimitiveType::Triangles ||
-            call.primitive == PrimitiveType::TriangleStrip || call.primitive == PrimitiveType::TriangleFan);
+    // Non-through sprites and small orthographic draws are still 2D quads. A
+    // party-list icon drawn that way, such as the cat's face, takes Status with
+    // the through-mode plates beside it.
+    const bool party_icons = !scale_corners && !call.clear_mode && !direct && hud_scales.any() &&
+        hud_scale::may_resize(hud_owner) && (call.primitive == PrimitiveType::Sprites || small_icon);
     // A name over another hunter. Told apart from the map so a name that
     // crosses the map keeps this size, not the map's.
     const hud::NameDraw named = scale_corners ? hud::name_at(call.command_address, call.call_return) : hud::NameDraw{};
@@ -7806,17 +7816,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             // The moving map window is told from other panels of the same size by
             // the texture it samples (gpu/hud_scale.hpp).
             const std::uint32_t hud_texture = call.texture.enabled ? call.texture.address : 0u;
-            hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture);
-            const auto bounds_of = [](const std::vector<GpuVertex> &vertices, std::size_t first) {
-                hud_scale::Rect r{vertices[first].x, vertices[first].y, vertices[first].x, vertices[first].y};
-                for (std::size_t i = 1; i < 6u; ++i) {
-                    r.x0 = std::min(r.x0, vertices[first + i].x);
-                    r.y0 = std::min(r.y0, vertices[first + i].y);
-                    r.x1 = std::max(r.x1, vertices[first + i].x);
-                    r.y1 = std::max(r.y1, vertices[first + i].y);
-                }
-                return r;
-            };
+            hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner);
+            const auto bounds_of = hud_scale::quad_bounds<GpuVertex>;
             for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
                 bool moved = false;
                 for (std::size_t i = 0; i < 6u; ++i)
@@ -7848,31 +7849,11 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 }
             }
         }
-    } else if (cat_sprites) {
+    } else if (party_icons) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
         if (unscaled.size() >= 6u) {
             corner_scaled = unscaled;
-            bool found = false;
-            const hud_scale::Placement badge = hud_scale::placement_of(hud_scale::Piece::Vitals, hud_scales);
-            for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
-                hud_scale::Rect bounds{corner_scaled[first].x, corner_scaled[first].y, corner_scaled[first].x,
-                    corner_scaled[first].y};
-                for (std::size_t i = 1; i < 6u; ++i) {
-                    bounds.x0 = std::min(bounds.x0, corner_scaled[first + i].x);
-                    bounds.y0 = std::min(bounds.y0, corner_scaled[first + i].y);
-                    bounds.x1 = std::max(bounds.x1, corner_scaled[first + i].x);
-                    bounds.y1 = std::max(bounds.y1, corner_scaled[first + i].y);
-                }
-                if (!hud_scale::is_cat_icon(bounds) && !hud_scale::is_named_cat_face(bounds)) continue;
-                found = true;
-                const float row = impl.hud_scale_frame.cat_name_row(0.5f * (bounds.y0 + bounds.y1));
-                for (std::size_t i = 0; i < 6u; ++i) {
-                    hud_scale::lay_cat_on_badge(corner_scaled[first + i].x, corner_scaled[first + i].y, bounds, row);
-                    hud_scale::place_point(corner_scaled[first + i].x, corner_scaled[first + i].y, badge,
-                        hud_scales.vitals);
-                }
-            }
-            if (found) scale_corners = true;
+            scale_corners = hud_scale::place_party_icons(corner_scaled, hud_scales, impl.hud_scale_frame);
         }
     }
     // A span remembered while the hold was full has no offset. Once an area

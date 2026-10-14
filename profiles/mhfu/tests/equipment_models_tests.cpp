@@ -169,10 +169,10 @@ void test_layered_armor() {
     // chest she does not own is not offered, and the old box address is not read.
     const std::uint32_t box = block + layered::kEquipmentBoxOffset;
     ram.store8(box, layered::kEquipmentSlotUsed);
-    ram.store8(box + 1u, 0u);
+    ram.store8(box + 1u, layered::kBoxKind[0]);
     ram.store16(box + 2u, 3u);
     ram.store8(box + kEquipmentRecord, 0u);
-    ram.store8(box + kEquipmentRecord + 1u, 0u);
+    ram.store8(box + kEquipmentRecord + 1u, layered::kBoxKind[0]);
     ram.store16(box + kEquipmentRecord + 2u, 3u);
     ram.store8(kOldEquipmentBox, 1u);
     ram.store8(kOldEquipmentBox + 1u, 0u);
@@ -207,7 +207,7 @@ void test_layered_armor() {
     write_armor(ram, kChestData, 5, 0, 8, 0x02);
     const std::uint32_t bought = box + 2u * kEquipmentRecord;
     ram.store8(bought, 2u);
-    ram.store8(bought + 1u, 0u);
+    ram.store8(bought + 1u, layered::kBoxKind[0]);
     ram.store16(bought + 2u, 5u);
     const std::vector<layered::Offer> bought_list = layered::offers(ram, 0);
     bool listed = false;
@@ -217,13 +217,31 @@ void test_layered_armor() {
         "owned chests are listed in id order, under the game's names");
     const std::uint32_t again = box + 3u * kEquipmentRecord;
     ram.store8(again, 1u);
-    ram.store8(again + 1u, 0u);
+    ram.store8(again + 1u, layered::kBoxKind[0]);
     ram.store16(again + 2u, 3u);
     bool second = false;
     for (const layered::Offer &offer : layered::offers(ram, 0))
         if (offer.id == 3u) second = offer.copies == 2u;
     check(second, "a second copy of a chest is counted on its row");
     check(layered::owned_count(ram, 0) == 4u, "the owned count is the worn piece plus every box copy");
+    // The box numbers armor legs 0, head 1, chest 2, arms 3, waist 4. A legs
+    // record (kind 0) holding a chest-wearable id is not a chest, and the same
+    // id stored as a chest (kind 2) is.
+    check(layered::kBoxKind[0] == 2u && layered::kBoxKind[1] == 3u && layered::kBoxKind[2] == 4u &&
+            layered::kBoxKind[3] == 0u && layered::kBoxKind[4] == 1u,
+        "the box kinds are the game's: legs 0, head 1, chest 2, arms 3, waist 4");
+    write_armor(ram, kChestData, 6, 9, 9, 0x0Fu);
+    const std::uint32_t legs = box + 4u * kEquipmentRecord;
+    ram.store8(legs, 1u);
+    ram.store8(legs + 1u, 0u);
+    ram.store16(legs + 2u, 6u);
+    bool leaked = false;
+    for (const layered::Offer &offer : layered::offers(ram, 0)) leaked = leaked || offer.id == 6u;
+    check(!leaked && !layered::owns_piece(ram, 0, 6), "a legs record is not offered as a chest");
+    check(layered::owned_count(ram, 0) == 4u, "nor counted as one");
+    ram.store8(legs + 1u, layered::kBoxKind[0]);
+    check(layered::owns_piece(ram, 0, 6), "the same id kept as a chest is owned");
+    ram.store8(legs, 0u);
 
     // The hunter's load. The step runs for that load only; an address outside
     // guest memory is not it. Done is state 5, and a restart clears the state

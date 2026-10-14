@@ -5,6 +5,7 @@
 #include <string>
 
 namespace psprecomp {
+struct AllegrexContext;
 class GuestMemory;
 class Runtime;
 }
@@ -61,11 +62,15 @@ struct CodeWord {
 };
 
 // One function the HUD is drawn from, and the two words that must still be
-// there (its addiu sp and its sw ra) before a call stack counts.
+// there (its addiu sp and its sw ra) before a call stack counts. `quest` is
+// game_task's quest HUD, the only draws the interface sizes change. The
+// lobby_task functions draw the village interface with its shops and
+// dialogs, so they are hidden with the HUD but never resized.
 struct HudFunction {
     std::uint32_t address;
     std::uint32_t first;
     std::uint32_t saved_ra;
+    bool quest;
 };
 
 // The resident code this was read from. Exposed for tests.
@@ -74,6 +79,8 @@ struct HudFunction {
 [[nodiscard]] std::span<const HudFunction> hud_functions();
 [[nodiscard]] bool code_matches(const psprecomp::Runtime &runtime);
 [[nodiscard]] bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t address);
+// True for a quest HUD function (game_task); the address only.
+[[nodiscard]] bool quest_function(std::uint32_t address);
 // The name over another hunter in a quest: game_task 0x09B62488. The village
 // and the gathering hall draw those names with the rest of that interface, so
 // they are not names for this size. The words still have to match before a
@@ -82,8 +89,8 @@ struct HudFunction {
 [[nodiscard]] bool name_tag_only(std::uint32_t address);
 
 // Called at every flip, where guest functions may be wrapped: puts the
-// wrappers in place once the HUD is first hidden, a name or the map is scaled
-// off the game's size, or MHFU_TRACE_HUD asks.
+// wrappers in place once the HUD is first hidden, any interface size is off
+// the game's size, or MHFU_TRACE_HUD asks.
 void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames);
 
 // The player's switch (the Hide HUD bind and the menu).
@@ -118,5 +125,23 @@ struct NameDraw {
     float origin_y{};
 };
 [[nodiscard]] NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return);
+
+// Who filed a 2D draw, for the interface sizes (gpu/hud_scale.hpp). The size
+// rules recognise HUD pieces by their rectangles, and menus draw panels of
+// the same size in the same corners; only a QuestHud draw may be resized.
+// - Unknown: the game's code is not the code this was read from, so the
+//   draws cannot be told apart and the rectangles alone decide.
+// - QuestHud: filed while a game_task HUD function was on the stack.
+// - Other: anything else, including every village and Guild Hall draw, and
+//   every draw before the wrappers are in place.
+enum class Owner { Unknown, QuestHud, Other };
+[[nodiscard]] Owner owner_of(std::uint32_t command_address, std::uint32_t call_return);
+
+// What the wrapper does when the game files a packet (0x088596C8). Exposed
+// for tests, which build a stand-in call stack in guest memory.
+void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext &ctx);
+// Has owner_of() answer as it does once the wrappers are in place, and
+// forgets every packet seen. For tests.
+void watch_for_tests();
 
 } // namespace mhfu::gpu::hud
