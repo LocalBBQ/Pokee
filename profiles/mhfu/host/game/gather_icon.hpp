@@ -40,8 +40,15 @@ struct GatherNode {
     float y{};
     float z{};
     std::uint16_t id{};
-    std::uint16_t kind{}; // the halfword at +20; the action switches on 0, 3 and 4
+    // The halfword at +20. The action switches on 0 (○: plants and the like),
+    // 3 (□: mining) and 4 (□: a bug net).
+    std::uint16_t kind{};
 };
+
+// True for the kinds the game gathers with □: mining (3) and a bug net (4).
+[[nodiscard]] inline bool gather_uses_square(std::uint16_t kind) noexcept {
+    return kind == 3u || kind == 4u;
+}
 
 // Above the node's origin, where the mark floats.
 inline constexpr float kGatherLift = 100.0f;
@@ -121,54 +128,77 @@ void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices);
 [[nodiscard]] std::optional<std::array<float, 2>> gather_mark(
     const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose);
 
-// How long ○ stays up, in pad reads the game takes, after the hunter can
-// gather again. Long enough that a read at the game's own rate sees it up
-// before the next press.
-inline constexpr unsigned kGatherHoldGap = 3u;
+// The pulse a hold sends, in pad reads the game takes: the gather button down
+// for kGatherPulseDown reads, then up for kGatherPulseUp. Each part is long
+// enough that a read at the game's own rate sees it.
+inline constexpr unsigned kGatherPulseDown = 3u;
+inline constexpr unsigned kGatherPulseUp = 3u;
 
-// How many reads ○ may stay down without the gather action starting. The game
-// gathers on ○ going down, so a press it is not ready for would otherwise
-// stay down and never come again. Past this, ○ is lifted and pressed again.
-inline constexpr unsigned kGatherAccept = 8u;
-
-// How many reads a gather action may run without returning to the action the
-// hold started on. Past this the current action is taken as free and ○ is
-// pressed again, so a hold cannot stick with ○ held up.
-inline constexpr unsigned kGatherGiveUp = 150u;
-
-// Holding ○ on a gather point. Gather is ○ (B on an Xbox pad), and the game
-// starts one when ○ goes down, so a bit that stays down is one gather. While
-// the hunter's action (the halfword at +804) is away from the action this
-// hold started on, ○ is held up. When that action is back, ○ stays up for
-// kGatherHoldGap reads and then goes down. A press that does not start a
-// gather is sent again. Letting go stops the next one, even at the end of the
-// animation: ○ is never pressed unless it is still held. Pressing it again
-// and holding it through the end continues. Away from a node, with L down,
-// or with the setting off, the buttons pass through. L+○ is the item bar.
+// Holding ○ or □ on a gather point, or ○ on a monster that can be carved.
+// Plants and carving use ○ (B on an Xbox pad); mining and a bug net use □
+// (X on an Xbox pad). The game starts one when that button goes down, so a
+// bit that stays down is one gather or one carve. The hold presses the button
+// again and again, the way a player mashes it: the game starts the next
+// gather on the first press after the hunter is free and ignores the ones
+// during the animation. The hunter's action is not read. Following it broke
+// whenever the gather went through an action the hold did not expect, such as
+// stopping out of a run, and then the hold never pressed again.
+// A hold that begins with the button already down starts on the up part, so
+// the game sees a new press. Letting go stops the pulse at once. While the
+// hold is going, the game is shown the pulse only: movement and every other
+// button are left off, so they cannot walk the hunter off or start another
+// action. Another button can take the gather button out of the resolved pad
+// for a few reads. The hold stays until nothing is held, and those reads
+// still show only the pulse. Away from a node and from a body, or with the
+// setting off, the buttons pass through. L+○ or L+□ before a hold has started
+// is the item bar.
 class GatherRepeat {
 public:
-    // `ready` is the gather search accepting ○. `action` is the hunter's
-    // current action; nothing means the action cannot be read.
-    [[nodiscard]] std::uint32_t apply(std::uint32_t buttons, bool ready, std::optional<std::uint16_t> action);
+    // `ready` is the gather search, or the carve search, accepting `button`.
+    // `button` is ○ or □ for this hold.
+    [[nodiscard]] std::uint32_t apply(std::uint32_t buttons, bool ready, std::uint32_t button);
     void reset() { *this = GatherRepeat{}; }
-    // A gather started here has not finished. ○ coming up does not end it:
-    // the release, and a press during the animation, still belong to it.
-    [[nodiscard]] bool underway() const { return phase_ != Phase::Idle; }
+    // The hold owns the pad, even on a read where the gather button is missing.
+    [[nodiscard]] bool underway() const { return holding_ && latched_; }
+    // The ○ or □ bit this hold is pulsing. Meaningful while underway.
+    [[nodiscard]] std::uint32_t button() const { return button_; }
+    // True after apply when this hold owns the pad, so the movement stick
+    // is reported centred for that read.
+    [[nodiscard]] bool centres_stick() const { return centres_; }
 
 private:
-    enum class Phase : std::uint8_t { Idle, Down, Busy, Gap, Released };
-    Phase phase_{Phase::Idle};
+    bool holding_{};
+    // The gather button was down on the last read, whether or not the hold had it.
+    // Tied to input_button_: a □ hold must not treat a held ○ as already down.
     bool input_down_{};
-    std::uint16_t free_action_{};
-    unsigned gap_{};
-    unsigned down_reads_{};
-    unsigned busy_reads_{};
+    bool centres_{};
+    // The gather button was down for this hold. Stays set while some other
+    // button is held, so a resolved pad that dropped it does not read as a release.
+    bool latched_{};
+    std::uint32_t button_{0x2000u}; // ○ until a hold picks □
+    std::uint32_t input_button_{0x2000u};
+    unsigned step_{};
 };
 
-// The buttons the game should see for this pad read. Off, or idle with ○ up,
-// `buttons` comes back unchanged and the gather list is not read. While a
-// gather from this hold is still playing, the list and the hunter's action
-// are read even if ○ is up, so letting go does not forget the animation.
+// A monster body the game would carve with ○. 0x0886CEA8 walks the table whose
+// pointer is the word at 0x09A4F1A0: records start 4 bytes in, 32 bytes each,
+// at most 20. +0 x, +4 y, +8 z and +12 radius are floats. The halfword at +16
+// is 0xFFFF for an empty slot. The halfword at +24 is the stage and must
+// match the hunter at +0x29A. The height window is the gather one: at or
+// above the body minus 200, and below it plus 100. The horizontal distance
+// must be inside the radius. 0x0886CF78 returns the halfword at +20 of the
+// first such body; 0xFFFF is not a carve, and the circle handler
+// (game_task 0x09AA73A4) does not look at a later body. It also skips the
+// carve when bit 8 of the word at hunter +1164 is set. Nothing in the
+// village, with no hunter, or with no body in reach.
+[[nodiscard]] bool carve_in_reach(const psprecomp::GuestMemory &memory);
+
+// The buttons the game should see for this pad read. Off, or idle with the
+// gather button up, `buttons` comes back unchanged and the gather list is not
+// read. While the hold owns the pad, every other button is cleared.
+// gather_hold_centres_stick is then true: the movement stick for that read is
+// centred, so a push does not walk the gather or the carve off.
 [[nodiscard]] std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory);
+[[nodiscard]] bool gather_hold_centres_stick();
 
 } // namespace mhfu::game

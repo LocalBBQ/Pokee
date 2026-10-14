@@ -29,7 +29,6 @@ constexpr GatherWord kWords[] = {
     {0x088C7234u, 0x24424808u}, // addiu v0,v0,0x4808: the table at 0x09CE4808
     {0x08886E80u, 0x3C03089Du}, // lui v1,0x89d: the base of the hunter list
     {0x08886EF8u, 0x8E130A84u}, // lw s3,2692(s0): the hunter the camera follows
-    {0x09AA4E1Cu, 0x96440324u}, // lhu a0,804(s2): the hunter's current action
 };
 
 constexpr std::uint32_t kGatherObject = 0x08A62D9Cu;
@@ -42,7 +41,6 @@ constexpr std::uint32_t kHunterList = 0x089CBD04u;
 constexpr std::uint32_t kFollowedHunter = 2692u;
 constexpr std::uint32_t kHunterPosition = 0x200u;
 constexpr std::uint32_t kHunterStage = 0x29Au;
-constexpr std::uint32_t kHunterAction = 804u;
 constexpr std::uint32_t kNodeStride = 24u;
 constexpr std::uint32_t kNodeRadius = 12u;
 constexpr std::uint32_t kNodeId = 16u;
@@ -228,13 +226,62 @@ std::optional<GatherNode> read_node(const psprecomp::GuestMemory &memory) {
         load_float(memory, *hunter + kHunterPosition + 4u), load_float(memory, *hunter + kHunterPosition + 8u));
 }
 
-std::optional<std::uint16_t> hunter_action(const psprecomp::GuestMemory &memory) {
-    const std::optional<std::uint32_t> hunter = followed_hunter(memory);
-    if (!hunter || !in_ram(*hunter + kHunterAction, 2u, memory)) return std::nullopt;
-    return memory.load16(*hunter + kHunterAction);
+// 0x0886CEA8. The circle handler asks it only after the gather search misses.
+constexpr std::uint32_t kCarveTable = 0x09A4F1A0u;
+constexpr std::uint32_t kCarveStride = 32u;
+constexpr std::uint32_t kCarveSlots = 20u;
+constexpr std::uint32_t kCarveFirst = 4u;
+constexpr std::uint32_t kCarveEmpty = 0xFFFFu;
+constexpr std::uint32_t kCarveId = 20u;
+constexpr std::uint32_t kCarveStage = 24u;
+constexpr std::uint32_t kCarveBlocked = 1164u; // bit 8: the handler leaves the body
+constexpr std::uint32_t kCarveBlockBit = 0x100u;
+
+bool body_in_reach(const psprecomp::GuestMemory &memory, std::uint32_t record, float hunter_x, float hunter_y,
+    float hunter_z) {
+    const float x = load_float(memory, record);
+    const float y = load_float(memory, record + 4u);
+    const float z = load_float(memory, record + 8u);
+    const float radius = load_float(memory, record + 12u);
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) || !std::isfinite(radius)) return false;
+    const float dx = hunter_x - x;
+    const float dz = hunter_z - z;
+    return hunter_y >= y - kBelow && hunter_y < y + kAbove && dx * dx + dz * dz <= radius * radius;
 }
 
 } // namespace
+
+bool carve_in_reach(const psprecomp::GuestMemory &memory) {
+    if (!gather_code_matches(memory)) return false;
+    const std::optional<std::uint32_t> hunter = followed_hunter(memory);
+    if (!hunter || !in_ram(*hunter + kHunterPosition, kHunterStage + 2u - kHunterPosition, memory) ||
+        !in_ram(*hunter + kCarveBlocked, 4u, memory))
+        return false;
+    if ((memory.load32(*hunter + kCarveBlocked) & kCarveBlockBit) != 0u) return false;
+    if (!in_ram(kCarveTable, 4u, memory)) return false;
+    const std::uint32_t table = memory.load32(kCarveTable);
+    if (table < kRam || !in_ram(table + kCarveFirst, kCarveStride, memory)) return false;
+    const float hunter_x = load_float(memory, *hunter + kHunterPosition);
+    const float hunter_y = load_float(memory, *hunter + kHunterPosition + 4u);
+    const float hunter_z = load_float(memory, *hunter + kHunterPosition + 8u);
+    if (!std::isfinite(hunter_x) || !std::isfinite(hunter_y) || !std::isfinite(hunter_z)) return false;
+    const std::uint16_t stage = memory.load16(*hunter + kHunterStage);
+    std::uint32_t record = table + kCarveFirst;
+    for (std::uint32_t n = 0; n < kCarveSlots; ++n) {
+        if (!in_ram(record, kCarveStride, memory)) return false;
+        const bool empty = memory.load16(record + 16u) == kCarveEmpty;
+        const bool here = memory.load16(record + kCarveStage) == stage;
+        if (!empty && here) {
+            if (!body_in_reach(memory, record, hunter_x, hunter_y, hunter_z)) {
+                record += kCarveStride;
+                continue;
+            }
+            return memory.load16(record + kCarveId) != kCarveEmpty;
+        }
+        record += kCarveStride;
+    }
+    return false;
+}
 
 std::optional<GatherNode> gather_node(const psprecomp::GuestMemory &memory) {
     const std::optional<GatherNode> node = read_node(memory);
@@ -277,117 +324,100 @@ std::optional<std::array<float, 2>> gather_mark(
     return std::array<float, 2>{at->x, at->y};
 }
 
-std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::optional<std::uint16_t> action) {
-    constexpr std::uint32_t kCircle = 0x2000u; // ○, B on an Xbox pad: gather
-    constexpr std::uint32_t kLead = 0x0100u;   // L, held with ○ for the item bar
-    // L+○ scrolls the item bar. Leave it, and leave a gap that is already running.
-    if ((buttons & kLead) != 0u) return buttons;
-    const bool down = (buttons & kCircle) != 0u;
-    if (!ready || !action) {
+std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::uint32_t button) {
+    constexpr std::uint32_t kLead = 0x0100u; // L, held with ○ or □ for the item bar
+    constexpr unsigned kPulse = kGatherPulseDown + kGatherPulseUp;
+    centres_ = false;
+    // L with ○ or □ before a hold starts scrolls the item bar. Once the hold
+    // has started, L is another button and must not open that bar.
+    if ((buttons & kLead) != 0u && !holding_ && !latched_) return buttons;
+    // A hold already in progress keeps its own button. A new hold takes the
+    // caller's, so mining can pulse □ while carving pulses ○.
+    if (holding_) button = button_;
+    else button_ = button;
+    const bool down = (buttons & button) != 0u;
+    // A second button can drop the gather button from the resolved pad for a
+    // few reads. The hold continues until the pad is clear, and the game is
+    // shown the gather pulse rather than that button.
+    if (down) latched_ = true;
+    else if ((buttons & ~button) == 0u) latched_ = false;
+    if (!ready || !latched_) {
+        if (!ready) latched_ = down;
+        holding_ = false;
         input_down_ = down;
-        down_reads_ = 0;
-        busy_reads_ = 0;
-        phase_ = Phase::Idle;
+        input_button_ = button;
         return buttons;
     }
-    if (!down) {
-        input_down_ = false;
-        down_reads_ = 0;
-        // Letting go during the gather remembers it only so a new hold can
-        // continue. ○ itself stays up: a gather is never started after release.
-        if (*action != free_action_ && (phase_ == Phase::Busy || phase_ == Phase::Released)) {
-            phase_ = Phase::Released;
-            return buttons;
-        }
-        busy_reads_ = 0;
-        phase_ = Phase::Idle;
-        return buttons;
-    }
-    // Pressed again while that gather is still playing. ○ stays up until the
-    // hunter is free. The next press happens only if ○ is still held then.
-    if (phase_ == Phase::Released && *action != free_action_) {
-        input_down_ = true;
-        phase_ = Phase::Busy;
-        return buttons & ~kCircle;
-    }
-    // ○ was already down on the read before this point was in range, so
-    // the game has no new press until ○ comes up and goes down again.
-    if (phase_ == Phase::Idle || phase_ == Phase::Released) {
-        free_action_ = *action;
-        gap_ = 0;
-        down_reads_ = 0;
-        busy_reads_ = 0;
-        phase_ = input_down_ ? Phase::Gap : Phase::Down;
+    // The gather button already down when the hold begins has been seen by the
+    // game, so the pulse starts on its up part and the next read down is a new
+    // press. Only the same button counts: a held ○ must not skip the first □.
+    if (!holding_) {
+        holding_ = true;
+        step_ = (input_down_ && input_button_ == button) ? kGatherPulseDown : 0u;
     }
     input_down_ = true;
-    if (phase_ == Phase::Down) {
-        if (*action != free_action_) {
-            down_reads_ = 0;
-            busy_reads_ = 0;
-            phase_ = Phase::Busy;
-            return buttons & ~kCircle;
-        }
-        // Still the same action: the game did not take the press. Lift ○ and
-        // send it again, or the bit stays down and the hold ends.
-        if (down_reads_ < kGatherAccept) {
-            ++down_reads_;
-            return buttons;
-        }
-        down_reads_ = 0;
-        phase_ = Phase::Gap;
-        gap_ = 0;
-    }
-    if (phase_ == Phase::Busy) {
-        if (*action != free_action_) {
-            if (busy_reads_ < kGatherGiveUp) {
-                ++busy_reads_;
-                return buttons & ~kCircle;
-            }
-            // The gather did not come back to the action it started from.
-            free_action_ = *action;
-            busy_reads_ = 0;
-            phase_ = Phase::Gap;
-            gap_ = 0;
-        } else {
-            busy_reads_ = 0;
-            phase_ = Phase::Gap;
-            gap_ = 0;
-        }
-    }
-    if (*action != free_action_) {
-        phase_ = Phase::Busy;
-        return buttons & ~kCircle;
-    }
-    if (gap_ < kGatherHoldGap) {
-        ++gap_;
-        return buttons & ~kCircle;
-    }
-    phase_ = Phase::Down;
-    free_action_ = *action;
-    down_reads_ = 1;
-    if (trace_on()) std::cout << "[gather] hold" << std::endl;
-    return buttons;
+    input_button_ = button;
+    const bool show = step_ < kGatherPulseDown;
+    if (step_ == 0u && trace_on()) std::cout << "[gather] hold" << std::endl;
+    step_ = (step_ + 1u) % kPulse;
+    // The game sees the gather button as this pulse wants it, and nothing else.
+    // The bit is forced on: the resolved pad may not contain it while another
+    // button is down. A stick push is stopped by the caller.
+    centres_ = true;
+    return show ? button : 0u;
 }
+
+namespace {
+bool centres_stick = false;
+} // namespace
+
+bool gather_hold_centres_stick() { return centres_stick; }
 
 std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory) {
     static GatherRepeat repeat;
+    centres_stick = false;
     if (!settings::current().gather_hold) {
         repeat.reset();
         return buttons;
     }
-    bool ready = false;
-    std::optional<std::uint16_t> action;
-    constexpr std::uint32_t kCircle = 0x2000u;
+    constexpr std::uint32_t kCircle = 0x2000u; // ○, B: plants and carving
+    constexpr std::uint32_t kSquare = 0x8000u; // □, X: mining and a bug net
     constexpr std::uint32_t kLead = 0x0100u;
-    // ○ up during a gather is still that gather. Dropping the action here
-    // made a later press look like a new hold on the animation itself, and
-    // the pulse never came back.
-    const bool pressed = (buttons & kLead) == 0u && (buttons & kCircle) != 0u;
-    if (pressed || repeat.underway()) {
-        ready = gather_node(memory).has_value();
-        if (ready) action = hunter_action(memory);
+    bool circle_ready = false;
+    bool square_ready = false;
+    const bool look = ((buttons & kLead) == 0u && ((buttons & kCircle) != 0u || (buttons & kSquare) != 0u)) ||
+        repeat.underway();
+    if (look) {
+        if (const std::optional<GatherNode> node = gather_node(memory)) {
+            if (gather_uses_square(node->kind)) square_ready = true;
+            else circle_ready = true;
+        }
+        if (carve_in_reach(memory)) circle_ready = true;
     }
-    return repeat.apply(buttons, ready, action);
+    // Even away from a point the held gather button is still tracked, so walking
+    // onto one with it already down starts on the up part of the pulse.
+    std::uint32_t button = kCircle;
+    bool ready = false;
+    if (repeat.underway()) {
+        button = repeat.button();
+        ready = button == kSquare ? square_ready : circle_ready;
+    } else if ((buttons & kLead) == 0u && (buttons & kCircle) != 0u && circle_ready) {
+        button = kCircle;
+        ready = true;
+    } else if ((buttons & kLead) == 0u && (buttons & kSquare) != 0u && square_ready) {
+        button = kSquare;
+        ready = true;
+    } else if ((buttons & kLead) == 0u && (buttons & kSquare) != 0u) {
+        button = kSquare;
+    } else if ((buttons & kLead) == 0u && (buttons & kCircle) != 0u) {
+        button = kCircle;
+    } else if (!repeat.underway()) {
+        (void)repeat.apply(buttons, false, repeat.button());
+        return buttons;
+    }
+    const std::uint32_t shown = repeat.apply(buttons, ready, button);
+    centres_stick = repeat.centres_stick();
+    return shown;
 }
 
 } // namespace mhfu::game

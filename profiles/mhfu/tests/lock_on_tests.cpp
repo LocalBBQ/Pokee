@@ -309,6 +309,13 @@ void test_monsters_and_pick() {
     place(memory, monster_a, 1000.0f, 0.0f, 1000, 0);
     check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == small,
         "with no marked monster left, the healthy small one remains");
+    memory.store8(small + game::kMonsterId, 0x49u); // Ceanataur
+    check(lock_on_monsters(memory).empty() && hunt_monsters(memory).empty(),
+        "a small species does not take the lock or the icon");
+    memory.store32(small + game::kVtable, large_vtable);
+    memory.store16(node_small + game::kNodeClass, 34u);
+    check(lock_on_monsters(memory).empty() && hunt_monsters(memory).empty(),
+        "a small species stays out even when it is marked large");
     memory.store8(game::kTaskSlot + 32u, 'l');
     place(memory, monster_b, 0.0f, -3000.0f);
     check(lock_on_monsters(memory).empty(), "and nothing outside a quest");

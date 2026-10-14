@@ -245,6 +245,40 @@ struct Candidate {
     std::uint8_t id{};
 };
 
+// Species the hunt icon draws that are not large monsters. A small monster
+// can share an em method or a class id with its large relative (a Ceanataur
+// with a Shogun), and a quest that marks nothing large would otherwise lock
+// it. These stay off the lock and off the icon. An id that is not here,
+// including one with no icon, can still be large.
+bool small_species(std::uint8_t id) {
+    switch (id) {
+    case 0x03: // Kelbi
+    case 0x04: // Mosswine
+    case 0x05: // Bullfango
+    case 0x09: // Felyne
+    case 0x0C: // Aptonoth
+    case 0x0D: // Genprey
+    case 0x10: // Velociprey
+    case 0x13: // Vespoid
+    case 0x17: // Melynx
+    case 0x18: // Hornetaur
+    case 0x19: // Apceros
+    case 0x1E: // Ioprey
+    case 0x22: // Cephalos
+    case 0x23: // Giaprey
+    case 0x39: // Shakalaka
+    case 0x3D: // Blango
+    case 0x3E: // Conga
+    case 0x3F: // Remobra
+    case 0x42: // Hermitaur
+    case 0x45: // Anteka
+    case 0x46: // Popo
+    case 0x49: // Ceanataur
+        return true;
+    default: return false;
+    }
+}
+
 // Large monsters on the quest list, including one in another zone. When
 // `trace` is set, the walk is printed and the flag cleared,
 // and only once the list can actually be read.
@@ -278,6 +312,8 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
         if (most <= 0) continue; // a companion, or not a monster with a health pool
+        const std::uint8_t id = memory.load8(at + kMonsterId);
+        if (small_species(id)) continue;
         const bool dead = health <= 0;
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
@@ -292,11 +328,11 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
             std::cout << "[lockon] candidate 0x" << std::hex << at << std::dec << " type "
                       << static_cast<unsigned>(kind) << " class " << class_id << " vtable 0x" << std::hex << vtable
                       << " method 0x" << method << std::dec << " em " << (em ? 1 : 0) << " id "
-                      << static_cast<unsigned>(memory.load8(at + kMonsterId)) << " health " << health << "/" << most
+                      << static_cast<unsigned>(id) << " health " << health << "/" << most
                       << " at " << position.x << "," << position.y << "," << position.z
                       << (other_area ? " other-area" : "") << (dead ? " dead" : "") << std::endl;
         }
-        found.push_back({LockMonster{at, 0u, position}, marked, other_area, dead, memory.load8(at + kMonsterId)});
+        found.push_back({LockMonster{at, 0u, position}, marked, other_area, dead, id});
     }
     if (trace) {
         bool any_marked = false;

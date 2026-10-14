@@ -237,30 +237,209 @@ inline constexpr float kBowgunBottom = 200.0f;
         height >= 42.0f && height <= 54.0f;
 }
 
-// The yellow eye shown once a monster is found: 12 by 16 at (104, 56)-(116, 72),
-// on the right end of the name plate. The plate's rectangle stops at x 112, so
-// the name's rule leaves the eye where the game drew it. Traced with
-// MHFU_TRACE_SPRITES on the frames after the monster is found.
-[[nodiscard]] inline bool is_monster_eye(Rect rect) {
+// Names under the clock, left of the map. A quest draws up to four hunters
+// there, and each cat's name, badge, yellow eye and buffs sit in this band.
+// The buffs reach toward the middle of the picture. The names themselves
+// stay in the left column: the quest-details window starts just past it, and
+// its letters are the same size as a name.
+inline constexpr float kPartyLeft = 4.0f;
+inline constexpr float kPartyTop = 52.0f;
+inline constexpr float kPartyRight = 312.0f;
+inline constexpr float kPartyBottom = 148.0f;
+inline constexpr float kPartyNameRight = 192.0f;
+
+// The yellow eye shown once a monster is found: 12 by 16. The hunter's own
+// is at (104, 56)-(116, 72). A cat and each teammate draw the same eye beside
+// their name, on the rows below. Traced with MHFU_TRACE_SPRITES.
+[[nodiscard]] inline bool is_monster_eye(Rect rect, std::uint32_t texture = 0) {
+    if (texture == kAreaMapTexture || texture == kMapIconTexture) return false;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    return width >= 10.0f && width <= 16.0f && height >= 14.0f && height <= 18.0f && r.x0 >= 98.0f && r.x0 <= 114.0f &&
-        r.y0 >= 52.0f && r.y0 <= 64.0f;
+    // A quest-details letter is at most 10 wide and 12 to 16 tall. The eye is wider.
+    if (width <= 10.0f && height >= 12.0f && height <= 16.0f) return false;
+    return width >= 10.0f && width <= 16.0f && height >= 14.0f && height <= 18.0f &&
+        contains({kPartyLeft, kPartyTop, kPartyRight, kPartyBottom}, r);
 }
 
 // Poison, paralysis, sleep, stun, snowman, muddy, stench, defense down and
-// fatigue, on the name row. The yellow eye is 12 by 16 at (104, 56) and the
-// queued-note mark is 12 by 16 at (128, 56); these icons are the same kind of
-// mark, about 12 wide and 14 to 16 tall, stepping right from the plate. The
-// note mark is recognised first and keeps the horn's size, which is this same
-// percent. A bubble or the stars drawn on the hunter are not this row.
-[[nodiscard]] inline bool is_status_icon(Rect rect) {
+// fatigue. The hunter's own are about 12 wide and 14 to 16 tall, from x 112
+// on the first row. A cat's badge is that same mark beside the cat's name,
+// and it can sit left of x 112. Teammates and their cats draw the same buffs
+// on the rows below. The queued-note mark is this size at (128, 56) and is
+// recognised first, so it keeps the horn's size. The stars over a stunned
+// hunter are larger and are not one of these.
+[[nodiscard]] inline bool is_status_icon(Rect rect, std::uint32_t texture = 0) {
+    if (texture == kAreaMapTexture || texture == kMapIconTexture) return false;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    return width >= 10.0f && width <= 16.0f && height >= 12.0f && height <= 18.0f && r.x0 >= 112.0f &&
-        r.x0 <= 236.0f && r.y0 >= 52.0f && r.y0 <= 64.0f;
+    // A letter in the quest-details window is at most 10 wide. A buff is wider.
+    if (width <= 10.0f && height >= 12.0f && height <= 16.0f) return false;
+    return width >= 10.0f && width <= 16.0f && height >= 12.0f && height <= 18.0f &&
+        contains({kPartyLeft, kPartyTop, kPartyRight, kPartyBottom}, r);
+}
+
+// One cat accompanies the player. Up to four hunters share the quest, and each
+// hunter's weapon badge is the wide mark on that name: the first is
+// (4, 56)-(36, 68), and the later names repeat it 20 lower. That mark already
+// sits in the badge slot and takes Status from the clock. The cat's face is
+// the small paint in the same column, drawn under the cat's name. Status
+// pulls the plate and the mark toward the clock together. The face keeps its
+// shape, sits on that same mark, and takes Status with it, so the two stay
+// aligned as the size changes. The paint is about
+// (10, 82)-(20, 89). A name
+// letter further right, a plate tile, and a hunter's weapon mark are not the face.
+inline constexpr float kBadgeTop = 56.0f;
+inline constexpr float kBadgeCenter = 62.0f;
+inline constexpr float kPlateStride = 20.0f;
+inline constexpr int kNamePlates = 4;
+
+// A hunter's weapon mark, already on its name. Four hunters, one mark each.
+[[nodiscard]] inline bool is_hunter_badge(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (width < 24.0f || width > 40.0f || height < 10.0f || height > 16.0f) return false;
+    const float cx = 0.5f * (r.x0 + r.x1);
+    const float cy = 0.5f * (r.y0 + r.y1);
+    if (cx < 0.0f || cx > 40.0f) return false;
+    float n = (cy - kBadgeCenter) / kPlateStride;
+    if (n < -0.2f || n > static_cast<float>(kNamePlates - 1) + 0.2f) return false;
+    n = static_cast<float>(static_cast<int>(n + 0.5f));
+    if (n < 0.0f) n = 0.0f;
+    if (n > static_cast<float>(kNamePlates - 1)) n = static_cast<float>(kNamePlates - 1);
+    const float slot = kBadgeCenter + n * kPlateStride;
+    return cy - slot <= 4.0f && slot - cy <= 4.0f;
+}
+
+// A name plate repeats every 20 pixels. The dark badge behind a weapon is a
+// tile of that plate. The face paint is narrower and is not one of these.
+[[nodiscard]] inline bool inside_name_plate(Rect rect) {
+    const Rect r = normalized(rect);
+    for (int i = 0; i < kNamePlates; ++i) {
+        const float dy = static_cast<float>(i) * kPlateStride;
+        if (contains({kNameLeft, kNameTop + dy, kNameRight, kNameBottom + dy}, r)) return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline bool is_plate_tile(Rect rect) {
+    const Rect r = normalized(rect);
+    if (!inside_name_plate(r)) return false;
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 14.0f && height >= 8.0f && height <= 20.0f;
+}
+
+[[nodiscard]] inline bool is_cat_icon(Rect rect, std::uint32_t texture = 0) {
+    const Rect r = normalized(rect);
+    const float cx = 0.5f * (r.x0 + r.x1);
+    // Map marks use these textures on the right of the screen. The face is in
+    // the badge column, and the icon atlas can be one of those textures.
+    if ((texture == kAreaMapTexture || texture == kMapIconTexture) && cx > 40.0f) return false;
+    if (is_hunter_badge(r)) return false;
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (width < 8.0f || width > 64.0f || height < 4.0f || height > 64.0f) return false;
+    // A tile of a name plate, on any row, stays with that plate. The face
+    // hangs off the plate, so its box is not inside it.
+    if (contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r) || is_plate_tile(r)) return false;
+    const float cy = 0.5f * (r.y0 + r.y1);
+    if (cx < 0.0f || cx > 40.0f || cy < kNameTop || cy > kPartyBottom + 16.0f) return false;
+    // A name letter is at most 10 wide and 12 to 16 tall, and it is not in
+    // the weapon column. The face's cell is that size, in the column.
+    if (width <= 10.0f && height >= 12.0f && height <= 16.0f && cx > 18.0f) return false;
+    return true;
+}
+
+// The cat face filed with a name. Names stay at their own size, so an icon
+// that misses `is_cat_icon` is left at the size the game drew. A letter, the
+// wide name, a plate tile and a hunter's weapon mark are not the face.
+[[nodiscard]] inline bool is_named_cat_face(Rect rect) {
+    const Rect r = normalized(rect);
+    if (is_hunter_badge(r)) return false;
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (width < 4.0f || width > 80.0f || height < 4.0f || height > 80.0f) return false;
+    const float cx = 0.5f * (r.x0 + r.x1);
+    const float cy = 0.5f * (r.y0 + r.y1);
+    if (cx < 0.0f || cx > 80.0f || cy < 0.0f || cy > kPartyBottom + 32.0f) return false;
+    const bool letter = width <= 10.0f && height >= 12.0f && height <= 16.0f;
+    if (letter && cx > 18.0f) return false;
+    const bool label = width >= 18.0f && width <= 160.0f && height >= 10.0f && height <= 16.0f;
+    if (label) return false;
+    if ((contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r) && height <= 10.0f) || is_plate_tile(r))
+        return false;
+    return true;
+}
+
+// The name line the face hangs under, in the same pixels as `rows`. A name
+// below the face is not that name. With no name yet, this is the weapon
+// badge's centre on the plate the face has reached.
+[[nodiscard]] inline float cat_name_row(float cy, const float *rows, int count) {
+    float best = -1.0f;
+    float best_dist = 1.0e9f;
+    for (int i = 0; i < count; ++i) {
+        const float row = rows[i];
+        if (row > cy + 4.0f) continue;
+        const float dist = cy >= row ? cy - row : row - cy;
+        if (dist < best_dist) {
+            best_dist = dist;
+            best = row;
+        }
+    }
+    if (best < 0.0f) {
+        float n = (cy - kBadgeTop) / kPlateStride;
+        if (n < 0.0f) n = 0.0f;
+        if (n > static_cast<float>(kNamePlates - 1)) n = static_cast<float>(kNamePlates - 1);
+        n = static_cast<float>(static_cast<int>(n));
+        best = kBadgeCenter + n * kPlateStride;
+    }
+    return best;
+}
+
+// The weapon badge is the square on the left of each name. The longsword fills
+// that square. The face keeps its shape and is fitted into the same square.
+// Status then scales it from the clock with the badge behind it.
+inline constexpr float kBadgeLeft = 4.0f;
+inline constexpr float kCatFitHeight = 16.0f;
+inline constexpr float kCatFitWidth = 16.0f;
+inline constexpr float kCatCenter = kBadgeCenter + 2.0f;
+
+inline void lay_cat_on_badge(float &x, float &y, Rect bounds, float row) {
+    bounds = normalized(bounds);
+    const float src_w = bounds.x1 - bounds.x0;
+    const float src_h = bounds.y1 - bounds.y0;
+    if (src_w <= 0.0f || src_h <= 0.0f) return;
+    float n = (row - kBadgeCenter) / kPlateStride;
+    n = static_cast<float>(static_cast<int>(n + 0.5f));
+    if (n < 0.0f) n = 0.0f;
+    if (n > static_cast<float>(kNamePlates - 1)) n = static_cast<float>(kNamePlates - 1);
+    const float fit = std::min(kCatFitWidth / src_w, kCatFitHeight / src_h);
+    const float src_cy = 0.5f * (bounds.y0 + bounds.y1);
+    const float slot_cy = kCatCenter + n * kPlateStride;
+    // Half the fitted width puts the face in the middle of the badge. The
+    // shift is in game pixels, so Status scales it with the badge.
+    const float drawn_w = src_w * fit;
+    x = kBadgeLeft + (x - bounds.x0) * fit + 0.5f * drawn_w;
+    y = slot_cy + (y - src_cy) * fit;
+}
+
+// The hunter's own plate is the rectangle above this. The cat's name is the
+// letters beside that hunter (about 8 by 14, or one wider label). A badge,
+// an eye or a buff is 10 to 16 wide, and a mark of that width is not a name.
+
+[[nodiscard]] inline bool is_party_name(Rect rect) {
+    const Rect r = normalized(rect);
+    if (!contains({kPartyLeft, kPartyTop, kPartyNameRight, kPartyBottom}, r)) return false;
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    const bool letter = width >= 6.0f && width <= 10.0f && height >= 12.0f && height <= 16.0f;
+    // Taller than the name plate (16). A map arrow outside the slot is 18
+    // square and is not a name.
+    const bool label = width >= 18.0f && width <= 120.0f && height >= 10.0f && height <= 16.0f;
+    return letter || label;
 }
 
 // The long health and stamina bars, frames and fills. The fills are two pixels
@@ -595,8 +774,10 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     // The hunter's name under the clock. It grows from the clock's corner
     // with the bars, so it stays under the clock. The yellow eye is the icon
     // just past the plate's right end, and the status icons continue along
-    // that row.
-    if (contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r) || is_monster_eye(r) || is_status_icon(r))
+    // that row. A cat's name beside a hunter, and the other hunters in a
+    // party of four, are the same row.
+    if (inside_name_plate(r) || is_monster_eye(r, texture) || is_status_icon(r, texture) || is_cat_icon(r, texture) ||
+        is_party_name(r))
         return Piece::Vitals;
     // A marker drawn on the map, inside the tile. The player's arrow turns, so
     // its box can cross the edge; that one is caught from the map's own
@@ -814,6 +995,13 @@ struct Frame {
     float zoom_y{1.0f};
     float bias_x{};
     float bias_y{};
+    // Vertical centres of the name plates and their letters this frame, and
+    // from the frame before. The cat face is drawn under its name; these are
+    // the lines it has to sit on. A hunter's weapon mark is not one of them.
+    float name_row_y[8]{};
+    int name_rows{};
+    float name_row_y_live[8]{};
+    int name_rows_live{};
 
     void begin() {
         map_rect_live = map_now ? map_rect : Rect{};
@@ -838,6 +1026,36 @@ struct Frame {
         notice_edges = 0;
         notice_pair = false;
         menu_body = false;
+        name_rows_live = name_rows;
+        for (int i = 0; i < name_rows; ++i) name_row_y_live[i] = name_row_y[i];
+        name_rows = 0;
+    }
+
+    // A name plate or its letters. Later letters on the same line are the
+    // same row. The weapon mark is already in the badge slot.
+    void remember_name_row(Rect rect) {
+        const Rect r = normalized(rect);
+        if (is_hunter_badge(r) || is_cat_icon(r)) return;
+        const float width = r.x1 - r.x0;
+        const float height = r.y1 - r.y0;
+        const bool plate = width >= 40.0f && height >= 10.0f && height <= 20.0f &&
+            contains({kNameLeft, kNameTop, kNameRight, kNameBottom}, r);
+        if (!plate && !is_party_name(r)) return;
+        const float cy = 0.5f * (r.y0 + r.y1);
+        for (int i = 0; i < name_rows; ++i) {
+            const float dist = cy >= name_row_y[i] ? cy - name_row_y[i] : name_row_y[i] - cy;
+            if (dist <= 8.0f) return;
+        }
+        if (name_rows < 8) name_row_y[name_rows++] = cy;
+    }
+
+    // The name the face hangs under, in the same pixels the names were noted in.
+    [[nodiscard]] float cat_name_row(float cy) const {
+        float rows[16];
+        int count = 0;
+        for (int i = 0; i < name_rows && count < 16; ++i) rows[count++] = name_row_y[i];
+        for (int i = 0; i < name_rows_live && count < 16; ++i) rows[count++] = name_row_y_live[i];
+        return hud_scale::cat_name_row(cy, rows, count);
     }
 
     // An 8-tall piece of the notice border. The two of them are 24 pixels
@@ -1054,7 +1272,11 @@ struct Frame {
         } else if (texture == kAreaMapTexture &&
             (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
             include_rect(travelling_rect, rect, travelling_now);
-        if (is_vital_bar(rect) || is_clock_sprite(rect) || is_monster_eye(rect) || is_status_icon(rect))
+        // The cat's face is not enough on its own. A shop draws small icons
+        // in the same corner, and treating one as the quest clock scaled the
+        // shop. The face still follows Status once the clock is up.
+        if (is_vital_bar(rect) || is_clock_sprite(rect) || is_monster_eye(rect, texture) ||
+            is_status_icon(rect, texture))
             vital_now = true;
         if (is_bar_panel(rect)) bar_now = true;
         if (is_sharpness_bar(rect) || is_sharpness_frame(rect)) sharp_now = true;
@@ -1067,6 +1289,7 @@ struct Frame {
         remember_obtain_banner(rect);
         if (is_bowgun_icon(rect)) bowgun_now = true;
         if (is_item_list(rect)) list_now = true;
+        remember_name_row(rect);
     }
 
     // A window between the traced spots is the map only while the quest clock
@@ -1121,10 +1344,14 @@ struct Frame {
         case Piece::Vitals: return vital_now || vital_live;
         // The item list shares the bar's corner, and its right column shares
         // the bowgun slot. Neither is scaled while that list is on screen.
-        case Piece::ItemBar: return (bar_now || bar_live) && !list_now && !list_live;
+        // The quest item bar is on screen with the clock. A shop draws panels
+        // in the same corner, and those stay as the game drew them.
+        case Piece::ItemBar:
+            return (bar_now || bar_live) && (vital_now || vital_live) && !list_now && !list_live;
         case Piece::Sharpness: return sharp_now || sharp_live;
         case Piece::LongSword: return spirit_now || spirit_live;
-        case Piece::Bowgun: return (bowgun_now || bowgun_live) && !list_now && !list_live;
+        case Piece::Bowgun:
+            return (bowgun_now || bowgun_live) && (vital_now || vital_live) && !list_now && !list_live;
         case Piece::None: return false;
         }
         return false;
@@ -1162,7 +1389,9 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         // The ammo menu is one panel over the item bar's corner, sized with
         // the item bar. Only this frame's menu counts: the frame after it
         // closes draws the ammo bar in the same place.
-        const bool in_ammo_menu = frame.ammo_menu_now &&
+        // The ammo menu opens over the quest item bar, so the clock is up.
+        // A shop highlight is the same shape and must not take this size.
+        const bool in_ammo_menu = frame.ammo_menu_now && (frame.vital_now || frame.vital_live) &&
             contains({kAmmoMenuLeft, kAmmoMenuTop, kAmmoMenuRight, kAmmoMenuBottom}, bounds);
         Piece piece = in_ammo_menu ? Piece::ItemBar : piece_of(bounds, texture);
         // A window from the area-map texture that sits outside the slot is
@@ -1173,9 +1402,12 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         // the map it belongs to is the one drawn this frame.
         if (!in_ammo_menu && (piece == Piece::None || piece == Piece::Bowgun) && frame.on_map(bounds, texture))
             piece = Piece::Map;
-        // The obtain window's right end overlaps the enlarged map. Leave it
-        // where the game drew it, cap and item icon included.
-        if (frame.on_obtain_banner(bounds, texture) && piece == Piece::Map) piece = Piece::None;
+        // The obtain window ("Herb obtained.") crosses the map and the name
+        // rows. Its frame, the item icon and the name stay as drawn. A weapon
+        // piece is the same short wide shape and still takes its own size.
+        if (frame.on_obtain_banner(bounds, texture) &&
+            (piece == Piece::Map || piece == Piece::Vitals || piece == Piece::ItemBar || piece == Piece::Bowgun))
+            piece = Piece::None;
         // The long notice's 16-tall border sits on its 8-tall cap. It is the
         // size of a map mark, so the mark rule would take it.
         if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.beside_notice_edge(bounds)) continue;
@@ -1185,6 +1417,13 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         // placement is the whole change.
         if (piece == Piece::Map && frame.map_zoomed)
             frame.unzoom_quad(vertices, first, texture == kAreaMapTexture && is_drawn_map(bounds, texture));
+        // The face keeps its shape and takes the longsword's box, then Status
+        // scales that box from the clock so the face stays with the mark.
+        if (is_cat_icon(bounds, texture)) {
+            const float row = frame.cat_name_row(0.5f * (bounds.y0 + bounds.y1));
+            for (std::size_t i = 0; i < 6u; ++i)
+                lay_cat_on_badge(vertices[first + i].x, vertices[first + i].y, bounds, row);
+        }
         const float scale = scales.of(piece);
         const Placement place = piece == Piece::Map
             ? Placement{frame.map_corner.x, frame.map_corner.y, frame.map_corner.x, frame.map_corner.y}

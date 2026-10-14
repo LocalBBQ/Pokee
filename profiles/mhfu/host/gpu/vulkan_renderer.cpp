@@ -7201,8 +7201,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // keep the expansion too.
     static const bool legacy_vertices = std::getenv("MHFU_NO_DIRECT_VERTICES") != nullptr;
     static const bool check_direct = std::getenv("MHFU_CHECK_DIRECT_VERTICES") != nullptr;
+    // A small orthographic icon, such as the cat face, is expanded so it can
+    // take the same size as the through-mode name plates. A world mesh stays
+    // on the direct path.
+    const bool small_icon = count <= 16u && std::fabs(call.projection[11]) < 1e-6f;
     const bool direct = raw ||
-        !legacy_vertices && !perf::alternate_off(perf::NewPath::Direct) && !call.through &&
+        !legacy_vertices && !perf::alternate_off(perf::NewPath::Direct) && !call.through && !small_icon &&
             (call.primitive == PrimitiveType::Triangles || call.primitive == PrimitiveType::TriangleStrip ||
                 call.primitive == PrimitiveType::TriangleFan) &&
             !trace && !trace3d && !trace_sprites;
@@ -7623,8 +7627,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // The clock's hands and the player's arrow on the map turn, so they are
     // drawn as one quad each: a four-vertex strip, six vertices expanded.
     const bool turned_quad = call.primitive == PrimitiveType::TriangleStrip && count == 4u;
-    const bool scale_corners = call.through && !call.clear_mode && hud_scales.any() && !direct &&
+    // Non-through sprites are still 2D quads. The cat face is one of them: the
+    // name plates are through-mode and take Status, and this icon does not, so
+    // it stayed at the size and place the game drew.
+    bool scale_corners = call.through && !call.clear_mode && hud_scales.any() && !direct &&
         (call.primitive == PrimitiveType::Sprites || turned_quad);
+    const bool cat_sprites = !scale_corners && !call.clear_mode && !direct && hud_scales.any() &&
+        (call.primitive == PrimitiveType::Sprites || call.primitive == PrimitiveType::Triangles ||
+            call.primitive == PrimitiveType::TriangleStrip || call.primitive == PrimitiveType::TriangleFan);
     // A name over another hunter. Told apart from the map so a name that
     // crosses the map keeps this size, not the map's.
     const hud::NameDraw named = scale_corners ? hud::name_at(call.command_address, call.call_return) : hud::NameDraw{};
@@ -7665,6 +7675,35 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 name_sized = hud_scale::is_name_tag(drawn);
             }
             if (name_sized) {
+                // The cat's face is filed with the name marks, so that packet
+                // would leave it full size. The weapon mark on the name, such
+                // as the longsword, takes Status from the clock. The face
+                // uses that same placement.
+                const float centre_x = 0.5f * static_cast<float>(kPspWidth);
+                const float centre_y = 0.5f * static_cast<float>(kPspHeight);
+                std::vector<std::uint8_t> cat_quad(corner_scaled.size() / 6u);
+                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
+                    hud_scale::Rect drawn{corner_scaled[first].x, corner_scaled[first].y, corner_scaled[first].x,
+                        corner_scaled[first].y};
+                    for (std::size_t i = 1; i < 6u; ++i) {
+                        drawn.x0 = std::min(drawn.x0, corner_scaled[first + i].x);
+                        drawn.y0 = std::min(drawn.y0, corner_scaled[first + i].y);
+                        drawn.x1 = std::max(drawn.x1, corner_scaled[first + i].x);
+                        drawn.y1 = std::max(drawn.y1, corner_scaled[first + i].y);
+                    }
+                    if (fitted && fit_x > 0.0f && fit_y > 0.0f) {
+                        drawn.x0 = centre_x + (drawn.x0 - centre_x) / fit_x;
+                        drawn.x1 = centre_x + (drawn.x1 - centre_x) / fit_x;
+                        drawn.y0 = centre_y + (drawn.y0 - centre_y) / fit_y;
+                        drawn.y1 = centre_y + (drawn.y1 - centre_y) / fit_y;
+                    }
+                    cat_quad[first / 6u] = hud_scale::is_named_cat_face(drawn) ? 1u : 0u;
+                }
+                std::vector<GpuVertex> cat_saved(corner_scaled.size());
+                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
+                    if (cat_quad[first / 6u] == 0u) continue;
+                    for (std::size_t i = 0; i < 6u; ++i) cat_saved[first + i] = corner_scaled[first + i];
+                }
                 float origin_x = named.origin_x;
                 float origin_y = named.origin_y;
                 // Fit pulls the 2D interface in about the screen's centre. The
@@ -7676,18 +7715,92 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                     origin_x = centre_x + (origin_x - centre_x) * fit_x;
                     origin_y = centre_y + (origin_y - centre_y) * fit_y;
                 }
-                hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
-                if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
-                    name_bounds = {corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
-                        corner_scaled.front().y};
-                    for (const GpuVertex &vertex : corner_scaled) {
-                        name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
-                        name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
-                        name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
-                        name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
+                // The letters this packet draws, before they take the Names size.
+                // The face hangs under one of these lines.
+                float name_rows[8]{};
+                int name_count = 0;
+                for (std::size_t first = 0; first + 6u <= corner_scaled.size() && name_count < 8; first += 6u) {
+                    if (cat_quad[first / 6u] != 0u) continue;
+                    float top = corner_scaled[first].y;
+                    float bottom = top;
+                    for (std::size_t i = 1; i < 6u; ++i) {
+                        top = std::min(top, corner_scaled[first + i].y);
+                        bottom = std::max(bottom, corner_scaled[first + i].y);
                     }
-                    name_resized = true;
+                    const float row = 0.5f * (top + bottom);
+                    bool seen = false;
+                    for (int i = 0; i < name_count; ++i) {
+                        const float dist = row >= name_rows[i] ? row - name_rows[i] : name_rows[i] - row;
+                        if (dist <= 8.0f) seen = true;
+                    }
+                    if (!seen) name_rows[name_count++] = row;
                 }
+                hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
+                // The weapon badge is scaled in these same pixels, from the clock.
+                // The face keeps its shape, takes that mark's box, then Status with it.
+                const hud_scale::Placement badge = hud_scale::placement_of(hud_scale::Piece::Vitals, hud_scales);
+                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
+                    if (cat_quad[first / 6u] == 0u) continue;
+                    float left = cat_saved[first].x;
+                    float top = cat_saved[first].y;
+                    float right = left;
+                    float bottom = top;
+                    for (std::size_t i = 1; i < 6u; ++i) {
+                        left = std::min(left, cat_saved[first + i].x);
+                        top = std::min(top, cat_saved[first + i].y);
+                        right = std::max(right, cat_saved[first + i].x);
+                        bottom = std::max(bottom, cat_saved[first + i].y);
+                    }
+                    const hud_scale::Rect face{left, top, right, bottom};
+                    float row = hud_scale::cat_name_row(0.5f * (top + bottom), name_rows, name_count);
+                    // An icon filed on its own has no letters beside it. The
+                    // text point is the name it belongs to.
+                    if (name_count == 0 && named.has_origin && origin_y > 40.0f && origin_y < 180.0f) row = origin_y;
+                    for (std::size_t i = 0; i < 6u; ++i) {
+                        float x = cat_saved[first + i].x;
+                        float y = cat_saved[first + i].y;
+                        hud_scale::lay_cat_on_badge(x, y, face, row);
+                        hud_scale::place_point(x, y, badge, hud_scales.vitals);
+                        corner_scaled[first + i].x = x;
+                        corner_scaled[first + i].y = y;
+                    }
+                }
+                if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
+                    bool any_name = false;
+                    for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
+                        if (cat_quad[first / 6u] != 0u) continue;
+                        for (std::size_t i = 0; i < 6u; ++i) {
+                            const GpuVertex &vertex = corner_scaled[first + i];
+                            if (!any_name) {
+                                name_bounds = {vertex.x, vertex.y, vertex.x, vertex.y};
+                                any_name = true;
+                            }
+                            name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
+                            name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
+                            name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
+                            name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
+                        }
+                    }
+                    name_resized = any_name;
+                }
+                // The plate is drawn before the face. Move the face to the end
+                // of this draw so it lies on top of the name.
+                std::vector<GpuVertex> plate_verts;
+                std::vector<GpuVertex> face_verts;
+                plate_verts.reserve(corner_scaled.size());
+                face_verts.reserve(corner_scaled.size());
+                std::size_t grouped = 0;
+                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
+                    auto &dest = cat_quad[first / 6u] != 0u ? face_verts : plate_verts;
+                    dest.insert(dest.end(), corner_scaled.begin() + static_cast<std::ptrdiff_t>(first),
+                        corner_scaled.begin() + static_cast<std::ptrdiff_t>(first + 6u));
+                    grouped = first + 6u;
+                }
+                plate_verts.insert(plate_verts.end(), face_verts.begin(), face_verts.end());
+                if (grouped < corner_scaled.size())
+                    plate_verts.insert(plate_verts.end(), corner_scaled.begin() + static_cast<std::ptrdiff_t>(grouped),
+                        corner_scaled.end());
+                corner_scaled.swap(plate_verts);
             }
         } else {
             // The moving map window is told from other panels of the same size by
@@ -7734,6 +7847,32 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                         std::max(map_bounds.x1, scaled.x1), std::max(map_bounds.y1, scaled.y1)};
                 }
             }
+        }
+    } else if (cat_sprites) {
+        const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
+        if (unscaled.size() >= 6u) {
+            corner_scaled = unscaled;
+            bool found = false;
+            const hud_scale::Placement badge = hud_scale::placement_of(hud_scale::Piece::Vitals, hud_scales);
+            for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
+                hud_scale::Rect bounds{corner_scaled[first].x, corner_scaled[first].y, corner_scaled[first].x,
+                    corner_scaled[first].y};
+                for (std::size_t i = 1; i < 6u; ++i) {
+                    bounds.x0 = std::min(bounds.x0, corner_scaled[first + i].x);
+                    bounds.y0 = std::min(bounds.y0, corner_scaled[first + i].y);
+                    bounds.x1 = std::max(bounds.x1, corner_scaled[first + i].x);
+                    bounds.y1 = std::max(bounds.y1, corner_scaled[first + i].y);
+                }
+                if (!hud_scale::is_cat_icon(bounds) && !hud_scale::is_named_cat_face(bounds)) continue;
+                found = true;
+                const float row = impl.hud_scale_frame.cat_name_row(0.5f * (bounds.y0 + bounds.y1));
+                for (std::size_t i = 0; i < 6u; ++i) {
+                    hud_scale::lay_cat_on_badge(corner_scaled[first + i].x, corner_scaled[first + i].y, bounds, row);
+                    hud_scale::place_point(corner_scaled[first + i].x, corner_scaled[first + i].y, badge,
+                        hud_scales.vitals);
+                }
+            }
+            if (found) scale_corners = true;
         }
     }
     // A span remembered while the hold was full has no offset. Once an area
