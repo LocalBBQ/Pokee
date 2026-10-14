@@ -451,6 +451,16 @@ void test_hunt_portrait_keeps_the_id_in_another_area() {
     check(placed[0].width == kHuntCardWidth && placed[0].height == kHuntCardHeight &&
             placed[1].width == kHuntCardWidth && placed[1].height == kHuntCardHeight,
         "each card is three quarters of the first portrait");
+    // The picture sits against the card's left edge, not in its middle, so
+    // the first icon starts at the margin, at every size.
+    const HuntIconSquare first = hunt_icon_square(placed[0]);
+    check(first.x == placed[0].x && first.x == 6.0f && first.side == kHuntCardHeight && first.y == placed[0].y,
+        "the monster icon is left aligned in its card");
+    const HuntIconSquare second = hunt_icon_square(placed[1]);
+    check(second.x == placed[1].x && second.side == placed[1].height, "and so is the next one");
+    check(hunt_icon_square(HuntPortrait{0u, false, false, false, 10.0f, 20.0f, 30.0f, 40.0f}).y == 25.0f &&
+            hunt_icon_square(HuntPortrait{0u, false, false, false, 10.0f, 20.0f, 30.0f, 40.0f}).side == 30.0f,
+        "a card taller than wide centres its square from top to bottom");
     mhfu::settings::current().hunt_portrait_size = 200u;
     const std::vector<HuntPortrait> large = place_hunt_portraits(hunt, monster_a, true);
     check(large.size() == 2u && large[0].width == kHuntCardWidth * 2.0f && large[0].height == kHuntCardHeight * 2.0f &&
