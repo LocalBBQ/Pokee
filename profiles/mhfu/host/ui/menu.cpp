@@ -2157,9 +2157,10 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
             (picture[1] + psp_y / 272.0f * picture[3]) * io.DisplaySize.y};
     };
     for (const camera::HuntPortrait &portrait : portraits) {
-        const float side = std::min(portrait.width, portrait.height);
-        const float icon_x = portrait.x + (portrait.width - side) * 0.5f;
-        const float icon_y = portrait.y + (portrait.height - side) * 0.5f;
+        const camera::HuntIconSquare square = camera::hunt_icon_square(portrait);
+        const float side = square.side;
+        const float icon_x = square.x;
+        const float icon_y = square.y;
         const std::optional<camera::HuntIconCell> cell = camera::hunt_icon_cell(portrait.id);
         if (!icons_ready || !cell || cell->u + camera::kHuntIconTexels > sheet.width ||
             cell->v + camera::kHuntIconTexels > sheet.height)
