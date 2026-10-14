@@ -71,13 +71,20 @@ enum class Piece { None, Map, Vitals, ItemBar, Sharpness, LongSword, Bowgun };
 
 [[nodiscard]] inline const char *piece_name(Piece piece) {
     switch (piece) {
-    case Piece::None: return "none";
-    case Piece::Map: return "map";
-    case Piece::Vitals: return "status";
-    case Piece::ItemBar: return "items";
-    case Piece::Sharpness: return "sharpness";
-    case Piece::LongSword: return "weapon";
-    case Piece::Bowgun: return "bowgun";
+    case Piece::None:
+        return "none";
+    case Piece::Map:
+        return "map";
+    case Piece::Vitals:
+        return "status";
+    case Piece::ItemBar:
+        return "items";
+    case Piece::Sharpness:
+        return "sharpness";
+    case Piece::LongSword:
+        return "weapon";
+    case Piece::Bowgun:
+        return "bowgun";
     }
     return "none";
 }
@@ -157,8 +164,8 @@ inline constexpr float kBowgunRight = 472.0f;
 inline constexpr float kBowgunBottom = 200.0f;
 
 [[nodiscard]] inline Rect normalized(Rect rect) {
-    return {std::min(rect.x0, rect.x1), std::min(rect.y0, rect.y1), std::max(rect.x0, rect.x1),
-        std::max(rect.y0, rect.y1)};
+    return {
+        std::min(rect.x0, rect.x1), std::min(rect.y0, rect.y1), std::max(rect.x0, rect.x1), std::max(rect.y0, rect.y1)};
 }
 
 [[nodiscard]] inline bool contains(Rect outer, Rect inner) {
@@ -265,8 +272,7 @@ struct InterfaceFit {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    if (width < 28.0f || height < 28.0f || width > 200.0f || height > 200.0f || is_fixed_map_sprite(rect))
-        return false;
+    if (width < 28.0f || height < 28.0f || width > 200.0f || height > 200.0f || is_fixed_map_sprite(rect)) return false;
     return r.x0 >= kMapLeft - 24.0f && r.y0 >= kMapTop - 24.0f && r.x1 <= kMapRight + 24.0f &&
         r.y1 <= kMapBottom + 24.0f && overlaps({kMapLeft, kMapTop, kMapRight, kMapBottom}, r);
 }
@@ -282,8 +288,7 @@ struct InterfaceFit {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    if (width < 16.0f || height < 16.0f || width > 200.0f || height > 200.0f || is_fixed_map_sprite(rect))
-        return false;
+    if (width < 16.0f || height < 16.0f || width > 200.0f || height > 200.0f || is_fixed_map_sprite(rect)) return false;
     return r.x0 >= 160.0f && r.y0 >= -16.0f && r.x1 <= 512.0f && r.y1 <= 304.0f;
 }
 
@@ -555,8 +560,8 @@ inline constexpr int kNamePlates = 4;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    return width >= 6.0f && width <= 10.0f && height >= 15.0f && height <= 18.0f && r.x0 >= 56.0f &&
-        r.x0 <= 136.0f && r.y0 >= 30.0f && r.y0 <= 34.0f;
+    return width >= 6.0f && width <= 10.0f && height >= 15.0f && height <= 18.0f && r.x0 >= 56.0f && r.x0 <= 136.0f &&
+        r.y0 >= 30.0f && r.y0 <= 34.0f;
 }
 
 // A bow's coating display in the same band, traced frame by frame in a
@@ -572,12 +577,12 @@ inline constexpr int kNamePlates = 4;
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
     if (r.y0 < 28.0f || r.y0 > 34.0f) return false;
-    const bool plate = width >= 30.0f && width <= 38.0f && height >= 10.0f && height <= 14.0f && r.x0 >= 56.0f &&
-        r.x0 <= 64.0f;
-    const bool large = width >= 16.0f && width <= 20.0f && height >= 14.0f && height <= 18.0f && r.x0 >= 56.0f &&
-        r.x0 <= 64.0f;
-    const bool single = width >= 10.0f && width <= 14.0f && height >= 14.0f && height <= 18.0f && r.x0 >= 56.0f &&
-        r.x0 <= 236.0f;
+    const bool plate =
+        width >= 30.0f && width <= 38.0f && height >= 10.0f && height <= 14.0f && r.x0 >= 56.0f && r.x0 <= 64.0f;
+    const bool large =
+        width >= 16.0f && width <= 20.0f && height >= 14.0f && height <= 18.0f && r.x0 >= 56.0f && r.x0 <= 64.0f;
+    const bool single =
+        width >= 10.0f && width <= 14.0f && height >= 14.0f && height <= 18.0f && r.x0 >= 56.0f && r.x0 <= 236.0f;
     return plate || large || single;
 }
 
@@ -732,8 +737,8 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     const float height = r.y1 - r.y0;
     const bool side = width >= 14.0f && width <= 18.0f && height >= 80.0f && height <= 140.0f && r.x0 >= 310.0f &&
         r.x0 <= 314.0f && r.y1 >= 254.0f && r.y1 <= 258.0f;
-    const bool highlight = width >= 150.0f && width <= 162.0f && height >= 18.0f && height <= 22.0f &&
-        r.x0 >= 310.0f && r.x0 <= 318.0f && r.y0 >= 136.0f && r.y0 <= 190.0f;
+    const bool highlight = width >= 150.0f && width <= 162.0f && height >= 18.0f && height <= 22.0f && r.x0 >= 310.0f &&
+        r.x0 <= 318.0f && r.y0 >= 136.0f && r.y0 <= 190.0f;
     return side || highlight;
 }
 
@@ -793,8 +798,7 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     if (contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r))
         return is_notice_piece(r, texture) ? Piece::None : Piece::Map;
     if (contains({kItemLeft, kItemTop, kItemRight, kItemBottom}, r)) return Piece::ItemBar;
-    if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r) &&
-        !is_window_tile(r))
+    if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r) && !is_window_tile(r))
         return Piece::LongSword;
     // The notice's border and the letters above the ammo bar cross this slot
     // too. The ammo bar's own letters are the glyphs at y 184 and below.
@@ -825,9 +829,7 @@ struct Scales {
     // name, so they are not a rectangle in piece_of.
     float names{1.0f};
 
-    [[nodiscard]] static Scales uniform(float scale) {
-        return {scale, scale, scale, scale, scale, scale, scale};
-    }
+    [[nodiscard]] static Scales uniform(float scale) { return {scale, scale, scale, scale, scale, scale, scale}; }
     // The three sizes a player sets, in percent. The clock, health and the
     // weapon pieces under stamina are one group, so they stay together. The
     // bowgun's ammo bar and the bow's coatings sit on the item bar, and the
@@ -845,13 +847,20 @@ struct Scales {
 
     [[nodiscard]] float of(Piece piece) const {
         switch (piece) {
-        case Piece::Map: return map;
-        case Piece::Vitals: return vitals;
-        case Piece::ItemBar: return item_bar;
-        case Piece::Sharpness: return sharpness;
-        case Piece::LongSword: return long_sword;
-        case Piece::Bowgun: return bowgun;
-        case Piece::None: return 1.0f;
+        case Piece::Map:
+            return map;
+        case Piece::Vitals:
+            return vitals;
+        case Piece::ItemBar:
+            return item_bar;
+        case Piece::Sharpness:
+            return sharpness;
+        case Piece::LongSword:
+            return long_sword;
+        case Piece::Bowgun:
+            return bowgun;
+        case Piece::None:
+            return 1.0f;
         }
         return 1.0f;
     }
@@ -1091,8 +1100,8 @@ struct Frame {
     // and its marks are not part of the banner.
     [[nodiscard]] bool on_obtain_banner(Rect rect, std::uint32_t texture) const {
         if (!obtain_banner_now || texture == kAreaMapTexture || texture == kMapIconTexture) return false;
-        const Rect grown{obtain_banner.x0 - 8.0f, obtain_banner.y0 - 4.0f, obtain_banner.x1 + 24.0f,
-            obtain_banner.y1 + 8.0f};
+        const Rect grown{
+            obtain_banner.x0 - 8.0f, obtain_banner.y0 - 4.0f, obtain_banner.x1 + 24.0f, obtain_banner.y1 + 8.0f};
         return overlaps(grown, normalized(rect));
     }
 
@@ -1149,10 +1158,12 @@ struct Frame {
     // The enlarged window, traced at 60 pixels for 40 texels. A window already
     // on the slot (pixel span matching the texels) clears it. The first vertex
     // carries the texel drawn at its own pixel, which fixes the bias.
-    template <typename Vertex>
-    void note_map_zoom(const std::vector<Vertex> &vertices, std::size_t first) {
+    template <typename Vertex> void note_map_zoom(const std::vector<Vertex> &vertices, std::size_t first) {
         map_zoomed = false;
-        if constexpr (requires { vertices[first].u; vertices[first].v; }) {
+        if constexpr (requires {
+                          vertices[first].u;
+                          vertices[first].v;
+                      }) {
             float x0 = vertices[first].x;
             float x1 = x0;
             float y0 = vertices[first].y;
@@ -1192,11 +1203,13 @@ struct Frame {
     // say where it belongs. A sprite the game drew at its texel size (the camp
     // icon) keeps that size and only its centre moves. The arrow's vertices
     // are in the enlarged picture, so each one comes back.
-    template <typename Vertex>
-    void unzoom_quad(std::vector<Vertex> &vertices, std::size_t first, bool window) {
+    template <typename Vertex> void unzoom_quad(std::vector<Vertex> &vertices, std::size_t first, bool window) {
         if (!map_zoomed) return;
         if (window) {
-            if constexpr (requires { vertices[first].u; vertices[first].v; }) {
+            if constexpr (requires {
+                              vertices[first].u;
+                              vertices[first].v;
+                          }) {
                 for (std::size_t i = 0; i < 6u; ++i) {
                     vertices[first + i].x = kMapLeft + vertices[first + i].u;
                     vertices[first + i].y = kMapTop + vertices[first + i].v;
@@ -1205,7 +1218,10 @@ struct Frame {
             }
         }
         const bool texel_sized = [&] {
-            if constexpr (requires { vertices[first].u; vertices[first].v; }) {
+            if constexpr (requires {
+                              vertices[first].u;
+                              vertices[first].v;
+                          }) {
                 float x0 = vertices[first].x;
                 float x1 = x0;
                 float y0 = vertices[first].y;
@@ -1262,8 +1278,7 @@ struct Frame {
         if (is_fixed_map_sprite(rect)) {
             include_rect(map_rect, rect, map_now);
             map_corner = {kMapRight, kMapTop};
-        } else if (texture == kAreaMapTexture &&
-            (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
+        } else if (texture == kAreaMapTexture && (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
             include_rect(travelling_rect, rect, travelling_now);
         // A party-column icon is not enough on its own. A shop draws small
         // icons in the same corner, and treating one as the quest clock scaled
@@ -1325,8 +1340,7 @@ struct Frame {
             // same sort of size and sits in the slot, but it is another
             // texture, so it is a mark. Without the Map item the window
             // leaves the slot; that one is the texture too.
-            if (texture == kAreaMapTexture &&
-                (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
+            if (texture == kAreaMapTexture && (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
                 return (map_now || map_live) && status_up();
             if ((map_now || map_live) && !list_now && !list_live && is_map_mark(rect) && in_map_slot(rect) &&
                 !is_notice_piece(rect, texture))
@@ -1341,11 +1355,14 @@ struct Frame {
         // in the same corner, and those stay as the game drew them.
         case Piece::ItemBar:
             return (bar_now || bar_live) && status_up() && !list_now && !list_live;
-        case Piece::Sharpness: return sharp_now || sharp_live;
-        case Piece::LongSword: return spirit_now || spirit_live;
+        case Piece::Sharpness:
+            return sharp_now || sharp_live;
+        case Piece::LongSword:
+            return spirit_now || spirit_live;
         case Piece::Bowgun:
             return (bowgun_now || bowgun_live) && status_up() && !list_now && !list_live;
-        case Piece::None: return false;
+        case Piece::None:
+            return false;
         }
         return false;
     }
@@ -1461,8 +1478,7 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         Piece piece = in_ammo_menu ? Piece::ItemBar : piece_of(bounds, texture);
         // A window from the area-map texture that sits outside the slot is
         // still the map. piece_of only knows the slot.
-        if (!in_ammo_menu && texture == kAreaMapTexture && is_area_map_texture_window(bounds))
-            piece = Piece::Map;
+        if (!in_ammo_menu && texture == kAreaMapTexture && is_area_map_texture_window(bounds)) piece = Piece::Map;
         // The arrow's box crosses the map, or lands in the bowgun slot, while
         // the map it belongs to is the one drawn this frame.
         if (!in_ammo_menu && (piece == Piece::None || piece == Piece::Bowgun) && frame.on_map(bounds, texture))
