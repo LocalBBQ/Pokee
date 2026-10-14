@@ -144,6 +144,16 @@ struct HuntPortrait {
 [[nodiscard]] std::vector<HuntPortrait> place_hunt_portraits(
     const std::vector<HuntMonster> &monsters, std::uint32_t locked_target, bool locked);
 
+// The square the monster's picture fills in its card, in PSP pixels: as tall
+// as the card, against the card's left edge so the first icon lines up with
+// the picture's margin, and centred from top to bottom.
+struct HuntIconSquare {
+    float x{};
+    float y{};
+    float side{};
+};
+[[nodiscard]] HuntIconSquare hunt_icon_square(const HuntPortrait &portrait);
+
 // The camera's yaw, in its units, that looks from `from` towards `to`.
 [[nodiscard]] std::uint16_t yaw_towards(const Vec3 &from, const Vec3 &to);
 // `to` minus `from`, the short way round: -32768..32767.
