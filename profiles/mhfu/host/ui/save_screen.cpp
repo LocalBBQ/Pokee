@@ -415,7 +415,7 @@ void review_screen(bool back) {
     paragraph("From " + utf8(s.picked), colors::kTextDim);
 #endif
     if (s.found.empty())
-        paragraph("No saves of Monster Hunter Portable 3rd were found in this folder. Choose a save folder such as "
+        paragraph("No saves of Monster Hunter Freedom Unite were found in this folder. Choose a save folder such as "
                   "ULUS10391, or the PSP/SAVEDATA folder that holds it.",
             colors::kDanger);
     if (s.other_games > 0)

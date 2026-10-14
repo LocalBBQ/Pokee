@@ -427,9 +427,8 @@ void Menu::video() {
                 "The area map on the right of a quest, from its top-right corner. 100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::map},
             {"Status", "video.hud.health",
-                "The quest clock, the name under it, the name and badge of the one cat with the player, and that cat's "
-                "face in the badge slot (a quest can show four hunters), "
-                "health and stamina, the eye and the buffs beside each hunter and each cat, sharpness, "
+                "The quest clock, the party list under it (up to four hunters and the Felyne Comrade, each with "
+                "its name, badge, eye and buffs), health and stamina, sharpness, "
                 "the long sword's spirit gauge, "
                 "a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a hunting horn's notes, from the "
                 "clock's corner so they stay together. "
@@ -1466,17 +1465,6 @@ std::string &saved_log_path() {
     return path;
 }
 
-// "MHP3Q000" is Hall 01 in the game's list.
-std::string group_name(const std::string &group) {
-    if (group.size() == 8u && group.compare(0, 5, "MHP3Q") == 0 &&
-        std::all_of(group.begin() + 5, group.end(), [](char c) { return c >= '0' && c <= '9'; })) {
-        char text[16];
-        std::snprintf(text, sizeof(text), "Hall %02d", std::atoi(group.c_str() + 5) + 1);
-        return text;
-    }
-    return group;
-}
-
 std::string players_text(std::size_t count) {
     return std::to_string(count) + (count == 1u ? " player" : " players");
 }
@@ -1493,8 +1481,8 @@ void play_together() {
             status.adhocctl_port == adhoc::kAdhocctlPort ? std::string() : ":" + std::to_string(status.adhocctl_port);
         info_row("Hosting",
             players_text(status.players.size()) +
-                " connected. Everyone now enters the Online Guild "
-                "Hall and picks the same hall.");
+                " connected. Everyone now enters the Online Gathering Hall; with more than four, set "
+                "the game's Online Gathering Hall option to MANUAL and choose the same hall.");
         const std::vector<adhoc::LocalAddress> addresses = adhoc::local_addresses();
         if (addresses.empty()) info_row("Your addresses", "No network is connected");
         for (const adhoc::LocalAddress &address : addresses) {
@@ -1514,8 +1502,11 @@ void play_together() {
         for (std::size_t i = 0; i < status.players.size(); ++i) {
             const adhoc::ServerPlayer &player = status.players[i];
             ImGui::PushID(static_cast<int>(i));
+            // The game names a hall's group "MHP2Q0" (or "MHP2A0") and two
+            // more characters (0x08899874); which hall each one is has not
+            // been traced, so the name is shown as it is.
             info_row(player.nickname.c_str(),
-                player.address + "   " + (player.group ? group_name(*player.group) : std::string("not in a hall")));
+                player.address + "   " + (player.group ? *player.group : std::string("not in a hall")));
             ImGui::PopID();
         }
         ImGui::PopID();
@@ -1530,7 +1521,7 @@ void play_together() {
         if (button_row("Host a session###hosting",
                 {false, {},
                     "Runs a server in this game for the others to join: no other program, no port forwarding "
-                    "on a local network or a VPN. Then everyone enters the Online Guild Hall."}))
+                    "on a local network or a VPN. Then everyone enters the Online Gathering Hall."}))
             adhoc_host_start();
         if (const std::string error = adhoc_host_error(); !error.empty()) info_row("Cannot host", error);
     }
@@ -1549,7 +1540,7 @@ void play_together() {
         if (button_row(label.c_str(),
                 {false, {},
                     "A session hosted on this network. Joining it takes you out of any "
-                    "other; then enter the Online Guild Hall."}))
+                    "other; then enter the Online Gathering Hall."}))
             adhoc_join(address);
     }
     if (hosts.empty()) info_row("On this network", "Looking for hosted sessions…");
@@ -1580,7 +1571,7 @@ void Menu::network() {
     if (toggle_row("Ad hoc play", s.adhoc,
             options_for("network.adhoc",
                 "Multiplayer with other players. Off, the game says the wireless "
-                "switch is off. Turning it off in a gathering hall leaves it."))) {
+                "switch is off. Turning it off in the Online Gathering Hall leaves it."))) {
         s.adhoc = !s.adhoc;
         settings::save();
         adhoc_apply_settings();
@@ -1935,7 +1926,7 @@ void draw_gpu_problem(const std::string &problem) {
     ImGui::TextUnformatted("Graphics problem");
     ImGui::TextUnformatted(problem.c_str());
     ImGui::TextUnformatted("Please open the menu, choose System > Save the log..., and send the log to "
-                           "github.com/TeamGDB/Yakumo/issues/169. Video > GPU compatibility may help. This note "
+                           "github.com/LocalBBQ/Pokee/issues. Video > GPU compatibility may help. This note "
                            "closes when the menu opens.");
     ImGui::PopTextWrapPos();
     ImGui::End();

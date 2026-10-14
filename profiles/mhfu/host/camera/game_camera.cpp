@@ -2,6 +2,7 @@
 
 #include "camera/camera_input.hpp"
 #include "camera/lock_on.hpp"
+#include "game/layered_armor.hpp"
 #include "input/bindings.hpp"
 #include "platform/utf8_path.hpp"
 #include "settings/settings.hpp"
@@ -269,6 +270,10 @@ struct State {
     // back: the port's ease is the only move. Not a second tap.
     bool quiet_l{};
     bool aiming{};
+    // MHFU_TRACE_AIM: calls of the aim wrapper, and those that showed it a
+    // push, since the last [aim] line.
+    std::uint64_t aim_calls{};
+    std::uint64_t aim_pushes{};
     // The generated aim function, and the centred deflection to show it.
     RotationFunction aim_original{};
     int aim_x{};
@@ -951,7 +956,9 @@ void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     std::uint16_t saved_magnitude = 0u;
     std::uint16_t heading_before = 0u;
     std::array<int, kPitchFields.size()> pitch_before{};
+    ++state.aim_calls;
     if (show) {
+        ++state.aim_pushes;
         saved_buttons = memory.load32(hunter + kHunterButtons);
         saved_magnitude = memory.load16(hunter + kStickMagnitude);
         heading_before = memory.load16(hunter + kAimHeading);
@@ -989,6 +996,60 @@ void install_aim_hook(psprecomp::Runtime &runtime) {
         if (memory.load32(expected.address) != expected.word) return;
     state.aim_original = current;
     runtime.register_function(kAimFunction, &aim_step, "mhfu_aim_step");
+    if (aim_trace() != nullptr) std::cout << "[aim] wrapper installed at 0x09AA4DD0" << std::endl;
+}
+
+// MHFU_TRACE_WEAPON=1: on each press of R (guard, aim, draw), the followed
+// hunter and the played hunter's record as hex, to find where the weapon
+// class and the drawn state are kept. R is 0x0200 in the hunter's button word.
+void trace_weapon(const psprecomp::GuestMemory &memory) {
+    static const bool enabled = std::getenv("MHFU_TRACE_WEAPON") != nullptr;
+    if (!enabled) return;
+    static bool r_was_down = false;
+    const std::uint32_t hunter = followed_hunter(memory);
+    const bool r_down = hunter != 0u && (memory.load32(hunter + kHunterButtons) & kRecenterBit) != 0u;
+    const bool pressed = r_down && !r_was_down;
+    r_was_down = r_down;
+    if (!pressed) return;
+    const auto hex = [&](std::uint32_t from, std::uint32_t bytes) {
+        std::ostringstream out;
+        out << std::hex << std::setfill('0');
+        for (std::uint32_t i = 0; i < bytes; ++i) out << std::setw(2) << static_cast<unsigned>(memory.load8(from + i));
+        return out.str();
+    };
+    std::cout << "[weapon] frame=" << state.frame << " hunter=0x" << std::hex << hunter << std::dec
+              << " entity=" << hex(hunter, kHunterExtent);
+    namespace layered = game::layered;
+    const std::uint32_t block = memory.raw_pointer(layered::kGameBlockPointer, 4u) != nullptr
+        ? memory.load32(layered::kGameBlockPointer)
+        : 0u;
+    const std::uint32_t record = block + layered::kHunterRecords;
+    if (block != 0u && memory.raw_pointer(record, layered::kHunterRecordBytes) != nullptr)
+        std::cout << " record=" << hex(record, layered::kHunterRecordBytes);
+    std::cout << std::endl;
+}
+
+// MHFU_TRACE_AIM: one line when an aim starts or ends, and one a second while
+// it lasts, with each condition the right stick's aim depends on. The stick
+// reaches the aim function only while `boost` is 1 and `driving` is 0.
+void trace_aim_state(psprecomp::Runtime &runtime, bool aiming) {
+    if (aim_trace() == nullptr) return;
+    static bool was_aiming = false;
+    static std::uint64_t last_line = 0u;
+    const bool changed = aiming != was_aiming;
+    was_aiming = aiming;
+    if (!changed && !(aiming && state.frame - last_line >= 30u)) return;
+    last_line = state.frame;
+    std::cout << "[aim] frame=" << state.frame << (changed ? (aiming ? " start" : " end") : " held")
+              << " wrapper=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0)
+              << " option=" << (option_on() ? 1 : 0) << " hooked=" << (state.hooked ? 1 : 0)
+              << " available=" << (state.available ? 1 : 0)
+              << " lock_on_drives=" << (lock_on_drives_camera() ? 1 : 0)
+              << " driving=" << (game_camera_driving() ? 1 : 0) << " boost=" << (game_camera_aim_boost() ? 1 : 0)
+              << " update_age=" << (state.frame - state.last_update) << " calls=" << state.aim_calls
+              << " pushes=" << state.aim_pushes << std::endl;
+    state.aim_calls = 0u;
+    state.aim_pushes = 0u;
 }
 
 // L's recenter writes the hunter's facing plus half a turn to the target yaw
@@ -1179,6 +1240,8 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
     const bool still_aiming = hunter_aiming(runtime.memory(), followed_hunter(runtime.memory()));
     if (state.frame - state.last_update > 1u && !still_aiming) release();
     state.hunter_aiming = still_aiming;
+    trace_aim_state(runtime, still_aiming);
+    trace_weapon(runtime.memory());
     if (!driving_allowed() && !(state.pitch_by_lock && lock_on_drives_camera())) {
         state.pitch_owned = false;
         state.yaw_remainder = 0.0f;

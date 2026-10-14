@@ -64,6 +64,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <set>
@@ -7595,23 +7596,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // again. Draws that cover the screen's width (fades, backdrops) and
     // draws that sample a rendered picture (blur, the quest-reward
     // background) belong with the 3D view and stay spread.
+    hud_scale::InterfaceFit fit;
     float fit_x = 1.0f, fit_y = 1.0f;
-    bool fitted = false;
     if (call.through && !call.clear_mode && framebuffer_source.target == nullptr &&
         impl.shows(call.target.color_address) && impl.interface_fit(fit_x, fit_y)) {
-        float left = impl.scratch.front().x, right = left;
-        for (const GpuVertex &vertex : impl.scratch) {
-            left = std::min(left, vertex.x);
-            right = std::max(right, vertex.x);
-        }
-        if (right - left < kScreenWideDraw) {
-            fitted = true;
-            const float centre_x = 0.5f * static_cast<float>(kPspWidth);
-            const float centre_y = 0.5f * static_cast<float>(kPspHeight);
-            for (GpuVertex &vertex : impl.scratch) {
-                vertex.x = centre_x + (vertex.x - centre_x) * fit_x;
-                vertex.y = centre_y + (vertex.y - centre_y) * fit_y;
-            }
+        const hud_scale::Rect drawn = hud_scale::bounds_of(impl.scratch);
+        if (drawn.x1 - drawn.x0 < kScreenWideDraw) {
+            fit = {fit_x, fit_y};
+            for (GpuVertex &vertex : impl.scratch) fit.apply(vertex.x, vertex.y);
         }
     }
 
@@ -7649,211 +7641,40 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // crosses the map keeps this size, not the map's.
     const hud::NameDraw named = scale_corners ? hud::name_at(call.command_address, call.call_return) : hud::NameDraw{};
     std::vector<GpuVertex> corner_scaled;
-    // The area map's draw, after scaling. Its scissor is often the rectangle
-    // the game drew, so a larger map is clipped back to that size, and a
-    // smaller one can fail the depth test against the map already in the
-    // buffer. Both leave the panel looking unchanged.
-    bool map_resized = false;
-    bool name_resized = false;
-    hud_scale::Rect map_bounds{};
-    hud_scale::Rect name_bounds{};
-    if (scale_corners) {
+    // Where the area map and a name went, when their sizes moved them. The
+    // scissor has to take them in, and a moved map has to replace the one
+    // already in the frame.
+    std::optional<hud_scale::Rect> map_bounds;
+    std::optional<hud_scale::Rect> name_bounds;
+    if (scale_corners || party_icons) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
         corner_scaled = unscaled;
-        if (named.is_name) {
-            // A village label can also file a plate larger than the name. That
-            // draw stays as the game drew it. The size is the game's pixels:
-            // fit has already pulled this draw in about the screen's centre.
-            bool name_sized = true;
-            if (named.tag_only && !corner_scaled.empty()) {
-                hud_scale::Rect drawn{corner_scaled.front().x, corner_scaled.front().y, corner_scaled.front().x,
-                    corner_scaled.front().y};
-                for (const GpuVertex &vertex : corner_scaled) {
-                    drawn.x0 = std::min(drawn.x0, vertex.x);
-                    drawn.y0 = std::min(drawn.y0, vertex.y);
-                    drawn.x1 = std::max(drawn.x1, vertex.x);
-                    drawn.y1 = std::max(drawn.y1, vertex.y);
-                }
-                if (fitted && fit_x > 0.0f && fit_y > 0.0f) {
-                    const float centre_x = 0.5f * static_cast<float>(kPspWidth);
-                    const float centre_y = 0.5f * static_cast<float>(kPspHeight);
-                    drawn.x0 = centre_x + (drawn.x0 - centre_x) / fit_x;
-                    drawn.x1 = centre_x + (drawn.x1 - centre_x) / fit_x;
-                    drawn.y0 = centre_y + (drawn.y0 - centre_y) / fit_y;
-                    drawn.y1 = centre_y + (drawn.y1 - centre_y) / fit_y;
-                }
-                name_sized = hud_scale::is_name_tag(drawn);
-            }
-            if (name_sized) {
-                // The cat's face is filed with the name marks, so that packet
-                // would leave it full size. The weapon mark on the name, such
-                // as the longsword, takes Status from the clock. The face
-                // uses that same placement.
-                const float centre_x = 0.5f * static_cast<float>(kPspWidth);
-                const float centre_y = 0.5f * static_cast<float>(kPspHeight);
-                std::vector<std::uint8_t> cat_quad(corner_scaled.size() / 6u);
-                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
-                    hud_scale::Rect drawn{corner_scaled[first].x, corner_scaled[first].y, corner_scaled[first].x,
-                        corner_scaled[first].y};
-                    for (std::size_t i = 1; i < 6u; ++i) {
-                        drawn.x0 = std::min(drawn.x0, corner_scaled[first + i].x);
-                        drawn.y0 = std::min(drawn.y0, corner_scaled[first + i].y);
-                        drawn.x1 = std::max(drawn.x1, corner_scaled[first + i].x);
-                        drawn.y1 = std::max(drawn.y1, corner_scaled[first + i].y);
-                    }
-                    if (fitted && fit_x > 0.0f && fit_y > 0.0f) {
-                        drawn.x0 = centre_x + (drawn.x0 - centre_x) / fit_x;
-                        drawn.x1 = centre_x + (drawn.x1 - centre_x) / fit_x;
-                        drawn.y0 = centre_y + (drawn.y0 - centre_y) / fit_y;
-                        drawn.y1 = centre_y + (drawn.y1 - centre_y) / fit_y;
-                    }
-                    cat_quad[first / 6u] = hud_scale::is_named_cat_face(drawn) ? 1u : 0u;
-                }
-                std::vector<GpuVertex> cat_saved(corner_scaled.size());
-                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
-                    if (cat_quad[first / 6u] == 0u) continue;
-                    for (std::size_t i = 0; i < 6u; ++i) cat_saved[first + i] = corner_scaled[first + i];
-                }
-                float origin_x = named.origin_x;
-                float origin_y = named.origin_y;
-                // Fit pulls the 2D interface in about the screen's centre. The
-                // text entry's point is still in the game's pixels, so it moves
-                // with the glyphs.
-                if (named.has_origin && fitted) {
-                    const float centre_x = 0.5f * static_cast<float>(kPspWidth);
-                    const float centre_y = 0.5f * static_cast<float>(kPspHeight);
-                    origin_x = centre_x + (origin_x - centre_x) * fit_x;
-                    origin_y = centre_y + (origin_y - centre_y) * fit_y;
-                }
-                // The letters this packet draws, before they take the Names size.
-                // The face hangs under one of these lines.
-                float name_rows[8]{};
-                int name_count = 0;
-                for (std::size_t first = 0; first + 6u <= corner_scaled.size() && name_count < 8; first += 6u) {
-                    if (cat_quad[first / 6u] != 0u) continue;
-                    float top = corner_scaled[first].y;
-                    float bottom = top;
-                    for (std::size_t i = 1; i < 6u; ++i) {
-                        top = std::min(top, corner_scaled[first + i].y);
-                        bottom = std::max(bottom, corner_scaled[first + i].y);
-                    }
-                    const float row = 0.5f * (top + bottom);
-                    bool seen = false;
-                    for (int i = 0; i < name_count; ++i) {
-                        const float dist = row >= name_rows[i] ? row - name_rows[i] : name_rows[i] - row;
-                        if (dist <= 8.0f) seen = true;
-                    }
-                    if (!seen) name_rows[name_count++] = row;
-                }
-                hud_scale::scale_name(corner_scaled, hud_scales.names, named.has_origin, origin_x, origin_y);
-                // The weapon badge is scaled in these same pixels, from the clock.
-                // The face keeps its shape, takes that mark's box, then Status with it.
-                const hud_scale::Placement badge = hud_scale::placement_of(hud_scale::Piece::Vitals, hud_scales);
-                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
-                    if (cat_quad[first / 6u] == 0u) continue;
-                    float left = cat_saved[first].x;
-                    float top = cat_saved[first].y;
-                    float right = left;
-                    float bottom = top;
-                    for (std::size_t i = 1; i < 6u; ++i) {
-                        left = std::min(left, cat_saved[first + i].x);
-                        top = std::min(top, cat_saved[first + i].y);
-                        right = std::max(right, cat_saved[first + i].x);
-                        bottom = std::max(bottom, cat_saved[first + i].y);
-                    }
-                    const hud_scale::Rect face{left, top, right, bottom};
-                    float row = hud_scale::cat_name_row(0.5f * (top + bottom), name_rows, name_count);
-                    // An icon filed on its own has no letters beside it. The
-                    // text point is the name it belongs to.
-                    if (name_count == 0 && named.has_origin && origin_y > 40.0f && origin_y < 180.0f) row = origin_y;
-                    for (std::size_t i = 0; i < 6u; ++i) {
-                        float x = cat_saved[first + i].x;
-                        float y = cat_saved[first + i].y;
-                        hud_scale::lay_cat_on_badge(x, y, face, row);
-                        hud_scale::place_point(x, y, badge, hud_scales.vitals);
-                        corner_scaled[first + i].x = x;
-                        corner_scaled[first + i].y = y;
-                    }
-                }
-                if (hud_scales.names != 1.0f && !corner_scaled.empty()) {
-                    bool any_name = false;
-                    for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
-                        if (cat_quad[first / 6u] != 0u) continue;
-                        for (std::size_t i = 0; i < 6u; ++i) {
-                            const GpuVertex &vertex = corner_scaled[first + i];
-                            if (!any_name) {
-                                name_bounds = {vertex.x, vertex.y, vertex.x, vertex.y};
-                                any_name = true;
-                            }
-                            name_bounds.x0 = std::min(name_bounds.x0, vertex.x);
-                            name_bounds.y0 = std::min(name_bounds.y0, vertex.y);
-                            name_bounds.x1 = std::max(name_bounds.x1, vertex.x);
-                            name_bounds.y1 = std::max(name_bounds.y1, vertex.y);
-                        }
-                    }
-                    name_resized = any_name;
-                }
-                // The plate is drawn before the face. Move the face to the end
-                // of this draw so it lies on top of the name.
-                std::vector<GpuVertex> plate_verts;
-                std::vector<GpuVertex> face_verts;
-                plate_verts.reserve(corner_scaled.size());
-                face_verts.reserve(corner_scaled.size());
-                std::size_t grouped = 0;
-                for (std::size_t first = 0; first + 6u <= corner_scaled.size(); first += 6u) {
-                    auto &dest = cat_quad[first / 6u] != 0u ? face_verts : plate_verts;
-                    dest.insert(dest.end(), corner_scaled.begin() + static_cast<std::ptrdiff_t>(first),
-                        corner_scaled.begin() + static_cast<std::ptrdiff_t>(first + 6u));
-                    grouped = first + 6u;
-                }
-                plate_verts.insert(plate_verts.end(), face_verts.begin(), face_verts.end());
-                if (grouped < corner_scaled.size())
-                    plate_verts.insert(plate_verts.end(), corner_scaled.begin() + static_cast<std::ptrdiff_t>(grouped),
-                        corner_scaled.end());
-                corner_scaled.swap(plate_verts);
-            }
+        if (party_icons) {
+            scale_corners = hud_scale::place_party_icons(corner_scaled, hud_scales, impl.hud_scale_frame);
+        } else if (named.is_name) {
+            name_bounds = hud_scale::scale_name_draw(corner_scaled, hud_scales, impl.hud_scale_frame, named, fit);
         } else {
             // The moving map window is told from other panels of the same size by
             // the texture it samples (gpu/hud_scale.hpp).
             const std::uint32_t hud_texture = call.texture.enabled ? call.texture.address : 0u;
             hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner);
-            const auto bounds_of = hud_scale::quad_bounds<GpuVertex>;
-            for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
-                bool moved = false;
-                for (std::size_t i = 0; i < 6u; ++i)
-                    moved = moved || corner_scaled[first + i].x != unscaled[first + i].x ||
-                        corner_scaled[first + i].y != unscaled[first + i].y;
-                // MHFU_TRACE_HUD_SCALE=1: each distinct sprite the interface
-                // sizes move, once, with the piece it was taken for.
-                static const bool trace_hud_scale = std::getenv("MHFU_TRACE_HUD_SCALE") != nullptr;
-                if (moved && trace_hud_scale) {
-                    static std::set<std::string> traced;
-                    const hud_scale::Rect from = bounds_of(unscaled, first);
-                    const hud_scale::Rect to = bounds_of(corner_scaled, first);
-                    std::ostringstream line;
-                    line << hud_scale::piece_name(hud_scale::piece_of(from)) << " (" << from.x0 << "," << from.y0
-                         << ")-(" << from.x1 << "," << from.y1 << ") tex=0x" << std::hex << hud_texture << " fb=0x"
-                         << call.target.color_address << std::dec;
-                    if (traced.insert(line.str()).second)
-                        std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << ","
-                                  << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")\n";
-                }
-                if (!moved || !hud_scale::is_drawn_map(bounds_of(unscaled, first), hud_texture)) continue;
-                const hud_scale::Rect scaled = bounds_of(corner_scaled, first);
-                if (!map_resized) {
-                    map_bounds = scaled;
-                    map_resized = true;
-                } else {
-                    map_bounds = {std::min(map_bounds.x0, scaled.x0), std::min(map_bounds.y0, scaled.y0),
-                        std::max(map_bounds.x1, scaled.x1), std::max(map_bounds.y1, scaled.y1)};
-                }
+            map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture);
+            // MHFU_TRACE_HUD_SCALE=1: each distinct sprite the interface sizes
+            // move, once, with the piece it was taken for.
+            static const bool trace_hud_scale = std::getenv("MHFU_TRACE_HUD_SCALE") != nullptr;
+            for (std::size_t first = 0; trace_hud_scale && first + 6u <= unscaled.size(); first += 6u) {
+                if (!hud_scale::quad_moved(unscaled, corner_scaled, first)) continue;
+                static std::set<std::string> traced;
+                const hud_scale::Rect from = hud_scale::quad_bounds(unscaled, first);
+                const hud_scale::Rect to = hud_scale::quad_bounds(corner_scaled, first);
+                std::ostringstream line;
+                line << hud_scale::piece_name(hud_scale::piece_of(from)) << " (" << from.x0 << "," << from.y0 << ")-("
+                     << from.x1 << "," << from.y1 << ") tex=0x" << std::hex << hud_texture << " fb=0x"
+                     << call.target.color_address << std::dec;
+                if (traced.insert(line.str()).second)
+                    std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << "," << to.y0
+                              << ")-(" << to.x1 << "," << to.y1 << ")\n";
             }
-        }
-    } else if (party_icons) {
-        const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
-        if (unscaled.size() >= 6u) {
-            corner_scaled = unscaled;
-            scale_corners = hud_scale::place_party_icons(corner_scaled, hud_scales, impl.hud_scale_frame);
         }
     }
     // A span remembered while the hold was full has no offset. Once an area
@@ -8044,7 +7865,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         // A resized area map must replace the one already in the frame. The
         // same depth as last time fails a less/greater test once the world
         // has stopped redrawing that corner, which leaves the old panel up.
-        if (map_resized) {
+        if (map_bounds) {
             key.depth_test = true;
             key.depth_function = 1u;
         }
@@ -8197,16 +8018,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // with it, so a list the interface clips still clips at its own edges.
     float edges[4]{
         static_cast<float>(sx1), static_cast<float>(sy1), static_cast<float>(sx2 + 1u), static_cast<float>(sy2 + 1u)};
-    if (fitted) {
-        const float centre_x = 0.5f * static_cast<float>(kPspWidth);
-        const float centre_y = 0.5f * static_cast<float>(kPspHeight);
-        edges[0] = centre_x + (edges[0] - centre_x) * fit_x;
-        edges[2] = centre_x + (edges[2] - centre_x) * fit_x;
-        edges[1] = centre_y + (edges[1] - centre_y) * fit_y;
-        edges[3] = centre_y + (edges[3] - centre_y) * fit_y;
-    }
-    if (map_resized) hud_scale::include_in_scissor(edges[0], edges[1], edges[2], edges[3], map_bounds);
-    if (name_resized) hud_scale::include_in_scissor(edges[0], edges[1], edges[2], edges[3], name_bounds);
+    fit.apply(edges[0], edges[1]);
+    fit.apply(edges[2], edges[3]);
+    if (map_bounds) hud_scale::include_in_scissor(edges[0], edges[1], edges[2], edges[3], *map_bounds);
+    if (name_bounds) hud_scale::include_in_scissor(edges[0], edges[1], edges[2], edges[3], *name_bounds);
     const auto to_pixels = [](float edge, float scale, std::uint32_t size) {
         return static_cast<std::int32_t>(std::clamp(std::lround(edge * scale), 0l, static_cast<long>(size)));
     };

@@ -1175,81 +1175,75 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(mate_icon, group_half, mate_buff);
     check(mate_icon[0].x == 124.0f && mate_icon[0].y == 62.0f && mate_icon[2].x == 130.0f && mate_icon[2].y == 69.0f,
         "a buff past the first row's icons shrinks toward the clock");
-    // The cat's face under the names. The blue one is 12 by 11, a pixel
-    // shorter than a buff, so the buff rule does not take it. It follows the
-    // clock; the face alone does not open Status, or a shop icon would.
+    // The cat's face in the badge column, under the cat's name. It is not a
+    // buff (12 by 11, a pixel short), and it follows the clock with the plates
+    // beside it, keeping the place the game gave it. The face alone does not
+    // open Status, or a shop icon would.
     Frame cat_face;
     cat_face.note({8.0f, 8.0f, 60.0f, 56.0f});
     std::vector<Vertex> face(6, Vertex{8.0f, 76.0f});
     face[2] = {20.0f, 87.0f};
     mhfu::gpu::hud_scale::scale_quads(face, group_half, cat_face);
-    check(face[0].x == 10.0f && face[0].y == 42.3333321f && face[2].x == 18.0f && face[2].y == 49.6666679f,
-        "the cat's face sits in the weapon badge and scales with it");
-    // The painted blue face is 9 tall, shorter than the badge, so it used to
-    // stay full size and sit outside the badge once Status changed.
-    Frame short_face;
-    short_face.note({8.0f, 8.0f, 60.0f, 56.0f});
-    std::vector<Vertex> blue(6, Vertex{9.0f, 77.0f});
-    blue[2] = {20.0f, 86.0f};
-    mhfu::gpu::hud_scale::scale_quads(blue, group_half, short_face);
-    check(blue[0].x == 10.0f && blue[0].y == 42.727272f && blue[2].x == 18.0f && blue[2].y == 49.272728f,
-        "the blue cat face sits in the weapon badge and scales with it");
-    // The paint on screen is about 10 by 7, under the 8-tall rule that missed it.
+    check(face[0].x == 8.0f && face[0].y == 42.0f && face[2].x == 14.0f && face[2].y == 47.5f,
+        "the cat's face shrinks toward the clock");
+    Frame no_clock;
+    std::vector<Vertex> lone_face(6, Vertex{8.0f, 76.0f});
+    lone_face[2] = {20.0f, 87.0f};
+    mhfu::gpu::hud_scale::scale_quads(lone_face, group_half, no_clock);
+    check(lone_face[0].x == 8.0f && lone_face[0].y == 76.0f && lone_face[2].x == 20.0f && lone_face[2].y == 87.0f,
+        "the cat's face alone does not open Status");
+    // The paint on screen is about 10 by 7. Drawn with the cat's name, it
+    // stays under that name as both shrink.
     Frame painted;
     painted.note({8.0f, 8.0f, 60.0f, 56.0f});
-    // The cat's own name, centre y 79. The face is drawn under it at centre 85.
     std::vector<Vertex> named(6, Vertex{40.0f, 72.0f});
     named[2] = {48.0f, 86.0f};
     std::vector<Vertex> paint(6, Vertex{9.0f, 82.0f});
     paint[2] = {20.0f, 88.0f};
     named.insert(named.end(), paint.begin(), paint.end());
     mhfu::gpu::hud_scale::scale_quads(named, group_half, painted);
-    check(named[6].x == 10.0f && named[6].y == 43.8181801f && named[8].x == 18.0f && named[8].y == 48.1818199f,
-        "the short blue face sits in the weapon badge on the cat's name");
-    // Status at 75% pulls the name toward the clock. The face is drawn under
-    // that name; after the same scale it is in the badge, to the left of it.
+    check(named[0].x == 24.0f && named[0].y == 40.0f && named[2].x == 28.0f && named[2].y == 47.0f &&
+            named[6].x == 8.5f && named[6].y == 45.0f && named[8].x == 14.0f && named[8].y == 48.0f,
+        "the painted face stays under the cat's name");
     const Scales status_75{1.0f, 0.75f, 1.0f, 0.75f, 0.75f, 0.75f};
-    Frame cat_beside;
-    cat_beside.note({8.0f, 8.0f, 60.0f, 56.0f});
-    std::vector<Vertex> rob_name(6, Vertex{40.0f, 72.0f});
-    rob_name[2] = {48.0f, 86.0f};
-    std::vector<Vertex> under_rob(6, Vertex{9.0f, 82.0f});
-    under_rob[2] = {20.0f, 89.0f};
-    rob_name.insert(rob_name.end(), under_rob.begin(), under_rob.end());
-    mhfu::gpu::hud_scale::scale_quads(rob_name, status_75, cat_beside);
-    check(rob_name[6].x == 11.0f && rob_name[6].y == 61.1818161f && rob_name[8].x == 23.0f && rob_name[8].y == 68.8181839f,
-        "at 75% the cat face stays in the weapon badge");
-    // The face is a sprite on the map-icon atlas, in the badge column. A mark
-    // from that atlas on the right of the picture stays a map mark.
-    check(mhfu::gpu::hud_scale::is_cat_icon({9.0f, 82.0f, 20.0f, 89.0f}, mhfu::gpu::hud_scale::kMapIconTexture),
-        "the cat face on the icon atlas is still the cat");
-    check(!mhfu::gpu::hud_scale::is_cat_icon({400.0f, 80.0f, 416.0f, 96.0f}, mhfu::gpu::hud_scale::kMapIconTexture),
-        "a map mark on the icon atlas is not the cat face");
+    Frame status_three_quarters;
+    status_three_quarters.note({8.0f, 8.0f, 60.0f, 56.0f});
+    std::vector<Vertex> quarter(6, Vertex{9.0f, 82.0f});
+    quarter[2] = {20.0f, 89.0f};
+    mhfu::gpu::hud_scale::scale_quads(quarter, status_75, status_three_quarters);
+    check(quarter[0].x == 8.75f && quarter[0].y == 63.5f && quarter[2].x == 17.0f && quarter[2].y == 68.75f,
+        "at 75% the cat's face shrinks toward the clock by the same amount");
+    // The face can be a sprite on the map-icon atlas. It is in the badge
+    // column, so it is still the party list; a mark from that atlas on the
+    // right of the picture is not.
     Frame atlas_face;
     atlas_face.note({8.0f, 8.0f, 60.0f, 56.0f});
     std::vector<Vertex> atlas(6, Vertex{9.0f, 82.0f});
     atlas[2] = {20.0f, 89.0f};
     mhfu::gpu::hud_scale::scale_quads(atlas, status_75, atlas_face, mhfu::gpu::hud_scale::kMapIconTexture);
-    check(atlas[0].x == 11.0f && atlas[0].y == 61.1818161f && atlas[2].x == 23.0f && atlas[2].y == 68.8181839f,
-        "a cat face on the icon atlas stays in the weapon badge");
-    check(mhfu::gpu::hud_scale::is_cat_icon({8.0f, 78.0f, 16.0f, 92.0f}),
-        "the face's letter-sized cell in the weapon column is the cat");
-    check(!mhfu::gpu::hud_scale::is_cat_icon({32.0f, 80.0f, 40.0f, 94.0f}),
-        "a name letter to the right of the weapon column is not the cat face");
+    check(atlas[0].x == 8.75f && atlas[0].y == 63.5f && atlas[2].x == 17.0f && atlas[2].y == 68.75f,
+        "a cat face on the icon atlas follows the clock");
+    check(!mhfu::gpu::hud_scale::is_party_column_icon({400.0f, 80.0f, 416.0f, 96.0f}),
+        "a map mark on the right is not a party-column icon");
+    check(mhfu::gpu::hud_scale::is_party_column_icon({8.0f, 78.0f, 16.0f, 92.0f}),
+        "the face's letter-sized cell in the weapon column is a party-column icon");
+    check(!mhfu::gpu::hud_scale::is_party_column_icon({32.0f, 80.0f, 40.0f, 94.0f}),
+        "a name letter to the right of the weapon column is not a party-column icon");
+    check(mhfu::gpu::hud_scale::is_party_column_icon({8.0f, 64.0f, 24.0f, 80.0f}),
+        "an icon that crosses the name plate is a party-column icon");
     Frame plate_tile;
     plate_tile.note({8.0f, 8.0f, 60.0f, 56.0f});
     std::vector<Vertex> tile(6, Vertex{8.0f, 64.0f});
     tile[2] = {20.0f, 72.0f};
     mhfu::gpu::hud_scale::scale_quads(tile, group_half, plate_tile);
     check(tile[0].x == 8.0f && tile[0].y == 36.0f && tile[2].x == 14.0f && tile[2].y == 40.0f,
-        "a name-plate tile still follows the plate, and is not taken for the cat face");
-    check(!mhfu::gpu::hud_scale::is_cat_icon({8.0f, 64.0f, 20.0f, 72.0f}),
-        "a tile of the name plate is not the cat face");
+        "a name-plate tile still follows the plate");
+    check(!mhfu::gpu::hud_scale::is_party_column_icon({8.0f, 64.0f, 20.0f, 72.0f}),
+        "a tile of the name plate is not a party-column icon");
     // The dark badge behind the cat is a tile of that name's plate. It stays
     // there and takes Status, the same way the hunter's badge does.
-    check(!mhfu::gpu::hud_scale::is_cat_icon({4.0f, 78.0f, 20.0f, 94.0f}) &&
-            !mhfu::gpu::hud_scale::is_named_cat_face({4.0f, 78.0f, 20.0f, 94.0f}),
-        "the badge behind a later name is not the cat face");
+    check(!mhfu::gpu::hud_scale::is_party_column_icon({4.0f, 78.0f, 20.0f, 94.0f}),
+        "the badge behind a later name is not a party-column icon");
     Frame later_badge;
     later_badge.note({8.0f, 8.0f, 60.0f, 56.0f});
     std::vector<Vertex> later(6, Vertex{4.0f, 78.0f});
@@ -1257,44 +1251,41 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(later, group_half, later_badge);
     check(later[0].x == 6.0f && later[0].y == 43.0f && later[2].x == 14.0f && later[2].y == 51.0f,
         "the badge behind a later name scales in place with Status");
-    check(!mhfu::gpu::hud_scale::is_cat_icon({4.0f, 56.0f, 36.0f, 68.0f}),
-        "a weapon mark on the name plate is not the cat face");
-    // The face is filed with the name, and names stay at 100% while Status
-    // does not. That icon has to be the face even when its box still crosses
-    // the plate, or it is left at the size the game drew.
-    check(mhfu::gpu::hud_scale::is_named_cat_face({8.0f, 64.0f, 24.0f, 80.0f}),
-        "a cat icon that crosses the name plate is the face filed with the name");
-    check(mhfu::gpu::hud_scale::is_named_cat_face({9.0f, 82.0f, 20.0f, 89.0f}),
-        "the painted cat face filed under the name is the face");
-    check(!mhfu::gpu::hud_scale::is_named_cat_face({8.0f, 64.0f, 20.0f, 72.0f}),
-        "a name-plate tile filed with the name is not the cat face");
-    check(!mhfu::gpu::hud_scale::is_named_cat_face({40.0f, 72.0f, 48.0f, 86.0f}),
-        "a name letter filed with the icon is not the cat face");
-    check(!mhfu::gpu::hud_scale::is_named_cat_face({4.0f, 56.0f, 36.0f, 68.0f}),
-        "a hunter's weapon mark filed with the name is not the cat face");
-    // The cell around the blue face is larger than the paint. It still takes
-    // the same placement as the longsword mark on the name.
+    check(!mhfu::gpu::hud_scale::is_party_column_icon({4.0f, 56.0f, 36.0f, 68.0f}),
+        "a weapon mark on the name plate is not a party-column icon");
+    // A cell larger than the paint is the same icon, and a lower name's
+    // face follows the clock from that row.
     Frame cat_cell;
     cat_cell.note({8.0f, 8.0f, 60.0f, 56.0f});
     std::vector<Vertex> cell(6, Vertex{0.0f, 72.0f});
     cell[2] = {32.0f, 96.0f};
     mhfu::gpu::hud_scale::scale_quads(cell, group_half, cat_cell);
-    check(cell[0].x == 10.0f && cell[0].y == 43.0f && cell[2].x == 18.0f && cell[2].y == 49.0f,
-        "the cat's cell sits in the weapon badge");
-    Frame hung_cell;
-    hung_cell.note({8.0f, 8.0f, 60.0f, 56.0f});
-    std::vector<Vertex> hung(6, Vertex{0.0f, 60.0f});
-    hung[2] = {48.0f, 108.0f};
-    mhfu::gpu::hud_scale::scale_quads(hung, group_half, hung_cell);
-    check(hung[0].x == 10.0f && hung[0].y == 42.0f && hung[2].x == 18.0f && hung[2].y == 50.0f,
-        "a tall cat cell sits in the weapon badge");
+    check(cell[0].x == 4.0f && cell[0].y == 40.0f && cell[2].x == 20.0f && cell[2].y == 52.0f,
+        "the cat's cell shrinks toward the clock");
     Frame lower_face;
     lower_face.note({8.0f, 8.0f, 60.0f, 56.0f});
     std::vector<Vertex> lower(6, Vertex{8.0f, 108.0f});
     lower[2] = {20.0f, 119.0f};
     mhfu::gpu::hud_scale::scale_quads(lower, group_half, lower_face);
-    check(lower[0].x == 10.0f && lower[0].y == 52.3333321f && lower[2].x == 18.0f && lower[2].y == 59.6666679f,
-        "a cat face under a lower name sits in that row's weapon badge");
+    check(lower[0].x == 8.0f && lower[0].y == 58.0f && lower[2].x == 14.0f && lower[2].y == 63.5f,
+        "a cat face under a lower name shrinks toward the clock");
+    // The same face drawn outside the through-mode HUD (a small orthographic
+    // draw) takes the same place. Nothing moves before the clock is up, and
+    // a quad outside the badge column stays.
+    std::vector<Vertex> ortho(6, Vertex{8.0f, 76.0f});
+    ortho[2] = {20.0f, 87.0f};
+    std::vector<Vertex> elsewhere(6, Vertex{200.0f, 76.0f});
+    elsewhere[2] = {212.0f, 87.0f};
+    ortho.insert(ortho.end(), elsewhere.begin(), elsewhere.end());
+    std::vector<Vertex> ortho_early = ortho;
+    Frame ortho_frame;
+    check(!mhfu::gpu::hud_scale::place_party_icons(ortho_early, group_half, ortho_frame) && ortho_early[0].y == 76.0f,
+        "a party-column icon outside the through-mode HUD waits for the clock");
+    ortho_frame.note({8.0f, 8.0f, 60.0f, 56.0f});
+    check(mhfu::gpu::hud_scale::place_party_icons(ortho, group_half, ortho_frame) && ortho[0].x == 8.0f &&
+            ortho[0].y == 42.0f && ortho[2].x == 14.0f && ortho[2].y == 47.5f && ortho[6].x == 200.0f &&
+            ortho[6].y == 76.0f,
+        "a party-column icon outside the through-mode HUD follows the clock, and nothing else moves");
     // Four hunters. Each weapon badge already sits on its name. None of them
     // is the one cat that accompanies the player.
     Frame four_plates;
@@ -1311,10 +1302,10 @@ void test_interface_sizes() {
             plates[6].x == 6.0f && plates[6].y == 52.0f && plates[8].x == 22.0f && plates[8].y == 58.0f &&
             plates[12].x == 6.0f && plates[12].y == 62.0f && plates[14].x == 22.0f && plates[14].y == 68.0f,
         "each hunter's weapon badge shrinks from the clock like the first");
-    check(!mhfu::gpu::hud_scale::is_cat_icon({4.0f, 76.0f, 36.0f, 88.0f}) &&
-            !mhfu::gpu::hud_scale::is_cat_icon({4.0f, 96.0f, 36.0f, 108.0f}) &&
-            !mhfu::gpu::hud_scale::is_cat_icon({4.0f, 116.0f, 36.0f, 128.0f}),
-        "the other hunters' weapon badges are not the cat face");
+    check(!mhfu::gpu::hud_scale::is_party_column_icon({4.0f, 76.0f, 36.0f, 88.0f}) &&
+            !mhfu::gpu::hud_scale::is_party_column_icon({4.0f, 96.0f, 36.0f, 108.0f}) &&
+            !mhfu::gpu::hud_scale::is_party_column_icon({4.0f, 116.0f, 36.0f, 128.0f}),
+        "the other hunters' weapon badges are not party-column icons");
     // Quest details letters share a name's size and cross the buff band. They
     // stay where the window drew them.
     Frame details;
@@ -1751,9 +1742,111 @@ void test_interface_sizes_by_owner() {
     check(panel[0].x == 32.0f && panel[2].x == 164.0f, "without owners a panel in the bar's place is resized");
 }
 
+// What the renderer asks of gpu/hud_scale.hpp around a draw: the Fill fit,
+// a name label's draw, and where a moved area map went.
+void test_hud_scale_draws() {
+    using mhfu::gpu::hud::NameDraw;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::InterfaceFit;
+    using mhfu::gpu::hud_scale::Rect;
+    using mhfu::gpu::hud_scale::Scales;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const auto join = [](std::vector<Vertex> a, const std::vector<Vertex> &b) {
+        a.insert(a.end(), b.begin(), b.end());
+        return a;
+    };
+
+    // The fit pulls toward the centre of the 480 by 272 picture, and back.
+    const InterfaceFit none;
+    float x = 17.0f;
+    float y = 201.0f;
+    none.apply(x, y);
+    check(!none.any() && x == 17.0f && y == 201.0f, "no fit leaves a point where it is");
+    const InterfaceFit half_wide{0.5f, 1.0f};
+    x = 0.0f;
+    y = 0.0f;
+    half_wide.apply(x, y);
+    const Rect back = half_wide.to_game({120.0f, 0.0f, 360.0f, 272.0f});
+    check(half_wide.any() && x == 120.0f && y == 0.0f && back.x0 == 0.0f && back.x1 == 480.0f && back.y1 == 272.0f,
+        "the fit pulls toward the centre, and to_game undoes it");
+    const Rect both = mhfu::gpu::hud_scale::united({10.0f, 20.0f, 30.0f, 40.0f}, {35.0f, 5.0f, 25.0f, 15.0f});
+    check(both.x0 == 10.0f && both.y0 == 5.0f && both.x1 == 35.0f && both.y1 == 40.0f,
+        "united holds both rectangles, either way round");
+
+    // A name over a hunter shrinks toward the point the game placed it, and
+    // the bounds it took come back for the scissor.
+    const Scales names_half{1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f};
+    NameDraw named;
+    named.is_name = true;
+    named.has_origin = true;
+    named.origin_x = 108.0f;
+    named.origin_y = 114.0f;
+    Frame quiet;
+    std::vector<Vertex> name = join(quad(100.0f, 100.0f, 108.0f, 114.0f), quad(108.0f, 100.0f, 116.0f, 114.0f));
+    const std::optional<Rect> name_bounds =
+        mhfu::gpu::hud_scale::scale_name_draw(name, names_half, quiet, named, InterfaceFit{});
+    check(name[0].x == 104.0f && name[0].y == 107.0f && name[8].x == 112.0f && name[8].y == 114.0f && name_bounds &&
+            name_bounds->x0 == 104.0f && name_bounds->y0 == 107.0f && name_bounds->x1 == 112.0f &&
+            name_bounds->y1 == 114.0f,
+        "a name shrinks toward its point and reports where it went");
+    std::vector<Vertex> same = quad(100.0f, 100.0f, 108.0f, 114.0f);
+    check(!mhfu::gpu::hud_scale::scale_name_draw(same, Scales{}, quiet, named, InterfaceFit{}) && same[0].x == 100.0f,
+        "at the game's size a name stays put and needs no scissor");
+
+    // A village label's plate larger than a name stays as drawn.
+    NameDraw village = named;
+    village.tag_only = true;
+    std::vector<Vertex> plate = quad(100.0f, 100.0f, 300.0f, 140.0f);
+    check(!mhfu::gpu::hud_scale::scale_name_draw(plate, names_half, quiet, village, InterfaceFit{}) &&
+            plate[0].x == 100.0f && plate[2].x == 300.0f,
+        "a village plate larger than a name stays as drawn");
+
+    // The cat's face filed with its name takes Status from the clock while
+    // the name takes the Names size.
+    const Scales both_half{1.0f, 0.5f, 1.0f, 0.5f, 0.5f, 0.5f, 0.5f};
+    Frame clock_up;
+    clock_up.note({8.0f, 8.0f, 60.0f, 56.0f});
+    NameDraw cat_name = named;
+    cat_name.origin_x = 44.0f;
+    cat_name.origin_y = 86.0f;
+    std::vector<Vertex> labelled = join(quad(8.0f, 76.0f, 20.0f, 87.0f), quad(40.0f, 72.0f, 48.0f, 86.0f));
+    const std::optional<Rect> letters =
+        mhfu::gpu::hud_scale::scale_name_draw(labelled, both_half, clock_up, cat_name, InterfaceFit{});
+    check(labelled[0].x == 8.0f && labelled[0].y == 42.0f && labelled[2].x == 14.0f && labelled[2].y == 47.5f &&
+            labelled[6].x == 42.0f && labelled[6].y == 79.0f && labelled[8].x == 46.0f && labelled[8].y == 86.0f,
+        "the face in a name draw takes Status and the letters take Names");
+    check(letters && letters->x0 == 42.0f && letters->x1 == 46.0f,
+        "only the name's letters are reported for the scissor");
+    // Under Fill the face is told apart in the game's pixels. At Status 100%
+    // it then stays where it landed, while a name would shrink.
+    const InterfaceFit fill{0.5f, 0.5f};
+    std::vector<Vertex> fitted = quad(124.0f, 106.0f, 130.0f, 111.5f);
+    mhfu::gpu::hud_scale::scale_name_draw(fitted, names_half, clock_up, cat_name, fill);
+    check(fitted[0].x == 124.0f && fitted[0].y == 106.0f && fitted[2].x == 130.0f && fitted[2].y == 111.5f,
+        "a fitted face is still recognised in the game's pixels");
+
+    // Only the map's own quads count toward its moved bounds.
+    const std::vector<Vertex> drawn = join(quad(316.0f, 32.0f, 468.0f, 184.0f), quad(60.0f, 44.0f, 166.0f, 50.0f));
+    std::vector<Vertex> moved = join(quad(392.0f, 32.0f, 468.0f, 108.0f), quad(34.0f, 26.0f, 87.0f, 29.0f));
+    const std::optional<Rect> map_bounds = mhfu::gpu::hud_scale::moved_map_bounds(drawn, moved, 0u);
+    check(map_bounds && map_bounds->x0 == 392.0f && map_bounds->y0 == 32.0f && map_bounds->x1 == 468.0f &&
+            map_bounds->y1 == 108.0f,
+        "the moved map's bounds leave out other moved pieces");
+    check(!mhfu::gpu::hud_scale::moved_map_bounds(drawn, drawn, 0u), "an unmoved map needs no scissor");
+}
+
 int main() {
     test_interface_sizes();
     test_interface_sizes_by_owner();
+    test_hud_scale_draws();
     test_crisp_text();
     test_layered_armor();
     test_lock_on_and_damage_numbers();

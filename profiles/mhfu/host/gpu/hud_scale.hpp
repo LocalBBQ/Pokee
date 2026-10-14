@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace mhfu::gpu::hud_scale {
@@ -186,6 +187,48 @@ template <typename Vertex> [[nodiscard]] Rect quad_bounds(const std::vector<Vert
     }
     return r;
 }
+
+// The bounds of every vertex. `vertices` is not empty.
+template <typename Vertex> [[nodiscard]] Rect bounds_of(const std::vector<Vertex> &vertices) {
+    Rect r{vertices.front().x, vertices.front().y, vertices.front().x, vertices.front().y};
+    for (const Vertex &vertex : vertices) {
+        r.x0 = std::min(r.x0, vertex.x);
+        r.y0 = std::min(r.y0, vertex.y);
+        r.x1 = std::max(r.x1, vertex.x);
+        r.y1 = std::max(r.y1, vertex.y);
+    }
+    return r;
+}
+
+// The smallest rectangle holding both.
+[[nodiscard]] inline Rect united(Rect a, Rect b) {
+    a = normalized(a);
+    b = normalized(b);
+    return {std::min(a.x0, b.x0), std::min(a.y0, b.y0), std::max(a.x1, b.x1), std::max(a.y1, b.y1)};
+}
+
+// Under Fill the renderer pulls a 2D interface draw in about the centre of the
+// game's 480 by 272 picture, to keep its pixels square. The rules in this file
+// are in the game's pixels. 1 on both axes is a draw that is not pulled in.
+struct InterfaceFit {
+    static constexpr float kCentreX = 240.0f;
+    static constexpr float kCentreY = 136.0f;
+    float x{1.0f};
+    float y{1.0f};
+
+    [[nodiscard]] bool any() const { return x != 1.0f || y != 1.0f; }
+    // From the game's pixels to where the draw lands.
+    void apply(float &px, float &py) const {
+        px = kCentreX + (px - kCentreX) * x;
+        py = kCentreY + (py - kCentreY) * y;
+    }
+    // From where the draw landed back to the game's pixels.
+    [[nodiscard]] Rect to_game(Rect r) const {
+        if (x <= 0.0f || y <= 0.0f) return r;
+        return {kCentreX + (r.x0 - kCentreX) / x, kCentreY + (r.y0 - kCentreY) / y, kCentreX + (r.x1 - kCentreX) / x,
+            kCentreY + (r.y1 - kCentreY) / y};
+    }
+};
 
 // The large area-map tile, (316, 32)-(468, 184). The small window is
 // travelling_map_window(); it counts only while the quest HUD is up and the
@@ -862,18 +905,9 @@ void scale_name(std::vector<Vertex> &vertices, float scale, bool has_origin, flo
     float anchor_x = origin_x;
     float anchor_y = origin_y;
     if (!has_origin) {
-        float x0 = vertices.front().x;
-        float y0 = vertices.front().y;
-        float x1 = x0;
-        float y1 = y0;
-        for (const Vertex &vertex : vertices) {
-            x0 = std::min(x0, vertex.x);
-            y0 = std::min(y0, vertex.y);
-            x1 = std::max(x1, vertex.x);
-            y1 = std::max(y1, vertex.y);
-        }
-        anchor_x = 0.5f * (x0 + x1);
-        anchor_y = 0.5f * (y0 + y1);
+        const Rect drawn = bounds_of(vertices);
+        anchor_x = 0.5f * (drawn.x0 + drawn.x1);
+        anchor_y = 0.5f * (drawn.y0 + drawn.y1);
     }
     for (Vertex &vertex : vertices) {
         vertex.x = anchor_x + (vertex.x - anchor_x) * scale;
@@ -1063,11 +1097,7 @@ struct Frame {
     // The map's bounds are every quad of that map drawn this frame. The scale
     // anchor stays the slot corner; the union is only which pixels are the map.
     static void include_rect(Rect &dest, Rect incoming, bool &now) {
-        const Rect r = normalized(incoming);
-        if (!now)
-            dest = r;
-        else
-            dest = {std::min(dest.x0, r.x0), std::min(dest.y0, r.y0), std::max(dest.x1, r.x1), std::max(dest.y1, r.y1)};
+        dest = now ? united(dest, incoming) : normalized(incoming);
         now = true;
     }
 
@@ -1258,7 +1288,8 @@ struct Frame {
                 return true;
             return (map_now || map_live) && !list_now && !list_live &&
                 overlaps(map_now ? map_rect : map_rect_live, rect);
-        case Piece::Vitals: return status_up();
+        case Piece::Vitals:
+            return status_up();
         // The item list shares the bar's corner, and its right column shares
         // the bowgun slot. Neither is scaled while that list is on screen.
         // The quest item bar is on screen with the clock. A shop draws panels
@@ -1277,9 +1308,11 @@ struct Frame {
 
 // Moves the quad at `first` with Status, from the clock, as scale_quads moves
 // the plates of the party list.
-template <typename Vertex> void place_with_status(std::vector<Vertex> &vertices, std::size_t first, const Scales &scales) {
+template <typename Vertex>
+void place_with_status(std::vector<Vertex> &vertices, std::size_t first, const Scales &scales) {
     const Placement place = placement_of(Piece::Vitals, scales);
-    for (std::size_t i = 0; i < 6u; ++i) place_point(vertices[first + i].x, vertices[first + i].y, place, scales.vitals);
+    for (std::size_t i = 0; i < 6u; ++i)
+        place_point(vertices[first + i].x, vertices[first + i].y, place, scales.vitals);
 }
 
 // Party-column icons the game files outside the through-mode HUD, such as a
@@ -1295,6 +1328,45 @@ bool place_party_icons(std::vector<Vertex> &vertices, const Scales &scales, cons
         moved = true;
     }
     return moved;
+}
+
+// A draw filed by a name label (hud::name_at): a name over another hunter, and
+// icons the label files in the party list's badge column, such as the cat's
+// face. The name takes the Names size about the point the game placed it; the
+// icons belong with the plates beside them and take Status. `vertices` are
+// where the draw lands, after `fit`; the rules are in the game's pixels.
+// Returns the bounds the name was moved to, for the scissor, when the Names
+// size moved it.
+template <typename Vertex>
+std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales &scales, const Frame &frame,
+    const hud::NameDraw &named, InterfaceFit fit) {
+    // A village label can also file a plate larger than the name. That draw
+    // stays as the game drew it.
+    if (named.tag_only && !vertices.empty() && !is_name_tag(fit.to_game(bounds_of(vertices)))) return std::nullopt;
+    std::vector<std::uint8_t> party_icon(vertices.size() / 6u);
+    if (frame.status_up())
+        for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u)
+            party_icon[first / 6u] = is_party_column_icon(fit.to_game(quad_bounds(vertices, first))) ? 1u : 0u;
+    const std::vector<Vertex> drawn = vertices;
+    // The text entry's point is in the game's pixels; the glyphs were pulled
+    // in with the draw, so the point moves with them.
+    float origin_x = named.origin_x;
+    float origin_y = named.origin_y;
+    if (named.has_origin) fit.apply(origin_x, origin_y);
+    scale_name(vertices, scales.names, named.has_origin, origin_x, origin_y);
+    std::optional<Rect> name_bounds;
+    for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
+        if (party_icon[first / 6u] != 0u) {
+            std::copy_n(drawn.begin() + static_cast<std::ptrdiff_t>(first), 6u,
+                vertices.begin() + static_cast<std::ptrdiff_t>(first));
+            place_with_status(vertices, first, scales);
+            continue;
+        }
+        if (scales.names == 1.0f) continue;
+        const Rect scaled = quad_bounds(vertices, first);
+        name_bounds = name_bounds ? united(*name_bounds, scaled) : scaled;
+    }
+    return name_bounds;
 }
 
 // Whether a draw from `owner` may be resized at all. Other code's draws
@@ -1361,6 +1433,30 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         if (scale == 1.0f && !moved) continue;
         for (std::size_t i = 0; i < 6u; ++i) place_point(vertices[first + i].x, vertices[first + i].y, place, scale);
     }
+}
+
+// Whether the quad at `first` is not where the game drew it.
+template <typename Vertex>
+[[nodiscard]] bool quad_moved(const std::vector<Vertex> &drawn, const std::vector<Vertex> &scaled, std::size_t first) {
+    for (std::size_t i = first; i < first + 6u; ++i)
+        if (scaled[i].x != drawn[i].x || scaled[i].y != drawn[i].y) return true;
+    return false;
+}
+
+// Where the area map's quads went, when scale_quads moved any of them. The
+// game's scissor is often the rectangle it drew the map in, so a larger map
+// is clipped back to that size unless the scissor takes these bounds, and the
+// renderer redraws a moved map over the one already in the frame.
+template <typename Vertex>
+[[nodiscard]] std::optional<Rect> moved_map_bounds(
+    const std::vector<Vertex> &drawn, const std::vector<Vertex> &scaled, std::uint32_t texture) {
+    std::optional<Rect> bounds;
+    for (std::size_t first = 0; first + 6u <= drawn.size(); first += 6u) {
+        if (!quad_moved(drawn, scaled, first) || !is_drawn_map(quad_bounds(drawn, first), texture)) continue;
+        const Rect moved = quad_bounds(scaled, first);
+        bounds = bounds ? united(*bounds, moved) : moved;
+    }
+    return bounds;
 }
 
 } // namespace mhfu::gpu::hud_scale
