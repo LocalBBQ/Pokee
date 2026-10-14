@@ -507,8 +507,8 @@ void Menu::video() {
             "step thickens both the digits and the outline. 3 is the thickest that stays readable.");
         o.disabled = o.disabled || !s.damage_numbers;
         int thickness = static_cast<int>(s.damage_number_thickness);
-        if (slider_row("Damage number thickness", thickness, 1,
-                static_cast<int>(settings::kMaxDamageNumberThickness), 1, "%d", o)) {
+        if (slider_row("Damage number thickness", thickness, 1, static_cast<int>(settings::kMaxDamageNumberThickness),
+                1, "%d", o)) {
             s.damage_number_thickness = static_cast<std::uint32_t>(thickness);
             settings::save();
         }
@@ -575,8 +575,7 @@ void Menu::video() {
         const std::string focus_pad = input::format(s.controls.pad[focus]);
         if (!focus_pad.empty()) focus_bind += (focus_bind.empty() ? "" : " / ") + focus_pad;
         const std::string focus_button = focus_bind.empty() ? std::string("L") : focus_bind;
-        const std::string style_help =
-            "Follow keeps the camera on the selected monster. " +
+        const std::string style_help = "Follow keeps the camera on the selected monster. " +
             (focus_bind.empty() ? std::string("Focus/Follow Camera, once bound,") : focus_button) +
             " turns that tracking off and on again; the selection stays. "
             "Turning it by hand, the D-pad, or L lets go, and L "
@@ -2168,8 +2167,8 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
         const float v0 = static_cast<float>(cell->v) / static_cast<float>(sheet.height);
         const float u1 = static_cast<float>(cell->u + camera::kHuntIconTexels) / static_cast<float>(sheet.width);
         const float v1 = static_cast<float>(cell->v + camera::kHuntIconTexels) / static_cast<float>(sheet.height);
-        const ImU32 tint = portrait.other_area || portrait.dead ? IM_COL32(80, 80, 80, 255)
-                                                                : IM_COL32(255, 255, 255, 255);
+        const ImU32 tint =
+            portrait.other_area || portrait.dead ? IM_COL32(80, 80, 80, 255) : IM_COL32(255, 255, 255, 255);
         draw->AddImage(icons.texture->GetTexRef(), screen(icon_x, icon_y), screen(icon_x + side, icon_y + side),
             {u0, v0}, {u1, v1}, tint);
         const float portrait_scale = side / camera::kHuntCardHeight;
@@ -2206,7 +2205,7 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
             {screen(x0, y1), screen(x0 + kArm, y1), screen(x0, y1 - kArm)},
             {screen(x1, y1), screen(x1 - kArm, y1), screen(x1, y1 - kArm)},
         };
-        for (const ImVec2 (&corner)[3] : corners) {
+        for (const ImVec2(&corner)[3] : corners) {
             draw->AddLine(corner[0], corner[1], IM_COL32(0, 0, 0, 170), shade);
             draw->AddLine(corner[0], corner[2], IM_COL32(0, 0, 0, 170), shade);
             draw->AddLine(corner[0], corner[1], bracket, thick);
@@ -2383,11 +2382,12 @@ void draw_over_game() {
         !note().text.empty() && Clock::now() < note().until && !layer.renderer().window_capture_pending();
     const double hud_note = menu || layer.renderer().window_capture_pending() ? 0.0 : gpu::hud::note_seconds_left();
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
-    const std::vector<camera::HuntPortrait> portraits = menu ? std::vector<camera::HuntPortrait>{} : hunt_portraits_at();
+    const std::vector<camera::HuntPortrait> portraits =
+        menu ? std::vector<camera::HuntPortrait>{} : hunt_portraits_at();
     const std::optional<std::array<float, 2>> gather = menu ? std::nullopt : gather_mark_at();
     const bool numbers = !menu && !layer.renderer().window_capture_pending() && !game::damage_numbers().empty();
-    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !fast && !noted &&
-        hud_note <= 0.0 && !marker && portraits.empty() && !gather && !numbers)
+    if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !fast && !noted && hud_note <= 0.0 &&
+        !marker && portraits.empty() && !gather && !numbers)
         return;
     layer.begin_frame();
     if (numbers) draw_damage_numbers();

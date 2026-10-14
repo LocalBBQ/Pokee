@@ -69,11 +69,10 @@ void test_the_radius() {
     const std::optional<GatherNode> edge = gather_from_list(memory, list, 60.0f, 0.0f, 20.0f);
     check(edge && edge->address == list, "the radius is still inside");
     check(!gather_from_list(memory, list, 60.1f, 0.0f, 20.0f), "just past the radius is not");
-    check(gather_from_list(memory, list, 10.0f, -200.0f, 20.0f) &&
-            !gather_from_list(memory, list, 10.0f, -200.1f, 20.0f),
+    check(
+        gather_from_list(memory, list, 10.0f, -200.0f, 20.0f) && !gather_from_list(memory, list, 10.0f, -200.1f, 20.0f),
         "200 below the node is the low edge");
-    check(gather_from_list(memory, list, 10.0f, 99.9f, 20.0f) &&
-            !gather_from_list(memory, list, 10.0f, 100.0f, 20.0f),
+    check(gather_from_list(memory, list, 10.0f, 99.9f, 20.0f) && !gather_from_list(memory, list, 10.0f, 100.0f, 20.0f),
         "100 above the node is already outside");
 
     write_float(memory, list + 12u, 0.0f);
@@ -342,8 +341,7 @@ void test_holding_circle() {
     check(held(true) == kCircle, "a hold starts");
     check(repeat.apply(0u, true, kCircle) == 0u && !repeat.centres_stick(), "letting go lifts ○ and frees the stick");
     bool quiet = true;
-    for (unsigned read = 0; read < kCycle * 2u; ++read)
-        quiet = quiet && repeat.apply(0u, true, kCircle) == 0u;
+    for (unsigned read = 0; read < kCycle * 2u; ++read) quiet = quiet && repeat.apply(0u, true, kCircle) == 0u;
     check(quiet, "after letting go, nothing is pressed");
     check(held(true) == kCircle, "pressing again is a new press at once");
 
@@ -439,11 +437,10 @@ void test_pressing_again_on_the_pad() {
     memory.store16(nodes + 20u, 4u);
     check(gather_hold(kSquare, memory) == kSquare, "a bug net point also pulses □");
     check(gather_hold(0u, memory) == 0u, "letting go of the bug net hold");
-    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(),
-        "○ on a bug net point is left alone");
+    check(
+        gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(), "○ on a bug net point is left alone");
     memory.store16(nodes + 20u, 0u);
-    check(gather_hold(kSquare, memory) == kSquare && !gather_hold_centres_stick(),
-        "□ on a plant point is left alone");
+    check(gather_hold(kSquare, memory) == kSquare && !gather_hold_centres_stick(), "□ on a plant point is left alone");
 }
 
 // One 32-byte carve record. +16 empty is 0xFFFF; +20 is the id; +24 the stage.

@@ -106,8 +106,8 @@ struct State {
     unsigned focus_left{};
     unsigned double_tap_left{}; // updates left in which a second L recenters behind
     bool yielding{};            // that second L: the game's recenter owns the camera
-    bool reconciled{}; // Focus: L's turn has landed
-    unsigned marker_left{}; // Focus: updates left before the reticle expires
+    bool reconciled{};          // Focus: L's turn has landed
+    unsigned marker_left{};     // Focus: updates left before the reticle expires
     bool marker_expired{};
     std::uint32_t target{};
     std::vector<std::uint32_t> visited;
@@ -275,7 +275,8 @@ bool small_species(std::uint8_t id) {
     case 0x46: // Popo
     case 0x49: // Ceanataur
         return true;
-    default: return false;
+    default:
+        return false;
     }
 }
 
@@ -328,9 +329,9 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
             std::cout << "[lockon] candidate 0x" << std::hex << at << std::dec << " type "
                       << static_cast<unsigned>(kind) << " class " << class_id << " vtable 0x" << std::hex << vtable
                       << " method 0x" << method << std::dec << " em " << (em ? 1 : 0) << " id "
-                      << static_cast<unsigned>(id) << " health " << health << "/" << most
-                      << " at " << position.x << "," << position.y << "," << position.z
-                      << (other_area ? " other-area" : "") << (dead ? " dead" : "") << std::endl;
+                      << static_cast<unsigned>(id) << " health " << health << "/" << most << " at " << position.x << ","
+                      << position.y << "," << position.z << (other_area ? " other-area" : "") << (dead ? " dead" : "")
+                      << std::endl;
         }
         found.push_back({LockMonster{at, 0u, position}, marked, other_area, dead, id});
     }
@@ -342,8 +343,8 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
             ++lockable;
             if (candidate.marked) any_marked = true;
         }
-        std::cout << "[lockon] " << lockable << " candidates, " << (any_marked ? "some" : "none")
-                  << " marked large" << std::endl;
+        std::cout << "[lockon] " << lockable << " candidates, " << (any_marked ? "some" : "none") << " marked large"
+                  << std::endl;
     }
     return found;
 }
@@ -480,10 +481,9 @@ void explain_miss(const psprecomp::GuestMemory &memory) {
         }
         if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
         const std::uint32_t vtable = memory.load32(at + kVtable);
-        const std::uint32_t method =
-            vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u) != nullptr
-                ? memory.load32(vtable + kVtableMethod)
-                : 0u;
+        const std::uint32_t method = vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u) != nullptr
+            ? memory.load32(vtable + kVtableMethod)
+            : 0u;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
         if (sample == 0) {
@@ -502,9 +502,9 @@ void explain_miss(const psprecomp::GuestMemory &memory) {
     std::cout << "[lockon] no large monster to lock onto: " << nodes << " entities, " << players << " players, "
               << unwell << " without health, " << unplaced << " with no position";
     if (sample != 0)
-        std::cout << "; first at 0x" << std::hex << sample << " type " << std::dec
-                  << static_cast<unsigned>(sample_type) << " method 0x" << std::hex << sample_method << std::dec
-                  << " health " << sample_health << "/" << sample_most;
+        std::cout << "; first at 0x" << std::hex << sample << " type " << std::dec << static_cast<unsigned>(sample_type)
+                  << " method 0x" << std::hex << sample_method << std::dec << " health " << sample_health << "/"
+                  << sample_most;
     std::cout << std::endl;
 }
 
@@ -695,7 +695,8 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     if (camera.command || state.manual > kManualRelease) {
         std::cout << "[lockon] the player took the camera back ("
                   << (camera.command ? "a camera command" : "turned by hand") << ")" << std::endl;
-        if (focus) state.focusing = false;
+        if (focus)
+            state.focusing = false;
         else
             lock_on_release("");
         return std::nullopt;
@@ -709,7 +710,7 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
     const float near = focus ? 1.0f : (horizontal(camera.look_at, aim) - kNear) / kNearBlend;
     const int sweep = std::abs(yaw_difference(camera.yaw, wanted)) > screen_half_yaw() ? kFocusSweep : kLargestStep;
     LockOnAim out{lock_on_ease_yaw(camera.yaw, wanted, near, state.turning, focus ? kFocusShare : kYawShare,
-                     focus ? sweep : kLargestStep),
+                      focus ? sweep : kLargestStep),
         std::nullopt};
     const bool arrived = focus && std::abs(yaw_difference(out.yaw, wanted)) <= kFocusArrival;
     if (arrived) {
@@ -727,7 +728,7 @@ std::optional<LockOnAim> lock_on_update(const psprecomp::GuestMemory &memory, co
         // toward the monster, the way MH4U's target cam adjusts for height.
         const float goal = focus ? std::clamp(-elevation * kFocusPitchFollow, kPitchLowest, kPitchHighest)
                                  : std::clamp(std::clamp(state.base_pitch - elevation * kPitchFollow,
-                                                   state.base_pitch - kPitchDown, state.base_pitch + kPitchUp),
+                                                  state.base_pitch - kPitchDown, state.base_pitch + kPitchUp),
                                        kPitchLowest, kPitchHighest);
         state.pitch += (goal - state.pitch) * (focus ? kFocusShare : kPitchShare);
         if (arrived) state.pitch = goal;
@@ -781,8 +782,7 @@ void lock_on_frame(const psprecomp::GuestMemory &memory) {
     if (focus_style() && state.marker_left > 0u && --state.marker_left == 0u) state.marker_expired = true;
     if (!state.locked) return;
     const std::vector<LockMonster> monsters = lock_on_monsters(memory);
-    if (find(monsters, state.target) == nullptr)
-        lock_on_release(why_target_left(memory, state.target));
+    if (find(monsters, state.target) == nullptr) lock_on_release(why_target_left(memory, state.target));
 }
 
 bool lock_on_wanted() {
@@ -874,8 +874,8 @@ bool marker_instructions(const psprecomp::GuestMemory &memory) {
         return memory.raw_pointer(address, 4u) != nullptr && memory.load32(address) == expect;
     };
     return word(0x08812954u, 0xAC50BD04u) && // sw s0,-0x42fc(v0): the pointer at 0x089CBD04
-           word(0x0881439Cu, 0x26640C80u) && // addiu a0,s3,0xC80: the view
-           word(0x088145D8u, 0x26050C00u);   // addiu a1,s0,0xC00: the projection
+        word(0x0881439Cu, 0x26640C80u) &&    // addiu a0,s3,0xC80: the view
+        word(0x088145D8u, 0x26050C00u);      // addiu a1,s0,0xC00: the projection
 }
 
 void load_matrix(const psprecomp::GuestMemory &memory, std::uint32_t address, std::array<float, 16> &out) {
@@ -930,8 +930,7 @@ std::optional<LockOnView> posed_view(const psprecomp::GuestMemory &memory, const
 std::optional<LockOnView> camera_object_view(const psprecomp::GuestMemory &memory, const LockOnView &noted) {
     if (!marker_instructions(memory) || memory.raw_pointer(kCameraPointer, 4u) == nullptr) return std::nullopt;
     const std::uint32_t camera = memory.load32(kCameraPointer);
-    if (camera < 0x08800000u ||
-        memory.raw_pointer(camera + kProjection, kViewMatrix - kProjection + 64u) == nullptr)
+    if (camera < 0x08800000u || memory.raw_pointer(camera + kProjection, kViewMatrix - kProjection + 64u) == nullptr)
         return std::nullopt;
     LockOnView view;
     load_matrix(memory, camera + kViewMatrix, view.view);
@@ -960,8 +959,7 @@ std::optional<std::array<float, 2>> lock_on_project(const LockOnView &view, cons
     float eye[4]{};
     float clip[4]{};
     for (int row = 0; row < 4; ++row)
-        for (int col = 0; col < 4; ++col)
-            eye[row] += view.view[static_cast<std::size_t>(col * 4 + row)] * point[col];
+        for (int col = 0; col < 4; ++col) eye[row] += view.view[static_cast<std::size_t>(col * 4 + row)] * point[col];
     for (int row = 0; row < 4; ++row)
         for (int col = 0; col < 4; ++col)
             clip[row] += view.projection[static_cast<std::size_t>(col * 4 + row)] * eye[col];
