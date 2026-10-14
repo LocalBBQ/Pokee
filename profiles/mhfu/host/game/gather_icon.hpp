@@ -122,8 +122,10 @@ struct GatherPose {
 void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices);
 
 // Where the mark goes on the picture, 0..1 from the top left, while Gather
-// icon is on. Nothing when it is off, the code differs, there is no node, or
-// the node is behind the camera or off the picture. Takes the draw noted
+// icon is on: over the node ○ or □ would gather, or, with no node in range,
+// over the monster body or the cut tail ○ would carve (carve_body). Nothing
+// when it is off, the code differs, there is nothing to gather or carve, or
+// that point is behind the camera or off the picture. Takes the draw noted
 // since the last call.
 [[nodiscard]] std::optional<std::array<float, 2>> gather_mark(
     const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose);
@@ -192,6 +194,17 @@ private:
 // carve when bit 8 of the word at hunter +1164 is set. Nothing in the
 // village, with no hunter, or with no body in reach.
 [[nodiscard]] bool carve_in_reach(const psprecomp::GuestMemory &memory);
+
+// The body carve_in_reach finds: its record and the x, y and z at +0, +4 and
+// +8. A cut tail is carved through the same search. Nothing when there is no
+// carve.
+struct CarveBody {
+    std::uint32_t address{};
+    float x{};
+    float y{};
+    float z{};
+};
+[[nodiscard]] std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory);
 
 // The buttons the game should see for this pad read. Off, or idle with the
 // gather button up, `buttons` comes back unchanged and the gather list is not
