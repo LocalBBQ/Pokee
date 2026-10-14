@@ -507,6 +507,12 @@ void register_display_ctrl(HleRegistrar &hle) {
         }
 #endif
         buttons = game::gather_hold(buttons, rt.memory());
+        // A stick push during the hold walks the hunter off the point, or
+        // out of the carve, and the game drops the animation.
+        if (game::gather_hold_centres_stick()) {
+            analog_x = 0x80u;
+            analog_y = 0x80u;
+        }
         {
             static const bool trace_reads = std::getenv("MHFU_TRACE_PAD_READS") != nullptr;
             if (trace_reads)

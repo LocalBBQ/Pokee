@@ -40,7 +40,9 @@ class GuestMemory;
 //   one that is elsewhere or dead still counts: a small monster does not
 //   take its place, and a tap then locks nothing. A quest whose monsters
 //   keep a game_task vtable (seen with em75 loaded) still locks: any other
-//   non-player with a health pool is then eligible.
+//   non-player with a health pool is then eligible. A known small species
+//   (the ones the hunt icon sheet also draws, such as a Ceanataur) is left
+//   out either way, so it cannot take the lock or the icon.
 // - The camera looks from its eye at +0x0 of the camera structure to its
 //   look-at point at +0x10. Its yaw, in 65536ths of a turn, puts the eye in
 //   the direction (sin yaw, cos yaw) from the look-at point, so the camera
@@ -98,14 +100,16 @@ struct LockMonster {
 };
 
 // What a tap can lock onto: on the quest entity list while a quest runs, not
-// a player, and alive with a health pool. When any entry is marked large
-// (an em-overlay method, or class id 32, 34 or 36), only those, including
-// when every one of them is in another area or dead: a small monster does
-// not take the lock, and the reticle stays off.
+// a player, and alive with a health pool. A known small species is left out.
+// When any remaining entry is marked large (an em-overlay method, or class
+// id 32, 34 or 36), only those, including when every one of them is in
+// another area or dead: a small monster does not take the lock, and the
+// reticle stays off.
 [[nodiscard]] std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory);
 
 // A large monster shown on the monster icon, including one in another zone
-// and one that has died. `id` is the species byte at +0x1E8.
+// and one that has died. A known small species is not shown. `id` is the
+// species byte at +0x1E8.
 // `other_area` is a stage id at +0x29A that is not the loaded stage, which
 // lock-on will not select. `dead` is health at or below zero while a health
 // pool remains; lock-on will not select that either.

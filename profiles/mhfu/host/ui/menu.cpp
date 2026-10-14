@@ -427,15 +427,18 @@ void Menu::video() {
                 "The area map on the right of a quest, from its top-right corner. 100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::map},
             {"Status", "video.hud.health",
-                "The quest clock, the name under it, health and stamina, the eye shown when a monster is found, "
-                "the status icons beside that name, sharpness, the long sword's spirit gauge, "
+                "The quest clock, the name under it, the name and badge of the one cat with the player, and that cat's "
+                "face in the badge slot (a quest can show four hunters), "
+                "health and stamina, the eye and the buffs beside each hunter and each cat, sharpness, "
+                "the long sword's spirit gauge, "
                 "a bowgun's loaded shots, a bow's coatings, a gunlance's shells and a hunting horn's notes, from the "
                 "clock's corner so they stay together. "
                 "100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::health},
             {"Items", "video.hud.item_bar",
                 "The item bar, open or closed, from its bottom-right corner, including the item's name, a bowgun's "
-                "ammo bar and a bow's coating bar, and their menus. The item list stays as the game draws it. "
+                "ammo bar and a bow's coating bar, and their menus. The item list and the shops stay as the game "
+                "draws them. "
                 "100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::item_bar},
             {"Names", "video.hud.names",
@@ -544,9 +547,10 @@ void Menu::video() {
     }
     if (toggle_row("Hold to gather", s.gather_hold,
             options_for("game.gather_hold",
-                "On: hold ○ on a gather point and it gathers again each time you can. "
-                "Letting go stops the next gather. Pressing ○ again and holding it continues. "
-                "Off: ○ gathers once per press. L+○ still uses the item bar."))) {
+                "On: hold ○ on a gather point or a monster you can carve, or □ on a mining point or a bug net, and it "
+                "gathers or carves again each time you can. Moving or pressing another button does not stop it. "
+                "Letting go stops the next one. Pressing the same button again and holding it continues. "
+                "Off: each button gathers once per press. L+○ or L+□ before a hold starts still uses the item bar."))) {
         s.gather_hold = !s.gather_hold;
         settings::save();
     }
