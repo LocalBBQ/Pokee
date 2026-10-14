@@ -436,6 +436,11 @@ std::vector<HuntPortrait> place_hunt_portraits(
     return out;
 }
 
+HuntIconSquare hunt_icon_square(const HuntPortrait &portrait) {
+    const float side = std::min(portrait.width, portrait.height);
+    return {portrait.x, portrait.y + (portrait.height - side) * 0.5f, side};
+}
+
 namespace {
 // Why a tap found nothing, from the same walk as lock_on_monsters. One line.
 void explain_miss(const psprecomp::GuestMemory &memory) {
