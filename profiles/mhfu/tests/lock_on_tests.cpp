@@ -1293,19 +1293,21 @@ void test_binds() {
             check(conflicts(l.keys, static_cast<Action>(a)).empty(), "nor on the keyboard");
     }
     const Layout &d = layout(Preset::Default);
-    check(d.pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::LeftTrigger)),
-        "LT locks on in the default preset");
+    check(d.pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::RightStick)),
+        "R3 locks on in the default preset");
     check(d.pad[static_cast<std::size_t>(Action::FocusCamera)][0] == single(pad(PadInput::LeftTrigger)),
-        "and that tap starts focus and follow");
+        "and LT is the focus/follow camera");
     check(d.pad[static_cast<std::size_t>(Action::L)][0] == single(pad(PadInput::LeftShoulder)) &&
             d.pad[static_cast<std::size_t>(Action::L)][1].empty(),
         "LB is L: the camera and item use");
     check(acts_on_release(Action::LockOn) && !acts_on_release(Action::Screenshot), "only lock-on acts on release");
     check(layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::LockOn)][0] ==
+                single(pad(PadInput::LeftStick)) &&
+            layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::FocusCamera)][0] ==
                 single(pad(PadInput::RightTrigger)) &&
             layout(Preset::LeftHanded).pad[static_cast<std::size_t>(Action::L)][0] ==
                 single(pad(PadInput::RightShoulder)),
-        "left-handed puts lock-on on RT and L on RB");
+        "left-handed puts lock-on on L3, focus on RT and L on RB");
     check(layout(Preset::Modern).pad[static_cast<std::size_t>(Action::LockOn)][0] == single(pad(PadInput::RightStick)),
         "Modern keeps lock-on on R3, since LT guards");
     check(d.keys[static_cast<std::size_t>(Action::LockOn)][0] == single(mouse_button(2)) &&
@@ -1317,14 +1319,15 @@ void test_binds() {
     {
         const Slots &lock = d.pad[static_cast<std::size_t>(Action::LockOn)];
         const Chord shot = d.pad[static_cast<std::size_t>(Action::Screenshot)][0];
-        check(!extends_lock_on(lock, shot), "the screenshot chord is the stick click, not LT");
-        check(!extends_lock_on(lock, chord(pad(PadInput::LeftStick), pad(PadInput::RightStick))),
+        check(extends_lock_on(lock, shot), "the screenshot chord contains R3, so a screenshot does not lock on");
+        check(extends_lock_on(lock, chord(pad(PadInput::LeftStick), pad(PadInput::RightStick))),
             "L3 + R3 is the menu, not the lock-on press");
         check(!extends_lock_on(lock, single(pad(PadInput::RightShoulder))),
             "holding R, as for a sprint, still leaves the lock-on press");
-        check(!extends_lock_on(lock, single(pad(PadInput::LeftTrigger))), "LT on its own is the lock-on press");
-        check(extends_lock_on(lock, chord(pad(PadInput::LeftTrigger), pad(PadInput::South))),
-            "a longer chord that contains LT does not also lock on");
+        check(!extends_lock_on(lock, single(pad(PadInput::RightStick))), "R3 on its own is the lock-on press");
+        check(!extends_lock_on(lock, single(pad(PadInput::LeftTrigger))), "LT, the focus button, is not that chord");
+        check(extends_lock_on(lock, chord(pad(PadInput::RightStick), pad(PadInput::South))),
+            "a longer chord that contains R3 does not also lock on");
         check(!extends_lock_on(lock, chord(pad(PadInput::RightShoulder), pad(PadInput::South))),
             "two other buttons, with no lock-on input, are not that chord");
     }
