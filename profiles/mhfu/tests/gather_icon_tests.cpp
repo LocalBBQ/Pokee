@@ -529,6 +529,69 @@ void test_carving_a_monster() {
         "□ alone while carving keeps the ○ pulse");
     write_float(memory, hunter + 0x200u, 80.0f);
     check(gather_hold(kCircle, memory) == kCircle, "walking off the body leaves ○ as it is held");
+    (void)gather_hold(0u, memory);
+}
+
+// The gather mark also stands over a body or a cut tail ○ would carve.
+void test_mark_over_a_carve() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    plant_words(memory);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    constexpr std::uint32_t table = 0x09800000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 4u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    write_float(memory, nodes, -1.0f); // no gather point
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x200u, 0.0f);
+    write_float(memory, hunter + 0x204u, 0.0f);
+    write_float(memory, hunter + 0x208u, -10.0f);
+    memory.store16(hunter + 0x29Au, 4u);
+    memory.store32(0x09A4F1A0u, table);
+    // Straight ahead of the camera, so its mark is the picture's centre.
+    plant_body(memory, table + 4u, 0.0f, 0.0f, -10.0f, 30.0f, 9u, 4u);
+
+    const std::optional<CarveBody> body = carve_body(memory);
+    check(body && body->address == table + 4u && body->x == 0.0f && body->y == 0.0f && body->z == -10.0f,
+        "the carve search gives the body's record and position");
+    mhfu::settings::current().gather_icon = true;
+    gather_note_draw(picture(), 100u);
+    const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
+    const std::optional<std::array<float, 2>> at = gather_mark(memory, pose);
+    check(at && std::fabs((*at)[0] - 0.5f) < 0.05f && std::fabs((*at)[1] - 0.5f) < 0.05f,
+        "with no gather point in range, the mark stands over the body that can be carved");
+
+    // A gather point in range comes first, as in the game's circle handler.
+    plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 0u);
+    gather_note_draw(picture(), 100u);
+    const std::optional<std::array<float, 2>> gather_first = gather_mark(memory, pose);
+    check(gather_first && (*gather_first)[0] > 0.55f, "a gather point in range takes the mark before the body");
+    write_float(memory, nodes, -1.0f);
+
+    memory.store16(table + 4u + 20u, 0xFFFFu);
+    gather_note_draw(picture(), 100u);
+    check(!carve_body(memory) && !gather_mark(memory, pose), "a body with nothing left to carve is not marked");
+    memory.store16(table + 4u + 20u, 9u);
+    memory.store32(hunter + 1164u, 0x100u);
+    gather_note_draw(picture(), 100u);
+    check(!gather_mark(memory, pose), "nor one the hunter cannot carve now");
+    memory.store32(hunter + 1164u, 0u);
+    write_float(memory, hunter + 0x200u, 40.0f);
+    gather_note_draw(picture(), 100u);
+    check(!gather_mark(memory, pose), "nor one out of reach");
 }
 
 } // namespace
@@ -543,6 +606,7 @@ int main() {
     test_holding_circle();
     test_pressing_again_on_the_pad();
     test_carving_a_monster();
+    test_mark_over_a_carve();
     std::cout << (failures ? "FAIL" : "PASS") << ": gather icon (" << failures << " failures)\n";
     return failures ? 1 : 0;
 }
