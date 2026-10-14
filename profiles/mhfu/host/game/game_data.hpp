@@ -46,9 +46,11 @@ inline constexpr std::uint32_t kTextBlock = 0x089CC560u;
 // this stride: u8 used, u8 kind, u16 id, then the rest of the record.
 inline constexpr std::uint32_t kEquipmentRecord = 12u;
 
-// The kind byte of an equipment record, and the text table with its names.
+// The port's number for an equipment kind, and the text table with its names.
 // Kinds 0 to 4 are the armor parts (chest, arms, waist, legs, head), 5 to 17
-// the weapon classes (10 is not used).
+// the weapon classes (10 is not used). This is not the kind byte the game
+// stores in an equipment record; layered_armor.hpp (kBoxKind) maps the armor
+// parts to that byte.
 struct EquipmentKind {
     std::uint8_t kind;
     int name_table;

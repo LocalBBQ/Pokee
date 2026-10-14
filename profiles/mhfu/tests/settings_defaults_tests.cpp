@@ -1683,8 +1683,77 @@ void test_interface_sizes() {
     check(!Scales::from_percent(100u, 100u, 100u).any(), "an omitted name size stays at the game's size");
 }
 
+// A menu draws panels where the quest HUD's pieces are. The sizes resize
+// only the quest HUD's own draws (gpu/game_hud.hpp), whatever the rectangle.
+void test_interface_sizes_by_owner() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const Scales half = Scales::from_percent(50u, 50u, 50u);
+
+    check(!mhfu::gpu::hud_scale::may_resize(Owner::Other), "another owner's draw is never resized");
+    check(mhfu::gpu::hud_scale::may_resize(Owner::QuestHud), "the quest HUD's draw may be resized");
+    check(mhfu::gpu::hud_scale::may_resize(Owner::Unknown), "without owners the rectangles decide");
+
+    // A village panel in the health bar's exact place keeps the game's size.
+    Frame village;
+    std::vector<Vertex> panel = quad(56.0f, 12.0f, 320.0f, 20.0f);
+    scale_quads(panel, half, village, 0u, Owner::Other);
+    check(panel[0].x == 56.0f && panel[0].y == 12.0f && panel[2].x == 320.0f && panel[2].y == 20.0f,
+        "a menu shaped like the health bar is not resized");
+    std::vector<Vertex> map_panel = quad(316.0f, 32.0f, 468.0f, 184.0f);
+    scale_quads(map_panel, half, village, 0u, Owner::Other);
+    check(map_panel[0].x == 316.0f && map_panel[2].y == 184.0f, "a menu shaped like the area map is not resized");
+    std::vector<Vertex> shop_strip = quad(320.0f, 216.0f, 448.0f, 240.0f);
+    scale_quads(shop_strip, half, village, 0u, Owner::Other);
+    check(shop_strip[0].x == 320.0f && shop_strip[2].y == 240.0f, "a menu shaped like the item bar is not resized");
+
+    // The same rectangle from the quest HUD still takes its size.
+    Frame quest;
+    std::vector<Vertex> health = quad(56.0f, 12.0f, 320.0f, 20.0f);
+    scale_quads(health, half, quest, 0u, Owner::QuestHud);
+    check(health[0].x == 32.0f && health[0].y == 10.0f && health[2].x == 164.0f && health[2].y == 14.0f,
+        "the quest HUD's health bar shrinks toward the clock's corner");
+
+    // A menu over the HUD is still seen: the item list holds the item bar at
+    // the game's size, though only the bar is the quest HUD's.
+    Frame listed;
+    std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(clock, half, listed, 0u, Owner::QuestHud);
+    std::vector<Vertex> list = quad(200.0f, 150.0f, 470.0f, 240.0f);
+    scale_quads(list, half, listed, 0u, Owner::Other);
+    check(list[0].x == 200.0f && list[2].x == 470.0f, "the item list is not resized");
+    std::vector<Vertex> bar = quad(320.0f, 216.0f, 448.0f, 240.0f);
+    scale_quads(bar, half, listed, 0u, Owner::QuestHud);
+    check(bar[0].x == 320.0f && bar[2].y == 240.0f, "the item bar stays while another owner's list is open");
+    Frame unlisted;
+    clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(clock, half, unlisted, 0u, Owner::QuestHud);
+    bar = quad(320.0f, 216.0f, 448.0f, 240.0f);
+    scale_quads(bar, half, unlisted, 0u, Owner::QuestHud);
+    check(bar[0].x == 396.0f && bar[2].x == 460.0f && bar[2].y == 252.0f,
+        "the item bar shrinks toward its bottom-right with no list open");
+
+    // Unknown owners: the rectangles alone decide, as before owners were known.
+    Frame unwatched;
+    panel = quad(56.0f, 12.0f, 320.0f, 20.0f);
+    scale_quads(panel, half, unwatched, 0u, Owner::Unknown);
+    check(panel[0].x == 32.0f && panel[2].x == 164.0f, "without owners a panel in the bar's place is resized");
+}
+
 int main() {
     test_interface_sizes();
+    test_interface_sizes_by_owner();
     test_crisp_text();
     test_layered_armor();
     test_lock_on_and_damage_numbers();

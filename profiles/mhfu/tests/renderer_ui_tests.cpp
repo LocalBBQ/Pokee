@@ -3659,7 +3659,7 @@ void layered_armor_ui_contracts(gpu::VulkanRenderer &renderer, psprecomp::Runtim
     memory.store16(record + game::layered::kRecordArmorId[4], 1);
     const std::uint32_t box = block + game::layered::kEquipmentBoxOffset;
     memory.store8(box, game::layered::kEquipmentSlotUsed);
-    memory.store8(box + 1, 4);
+    memory.store8(box + 1, game::layered::kBoxKind[4]);
     memory.store16(box + 2, 2);
     memory.store8(kOldEquipmentBox, 1);
     memory.store8(kOldEquipmentBox + 1, 4);

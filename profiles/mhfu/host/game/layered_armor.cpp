@@ -76,7 +76,7 @@ bool owns_piece(const Ram &ram, std::uint8_t part, std::uint16_t id) {
     for (std::uint32_t slot = 0; slot < kEquipmentBoxSlots; ++slot) {
         const std::uint32_t at = box + slot * kEquipmentRecord;
         // 0x0885077C keeps a slot when this byte is anything but 0. A purchase writes 1.
-        if (ram.load8(at) == 0u || ram.load8(at + 1u) != part) continue;
+        if (ram.load8(at) == 0u || ram.load8(at + 1u) != kBoxKind[part]) continue;
         if (ram.load16(at + 2u) == id) return true;
     }
     return false;
@@ -246,7 +246,7 @@ std::vector<Held> held_pieces(const Ram &ram, std::uint8_t part) {
             for (std::uint32_t slot = 0; slot < kEquipmentBoxSlots; ++slot) {
                 const std::uint32_t at = box + slot * kEquipmentRecord;
                 // 0x0885077C keeps a slot when this byte is anything but 0. A purchase writes 1.
-                if (ram.load8(at) == 0u || ram.load8(at + 1u) != part) continue;
+                if (ram.load8(at) == 0u || ram.load8(at + 1u) != kBoxKind[part]) continue;
                 add(ram.load16(at + 2u), static_cast<std::int32_t>(slot), false);
             }
         }

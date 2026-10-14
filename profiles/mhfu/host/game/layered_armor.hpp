@@ -65,7 +65,8 @@ inline constexpr std::uint32_t kOwnRecord = 0u;
 // load32(0x089CC558) + 0x548. 0x08850e58 begins at 8 pages of 100 and adds one
 // page for each of two checks; both checks come back clear, so the walk is
 // 1000 records. A record is 12 bytes, the same shape as a worn piece: byte 0
-// is 1 when the slot is used, byte 1 is the kind, and the id is the u16 at +2.
+// is 1 when the slot is used, byte 1 is the kind (kBoxKind), and the id is the
+// u16 at +2.
 inline constexpr std::uint32_t kEquipmentBoxOffset = 0x548u;
 inline constexpr std::uint32_t kEquipmentBoxSlots = 1000u;
 inline constexpr std::uint8_t kEquipmentSlotUsed = 1u;
@@ -121,6 +122,14 @@ inline constexpr std::uint32_t kResolveModel = 0x088D6388u;
 inline constexpr std::uint8_t kParts = 5u;
 // Armor ids in a hunter record, in that kind order.
 inline constexpr std::uint32_t kRecordArmorId[kParts] = {0x56u, 0x62u, 0x6Eu, 0x3Eu, 0x4Au};
+// The kind byte the equipment box stores for each part, in that kind order.
+// The game numbers armor legs 0, head 1, chest 2, arms 3, waist 4, and its
+// weapons 5 (blademaster) and 6 (gunner). 0x0885C83C picks the armor table
+// by that byte through the jump table at 0x089315AC, and 0x08901788 turns
+// its equipment classes into it through the bytes at 0x089B9260. Comparing
+// a box slot with the part number itself listed another part's pieces under
+// this part's names, and missed the pieces of this part.
+inline constexpr std::uint8_t kBoxKind[kParts] = {2u, 3u, 4u, 0u, 1u};
 [[nodiscard]] const char *part_label(std::uint8_t part);
 // The kind (0 to 4) the lookup's part argument draws, or nothing for a part
 // that is not armor (part 1, and anything past the head).
