@@ -314,6 +314,32 @@ struct InterfaceFit {
         height >= 42.0f && height <= 54.0f;
 }
 
+// Whether the quest HUD is on screen, whatever the interface sizes: the
+// quest clock was drawn this frame or the one before. The monster icon
+// follows it, so it is gone once the quest's own HUD gives way to the
+// screens after a quest. Fed every through-mode sprite draw shown, before
+// the HUD sizes or the Fill aspect move it.
+struct QuestClock {
+    bool now{};
+    bool live{};
+
+    // `vertices` are expanded quads, six vertices each.
+    template <typename Vertex> void note(const std::vector<Vertex> &vertices) {
+        if (now) return;
+        for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u)
+            if (is_clock_sprite(quad_bounds(vertices, first))) {
+                now = true;
+                return;
+            }
+    }
+    // At each flip.
+    void begin() {
+        live = now;
+        now = false;
+    }
+    [[nodiscard]] bool up() const { return now || live; }
+};
+
 // Names under the clock, left of the map. A quest draws up to four hunters
 // there, and each cat's name, badge, yellow eye and buffs sit in this band.
 // The buffs reach toward the middle of the picture. The names themselves

@@ -1704,6 +1704,39 @@ void test_interface_sizes() {
 
 // A menu draws panels where the quest HUD's pieces are. The sizes resize
 // only the quest HUD's own draws (gpu/game_hud.hpp), whatever the rectangle.
+// The monster icon follows the quest clock: up while it is drawn, and for one
+// frame after, so a frame that files it late does not blink the icon.
+void test_quest_clock() {
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> v(6, Vertex{x0, y0});
+        v[1] = {x1, y0};
+        v[2] = {x1, y1};
+        v[3] = {x0, y1};
+        v[4] = {x1, y1};
+        v[5] = {x0, y0};
+        return v;
+    };
+    mhfu::gpu::hud_scale::QuestClock clock;
+    check(!clock.up(), "no clock before any draw");
+    std::vector<Vertex> row = quad(100.0f, 100.0f, 107.0f, 114.0f);
+    const std::vector<Vertex> gauge = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    row.insert(row.end(), gauge.begin(), gauge.end());
+    clock.note(quad(100.0f, 100.0f, 107.0f, 114.0f));
+    check(!clock.up(), "a letter is not the clock");
+    clock.note(row);
+    check(clock.up(), "the clock as the second quad of a draw puts the quest HUD up");
+    clock.begin();
+    check(clock.up(), "and it stays up for the next frame");
+    clock.begin();
+    check(!clock.up(), "two frames without it, as after a quest, take it down");
+    clock.note(quad(8.0f, 8.0f, 200.0f, 56.0f));
+    check(!clock.up(), "a wide panel in that corner is not the clock");
+}
+
 void test_interface_sizes_by_owner() {
     using mhfu::gpu::hud::Owner;
     using mhfu::gpu::hud_scale::Frame;
@@ -1930,6 +1963,7 @@ void test_aim_reticle_is_not_a_map_mark() {
 int main() {
     test_interface_sizes();
     test_interface_sizes_by_owner();
+    test_quest_clock();
     test_aim_reticle_is_not_a_map_mark();
     test_hud_scale_draws();
     test_crisp_text();
