@@ -53,8 +53,7 @@ public:
     // for the menu.
     Builder &host_pad(bool mirrored = false) {
         set(Action::LockOn, pad(mirrored ? PadInput::LeftStick : PadInput::RightStick));
-        if (mirrored)
-            return set(Action::Screenshot, chord(pad(PadInput::LeftStick), pad(PadInput::West)));
+        if (mirrored) return set(Action::Screenshot, chord(pad(PadInput::LeftStick), pad(PadInput::West)));
         return set(Action::Screenshot, chord(pad(PadInput::RightStick), pad(PadInput::DpadLeft)));
     }
     // The item bar (#198): L + □ and L + ○ on inputs nothing else in the
