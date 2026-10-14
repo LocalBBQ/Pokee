@@ -251,24 +251,24 @@ bool body_in_reach(const psprecomp::GuestMemory &memory, std::uint32_t record, f
 
 } // namespace
 
-bool carve_in_reach(const psprecomp::GuestMemory &memory) {
-    if (!gather_code_matches(memory)) return false;
+std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
+    if (!gather_code_matches(memory)) return std::nullopt;
     const std::optional<std::uint32_t> hunter = followed_hunter(memory);
     if (!hunter || !in_ram(*hunter + kHunterPosition, kHunterStage + 2u - kHunterPosition, memory) ||
         !in_ram(*hunter + kCarveBlocked, 4u, memory))
-        return false;
-    if ((memory.load32(*hunter + kCarveBlocked) & kCarveBlockBit) != 0u) return false;
-    if (!in_ram(kCarveTable, 4u, memory)) return false;
+        return std::nullopt;
+    if ((memory.load32(*hunter + kCarveBlocked) & kCarveBlockBit) != 0u) return std::nullopt;
+    if (!in_ram(kCarveTable, 4u, memory)) return std::nullopt;
     const std::uint32_t table = memory.load32(kCarveTable);
-    if (table < kRam || !in_ram(table + kCarveFirst, kCarveStride, memory)) return false;
+    if (table < kRam || !in_ram(table + kCarveFirst, kCarveStride, memory)) return std::nullopt;
     const float hunter_x = load_float(memory, *hunter + kHunterPosition);
     const float hunter_y = load_float(memory, *hunter + kHunterPosition + 4u);
     const float hunter_z = load_float(memory, *hunter + kHunterPosition + 8u);
-    if (!std::isfinite(hunter_x) || !std::isfinite(hunter_y) || !std::isfinite(hunter_z)) return false;
+    if (!std::isfinite(hunter_x) || !std::isfinite(hunter_y) || !std::isfinite(hunter_z)) return std::nullopt;
     const std::uint16_t stage = memory.load16(*hunter + kHunterStage);
     std::uint32_t record = table + kCarveFirst;
     for (std::uint32_t n = 0; n < kCarveSlots; ++n) {
-        if (!in_ram(record, kCarveStride, memory)) return false;
+        if (!in_ram(record, kCarveStride, memory)) return std::nullopt;
         const bool empty = memory.load16(record + 16u) == kCarveEmpty;
         const bool here = memory.load16(record + kCarveStage) == stage;
         if (!empty && here) {
@@ -276,11 +276,17 @@ bool carve_in_reach(const psprecomp::GuestMemory &memory) {
                 record += kCarveStride;
                 continue;
             }
-            return memory.load16(record + kCarveId) != kCarveEmpty;
+            if (memory.load16(record + kCarveId) == kCarveEmpty) return std::nullopt;
+            return CarveBody{
+                record, load_float(memory, record), load_float(memory, record + 4u), load_float(memory, record + 8u)};
         }
         record += kCarveStride;
     }
-    return false;
+    return std::nullopt;
+}
+
+bool carve_in_reach(const psprecomp::GuestMemory &memory) {
+    return carve_body(memory).has_value();
 }
 
 std::optional<GatherNode> gather_node(const psprecomp::GuestMemory &memory) {
@@ -304,8 +310,14 @@ std::optional<std::array<float, 2>> gather_mark(
     const std::uint32_t vertices = std::exchange(slot.vertices, 0u);
     slot.picture = {};
     if (!settings::current().gather_icon || vertices == 0u || !pose) return std::nullopt;
-    const std::optional<GatherNode> node = gather_node(memory);
-    if (!node) return std::nullopt;
+    // The circle handler tries the gather list first and carves only when it
+    // misses, so a node in range takes the mark.
+    std::optional<std::array<float, 3>> point;
+    if (const std::optional<GatherNode> node = gather_node(memory))
+        point = std::array<float, 3>{node->x, node->y, node->z};
+    else if (const std::optional<CarveBody> body = carve_body(memory))
+        point = std::array<float, 3>{body->x, body->y, body->z};
+    if (!point) return std::nullopt;
     const WorldPoint eye{pose->eye_x, pose->eye_y, pose->eye_z};
     const WorldPoint look{pose->look_x, pose->look_y, pose->look_z};
     const std::optional<std::array<float, 16>> view = look_at_view(eye, look);
@@ -319,7 +331,7 @@ std::optional<std::array<float, 2>> gather_mark(
     camera.y_offset = picture.y_offset;
     camera.origin_x = picture.origin_x;
     camera.origin_y = picture.origin_y;
-    const std::optional<PicturePoint> at = project_world(camera, node->x, node->y + kGatherLift, node->z);
+    const std::optional<PicturePoint> at = project_world(camera, (*point)[0], (*point)[1] + kGatherLift, (*point)[2]);
     if (!at) return std::nullopt;
     return std::array<float, 2>{at->x, at->y};
 }
