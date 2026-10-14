@@ -173,8 +173,8 @@ void set_stage(psprecomp::GuestMemory &memory, std::uint32_t monster, std::uint1
 }
 
 // Newest node first, each +4 the next older one, as the game's insert leaves it.
-void link(psprecomp::GuestMemory &memory, std::uint32_t node, std::uint32_t entity, std::uint32_t older,
-    std::uint8_t type) {
+void link(
+    psprecomp::GuestMemory &memory, std::uint32_t node, std::uint32_t entity, std::uint32_t older, std::uint8_t type) {
     memory.store32(node + game::kNodeOlder, older);
     memory.store32(node + game::kNodeEntity, entity);
     memory.store8(node + game::kNodeType, type);
@@ -235,8 +235,8 @@ struct Fixture {
         memory.store32(manager + game::kListHead, node_again);
         memory.store32(large_vtable + game::kVtableMethod, game::kEmOverlay);
         memory.store32(small_vtable + game::kVtableMethod, game::kTaskSlot);
-        place(memory, monster_a, 1000.0f, 0.0f);        // to the right, 90 degrees off the view
-        place(memory, monster_b, 0.0f, -3000.0f);       // straight ahead, farther
+        place(memory, monster_a, 1000.0f, 0.0f);  // to the right, 90 degrees off the view
+        place(memory, monster_b, 0.0f, -3000.0f); // straight ahead, farther
         memory.store32(monster_a + game::kVtable, large_vtable);
         memory.store32(monster_b + game::kVtable, large_vtable);
         place(memory, small, 200.0f, -200.0f); // health, but a small monster's vtable
@@ -251,9 +251,7 @@ struct Fixture {
         memory.store16(hunters + 0xA72u, 0u);
         place(memory, hunter, 0.0f, 0.0f);
     }
-    void update() {
-        check(runtime.invoke_isolated_aot(helper, ctx), "the camera update dispatches");
-    }
+    void update() { check(runtime.invoke_isolated_aot(helper, ctx), "the camera update dispatches"); }
     void frame(float stick_x = 0.0f) {
         set_rate(Source::Stick, stick_x, 0.0f);
         game_camera_frame(runtime);
@@ -304,8 +302,7 @@ void test_monsters_and_pick() {
     place(memory, monster_a, 1000.0f, 0.0f, 0, 1000);
     check(lock_on_monsters(memory).size() == 1u, "a dead monster cannot be locked");
     place(memory, monster_b, 0.0f, -3000.0f, 1000, 0);
-    check(lock_on_monsters(memory).empty(),
-        "a dead large monster still keeps a small one from taking the lock");
+    check(lock_on_monsters(memory).empty(), "a dead large monster still keeps a small one from taking the lock");
     place(memory, monster_a, 1000.0f, 0.0f, 1000, 0);
     check(lock_on_monsters(memory).size() == 1u && lock_on_monsters(memory)[0].address == small,
         "with no marked monster left, the healthy small one remains");
@@ -561,8 +558,7 @@ void test_unmarked_monsters_still_lock() {
     check(found.size() == 3u, "with nothing marked large, a healthy small monster is included");
     memory.store16(node_a + game::kNodeClass, 34u);
     found = lock_on_monsters(memory);
-    check(found.size() == 1u && found[0].address == monster_a,
-        "a class id of 34 keeps every unmarked monster out");
+    check(found.size() == 1u && found[0].address == monster_a, "a class id of 34 keeps every unmarked monster out");
 }
 
 void test_tap_waits_for_the_monster() {
@@ -1050,7 +1046,8 @@ void test_focus_reticle_and_close_turn() {
     place(memory, monster_b, 150.0f, 0.0f);
     lock_on_tap();
     f.frame();
-    check(lock_on_status().locked && lock_on_status().target == monster_b, "focus selects the monster beside the hunter");
+    check(
+        lock_on_status().locked && lock_on_status().target == monster_b, "focus selects the monster beside the hunter");
     check(!lock_on_marker_wanted(), "R3 selects without a reticle");
     for (int i = 0; i < 10; ++i) f.frame();
     check(!lock_on_marker_wanted() && lock_on_status().locked, "the selection stays unmarked");
@@ -1341,7 +1338,8 @@ void test_binds() {
         }
         const PadInput trigger =
             static_cast<Preset>(i) == Preset::LeftHanded ? PadInput::RightTrigger : PadInput::LeftTrigger;
-        check(l.pad[slot][0] == single(pad(trigger)), "the other presets start focus and follow on the lock-on trigger");
+        check(
+            l.pad[slot][0] == single(pad(trigger)), "the other presets start focus and follow on the lock-on trigger");
     }
     {
         // A tap's chord inside a longer one is no conflict either way; the

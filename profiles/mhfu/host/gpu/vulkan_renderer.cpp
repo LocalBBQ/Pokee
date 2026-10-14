@@ -2254,8 +2254,8 @@ struct VulkanRenderer::Impl {
                     HostBufferMemory chosen{};
                     chosen.index = i;
                     chosen.cached = true;
-                    chosen.coherent = (memory_properties.memoryTypes[i].propertyFlags &
-                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
+                    chosen.coherent =
+                        (memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
                     return chosen;
                 }
             }
@@ -3139,14 +3139,12 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
             release_vertex_storage();
             return bound;
         }
-        return vkMapMemory(
-            impl.device, impl.vertex_memory, 0u, impl.vertex_storage_bytes(), 0u, &impl.vertex_mapped);
+        return vkMapMemory(impl.device, impl.vertex_memory, 0u, impl.vertex_storage_bytes(), 0u, &impl.vertex_mapped);
     };
     VkResult vertex_allocated = allocate_vertex_storage();
     if (vertex_allocated != VK_SUCCESS && impl.vertex_region_bytes != kVertexRegionBase) {
-        std::cout << "[render] a " << (impl.vertex_storage_bytes() >> 20u)
-                  << " MiB vertex buffer was refused; keeping " << (vertex_storage_bytes(kVertexRegionBase) >> 20u)
-                  << " MiB\n";
+        std::cout << "[render] a " << (impl.vertex_storage_bytes() >> 20u) << " MiB vertex buffer was refused; keeping "
+                  << (vertex_storage_bytes(kVertexRegionBase) >> 20u) << " MiB\n";
         impl.vertex_region_bytes = kVertexRegionBase;
         impl.vertex_limit = impl.vertex_region_bytes;
         vertex_allocated = allocate_vertex_storage();
@@ -3182,8 +3180,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
             }
             if (hold_allocated != VK_SUCCESS) hold_memory = VK_NULL_HANDLE;
             void *mapped = nullptr;
-            if (hold_allocated == VK_SUCCESS &&
-                vkBindBufferMemory(impl.device, hold, hold_memory, 0u) == VK_SUCCESS &&
+            if (hold_allocated == VK_SUCCESS && vkBindBufferMemory(impl.device, hold, hold_memory, 0u) == VK_SUCCESS &&
                 vkMapMemory(impl.device, hold_memory, 0u, Impl::kHoldBytes, 0u, &mapped) == VK_SUCCESS) {
                 impl.vertex_hold = hold;
                 impl.hold_memory = hold_memory;
@@ -3355,8 +3352,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
                   << (impl.vertex_cached ? "cached" : "uncached")
                   << (impl.vertex_coherent ? ", coherent" : ", not coherent") << "); hold "
                   << (impl.vertex_hold != VK_NULL_HANDLE ? std::to_string(impl.hold_bytes >> 20u) + " MiB" : "off")
-                  << "; depth format "
-                  << static_cast<int>(impl.depth_format) << "\n";
+                  << "; depth format " << static_cast<int>(impl.depth_format) << "\n";
     }
     std::cout << "Renderer: Vulkan on " << properties.deviceName << ", target " << impl.target_extent.width << "x"
               << impl.target_extent.height << "\n";
@@ -6955,17 +6951,16 @@ bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
     if (off || lookup.source == nullptr || lookup.count == 0u || lookup.stride == 0u || lookup.count > 65536u)
         return false;
     const bool expanded = !direct_vertex_layout(lookup.primitive, false);
-    const std::uint64_t source_hash =
-        hash_bytes(lookup.source, static_cast<std::size_t>(lookup.count) * lookup.stride);
-    const std::uint64_t bone_hash =
-        lookup.bone_floats != 0u && lookup.bones != nullptr
+    const std::uint64_t source_hash = hash_bytes(lookup.source, static_cast<std::size_t>(lookup.count) * lookup.stride);
+    const std::uint64_t bone_hash = lookup.bone_floats != 0u && lookup.bones != nullptr
         ? hash_bytes(lookup.bones, static_cast<std::size_t>(lookup.bone_floats) * sizeof(float))
         : 0u;
     SpanKey key{lookup.address, lookup.count, lookup.vertex_type};
     if (const auto found = vertex_spans.find(key); found != vertex_spans.end()) {
         SpanEntry &entry = found->second;
-        if (entry.source_hash == source_hash && entry.bone_hash == bone_hash && entry.color_stamp == lookup.color_stamp &&
-            entry.color_baked == lookup.color_baked && entry.expanded == expanded && !entry.vertices.empty()) {
+        if (entry.source_hash == source_hash && entry.bone_hash == bone_hash &&
+            entry.color_stamp == lookup.color_stamp && entry.color_baked == lookup.color_baked &&
+            entry.expanded == expanded && !entry.vertices.empty()) {
             entry.frame = frames;
             reused_vertices = &entry.vertices;
             reused_expanded = expanded;
@@ -7021,8 +7016,7 @@ void VulkanRenderer::Impl::remember_span(const std::vector<GpuVertex> &vertices,
     SpanEntry &entry = vertex_spans[cache_pending_key];
     // The previous bytes can still be read by the frame that drew them and by
     // the presents that blend it with the next one.
-    const std::uint64_t retired =
-        release_hold(entry.hold_at, entry.hold_reserved, frames + kVertexHoldRetireFrames);
+    const std::uint64_t retired = release_hold(entry.hold_at, entry.hold_reserved, frames + kVertexHoldRetireFrames);
     vertex_cache_bytes -= entry.vertices.size() * sizeof(GpuVertex);
     entry.source_hash = cache_pending_source;
     entry.bone_hash = cache_pending_bone;
@@ -7040,8 +7034,7 @@ void VulkanRenderer::Impl::remember_span(const std::vector<GpuVertex> &vertices,
         std::uint64_t freed = retired;
         for (const auto &item : vertex_spans)
             freed += release_hold(item.second.hold_at, item.second.hold_reserved, frames + kVertexHoldRetireFrames);
-        if (freed >= (1ull << 20u))
-            std::cout << "[render] vertex hold freed " << (freed >> 20u) << " MiB\n";
+        if (freed >= (1ull << 20u)) std::cout << "[render] vertex hold freed " << (freed >> 20u) << " MiB\n";
         vertex_spans.clear();
         vertex_cache_bytes = 0u;
         return;
@@ -7090,20 +7083,19 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     if (!call.through && !call.clear_mode &&
         (mhfu::game::damage_numbers_watching() || settings::current().gather_icon ||
             (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted()))) {
-        const std::uint32_t vertices = call.vertices_reused ? call.reused_count
+        const std::uint32_t vertices = call.vertices_reused
+            ? call.reused_count
             : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
         const mhfu::game::WorldCamera world{call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
             call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x, call.viewport.offset_y};
         if (mhfu::game::damage_numbers_watching()) mhfu::game::note_world_camera(world, vertices);
         if (settings::current().gather_icon)
-            mhfu::game::gather_note_draw(
-                {world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset, world.origin_x,
-                    world.origin_y},
+            mhfu::game::gather_note_draw({world.projection, world.x_scale, world.y_scale, world.x_offset,
+                                             world.y_offset, world.origin_x, world.origin_y},
                 vertices);
         if (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted())
-            mhfu::camera::lock_on_note_view(
-                {world.view, world.projection, world.x_scale, world.y_scale, world.x_offset, world.y_offset,
-                    world.origin_x, world.origin_y},
+            mhfu::camera::lock_on_note_view({world.view, world.projection, world.x_scale, world.y_scale, world.x_offset,
+                                                world.y_offset, world.origin_x, world.origin_y},
                 vertices);
     }
     const perf::SplitScope split(perf::Split::Draw);
@@ -7171,7 +7163,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         }
         return call.vertices[std::min(index, call.vertices.size() - 1u)];
     };
-    const std::size_t vertex_total = raw                          ? call.raw_count
+    const std::size_t vertex_total = raw        ? call.raw_count
         : reused != nullptr && !reused_expanded ? reused->size()
                                                 : call.vertices.size();
     const std::size_t count = call.indices.empty() ? vertex_total : call.indices.size();
@@ -7812,14 +7804,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         draw_end = impl.vertex_offset + bytes;
         draw_count = static_cast<std::uint32_t>(source.size());
         if (skinned)
-            impl.recording_frame.skinned.insert(
-                impl.recording_frame.skinned.end(), source.begin(), source.end());
+            impl.recording_frame.skinned.insert(impl.recording_frame.skinned.end(), source.begin(), source.end());
         // The cache keeps the game's vertices. A later frame at another scale
         // scales its own copy.
         impl.remember_span(impl.scratch, !skinned);
     }
-    const auto drawn_vertices = static_cast<std::uint32_t>(
-        reused_expanded ? reused->size() : direct ? vertex_total : impl.scratch.size());
+    const auto drawn_vertices = static_cast<std::uint32_t>(reused_expanded ? reused->size()
+            : direct                                                       ? vertex_total
+                                                                           : impl.scratch.size());
 
     PipelineKey key{};
     if (call.clear_mode) {
@@ -8069,8 +8061,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 impl.record_state(state);
                 // Metal wants index buffer offsets on 4 bytes.
                 impl.index_offset = (impl.index_offset + 3u) & ~VkDeviceSize{3u};
-                group = Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u, raw,
-                    call.raw_stride, vertex_source};
+                group = Impl::DrawGroup{
+                    true, vertex_start, vertex_start, impl.index_offset, 0u, 0u, raw, call.raw_stride, vertex_source};
                 rebase = 0u;
                 impl.group_skinned = skinned;
             }

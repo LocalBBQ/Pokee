@@ -258,8 +258,7 @@ void test_controls_from_main() {
         "Item left does not take the paddle Hide HUD has; Item right takes the free one");
     check(read.controls.keys[action(input::Action::ItemLeft)][0] == input::single(input::mouse_button(4)),
         "and the keyboard's item keys are added where free");
-    check(
-        read.controls.pad[action(input::Action::LockOn)][0] ==
+    check(read.controls.pad[action(input::Action::LockOn)][0] ==
                 input::single(input::pad(input::PadInput::LeftTrigger)) &&
             read.controls.keys[action(input::Action::LockOn)][0] == input::single(input::mouse_button(2)),
         "lock-on takes LT and the middle mouse button, which the old file left free");
@@ -423,8 +422,8 @@ void test_lock_on_and_damage_numbers() {
     look["game.damage_number_size"] = std::to_string(kMinDamageNumberSize);
     look["game.damage_number_thickness"] = std::to_string(kMaxDamageNumberThickness);
     const Settings edges = from_entries(look);
-    check(edges.damage_number_size == kMinDamageNumberSize &&
-            edges.damage_number_thickness == kMaxDamageNumberThickness,
+    check(
+        edges.damage_number_size == kMinDamageNumberSize && edges.damage_number_thickness == kMaxDamageNumberThickness,
         "the ends of both ranges are allowed");
 }
 
@@ -436,10 +435,8 @@ void test_interface_sizes() {
     const Settings fresh = defaults();
     check(fresh.hud.map == 100u && fresh.hud.health == 100u && fresh.hud.item_bar == 100u && fresh.hud.names == 100u,
         "every interface piece starts at the game's size");
-    const Settings chosen = from_entries({{"video.hud.map", "50"},
-        {"video.hud.health", "150"},
-        {"video.hud.item_bar", "70"},
-        {"video.hud.names", "60"}});
+    const Settings chosen = from_entries({{"video.hud.map", "50"}, {"video.hud.health", "150"},
+        {"video.hud.item_bar", "70"}, {"video.hud.names", "60"}});
     check(chosen.hud.map == 50u && chosen.hud.health == 150u && chosen.hud.item_bar == 70u && chosen.hud.names == 60u,
         "each piece reads its own size");
     const Entries written = to_entries(chosen);
@@ -553,8 +550,7 @@ void test_interface_sizes() {
     check(full_bars[2].x == 230.0f && full_bars[2].y == 14.0f, "health at 150 shrinks toward the clock's corner");
     check(full_bars[6].x == 230.0f && full_bars[6].y == 8.5f && full_bars[8].x == 242.0f && full_bars[8].y == 14.5f,
         "health's end cap stays on the shrunk bar");
-    check(full_bars[12].x == 32.0f && full_bars[12].y == 14.5f && full_bars[14].x == 230.0f &&
-            full_bars[14].y == 18.5f,
+    check(full_bars[12].x == 32.0f && full_bars[12].y == 14.5f && full_bars[14].x == 230.0f && full_bars[14].y == 18.5f,
         "stamina at 150 shrinks toward the clock's corner");
     check(full_bars[20].x == 242.0f && full_bars[20].y == 20.5f, "stamina's end cap stays on the shrunk bar");
     check(full_bars[24].y == 16.0f && full_bars[26].x == 230.0f, "stamina's fill stays inside the shrunk bar");
@@ -643,8 +639,7 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(long_all, map_half, long_notice);
     check(long_all[6].x == 344.0f && long_all[6].y == 160.0f && long_all[12].x == 360.0f && long_all[18].x == 350.0f &&
             long_all[18].y == 46.0f && long_all[24].y == 95.0f && long_all[30].x == 376.0f &&
-            long_all[36].x == 344.0f && long_all[36].y == 168.0f && long_all[42].x == 447.5f &&
-            long_all[42].y == 91.5f,
+            long_all[36].x == 344.0f && long_all[36].y == 168.0f && long_all[42].x == 447.5f && long_all[42].y == 91.5f,
         "a long notice stays put inside the area map, and the player's arrow still follows the map");
     const Scales bar_notice{1.0f, 1.0f, 0.5f, 1.0f, 1.0f, 0.5f};
     Frame notice_center;
@@ -777,8 +772,8 @@ void test_interface_sizes() {
     got.insert(got.end(), got_label.begin(), got_label.end());
     got.insert(got.end(), got_clock.begin(), got_clock.end());
     mhfu::gpu::hud_scale::scale_quads(got, group_half, obtained);
-    check(got[0].x == 176.0f && got[0].y == 122.0f && got[6].x == 188.0f && got[6].y == 128.0f &&
-            got[12].x == 188.0f && got[12].y == 128.0f && got[20].x == 34.0f && got[20].y == 32.0f,
+    check(got[0].x == 176.0f && got[0].y == 122.0f && got[6].x == 188.0f && got[6].y == 128.0f && got[12].x == 188.0f &&
+            got[12].y == 128.0f && got[20].x == 34.0f && got[20].y == 32.0f,
         "the item banner's name stays on the banner while status shrinks the clock");
     // The same window on the way down, still crossing that enlarged map.
     // Its edges are above the settled row, and the body is the taller panel
@@ -841,8 +836,8 @@ void test_interface_sizes() {
     std::vector<Vertex> bare_arrow(6, Vertex{260.0f, 70.0f});
     bare_arrow[2] = {278.0f, 88.0f};
     mhfu::gpu::hud_scale::scale_quads(bare_arrow, map_half, bare_map, 0x091874a0u);
-    check(bare_arrow[0].x == 364.0f && bare_arrow[0].y == 51.0f && bare_arrow[2].x == 373.0f &&
-            bare_arrow[2].y == 60.0f,
+    check(
+        bare_arrow[0].x == 364.0f && bare_arrow[0].y == 51.0f && bare_arrow[2].x == 373.0f && bare_arrow[2].y == 60.0f,
         "the player's arrow follows a map window outside the slot");
     // The south of an area is drawn below the slot. On the bottom edge of
     // Forest and Hills zone 1 the window sits under y 240, and the map's edge
@@ -957,11 +952,11 @@ void test_interface_sizes() {
     walked_map.insert(walked_map.end(), walked_mark.begin(), walked_mark.end());
     walked_map.insert(walked_map.end(), walked_clock.begin(), walked_clock.end());
     mhfu::gpu::hud_scale::scale_quads(walked_map, map_half, walking, mhfu::gpu::hud_scale::kAreaMapTexture);
-    check(walked_map[0].x == 434.0f && walked_map[0].y == 66.0f && walked_map[2].x == 454.0f &&
-            walked_map[2].y == 86.0f,
+    check(
+        walked_map[0].x == 434.0f && walked_map[0].y == 66.0f && walked_map[2].x == 454.0f && walked_map[2].y == 86.0f,
         "a map window between the traced spots shrinks toward the slot's top-right");
-    check(walked_map[6].x == 440.0f && walked_map[6].y == 72.0f && walked_map[8].x == 447.0f &&
-            walked_map[8].y == 78.0f,
+    check(
+        walked_map[6].x == 440.0f && walked_map[6].y == 72.0f && walked_map[8].x == 447.0f && walked_map[8].y == 78.0f,
         "the mark on a moving map window stays on it");
     check(walked_map[12].x == 8.0f && walked_map[12].y == 8.0f, "the quest clock is not moved by the map's size");
     // Each area draws its map at its own size. A 72 by 48 window is neither the
@@ -1025,8 +1020,8 @@ void test_interface_sizes() {
     std::vector<Vertex> next_arrow(6, Vertex{430.0f, 24.0f});
     next_arrow[2] = {444.0f, 40.0f};
     mhfu::gpu::hud_scale::scale_quads(next_arrow, map_half, edge_frame);
-    check(next_arrow[0].x == 449.0f && next_arrow[0].y == 28.0f && next_arrow[2].x == 456.0f &&
-            next_arrow[2].y == 36.0f,
+    check(
+        next_arrow[0].x == 449.0f && next_arrow[0].y == 28.0f && next_arrow[2].x == 456.0f && next_arrow[2].y == 36.0f,
         "the arrow drawn before the map this frame still follows last frame's bounds");
     // A mark inside the slot but off the window that was drawn still shrinks
     // from the slot's top-right. The window moving off it used to snap the
@@ -1060,8 +1055,8 @@ void test_interface_sizes() {
     std::vector<Vertex> lone_house(6, Vertex{400.0f, 90.0f});
     lone_house[2] = {432.0f, 122.0f};
     mhfu::gpu::hud_scale::scale_quads(lone_house, map_half, house_alone, 0x091874a0u);
-    check(lone_house[0].x == 400.0f && lone_house[0].y == 90.0f && lone_house[2].x == 432.0f &&
-            lone_house[2].y == 122.0f,
+    check(
+        lone_house[0].x == 400.0f && lone_house[0].y == 90.0f && lone_house[2].x == 432.0f && lone_house[2].y == 122.0f,
         "the camp icon is not a map window on its own");
     // The camp icon stays where the game draws it while the window slides.
     // Both windows shrink it from the slot corner, so running does not snap
@@ -1319,8 +1314,7 @@ void test_interface_sizes() {
     std::vector<Vertex> wide_letter(6, Vertex{210.0f, 80.0f});
     wide_letter[2] = {220.0f, 94.0f};
     mhfu::gpu::hud_scale::scale_quads(wide_letter, group_half, details);
-    check(wide_letter[0].x == 210.0f && wide_letter[0].y == 80.0f,
-        "a wider quest-details letter is not a buff");
+    check(wide_letter[0].x == 210.0f && wide_letter[0].y == 80.0f, "a wider quest-details letter is not a buff");
     // A cat's name beside the hunter: letters about 8 by 14, or one wider
     // label. A quest shows up to four hunters, so a letter on a later row
     // is the same piece. The 12-wide mark above is not a letter.
@@ -1539,11 +1533,11 @@ void test_interface_sizes() {
     // triangles, inside the gauge at (8, 8)-(60, 56). It shrinks with it.
     Frame clock;
     clock.note({8.0f, 8.0f, 60.0f, 56.0f});
-    std::vector<Vertex> hand{{32.0f, 30.0f}, {49.0f, 28.0f}, {34.0f, 44.0f}, {34.0f, 44.0f}, {49.0f, 28.0f},
-        {51.0f, 42.0f}};
+    std::vector<Vertex> hand{
+        {32.0f, 30.0f}, {49.0f, 28.0f}, {34.0f, 44.0f}, {34.0f, 44.0f}, {49.0f, 28.0f}, {51.0f, 42.0f}};
     mhfu::gpu::hud_scale::scale_quads(hand, group_half, clock);
-    check(hand[0].x == 20.0f && hand[0].y == 19.0f && hand[1].x == 28.5f && hand[1].y == 18.0f &&
-            hand[5].x == 29.5f && hand[5].y == 25.0f,
+    check(hand[0].x == 20.0f && hand[0].y == 19.0f && hand[1].x == 28.5f && hand[1].y == 18.0f && hand[5].x == 29.5f &&
+            hand[5].y == 25.0f,
         "a turned clock hand shrinks with the clock");
 
     // The player's sizes: the ammo bar takes the item bar's, not health's.
@@ -1609,8 +1603,7 @@ void test_interface_sizes() {
     std::vector<Vertex> highlight(6, Vertex{314.0f, 153.0f});
     highlight[2] = {470.0f, 173.0f};
     mhfu::gpu::hud_scale::scale_quads(highlight, bar_half, menu);
-    check(highlight[0].x == 393.0f && highlight[0].y == 208.5f && highlight[2].x == 471.0f &&
-            highlight[2].y == 218.5f,
+    check(highlight[0].x == 393.0f && highlight[0].y == 208.5f && highlight[2].x == 471.0f && highlight[2].y == 218.5f,
         "the ammo menu's highlight shrinks into the item bar's corner");
     std::vector<Vertex> title(6, Vertex{349.0f, 140.0f});
     title[2] = {356.0f, 154.0f};
@@ -1677,8 +1670,8 @@ void test_interface_sizes() {
     std::vector<Vertex> name_plate(6, Vertex{200.0f, 40.0f});
     name_plate[2] = {232.0f, 56.0f};
     mhfu::gpu::hud_scale::scale_name(name_plate, 0.5f, false, 0.0f, 0.0f);
-    check(name_plate[0].x == 208.0f && name_plate[0].y == 44.0f && name_plate[2].x == 224.0f &&
-            name_plate[2].y == 52.0f,
+    check(
+        name_plate[0].x == 208.0f && name_plate[0].y == 44.0f && name_plate[2].x == 224.0f && name_plate[2].y == 52.0f,
         "a name plate with no text point shrinks about its own centre");
     std::vector<Vertex> as_drawn = {{10.0f, 10.0f}, {20.0f, 30.0f}};
     mhfu::gpu::hud_scale::scale_name(as_drawn, 1.0f, true, 0.0f, 0.0f);
