@@ -158,7 +158,8 @@ Bindings left_handed_keys() {
 }
 
 // The PSP's face buttons. LB is L: the camera behind the hunter, and item
-// use. LT locks on and starts focus or follow. RB and RT are R.
+// use. The camera stick's button locks on, and LT is the focus or follow
+// camera. RB and RT are R.
 Bindings default_pad() {
     Builder b;
     b.set(Action::Triangle, pad(PadInput::North))
@@ -175,9 +176,8 @@ Bindings default_pad() {
         .set(Action::Right, pad(PadInput::DpadRight))
         .items(false)
         .host_pad();
-    // host_pad puts lock-on on the stick click. LT takes that, and it is the
-    // focus/follow camera as well, so LB stays the game's L.
-    b.set(Action::LockOn, pad(PadInput::LeftTrigger));
+    // host_pad puts lock-on on the stick click. LT is the focus/follow
+    // camera, so LB stays the game's L.
     b.set(Action::FocusCamera, pad(PadInput::LeftTrigger));
     return b.done();
 }
@@ -232,9 +232,8 @@ Bindings left_handed_pad() {
         .set(Action::Right, pad(PadInput::East))
         .items(false)
         .host_pad(true);
-    // The default pad's LT, on the other side: RT locks on and starts focus
-    // or follow. RB stays L.
-    b.set(Action::LockOn, pad(PadInput::RightTrigger));
+    // The default pad's LT, on the other side: RT is the focus or follow
+    // camera, and the left stick's button locks on. RB stays L.
     b.set(Action::FocusCamera, pad(PadInput::RightTrigger));
     return b.done();
 }
@@ -250,8 +249,8 @@ std::array<Layout, kPresets> make_layouts() {
 
 constexpr PresetInfo kInfo[kPresets] = {
     {"default", "Default",
-        "W A S D and the mouse; on a gamepad LB is L, for the camera and items, LT locks on for focus and follow, "
-        "and RT is R."},
+        "W A S D and the mouse; on a gamepad LB is L, for the camera and items, clicking the right stick locks on, "
+        "LT is the focus or follow camera, and RT is R."},
     {"modern", "Modern",
         "Like recent action games: on a gamepad RT attacks and shoots a bow, RB does the second attack and fires a "
         "bowgun, LT guards and aims. On the keyboard, the side mouse button or C does △ + ○."},
