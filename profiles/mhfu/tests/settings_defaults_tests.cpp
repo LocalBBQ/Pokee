@@ -1595,6 +1595,23 @@ void test_interface_sizes() {
     check(abandon_row[0].x == 34.0f && abandon_row[0].y == 20.0f && abandon_row[6].x == 232.0f &&
             abandon_row[6].y == 40.0f && abandon_row[8].x == 248.0f && abandon_row[8].y == 48.0f,
         "the Abandon Quest window's corner stays put while the coating plate shrinks");
+    // The item box's "Please select an item." begins inside the weapon slot,
+    // and with a bow out its first letters were moved out of the box with the
+    // coating plate. A letter is 7 by 14; the plate still shrinks.
+    check(piece_of({229.0f, 36.0f, 236.0f, 50.0f}) == Piece::None &&
+            piece_of({60.0f, 32.0f, 68.0f, 48.0f}) == Piece::LongSword,
+        "a window's letter in the weapon slot is not a weapon piece, and a loaded round still is");
+    Frame item_box;
+    std::vector<Vertex> prompt_plate(6, Vertex{60.0f, 32.0f});
+    prompt_plate[2] = {94.0f, 44.0f};
+    std::vector<Vertex> prompt(6, Vertex{229.0f, 36.0f});
+    prompt[2] = {236.0f, 50.0f};
+    std::vector<Vertex> prompt_row(prompt_plate);
+    prompt_row.insert(prompt_row.end(), prompt.begin(), prompt.end());
+    mhfu::gpu::hud_scale::scale_quads(prompt_row, group_half, item_box);
+    check(prompt_row[0].x == 34.0f && prompt_row[0].y == 20.0f && prompt_row[6].x == 229.0f &&
+            prompt_row[6].y == 36.0f && prompt_row[8].x == 236.0f && prompt_row[8].y == 50.0f,
+        "the item box prompt's first letters stay in the box while the coating plate shrinks");
 
     // The ammo menu shrinks as one panel into the item bar's corner (472, 264).
     const Scales bar_half{1.0f, 1.0f, 0.5f, 1.0f, 1.0f, 1.0f};
