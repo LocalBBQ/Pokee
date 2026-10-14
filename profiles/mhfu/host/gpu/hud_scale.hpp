@@ -564,6 +564,18 @@ inline constexpr int kNamePlates = 4;
         r.y0 >= 30.0f && r.y0 <= 34.0f;
 }
 
+// A letter of a window's text, 7 by 14. The item box's "Please select an
+// item." starts at about x 229 on the row under stamina, so its first letters
+// sit inside the weapon slot while a weapon piece is up and were moved with
+// it, out of the box. A loaded round and a gunlance shell are a pixel taller,
+// a single coating is wider, and the coating count is 10 by 20.
+[[nodiscard]] inline bool is_window_letter(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width >= 6.0f && width <= 10.0f && height >= 12.0f && height <= 14.5f;
+}
+
 // A bow's coating display in the same band, traced frame by frame in a
 // hunting area with a bow out. Without a coating it is a 34 by 12 plate at
 // (60, 32)-(94, 44). With one it is a large 18 by 16 icon at (60, 30)-(78, 46)
@@ -798,7 +810,8 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     if (contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r))
         return is_notice_piece(r, texture) ? Piece::None : Piece::Map;
     if (contains({kItemLeft, kItemTop, kItemRight, kItemBottom}, r)) return Piece::ItemBar;
-    if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r) && !is_window_tile(r))
+    if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r) && !is_window_tile(r) &&
+        !is_window_letter(r))
         return Piece::LongSword;
     // The notice's border and the letters above the ammo bar cross this slot
     // too. The ammo bar's own letters are the glyphs at y 184 and below.
