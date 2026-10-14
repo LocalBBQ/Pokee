@@ -515,7 +515,8 @@ void Menu::video() {
     }
     if (toggle_row("Gather icon", s.gather_icon,
             options_for("game.gather_icon",
-                "On: a ? floats above a gather point while you are close enough for ○ to gather it. "
+                "On: a ? floats above a gather point while you are close enough for ○ to gather it, and above "
+                "a monster or a cut tail you can carve. "
                 "Off: no mark, and the gather list is not read."))) {
         s.gather_icon = !s.gather_icon;
         settings::save();
