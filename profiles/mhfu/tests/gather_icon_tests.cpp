@@ -406,15 +406,17 @@ void test_pressing_again_on_the_pad() {
     check(gather_hold(0u, memory) == 0u, "and lets it go");
     settings.gather_hold = true;
 
-    check(gather_hold(kCircle | kSquare, memory) == kCircle && gather_hold_centres_stick(),
-        "holding ○ on the point starts a gather, and another button is left off");
+    check(gather_hold(kCircle, memory) == kCircle && gather_hold_centres_stick(),
+        "holding ○ on the point starts a gather");
     check(gather_hold(kCircle | kLead, memory) == kCircle && gather_hold_centres_stick(),
         "L during the hold does not open the item bar");
+    check(pulse(kGatherPulseDown + kGatherPulseUp - 2u, kCircle, [&] { return gather_hold(kCircle, memory); }) ==
+            expected_pulse(kGatherPulseDown + kGatherPulseUp - 2u, 2u),
+        "the pulse keeps going on the pad");
+    check(gather_hold(kCircle | kSquare, memory) == kCircle && gather_hold_centres_stick(),
+        "past the first pulse, another button is left off");
     check(gather_hold(kSquare, memory) == kCircle && gather_hold_centres_stick(),
         "□ alone while the hold runs does not reach the game");
-    check(pulse(kGatherPulseDown + kGatherPulseUp, kCircle, [&] { return gather_hold(kCircle, memory); }) ==
-            expected_pulse(kGatherPulseDown + kGatherPulseUp, 3u),
-        "the pulse keeps going on the pad");
     check(gather_hold(0u, memory) == 0u && !gather_hold_centres_stick(), "letting go lets the hunter move");
     check(gather_hold(kCircle, memory) == kCircle, "pressing again starts a new pulse at once");
     write_float(memory, hunter + 0x200u, 80.0f);
@@ -424,8 +426,11 @@ void test_pressing_again_on_the_pad() {
     // Mining is kind 3 and uses □. The same hold setting pulses □ there.
     write_float(memory, hunter + 0x200u, 0.0f);
     memory.store16(nodes + 20u, 3u);
-    check(gather_hold(kSquare | kCircle, memory) == kSquare && gather_hold_centres_stick(),
-        "holding □ on a mining point starts a gather, and ○ is left off");
+    check(gather_hold(kSquare | kCircle, memory) == (kSquare | kCircle) && !gather_hold_centres_stick(),
+        "□ and ○ together on a mining point are a combination, not a gather");
+    (void)gather_hold(0u, memory);
+    check(gather_hold(kSquare, memory) == kSquare && gather_hold_centres_stick(),
+        "holding □ on a mining point starts a gather");
     check(gather_hold(kSquare | kLead, memory) == kSquare && gather_hold_centres_stick(),
         "L during a □ hold does not open the item bar");
     check(pulse(kGatherPulseDown + kGatherPulseUp, kSquare, [&] { return gather_hold(kSquare, memory); }) ==
@@ -529,6 +534,33 @@ void test_carving_a_monster() {
         "□ alone while carving keeps the ○ pulse");
     write_float(memory, hunter + 0x200u, 80.0f);
     check(gather_hold(kCircle, memory) == kCircle, "walking off the body leaves ○ as it is held");
+    (void)gather_hold(0u, memory);
+
+    // △ + ○ is an attack, not a carve. Online, teammates standing by a body
+    // or a cut tail lost the combination to the hold, which shows only ○.
+    constexpr std::uint32_t kTriangle = 0x1000u;
+    constexpr std::uint32_t kR = 0x0200u;
+    write_float(memory, hunter + 0x200u, 0.0f);
+    check(gather_hold(kTriangle | kCircle, memory) == (kTriangle | kCircle) && !gather_hold_centres_stick(),
+        "△ + ○ on a body reaches the game whole");
+    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(),
+        "○ still down after the combination does not start a hold");
+    check(gather_hold(0u, memory) == 0u, "letting go of ○ ends the combination");
+    check(gather_hold(kR | kCircle, memory) == (kR | kCircle) && !gather_hold_centres_stick(),
+        "R + ○ is a combination too");
+    (void)gather_hold(0u, memory);
+    // ○ first and △ a read later, as fingers press them.
+    check(gather_hold(kCircle, memory) == kCircle && gather_hold_centres_stick(), "○ alone starts the hold");
+    check(gather_hold(kTriangle | kCircle, memory) == (kTriangle | kCircle) && !gather_hold_centres_stick(),
+        "△ during the hold's first pulse lets it go, so the combination reaches the game");
+    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(),
+        "and no hold starts again until ○ is let go");
+    (void)gather_hold(0u, memory);
+    // A hold past its first pulse keeps going when another button is pressed.
+    (void)gather_hold(kCircle, memory);
+    for (unsigned i = 0; i < kGatherPulseDown + kGatherPulseUp + 1u; ++i) (void)gather_hold(kCircle, memory);
+    check((gather_hold(kTriangle | kCircle, memory) & kTriangle) == 0u && gather_hold_centres_stick(),
+        "a hold already gathering keeps the pad when △ is pressed");
     (void)gather_hold(0u, memory);
 }
 

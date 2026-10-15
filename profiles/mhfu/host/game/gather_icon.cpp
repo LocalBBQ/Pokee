@@ -366,7 +366,9 @@ std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::uint32
     if (!holding_) {
         holding_ = true;
         step_ = (input_down_ && input_button_ == button) ? kGatherPulseDown : 0u;
+        reads_ = 0u;
     }
+    if (reads_ < kPulse) ++reads_;
     input_down_ = true;
     input_button_ = button;
     const bool show = step_ < kGatherPulseDown;
@@ -387,14 +389,36 @@ bool gather_hold_centres_stick() { return centres_stick; }
 
 std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory) {
     static GatherRepeat repeat;
+    // ○ or □ went down with another action button: a combination such as
+    // △ + ○, which attacks. No hold starts until the gather button is let go.
+    static bool combined = false;
     centres_stick = false;
     if (!settings::current().gather_hold) {
         repeat.reset();
+        combined = false;
         return buttons;
     }
     constexpr std::uint32_t kCircle = 0x2000u; // ○, B: plants and carving
     constexpr std::uint32_t kSquare = 0x8000u; // □, X: mining and a bug net
     constexpr std::uint32_t kLead = 0x0100u;
+    constexpr std::uint32_t kAction = 0x1000u | kCircle | 0x4000u | kSquare | 0x0200u; // △ ○ ✕ □ R
+    const std::uint32_t action = buttons & kAction;
+    const bool several = (action & (action - 1u)) != 0u;
+    // The second button of a combination can arrive a read after the first.
+    // A hold still in its first pulse lets go, so the game sees both.
+    if (several && repeat.underway() && repeat.just_started()) {
+        if (trace_on()) std::cout << "[gather] combination, hold let go" << std::endl;
+        repeat.reset();
+        combined = true;
+    }
+    if (!repeat.underway()) {
+        if ((buttons & (kCircle | kSquare)) == 0u) combined = false;
+        else if (several) combined = true;
+    }
+    if (combined) {
+        (void)repeat.apply(buttons, false, repeat.button());
+        return buttons;
+    }
     bool circle_ready = false;
     bool square_ready = false;
     const bool look = ((buttons & kLead) == 0u && ((buttons & kCircle) != 0u || (buttons & kSquare) != 0u)) ||

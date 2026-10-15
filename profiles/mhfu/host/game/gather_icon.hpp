@@ -153,7 +153,9 @@ inline constexpr unsigned kGatherPulseUp = 3u;
 // for a few reads. The hold stays until nothing is held, and those reads
 // still show only the pulse. Away from a node and from a body, or with the
 // setting off, the buttons pass through. L+○ or L+□ before a hold has started
-// is the item bar.
+// is the item bar. ○ or □ with another of △ ○ ✕ □ R is a combination, such as
+// △ + ○, and passes through until the gather button is let go (gather_hold),
+// including when its second button arrives during the hold's first pulse.
 class GatherRepeat {
 public:
     // `ready` is the gather search, or the carve search, accepting `button`.
@@ -167,6 +169,9 @@ public:
     // True after apply when this hold owns the pad, so the movement stick
     // is reported centred for that read.
     [[nodiscard]] bool centres_stick() const { return centres_; }
+    // Within its first pulse: a second action button now is a combination
+    // pressed a read late, not something to hold through.
+    [[nodiscard]] bool just_started() const { return holding_ && reads_ < kGatherPulseDown + kGatherPulseUp; }
 
 private:
     bool holding_{};
@@ -180,6 +185,7 @@ private:
     std::uint32_t button_{0x2000u}; // ○ until a hold picks □
     std::uint32_t input_button_{0x2000u};
     unsigned step_{};
+    unsigned reads_{}; // reads since this hold began, counted to the end of its first pulse
 };
 
 // A monster body the game would carve with ○. 0x0886CEA8 walks the table whose

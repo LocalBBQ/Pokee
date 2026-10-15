@@ -550,6 +550,7 @@ void Menu::video() {
                 "On: hold ○ on a gather point or a monster you can carve, or □ on a mining point or a bug net, and it "
                 "gathers or carves again each time you can. Moving or pressing another button does not stop it. "
                 "Letting go stops the next one. Pressing the same button again and holding it continues. "
+                "Pressed together with another button, such as △ + ○, it is left to the game. "
                 "Off: each button gathers once per press. L+○ or L+□ before a hold starts still uses the item bar."))) {
         s.gather_hold = !s.gather_hold;
         settings::save();
