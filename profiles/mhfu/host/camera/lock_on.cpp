@@ -425,10 +425,21 @@ std::vector<HuntPortrait> place_hunt_portraits(
     constexpr float kMargin = 6.0f;
     const float kGap = 4.0f * scale;
     std::vector<HuntPortrait> out;
-    for (std::size_t i = 0; i < monsters.size(); ++i) {
-        const float x = kMargin + static_cast<float>(i) * (kWidth + kGap);
+    std::size_t slot = 0;
+    for (const HuntMonster &monster : monsters) {
+        // A species the icon sheet has no picture for would leave an empty
+        // slot and push the next icon away from the margin, so it takes none.
+        if (!hunt_icon_cell(monster.id)) {
+            static std::uint8_t reported[256]{};
+            if (trace_on() && !reported[monster.id]) {
+                reported[monster.id] = 1u;
+                std::cout << "[lockon] no icon for species 0x" << std::hex << static_cast<unsigned>(monster.id)
+                          << " at 0x" << monster.address << std::dec << "; it takes no slot" << std::endl;
+            }
+            continue;
+        }
+        const float x = kMargin + static_cast<float>(slot++) * (kWidth + kGap);
         if (x + kWidth > 480.0f - kMargin) break;
-        const HuntMonster &monster = monsters[i];
         out.push_back(HuntPortrait{monster.id, monster.other_area, monster.dead,
             locked && !monster.other_area && !monster.dead && monster.address == locked_target, x,
             272.0f - kMargin - kHeight, kWidth, kHeight});
