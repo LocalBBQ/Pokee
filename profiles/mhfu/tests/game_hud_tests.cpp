@@ -25,7 +25,7 @@ void test_signature_accepts_this_executable() {
     psprecomp::Runtime runtime;
     store_signature(runtime.memory());
     check(code_matches(runtime), "the Freedom Unite words are accepted");
-    check(code_signature().size() == 21u, "every anchor is checked");
+    check(code_signature().size() == 25u, "every anchor is checked");
 }
 
 void test_signature_refuses_a_different_word() {
@@ -145,6 +145,117 @@ void test_draw_owner() {
     check(owner_of(0x09003010u, 0u) == Owner::Other, "other words at the quest HUD's address do not count");
 }
 
+// The names over other hunters in an ad hoc quest come from resident
+// 0x088392F4. It counts while game_task's quest HUD is loaded, and in the
+// village, where the lobby overlay has that slot, it does not.
+void test_names_over_characters() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    constexpr std::uint32_t kLabels = 0x088392F4u;
+    watch_for_tests();
+    memory.store32(0x09A60298u, 0u);
+
+    psprecomp::AllegrexContext ctx = filed_from(memory, kLabels, 0x27BDFF60u, 0xAFBF002Cu, 0x09004000u, 16u);
+    packet_filed(runtime, ctx);
+    check(!name_at(0x09004010u, 0u).is_name, "outside a quest the labels are not names for the Names size");
+
+    memory.store32(0x09A60298u, 0x27BDFFA0u);
+    memory.store32(0x09A6029Cu, 0xAFBF001Cu);
+    ctx = filed_from(memory, kLabels, 0x27BDFF60u, 0xAFBF002Cu, 0x09005000u, 16u);
+    packet_filed(runtime, ctx);
+    const NameDraw named = name_at(0x09005010u, 0u);
+    check(named.is_name && !named.glyph, "in a quest a label's packet is a name");
+    check(owner_of(0x09005010u, 0u) == Owner::Other,
+        "the labels are not the quest HUD, so no other piece's size reaches them");
+    check(!name_at(0x09005040u, 0u).is_name, "a draw past the label's packet is not a name");
+
+    ctx = filed_from(memory, kLabels, 0x27BDFF60u, 0xAFBF0028u, 0x09006000u, 16u);
+    packet_filed(runtime, ctx);
+    check(!name_at(0x09006010u, 0u).is_name, "other words at the labels' address do not count");
+}
+
+// The name over a teammate in an ad hoc quest: queued while resident
+// 0x08842628 runs, after the party list's own name, by a path no text
+// wrapper sees. Traced with MHFU_TRACE_TEXT_FROM.
+void test_overhead_name() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    const HudFunction &quest = hud_functions()[2];
+    constexpr std::uint32_t kContext = 0x09100000u;
+    constexpr std::uint32_t kEntries = 0x09110000u;
+    memory.store32(0x08A632C8u, kContext);
+    memory.store32(kContext + 320u, kEntries);
+    const auto queued = [&](std::uint8_t length) { memory.store8(kContext + 308u, length); };
+    const auto place = [&](std::uint32_t index, std::int16_t x, std::int16_t y) {
+        memory.store16(kEntries + index * 12u, static_cast<std::uint16_t>(x));
+        memory.store16(kEntries + index * 12u + 2u, static_cast<std::uint16_t>(y));
+    };
+    // A glyph of entry `index`, filed as the per-character draw files it.
+    constexpr std::uint32_t kGlyphStack = 0x09F10000u;
+    const auto glyph = [&](std::uint32_t index, std::uint32_t packet) {
+        memory.store32(kGlyphStack + 44u, 0x0889384Cu);
+        memory.store32(kGlyphStack + 20u, kEntries + index * 12u);
+        psprecomp::AllegrexContext ctx{};
+        ctx.gpr[29] = kGlyphStack;
+        ctx.gpr[31] = 0x08893C2Cu;
+        ctx.gpr[5] = packet;
+        ctx.gpr[6] = 16u;
+        packet_filed(runtime, ctx);
+    };
+    watch_for_tests();
+
+    // The party list's name, then the name over the teammate.
+    place(0u, 26, 58);
+    queued(1u);
+    const psprecomp::AllegrexContext hud = filed_from(memory, quest.address, quest.first, quest.saved_ra, 0u, 0u);
+    overhead_name_begin(runtime, hud);
+    place(1u, 186, 122);
+    queued(2u);
+    overhead_name_end(runtime);
+    glyph(0u, 0x09007000u);
+    glyph(1u, 0x09007100u);
+    const NameDraw over = name_at(0x09007110u, 0u);
+    check(over.is_name && over.glyph, "a letter of the name over a teammate is a name");
+    check(over.has_origin && over.origin_x == 186.0f && over.origin_y == 122.0f,
+        "it is sized about the point over that hunter");
+    check(owner_of(0x09007110u, 0u) == Owner::QuestHud, "it is the quest HUD's, so hiding the HUD hides it");
+    check(!name_at(0x09007010u, 0u).is_name, "the party list's name queued before it is not");
+
+    // The same function called by other code queues no name.
+    watch_for_tests();
+    queued(0u);
+    const psprecomp::AllegrexContext menu = filed_from(memory, 0x09A70000u, 0x27BDFFF0u, 0xAFBF000Cu, 0u, 0u);
+    overhead_name_begin(runtime, menu);
+    place(0u, 186, 122);
+    queued(1u);
+    overhead_name_end(runtime);
+    glyph(0u, 0x09007200u);
+    check(!name_at(0x09007210u, 0u).is_name, "outside the quest HUD its text is not a name");
+}
+
+void test_capture_schedule() {
+    CaptureSchedule c;
+    check(!c.pending() && !c.packets(0u) && !c.sprites(0u), "nothing is traced before a screenshot");
+    c.at_flip(10u);
+    check(!c.pending() && !c.packets(11u), "a flip without a screenshot arms nothing");
+
+    // A screenshot after frame 10's flip: the flip of frame 11 arms it, and
+    // frame 11 is left for the wrappers to go in.
+    c.request();
+    check(c.pending() && !c.packets(10u) && !c.sprites(11u), "a request traces nothing before the next flip");
+    c.at_flip(11u);
+    check(!c.packets(11u) && c.packets(12u) && c.packets(13u) && !c.packets(14u),
+        "the packets of the two frames after the arming flip are traced");
+    check(!c.sprites(12u) && c.sprites(13u) && c.sprites(14u) && !c.sprites(15u),
+        "the sprites of the frames those lists are drawn in are traced");
+    check(c.pending(), "the wrappers stay wanted once a capture was taken");
+
+    // A later screenshot moves the window; the earlier one is over.
+    c.request();
+    c.at_flip(100u);
+    check(!c.packets(12u) && c.packets(101u) && c.sprites(103u), "a second screenshot traces its own frames");
+}
+
 } // namespace
 
 int main() {
@@ -152,6 +263,9 @@ int main() {
     test_signature_refuses_a_different_word();
     test_hud_functions();
     test_draw_owner();
+    test_names_over_characters();
+    test_overhead_name();
+    test_capture_schedule();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;

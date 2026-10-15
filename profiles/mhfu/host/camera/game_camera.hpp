@@ -34,9 +34,6 @@ struct CodeWord {
 // function is in an overlay, so it is not in memory when the camera driver
 // starts.
 [[nodiscard]] std::span<const CodeWord> aim_code_signature();
-// The same for 0x09AAA158, the aim function that aims in the action its
-// caller passes.
-[[nodiscard]] std::span<const CodeWord> action_aim_code_signature();
 
 // Checks the game's code against game_code_signature() and remembers the
 // generated function behind the camera update. Nothing is hooked yet: that

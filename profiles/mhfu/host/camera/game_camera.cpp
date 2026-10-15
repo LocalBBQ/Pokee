@@ -116,6 +116,12 @@ constexpr std::uint32_t kFollowedHunter = 2692u;
 // heading moves those bits too while they still match it.
 constexpr std::uint32_t kAimAction = 804u;
 constexpr std::uint16_t kAimingAction = 1001u;
+// 1001 is not the gun's alone: with a sword and shield, MHFU_TRACE_CAMERA_STATE
+// shows it for two frames between the attack actions 1004 and 1404, and for
+// up to seconds at a time, and the aim function never ran in any of them.
+// So 1001 is the aim only while that function has run for this hunter in it,
+// within this many frames.
+constexpr std::uint64_t kAimFunctionGrace = 2u;
 constexpr std::uint32_t kAimHeading = 800u;
 constexpr std::uint32_t kFacing = 500u;
 constexpr std::uint32_t kStickMagnitude = 1182u;
@@ -147,23 +153,16 @@ constexpr int kStickDeadzone = 40;
 constexpr int kStickFull = 127;
 // The aim functions, in game_task. Each prologue is checked before its wrapper
 // is installed, because these addresses belong to whichever overlay is loaded.
-// 0x09AA4DD0 aims in action 1001. 0x09AAA158 is the same code for the action
-// its caller passes in a1 (8 from 0x09AA3D4C, 0x09AA3D5C and 0x09AA3D70); it
-// returns unless +804 equals that action (0x09AAA188).
+// 0x09AA4DD0 aims in action 1001. 0x09AAA158 is the same code for an action
+// its caller passes in a1 (8 from 0x09AA3D4C, 0x09AA3D5C and 0x09AA3D70). It
+// is not wrapped: once it had run, every hunter in that action counted as
+// aiming, which took the right stick off the camera during sword swings.
 constexpr std::uint32_t kAimFunction = 0x09AA4DD0u;
 constexpr std::array<CodeWord, 4> kAimSignature{{
     {0x09AA4DD0u, 0x27BDFFE0u, "addiu sp,sp,-32"},
     {0x09AA4DD4u, 0xAFBF001Cu, "sw ra,28(sp)"},
     {0x09AA4DD8u, 0xAFB30018u, "sw s3,24(sp)"},
     {0x09AA4DDCu, 0xAFB20014u, "sw s2,20(sp)"},
-}};
-constexpr std::uint32_t kActionAimFunction = 0x09AAA158u;
-constexpr std::array<CodeWord, 5> kActionAimSignature{{
-    {0x09AAA158u, 0x27BDFFF0u, "addiu sp,sp,-16"},
-    {0x09AAA15Cu, 0xAFBF000Cu, "sw ra,12(sp)"},
-    {0x09AAA160u, 0xAFB00008u, "sw s0,8(sp)"},
-    {0x09AAA188u, 0x96040324u, "lhu a0,804(s0): the hunter's action"},
-    {0x09AAA18Cu, 0x30A3FFFFu, "andi v1,a1,0xffff: the action it aims in"},
 }};
 // The bow aims in its own actions, 1400 and up (traced with MHFU_TRACE_AIM:
 // 1401 while the arrow's line is up, 1405 and 1408 as it draws). The bow's
@@ -175,8 +174,20 @@ constexpr std::array<CodeWord, 5> kActionAimSignature{{
 // right and the pitch from up and down. So while those hold, the right stick
 // is pressed on the D-pad in the pad sample itself, and drive_aim resizes each
 // step from the stick, as it does for the left stick.
+// Those action numbers are not the bow's alone: a sword and shield attacks in
+// 1404 too, and with R held and the same bits set it counted as the bow's aim.
+// The weapon is the byte at hunter +488 (4 for a sword and shield in every
+// MHFU_TRACE_WEAPON dump). 0x09A8AEB0 switches on it below 11 through the
+// table at 0x09C0C830; the case at 0x09A8AF98 is `jal 0x09BB4F18`, which
+// leads to the bow's handler 0x09BB5440. There are fewer cases than weapons,
+// so the bow's number is read from that table rather than assumed.
 constexpr std::uint16_t kBowActions = 1400u;
 constexpr std::uint16_t kBowActionsEnd = 1500u;
+constexpr std::uint32_t kWeaponType = 488u;
+constexpr std::uint32_t kWeaponTable = 0x09C0C830u;
+constexpr std::uint32_t kWeaponTypes = 11u;
+constexpr std::uint32_t kBowCase = 0x09A8AF98u;
+constexpr std::uint32_t kBowCaseCall = 0x0E6ED3C6u; // jal 0x09BB4F18
 constexpr std::uint32_t kBowAimReady = 1040u;
 constexpr std::uint32_t kBowAimBlocked = 4380u;
 constexpr std::uint32_t kBowAimBit = 0x8u;
@@ -302,17 +313,18 @@ struct State {
     // back: the port's ease is the only move. Not a second tap.
     bool quiet_l{};
     bool aiming{};
-    // The action 0x09AAA158 was last asked to aim in (its a1); 0 before it ran.
-    std::uint16_t action_aim{};
     // The bow is aiming (bow_aiming), as of the last flip.
     bool bow_aiming{};
-    // MHFU_TRACE_AIM: calls of each aim wrapper (1001, then a1's action), and
-    // those that showed it a push, since the last [aim] line.
-    std::array<std::uint64_t, 2> aim_calls{};
+    // MHFU_TRACE_AIM: calls of the aim wrapper, and those that showed it a
+    // push, since the last [aim] line.
+    std::uint64_t aim_calls{};
     std::uint64_t aim_pushes{};
     // The generated aim function, and the centred deflection to show it.
     RotationFunction aim_original{};
-    RotationFunction action_aim_original{};
+    // The wrapper is in place, and the last frame it ran for a hunter in 1001.
+    bool aim_wrapped{};
+    std::uint64_t aim_ran_frame{};
+    std::uint32_t aim_ran_hunter{};
     int aim_x{};
     int aim_y{};
     // How far the stick is pushed on each axis, -1 to 1. Zero: the follow
@@ -681,11 +693,21 @@ std::uint32_t followed_hunter(const psprecomp::GuestMemory &memory) {
     return hunter;
 }
 
+// The hunter carries a bow: the game's weapon switch sends its weapon to the
+// bow's case. Another overlay at that address, or another weapon, is not.
+bool carries_bow(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
+    if (memory.raw_pointer(kWeaponTable, kWeaponTypes * 4u) == nullptr ||
+        memory.raw_pointer(kBowCase, 4u) == nullptr || memory.load32(kBowCase) != kBowCaseCall)
+        return false;
+    const std::uint32_t weapon = memory.load8(hunter + kWeaponType);
+    return weapon < kWeaponTypes && memory.load32(kWeaponTable + weapon * 4u) == kBowCase;
+}
+
 // The bow's aim, by the conditions 0x09BB6D98 tests before it steps.
 bool bow_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
     if (hunter == 0u || memory.raw_pointer(hunter, kBowAimBlocked + 4u) == nullptr) return false;
     const auto action = memory.load16(hunter + kAimAction);
-    return action >= kBowActions && action < kBowActionsEnd &&
+    return action >= kBowActions && action < kBowActionsEnd && carries_bow(memory, hunter) &&
         (memory.load32(hunter + kHunterButtons) & kRecenterBit) != 0u &&
         (memory.load32(hunter + kBowAimReady) & kBowAimBit) != 0u &&
         (memory.load32(hunter + kBowAimBlocked) & kBowAimBit) == 0u;
@@ -694,7 +716,12 @@ bool bow_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
 bool hunter_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
     if (hunter == 0u) return false;
     const auto action = memory.load16(hunter + kAimAction);
-    if (action == kAimingAction || (state.action_aim != 0u && action == state.action_aim)) return true;
+    if (action == kAimingAction) {
+        // Without the wrapper nothing sees the aim function run.
+        if (!state.aim_wrapped) return true;
+        return state.aim_ran_hunter == hunter && state.aim_ran_frame != 0u &&
+            state.frame - state.aim_ran_frame <= kAimFunctionGrace;
+    }
     return bow_aiming(memory, hunter);
 }
 
@@ -1038,23 +1065,18 @@ void show_aim(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, Rota
 }
 
 void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    ++state.aim_calls[0];
+    ++state.aim_calls;
+    const auto hunter = ctx.gpr[4];
+    const auto &memory = runtime.memory();
+    if (memory.raw_pointer(hunter, kHunterExtent) != nullptr &&
+        memory.load16(hunter + kAimAction) == kAimingAction) {
+        state.aim_ran_frame = state.frame;
+        state.aim_ran_hunter = hunter;
+    }
     show_aim(runtime, ctx, state.aim_original);
 }
 
-// 0x09AAA158 aims in the action passed in a1. That action counts as aiming
-// from now on, so the right stick is shown to it rather than to the camera.
-void action_aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    ++state.aim_calls[1];
-    const auto action = static_cast<std::uint16_t>(ctx.gpr[5]);
-    if (action != 0u && action != state.action_aim) {
-        state.action_aim = action;
-        if (aim_trace() != nullptr) std::cout << "[aim] 0x09AAA158 aims in action " << action << std::endl;
-    }
-    show_aim(runtime, ctx, state.action_aim_original);
-}
-
-// The aim functions live in an overlay, so each wrapper is put back whenever
+// The aim function lives in an overlay, so its wrapper is put back whenever
 // that overlay is installed again. A different image at the same address is
 // left alone.
 template <std::size_t N>
@@ -1072,10 +1094,9 @@ void install_one(psprecomp::Runtime &runtime, std::uint32_t address, const std::
 }
 
 void install_aim_hook(psprecomp::Runtime &runtime) {
-    if (!option_on()) return;
-    install_one(runtime, kAimFunction, kAimSignature, &aim_step, state.aim_original, "mhfu_aim_step");
-    install_one(runtime, kActionAimFunction, kActionAimSignature, &action_aim_step, state.action_aim_original,
-        "mhfu_action_aim_step");
+    if (option_on())
+        install_one(runtime, kAimFunction, kAimSignature, &aim_step, state.aim_original, "mhfu_aim_step");
+    state.aim_wrapped = runtime.function_at(kAimFunction) == &aim_step;
 }
 
 // MHFU_TRACE_WEAPON=1: on each press of R (guard, aim, draw), the followed
@@ -1132,15 +1153,13 @@ void trace_aim_state(psprecomp::Runtime &runtime, bool aiming) {
     if (!changed && !(aiming && state.frame - last_line >= 30u)) return;
     last_line = state.frame;
     std::cout << "[aim] frame=" << state.frame << (changed ? (aiming ? " start" : " end") : " held")
-              << " wrappers=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0)
-              << (runtime.function_at(kActionAimFunction) == &action_aim_step ? 1 : 0)
-              << " bow=" << (state.bow_aiming ? 1 : 0) << " option=" << (option_on() ? 1 : 0)
+              << " wrapper=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0) << " bow=" << (state.bow_aiming ? 1 : 0) << " option=" << (option_on() ? 1 : 0)
               << " hooked=" << (state.hooked ? 1 : 0) << " available=" << (state.available ? 1 : 0)
               << " lock_on_drives=" << (lock_on_drives_camera() ? 1 : 0)
               << " driving=" << (game_camera_driving() ? 1 : 0) << " boost=" << (game_camera_aim_boost() ? 1 : 0)
-              << " update_age=" << (state.frame - state.last_update) << " calls=" << state.aim_calls[0] << '/'
-              << state.aim_calls[1] << " pushes=" << state.aim_pushes << std::endl;
-    state.aim_calls = {};
+              << " update_age=" << (state.frame - state.last_update) << " calls=" << state.aim_calls
+              << " pushes=" << state.aim_pushes << std::endl;
+    state.aim_calls = 0u;
     state.aim_pushes = 0u;
 }
 
@@ -1283,9 +1302,6 @@ std::span<const CodeWord> aim_code_signature() {
     return kAimSignature;
 }
 
-std::span<const CodeWord> action_aim_code_signature() {
-    return kActionAimSignature;
-}
 
 bool game_camera_hunter_aiming() {
     return state.hunter_aiming;

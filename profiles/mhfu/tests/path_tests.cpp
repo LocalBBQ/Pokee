@@ -158,6 +158,16 @@ void test_settings(const fs::path &data_dir, const fs::path &pack_folder, const 
     check(contains(saved, "video.texture_pack_folder=" + path_to_utf8(pack_folder)),
         "a folder set in the menu is saved in UTF-8");
     check(contains(saved, "text.font=" + path_to_utf8(font)), "the font's path is saved as it was read");
+    check(contains(saved, "video.texture_pack_buttons=auto"), "the pack's button icons follow the pad by default");
+    check(settings::from_entries({{"video.texture_pack_buttons", "playstation"}}).texture_pack_buttons ==
+                settings::PackButtons::PlayStation &&
+            settings::from_entries({{"video.texture_pack_buttons", "sega"}}).texture_pack_buttons ==
+                settings::PackButtons::Auto,
+        "a chosen button icon set loads, and an unknown one is Auto");
+    settings::current().texture_pack_buttons = settings::PackButtons::Xbox;
+    settings::save();
+    check(contains(read(data_dir / install::kSettingsFile), "video.texture_pack_buttons=xbox"),
+        "a button icon set chosen in the menu is saved");
     check(contains(saved, "disc_image=" + path_to_utf8(image)), "saving keeps the installer's key");
     check(!fs::exists(data_dir / (std::string(install::kSettingsFile) + ".part")), "no partial settings file is left");
 

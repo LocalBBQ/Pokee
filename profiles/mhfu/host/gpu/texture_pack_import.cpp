@@ -188,9 +188,6 @@ fs::path find_pack(const fs::path &chosen, const std::string &game_id, std::stri
 }
 
 std::string friendly(const std::string &error) {
-    if (lower(error).find("hash = quick") != std::string::npos)
-        return "The pack uses the old \"quick\" hash, which Pokee does not support. Only packs that use xxh64 or "
-               "xxh32 work.";
     if (error.find("zipped") != std::string::npos)
         return "The pack is zipped (textures.zip). Unpack it first, then choose the unpacked folder.";
     return "textures.ini cannot be used: " + error;

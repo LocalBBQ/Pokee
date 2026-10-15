@@ -136,6 +136,11 @@ void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices);
 inline constexpr unsigned kGatherPulseDown = 3u;
 inline constexpr unsigned kGatherPulseUp = 3u;
 
+// △, × and R. With ○ or □ they make the weapons' chords (△+○ is an attack
+// for most of them), which the game reads on the same press. Any of them down
+// is never a gather: the pad passes through and a running hold ends.
+inline constexpr std::uint32_t kGatherChord = 0x1000u | 0x4000u | 0x0200u;
+
 // Holding ○ or □ on a gather point, or ○ on a monster that can be carved.
 // Plants and carving use ○ (B on an Xbox pad); mining and a bug net use □
 // (X on an Xbox pad). The game starts one when that button goes down, so a
@@ -149,7 +154,9 @@ inline constexpr unsigned kGatherPulseUp = 3u;
 // the game sees a new press. Letting go stops the pulse at once. While the
 // hold is going, the game is shown the pulse only: movement and every other
 // button are left off, so they cannot walk the hunter off or start another
-// action. Another button can take the gather button out of the resolved pad
+// action. A chord button (kGatherChord) is the exception: with one down the
+// press is an attack, so the pad passes through and the hold ends. Another
+// button can take the gather button out of the resolved pad
 // for a few reads. The hold stays until nothing is held, and those reads
 // still show only the pulse. Away from a node and from a body, or with the
 // setting off, the buttons pass through. L+○ or L+□ before a hold has started

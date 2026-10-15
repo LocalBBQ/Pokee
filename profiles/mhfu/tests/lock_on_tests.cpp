@@ -12,6 +12,7 @@
 
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <utility>
@@ -575,6 +576,48 @@ void test_unmarked_monsters_still_lock() {
     memory.store16(node_a + game::kNodeClass, 34u);
     found = lock_on_monsters(memory);
     check(found.size() == 1u && found[0].address == monster_a, "a class id of 34 keeps every unmarked monster out");
+}
+
+void set_keep_hunters(bool keep) {
+#ifdef _WIN32
+    _putenv_s("MHFU_LOCK_ON_HUNTERS", keep ? "1" : "");
+#else
+    if (keep)
+        setenv("MHFU_LOCK_ON_HUNTERS", "1", 1);
+    else
+        unsetenv("MHFU_LOCK_ON_HUNTERS");
+#endif
+}
+
+// A hunter whose list node is not type 1, with a hunter's health and a
+// +0x1E8 byte that reads like a large species, as seen in an ad hoc quest.
+void test_hunters_take_no_icon_or_lock() {
+    for (const bool marked : {false, true}) {
+        Fixture f;
+        auto &memory = f.runtime.memory();
+        // Nothing marked large: the quests it was seen on had no em methods.
+        if (!marked) memory.store32(large_vtable + game::kVtableMethod, game::kTaskSlot);
+        constexpr std::uint32_t partner = 0x09005000u;
+        constexpr std::uint32_t node_partner = 0x09200180u;
+        link(memory, node_partner, partner, node_again, 7u);
+        memory.store32(manager + game::kListHead, node_partner);
+        place(memory, partner, 0.0f, -60.0f, 120, 120);
+        memory.store32(partner + game::kVtable, game::kHunterVtable);
+        memory.store8(partner + game::kMonsterId, 7u); // reads as a Lao-Shan Lung
+        if (marked) memory.store16(node_partner + game::kNodeClass, 34u);
+        const auto has_partner = [&](const auto &list) {
+            for (const auto &entry : list)
+                if (entry.address == partner) return true;
+            return false;
+        };
+        check(!has_partner(hunt_monsters(memory)), "a hunter takes no monster icon");
+        check(!has_partner(lock_on_monsters(memory)), "lock-on does not select a hunter");
+        check(!lock_on_monsters(memory).empty(), "the monsters stay selectable beside a hunter");
+        set_keep_hunters(true);
+        check(has_partner(lock_on_monsters(memory)), "MHFU_LOCK_ON_HUNTERS=1 lets a hunter in, as before");
+        set_keep_hunters(false);
+        check(!has_partner(lock_on_monsters(memory)), "an empty MHFU_LOCK_ON_HUNTERS keeps hunters out");
+    }
 }
 
 void test_tap_waits_for_the_monster() {
@@ -1468,6 +1511,7 @@ int main() {
     test_monster_in_another_area();
     test_hunt_portrait_keeps_the_id_in_another_area();
     test_unmarked_monsters_still_lock();
+    test_hunters_take_no_icon_or_lock();
     test_lock_follows_and_lets_go();
     test_shared_trigger_initiates_focus_and_follow();
     test_follow_toggle_uses_the_focus_camera_bind();

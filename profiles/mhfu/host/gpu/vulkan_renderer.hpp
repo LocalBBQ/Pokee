@@ -213,6 +213,11 @@ public:
     // For the menu: "Off", "Not installed", or how many textures the pack has
     // and how many of them are on the GPU.
     [[nodiscard]] std::string texture_pack_status() const;
+    // For the menu: whether the open pack comes with button icon sets
+    // (texture_pack.hpp), and the name of the one it draws. The set follows
+    // video.texture_pack_buttons and, with Auto, the pad in use.
+    [[nodiscard]] bool texture_pack_has_button_icons() const;
+    [[nodiscard]] std::string texture_pack_button_icons() const;
     // Opens the pack again from the next frame, e.g. after an import.
     void reload_texture_pack();
     // While held, no pack is open, so an import can move its folder; true
