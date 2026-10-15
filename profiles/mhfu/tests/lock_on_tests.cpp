@@ -458,6 +458,12 @@ void test_hunt_portrait_keeps_the_id_in_another_area() {
         "the monster icon is left aligned in its card");
     const HuntIconSquare second = hunt_icon_square(placed[1]);
     check(second.x == placed[1].x && second.side == placed[1].height, "and so is the next one");
+    // A species the sheet has no picture for takes no slot. Before, it left
+    // the first slot empty and the Giadrome after it sat a card from the margin.
+    const std::vector<HuntMonster> unknown_first{{0x09900000u, 0u, false, false}, {0x09A00000u, 0x4Du, false, false}};
+    const std::vector<HuntPortrait> giadrome = place_hunt_portraits(unknown_first, 0u, false);
+    check(giadrome.size() == 1u && giadrome[0].id == 0x4Du && hunt_icon_square(giadrome[0]).x == 6.0f,
+        "a monster with no icon takes no slot, so the next icon sits at the margin");
     check(hunt_icon_square(HuntPortrait{0u, false, false, false, 10.0f, 20.0f, 30.0f, 40.0f}).y == 25.0f &&
             hunt_icon_square(HuntPortrait{0u, false, false, false, 10.0f, 20.0f, 30.0f, 40.0f}).side == 30.0f,
         "a card taller than wide centres its square from top to bottom");
