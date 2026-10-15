@@ -370,6 +370,29 @@ void test_holding_circle() {
     check(pulse(kCycle, kSquare, [&] { return repeat.apply(kCircle, true, kSquare); }) == expected_pulse(kCycle, 1u) &&
             repeat.underway(),
         "○ alone while mining keeps the □ pulse");
+
+    // △+○ beside a point or a body is an attack. The game gets both buttons.
+    constexpr std::uint32_t kTriangle = 0x1000u;
+    constexpr std::uint32_t kCross = 0x4000u;
+    constexpr std::uint32_t kRight = 0x0200u;
+    repeat.reset();
+    check(repeat.apply(kCircle | kTriangle, true, kCircle) == (kCircle | kTriangle) && !repeat.underway() &&
+            !repeat.centres_stick(),
+        "△+○ on a point is not a gather and reaches the game whole");
+    repeat.reset();
+    check(held(true) == kCircle && repeat.underway(), "a ○ hold is running");
+    check(repeat.apply(kCircle | kTriangle, true, kCircle) == (kCircle | kTriangle) && !repeat.underway() &&
+            !repeat.centres_stick(),
+        "△ pressed during a hold ends it and the chord reaches the game");
+    check((held(true) & kCircle) == 0u && repeat.underway(),
+        "with ○ still held after the chord, the next hold lifts ○ first");
+    repeat.reset();
+    check(repeat.apply(kCircle | kCross, true, kCircle) == (kCircle | kCross) && !repeat.underway(),
+        "× with ○ is left to the game");
+    check(repeat.apply(kSquare | kRight, true, kSquare) == (kSquare | kRight) && !repeat.underway(),
+        "R with □ is left to the game");
+    check(repeat.apply(kCircle | kSquare, true, kCircle) == kCircle && repeat.underway(),
+        "□ is not a chord: ○ with □ on a point still gathers");
 }
 
 // The pad read that reaches the game.
@@ -527,6 +550,9 @@ void test_carving_a_monster() {
         "holding ○ on a body keeps carving");
     check(gather_hold(kSquare, memory) == kCircle && gather_hold_centres_stick(),
         "□ alone while carving keeps the ○ pulse");
+    check(gather_hold(kCircle | 0x1000u, memory) == (kCircle | 0x1000u) && !gather_hold_centres_stick(),
+        "△+○ beside a body is an attack: the pad passes and the stick moves");
+    check(gather_hold(kCircle | 0x1000u, memory) == (kCircle | 0x1000u), "and stays an attack while held");
     write_float(memory, hunter + 0x200u, 80.0f);
     check(gather_hold(kCircle, memory) == kCircle, "walking off the body leaves ○ as it is held");
     (void)gather_hold(0u, memory);

@@ -81,7 +81,8 @@ struct HudFunction {
 [[nodiscard]] bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t address);
 // True for a quest HUD function (game_task); the address only.
 [[nodiscard]] bool quest_function(std::uint32_t address);
-// The name over another hunter in a quest: game_task 0x09B62488. The village
+// The name over another hunter in a quest: game_task 0x09B62488, and in an ad
+// hoc quest resident 0x088392F4 while game_task is loaded. The village
 // and the gathering hall draw those names with the rest of that interface, so
 // they are not names for this size. The words still have to match before a
 // call stack counts; this is the address only.
@@ -117,10 +118,13 @@ void toggle();
 // entry's x and y); a plate filed on its own has none, and shrinks about its
 // own centre. `tag_only` limits a name to a name-sized draw. The quest name is
 // the whole draw, so it is not set. Empty when this draw is not a name.
+// `glyph` is a letter of the name's own text, not an icon the label filed: a
+// letter takes the Names size wherever it is, and no other piece's rule.
 struct NameDraw {
     bool is_name{};
     bool has_origin{};
     bool tag_only{};
+    bool glyph{};
     float origin_x{};
     float origin_y{};
 };
@@ -137,9 +141,55 @@ struct NameDraw {
 enum class Owner { Unknown, QuestHud, Other };
 [[nodiscard]] Owner owner_of(std::uint32_t command_address, std::uint32_t call_return);
 
+// MHFU_TRACE_CAPTURE=1: each screenshot also traces the frames around it, so
+// one run can catch a moment that cannot be given as a frame number in
+// advance (another player's name in view, a menu over the HUD). The 2D
+// packets and text calls of the two frames after the screenshot are traced as
+// MHFU_TRACE_HUD does. Each list is drawn in the frame after it is built, so
+// the sprites of the two frames after those are traced as MHFU_TRACE_SPRITES
+// does. The first frame after the request is skipped: it is where the
+// wrappers go in when nothing else needed them yet.
+struct CaptureSchedule {
+    static constexpr std::uint64_t kNone = ~0ull;
+    static constexpr std::uint64_t kFrames = 2u;
+    bool requested{};
+    std::uint64_t first{kNone}; // the first frame whose packets are traced
+
+    void request() { requested = true; }
+    // At each flip, with the frame that starts.
+    void at_flip(std::uint64_t frame) {
+        if (!requested) return;
+        requested = false;
+        first = frame + 1u;
+    }
+    [[nodiscard]] bool pending() const { return requested || first != kNone; }
+    [[nodiscard]] bool packets(std::uint64_t frame) const {
+        return first != kNone && frame >= first && frame < first + kFrames;
+    }
+    [[nodiscard]] bool sprites(std::uint64_t frame) const {
+        return first != kNone && frame >= first + 1u && frame < first + 1u + kFrames;
+    }
+};
+
+// Arms a capture when MHFU_TRACE_CAPTURE is set; called with each screenshot.
+void screenshot_taken();
+// Whether the renderer traces the sprites of presented frame `frame`.
+[[nodiscard]] bool capture_sprites(std::uint64_t frame);
+
+// Set by the renderer while frame interpolation records frames: the names
+// over hunters are then told apart at any size, so the presents between game
+// frames can move them with the characters they follow.
+void want_names(bool wanted);
+
 // What the wrapper does when the game files a packet (0x088596C8). Exposed
 // for tests, which build a stand-in call stack in guest memory.
 void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext &ctx);
+// The name over a teammate in an ad hoc quest is queued while resident
+// 0x08842628 runs, by a path no text wrapper sees. Its wrapper calls these
+// around the game's function: text it queues while the quest HUD is on the
+// stack is a name for the Names size. Exposed for tests.
+void overhead_name_begin(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext &ctx);
+void overhead_name_end(psprecomp::Runtime &runtime);
 // Has owner_of() answer as it does once the wrappers are in place, and
 // forgets every packet seen. For tests.
 void watch_for_tests();

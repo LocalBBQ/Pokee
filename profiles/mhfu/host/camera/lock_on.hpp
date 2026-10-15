@@ -42,7 +42,9 @@ class GuestMemory;
 //   keep a game_task vtable (seen with em75 loaded) still locks: any other
 //   non-player with a health pool is then eligible. A known small species
 //   (the ones the hunt icon sheet also draws, such as a Ceanataur) is left
-//   out either way, so it cannot take the lock or the icon.
+//   out either way, so it cannot take the lock or the icon. So is a hunter,
+//   by its vtable: a hunter's list node is not always type 1.
+//   MHFU_LOCK_ON_HUNTERS=1 lets them in again, as earlier versions did.
 // - The camera looks from its eye at +0x0 of the camera structure to its
 //   look-at point at +0x10. Its yaw, in 65536ths of a turn, puts the eye in
 //   the direction (sin yaw, cos yaw) from the look-at point, so the camera
@@ -77,6 +79,11 @@ inline constexpr std::uint32_t kVtableMethod = 0x8u;
 inline constexpr std::uint32_t kVtableSpan = 64u;
 inline constexpr std::uint32_t kEmOverlay = 0x09D1A280u;
 inline constexpr std::uint32_t kEmOverlayEnd = 0x09D63100u;
+// A hunter's vtable: the player's, and each partner's in an ad hoc quest.
+// Their list nodes are not type 1 (0, 3, 4 and 7 have been seen), they keep a
+// hunter's health pool, and +0x1E8 is not a species: it has read 7, 10 and
+// small species, which put a Lao-Shan Lung or a Rathian icon on a hunter.
+inline constexpr std::uint32_t kHunterVtable = 0x089BB3CCu;
 inline constexpr std::uint32_t kPosition = 0x200u;
 inline constexpr std::uint32_t kHealth = 0x2E4u;
 inline constexpr std::uint32_t kMostHealth = 0x41Eu;

@@ -140,10 +140,66 @@ bool is_paletted(TextureFormat format) {
         format == TextureFormat::Clut32;
 }
 
+std::uint16_t load16(const std::uint8_t *data) {
+    return static_cast<std::uint16_t>(data[0] | data[1] << 8u);
+}
+
+std::uint32_t load32(const std::uint8_t *data) {
+    return static_cast<std::uint32_t>(data[0]) | static_cast<std::uint32_t>(data[1]) << 8u |
+        static_cast<std::uint32_t>(data[2]) << 16u | static_cast<std::uint32_t>(data[3]) << 24u;
+}
+
+// The format's first hash, "quick". Data that is a whole number of 64-byte
+// blocks is hashed a block at a time into eight 16-bit lanes (also read as
+// four 32-bit ones): the block's first 16 bytes are multiplied by per-lane
+// weights and added, the next 16 XORed and the 16 after added as 32-bit
+// words, and the last 16 multiplied by the weights and XORed. The weights
+// grow by 0x2455 after each block, and the result adds up the lanes and the
+// weights. Any other size is hashed by adding and XORing alternate words;
+// bytes after the last whole 8 are left out. The format takes the block hash
+// only for data at a 16-byte boundary, which texture data always is: the GE
+// drops an address's low 4 bits, and row strides are whole 16-byte units.
+std::uint32_t quick_hash(const std::uint8_t *data, std::size_t size) {
+    std::uint32_t result = 0u;
+    if (size % 64u != 0u) {
+        for (std::size_t at = 0; at + 8u <= size; at += 8u) {
+            result += load32(data + at);
+            result ^= load32(data + at + 4u);
+        }
+        return result;
+    }
+    std::uint16_t lanes[8] = {};
+    std::uint16_t weights[8] = {0xC00Bu, 0x9BD9u, 0x4B73u, 0xB651u, 0x4D9Bu, 0x4309u, 0x0083u, 0x0001u};
+    const auto lane32 = [](const std::uint16_t *halves, int i) {
+        return static_cast<std::uint32_t>(halves[2 * i]) | static_cast<std::uint32_t>(halves[2 * i + 1]) << 16u;
+    };
+    for (std::size_t at = 0; at < size; at += 64u) {
+        const std::uint8_t *block = data + at;
+        for (int i = 0; i < 8; ++i)
+            lanes[i] += static_cast<std::uint16_t>(static_cast<std::uint32_t>(load16(block + 2 * i)) * weights[i]);
+        for (int i = 0; i < 4; ++i) {
+            const std::uint32_t lane = (lane32(lanes, i) ^ load32(block + 16 + 4 * i)) + load32(block + 32 + 4 * i);
+            lanes[2 * i] = static_cast<std::uint16_t>(lane);
+            lanes[2 * i + 1] = static_cast<std::uint16_t>(lane >> 16u);
+        }
+        for (int i = 0; i < 8; ++i)
+            lanes[i] ^= static_cast<std::uint16_t>(static_cast<std::uint32_t>(load16(block + 48 + 2 * i)) * weights[i]);
+        for (std::uint16_t &weight : weights) weight = static_cast<std::uint16_t>(weight + 0x2455u);
+    }
+    for (int i = 0; i < 4; ++i) result += lane32(lanes, i) + lane32(weights, i);
+    return result;
+}
+
 std::uint32_t data_hash(const std::uint8_t *data, std::size_t size, TexturePackHash hash) {
-    // xxh64 keys keep the low 32 bits of the 64-bit hash.
-    return hash == TexturePackHash::Xxh32 ? XXH32(data, size, kDataSeed)
-                                          : static_cast<std::uint32_t>(XXH64(data, size, kDataSeed));
+    switch (hash) {
+    case TexturePackHash::Quick:
+        return quick_hash(data, size);
+    case TexturePackHash::Xxh32:
+        return XXH32(data, size, kDataSeed);
+    default:
+        // xxh64 keys keep the low 32 bits of the 64-bit hash.
+        return static_cast<std::uint32_t>(XXH64(data, size, kDataSeed));
+    }
 }
 
 bool is_hex_name(const std::string &stem) {
@@ -259,9 +315,13 @@ bool compute_texture_pack_key(const GuestMemory &memory, const TextureState &tex
 }
 
 std::unique_ptr<TexturePack> TexturePack::open(
-    const std::filesystem::path &directory, const std::string &game_id, std::string &error) {
+    const std::filesystem::path &directory, const std::string &game_id, std::string &error, ButtonIcons icons) {
     std::unique_ptr<TexturePack> pack = parse(directory, game_id, error);
     if (!pack) return nullptr;
+    const std::size_t changed = pack->use_button_icons(icons);
+    if (texture_pack_trace() && pack->has_button_icons())
+        std::cout << "[texpack] button icons: " << button_icons_name(pack->button_icons()) << ", " << changed
+                  << " textures use them\n";
     const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4u, 1u, 2u);
     for (unsigned i = 0; i < threads; ++i) pack->loaders_.emplace_back([p = pack.get()] { p->loader_main(); });
     return pack;
@@ -395,10 +455,10 @@ bool TexturePack::load_ini(const std::filesystem::path &path, bool is_override, 
                     options_.hash = TexturePackHash::Xxh64;
                 else if (kind == "xxh32")
                     options_.hash = TexturePackHash::Xxh32;
+                else if (kind == "quick")
+                    options_.hash = TexturePackHash::Quick;
                 else if (!value.empty() || !is_override) {
-                    // "quick" was the format's first hash; packs made with it
-                    // are rare, and it is not implemented here.
-                    error = "textures.ini: hash = " + value + " is not supported (xxh64 and xxh32 are)";
+                    error = "textures.ini: hash = " + value + " is not supported (xxh64, xxh32 and quick are)";
                     return false;
                 }
                 hash_given = hash_given || !value.empty();
@@ -471,7 +531,25 @@ bool TexturePack::load_ini(const std::filesystem::path &path, bool is_override, 
         error = "textures.ini: [options] does not say which hash the pack uses";
         return false;
     }
+    // The format allows neither with quick, whose keys were made without them.
+    if (options_.hash == TexturePackHash::Quick && (options_.ignore_address || options_.reduce_hash)) {
+        std::cerr << "[texpack] " << path_to_utf8(path.filename())
+                  << ": ignoreAddress and reduceHash need xxh32 or xxh64; ignored with hash = quick\n";
+        options_.ignore_address = false;
+        options_.reduce_hash = false;
+    }
     return true;
+}
+
+const char *texture_pack_hash_name(TexturePackHash hash) {
+    switch (hash) {
+    case TexturePackHash::Quick:
+        return "quick";
+    case TexturePackHash::Xxh32:
+        return "xxh32";
+    default:
+        return "xxh64";
+    }
 }
 
 void TexturePack::scan_hash_named_files() {
@@ -489,6 +567,64 @@ void TexturePack::scan_hash_named_files() {
         if (!parse_key(stem, key, level) || level != 0) continue;
         entries_.try_emplace(key, path_to_utf8(path.filename()));
     }
+}
+
+std::size_t TexturePack::use_button_icons(ButtonIcons icons) {
+    static constexpr std::pair<std::string_view, ButtonIcons> kSuffixes[] = {
+        {"(xbox)", ButtonIcons::Xbox}, {"(ps)", ButtonIcons::PlayStation}, {"(n)", ButtonIcons::Nintendo}};
+    // Lower-case name of the image a variant stands in for -> the variant,
+    // relative to the pack.
+    std::unordered_map<std::string, std::string> variants;
+    std::error_code ec;
+    for (auto it = std::filesystem::recursive_directory_iterator(
+             directory_, std::filesystem::directory_options::skip_permission_denied, ec);
+         !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const std::filesystem::path &path = it->path();
+        if (lower(path_to_utf8(path.extension())) != ".png") continue;
+        std::string stem = lower(path_to_utf8(path.stem()));
+        for (const auto &[suffix, set] : kSuffixes) {
+            if (!stem.ends_with(suffix)) continue;
+            button_icon_sets_ |= static_cast<std::uint8_t>(1u << static_cast<unsigned>(set));
+            if (set != icons) break;
+            stem.resize(stem.size() - suffix.size());
+            // QuestBar_(Xbox) stands in for QuestBar.
+            if (!stem.empty() && stem.back() == '_') stem.pop_back();
+            std::string relative = path_to_utf8(path.lexically_relative(directory_));
+            std::replace(relative.begin(), relative.end(), '\\', '/');
+            variants[stem] = std::move(relative);
+            break;
+        }
+    }
+    button_icons_ = offers(icons) ? icons : ButtonIcons::Pack;
+    std::size_t changed = 0u;
+    if (variants.empty()) return changed;
+    for (auto &[key, name] : entries_) {
+        if (name.empty()) continue;
+        const auto found = variants.find(lower(path_to_utf8(path_from_utf8(name).stem())));
+        if (found == variants.end()) continue;
+        name = found->second;
+        ++changed;
+    }
+    return changed;
+}
+
+const char *button_icons_name(ButtonIcons icons) {
+    switch (icons) {
+    case ButtonIcons::Xbox:
+        return "Xbox";
+    case ButtonIcons::PlayStation:
+        return "PlayStation";
+    case ButtonIcons::Nintendo:
+        return "Nintendo";
+    default:
+        return "Pack default";
+    }
+}
+
+ButtonIcons pick_button_icons(std::optional<ButtonIcons> chosen, ButtonIcons pad, bool confirm_south) {
+    if (chosen) return *chosen;
+    return confirm_south ? ButtonIcons::Pack : pad;
 }
 
 template <typename Map>

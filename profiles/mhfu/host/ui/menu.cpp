@@ -394,27 +394,6 @@ void Menu::video() {
         renderer().set_sharp_screen(s.sharp_screen);
         settings::save();
     }
-    if (choice_row("Texture filter", s.sharp_textures ? "Sharp" : "Smooth",
-            options_for("video.sharp_textures",
-                "How the game's textures are sampled: smooth (bilinear) or "
-                "sharp (nearest texel)."))) {
-        s.sharp_textures = !s.sharp_textures;
-        renderer().set_sharp_textures(s.sharp_textures);
-        settings::save();
-    }
-    {
-        static const char *const kModes[] = {"Off", "Sharp bilinear", "MMPX"};
-        const int current = static_cast<int>(s.ui_textures);
-        if (const int delta = choice_row("UI textures", kModes[current],
-                options_for("video.ui_textures",
-                    "Above x1, how the game's 2D interface (HUD, menus, icons) is drawn; the 3D world is "
-                    "not touched. Off: as before. Sharp bilinear: crisp pixels at any scale, without blur. "
-                    "MMPX: the textures doubled by a pixel-art upscaler that rounds curves and diagonals, "
-                    "then drawn sharp."))) {
-            s.ui_textures = static_cast<settings::UiTextures>(cycle(current, delta, 3));
-            settings::save();
-        }
-    }
     {
         struct Element {
             const char *name;
@@ -479,6 +458,63 @@ void Menu::video() {
         }
         if (toggle_row("Hide HUD", gpu::hud::hidden(), o)) gpu::hud::toggle();
     }
+    section("Textures");
+    if (choice_row("Texture filter", s.sharp_textures ? "Sharp" : "Smooth",
+            options_for("video.sharp_textures",
+                "How the game's textures are sampled: smooth (bilinear) or "
+                "sharp (nearest texel)."))) {
+        s.sharp_textures = !s.sharp_textures;
+        renderer().set_sharp_textures(s.sharp_textures);
+        settings::save();
+    }
+    {
+        static const char *const kModes[] = {"Off", "Sharp bilinear", "MMPX"};
+        const int current = static_cast<int>(s.ui_textures);
+        if (const int delta = choice_row("UI textures", kModes[current],
+                options_for("video.ui_textures",
+                    "Above x1, how the game's 2D interface (HUD, menus, icons) is drawn; the 3D world is "
+                    "not touched. Off: as before. Sharp bilinear: crisp pixels at any scale, without blur. "
+                    "MMPX: the textures doubled by a pixel-art upscaler that rounds curves and diagonals, "
+                    "then drawn sharp."))) {
+            s.ui_textures = static_cast<settings::UiTextures>(cycle(current, delta, 3));
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("video.texture_pack",
+            "Draws an HD texture pack in PPSSPP's format from textures/ULUS10391 in the data "
+            "folder instead of the game's textures.");
+        // The footer shows the note under the description: what is loaded,
+        // or where the pack was looked for.
+        if (o.note.empty()) {
+            const std::string status = renderer().texture_pack_status();
+            o.note = status == "Not installed" ? "No pack in " + renderer().texture_pack_folder() : status;
+            // A pack used in place that has moved: its path is on the "Pack
+            // used from" row below; the footer has room for its name only.
+            if (status.rfind("Folder missing: ", 0) == 0)
+                o.note = "Pack folder missing: " +
+                    install::path_to_utf8(install::path_from_utf8(status.substr(16)).filename());
+        }
+        if (choice_row("Texture pack", s.texture_pack ? "On" : "Off", o)) {
+            s.texture_pack = !s.texture_pack;
+            renderer().set_texture_pack(s.texture_pack);
+            settings::save();
+        }
+    }
+    if (s.texture_pack && renderer().texture_pack_has_button_icons()) {
+        static const char *const kIcons[] = {"Auto", "Pack default", "Xbox", "PlayStation", "Nintendo"};
+        const int current = static_cast<int>(s.texture_pack_buttons);
+        RowOptions o = options_for("video.texture_pack_buttons",
+            "The buttons the pack's prompts show, for a pack that comes with several sets. Auto follows the "
+            "controller in use: Xbox letters for an Xbox pad, PlayStation shapes, Nintendo letters for a "
+            "Switch pad, and the pack's default with no pad or with Confirm button on the bottom button.");
+        if (o.note.empty()) o.note = "Showing " + renderer().texture_pack_button_icons();
+        if (const int delta = choice_row("Button icons", kIcons[current], o)) {
+            s.texture_pack_buttons = static_cast<settings::PackButtons>(cycle(current, delta, 5));
+            settings::save();
+        }
+    }
+    texture_pack_rows();
     section("Overlays");
     if (toggle_row("Damage numbers", s.damage_numbers,
             options_for("game.damage_numbers",
@@ -624,28 +660,6 @@ void Menu::video() {
             settings::save();
         }
     }
-    {
-        RowOptions o = options_for("video.texture_pack",
-            "Draws an HD texture pack in PPSSPP's format from textures/ULUS10391 in the data "
-            "folder instead of the game's textures.");
-        // The footer shows the note under the description: what is loaded,
-        // or where the pack was looked for.
-        if (o.note.empty()) {
-            const std::string status = renderer().texture_pack_status();
-            o.note = status == "Not installed" ? "No pack in " + renderer().texture_pack_folder() : status;
-            // A pack used in place that has moved: its path is on the "Pack
-            // used from" row below; the footer has room for its name only.
-            if (status.rfind("Folder missing: ", 0) == 0)
-                o.note = "Pack folder missing: " +
-                    install::path_to_utf8(install::path_from_utf8(status.substr(16)).filename());
-        }
-        if (choice_row("Texture pack", s.texture_pack ? "On" : "Off", o)) {
-            s.texture_pack = !s.texture_pack;
-            renderer().set_texture_pack(s.texture_pack);
-            settings::save();
-        }
-    }
-    texture_pack_rows();
     section("Timing");
     {
         struct Mode {
@@ -819,6 +833,7 @@ void Menu::video() {
         restore("video.sharp_textures", s.sharp_textures, d.sharp_textures);
         restore("video.ui_textures", s.ui_textures, d.ui_textures);
         restore("video.texture_pack", s.texture_pack, d.texture_pack);
+        restore("video.texture_pack_buttons", s.texture_pack_buttons, d.texture_pack_buttons);
         restore("video.gpu_compat", s.gpu_compat, d.gpu_compat);
         restore("video.present_mode", s.present_mode, d.present_mode);
         restore("video.frame_rate", s.frame_rate, d.frame_rate);

@@ -417,8 +417,24 @@ void test_aim_stick_is_not_movement() {
 // The bow aims from the D-pad in code no wrapper reaches (0x09BB6D98, called
 // inside its unit). While its conditions hold, the right stick is pressed on
 // the D-pad, and the camera update resizes the game's 576 step from the stick.
-void plant_bow_aim(psprecomp::GuestMemory &memory) {
+// The game's weapon switch: the byte at hunter +488 picks an entry of the
+// table at 0x09C0C830, and the bow's entry is the case that calls its code.
+constexpr std::uint32_t kWeaponTable = 0x09C0C830u;
+constexpr std::uint32_t kBowCase = 0x09A8AF98u;
+constexpr std::uint8_t kBow = 10u;
+constexpr std::uint8_t kSwordAndShield = 4u;
+
+void plant_weapon_switch(psprecomp::GuestMemory &memory) {
+    for (std::uint32_t weapon = 0; weapon < 11u; ++weapon)
+        memory.store32(kWeaponTable + weapon * 4u, 0x09A8AF08u + weapon * 16u);
+    memory.store32(kWeaponTable + kBow * 4u, kBowCase);
+    memory.store32(kBowCase, 0x0E6ED3C6u); // jal 0x09BB4F18
+}
+
+void plant_bow_aim(psprecomp::GuestMemory &memory, std::uint8_t weapon = kBow) {
     plant_hunter(memory, 1401u);
+    plant_weapon_switch(memory);
+    memory.store8(kHunter + 488u, weapon);
     memory.store32(kHunter + 1152u, 0x0200u); // R
     memory.store32(kHunter + 1040u, 0x8u);
     memory.store32(kHunter + 4380u, 0u);
@@ -467,42 +483,99 @@ void test_bow_aim_presses_the_dpad() {
     check(game_camera_aim_dpad(127, 0) == 0u, "with Analog camera off the stick is not pressed on the D-pad");
 }
 
-// 0x09AAA158 aims in the action its caller passes. Once it has run, that
-// action is aiming: the right stick goes to the aim, not the camera.
+// A sword and shield attacks in 1404 as well. Holding R there, with the same
+// bits set, is not the bow's aim: the right stick stays on the camera and is
+// not pressed on the D-pad.
+void test_bow_actions_of_another_weapon() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    plant_bow_aim(memory, kSwordAndShield);
+    memory.store16(kHunter + kAction, 1404u);
+    f.frame(0.0f, 0.0f);
+    f.flip(1.0f, 0.0f);
+    check(!game_camera_hunter_aiming() && game_camera_aim_dpad(127, 0) == 0u,
+        "a sword and shield in 1404 with R held is not aiming");
+    const auto yaw = memory.load16(camera_address + 0x80u);
+    f.update();
+    check(memory.load16(camera_address + 0x80u) != yaw, "and the right stick still turns the camera");
+
+    plant_bow_aim(memory, 11u);
+    f.flip(0.0f, 0.0f);
+    check(!game_camera_hunter_aiming(), "a weapon byte past the table is not the bow");
+
+    plant_bow_aim(memory);
+    memory.store32(kBowCase, 0u);
+    f.flip(0.0f, 0.0f);
+    check(!game_camera_hunter_aiming(), "without the bow's case in the code, nothing is the bow");
+
+    plant_bow_aim(memory);
+    f.flip(0.0f, 0.0f);
+    check(game_camera_hunter_aiming(), "the bow itself still aims");
+}
+
+// 0x09AAA158 aims in an action its caller passes (8 from three call sites).
+// It is left unwrapped: an action it once ran in is not aiming, so the right
+// stick stays on the camera through a sword's swing in that action.
 void test_action_aim_function() {
     Fixture f;
     f.enable();
     auto &memory = f.runtime.memory();
-    for (const CodeWord &word : action_aim_code_signature()) memory.store32(word.address, word.word);
+    memory.store32(0x09AAA158u, 0x27BDFFF0u);
+    memory.store32(0x09AAA15Cu, 0xAFBF000Cu);
+    memory.store32(0x09AAA160u, 0xAFB00008u);
+    memory.store32(0x09AAA188u, 0x96040324u);
+    memory.store32(0x09AAA18Cu, 0x30A3FFFFu);
     f.runtime.register_function(0x09AAA158u, &aim_original, "recomp_unit_action_aim_test");
     plant_hunter(memory, 8u);
     f.flip(0.0f, 0.0f);
-    check(!game_camera_aim_boost(), "action 8 is not aiming before that function has run");
+    check(f.runtime.function_at(0x09AAA158u) == &aim_original, "0x09AAA158 is not wrapped");
 
-    memory.store32(kHunter + 1152u, 0u);
-    game_camera_present_aim(0, 127);
     f.ctx.gpr[4] = kHunter;
     f.ctx.gpr[5] = 8u;
     f.ctx.gpr[31] = 0x09C00000u;
-    check(f.runtime.invoke_isolated_aot(0x09AAA158u, f.ctx), "the action aim function dispatches");
-    check(seen_buttons == 0x00400040u && seen_magnitude == 127u, "it is shown the push as down on both");
+    check(f.runtime.invoke_isolated_aot(0x09AAA158u, f.ctx), "the game's function still runs");
     f.flip(0.0f, 0.0f);
-    check(game_camera_aim_boost(), "its action is aiming once it has run");
+    check(!game_camera_hunter_aiming() && !game_camera_aim_boost(),
+        "the action it ran in is not aiming, so the right stick stays on the camera");
+}
 
-    plant_hunter(memory, 1u);
+// A sword and shield passes through 1001 as well, between its attacks and for
+// seconds at a time, and the aim function does not run there. The right stick
+// stays on the camera until that function runs for the hunter in 1001, and
+// goes back to it a couple of frames after it stops.
+void test_action_1001_without_the_aim_function() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    for (const CodeWord &word : aim_code_signature()) memory.store32(word.address, word.word);
+    f.runtime.register_function(0x09AA4DD0u, &aim_original, "recomp_unit_aim_1001");
+    plant_hunter(memory, 1001u);
+    f.frame(0.0f, 0.0f);
+    f.flip(1.0f, 0.0f);
+    check(!game_camera_hunter_aiming() && !game_camera_aim_boost(), "1001 alone is not the aim");
+    const auto yaw = memory.load16(camera_address + 0x80u);
+    f.update();
+    check(memory.load16(camera_address + 0x80u) != yaw, "the right stick still turns the camera in 1001");
+    check(game_camera_driving(), "and the port drives the camera");
+
+    f.ctx.gpr[4] = kHunter;
+    f.ctx.gpr[31] = 0x09C00000u;
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches");
     f.flip(0.0f, 0.0f);
-    check(!game_camera_aim_boost(), "another action is not aiming");
+    check(game_camera_hunter_aiming() && game_camera_aim_boost(), "once it runs in 1001, the hunter is aiming");
 
-    // Other words at that address are another overlay's code.
-    Fixture g;
-    g.enable();
-    auto &other = g.runtime.memory();
-    for (const CodeWord &word : action_aim_code_signature()) other.store32(word.address, word.word);
-    other.store32(0x09AAA188u, 0u);
-    g.runtime.register_function(0x09AAA158u, &aim_original, "recomp_unit_action_aim_other");
-    plant_hunter(other, 8u);
-    g.flip(0.0f, 0.0f);
-    check(g.runtime.function_at(0x09AAA158u) == &aim_original, "a different image is not wrapped");
+    f.flip(0.0f, 0.0f);
+    check(game_camera_hunter_aiming(), "a frame the aim function skips does not end the aim");
+    f.flip(0.0f, 0.0f);
+    check(!game_camera_hunter_aiming(), "once it has stopped running, the aim is over");
+
+    memory.store16(kHunter + kAction, 3u);
+    f.ctx.gpr[4] = kHunter;
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches in another action");
+    memory.store16(kHunter + kAction, 1001u);
+    f.flip(0.0f, 0.0f);
+    check(!game_camera_hunter_aiming(), "a call made in another action does not count for 1001");
 }
 
 // The aim camera reads the heading after the aim function returns. The game's
@@ -530,7 +603,6 @@ void test_aim_speed_follows_the_stick() {
     f.runtime.register_function(0x09AA4DD0u, &aim_steps_fast, "recomp_unit_aim_speed");
     plant_hunter(memory, 1001u);
     f.flip(0.0f, 0.0f);
-    check(game_camera_aim_boost(), "aiming is live before the follow camera runs");
     f.ctx.gpr[4] = kHunter;
     f.ctx.gpr[31] = 0x09C00000u;
 
@@ -538,6 +610,8 @@ void test_aim_speed_follows_the_stick() {
     check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches");
     check(memory.load16(kHunter + kHeading) == 10576u, "no stick scale leaves the game's own step");
     check(static_cast<std::int8_t>(memory.load8(kHunter + kPitch)) == 10, "and its own pitch step");
+    f.flip(0.0f, 0.0f);
+    check(game_camera_aim_boost(), "aiming is live before the follow camera runs");
 
     plant_hunter(memory, 1001u);
     f.flip(1.0f, 1.0f);
@@ -636,7 +710,9 @@ int main() {
     test_mouse_stock_turn();
     test_aim_stick_is_not_movement();
     test_action_aim_function();
+    test_action_1001_without_the_aim_function();
     test_bow_aim_presses_the_dpad();
+    test_bow_actions_of_another_weapon();
     test_aim_speed_follows_the_stick();
     test_proportional_aim();
     check(original_calls > 0u, "original camera update is called");
