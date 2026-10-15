@@ -25,6 +25,17 @@
 // stack upward from it. The closer the camera, the taller the monster on the
 // picture and the smaller the number is drawn, so it keeps to that point
 // rather than spreading over the body.
+//
+// In ad hoc play the hit routine runs only on the console that applies the
+// hit: for a large monster the one in charge of it, for a small monster the
+// attacker's. Every other console receives the new health from the network
+// and writes it without that routine. So each frame the health of every
+// monster on the quest entity list is read too, and a drop that the routine
+// did not make is shown as well: every player sees every hit. A call of the
+// status tick, when it is reached through the same watch, moves the health
+// the frame compares against, so a poison tick on this console stays hidden;
+// one received from another console cannot be told from a hit.
+// MHFU_DAMAGE_NUMBERS_HEALTH_WATCH=0 turns that reading off, for comparing.
 
 #include "psprecomp/guest_memory.hpp"
 
@@ -214,6 +225,43 @@ void watch_hit_enter(std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t
 
 // The signed health at object+kMonsterHealth, when that halfword is mapped.
 [[nodiscard]] std::optional<int> monster_health(const psprecomp::GuestMemory &memory, std::uint32_t object);
+
+// A monster's health as last known, and its most health, which tells a new
+// monster in the same place in memory from the old one.
+inline constexpr std::uint32_t kMonsterMostHealth = 0x41Eu;
+struct HealthSeen {
+    std::uint32_t object{};
+    int health{};
+    int most{};
+    std::uint32_t vtable{}; // for MHFU_TRACE_HITS
+    std::uint8_t kind{};    // the list node's type byte
+};
+
+// MHFU_DAMAGE_NUMBERS_HEALTH_WATCH: unset or anything but "0" is on.
+[[nodiscard]] bool parse_health_watch(const char *text) noexcept;
+[[nodiscard]] bool health_watch_enabled() noexcept;
+
+// Every entity on the quest entity list that is not a hunter and has a health
+// pool, small monsters included, with its health now. Empty outside a quest.
+// A hunter is a player node, or an entity with a player node's vtable: the
+// other players' hunters, which are on the list too, and whose health falls
+// when the monster hits them.
+[[nodiscard]] std::vector<HealthSeen> quest_health(const psprecomp::GuestMemory &memory);
+// The same rule for one entity. The hit routine also takes health off a
+// hunter a monster hits, and that drop is not shown either.
+[[nodiscard]] bool is_hunter(const psprecomp::GuestMemory &memory, std::uint32_t object);
+// A watched call took `object`'s health from `before` to `after`: the health
+// the next frame compares against moves by that much, so the drop is not
+// shown twice. Only by that much: the monster's own update calls the routine
+// every frame, and a drop written from the network just before it must still
+// show. A monster not seen yet is left for the frame to add.
+void note_change(std::vector<HealthSeen> &seen, std::uint32_t object, int before, int after);
+// One frame: a fall in health since `seen`, on a monster with the same most
+// health, is a hit applied elsewhere and becomes a number, the first in
+// `lane` and each next one a lane above. A monster seen for the first time,
+// healed, or with another most health shows nothing. `seen` becomes `now`.
+[[nodiscard]] std::vector<Number> watch_health(
+    std::vector<HealthSeen> &seen, const std::vector<HealthSeen> &now, int lane);
 
 // Once a flip, before the interface draws. Installs the hit watch while
 // `enabled` (or while MHFU_TRACE_HITS is set; game/hit_trace.hpp) and drops

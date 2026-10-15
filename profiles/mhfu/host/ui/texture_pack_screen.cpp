@@ -308,7 +308,7 @@ void review_screen(bool back) {
         info_row("Folder", utf8(c.folder));
         if (c.keys > 0u) {
             info_row("Textures",
-                count(c.keys, "key", "keys") + ", hash " + (c.hash == gpu::TexturePackHash::Xxh64 ? "xxh64" : "xxh32") +
+                count(c.keys, "key", "keys") + ", hash " + gpu::texture_pack_hash_name(c.hash) +
                     (c.ignore_address ? ", addresses ignored" : ""));
             info_row("Images",
                 count(c.images, "file", "files") + ", " + human_size(c.bytes) + " in all " +

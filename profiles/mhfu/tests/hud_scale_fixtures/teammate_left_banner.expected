@@ -1,0 +1,160 @@
+f=4100 at=0x899cea4 other tex=0x40cc000 (0,0)-(480,272) -> none not-owner
+f=4100 at=0x8a8c984 quest tex=0x9156ba0 (8,8)-(60,56) -> status shape (8,8)-(47,44)
+f=4100 at=0x8a8cb0c quest tex=0x915b5a0 (56,12)-(320,20) -> status shape (44,11)-(242,17)
+f=4100 at=0x8a8cb78 quest tex=0x9156ba0 (320,9)-(344,21) -> status shape (242,8.75)-(260,17.75)
+f=4100 at=0x8a8cba8 quest tex=0x0 (56,17)-(306,19) -> status shape (44,14.75)-(231.5,16.25)
+f=4100 at=0x8a8cc10 quest tex=0x915b620 (56,21)-(320,29) -> status shape (44,17.75)-(242,23.75)
+f=4100 at=0x8a8cc7c quest tex=0x9156ba0 (320,21)-(344,33) -> status shape (242,17.75)-(260,26.75)
+f=4100 at=0x8a8ccac quest tex=0x0 (56,22)-(320,24) -> status shape (44,18.5)-(242,20)
+f=4100 at=0x8a8cd18 quest tex=0x9156ba0 (60,32)-(104,40) -> sharpness shape (47,26)-(80,32)
+f=4100 at=0x8a8cd8c quest tex=0x9156ba0 (60,29)-(104,41) -> sharpness shape (47,23.75)-(80,32.75)
+f=4100 at=0x8a8ce00 quest tex=0x9156ba0 (8,56)-(24,72) -> status shape (8,44)-(20,56)
+f=4100 at=0x8a8ce74 quest tex=0x9156ba0 (24,56)-(96,72) -> status shape (20,44)-(74,56)
+f=4100 at=0x8a8cee8 quest tex=0x9156ba0 (96,56)-(104,72) -> status shape (74,44)-(80,56)
+f=4100 at=0x8a8cf54 quest tex=0x91874a0 (10,56)-(22,72) -> status shape (9.5,44)-(18.5,56)
+f=4100 at=0x8a92020 quest tex=0x40cc000 (26,58)-(34,72) -> status shape (21.5,45.5)-(27.5,56)
+f=4100 at=0x8a92088 quest tex=0x40cc000 (34,58)-(42,72) -> status shape (27.5,45.5)-(33.5,56)
+f=4100 at=0x8a920f0 quest tex=0x40cc000 (42,58)-(50,72) -> status shape (33.5,45.5)-(39.5,56)
+f=4100 at=0x8a8d028 quest tex=0x419c200 (318,92)-(358,132) -> map map-texture (243,122)-(303,182)
+f=4100 at=0x8a8d0a0 quest tex=0x91874a0 (351,165)-(363,177) -> map shape (292.5,231.5)-(310.5,249.5)
+f=4100 at=0x8a8d198 quest tex=0x9156ba0 (312,208)-(328,216) -> none piece-not-up was items
+f=4100 at=0x8a8d200 quest tex=0x9163c20 (328,208)-(456,216) -> items shape (292,194)-(452,204)
+f=4100 at=0x8a8d26c quest tex=0x9156ba0 (456,208)-(472,216) -> items shape (452,194)-(472,204)
+f=4100 at=0x8a8d2d4 quest tex=0x91643a0 (312,216)-(328,224) -> items shape (272,204)-(292,214)
+f=4100 at=0x8a8d33c quest tex=0x91644a0 (456,216)-(472,224) -> items shape (452,204)-(472,214)
+f=4100 at=0x8a8d3a4 quest tex=0x9164420 (328,216)-(456,224) -> items shape (292,204)-(452,214)
+f=4100 at=0x8a8d410 quest tex=0x9156ba0 (312,224)-(328,232) -> items shape (272,214)-(292,224)
+f=4100 at=0x8a8d478 quest tex=0x9164c20 (328,224)-(456,232) -> items shape (292,214)-(452,224)
+f=4100 at=0x8a8d4e4 quest tex=0x9156ba0 (456,224)-(472,232) -> items shape (452,214)-(472,224)
+f=4100 at=0x8a8d550 quest tex=0x9156ba0 (320,240)-(330,260) -> items shape (282,234)-(294.5,259)
+f=4100 at=0x8a8d5bc quest tex=0x9156ba0 (330,240)-(454,260) -> items shape (294.5,234)-(449.5,259)
+f=4100 at=0x8a8d628 quest tex=0x9156ba0 (454,240)-(464,260) -> items shape (449.5,234)-(462,259)
+f=4100 at=0x8a8d694 quest tex=0x9156ba0 (372,200)-(412,240) -> items shape (347,184)-(397,234)
+f=4100 at=0x8a8d700 quest tex=0x9156ba0 (402,224)-(426,240) -> items shape (384.5,214)-(414.5,234)
+f=4100 at=0x8a8d774 quest tex=0x9156ba0 (358,224)-(382,240) -> items shape (329.5,214)-(359.5,234)
+f=4100 at=0x8a8d7ec quest tex=0x9156ba0 (363,224)-(379,240) -> items shape (335.75,214)-(355.75,234)
+f=4100 at=0x8a8d858 quest tex=0x9156ba0 (320,212)-(340,228) -> items shape (282,199)-(307,219)
+f=4100 at=0x8a8d8c4 quest tex=0x91874a0 (376,202)-(408,234) -> items shape (352,186.5)-(392,226.5)
+f=4100 at=0x8a92188 quest tex=0x40cc000 (404,228)-(411,242) -> items shape (387,219)-(395.75,236.5)
+f=4100 at=0x8a921f0 quest tex=0x40cc000 (361,244)-(368,258) -> items shape (333.25,239)-(342,256.5)
+f=4100 at=0x8a92258 quest tex=0x40cc000 (368,244)-(375,258) -> items shape (342,239)-(350.75,256.5)
+f=4100 at=0x8a922c0 quest tex=0x40cc000 (375,244)-(382,258) -> items shape (350.75,239)-(359.5,256.5)
+f=4100 at=0x8a92328 quest tex=0x40cc000 (382,244)-(389,258) -> items shape (359.5,239)-(368.25,256.5)
+f=4100 at=0x8a92390 quest tex=0x40cc000 (389,244)-(396,258) -> items shape (368.25,239)-(377,256.5)
+f=4100 at=0x8a923f8 quest tex=0x40cc000 (396,244)-(403,258) -> items shape (377,239)-(385.75,256.5)
+f=4100 at=0x8a92460 quest tex=0x40cc000 (403,244)-(410,258) -> items shape (385.75,239)-(394.5,256.5)
+f=4100 at=0x8a924c8 quest tex=0x40cc000 (410,244)-(417,258) -> items shape (394.5,239)-(403.25,256.5)
+f=4100 at=0x8a92530 quest tex=0x40cc000 (417,244)-(424,258) -> items shape (403.25,239)-(412,256.5)
+f=4100 at=0x8a8d99c quest tex=0x9156ba0 (104,120)-(120,128) -> none no-piece
+f=4100 at=0x8a8da04 quest tex=0x9163c20 (120,120)-(360,128) -> none no-piece
+f=4100 at=0x8a8da70 quest tex=0x9156ba0 (360,120)-(376,128) -> none no-piece
+f=4100 at=0x8a8dad8 quest tex=0x91643a0 (104,128)-(120,144) -> none no-piece
+f=4100 at=0x8a8db40 quest tex=0x91644a0 (360,128)-(376,144) -> none notice-border was map
+f=4100 at=0x8a8dba8 quest tex=0x9164420 (120,128)-(360,144) -> none no-piece
+f=4100 at=0x8a8dc14 quest tex=0x9156ba0 (104,144)-(120,152) -> none no-piece
+f=4100 at=0x8a8dc7c quest tex=0x9164c20 (120,144)-(360,152) -> none no-piece
+f=4100 at=0x8a8dce8 quest tex=0x9156ba0 (360,144)-(376,152) -> none no-piece
+f=4100 at=0x8a925c8 quest tex=0x40cc000 (118,129)-(126,143) -> none no-piece
+f=4100 at=0x8a92630 quest tex=0x40cc000 (126,129)-(134,143) -> none no-piece
+f=4100 at=0x8a92698 quest tex=0x40cc000 (134,129)-(142,143) -> none no-piece
+f=4100 at=0x8a92700 quest tex=0x40cc000 (188,129)-(195,143) -> none no-piece
+f=4100 at=0x8a92768 quest tex=0x40cc000 (195,129)-(202,143) -> none no-piece
+f=4100 at=0x8a927d0 quest tex=0x40cc000 (202,129)-(209,143) -> none no-piece
+f=4100 at=0x8a92838 quest tex=0x40cc000 (209,129)-(216,143) -> none no-piece
+f=4100 at=0x8a928a0 quest tex=0x40cc000 (216,129)-(223,143) -> none no-piece
+f=4100 at=0x8a92908 quest tex=0x40cc000 (230,129)-(237,143) -> none no-piece
+f=4100 at=0x8a92970 quest tex=0x40cc000 (237,129)-(244,143) -> none no-piece
+f=4100 at=0x8a929d8 quest tex=0x40cc000 (244,129)-(251,143) -> none no-piece
+f=4100 at=0x8a92a40 quest tex=0x40cc000 (258,129)-(265,143) -> none no-piece
+f=4100 at=0x8a92aa8 quest tex=0x40cc000 (265,129)-(272,143) -> none no-piece
+f=4100 at=0x8a92b10 quest tex=0x40cc000 (272,129)-(279,143) -> none no-piece
+f=4100 at=0x8a92b78 quest tex=0x40cc000 (279,129)-(286,143) -> none no-piece
+f=4100 at=0x8a92be0 quest tex=0x40cc000 (293,129)-(300,143) -> none no-piece
+f=4100 at=0x8a92c48 quest tex=0x40cc000 (300,129)-(307,143) -> none no-piece
+f=4100 at=0x8a92cb0 quest tex=0x40cc000 (307,129)-(314,143) -> none no-piece
+f=4100 at=0x8a92d18 quest tex=0x40cc000 (321,129)-(328,143) -> none no-piece
+f=4100 at=0x8a92d80 quest tex=0x40cc000 (328,129)-(335,143) -> none no-piece
+f=4100 at=0x8a92de8 quest tex=0x40cc000 (335,129)-(342,143) -> none no-piece
+f=4100 at=0x8a92e50 quest tex=0x40cc000 (342,129)-(349,143) -> none no-piece
+f=4100 at=0x8a92eb8 quest tex=0x40cc000 (349,129)-(356,143) -> none no-piece
+f=4100 at=0x8a92f20 quest tex=0x40cc000 (356,129)-(363,143) -> none no-piece
+f=4101 at=0x899ce74 other tex=0x40cc000 (0,0)-(480,272) -> none not-owner
+f=4101 at=0x8acc984 quest tex=0x9156ba0 (8,8)-(60,56) -> status shape (8,8)-(47,44)
+f=4101 at=0x8accb0c quest tex=0x915b5a0 (56,12)-(320,20) -> status shape (44,11)-(242,17)
+f=4101 at=0x8accb78 quest tex=0x9156ba0 (320,9)-(344,21) -> status shape (242,8.75)-(260,17.75)
+f=4101 at=0x8accba8 quest tex=0x0 (56,17)-(306,19) -> status shape (44,14.75)-(231.5,16.25)
+f=4101 at=0x8accc10 quest tex=0x915b620 (56,21)-(320,29) -> status shape (44,17.75)-(242,23.75)
+f=4101 at=0x8accc7c quest tex=0x9156ba0 (320,21)-(344,33) -> status shape (242,17.75)-(260,26.75)
+f=4101 at=0x8acccac quest tex=0x0 (56,22)-(320,24) -> status shape (44,18.5)-(242,20)
+f=4101 at=0x8accd18 quest tex=0x9156ba0 (60,32)-(104,40) -> sharpness shape (47,26)-(80,32)
+f=4101 at=0x8accd8c quest tex=0x9156ba0 (60,29)-(104,41) -> sharpness shape (47,23.75)-(80,32.75)
+f=4101 at=0x8acce00 quest tex=0x9156ba0 (8,56)-(24,72) -> status shape (8,44)-(20,56)
+f=4101 at=0x8acce74 quest tex=0x9156ba0 (24,56)-(96,72) -> status shape (20,44)-(74,56)
+f=4101 at=0x8accee8 quest tex=0x9156ba0 (96,56)-(104,72) -> status shape (74,44)-(80,56)
+f=4101 at=0x8accf54 quest tex=0x91874a0 (10,56)-(22,72) -> status shape (9.5,44)-(18.5,56)
+f=4101 at=0x8ad2020 quest tex=0x40cc000 (26,58)-(34,72) -> status shape (21.5,45.5)-(27.5,56)
+f=4101 at=0x8ad2088 quest tex=0x40cc000 (34,58)-(42,72) -> status shape (27.5,45.5)-(33.5,56)
+f=4101 at=0x8ad20f0 quest tex=0x40cc000 (42,58)-(50,72) -> status shape (33.5,45.5)-(39.5,56)
+f=4101 at=0x8acd028 quest tex=0x419c200 (318,92)-(358,132) -> map map-texture (243,122)-(303,182)
+f=4101 at=0x8acd0a0 quest tex=0x91874a0 (351,165)-(363,177) -> map shape (292.5,231.5)-(310.5,249.5)
+f=4101 at=0x8acd198 quest tex=0x9156ba0 (312,208)-(328,216) -> items shape (272,194)-(292,204)
+f=4101 at=0x8acd200 quest tex=0x9163c20 (328,208)-(456,216) -> items shape (292,194)-(452,204)
+f=4101 at=0x8acd26c quest tex=0x9156ba0 (456,208)-(472,216) -> items shape (452,194)-(472,204)
+f=4101 at=0x8acd2d4 quest tex=0x91643a0 (312,216)-(328,224) -> items shape (272,204)-(292,214)
+f=4101 at=0x8acd33c quest tex=0x91644a0 (456,216)-(472,224) -> items shape (452,204)-(472,214)
+f=4101 at=0x8acd3a4 quest tex=0x9164420 (328,216)-(456,224) -> items shape (292,204)-(452,214)
+f=4101 at=0x8acd410 quest tex=0x9156ba0 (312,224)-(328,232) -> items shape (272,214)-(292,224)
+f=4101 at=0x8acd478 quest tex=0x9164c20 (328,224)-(456,232) -> items shape (292,214)-(452,224)
+f=4101 at=0x8acd4e4 quest tex=0x9156ba0 (456,224)-(472,232) -> items shape (452,214)-(472,224)
+f=4101 at=0x8acd550 quest tex=0x9156ba0 (320,240)-(330,260) -> items shape (282,234)-(294.5,259)
+f=4101 at=0x8acd5bc quest tex=0x9156ba0 (330,240)-(454,260) -> items shape (294.5,234)-(449.5,259)
+f=4101 at=0x8acd628 quest tex=0x9156ba0 (454,240)-(464,260) -> items shape (449.5,234)-(462,259)
+f=4101 at=0x8acd694 quest tex=0x9156ba0 (372,200)-(412,240) -> items shape (347,184)-(397,234)
+f=4101 at=0x8acd700 quest tex=0x9156ba0 (402,224)-(426,240) -> items shape (384.5,214)-(414.5,234)
+f=4101 at=0x8acd774 quest tex=0x9156ba0 (358,224)-(382,240) -> items shape (329.5,214)-(359.5,234)
+f=4101 at=0x8acd7ec quest tex=0x9156ba0 (363,224)-(379,240) -> items shape (335.75,214)-(355.75,234)
+f=4101 at=0x8acd858 quest tex=0x9156ba0 (320,212)-(340,228) -> items shape (282,199)-(307,219)
+f=4101 at=0x8acd8c4 quest tex=0x91874a0 (376,202)-(408,234) -> items shape (352,186.5)-(392,226.5)
+f=4101 at=0x8ad2188 quest tex=0x40cc000 (404,228)-(411,242) -> items shape (387,219)-(395.75,236.5)
+f=4101 at=0x8ad21f0 quest tex=0x40cc000 (361,244)-(368,258) -> items shape (333.25,239)-(342,256.5)
+f=4101 at=0x8ad2258 quest tex=0x40cc000 (368,244)-(375,258) -> items shape (342,239)-(350.75,256.5)
+f=4101 at=0x8ad22c0 quest tex=0x40cc000 (375,244)-(382,258) -> items shape (350.75,239)-(359.5,256.5)
+f=4101 at=0x8ad2328 quest tex=0x40cc000 (382,244)-(389,258) -> items shape (359.5,239)-(368.25,256.5)
+f=4101 at=0x8ad2390 quest tex=0x40cc000 (389,244)-(396,258) -> items shape (368.25,239)-(377,256.5)
+f=4101 at=0x8ad23f8 quest tex=0x40cc000 (396,244)-(403,258) -> items shape (377,239)-(385.75,256.5)
+f=4101 at=0x8ad2460 quest tex=0x40cc000 (403,244)-(410,258) -> items shape (385.75,239)-(394.5,256.5)
+f=4101 at=0x8ad24c8 quest tex=0x40cc000 (410,244)-(417,258) -> items shape (394.5,239)-(403.25,256.5)
+f=4101 at=0x8ad2530 quest tex=0x40cc000 (417,244)-(424,258) -> items shape (403.25,239)-(412,256.5)
+f=4101 at=0x8acd99c quest tex=0x9156ba0 (104,120)-(120,128) -> none no-piece
+f=4101 at=0x8acda04 quest tex=0x9163c20 (120,120)-(360,128) -> none no-piece
+f=4101 at=0x8acda70 quest tex=0x9156ba0 (360,120)-(376,128) -> none no-piece
+f=4101 at=0x8acdad8 quest tex=0x91643a0 (104,128)-(120,144) -> none no-piece
+f=4101 at=0x8acdb40 quest tex=0x91644a0 (360,128)-(376,144) -> none notice-border was map
+f=4101 at=0x8acdba8 quest tex=0x9164420 (120,128)-(360,144) -> none no-piece
+f=4101 at=0x8acdc14 quest tex=0x9156ba0 (104,144)-(120,152) -> none no-piece
+f=4101 at=0x8acdc7c quest tex=0x9164c20 (120,144)-(360,152) -> none no-piece
+f=4101 at=0x8acdce8 quest tex=0x9156ba0 (360,144)-(376,152) -> none no-piece
+f=4101 at=0x8ad25c8 quest tex=0x40cc000 (118,129)-(126,143) -> none no-piece
+f=4101 at=0x8ad2630 quest tex=0x40cc000 (126,129)-(134,143) -> none no-piece
+f=4101 at=0x8ad2698 quest tex=0x40cc000 (134,129)-(142,143) -> none no-piece
+f=4101 at=0x8ad2700 quest tex=0x40cc000 (188,129)-(195,143) -> none no-piece
+f=4101 at=0x8ad2768 quest tex=0x40cc000 (195,129)-(202,143) -> none no-piece
+f=4101 at=0x8ad27d0 quest tex=0x40cc000 (202,129)-(209,143) -> none no-piece
+f=4101 at=0x8ad2838 quest tex=0x40cc000 (209,129)-(216,143) -> none no-piece
+f=4101 at=0x8ad28a0 quest tex=0x40cc000 (216,129)-(223,143) -> none no-piece
+f=4101 at=0x8ad2908 quest tex=0x40cc000 (230,129)-(237,143) -> none no-piece
+f=4101 at=0x8ad2970 quest tex=0x40cc000 (237,129)-(244,143) -> none no-piece
+f=4101 at=0x8ad29d8 quest tex=0x40cc000 (244,129)-(251,143) -> none no-piece
+f=4101 at=0x8ad2a40 quest tex=0x40cc000 (258,129)-(265,143) -> none no-piece
+f=4101 at=0x8ad2aa8 quest tex=0x40cc000 (265,129)-(272,143) -> none no-piece
+f=4101 at=0x8ad2b10 quest tex=0x40cc000 (272,129)-(279,143) -> none no-piece
+f=4101 at=0x8ad2b78 quest tex=0x40cc000 (279,129)-(286,143) -> none no-piece
+f=4101 at=0x8ad2be0 quest tex=0x40cc000 (293,129)-(300,143) -> none no-piece
+f=4101 at=0x8ad2c48 quest tex=0x40cc000 (300,129)-(307,143) -> none no-piece
+f=4101 at=0x8ad2cb0 quest tex=0x40cc000 (307,129)-(314,143) -> none no-piece
+f=4101 at=0x8ad2d18 quest tex=0x40cc000 (321,129)-(328,143) -> none no-piece
+f=4101 at=0x8ad2d80 quest tex=0x40cc000 (328,129)-(335,143) -> none no-piece
+f=4101 at=0x8ad2de8 quest tex=0x40cc000 (335,129)-(342,143) -> none no-piece
+f=4101 at=0x8ad2e50 quest tex=0x40cc000 (342,129)-(349,143) -> none no-piece
+f=4101 at=0x8ad2eb8 quest tex=0x40cc000 (349,129)-(356,143) -> none no-piece
+f=4101 at=0x8ad2f20 quest tex=0x40cc000 (356,129)-(363,143) -> none no-piece

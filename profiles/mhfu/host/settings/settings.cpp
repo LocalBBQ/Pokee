@@ -126,6 +126,8 @@ const Names<FrameRate> kFrameRates{{{FrameRate::Fps30, "30"}, {FrameRate::Fps45,
 const Names<GpuCompat> kGpuCompats{{{GpuCompat::Auto, "auto"}, {GpuCompat::On, "on"}, {GpuCompat::Off, "off"}}};
 const Names<UiTextures> kUiTextures{
     {{UiTextures::Off, "off"}, {UiTextures::Sharp, "sharp"}, {UiTextures::Mmpx, "mmpx"}}};
+const Names<PackButtons> kPackButtons{{{PackButtons::Auto, "auto"}, {PackButtons::Pack, "pack"},
+    {PackButtons::Xbox, "xbox"}, {PackButtons::PlayStation, "playstation"}, {PackButtons::Nintendo, "nintendo"}}};
 
 // Written by earlier versions: 1 typed the name into the window, which the
 // on-screen keyboard now covers.
@@ -224,6 +226,12 @@ const std::vector<Field> &fields() {
                 return true;
             },
             [](const Settings &s) { return s.texture_pack_folder; }, nullptr},
+        {"video.texture_pack_buttons", "MHFU_TEXTURE_PACK_BUTTONS",
+            [](Settings &s, const std::string &t) { return kPackButtons.parse(t, s.texture_pack_buttons); },
+            [](const Settings &s) { return kPackButtons.format(s.texture_pack_buttons); },
+            [](Settings &s, const char *t) {
+                if (!kPackButtons.parse(t, s.texture_pack_buttons)) s.texture_pack_buttons = PackButtons::Auto;
+            }},
         {"video.unthrottled", "MHFU_UNTHROTTLED",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.unthrottled); },
             [](const Settings &s) { return std::string(s.unthrottled ? "1" : "0"); },

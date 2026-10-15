@@ -1301,6 +1301,96 @@ void test_interface_sizes() {
             !mhfu::gpu::hud_scale::is_party_column_icon({4.0f, 96.0f, 36.0f, 108.0f}) &&
             !mhfu::gpu::hud_scale::is_party_column_icon({4.0f, 116.0f, 36.0f, 128.0f}),
         "the other hunters' weapon badges are not party-column icons");
+    // A teammate's health line, traced at (26, 90)-(98, 92) under the second
+    // name, whose plate is (24, 76)-(96, 92). Two pixels tall, it still moves
+    // with that plate, so its bottom stays on the plate's bottom.
+    const auto status_125 = mhfu::gpu::hud_scale::Scales::from_percent(100u, 125u, 100u);
+    Frame health_line;
+    health_line.note({8.0f, 8.0f, 60.0f, 56.0f});
+    std::vector<Vertex> line(6, Vertex{26.0f, 90.0f});
+    line[2] = {98.0f, 92.0f};
+    std::vector<Vertex> line_plate(6, Vertex{24.0f, 76.0f});
+    line_plate[2] = {96.0f, 92.0f};
+    line.insert(line.end(), line_plate.begin(), line_plate.end());
+    mhfu::gpu::hud_scale::scale_quads(line, status_125, health_line);
+    check(line[0].x == 30.5f && line[0].y == 110.5f && line[2].x == 120.5f && line[2].y == 113.0f &&
+            line[6].x == 28.0f && line[6].y == 93.0f && line[8].x == 118.0f && line[8].y == 113.0f,
+        "a teammate's health line moves with its name plate at 125%");
+    std::vector<Vertex> short_line(6, Vertex{26.0f, 110.0f});
+    short_line[2] = {40.0f, 112.0f};
+    mhfu::gpu::hud_scale::scale_quads(short_line, group_half, health_line);
+    check(short_line[0].x == 17.0f && short_line[0].y == 59.0f && short_line[2].x == 24.0f &&
+            short_line[2].y == 60.0f,
+        "a low health line on the third name shrinks toward the clock with it");
+    check(mhfu::gpu::hud_scale::piece_of({26.0f, 90.0f, 98.0f, 92.0f}) == mhfu::gpu::hud_scale::Piece::Vitals,
+        "the health line is part of Status");
+    check(mhfu::gpu::hud_scale::piece_of({200.0f, 90.0f, 272.0f, 92.0f}) == mhfu::gpu::hud_scale::Piece::None &&
+            mhfu::gpu::hud_scale::piece_of({26.0f, 160.0f, 98.0f, 162.0f}) == mhfu::gpu::hud_scale::Piece::None,
+        "a line of that shape away from the name plates is not one");
+    // The name over another hunter crosses the party list in the same 8 by
+    // 14 letters. Traced at (55, 77), (60, 56), (26, 99) and (49, 104); the
+    // list's own letters start at y 58 and 78.
+    using mhfu::gpu::hud_scale::piece_of;
+    using mhfu::gpu::hud_scale::Piece;
+    check(piece_of({26.0f, 58.0f, 34.0f, 72.0f}) == Piece::Vitals && piece_of({42.0f, 78.0f, 50.0f, 92.0f}) == Piece::Vitals,
+        "the party list's own letters are Status");
+    check(piece_of({55.0f, 77.0f, 63.0f, 91.0f}) == Piece::None && piece_of({26.0f, 99.0f, 34.0f, 113.0f}) == Piece::None &&
+            piece_of({49.0f, 104.0f, 57.0f, 118.0f}) == Piece::None && piece_of({60.0f, 63.0f, 68.0f, 77.0f}) == Piece::None,
+        "an overhead name's letters off the party rows are not Status");
+    check(piece_of({63.0f, 116.0f, 71.0f, 130.0f}) == Piece::None && piece_of({46.0f, 58.0f, 54.0f, 72.0f}) == Piece::None &&
+            piece_of({140.0f, 72.0f, 148.0f, 86.0f}) == Piece::None && piece_of({21.0f, 110.0f, 29.0f, 124.0f}) == Piece::None,
+        "nor on a row but off the letters' 8-pixel grid, past the Felyne's row, or at the badge column's edge");
+    check(piece_of({160.0f, 56.0f, 168.0f, 70.0f}) == Piece::Vitals && piece_of({120.0f, 78.0f, 128.0f, 92.0f}) == Piece::Vitals,
+        "a cat's name beside its hunter, past the plate, is still the list");
+    check(piece_of({96.0f, 76.0f, 104.0f, 92.0f}) == Piece::Vitals && piece_of({8.0f, 78.0f, 16.0f, 92.0f}) == Piece::Vitals,
+        "a plate's 8 by 16 end and the cat's letter-sized cell stay Status");
+    Frame overhead;
+    overhead.note({8.0f, 8.0f, 60.0f, 56.0f});
+    std::vector<Vertex> passing(6, Vertex{55.0f, 77.0f});
+    passing[2] = {63.0f, 91.0f};
+    mhfu::gpu::hud_scale::scale_quads(passing, status_125, overhead);
+    check(passing[0].x == 55.0f && passing[0].y == 77.0f && passing[2].x == 63.0f && passing[2].y == 91.0f,
+        "an overhead name crossing the party list stays where the game drew it");
+
+    {
+    // A window over the area map, traced at (344, 48)-(456, 160): the side,
+    // the body and the corners from the mark atlas all stay as drawn, while
+    // the map itself and its marks still take the Map size without it.
+    const auto map_60 = mhfu::gpu::hud_scale::Scales::from_percent(60u, 100u, 100u);
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    Frame with_panel;
+    with_panel.note({8.0f, 8.0f, 60.0f, 56.0f});
+    std::vector<Vertex> map_window = quad(333.0f, 148.0f, 373.0f, 182.0f);
+    mhfu::gpu::hud_scale::scale_quads(map_window, map_60, with_panel, mhfu::gpu::hud_scale::kAreaMapTexture);
+    check(map_window[0].x != 333.0f, "the map's own window takes the Map size");
+    std::vector<Vertex> mark = quad(345.0f, 162.0f, 361.0f, 177.0f);
+    Frame mark_frame = with_panel;
+    mhfu::gpu::hud_scale::scale_quads(mark, map_60, mark_frame, mhfu::gpu::hud_scale::kMapIconTexture);
+    check(mark[0].x != 345.0f, "a mark on the map takes the Map size while no window is over it");
+    std::vector<Vertex> panel = quad(344.0f, 48.0f, 360.0f, 160.0f);
+    const std::vector<Vertex> body = quad(360.0f, 48.0f, 456.0f, 160.0f);
+    const std::vector<Vertex> corner = quad(344.0f, 47.0f, 357.0f, 61.0f);
+    panel.insert(panel.end(), body.begin(), body.end());
+    mhfu::gpu::hud_scale::scale_quads(panel, map_60, with_panel, 0x09165C20u);
+    check(panel[0].x == 344.0f && panel[0].y == 48.0f && panel[8].x == 456.0f && panel[8].y == 160.0f,
+        "a window over the map keeps its side and body where the game drew them");
+    std::vector<Vertex> panel_corner = corner;
+    mhfu::gpu::hud_scale::scale_quads(panel_corner, map_60, with_panel, mhfu::gpu::hud_scale::kMapIconTexture);
+    check(panel_corner[0].x == 344.0f && panel_corner[0].y == 47.0f, "the window's corner from the mark atlas stays");
+    with_panel.begin();
+    std::vector<Vertex> next_corner = corner;
+    mhfu::gpu::hud_scale::scale_quads(next_corner, map_60, with_panel, mhfu::gpu::hud_scale::kMapIconTexture);
+    check(next_corner[0].x == 344.0f, "and stays in the next frame, drawn before the window's body");
+    std::vector<Vertex> still_map = quad(333.0f, 148.0f, 373.0f, 182.0f);
+    mhfu::gpu::hud_scale::scale_quads(still_map, map_60, with_panel, mhfu::gpu::hud_scale::kAreaMapTexture);
+    check(still_map[0].x != 333.0f, "the map's own window under it still takes the Map size");
+    check(!mhfu::gpu::hud_scale::is_map_panel({312.0f, 128.0f, 472.0f, 264.0f}, 0u),
+        "the ammo menu reaching below the map is not a window over it");
+    }
     // Quest details letters share a name's size and cross the buff band. They
     // stay where the window drew them.
     Frame details;
@@ -1633,8 +1723,11 @@ void test_interface_sizes() {
     check(lone_title[0].x == 349.0f && lone_title[0].y == 140.0f, "without the ammo menu that corner is left alone");
 
     // The menu's first sprite, its frame's top-left corner, opens it in the
-    // same frame, and the arrow above the frame moves with it.
+    // same frame, and the arrow above the frame moves with it. It opens from
+    // the ammo bar, drawn the frame before.
     Frame opening;
+    opening.note({312.0f, 184.0f, 472.0f, 200.0f});
+    opening.begin();
     opening.note({8.0f, 8.0f, 60.0f, 56.0f});
     std::vector<Vertex> corner(6, Vertex{312.0f, 128.0f});
     corner[2] = {328.0f, 136.0f};
@@ -1655,6 +1748,42 @@ void test_interface_sizes() {
     closed_corner[2] = {328.0f, 216.0f};
     mhfu::gpu::hud_scale::scale_quads(closed_corner, bar_half, bar_closed);
     check(!bar_closed.ammo_menu_now, "the closed item bar's corner is not the ammo menu");
+
+    // Combine in a quest: the Material B window's 16 by 8 corner sits on
+    // the ammo menu's corner, and the item list's lower rows sit inside the
+    // menu's rectangle. The menu draws its side or highlight every frame;
+    // Combine never does, and there is no ammo bar, so its rows stay as
+    // drawn. Its first frame used to open the menu: picking the first
+    // material shrank the whole list for a frame.
+    Frame combine;
+    const auto combine_frame = [&](bool body) {
+        combine.begin();
+        combine.note({8.0f, 8.0f, 60.0f, 56.0f});
+        std::vector<Vertex> tile(6, Vertex{312.0f, 128.0f});
+        tile[2] = {328.0f, 136.0f};
+        mhfu::gpu::hud_scale::scale_quads(tile, bar_half, combine);
+        if (body) {
+            std::vector<Vertex> side(6, Vertex{312.0f, 136.0f});
+            side[2] = {328.0f, 256.0f};
+            mhfu::gpu::hud_scale::scale_quads(side, bar_half, combine);
+        }
+        std::vector<Vertex> row(6, Vertex{338.0f, 160.0f});
+        row[2] = {345.0f, 174.0f};
+        mhfu::gpu::hud_scale::scale_quads(row, bar_half, combine);
+        return row[0];
+    };
+    const Vertex first_row = combine_frame(false);
+    check(first_row.x == 338.0f && first_row.y == 160.0f && !combine.ammo_menu_now,
+        "a lone corner with no ammo bar does not open the ammo menu, even in its first frame");
+    const Vertex held_row = combine_frame(false);
+    check(held_row.x == 338.0f && held_row.y == 160.0f && !combine.ammo_menu_now,
+        "a corner held with no menu body is not the ammo menu, so the Combine list stays as drawn");
+    combine_frame(false);
+    const Vertex reopened_row = combine_frame(true);
+    check(reopened_row.x == 405.0f && reopened_row.y == 212.0f, "the menu's side opens it again under a held corner");
+    const Vertex open_row = combine_frame(false);
+    check(open_row.x == 405.0f && open_row.y == 212.0f,
+        "a corner after a frame with the menu's body keeps the menu open");
 
     // A shop panel in the item bar's corner. Without the quest clock it is
     // not the bar, so the Items size leaves it where the game drew it.
@@ -1884,6 +2013,33 @@ void test_hud_scale_draws() {
     check(labelled[0].x == 8.0f && labelled[0].y == 42.0f && labelled[2].x == 14.0f && labelled[2].y == 47.5f &&
             labelled[6].x == 42.0f && labelled[6].y == 79.0f && labelled[8].x == 46.0f && labelled[8].y == 86.0f,
         "the face in a name draw takes Status and the letters take Names");
+    // A letter of a name over a teammate that crosses the party column, in
+    // the face's cell, is still a letter: it takes Names about the name's
+    // point and nothing from Status.
+    NameDraw crossing = cat_name;
+    crossing.glyph = true;
+    std::vector<Vertex> letter = quad(8.0f, 76.0f, 20.0f, 87.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(letter, both_half, clock_up, crossing, InterfaceFit{});
+    check(letter[0].x == 26.0f && letter[0].y == 81.0f && letter[2].x == 32.0f && letter[2].y == 86.5f,
+        "a name's letter crossing the party column takes Names, not Status");
+
+    // Between game frames a name's letter is paired with the same letter of
+    // the same name in the newer frame, on the nearest point.
+    using mhfu::gpu::hud_scale::NamePlace;
+    const NamePlace o{100.0f, 60.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u};
+    std::vector<NamePlace> newer = {
+        {300.0f, 60.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u}, // the same letter of another hunter's name
+        {104.0f, 62.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u}, // this name, moved a little
+        {104.0f, 62.0f, 16.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u}, // the same letter later in the name
+        {104.0f, 62.0f, 8.0f, 0.0f, 0.50f, 0.5f, 0x40CC000u, 6u}, // another letter in that place
+    };
+    check(mhfu::gpu::hud_scale::match_name_place(o, newer) == 1,
+        "a name's letter pairs with the same letter, place and nearest name");
+    newer.erase(newer.begin() + 1);
+    check(mhfu::gpu::hud_scale::match_name_place(o, newer) == -1,
+        "without that name in the newer frame, nothing far away or different is taken");
+    newer.push_back({100.0f, 60.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x91874A0u, 6u});
+    check(mhfu::gpu::hud_scale::match_name_place(o, newer) == -1, "another texture is not the same letter");
     check(letters && letters->x0 == 42.0f && letters->x1 == 46.0f,
         "only the name's letters are reported for the scissor");
     // Under Fill the face is told apart in the game's pixels. At Status 100%
@@ -1958,6 +2114,147 @@ void test_aim_reticle_is_not_a_map_mark() {
     std::vector<Vertex> after = quad(420.0f, 60.0f, 444.0f, 84.0f);
     scale_quads(after, map_half, aiming, kReticle, Owner::QuestHud);
     check(after[0].x != 420.0f, "after the aim that size is a mark again");
+
+    // The font and the HUD atlas are shared. Traced with
+    // MHFU_TRACE_HUD_SCALE=all in a quest: a letter of a name over a hunter
+    // and a 16 by 8 tile near the middle were learned as the reticle while
+    // aiming, and the party list's letters and the item bar's corners then
+    // kept the game's size. A learned reticle only keeps a sprite off the map.
+    constexpr std::uint32_t kFont = 0x040CC000u;
+    constexpr std::uint32_t kAtlas = 0x09156BA0u;
+    const Scales sizes = Scales::from_percent(60u, 75u, 65u);
+    Frame shared;
+    shared.aiming = true;
+    std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(clock, sizes, shared, kAtlas, Owner::QuestHud);
+    std::vector<Vertex> bar = quad(328.0f, 208.0f, 456.0f, 216.0f);
+    scale_quads(bar, sizes, shared, 0x09163C20u, Owner::QuestHud);
+    std::vector<Vertex> overhead = quad(205.0f, 128.0f, 213.0f, 142.0f);
+    scale_quads(overhead, sizes, shared, kFont, Owner::QuestHud);
+    std::vector<Vertex> tile = quad(232.0f, 140.0f, 248.0f, 148.0f);
+    scale_quads(tile, sizes, shared, kAtlas, Owner::QuestHud);
+    check(overhead[0].x == 205.0f && tile[0].x == 232.0f, "the letter and the tile in the middle stay as drawn");
+    std::vector<Vertex> letter = quad(26.0f, 58.0f, 34.0f, 72.0f);
+    scale_quads(letter, sizes, shared, kFont, Owner::QuestHud);
+    check(letter[0].x != 26.0f, "a party name's letter of the reticle's size still takes Status while aiming");
+    std::vector<Vertex> corner = quad(312.0f, 208.0f, 328.0f, 216.0f);
+    scale_quads(corner, sizes, shared, kAtlas, Owner::QuestHud);
+    check(corner[0].x != 312.0f, "an item bar corner of the reticle's size still takes the item bar's size");
+}
+
+// Quest windows on their first frame, before the frame state knows they are
+// up. Traced with MHFU_TRACE_HUD_SCALE=all in an ad hoc quest.
+void test_quest_windows_keep_their_pieces() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const auto stays = [](const std::vector<Vertex> &q, float x0, float y0) { return q[0].x == x0 && q[0].y == y0; };
+    const Scales sizes = Scales::from_percent(60u, 75u, 65u);
+    Frame frame;
+    std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(clock, sizes, frame, 0x09156BA0u, Owner::QuestHud);
+    std::vector<Vertex> tile = quad(316.0f, 32.0f, 468.0f, 184.0f);
+    scale_quads(tile, sizes, frame, mhfu::gpu::hud_scale::kAreaMapTexture, Owner::QuestHud);
+    std::vector<Vertex> bar = quad(328.0f, 208.0f, 456.0f, 216.0f);
+    scale_quads(bar, sizes, frame, 0x09163C20u, Owner::QuestHud);
+
+    // "Lou broke off from the group!": the item bar's frame, in the middle.
+    std::vector<Vertex> left = quad(104.0f, 128.0f, 120.0f, 144.0f);
+    scale_quads(left, sizes, frame, 0x091643A0u, Owner::QuestHud);
+    check(stays(left, 104.0f, 128.0f), "the banner's left side is not a status icon");
+    std::vector<Vertex> item_side = quad(312.0f, 216.0f, 328.0f, 224.0f);
+    scale_quads(item_side, sizes, frame, 0x091643A0u, Owner::QuestHud);
+    check(!stays(item_side, 312.0f, 216.0f), "the same frame in the item bar's place is still the item bar");
+
+    // A list window over the map draws its side before its body.
+    std::vector<Vertex> side = quad(344.0f, 48.0f, 360.0f, 160.0f);
+    scale_quads(side, sizes, frame, 0x09165BA0u, Owner::QuestHud);
+    check(stays(side, 344.0f, 48.0f), "a window's side over the map is not a mark on it");
+    std::vector<Vertex> mark = quad(351.0f, 165.0f, 363.0f, 177.0f);
+    scale_quads(mark, sizes, frame, mhfu::gpu::hud_scale::kMapIconTexture, Owner::QuestHud);
+    check(!stays(mark, 351.0f, 165.0f), "a mark on the map still takes the map's size");
+
+    // Its title strip, a row above where the ammo bar is drawn.
+    std::vector<Vertex> strip = quad(312.0f, 176.0f, 456.0f, 192.0f);
+    scale_quads(strip, sizes, frame, 0x09165C20u, Owner::QuestHud);
+    std::vector<Vertex> edge = quad(312.0f, 192.0f, 456.0f, 200.0f);
+    scale_quads(edge, sizes, frame, 0x09166420u, Owner::QuestHud);
+    check(stays(strip, 312.0f, 176.0f) && stays(edge, 312.0f, 192.0f), "a window's title strip is not the ammo bar");
+    Frame gun;
+    std::vector<Vertex> gun_clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(gun_clock, sizes, gun, 0x09156BA0u, Owner::QuestHud);
+    std::vector<Vertex> ammo = quad(312.0f, 184.0f, 472.0f, 200.0f);
+    scale_quads(ammo, sizes, gun, 0u, Owner::QuestHud);
+    check(!stays(ammo, 312.0f, 184.0f), "the ammo bar where it was traced still takes the item bar's size");
+}
+
+// A quest menu's window over the party list: Combine, the kitchen skills,
+// the equipment pages. Traced with MHFU_TRACE_CAPTURE and
+// MHFU_TRACE_HUD_SCALE=all in a quest.
+void test_menu_over_the_party_list() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const auto stays = [](const std::vector<Vertex> &q, float x0, float y0) { return q[0].x == x0 && q[0].y == y0; };
+    constexpr std::uint32_t kAtlas = 0x09156BA0u;
+    constexpr std::uint32_t kFont = 0x040CC000u;
+    const Scales sizes = Scales::from_percent(60u, 70u, 65u);
+    const auto draw = [&](Frame &frame, float x0, float y0, float x1, float y1, std::uint32_t texture) {
+        std::vector<Vertex> q = quad(x0, y0, x1, y1);
+        scale_quads(q, sizes, frame, texture, Owner::QuestHud);
+        return stays(q, x0, y0);
+    };
+
+    // No menu: the party list's pieces take Status.
+    Frame plain;
+    draw(plain, 8.0f, 8.0f, 60.0f, 56.0f, kAtlas);
+    check(!draw(plain, 26.0f, 58.0f, 34.0f, 72.0f, kFont), "a name's letter takes Status");
+    check(!draw(plain, 96.0f, 56.0f, 104.0f, 72.0f, kAtlas), "the plate's end takes Status");
+
+    // The menu's corner at the left edge: no Status piece is 16 by 8.
+    Frame menu;
+    draw(menu, 8.0f, 8.0f, 60.0f, 56.0f, kAtlas);
+    check(draw(menu, 12.0f, 40.0f, 28.0f, 48.0f, kAtlas), "a menu's corner in the clock's box stays");
+    check(draw(menu, 8.0f, 152.0f, 24.0f, 160.0f, kAtlas), "a menu's corner in the badge column stays");
+    // The window's own pieces in the party list's band stay as drawn.
+    check(draw(menu, 16.0f, 58.0f, 40.0f, 82.0f, 0x091874A0u), "the equipment page's icon stays");
+    check(draw(menu, 16.0f, 96.0f, 23.0f, 110.0f, kFont), "a menu letter on a name's row stays");
+    check(draw(menu, 114.0f, 96.0f, 121.0f, 110.0f, kFont), "a menu letter past the plates stays");
+    check(draw(menu, 65.0f, 128.0f, 79.0f, 142.0f, kFont), "a wide menu letter the size of a buff stays");
+    // The party list itself, under the window, still takes Status.
+    check(!draw(menu, 24.0f, 56.0f, 96.0f, 72.0f, kAtlas), "the plate under the menu takes Status");
+    check(!draw(menu, 96.0f, 56.0f, 104.0f, 72.0f, kAtlas), "the plate's end under the menu takes Status");
+    check(!draw(menu, 26.0f, 58.0f, 34.0f, 72.0f, kFont), "a name's letter under the menu takes Status");
+    check(!draw(menu, 26.0f, 90.0f, 98.0f, 92.0f, 0u), "a teammate's health under the menu takes Status");
+
+    // The next frame, before the corner is drawn again, the menu is still up.
+    menu.begin();
+    draw(menu, 8.0f, 8.0f, 60.0f, 56.0f, kAtlas);
+    check(draw(menu, 16.0f, 96.0f, 23.0f, 110.0f, kFont), "the menu counts until a frame without it");
+    menu.begin();
+    menu.begin();
+    draw(menu, 8.0f, 8.0f, 60.0f, 56.0f, kAtlas);
+    check(!draw(menu, 112.0f, 58.0f, 124.0f, 72.0f, 0x09187000u), "after the menu, a buff takes Status again");
 }
 
 int main() {
@@ -1965,6 +2262,8 @@ int main() {
     test_interface_sizes_by_owner();
     test_quest_clock();
     test_aim_reticle_is_not_a_map_mark();
+    test_quest_windows_keep_their_pieces();
+    test_menu_over_the_party_list();
     test_hud_scale_draws();
     test_crisp_text();
     test_layered_armor();

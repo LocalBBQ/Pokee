@@ -167,8 +167,9 @@ void test_hashes(const fs::path &root) {
     quick.replace(quick.find("xxh64"), 5, "quick");
     make_pack(root / "quick" / kGame, quick);
     TexturePackCheck c = check_texture_pack(root / "quick", kGame);
-    check(c.found() && !c.ok() && c.problem.find("\"quick\" hash") != std::string::npos,
-        "hash = quick is refused with its reason");
+    // ignoreAddress needs a safer hash; the format drops it with quick.
+    check(c.ok() && c.hash == TexturePackHash::Quick && !c.ignore_address,
+        "hash = quick is accepted, without ignoreAddress");
     std::string xxh32 = kIni;
     xxh32.replace(xxh32.find("xxh64"), 5, "xxh32");
     make_pack(root / "xxh32" / kGame, xxh32);
@@ -275,7 +276,7 @@ int check_folder(const char *folder) {
     std::printf("pack     %s\n", c.found() ? c.folder.string().c_str() : "(none)");
     std::printf("layout   %s\n", c.layout.c_str());
     if (!c.made_for.empty()) std::printf("made for %s\n", c.made_for.c_str());
-    std::printf("hash     %s%s\n", c.hash == TexturePackHash::Xxh64 ? "xxh64" : "xxh32",
+    std::printf("hash     %s%s\n", texture_pack_hash_name(c.hash),
         c.ignore_address ? ", ignoreAddress" : "");
     std::printf("keys     %zu\n", c.keys);
     std::printf("images   %zu\n", c.images);
@@ -362,6 +363,116 @@ void test_dxt_decode() {
     check(texture_key(memory, texture) == before, "a DXT texture's key does not follow the CLUT");
 }
 
+// Keys of packs made with the quick hash. The expected hashes come from
+// PPSSPP's own quick hash run over the same bytes, i * 37 + 11.
+void test_quick_keys() {
+    psprecomp::GuestMemory memory;
+    constexpr std::uint32_t kAddress = 0x08800000u;
+    for (std::uint32_t i = 0; i < 4096u; ++i)
+        memory.store8(kAddress + i, static_cast<std::uint8_t>(i * 37u + 11u));
+    TexturePackOptions options;
+    options.hash = TexturePackHash::Quick;
+    TextureState texture;
+    texture.address = kAddress;
+    texture.format = TextureFormat::Rgba8888;
+    const auto hash_of = [&](std::uint16_t width, std::uint16_t height, std::uint32_t buffer_width) {
+        texture.width = width;
+        texture.height = height;
+        texture.buffer_width = buffer_width;
+        TexturePackKey key;
+        std::uint32_t covered_width = 0u, covered_height = 0u;
+        return compute_texture_pack_key(memory, texture, 0u, options, key, covered_width, covered_height)
+            ? key.data_hash
+            : 0u;
+    };
+    // 64 bytes at a 16-byte boundary: one block of the lane hash.
+    check(hash_of(16u, 1u, 16u) == 0x9543E480u, "quick: a 64-byte texture is hashed by blocks");
+    check(hash_of(32u, 32u, 32u) == 0xCE4C7E1Cu, "quick: a 4 KiB texture is hashed by blocks");
+    // One 8-byte row of a wider buffer: not whole blocks, so word pairs.
+    check(hash_of(2u, 1u, 4u) == 0x74BCF494u, "quick: a row that is not whole blocks is hashed by word pairs");
+    // The GE drops an address's low 4 bits: the texture is hashed from the
+    // 16-byte boundary below, by blocks.
+    texture.address = kAddress + 4u;
+    check(hash_of(16u, 1u, 16u) == 0x9543E480u, "quick: the GE's 16-byte aligned address is what is hashed");
+    texture.address = kAddress;
+    options.hash = TexturePackHash::Xxh64;
+    check(hash_of(16u, 1u, 16u) != 0x9543E480u, "xxh64 keys differ from quick ones");
+    check(std::string(texture_pack_hash_name(TexturePackHash::Quick)) == "quick" &&
+            std::string(texture_pack_hash_name(TexturePackHash::Xxh32)) == "xxh32" &&
+            std::string(texture_pack_hash_name(TexturePackHash::Xxh64)) == "xxh64",
+        "each hash has its textures.ini name");
+}
+
+// Button icon sets laid out as the community pack lays them out: variants
+// named <image>(Xbox).png, (PS) or (N) in folders of their own, and for the
+// English bar QuestBar_(Xbox).png, with an underscore.
+void test_button_icons(const fs::path &root) {
+    psprecomp::GuestMemory memory;
+    constexpr std::uint32_t kAddress = 0x08800000u;
+    TextureState texture;
+    texture.format = TextureFormat::Rgba8888;
+    texture.width = 16u;
+    texture.height = 1u;
+    texture.buffer_width = 16u;
+    const auto key_at = [&](std::uint32_t address, std::uint8_t fill) {
+        for (std::uint32_t i = 0; i < 64u; ++i) memory.store8(address + i, static_cast<std::uint8_t>(fill + i));
+        texture.address = address;
+        TexturePackKey key;
+        std::uint32_t covered_width = 0u, covered_height = 0u;
+        (void)compute_texture_pack_key(memory, texture, 0u, TexturePackOptions{}, key, covered_width, covered_height);
+        return format_texture_pack_key(key);
+    };
+    const std::uint32_t kBar = kAddress, kBarFre = kAddress + 0x100u, kLogo = kAddress + 0x200u;
+    const fs::path folder = root / "icons";
+    write(folder / "textures.ini",
+        "[options]\nversion = 1\nhash = xxh64\n\n[hashes]\n" + key_at(kBar, 1u) + " = UI/QuestBar.png\n" +
+            key_at(kBarFre, 2u) + " = UI/QuestBar_fre.png\n" + key_at(kLogo, 3u) + " = UI/Logo.png\n");
+    for (const char *name : {"UI/QuestBar.png", "UI/QuestBar_fre.png", "UI/Logo.png", "Layouts/Eng/QuestBar_(Xbox).png",
+             "Layouts/Eng/QuestBar_(PS).png", "Layouts/Fre/QuestBar_fre(Xbox).png"})
+        write(folder / name, "png");
+    const auto image = [&](TexturePack &pack, std::uint32_t address) {
+        texture.address = address;
+        const std::shared_ptr<Replacement> replacement = pack.find(memory, texture, 0u);
+        return replacement ? replacement->name : std::string();
+    };
+
+    std::string error;
+    std::unique_ptr<TexturePack> pack = TexturePack::open(folder, kGame, error, ButtonIcons::Xbox);
+    check(pack && pack->has_button_icons() && pack->offers(ButtonIcons::Xbox) &&
+            pack->offers(ButtonIcons::PlayStation) && !pack->offers(ButtonIcons::Nintendo),
+        "the pack's button icon sets are found");
+    check(pack && pack->button_icons() == ButtonIcons::Xbox &&
+            image(*pack, kBar) == "Layouts/Eng/QuestBar_(Xbox).png" &&
+            image(*pack, kBarFre) == "Layouts/Fre/QuestBar_fre(Xbox).png" && image(*pack, kLogo) == "UI/Logo.png",
+        "Xbox: each image with an Xbox variant draws it, the others as named");
+    pack = TexturePack::open(folder, kGame, error, ButtonIcons::PlayStation);
+    check(pack && image(*pack, kBar) == "Layouts/Eng/QuestBar_(PS).png" &&
+            image(*pack, kBarFre) == "UI/QuestBar_fre.png",
+        "PlayStation: an image without a PlayStation variant keeps the pack's");
+    pack = TexturePack::open(folder, kGame, error, ButtonIcons::Nintendo);
+    check(pack && pack->button_icons() == ButtonIcons::Pack && image(*pack, kBar) == "UI/QuestBar.png",
+        "a set the pack lacks draws the pack's default");
+    pack = TexturePack::open(folder, kGame, error);
+    check(pack && pack->button_icons() == ButtonIcons::Pack && image(*pack, kBar) == "UI/QuestBar.png",
+        "the pack's default is drawn unless a set is asked for");
+    pack.reset();
+    make_pack(root / "plain");
+    pack = TexturePack::open(root / "plain", kGame, error, ButtonIcons::Xbox);
+    check(pack && !pack->has_button_icons() && pack->button_icons() == ButtonIcons::Pack,
+        "a pack without sets has no button icons");
+
+    check(pick_button_icons(std::nullopt, ButtonIcons::Xbox, false) == ButtonIcons::Xbox &&
+            pick_button_icons(std::nullopt, ButtonIcons::Pack, false) == ButtonIcons::Pack,
+        "Auto follows the pad in use, and the pack's default without one");
+    check(pick_button_icons(std::nullopt, ButtonIcons::Xbox, true) == ButtonIcons::Pack,
+        "Auto keeps the pack's default with confirm on the bottom button");
+    check(pick_button_icons(ButtonIcons::Nintendo, ButtonIcons::Xbox, true) == ButtonIcons::Nintendo,
+        "a chosen set is drawn whatever the pad");
+    check(std::string(button_icons_name(ButtonIcons::Pack)) == "Pack default" &&
+            std::string(button_icons_name(ButtonIcons::PlayStation)) == "PlayStation",
+        "each set has its menu name");
+}
+
 int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--check") return check_folder(argv[2]);
     const Scratch scratch;
@@ -371,6 +482,8 @@ int main(int argc, char **argv) {
     test_copy(scratch.root);
     test_location(scratch.root);
     test_dxt_decode();
+    test_quick_keys();
+    test_button_icons(scratch.root);
     std::printf("%s\n", failures == 0 ? "all texture pack checks passed" : "texture pack checks FAILED");
     return failures == 0 ? 0 : 1;
 }

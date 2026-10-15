@@ -44,7 +44,7 @@ if(MHFU_GENERATED)
     # Hiding the HUD (host/gpu/game_hud.cpp) wraps the game's 2D functions the
     # same way, so their units are read from the corpus too, in one pass.
     set(MHFU_HUD_FUNCTIONS
-        088596C8 088952A4 08891474 088915B0 08891700 0889183C)
+        088596C8 088952A4 08891474 088915B0 08891700 0889183C 0889198C)
     list(JOIN MHFU_HUD_FUNCTIONS "|" hud_pattern)
     set(hud_lines "")
     foreach(unit IN LISTS MHFU_GENERATED)
@@ -494,6 +494,17 @@ target_link_libraries(mhfu_settings_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_settings_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_settings_tests COMMAND mhfu_settings_tests)
+endif()
+
+# Interface sizes replayed over traced screens: each quad's piece, the rule
+# that decided it and where it went must match tests/hud_scale_fixtures.
+add_executable(mhfu_hud_scale_replay_tests tests/hud_scale_replay_tests.cpp)
+target_include_directories(mhfu_hud_scale_replay_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_compile_definitions(mhfu_hud_scale_replay_tests PRIVATE
+    "MHFU_HUD_SCALE_FIXTURE_DIR=\"${MHFU_PROFILE_DIR}/tests/hud_scale_fixtures\"")
+set_target_properties(mhfu_hud_scale_replay_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_hud_scale_replay_tests COMMAND mhfu_hud_scale_replay_tests)
 endif()
 
 # Damage numbers: hitzone colour, the health a hit removes, the watch

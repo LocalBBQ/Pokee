@@ -167,6 +167,14 @@ struct GpuVertex {
 
 constexpr float kNoClamp = 1e30f;
 
+// With frame interpolation, the names over hunters move between game frames
+// with the characters they follow (hud_scale::NamePlace).
+// MHFU_INTERPOLATION_NO_NAMES leaves them where each game frame put them.
+bool names_glide() {
+    static const bool off = std::getenv("MHFU_INTERPOLATION_NO_NAMES") != nullptr;
+    return !off;
+}
+
 void set_uv_rect(GpuVertex &vertex, float u_min, float v_min, float u_max, float v_max) {
     vertex.nx = u_min;
     vertex.ny = v_min;
@@ -1849,12 +1857,22 @@ struct VulkanRenderer::Impl {
         bool raw{};                     // drawn from the guest's vertex bytes at vertex_base (first instance)
         std::uint32_t raw_block{kNone}; // FrameRecord::raws: its format and bones
         VkBuffer vertices{};            // vertex_hold when the draw was kept there, else the ring
+        std::uint32_t name{kNone};      // FrameRecord::names, for a name over a hunter
+    };
+    // A name's draw: where its name was placed, and its vertices as drawn
+    // (FrameRecord::name_vertices from `first`), to move between frames.
+    struct NameRecord {
+        hud_scale::NamePlace place;
+        std::uint32_t first{};
     };
     struct FrameRecord {
         std::vector<interpolation::DrawSummary> summaries;
         std::vector<std::uint32_t> group_of; // for each summary, its group
         std::vector<ReplayGroup> groups;
         std::vector<GpuVertex> skinned; // skinned draws' vertices
+        std::vector<NameRecord> names;
+        std::vector<hud_scale::NamePlace> name_places; // names[i].place, for matching
+        std::vector<GpuVertex> name_vertices;
         std::vector<ObjectBlock> objects;
         std::uint32_t object_offset{kNone}; // where objects.back() lies
         std::vector<RawBlock> raws;         // raw blocks of raw groups, for blending their bones
@@ -1869,6 +1887,9 @@ struct VulkanRenderer::Impl {
             group_of.clear();
             groups.clear();
             skinned.clear();
+            names.clear();
+            name_places.clear();
+            name_vertices.clear();
             objects.clear();
             raws.clear();
             raw_offset = kNone;
@@ -1960,6 +1981,29 @@ struct VulkanRenderer::Impl {
     void record_draw_for_replay(const DrawCall &call, bool lit, std::uint32_t skinned, const DrawState &state,
         VkDeviceSize vertex_start, VkBuffer indices, VkDeviceSize index_start, std::uint32_t count,
         std::uint32_t vertex_count, bool joined, bool raw = false, VkBuffer vertices = VK_NULL_HANDLE);
+    // The group just recorded is a name over a hunter placed at (origin_x,
+    // origin_y), drawn with `drawn` from the guest texture at `texture`.
+    void record_name_for_replay(
+        const std::vector<GpuVertex> &drawn, float origin_x, float origin_y, std::uint32_t texture) {
+        FrameRecord &frame = recording_frame;
+        if (!interpolating || !frame.recorded || frame.groups.empty() || drawn.empty()) return;
+        ReplayGroup &group = frame.groups.back();
+        if (group.vertex_count != drawn.size() || group.index_buffer != VK_NULL_HANDLE) return;
+        NameRecord name;
+        name.place.origin_x = origin_x;
+        name.place.origin_y = origin_y;
+        name.place.dx = drawn.front().x - origin_x;
+        name.place.dy = drawn.front().y - origin_y;
+        name.place.u = drawn.front().u;
+        name.place.v = drawn.front().v;
+        name.place.texture = texture;
+        name.place.vertices = static_cast<std::uint32_t>(drawn.size());
+        name.first = static_cast<std::uint32_t>(frame.name_vertices.size());
+        frame.name_vertices.insert(frame.name_vertices.end(), drawn.begin(), drawn.end());
+        group.name = static_cast<std::uint32_t>(frame.names.size());
+        frame.names.push_back(name);
+        frame.name_places.push_back(name.place);
+    }
     // `idle`: the kernel is waiting for real time, so the present costs the
     // game nothing; otherwise it is made while the game's code runs, within
     // a budget per game frame. Returns whether a present was made.
@@ -1991,6 +2035,7 @@ struct VulkanRenderer::Impl {
     std::string pack_status;
     std::uint64_t replaced_draws{}; // this second, for MHFU_TRACE_TEXTURE_PACK
     void apply_texture_pack();
+    [[nodiscard]] ButtonIcons wanted_button_icons() const;
     [[nodiscard]] VkDescriptorSet texture_descriptor(const GuestMemory &memory, const DrawCall &call);
     std::uint64_t texture_clock{};
     // texture_key results for the display list being walked, by the state that
@@ -4788,9 +4833,58 @@ void VulkanRenderer::Impl::drop_ui_copies() {
     ui_copy_bytes = 0u;
 }
 
+// The pack button icons the setting asks for: one set, or with Auto the set
+// for the pad in use, as the menu labels it (bindings_editor.cpp).
+ButtonIcons VulkanRenderer::Impl::wanted_button_icons() const {
+    ButtonIcons pad = ButtonIcons::Pack;
+    if (gamepad != nullptr) {
+        switch (SDL_GetGamepadType(gamepad)) {
+        case SDL_GAMEPAD_TYPE_PS3:
+        case SDL_GAMEPAD_TYPE_PS4:
+        case SDL_GAMEPAD_TYPE_PS5:
+            pad = ButtonIcons::PlayStation;
+            break;
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+            pad = ButtonIcons::Nintendo;
+            break;
+        default:
+            pad = ButtonIcons::Xbox;
+            break;
+        }
+    }
+    const settings::Settings &s = settings::current();
+    std::optional<ButtonIcons> chosen;
+    switch (s.texture_pack_buttons) {
+    case settings::PackButtons::Pack:
+        chosen = ButtonIcons::Pack;
+        break;
+    case settings::PackButtons::Xbox:
+        chosen = ButtonIcons::Xbox;
+        break;
+    case settings::PackButtons::PlayStation:
+        chosen = ButtonIcons::PlayStation;
+        break;
+    case settings::PackButtons::Nintendo:
+        chosen = ButtonIcons::Nintendo;
+        break;
+    default:
+        break;
+    }
+    return pick_button_icons(chosen, pad, s.confirm_south);
+}
+
 void VulkanRenderer::Impl::apply_texture_pack() {
     const bool wanted = pack_wanted && !pack_held;
-    if (pack_applied == wanted && !pack_reload) return;
+    // Another button icon set opens the pack again, but only when the pack
+    // has that set or is showing one now: a pad plugged in changes nothing
+    // for a pack without sets.
+    const ButtonIcons icons = wanted_button_icons();
+    const bool icons_changed =
+        pack && icons != pack->button_icons() && (pack->offers(icons) || pack->button_icons() != ButtonIcons::Pack);
+    if (pack_applied == wanted && !pack_reload && !icons_changed) return;
     pack_applied = wanted;
     pack_reload = false;
     // Every cached texture is dropped, so the next draws decode the originals
@@ -4822,7 +4916,7 @@ void VulkanRenderer::Impl::apply_texture_pack() {
         VulkanRenderer::textures_root(), install::kDiscId, settings::current().texture_pack_folder);
     const std::filesystem::path &folder = pack_location.folder;
     std::string error;
-    pack = TexturePack::open(folder, install::kDiscId, error);
+    pack = TexturePack::open(folder, install::kDiscId, error, icons);
     if (!pack) {
         std::error_code ec;
         if (std::filesystem::is_directory(folder, ec))
@@ -6536,6 +6630,15 @@ std::string VulkanRenderer::texture_pack_status() const {
         std::to_string(impl.replacements.resident_bytes() >> 20u) + " MB)";
 }
 
+bool VulkanRenderer::texture_pack_has_button_icons() const {
+    return impl_ && impl_->pack && impl_->pack->has_button_icons();
+}
+
+std::string VulkanRenderer::texture_pack_button_icons() const {
+    if (!impl_ || !impl_->pack) return {};
+    return button_icons_name(impl_->pack->button_icons());
+}
+
 void VulkanRenderer::reload_texture_pack() {
     if (impl_) impl_->pack_reload = true;
 }
@@ -6790,6 +6893,7 @@ void VulkanRenderer::begin_frame() {
         impl.recording_frame.recorded = true;
         impl.recording_frame.texture_clock = impl.texture_clock;
     }
+    hud::want_names(impl.interpolating && names_glide());
     impl.environment_version = 0u;
     impl.object_valid = false;
     impl.raw_valid = false;
@@ -7187,9 +7291,11 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         const std::uint64_t every = end != nullptr && *end == '/' ? std::strtoull(end + 1, nullptr, 10) : 0ull;
         return std::pair{first, every};
     }();
+    // MHFU_TRACE_CAPTURE adds the frames after a screenshot (gpu/game_hud.hpp).
     const bool trace_sprites = impl.frames == trace_sprites_frames.first ||
         (trace_sprites_frames.second != 0u && impl.frames > trace_sprites_frames.first &&
-            (impl.frames - trace_sprites_frames.first) % trace_sprites_frames.second == 0u);
+            (impl.frames - trace_sprites_frames.first) % trace_sprites_frames.second == 0u) ||
+        hud::capture_sprites(impl.frames);
 
     // Transformed triangles, strips and fans go straight into the vertex
     // buffer: each decoded vertex once, converted as it is written, and a
@@ -7351,6 +7457,21 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                   << call.texture.mag_filter << "\n";
     }
     if (call.through && call.primitive == PrimitiveType::Sprites && trace_sprites) {
+        // Who filed the draw, and whether it was taken for a name over a
+        // hunter (the Names size): both read only once the 2D draws are
+        // watched, so "other" before that means not known yet.
+        const hud::NameDraw traced_name = hud::name_at(call.command_address, call.call_return);
+        const hud::Owner traced_owner = hud::owner_of(call.command_address, call.call_return);
+        const char *const owner_text = traced_owner == hud::Owner::QuestHud ? "quest"
+            : traced_owner == hud::Owner::Other                             ? "other"
+                                                                            : "unknown";
+        std::ostringstream name_text;
+        if (traced_name.is_name) {
+            name_text << (traced_name.glyph ? " name=1 letter" : " name=1 icon");
+            if (traced_name.has_origin) name_text << " origin=(" << traced_name.origin_x << "," << traced_name.origin_y << ")";
+        } else {
+            name_text << " name=0";
+        }
         for (std::size_t i = 0; i + 1u < count; i += 2u) {
             const Vertex &a = vertex_at(i);
             const Vertex &b = vertex_at(i + 1u);
@@ -7365,7 +7486,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                       << "/" << call.texture.mag_filter << " wrap=" << call.texture.wrap_s << "/" << call.texture.wrap_t
                       << " blend=" << (call.blend.enabled ? 1 : 0) << " color=0x" << std::hex << b.color << std::dec
                       << " scissor=(" << call.viewport.scissor_x1 << "," << call.viewport.scissor_y1 << ")-("
-                      << call.viewport.scissor_x2 << "," << call.viewport.scissor_y2 << ")\n";
+                      << call.viewport.scissor_x2 << "," << call.viewport.scissor_y2 << ") owner=" << owner_text
+                      << name_text.str() << "\n";
         }
     }
 
@@ -7634,8 +7756,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // The clock's hands and the player's arrow on the map turn, so they are
     // drawn as one quad each: a four-vertex strip, six vertices expanded.
     const bool turned_quad = call.primitive == PrimitiveType::TriangleStrip && count == 4u;
-    bool scale_corners = call.through && !call.clear_mode && hud_scales.any() && !direct &&
-        (call.primitive == PrimitiveType::Sprites || turned_quad);
+    const bool through_quads =
+        call.through && !call.clear_mode && !direct && (call.primitive == PrimitiveType::Sprites || turned_quad);
+    bool scale_corners = through_quads && hud_scales.any();
     // Non-through sprites and small orthographic draws are still 2D quads. A
     // party-list icon drawn that way, such as the cat's face, takes Status with
     // the through-mode plates beside it.
@@ -7643,7 +7766,13 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         hud_scale::may_resize(hud_owner) && (call.primitive == PrimitiveType::Sprites || small_icon);
     // A name over another hunter. Told apart from the map so a name that
     // crosses the map keeps this size, not the map's.
-    const hud::NameDraw named = scale_corners ? hud::name_at(call.command_address, call.call_return) : hud::NameDraw{};
+    // With frame interpolation a name is told apart at any size too, so the
+    // presents between game frames can move it with its character.
+    const bool glide_names = impl.interpolating && names_glide();
+    const hud::NameDraw named = scale_corners || (through_quads && glide_names)
+        ? hud::name_at(call.command_address, call.call_return)
+        : hud::NameDraw{};
+    if (named.is_name) scale_corners = true;
     std::vector<GpuVertex> corner_scaled;
     // Where the area map and a name went, when their sizes moved them. The
     // scissor has to take them in, and a moved map has to replace the one
@@ -7662,23 +7791,39 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             // the texture it samples (gpu/hud_scale.hpp).
             const std::uint32_t hud_texture = call.texture.enabled ? call.texture.address : 0u;
             impl.hud_scale_frame.aiming = mhfu::camera::game_camera_hunter_aiming();
-            hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner);
-            map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture);
             // MHFU_TRACE_HUD_SCALE=1: each distinct sprite the interface sizes
-            // move, once, with the piece it was taken for.
-            static const bool trace_hud_scale = std::getenv("MHFU_TRACE_HUD_SCALE") != nullptr;
-            for (std::size_t first = 0; trace_hud_scale && first + 6u <= unscaled.size(); first += 6u) {
-                if (!hud_scale::quad_moved(unscaled, corner_scaled, first)) continue;
+            // move, once, with the piece it was sized as and the rule that
+            // took it. MHFU_TRACE_HUD_SCALE=all adds every sprite left as
+            // drawn, with the rule that left it and what it was nearly taken
+            // for, so a menu that is not moved is visible too.
+            static const int trace_hud_scale = [] {
+                const char *value = std::getenv("MHFU_TRACE_HUD_SCALE");
+                if (value == nullptr) return 0;
+                return std::strcmp(value, "all") == 0 ? 2 : 1;
+            }();
+            std::vector<hud_scale::Decision> decisions;
+            hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner,
+                trace_hud_scale != 0 ? &decisions : nullptr);
+            map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture);
+            for (std::size_t first = 0; trace_hud_scale != 0 && first + 6u <= unscaled.size(); first += 6u) {
+                const bool moved = hud_scale::quad_moved(unscaled, corner_scaled, first);
+                if (!moved && trace_hud_scale < 2) continue;
                 static std::set<std::string> traced;
+                const hud_scale::Decision decision =
+                    first / 6u < decisions.size() ? decisions[first / 6u] : hud_scale::Decision{};
                 const hud_scale::Rect from = hud_scale::quad_bounds(unscaled, first);
                 const hud_scale::Rect to = hud_scale::quad_bounds(corner_scaled, first);
                 std::ostringstream line;
-                line << hud_scale::piece_name(hud_scale::piece_of(from)) << " (" << from.x0 << "," << from.y0 << ")-("
-                     << from.x1 << "," << from.y1 << ") tex=0x" << std::hex << hud_texture << " fb=0x"
-                     << call.target.color_address << std::dec;
-                if (traced.insert(line.str()).second)
-                    std::cout << "[hudscale] f=" << impl.frames << " " << line.str() << " -> (" << to.x0 << "," << to.y0
-                              << ")-(" << to.x1 << "," << to.y1 << ")\n";
+                line << hud_scale::piece_name(decision.piece) << " " << hud_scale::reason_name(decision.reason);
+                if (decision.piece == hud_scale::Piece::None && decision.candidate != hud_scale::Piece::None)
+                    line << " (was " << hud_scale::piece_name(decision.candidate) << ")";
+                line << " (" << from.x0 << "," << from.y0 << ")-(" << from.x1 << "," << from.y1 << ") tex=0x"
+                     << std::hex << hud_texture << " fb=0x" << call.target.color_address << std::dec;
+                if (traced.insert(line.str()).second) {
+                    std::cout << "[hudscale] f=" << impl.frames << " " << line.str();
+                    if (moved) std::cout << " -> (" << to.x0 << "," << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")";
+                    std::cout << "\n";
+                }
             }
         }
     }
@@ -8038,6 +8183,15 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     vk_scissor.offset = {left, top};
     vk_scissor.extent = {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
     const std::array<std::uint32_t, 3> lighting_offsets{impl.environment_offset, impl.object_offset, impl.raw_offset};
+    // A name over a hunter, for the presents between frames: its vertices as
+    // drawn and the point it was placed at, in the same pixels.
+    const auto record_name = [&] {
+        if (!glide_names || !named.is_name || !named.has_origin) return;
+        float origin_x = named.origin_x;
+        float origin_y = named.origin_y;
+        fit.apply(origin_x, origin_y);
+        impl.record_name_for_replay(corner_scaled, origin_x, origin_y, call.texture.address);
+    };
     if (merge) {
         const Impl::DrawState state{
             pipeline, texture_descriptor, lighting_offsets, vk_viewport, vk_scissor, blend_constants, push};
@@ -8052,6 +8206,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             perf::count_recorded_draws(1u);
             impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start, VK_NULL_HANDLE, 0u, draw_count,
                 drawn_vertices, false, false, vertex_source);
+            record_name();
         } else {
             Impl::DrawGroup &group = impl.group;
             const auto vertex_count = static_cast<std::uint32_t>(vertex_total);
@@ -8133,6 +8288,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         const VkBuffer index_source = !direct ? VK_NULL_HANDLE : held ? impl.index_buffer : impl.vertex_buffer;
         impl.record_draw_for_replay(call, lit, skinned_first, state, vertex_start, index_source, index_start,
             draw_count, drawn_vertices, false, raw, vertex_source);
+        if (!direct) record_name();
     }
     if (!held) impl.vertex_offset = draw_end;
     ++impl.draws;
@@ -8901,6 +9057,31 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
             }
         }
 
+        // A name over a hunter is drawn where the game put it, once per game
+        // frame. Between frames it moves by the blended move of its name's
+        // point, toward the same letter of that name in the newer frame.
+        if (drawn.name != kNone && t > 0.0f && names_glide()) {
+            const NameRecord &from = older.names[drawn.name];
+            const int to = hud_scale::match_name_place(from.place, newer.name_places);
+            const VkDeviceSize at = (scratch_at + 15u) & ~VkDeviceSize{15u};
+            const VkDeviceSize bytes = static_cast<VkDeviceSize>(from.place.vertices) * sizeof(GpuVertex);
+            if (to >= 0 && at + bytes <= scratch_end) {
+                const hud_scale::NamePlace &next = newer.name_places[static_cast<std::size_t>(to)];
+                const float move_x = (next.origin_x - from.place.origin_x) * t;
+                const float move_y = (next.origin_y - from.place.origin_y) * t;
+                const GpuVertex *source = older.name_vertices.data() + from.first;
+                auto *out = reinterpret_cast<GpuVertex *>(mapped + at);
+                for (std::uint32_t v = 0; v < from.place.vertices; ++v) {
+                    GpuVertex moved = source[v];
+                    moved.x += move_x;
+                    moved.y += move_y;
+                    out[v] = moved;
+                }
+                scratch_at = at + bytes;
+                vertex_base = at;
+                vertices = vertex_buffer;
+            }
+        }
         if (!known || std::memcmp(&state.viewport, &set.viewport, sizeof(VkViewport)) != 0)
             vkCmdSetViewport(commands, 0u, 1u, &state.viewport);
         if (!known || state.blend != set.blend) vkCmdSetBlendConstants(commands, state.blend.data());
