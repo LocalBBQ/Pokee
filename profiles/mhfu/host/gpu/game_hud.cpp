@@ -11,6 +11,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <map>
+#include <optional>
+#include <set>
+#include <string>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -55,13 +59,18 @@ psprecomp::Runtime::RecompiledFunction compiled(std::uint32_t address) {
 constexpr std::uint32_t kFilePacket = 0x088596C8u;
 
 // The four functions that append to a text queue (each stores the new length
-// at +308). They are what the rest of the game calls; nothing else writes
-// that length except the reset.
-constexpr std::array<std::uint32_t, 4> kTextFunctions = {
+// at +308), and 0x0889198C, which queues text twice through 0x088915B0. It is
+// compiled into the same unit, so those two calls are plain jumps that never
+// reach a wrapper, and the text it queues was counted with whatever call came
+// before. Traced with MHFU_TRACE_CAPTURE in an ad hoc quest: the name over a
+// teammate was a third entry after the party list's two, with no watched
+// call for it. Nothing else writes that length except the reset.
+constexpr std::array<std::uint32_t, 5> kTextFunctions = {
     0x08891474u,
     0x088915B0u,
     0x08891700u,
     0x0889183Cu,
+    0x0889198Cu,
 };
 // Called from the per-character draw (0x0889377C) after each character, with
 // the entry still in s3: the moment button icons the character added to the
@@ -95,15 +104,27 @@ constexpr std::array<HudFunction, 6> kHudFunctions = {{
 // the shops, prompts and dialogs with the multiplayer names, so those names
 // stay at the size the game draws. The quest labels draw the name and its
 // mark and nothing else.
+//
+// The names over other hunters in an ad hoc quest are not drawn from there.
+// Traced with MHFU_TRACE_CAPTURE: resident 0x088392F4 walks up to 20
+// characters, projects each one's position to the screen, and queues its
+// name centred on that point through 0x0889198C. It is called from 0x088345FC,
+// outside the quest HUD's callbacks. Being resident, it is in memory in the
+// village too, so it counts only while game_task's quest HUD is loaded
+// (`quest_only`): the names there stay at the size the game draws.
 struct NameFunction {
     std::uint32_t address;
     std::uint32_t first;
     std::uint32_t saved_ra;
     bool tag_only;
+    bool quest_only;
 };
 constexpr NameFunction kNameFunctions[] = {
-    {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu, false}, // game_task labels: addiu sp,-96; sw ra,28(sp)
+    {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu, false, false}, // game_task labels: addiu sp,-96; sw ra,28(sp)
+    {0x088392F4u, 0x27BDFF60u, 0xAFBF002Cu, false, true},  // names over characters: addiu sp,-160; sw ra,44(sp)
 };
+// The quest HUD function whose words show that game_task is loaded.
+constexpr std::uint32_t kQuestLoaded = 0x09A60298u;
 
 // The text context, and in it each queue's length (u8 at +308 + queue) and
 // entries (a pointer at +320 + 4 * queue, entries of 12 bytes). The flush
@@ -132,6 +153,14 @@ constexpr std::uint32_t kGlyphFromQueue = 0x0889384Cu; // 0x08893894's ra from t
 constexpr std::uint32_t kGlyphSavedRa = 44u;
 constexpr std::uint32_t kGlyphSavedEntry = 20u;
 
+// The name over a teammate in an ad hoc quest. Traced with
+// MHFU_TRACE_TEXT_FROM: the quest HUD's widget renderer 0x0883F9F8 calls
+// resident 0x08842628, and the name is queued while it runs, at the point
+// over that hunter. The append it reaches is not a call any wrapper sees, so
+// the entry was counted with the party list's name queued before it, and its
+// letters took the party list's sizes wherever they crossed a row of it.
+constexpr std::uint32_t kOverheadName = 0x08842628u;
+
 // What the addresses above were read off; the switch stays off if any differs.
 // The overlay functions are not here: they are not loaded at startup.
 constexpr CodeWord kSignature[] = {
@@ -156,6 +185,10 @@ constexpr CodeWord kSignature[] = {
     {0x088915B0u, 0x27BDFC80u}, // addiu sp, sp, -896
     {0x08891700u, 0x27BDFCA0u}, // addiu sp, sp, -864
     {0x0889183Cu, 0x27BDFC80u}, // addiu sp, sp, -896
+    {0x0889198Cu, 0x27BDFFE0u}, // addiu sp, sp, -32: text queued twice
+    {0x08891990u, 0xAFBF001Cu}, // sw ra, 28(sp)
+    {0x08842628u, 0x27BDFF70u}, // addiu sp, sp, -144: the name over a teammate
+    {0x0884262Cu, 0xAFBF002Cu}, // sw ra, 44(sp)
 };
 
 // Where a function starts, found from a return address into it.
@@ -174,6 +207,20 @@ struct State {
     std::string note;
     Clock::time_point note_until{};
     std::array<psprecomp::Runtime::RecompiledFunction, kWrapped> originals{};
+    // MHFU_TRACE_TEXT_FROM: the functions probed, the generated code each
+    // replaces, and how many lines are left to print.
+    struct Probe {
+        std::uint32_t address{};
+        psprecomp::Runtime::RecompiledFunction original{};
+    };
+    std::array<Probe, 4> probes{};
+    // kOverheadName: the generated code it replaces, and whether the call
+    // running now came from the quest HUD.
+    psprecomp::Runtime::RecompiledFunction overhead_original{};
+    bool overhead_quest{};
+    bool probes_checked{};
+    int probe_lines_left{400};
+    std::set<std::string> probe_seen;
     // HUD packets by start address, to their end, and whether the quest HUD
     // filed them. The GE draws a list while the game fills the next one
     // elsewhere, so a packet's range is kept until another packet is filed
@@ -205,6 +252,7 @@ struct State {
         std::uint32_t end{};
         bool has_origin{};
         bool tag_only{};
+        bool glyph{};
         float x{};
         float y{};
     };
@@ -229,6 +277,11 @@ struct State {
     std::uint64_t frame{};
     std::uint64_t trace_first{~0ull};
     std::uint64_t trace_every{};
+    // MHFU_TRACE_CAPTURE
+    bool capture_on{};
+    CaptureSchedule capture;
+    // Frame interpolation wants the names over hunters (want_names).
+    bool names_wanted{};
 };
 
 State &state() {
@@ -237,7 +290,7 @@ State &state() {
 }
 
 bool tracing(const State &s) {
-    if (s.frame == s.trace_first) return true;
+    if (s.frame == s.trace_first || s.capture.packets(s.frame)) return true;
     return s.trace_every != 0u && s.frame > s.trace_first && (s.frame - s.trace_first) % s.trace_every == 0u;
 }
 
@@ -299,8 +352,9 @@ const HudFunction *hud_function_here(State &s, const psprecomp::GuestMemory &mem
 const NameFunction *name_function_here(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     for (const NameFunction &fn : kNameFunctions) {
         if (fn.address != address) continue;
-        if (memory.load32(address) == fn.first && memory.load32(address + 4u) == fn.saved_ra) return &fn;
-        return nullptr;
+        if (memory.load32(address) != fn.first || memory.load32(address + 4u) != fn.saved_ra) return nullptr;
+        if (fn.quest_only && !hud_function_matches(memory, kQuestLoaded)) return nullptr;
+        return &fn;
     }
     return nullptr;
 }
@@ -407,12 +461,12 @@ void note_packet(State &s, std::uint32_t packet, std::uint32_t words, bool hud, 
 }
 
 void note_name_packet(State &s, std::uint32_t packet, std::uint32_t words, bool name, bool has_origin, bool tag_only,
-    float x, float y) {
+    bool glyph, float x, float y) {
     const std::uint32_t end = packet + words * 4u;
     auto it = s.name_packets.lower_bound(packet);
     if (it != s.name_packets.begin() && std::prev(it)->second.end > packet) --it;
     while (it != s.name_packets.end() && it->first < end) it = s.name_packets.erase(it);
-    if (name) s.name_packets.emplace(packet, State::NamePacket{end, has_origin, tag_only, x, y});
+    if (name) s.name_packets.emplace(packet, State::NamePacket{end, has_origin, tag_only, glyph, x, y});
     if (s.name_packets.size() > 65536u) s.name_packets.clear();
 }
 
@@ -438,6 +492,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     const std::uint32_t sp = ctx.gpr[29];
     std::uint32_t entry = 0u;
     bool has_origin = false;
+    bool glyph = false;
     float origin_x = 0.0f;
     float origin_y = 0.0f;
     if (ctx.gpr[31] == kGlyphFiled && memory.contains(sp + kGlyphSavedRa, 4u) &&
@@ -450,6 +505,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
         if (const State::NameEntry *named = find_name(s, entry)) {
             name = true;
             tag_only = named->tag_only;
+            glyph = true;
             has_origin = entry_origin(memory, entry, origin_x, origin_y);
         }
     }
@@ -469,7 +525,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
         }
     }
     note_packet(s, ctx.gpr[5], ctx.gpr[6], hud, quest);
-    note_name_packet(s, ctx.gpr[5], ctx.gpr[6], name, has_origin, tag_only, origin_x, origin_y);
+    note_name_packet(s, ctx.gpr[5], ctx.gpr[6], name, has_origin, tag_only, glyph, origin_x, origin_y);
     if (trace) {
         char head[160];
         std::snprintf(head, sizeof(head), "[hud] f=%llu packet=%08X words=%u bucket=%u list=%08X %s |",
@@ -482,6 +538,39 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
             std::cout << text;
         }
         std::cout << "\n";
+    }
+}
+
+void overhead_name_begin(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext &ctx) {
+    State &s = state();
+    const psprecomp::GuestMemory &memory = runtime.memory();
+    // Text queued before this call belongs to the call before it.
+    settle_text(s, memory);
+    bool quest = false;
+    s.overhead_quest = from_hud(s, memory, ctx, nullptr, nullptr, nullptr, &quest) && quest;
+}
+
+void overhead_name_end(psprecomp::Runtime &runtime) {
+    State &s = state();
+    if (!s.overhead_quest) return;
+    s.overhead_quest = false;
+    const psprecomp::GuestMemory &memory = runtime.memory();
+    const std::uint32_t context = memory.load32(kTextContextPointer);
+    if (!memory.contains(context + kQueueLengths, kQueues) || !memory.contains(context + kQueueEntries, kQueues * 4u))
+        return;
+    for (std::uint32_t queue = 0; queue < kQueues; ++queue) {
+        const std::uint8_t length = memory.load8(context + kQueueLengths + queue);
+        std::uint8_t &known = s.lengths[queue];
+        if (length <= known) continue;
+        const std::uint32_t entries = memory.load32(context + kQueueEntries + queue * 4u);
+        // The quest HUD's text, and a name: its letters take the Names size
+        // about the point it was placed at, and no other piece's rule.
+        for (std::uint32_t i = known; i < length; ++i) {
+            const std::uint32_t at = entries + i * kEntryBytes;
+            s.text_entries.push_back(State::HudEntry{at, true});
+            s.name_entries.push_back(State::NameEntry{at, false});
+        }
+        known = length;
     }
 }
 
@@ -561,6 +650,92 @@ template <std::size_t I> void wrapper(psprecomp::Runtime &runtime, psprecomp::Al
     state().originals[I](runtime, ctx);
 }
 
+void overhead_name_wrapper(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    overhead_name_begin(runtime, ctx);
+    state().overhead_original(runtime, ctx);
+    overhead_name_end(runtime);
+}
+
+// Each text queue's length, or nothing when the text context is not there.
+std::optional<std::array<std::uint8_t, kQueues>> queue_lengths(const psprecomp::GuestMemory &memory) {
+    if (!memory.contains(kTextContextPointer, 4u)) return std::nullopt;
+    const std::uint32_t context = memory.load32(kTextContextPointer);
+    if (!memory.contains(context + kQueueLengths, kQueues)) return std::nullopt;
+    std::array<std::uint8_t, kQueues> lengths{};
+    for (std::uint32_t queue = 0; queue < kQueues; ++queue)
+        lengths[queue] = memory.load8(context + kQueueLengths + queue);
+    return lengths;
+}
+
+// MHFU_TRACE_TEXT_FROM: a probed function. When text is queued while it
+// runs, by any path, whether or not a watched text call saw it, one line
+// gives the queue, each new entry's address and point (the x and y the text
+// is drawn at), and the call stack the probed function was entered from.
+template <std::size_t I> void probe(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    State &s = state();
+    const psprecomp::GuestMemory &memory = runtime.memory();
+    const auto before = queue_lengths(memory);
+    const psprecomp::AllegrexContext entered = ctx;
+    s.probes[I].original(runtime, ctx);
+    const auto after = queue_lengths(memory);
+    if (!before || !after || s.probe_lines_left <= 0) return;
+    const std::uint32_t context = memory.load32(kTextContextPointer);
+    for (std::uint32_t queue = 0; queue < kQueues; ++queue) {
+        if ((*after)[queue] <= (*before)[queue]) continue;
+        const std::uint32_t entries = memory.load32(context + kQueueEntries + queue * 4u);
+        std::string chain;
+        bool name = false;
+        bool tag_only = false;
+        bool quest = false;
+        const bool hud = from_hud(s, memory, entered, &chain, &name, &tag_only, &quest);
+        // Each probed function, queue and caller once: the point changes as
+        // the camera moves, the call stack does not.
+        char key[24];
+        std::snprintf(key, sizeof(key), "%08X/%u", s.probes[I].address, queue);
+        if (!s.probe_seen.insert(std::string(key) + chain).second) continue;
+        std::cout << "[textfrom] f=" << s.frame << " fn=0x" << std::hex << s.probes[I].address << std::dec
+                  << " queue=" << queue << (hud ? " HUD" : " -") << " entries";
+        for (std::uint32_t i = (*before)[queue]; i < (*after)[queue]; ++i) {
+            const std::uint32_t entry = entries + i * kEntryBytes;
+            float x = 0.0f;
+            float y = 0.0f;
+            entry_origin(memory, entry, x, y);
+            char text[48];
+            std::snprintf(text, sizeof(text), " %08X(%g,%g)", entry, x, y);
+            std::cout << text;
+        }
+        std::cout << " |" << chain << "\n";
+        --s.probe_lines_left;
+    }
+}
+
+template <std::size_t... I> void install_probes(psprecomp::Runtime &runtime, std::index_sequence<I...>) {
+    State &s = state();
+    const char *text = std::getenv("MHFU_TRACE_TEXT_FROM");
+    if (text == nullptr) return;
+    std::size_t count = 0;
+    for (const char *at = text; *at != '\0' && count < s.probes.size();) {
+        char *end = nullptr;
+        const std::uint32_t address = static_cast<std::uint32_t>(std::strtoul(at, &end, 16));
+        if (end == at) break;
+        s.probes[count++].address = address;
+        at = *end == ',' ? end + 1 : end;
+    }
+    const auto install = [&](std::size_t index, psprecomp::Runtime::RecompiledFunction wrapper) {
+        State::Probe &probe = s.probes[index];
+        if (index >= count) return;
+        probe.original = runtime.function_at(probe.address);
+        if (probe.original == nullptr) {
+            std::cout << "[textfrom] 0x" << std::hex << probe.address << std::dec
+                      << " is not a function the runtime knows; not probed\n";
+            return;
+        }
+        runtime.register_function(probe.address, wrapper, "mhfu_textfrom");
+        std::cout << "[textfrom] probing 0x" << std::hex << probe.address << std::dec << std::endl;
+    };
+    (install(I, &probe<I>), ...);
+}
+
 template <std::size_t... I> bool install_all(psprecomp::Runtime &runtime, std::index_sequence<I...>) {
     State &s = state();
     ((s.originals[I] = compiled(wrapped_address(I))), ...);
@@ -634,7 +809,14 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
             s.trace_every = end != nullptr && *end == '/' ? std::strtoull(end + 1, nullptr, 10) : 0ull;
         }
         if (const char *text = std::getenv("MHFU_HIDE_HUD"); text != nullptr && *text == '1') s.hidden = true;
+        if (const char *text = std::getenv("MHFU_TRACE_CAPTURE"); text != nullptr && *text == '1') s.capture_on = true;
         s.available = check_code(runtime);
+    }
+    // At the flip, like the wrappers below. The probes need the text context
+    // the HUD signature was read with.
+    if (!s.probes_checked && s.available) {
+        s.probes_checked = true;
+        install_probes(runtime, std::make_index_sequence<std::tuple_size_v<decltype(s.probes)>>{});
     }
     // Only at the flip, from an import: no generated frame is live on the
     // host stack, so the dispatch tables may change. Put in place once first
@@ -643,7 +825,13 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
     // menu with a panel in that piece's corner is resized with it.
     const settings::Settings::InterfaceScale &hud = settings::current().hud;
     const bool sized = hud.names != 100u || hud.map != 100u || hud.health != 100u || hud.item_bar != 100u;
-    const bool wanted = s.hidden || s.trace_first != ~0ull || sized;
+    if (s.capture.requested) {
+        s.capture.at_flip(s.frame);
+        std::cout << "[capture] tracing the 2D packets of frames " << s.capture.first << "-"
+                  << s.capture.first + CaptureSchedule::kFrames - 1u << " and the sprites of frames "
+                  << s.capture.first + 1u << "-" << s.capture.first + CaptureSchedule::kFrames << std::endl;
+    }
+    const bool wanted = s.hidden || s.trace_first != ~0ull || s.capture.pending() || sized || s.names_wanted;
     if (!s.installed && wanted && s.available) {
         s.installed = true;
         if (!install_all(runtime, std::make_index_sequence<kWrapped>{})) {
@@ -653,6 +841,14 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
             return;
         }
         std::cout << "[hud] watching the game's 2D draws" << std::endl;
+        // MHFU_HUD_OVERHEAD_NAME=0 leaves the name over a teammate to the
+        // shape rules, as before it was told apart, to compare both.
+        const char *overhead = std::getenv("MHFU_HUD_OVERHEAD_NAME");
+        if (overhead == nullptr || *overhead != '0') {
+            s.overhead_original = runtime.function_at(kOverheadName);
+            if (s.overhead_original != nullptr)
+                runtime.register_function(kOverheadName, &overhead_name_wrapper, "mhfu_hud");
+        }
     }
 }
 
@@ -681,6 +877,19 @@ void set_hidden(bool hidden) {
 
 void toggle() {
     set_hidden(!hidden_now(state()));
+}
+
+void screenshot_taken() {
+    State &s = state();
+    if (s.capture_on) s.capture.request();
+}
+
+bool capture_sprites(std::uint64_t frame) {
+    return state().capture.sprites(frame);
+}
+
+void want_names(bool wanted) {
+    state().names_wanted = wanted;
 }
 
 bool hidden() {
@@ -741,7 +950,10 @@ void watch_for_tests() {
     s.available = true;
     s.installed = true;
     s.packets.clear();
+    s.name_packets.clear();
+    s.name_entries.clear();
     s.text_entries.clear();
+    s.lengths = {};
     s.icons.clear();
     s.frames.clear();
 }
@@ -754,7 +966,7 @@ NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return) {
         auto it = s.name_packets.upper_bound(address);
         if (it == s.name_packets.begin() || address >= std::prev(it)->second.end) return {};
         const State::NamePacket &packet = std::prev(it)->second;
-        return {true, packet.has_origin, packet.tag_only, packet.x, packet.y};
+        return {true, packet.has_origin, packet.tag_only, packet.glyph, packet.x, packet.y};
     };
     const NameDraw command = found(command_address);
     return command.is_name ? command : found(call_return);
