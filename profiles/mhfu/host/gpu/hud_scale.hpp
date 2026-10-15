@@ -304,6 +304,24 @@ struct InterfaceFit {
     return is_map_sprite(rect) || (texture == kAreaMapTexture && is_area_map_texture_window(rect));
 }
 
+// A window over the area map: a sprite larger than any mark in both
+// directions that is neither the map's texture nor the full map tile. Traced
+// with MHFU_TRACE_HUD_SCALE in an ad hoc quest: a window at (344, 48)-(456,
+// 160), its left side (344, 48)-(360, 160) and its body (360, 48)-(456, 160)
+// from 0x09165BA0 and 0x09165C20, with 13 by 14 corners from the mark atlas.
+// It overlaps the map, so its side and corners were sized with the map and
+// pulled toward the slot's corner while the rest stayed. The map is drawn
+// only from kAreaMapTexture and marks of 36 or less. The ammo menu reaches
+// below the slot and is not inside it.
+[[nodiscard]] inline bool is_map_panel(Rect rect, std::uint32_t texture) {
+    if (texture == kAreaMapTexture || is_fixed_map_sprite(rect)) return false;
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width > 36.0f && height > 36.0f &&
+        contains({kMapLeft - 16.0f, kMapTop - 16.0f, kMapRight + 16.0f, kMapBottom + 16.0f}, r);
+}
+
 // The quest clock: (8, 8)-(60, 56), 52 by 48, with a little room for the
 // position to sit a pixel or two off.
 [[nodiscard]] inline bool is_clock_sprite(Rect rect) {
@@ -450,6 +468,52 @@ inline constexpr int kNamePlates = 4;
     // A name letter is at most 10 wide and 12 to 16 tall, and it is not in
     // the weapon column. The face's cell is that size, in the column.
     return !(width <= 10.0f && height >= 12.0f && height <= 16.0f && cx > 18.0f);
+}
+
+// A teammate's health, the green line under that hunter's name. Traced with
+// MHFU_TRACE_SPRITES in an ad hoc quest: an untextured through sprite at
+// (26, 90)-(98, 92) on the second name's plate, 72 wide at full health and
+// shorter as health drops. It is two pixels tall, below the four-pixel floor
+// piece_of applies to everything else, so it is told apart first and keeps
+// the place the game gave it under the name.
+[[nodiscard]] inline bool is_party_health_bar(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width > 0.0f && width <= 80.0f && height >= 1.0f && height <= 4.0f && r.x0 >= 22.0f && r.x0 <= 30.0f &&
+        inside_name_plate(r);
+}
+
+// A letter-sized quad where the party list puts one. Traced with
+// MHFU_TRACE_SPRITES and MHFU_TRACE_HUD_SCALE in an ad hoc quest: a name's
+// letters are 8 by 14, 8 apart from x 26, on y 58 for the first name and 20
+// lower for each after it; the plate's 8 by 16 end is at x 96 on y 56 and
+// 76. The name over another hunter uses the same letters, drawn in the same
+// batch, and slides across the list with the camera at any x and y, rows
+// included (y 116 and 118 from x 45 to 116). Off that grid a letter is not
+// part of the list. The badge column left of x 24 holds the cat's face cell,
+// on a name's row. A cat's name beside its hunter, past the plate's right
+// end, keeps that row with no grid; an overhead letter on a row out there
+// still passes. The Felyne Comrade's name can also sit under the hunter's,
+// its letters from y 72 over the plate's width, with its face below them.
+inline constexpr float kNameLetterLeft = 26.0f;
+inline constexpr float kNameLetterAdvance = 8.0f;
+inline constexpr float kPlateEndLeft = 96.0f;
+
+[[nodiscard]] inline bool on_party_row(Rect rect) {
+    const Rect r = normalized(rect);
+    const auto near = [](float a, float b) { return std::fabs(a - b) <= 0.5f; };
+    if (near(r.y0, kNameBottom - 4.0f) && r.x0 <= kNameRight + 8.0f) return true;
+    const float column = (r.x0 - kNameLetterLeft) / kNameLetterAdvance;
+    const bool on_letter = column >= -0.1f && std::fabs(column - std::round(column)) * kNameLetterAdvance <= 0.5f;
+    for (int i = 0; i < kNamePlates; ++i) {
+        const float plate = kNameTop + 2.0f + static_cast<float>(i) * kPlateStride;
+        // The badge column, and a cat's name beside its hunter past the plate.
+        if ((near(r.y0, plate) || near(r.y0, plate + 2.0f)) && (r.x0 < 24.0f || r.x0 >= kNameRight)) return true;
+        if (near(r.y0, plate + 2.0f) && on_letter) return true;
+        if (near(r.y0, plate) && near(r.x0, kPlateEndLeft)) return true;
+    }
+    return false;
 }
 
 // The hunter's own plate is the rectangle above this. The cat's name is the
@@ -683,6 +747,50 @@ inline constexpr int kNamePlates = 4;
     return width >= 15.5f && width <= 16.5f && height >= 7.5f && height <= 8.5f;
 }
 
+// A quest menu's window over the party list: Combine, the kitchen skills,
+// the equipment pages. Traced with MHFU_TRACE_CAPTURE and
+// MHFU_TRACE_HUD_SCALE=all: each starts at the picture's left edge, with 16
+// by 8 corners at (0..12, 40..152). Its letters (7 by 14, or 14 by 14), its
+// icons and those corners fall where the party list's names, buffs and badge
+// column are, and were sized and moved with Status. A window's corner at the
+// left of that band says one is up.
+[[nodiscard]] inline bool is_party_window_tile(Rect rect) {
+    const Rect r = normalized(rect);
+    return is_window_tile(r) && r.x0 <= 24.0f && r.y0 >= 36.0f && r.y0 <= 180.0f;
+}
+
+// A letter of a name in the party list: 8 by 14, on the name grid (x 26 and
+// every 8 after it), on a name's row. A menu's letters are 7 wide.
+[[nodiscard]] inline bool is_party_letter(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (width < 7.5f || width > 8.5f || height < 12.0f || height > 16.0f || r.x0 < kNameLetterLeft - 0.5f) return false;
+    const float column = (r.x0 - kNameLetterLeft) / kNameLetterAdvance;
+    if (std::fabs(column - std::round(column)) * kNameLetterAdvance > 0.5f) return false;
+    for (int i = 0; i < kNamePlates; ++i)
+        if (std::fabs(r.y0 - (kNameTop + 4.0f + static_cast<float>(i) * kPlateStride)) <= 0.5f) return true;
+    return false;
+}
+
+// While such a window is up, only what is certainly the party list keeps
+// Status in that band: the plates and their tiles, the weapon badges, a
+// teammate's health line and the names' own letters. The clock is above the
+// band. Everything else there is the window's.
+[[nodiscard]] inline bool covered_by_party_window(Rect rect) {
+    const Rect r = normalized(rect);
+    if (contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)) return false;
+    if (!overlaps({0.0f, 36.0f, kPartyRight, kPartyBottom + 24.0f}, r)) return false;
+    if (is_hunter_badge(r) || is_party_health_bar(r) || is_party_letter(r)) return false;
+    // A plate tile stays with its plate; a letter on a plate that is not on
+    // the name grid is the window's. Letters are 14 tall; the plate's 8 by
+    // 16 end is not one.
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    const bool letter = width >= 6.0f && width <= 10.0f && height >= 12.0f && height <= 15.0f;
+    return !(inside_name_plate(r) && !letter);
+}
+
 // The ammo selection menu, opened over the item bar with a bowgun out: the
 // item bar's frame grown to (312, 128)-(472, 264), an arrow at
 // (384, 124)-(400, 140), a title at y 140, two rows of shots at
@@ -780,21 +888,38 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     return side || highlight;
 }
 
-[[nodiscard]] inline bool is_ammo_menu_sprite(Rect rect) {
-    return is_ammo_menu_corner(rect) || is_ammo_menu_body(rect);
-}
-
 // The ammo bar above the item bar: (312, 184)-(472, 200), a wide strip in the
 // band the area map does not cover. Traced with a bowgun out. The equipment
 // colour menu draws a checkbox in that same band, under the map, about 16
-// pixels square; that checkbox is not the bar.
+// pixels square; that checkbox is not the bar. A window's title strip is the
+// same shape a row higher: in an ad hoc quest, (312, 176)-(456, 192) and its
+// edge (312, 192)-(456, 200), traced with MHFU_TRACE_HUD_SCALE=all, were
+// taken for the bar on the window's first frame and shrank with it.
 [[nodiscard]] inline bool is_bowgun_icon(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    return width >= 100.0f && width <= 170.0f && height >= 8.0f && height <= 24.0f && r.x0 >= 300.0f &&
-        r.x0 <= 340.0f && r.y0 >= 176.0f && r.y0 <= 192.0f &&
+    return width >= 100.0f && width <= 170.0f && height >= 12.0f && height <= 20.0f && r.x0 >= 300.0f &&
+        r.x0 <= 340.0f && r.y0 >= 180.0f && r.y0 <= 188.0f &&
         contains({kBowgunLeft, kBowgunTop, kBowgunRight, kBowgunBottom}, r);
+}
+
+// The window frame the item bar is built from. Its top edge, body, bottom
+// edge and two sides each have their own texture; the corners come from the
+// HUD atlas. Other quest windows use the same frame: the banner a teammate
+// leaves with ("... broke off from the group!", (104, 120)-(376, 152)) and
+// the message box under a list. Traced with MHFU_TRACE_HUD_SCALE=all in an
+// ad hoc quest: the banner's 16 by 16 left side sits in the party list's
+// band, the size of a status icon, and was pulled toward the clock.
+inline constexpr std::uint32_t kFrameTopTexture = 0x09163C20u;
+inline constexpr std::uint32_t kFrameBodyTexture = 0x09164420u;
+inline constexpr std::uint32_t kFrameBottomTexture = 0x09164C20u;
+inline constexpr std::uint32_t kFrameLeftTexture = 0x091643A0u;
+inline constexpr std::uint32_t kFrameRightTexture = 0x091644A0u;
+
+[[nodiscard]] inline bool is_window_frame_texture(std::uint32_t texture) {
+    return texture == kFrameTopTexture || texture == kFrameBodyTexture || texture == kFrameBottomTexture ||
+        texture == kFrameLeftTexture || texture == kFrameRightTexture;
 }
 
 // The notice's border and its letters share the map's rectangle. A mark from
@@ -810,6 +935,15 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
     if (is_map_sprite(r)) return Piece::Map;
+    // A piece of the item bar's window frame is the item bar in the item
+    // bar's place, and a window anywhere else.
+    if (is_window_frame_texture(texture))
+        return contains({kItemLeft, kItemTop, kItemRight, kItemBottom}, r) ? Piece::ItemBar : Piece::None;
+    // A window's 16 by 8 corner left of the item bar's column. No piece of
+    // the clock, the bars, the weapon or the party list is that shape; a
+    // menu's corner at the left edge fell in the clock's box and the badge
+    // column and was moved with Status.
+    if (is_window_tile(r) && r.x1 <= kItemLeft) return Piece::None;
     if (is_sharpness(r)) return Piece::Sharpness;
     // Notes sit above the weapon slot and the queued-note mark sits below it,
     // so the slot's rectangle does not cover them.
@@ -820,7 +954,11 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     if (is_vital_piece(r) ||
         (width >= 2.0f && height >= 2.0f && contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)))
         return Piece::Vitals;
+    if (is_party_health_bar(r)) return Piece::Vitals;
     if (width < 4.0f || height < 4.0f) return Piece::None;
+    // A letter of the name over another hunter, crossing the party list.
+    if (is_text_glyph(r) && contains({kPartyLeft, kPartyTop, kPartyRight, kPartyBottom}, r) && !on_party_row(r))
+        return Piece::None;
     // The hunter's name under the clock. It grows from the clock's corner
     // with the bars, so it stays under the clock. The yellow eye is the icon
     // just past the plate's right end, and the status icons continue along
@@ -832,9 +970,13 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     // A marker drawn on the map, inside the tile. The player's arrow turns, so
     // its box can cross the edge; that one is caught from the map's own
     // bounds in on_map. The notice's right border and its letters cross this
-    // rectangle while the window slides; a mark is neither of those.
+    // rectangle while the window slides; a mark is neither of those. Nor is
+    // anything larger than a mark: the map itself is told apart above, and a
+    // window over the map draws its 16 by 112 side before the body that marks
+    // the window as up (is_map_panel), so on its first frame that side was
+    // sized and moved with the map.
     if (contains({kMapLeft, kMapTop, kMapRight, kMapBottom}, r))
-        return is_notice_piece(r, texture) ? Piece::None : Piece::Map;
+        return is_notice_piece(r, texture) || !is_map_mark(r) ? Piece::None : Piece::Map;
     if (contains({kItemLeft, kItemTop, kItemRight, kItemBottom}, r)) return Piece::ItemBar;
     if (contains({kSpiritLeft, kSpiritTop, kSpiritRight, kSpiritBottom}, r) && !is_sharpness(r) && !is_window_tile(r) &&
         !is_window_letter(r))
@@ -1008,6 +1150,13 @@ struct Frame {
     bool list_live{};
     bool ammo_menu_now{};
     bool travelling_now{};
+    // A window over the area map this frame or the one before (is_map_panel).
+    bool panel_now{};
+    bool panel_live{};
+    // A menu's window over the party list (is_party_window_tile), this frame
+    // or the one before.
+    bool party_window_now{};
+    bool party_window_live{};
     // The notice's 8-tall border tiles seen this frame, and whether two of
     // them are the top and bottom of that border (24 pixels apart). A tile
     // at the ammo menu's corner row is that menu only when it has no partner.
@@ -1019,6 +1168,15 @@ struct Frame {
     int notice_edges_live{};
     bool notice_pair{};
     bool menu_body{};
+    // The ammo menu's corner tile, and its body, this frame and the one
+    // before. The Combine window in a quest (Material A and B, left of the
+    // item list) has a 16 by 8 corner on the menu's corner row and nothing
+    // else of the menu; taken for the menu, the list's lower rows shrank
+    // into the item bar's corner. A corner that stays up with no body is
+    // not the menu. The menu's first frame still opens on the corner alone.
+    bool menu_corner{};
+    bool menu_corner_live{};
+    bool menu_body_live{};
     // The obtain window ("Herb obtained."). It slides down from the top of
     // the picture and settles in the middle. A horizontal edge is a short
     // wide strip; on the way down the body is the taller panel the message
@@ -1084,8 +1242,10 @@ struct Frame {
         spirit_live = spirit_now;
         bowgun_live = bowgun_now;
         list_live = list_now;
+        panel_live = panel_now;
+        party_window_live = party_window_now;
         map_now = vital_now = bar_now = sharp_now = spirit_now = bowgun_now = list_now = ammo_menu_now =
-            travelling_now = obtain_banner_now = false;
+            travelling_now = obtain_banner_now = panel_now = party_window_now = false;
         map_rect = {};
         travelling_rect = {};
         map_zoomed = false;
@@ -1097,6 +1257,9 @@ struct Frame {
         }
         notice_edges = 0;
         notice_pair = false;
+        menu_corner_live = menu_corner;
+        menu_body_live = menu_body;
+        menu_corner = false;
         menu_body = false;
     }
 
@@ -1330,13 +1493,28 @@ struct Frame {
         if (is_spirit_bar(rect) || is_spirit_fill(rect) || is_loaded_round(rect) || is_bow_coating(rect) ||
             is_gunlance_shell(rect) || is_hunting_horn(rect))
             spirit_now = true;
-        if (is_ammo_menu_body(rect)) menu_body = true;
-        if (is_ammo_menu_sprite(rect)) ammo_menu_now = true;
+        if (is_ammo_menu_body(rect)) menu_body = ammo_menu_now = true;
+        // The menu opens from the ammo bar, so on the corner alone it opens
+        // only while that bar is up. Choosing Combine's first material
+        // redraws its windows, and on that frame a corner of them on this
+        // row, with no ammo bar anywhere, opened the menu: the whole item
+        // list shrank toward the item bar's corner for one frame (traced
+        // with MHFU_TRACE_HUD_SCALE=all in a quest).
+        if (is_ammo_menu_corner(rect)) {
+            menu_corner = true;
+            const bool opening = !menu_corner_live && (bowgun_now || bowgun_live);
+            if (opening || menu_body_live || menu_body) ammo_menu_now = true;
+        }
         remember_notice_edge(rect);
         remember_obtain_banner(rect);
         if (is_bowgun_icon(rect)) bowgun_now = true;
         if (is_item_list(rect)) list_now = true;
+        if (is_map_panel(rect, texture)) panel_now = true;
+        if (is_party_window_tile(rect)) party_window_now = true;
     }
+
+    // A window over the map, now or in the frame before.
+    [[nodiscard]] bool panel_up() const { return panel_now || panel_live; }
 
     // A window between the traced spots is the map only while the quest clock
     // or the health bar is on screen, and only when the quad samples the
@@ -1355,7 +1533,7 @@ struct Frame {
     // in the slot still counts when the window has slid off it. The notice's
     // border is not a mark.
     [[nodiscard]] bool on_map(Rect rect, std::uint32_t texture = 0) const {
-        if (!(map_now || map_live) || list_now || list_live) return false;
+        if (!(map_now || map_live) || list_now || list_live || panel_up()) return false;
         if (is_notice_piece(rect, texture) || on_obtain_banner(rect, texture)) return false;
         if (!is_map_mark(rect)) return false;
         if (overlaps(map_now ? map_rect : map_rect_live, rect)) return true;
@@ -1381,13 +1559,17 @@ struct Frame {
             // leaves the slot; that one is the texture too.
             if (texture == kAreaMapTexture && (is_travelling_map_window(rect) || is_area_map_texture_window(rect)))
                 return (map_now || map_live) && status_up();
+            // A window drawn over the map keeps every piece of its own, its
+            // corners from the mark atlas included.
+            if (panel_up()) return false;
             if ((map_now || map_live) && !list_now && !list_live && is_map_mark(rect) && in_map_slot(rect) &&
                 !is_notice_piece(rect, texture))
                 return true;
             return (map_now || map_live) && !list_now && !list_live &&
                 overlaps(map_now ? map_rect : map_rect_live, rect);
+        // A menu over the party list keeps every piece of its own there.
         case Piece::Vitals:
-            return status_up();
+            return status_up() && !((party_window_now || party_window_live) && covered_by_party_window(rect));
         // The item list shares the bar's corner, and its right column shares
         // the bowgun slot. Neither is scaled while that list is on screen.
         // The quest item bar is on screen with the clock. A shop draws panels
@@ -1445,7 +1627,9 @@ std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales 
     // stays as the game drew it.
     if (named.tag_only && !vertices.empty() && !is_name_tag(fit.to_game(bounds_of(vertices)))) return std::nullopt;
     std::vector<std::uint8_t> party_icon(vertices.size() / 6u);
-    if (frame.status_up())
+    // A letter of the name is never a party icon: a name over a hunter that
+    // crosses the party list, the map or the item bar keeps the Names size.
+    if (frame.status_up() && !named.glyph)
         for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u)
             party_icon[first / 6u] = is_party_column_icon(fit.to_game(quad_bounds(vertices, first))) ? 1u : 0u;
     const std::vector<Vertex> drawn = vertices;
@@ -1470,6 +1654,46 @@ std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales 
     return name_bounds;
 }
 
+// One draw of a name over a hunter, as frame interpolation remembers it: the
+// point the name was placed at, where the draw's first corner lies from that
+// point, and what it samples. The game moves a name once per game frame; a
+// present between two frames moves each draw by the blended move of its
+// name's point, so the names glide with the characters they follow.
+struct NamePlace {
+    float origin_x{};
+    float origin_y{};
+    float dx{}; // first vertex minus the origin
+    float dy{};
+    float u{}; // first vertex's texture coordinates: the letter
+    float v{};
+    std::uint64_t texture{};
+    std::uint32_t vertices{};
+};
+
+// The same letter of the same name in the newer frame: the same texture,
+// texel and place within its name, on the nearest point no further than
+// `max_move` pixels. -1 when there is none: a name that appeared, left, or
+// jumped (a cut) stays where its frame drew it.
+[[nodiscard]] inline int match_name_place(
+    const NamePlace &older, const std::vector<NamePlace> &newer, float max_move = 64.0f) {
+    int best = -1;
+    float best_distance = max_move * max_move;
+    for (std::size_t i = 0; i < newer.size(); ++i) {
+        const NamePlace &n = newer[i];
+        if (n.texture != older.texture || n.vertices != older.vertices) continue;
+        if (std::fabs(n.u - older.u) > 0.01f || std::fabs(n.v - older.v) > 0.01f) continue;
+        if (std::fabs(n.dx - older.dx) > 0.5f || std::fabs(n.dy - older.dy) > 0.5f) continue;
+        const float mx = n.origin_x - older.origin_x;
+        const float my = n.origin_y - older.origin_y;
+        const float distance = mx * mx + my * my;
+        if (distance <= best_distance) {
+            best_distance = distance;
+            best = static_cast<int>(i);
+        }
+    }
+    return best;
+}
+
 // The middle of the picture, (240, 136), where an aim's reticle starts. No
 // piece of the HUD is drawn there.
 [[nodiscard]] inline bool in_reticle_area(Rect rect) {
@@ -1487,14 +1711,125 @@ std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales 
     return owner != hud::Owner::Other;
 }
 
+// Why a quad was given the piece it was, or left as drawn. Every rule that
+// takes a quad for a piece, or turns it away, is one of these, so a menu
+// taken for a piece names the rule that took it (MHFU_TRACE_HUD_SCALE).
+enum class Reason : std::uint8_t {
+    // Taken for `piece`.
+    Shape,      // piece_of: the piece's own rectangle and shape
+    AmmoMenu,   // inside the open ammo menu, which takes the item bar's size
+    MapTexture, // a window of the area-map texture outside the slot
+    MapMark,    // a mark whose box crosses the map drawn this frame
+    // Left as drawn.
+    NoPiece,      // no rule took it
+    ObtainBanner, // on the obtain window ("Herb obtained.")
+    NoticeBorder, // the long notice's 16-tall border, on its 8-tall cap
+    Reticle,      // an aim's reticle
+    PieceNotUp,   // its piece is not on screen, or a window covers it
+    NotOwner,     // filed by code other than the quest HUD
+};
+
+[[nodiscard]] inline const char *reason_name(Reason reason) {
+    switch (reason) {
+    case Reason::Shape:
+        return "shape";
+    case Reason::AmmoMenu:
+        return "ammo-menu";
+    case Reason::MapTexture:
+        return "map-texture";
+    case Reason::MapMark:
+        return "map-mark";
+    case Reason::NoPiece:
+        return "no-piece";
+    case Reason::ObtainBanner:
+        return "obtain-banner";
+    case Reason::NoticeBorder:
+        return "notice-border";
+    case Reason::Reticle:
+        return "reticle";
+    case Reason::PieceNotUp:
+        return "piece-not-up";
+    case Reason::NotOwner:
+        return "not-owner";
+    }
+    return "no-piece";
+}
+
+// `piece` is what the quad is sized as, None when it is left as drawn.
+// `candidate` is what the rules took it for before it was turned away, so a
+// trace shows a menu that was nearly taken for the map.
+struct Decision {
+    Piece piece{Piece::None};
+    Reason reason{Reason::NoPiece};
+    Piece candidate{Piece::None};
+};
+
+// The piece one quest HUD quad belongs to, with the rule that decided it.
+// `frame` already holds every quad of this draw. It learns an aim's reticle
+// here, so each quad is decided once and in the order drawn.
+[[nodiscard]] inline Decision decide(Frame &frame, Rect bounds, std::uint32_t texture) {
+    // The ammo menu is one panel over the item bar's corner, sized with
+    // the item bar. Only this frame's menu counts: the frame after it
+    // closes draws the ammo bar in the same place.
+    // The ammo menu opens over the quest item bar, so the clock is up.
+    // A shop highlight is the same shape and must not take this size.
+    const bool in_ammo_menu = frame.ammo_menu_now && frame.status_up() &&
+        contains({kAmmoMenuLeft, kAmmoMenuTop, kAmmoMenuRight, kAmmoMenuBottom}, bounds);
+    Piece piece = in_ammo_menu ? Piece::ItemBar : piece_of(bounds, texture);
+    Reason reason = in_ammo_menu ? Reason::AmmoMenu : Reason::Shape;
+    // A window from the area-map texture that sits outside the slot is
+    // still the map. piece_of only knows the slot.
+    if (!in_ammo_menu && texture == kAreaMapTexture && is_area_map_texture_window(bounds)) {
+        piece = Piece::Map;
+        reason = Reason::MapTexture;
+    }
+    // The arrow's box crosses the map, or lands in the bowgun slot, while
+    // the map it belongs to is the one drawn this frame.
+    if (!in_ammo_menu && (piece == Piece::None || piece == Piece::Bowgun) && frame.on_map(bounds, texture)) {
+        piece = Piece::Map;
+        reason = Reason::MapMark;
+    }
+    const Piece candidate = piece;
+    // The obtain window ("Herb obtained.") crosses the map and the name
+    // rows. Its frame, the item icon and the name stay as drawn. A weapon
+    // piece is the same short wide shape and still takes its own size.
+    bool on_banner = false;
+    if (frame.on_obtain_banner(bounds, texture) &&
+        (piece == Piece::Map || piece == Piece::Vitals || piece == Piece::ItemBar || piece == Piece::Bowgun)) {
+        piece = Piece::None;
+        on_banner = true;
+    }
+    // The long notice's 16-tall border sits on its 8-tall cap. It is the
+    // size of a map mark, so the mark rule would take it.
+    if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.beside_notice_edge(bounds))
+        return {Piece::None, Reason::NoticeBorder, candidate};
+    // A reticle is learned by its texture and size, and the font and the
+    // HUD atlas are shared: an overhead name's letter or a 16 by 8 window
+    // tile near the middle was learned, and every letter of the party list
+    // and every corner of the item bar then kept the game's size until the
+    // aim ended (traced with MHFU_TRACE_HUD_SCALE=all in a quest). The
+    // reticle only needs keeping off the map and the bowgun slot, the pieces
+    // a mark-sized sprite crossing the right of the picture is taken for.
+    if (frame.aiming && texture != 0u) {
+        if (piece == Piece::None && in_reticle_area(bounds)) frame.learn_reticle(bounds, texture);
+        if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.is_reticle(bounds, texture))
+            return {Piece::None, Reason::Reticle, candidate};
+    }
+    if (piece == Piece::None) return {Piece::None, on_banner ? Reason::ObtainBanner : Reason::NoPiece, candidate};
+    if (!in_ammo_menu && !frame.allows(piece, bounds, texture)) return {Piece::None, Reason::PieceNotUp, candidate};
+    return {piece, reason, candidate};
+}
+
 // One through sprite, or one through quad, is six vertices (two triangles)
-// after it is expanded. Groups of six are scaled when they are the map or the
-// item bar and that piece is on screen. Every draw is noted in `frame`, so an
-// item list or a notice over the HUD still holds the pieces under it; only a
-// draw `owner` allows is moved.
+// after it is expanded. Groups of six are scaled when decide() gives them a
+// piece. Every draw is noted in `frame`, so an item list or a notice over the
+// HUD still holds the pieces under it; only a draw `owner` allows is moved.
+// `decisions`, when given, gets one Decision per quad, in order, even for a
+// draw that is not moved.
 template <typename Vertex>
 void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame, std::uint32_t texture = 0,
-    hud::Owner owner = hud::Owner::Unknown) {
+    hud::Owner owner = hud::Owner::Unknown, std::vector<Decision> *decisions = nullptr) {
+    if (decisions != nullptr) decisions->clear();
     if (!scales.any() || vertices.size() < 6u) return;
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = quad_bounds(vertices, first);
@@ -1503,39 +1838,19 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
     }
     frame.dismiss_false_menu();
     frame.adopt_travelling_map();
-    if (!may_resize(owner)) return;
+    if (!may_resize(owner)) {
+        if (decisions != nullptr)
+            for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u)
+                decisions->push_back({Piece::None, Reason::NotOwner, piece_of(quad_bounds(vertices, first), texture)});
+        return;
+    }
     if (!frame.aiming) frame.reticles = 0;
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = quad_bounds(vertices, first);
-        // The ammo menu is one panel over the item bar's corner, sized with
-        // the item bar. Only this frame's menu counts: the frame after it
-        // closes draws the ammo bar in the same place.
-        // The ammo menu opens over the quest item bar, so the clock is up.
-        // A shop highlight is the same shape and must not take this size.
-        const bool in_ammo_menu = frame.ammo_menu_now && frame.status_up() &&
-            contains({kAmmoMenuLeft, kAmmoMenuTop, kAmmoMenuRight, kAmmoMenuBottom}, bounds);
-        Piece piece = in_ammo_menu ? Piece::ItemBar : piece_of(bounds, texture);
-        // A window from the area-map texture that sits outside the slot is
-        // still the map. piece_of only knows the slot.
-        if (!in_ammo_menu && texture == kAreaMapTexture && is_area_map_texture_window(bounds)) piece = Piece::Map;
-        // The arrow's box crosses the map, or lands in the bowgun slot, while
-        // the map it belongs to is the one drawn this frame.
-        if (!in_ammo_menu && (piece == Piece::None || piece == Piece::Bowgun) && frame.on_map(bounds, texture))
-            piece = Piece::Map;
-        // The obtain window ("Herb obtained.") crosses the map and the name
-        // rows. Its frame, the item icon and the name stay as drawn. A weapon
-        // piece is the same short wide shape and still takes its own size.
-        if (frame.on_obtain_banner(bounds, texture) &&
-            (piece == Piece::Map || piece == Piece::Vitals || piece == Piece::ItemBar || piece == Piece::Bowgun))
-            piece = Piece::None;
-        // The long notice's 16-tall border sits on its 8-tall cap. It is the
-        // size of a map mark, so the mark rule would take it.
-        if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.beside_notice_edge(bounds)) continue;
-        if (frame.aiming && texture != 0u) {
-            if (piece == Piece::None && in_reticle_area(bounds)) frame.learn_reticle(bounds, texture);
-            if (frame.is_reticle(bounds, texture)) continue;
-        }
-        if (piece == Piece::None || (!in_ammo_menu && !frame.allows(piece, bounds, texture))) continue;
+        const Decision decision = decide(frame, bounds, texture);
+        if (decisions != nullptr) decisions->push_back(decision);
+        const Piece piece = decision.piece;
+        if (piece == Piece::None) continue;
         // The no-map window and the marks on it are enlarged. Put them on the
         // slot's placement first, then apply the Map size. At 100% the
         // placement is the whole change.

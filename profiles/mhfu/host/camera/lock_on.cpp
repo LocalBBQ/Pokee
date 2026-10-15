@@ -280,6 +280,14 @@ bool small_species(std::uint8_t id) {
     }
 }
 
+// A hunter, the player or a partner, whatever its list node says.
+// MHFU_LOCK_ON_HUNTERS=1 keeps them, as before.
+bool hunter_entity(const psprecomp::GuestMemory &memory, std::uint32_t entity) {
+    const char *keep = std::getenv("MHFU_LOCK_ON_HUNTERS");
+    if (keep != nullptr && keep[0] == '1') return false;
+    return memory.load32(entity + kVtable) == kHunterVtable;
+}
+
 // Large monsters on the quest list, including one in another zone. When
 // `trace` is set, the walk is printed and the flag cleared,
 // and only once the list can actually be read.
@@ -306,6 +314,7 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
         node = older;
         if (kind == kPlayerNode) continue;
         if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
+        if (hunter_entity(memory, at)) continue;
         bool seen_entity = false;
         for (const Candidate &already : found)
             if (already.monster.address == at) seen_entity = true;
@@ -349,6 +358,51 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
     return found;
 }
 
+// MHFU_TRACE_LOCK_ON: every node on the quest list, players and the entities
+// the walk leaves out included, one line each.
+void trace_entity_list(const psprecomp::GuestMemory &memory, const char *why) {
+    if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return;
+    const std::uint32_t manager = memory.load32(kEntityList);
+    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) return;
+    const std::optional<std::uint16_t> loaded = loaded_stage(memory);
+    std::cout << "[lockon] entity list (" << why << "), loaded stage "
+              << (loaded ? static_cast<int>(*loaded) : -1) << std::endl;
+    std::uint32_t node = memory.load32(manager + kListHead);
+    std::uint32_t seen[kMaxMonsters]{};
+    for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
+        if (memory.raw_pointer(node, kNodeClass + 2u) == nullptr) break;
+        bool repeated = false;
+        for (std::uint32_t earlier = 0; earlier < n; ++earlier)
+            if (seen[earlier] == node) repeated = true;
+        if (repeated) break;
+        seen[n] = node;
+        const std::uint8_t kind = memory.load8(node + kNodeType);
+        const std::uint16_t class_id = memory.load16(node + kNodeClass);
+        const std::uint32_t at = memory.load32(node + kNodeEntity);
+        std::cout << "[lockon]   node 0x" << std::hex << node << " entity 0x" << at << std::dec << " type "
+                  << static_cast<unsigned>(kind) << " class " << class_id;
+        node = memory.load32(node + kNodeOlder);
+        if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) {
+            std::cout << " unreadable" << std::endl;
+            continue;
+        }
+        const std::uint32_t vtable = memory.load32(at + kVtable);
+        const std::uint32_t method = vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u)
+            ? memory.load32(vtable + kVtableMethod)
+            : 0u;
+        const Vec3 position = load_vec(memory, at + kPosition);
+        const std::uint8_t id = memory.load8(at + kMonsterId);
+        std::cout << " vtable 0x" << std::hex << vtable << (vtable == kHunterVtable ? " (hunter)" : "") << " method 0x"
+                  << method << std::dec << " em "
+                  << (em_method(memory, vtable) ? 1 : 0) << " id " << static_cast<unsigned>(id)
+                  << (small_species(id) ? " (small)" : "") << " health "
+                  << static_cast<std::int16_t>(memory.load16(at + kHealth)) << "/"
+                  << static_cast<std::int16_t>(memory.load16(at + kMostHealth)) << " stage "
+                  << memory.load16(at + kStageId) << " at " << position.x << "," << position.y << "," << position.z
+                  << std::endl;
+    }
+}
+
 // `present` keeps a monster in another zone, and a dead one, for the
 // icon. Whether anything is marked large is decided on the whole quest, so
 // a large monster elsewhere or dead still keeps a small one out. Lock-on
@@ -370,6 +424,7 @@ std::vector<Candidate> select_monsters(const std::vector<Candidate> &found, bool
 
 std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) {
     std::vector<LockMonster> out;
+    if (state.trace_walk) trace_entity_list(memory, "tap");
     for (const Candidate &candidate : select_monsters(collect_monsters(memory, &state.trace_walk), false)) {
         out.push_back(candidate.monster);
         out.back().slot = static_cast<std::uint32_t>(out.size() - 1u);
@@ -389,7 +444,13 @@ std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory) {
         bool known = false;
         for (const std::uint32_t address : state.icon_order)
             if (address == monster.address) known = true;
-        if (!known) state.icon_order.push_back(monster.address);
+        if (known) continue;
+        state.icon_order.push_back(monster.address);
+        if (trace_on()) {
+            std::cout << "[lockon] new icon: species " << static_cast<unsigned>(monster.id) << " at 0x" << std::hex
+                      << monster.address << std::dec << std::endl;
+            trace_entity_list(memory, "new icon");
+        }
     }
     std::vector<HuntMonster> out;
     for (const std::uint32_t address : state.icon_order)

@@ -320,6 +320,167 @@ void test_the_setting_does_not_slow_direct_chains() {
     psprecomp::g_runtime_chain_observers_active = original;
 }
 
+// A quest in progress on the stand-in: game_task.ovl in the task slot, and an
+// entity list of a hunter, a large monster, a small one, a companion with no
+// health pool, and a second node for the large monster.
+constexpr std::uint32_t kLarge = 0x09830000u;
+constexpr std::uint32_t kSmall = 0x09840000u;
+
+void stand_in_quest(psprecomp::GuestMemory &memory) {
+    namespace layout = mhfu::camera::lock_on_layout;
+    memory.store32(layout::kTaskSlot, 0x336F574Du);
+    memory.store32(layout::kTaskSlot + 8u, layout::kTaskSlot);
+    const char name[] = "game_task.ovl";
+    for (std::uint32_t i = 0; i < sizeof(name); ++i)
+        memory.store8(layout::kTaskSlot + 32u + i, static_cast<std::uint8_t>(name[i]));
+    constexpr std::uint32_t manager = 0x09800000u;
+    constexpr std::uint32_t hunter = 0x09820000u, companion = 0x09850000u;
+    const std::uint32_t entities[] = {hunter, kLarge, kSmall, companion, kLarge};
+    memory.store32(layout::kEntityList, manager);
+    memory.store32(manager + layout::kListHead, 0x09810000u);
+    for (std::uint32_t i = 0; i < 5u; ++i) {
+        const std::uint32_t node = 0x09810000u + i * 0x100u;
+        memory.store32(node + layout::kNodeEntity, entities[i]);
+        memory.store8(node + layout::kNodeType, i == 0u ? layout::kPlayerNode : 0u);
+        memory.store32(node + layout::kNodeOlder, i + 1u < 5u ? node + 0x100u : 0u);
+    }
+    for (const std::uint32_t entity : {hunter, kLarge}) {
+        memory.store16(entity + kMonsterHealth, 2000u);
+        memory.store16(entity + kMonsterMostHealth, 3000u);
+    }
+    memory.store16(kSmall + kMonsterHealth, 120u);
+    memory.store16(kSmall + kMonsterMostHealth, 150u);
+    memory.store16(companion + kMonsterHealth, 500u);
+    memory.store16(companion + kMonsterMostHealth, 0u);
+    memory.store32(hunter + layout::kVtable, 0x09A60000u);
+    for (const std::uint32_t monster : {kLarge, kSmall, companion})
+        memory.store32(monster + layout::kVtable, 0x09D20000u);
+}
+
+// Ad hoc play: a hit applied on another console arrives as a new health,
+// written without the hit routine. The frame's reading shows it.
+void test_the_health_watch() {
+    check(parse_health_watch(nullptr) && parse_health_watch("") && parse_health_watch("1"),
+        "the health watch is on unless turned off");
+    check(!parse_health_watch("0"), "MHFU_DAMAGE_NUMBERS_HEALTH_WATCH=0 turns it off");
+
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    check(quest_health(memory).empty(), "outside a quest nothing is read");
+    stand_in_quest(memory);
+    const std::vector<HealthSeen> found = quest_health(memory);
+    check(found.size() == 2u && found[0].object == kLarge && found[0].health == 2000 && found[0].most == 3000 &&
+            found[1].object == kSmall && found[1].health == 120,
+        "large and small monsters, once each; no hunter and no companion");
+
+    // Another player's hunter, on a node that is not marked as a player: the
+    // same class as this console's hunter gives it away.
+    namespace layout = mhfu::camera::lock_on_layout;
+    constexpr std::uint32_t hunter_class = 0x09A60000u, monster_class = 0x09D20000u;
+    constexpr std::uint32_t remote = 0x09860000u, remote_node = 0x09810500u;
+    memory.store32(remote + layout::kVtable, hunter_class);
+    memory.store16(remote + kMonsterHealth, 100u);
+    memory.store16(remote + kMonsterMostHealth, 150u);
+    memory.store32(remote_node + layout::kNodeEntity, remote);
+    memory.store8(remote_node + layout::kNodeType, 0u);
+    memory.store32(0x09810400u + layout::kNodeOlder, remote_node);
+    const std::vector<HealthSeen> with_remote = quest_health(memory);
+    check(with_remote.size() == 2u && with_remote[0].object == kLarge && with_remote[0].vtable == monster_class &&
+            with_remote[1].object == kSmall,
+        "another player's hunter is not watched");
+    check(is_hunter(memory, 0x09820000u) && is_hunter(memory, remote) && !is_hunter(memory, kLarge) &&
+            !is_hunter(memory, kSmall) && !is_hunter(memory, 0u),
+        "this console's hunter and another player's are hunters; the monsters are not");
+    memory.store32(remote + layout::kVtable, monster_class);
+    check(quest_health(memory).size() == 3u && !is_hunter(memory, remote), "an unmarked entity of another class is");
+    memory.store32(0x09810400u + layout::kNodeOlder, 0u);
+    memory.store8(mhfu::camera::lock_on_layout::kTaskSlot + 32u, 'x');
+    check(quest_health(memory).empty(), "another overlay in the task slot is not a quest");
+
+    std::vector<HealthSeen> seen;
+    check(watch_health(seen, {{kLarge, 2000, 3000}}, 0).empty() && seen.size() == 1u,
+        "a monster seen for the first time shows nothing");
+    const std::vector<Number> two = watch_health(seen, {{kLarge, 1900, 3000}, {kSmall, 100, 150}}, 3);
+    check(two.size() == 1u && two[0].amount == 100 && two[0].object == kLarge && two[0].lane == 3 &&
+            two[0].grade.fill == Fill::Unknown,
+        "a drop on a known monster is a number in white");
+    const std::vector<Number> both = watch_health(seen, {{kLarge, 1850, 3000}, {kSmall, 70, 150}}, 1);
+    check(both.size() == 2u && both[0].amount == 50 && both[0].lane == 1 && both[1].amount == 30 && both[1].lane == 2,
+        "drops on two monsters in one frame take a lane each");
+    check(watch_health(seen, {{kLarge, 1900, 3000}, {kSmall, 70, 150}}, 0).empty(), "a heal shows nothing");
+    check(watch_health(seen, {{kLarge, 900, 2500}}, 0).empty(),
+        "another most health is another monster in the same place");
+    check(watch_health(seen, {{kLarge, 0, 2500}}, 0).size() == 1u, "the killing blow shows");
+    check(watch_health(seen, {{kLarge, -20, 2500}}, 0).empty(), "nothing below zero");
+    check(watch_health(seen, {}, 0).empty() && seen.empty(), "a monster gone from the list is forgotten");
+
+    seen = {{kLarge, 1000, 3000}};
+    note_change(seen, kLarge, 1000, 900);
+    check(watch_health(seen, {{kLarge, 900, 3000}}, 0).empty(), "a hit the routine showed is not shown twice");
+    note_change(seen, kLarge, 850, 850);
+    check(watch_health(seen, {{kLarge, 850, 3000}}, 0).size() == 1u,
+        "the monster's own update does not hide a drop written from the network");
+    note_change(seen, kSmall, 70, 60);
+    check(seen.size() == 1u, "a call on a monster not seen yet is left for the frame");
+}
+
+void routine_takes_a1(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    const std::uint32_t at = ctx.gpr[4] + kMonsterHealth;
+    runtime.memory().store16(at, static_cast<std::uint16_t>(runtime.memory().load16(at) - ctx.gpr[5]));
+}
+
+int shown_total() {
+    int total = 0;
+    for (const Number &number : damage_numbers()) total += number.amount;
+    return total;
+}
+
+// The same through the frame and the watched calls: a hit through the routine
+// once, a drop from the network once, a status tick not at all.
+void test_every_hit_once() {
+    psprecomp::Runtime runtime;
+    psprecomp::GuestMemory &memory = runtime.memory();
+    stand_in_quest(memory);
+    runtime.register_function(kHitAdjust, &routine_takes_a1, "recomp_unit_stand_in_hit");
+    runtime.register_function(kStatusTick, &routine_takes_a1, "recomp_unit_stand_in_status_tick");
+    auto call = [&runtime](std::uint32_t pc, std::uint32_t object, std::uint32_t amount) {
+        runtime.cpu().gpr[4] = object;
+        runtime.cpu().gpr[5] = amount;
+        runtime.cpu().pc = pc;
+        (void)runtime.invoke_chained_call(runtime.cpu());
+    };
+
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().empty(), "the first frame only learns the health");
+    call(kHitAdjust, kLarge, 100u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 1u && shown_total() == 100, "a hit through the routine shows once");
+
+    memory.store16(kLarge + kMonsterHealth, 1850u);
+    call(kHitAdjust, kLarge, 0u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 2u && shown_total() == 150,
+        "a drop from the network shows, past the monster's own update");
+
+    memory.store16(kSmall + kMonsterHealth, 90u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 3u && shown_total() == 180, "another player's hit on a small monster shows");
+
+    call(kStatusTick, kLarge, 10u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 3u, "a status tick on this console is not a hit");
+
+    // The monster hits this console's hunter through the same routine.
+    call(kHitAdjust, 0x09820000u, 40u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 3u, "damage to the hunter is not a number");
+
+    damage_numbers_frame(false, &memory);
+    memory.store16(kLarge + kMonsterHealth, 1000u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().empty(), "turned off and on, the watch starts again");
+    damage_numbers_frame(false, &memory);
+}
+
 // MHFU_TRACE_HITS (game/hit_trace.hpp): the call chain walked from a return
 // address and the stack, and the lines printed, on a made-up pair of
 // functions in the quest overlay's range.
@@ -475,6 +636,8 @@ int main() {
     test_the_stroke();
     test_the_game_camera_view();
     test_the_setting_does_not_slow_direct_chains();
+    test_the_health_watch();
+    test_every_hit_once();
     test_the_hit_records();
     test_the_hit_trace();
     if (failures != 0) {

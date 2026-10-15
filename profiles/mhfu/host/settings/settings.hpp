@@ -35,6 +35,9 @@ enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 // How the game's 2D textures are drawn at a high internal resolution
 // (gpu/ui_textures.hpp): as they are, sharp bilinear, or doubled with MMPX.
 enum class UiTextures { Off, Sharp, Mmpx };
+// The button icons a texture pack that comes with several draws
+// (gpu/texture_pack.hpp): following the pad in use, the pack's default, or one set.
+enum class PackButtons { Auto, Pack, Xbox, PlayStation, Nintendo };
 enum class RightStick { Camera, DPad, Off };
 // Follow keeps the quest camera on the monster Lock on selected. Focus keeps
 // that selection, and a tap of L centers the camera on the monster.
@@ -65,6 +68,7 @@ struct Settings {
     bool sharp_textures{};           // nearest instead of linear texture sampling
     bool texture_pack{true};         // draw an installed HD texture pack's images instead of the game's
     std::string texture_pack_folder; // a pack used where it is instead of textures/<disc id>; empty: none
+    PackButtons texture_pack_buttons{PackButtons::Auto}; // the pack's button icons
     bool unthrottled{};              // let emulated time run ahead of real time
     bool fast_loading{true};         // ...but only while the game loads (kernel/fast_loading.hpp)
     // The fast-forward bind: held, toggled, or doing nothing (kernel/fast_forward.hpp).

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -86,7 +87,10 @@ struct TexturePackKey {
 // "0000000022585cbda625131a"
 [[nodiscard]] std::string format_texture_pack_key(const TexturePackKey &key);
 
-enum class TexturePackHash : std::uint8_t { Xxh32, Xxh64 };
+enum class TexturePackHash : std::uint8_t { Xxh32, Xxh64, Quick };
+
+// "xxh64", as textures.ini names it.
+[[nodiscard]] const char *texture_pack_hash_name(TexturePackHash hash);
 
 // What [options] says, plus the parts of the other sections that change a
 // texture's key.
@@ -125,12 +129,29 @@ struct TexturePackInfo {
 // or cannot be read.
 [[nodiscard]] std::vector<std::string> texture_pack_games(const std::filesystem::path &ini);
 
+// Button icon sets a pack may come with for its button prompts. A set's
+// images sit anywhere in the pack, named like the image they stand in for
+// with (Xbox), (PS) or (N) before .png: QuestBar_fre(Xbox).png for
+// QuestBar_fre.png, and QuestBar_(Xbox).png for QuestBar.png. This naming is
+// the community MHFU pack's, not part of PPSSPP's format. Pack draws the
+// images textures.ini names.
+enum class ButtonIcons : std::uint8_t { Pack, Xbox, PlayStation, Nintendo };
+
+// "Xbox"; "Pack default" for Pack.
+[[nodiscard]] const char *button_icons_name(ButtonIcons icons);
+
+// The set to draw: `chosen`, or when that is empty (Auto) the set for the pad
+// in use, `pad` (Pack without one). Auto keeps the pack's own while confirm is
+// on the bottom button: that swap puts ○ on A, which no set shows.
+[[nodiscard]] ButtonIcons pick_button_icons(std::optional<ButtonIcons> chosen, ButtonIcons pad, bool confirm_south);
+
 class TexturePack {
 public:
     // Reads textures.ini (and the hash-named images in the folder itself) from
-    // `directory`. Returns null with `error` set when there is no usable pack.
-    static std::unique_ptr<TexturePack> open(
-        const std::filesystem::path &directory, const std::string &game_id, std::string &error);
+    // `directory`, drawing the `icons` set where the pack has one. Returns
+    // null with `error` set when there is no usable pack.
+    static std::unique_ptr<TexturePack> open(const std::filesystem::path &directory, const std::string &game_id,
+        std::string &error, ButtonIcons icons = ButtonIcons::Pack);
     // Reads a pack as open() does, without starting anything. False with
     // `error` set when open() would refuse it.
     static bool inspect(
@@ -154,6 +175,13 @@ public:
     [[nodiscard]] const std::filesystem::path &directory() const noexcept { return directory_; }
     [[nodiscard]] const TexturePackOptions &options() const noexcept { return options_; }
     [[nodiscard]] std::size_t entry_count() const noexcept { return entries_.size(); }
+    // Whether the pack comes with any button icon set besides its own.
+    [[nodiscard]] bool has_button_icons() const noexcept { return button_icon_sets_ != 0u; }
+    [[nodiscard]] bool offers(ButtonIcons icons) const noexcept {
+        return icons == ButtonIcons::Pack || (button_icon_sets_ & 1u << static_cast<unsigned>(icons)) != 0u;
+    }
+    // The set the pack was opened with.
+    [[nodiscard]] ButtonIcons button_icons() const noexcept { return button_icons_; }
 
 private:
     TexturePack() = default;
@@ -167,6 +195,9 @@ private:
     };
     bool load_ini(const std::filesystem::path &file, bool is_override, std::string &error);
     void scan_hash_named_files();
+    // Finds the pack's button icon sets and points the entries at `icons`'
+    // images; the number of entries changed.
+    std::size_t use_button_icons(ButtonIcons icons);
     // The pack's rule for a key, trying the wildcard forms the format allows
     // in its order; null when there is none.
     template <typename Map>
@@ -178,6 +209,8 @@ private:
     std::filesystem::path directory_;
     TexturePackOptions options_;
     std::vector<std::string> games_; // [games]
+    std::uint8_t button_icon_sets_{}; // bit n: ButtonIcons n is in the pack
+    ButtonIcons button_icons_{ButtonIcons::Pack};
     // Key -> file name relative to the pack; an empty name means "keep the
     // original texture".
     std::unordered_map<TexturePackKey, std::string, KeyHash> entries_;
