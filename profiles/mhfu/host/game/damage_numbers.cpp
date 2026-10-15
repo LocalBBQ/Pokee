@@ -1,5 +1,6 @@
 #include "game/damage_numbers.hpp"
 
+#include "camera/lock_on.hpp"
 #include "game/hit_trace.hpp"
 #include "psprecomp/runtime.hpp"
 
@@ -9,6 +10,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <mutex>
@@ -39,6 +42,62 @@ std::vector<Number> &live_numbers() {
 std::vector<Number> &shown_numbers() {
     static std::vector<Number> shown;
     return shown;
+}
+
+std::vector<HealthSeen> &health_seen() {
+    static std::vector<HealthSeen> seen;
+    return seen;
+}
+
+// Status ticks under way, by depth; `health` is unused.
+std::vector<OpenHit> &open_ticks() {
+    static std::vector<OpenHit> open;
+    return open;
+}
+
+// The overlay header: "MWo3", its load address at +8, its name at +32.
+constexpr std::uint32_t kOverlayMagic = 0x336F574Du;
+constexpr char kQuestOverlay[] = "game_task.ovl";
+
+bool quest_running(const psprecomp::GuestMemory &memory) {
+    constexpr std::uint32_t slot = camera::lock_on_layout::kTaskSlot;
+    if (!memory.contains(slot, 64u) || memory.load32(slot) != kOverlayMagic || memory.load32(slot + 8u) != slot)
+        return false;
+    for (std::uint32_t i = 0; i < sizeof(kQuestOverlay); ++i)
+        if (memory.load8(slot + 32u + i) != static_cast<std::uint8_t>(kQuestOverlay[i])) return false;
+    return true;
+}
+
+struct ListEntry {
+    std::uint32_t entity{};
+    std::uint8_t kind{}; // the node's type byte
+};
+
+// The quest entity list, newest first. Empty outside a quest.
+std::vector<ListEntry> quest_entries(const psprecomp::GuestMemory &memory) {
+    namespace layout = camera::lock_on_layout;
+    std::vector<ListEntry> entries;
+    if (!quest_running(memory) || !memory.contains(layout::kEntityList, 4u)) return entries;
+    const std::uint32_t manager = memory.load32(layout::kEntityList);
+    if (!hit_trace::in_ram(manager) || !memory.contains(manager + layout::kListHead, 4u)) return entries;
+    std::uint32_t node = memory.load32(manager + layout::kListHead);
+    for (std::uint32_t steps = 0; steps < layout::kMaxMonsters && hit_trace::in_ram(node); ++steps) {
+        if (!memory.contains(node, layout::kNodeType + 1u)) break;
+        entries.push_back({memory.load32(node + layout::kNodeEntity), memory.load8(node + layout::kNodeType)});
+        node = memory.load32(node + layout::kNodeOlder);
+    }
+    return entries;
+}
+
+// Hunters share a class. Only this console's own hunter is sure to carry the
+// player node type, so an entity with a player's vtable is a hunter too.
+std::vector<std::uint32_t> hunter_classes(const psprecomp::GuestMemory &memory, const std::vector<ListEntry> &entries) {
+    namespace layout = camera::lock_on_layout;
+    std::vector<std::uint32_t> classes;
+    for (const ListEntry &entry : entries)
+        if (entry.kind == layout::kPlayerNode && hit_trace::in_ram(entry.entity) && memory.contains(entry.entity, 4u))
+            classes.push_back(memory.load32(entry.entity + layout::kVtable));
+    return classes;
 }
 
 bool &hook_installed() {
@@ -156,7 +215,15 @@ void place_numbers(
 
 void pre_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::uint32_t target_pc,
     std::uint32_t native_depth) {
-    if (!watch_armed().load(std::memory_order_relaxed) || target_pc != kHitAdjust) return;
+    if (!watch_armed().load(std::memory_order_relaxed)) return;
+    if (target_pc == kStatusTick) {
+        const std::optional<int> health = monster_health(runtime.memory(), ctx.gpr[4]);
+        if (!health) return;
+        std::lock_guard lock(numbers_mutex());
+        open_ticks().push_back(OpenHit{native_depth, ctx.gpr[4], *health});
+        return;
+    }
+    if (target_pc != kHitAdjust) return;
     const std::uint32_t object = ctx.gpr[4];
     const std::optional<int> health = monster_health(runtime.memory(), object);
     if (hit_trace::enabled()) hit_trace::note_call(runtime.memory(), ctx, native_depth, health);
@@ -167,7 +234,27 @@ void pre_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::
 
 void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::uint32_t target_pc,
     std::uint32_t native_depth) {
-    if (!watch_armed().load(std::memory_order_relaxed) || target_pc != kHitAdjust) return;
+    if (!watch_armed().load(std::memory_order_relaxed)) return;
+    if (target_pc == kStatusTick) {
+        std::optional<OpenHit> ticked;
+        {
+            std::lock_guard lock(numbers_mutex());
+            std::vector<OpenHit> &open = open_ticks();
+            for (auto it = open.rbegin(); it != open.rend(); ++it) {
+                if (it->depth != native_depth) continue;
+                ticked = *it;
+                open.erase(std::next(it).base());
+                break;
+            }
+        }
+        if (!ticked) return;
+        if (const std::optional<int> health = monster_health(runtime.memory(), ticked->object)) {
+            std::lock_guard lock(numbers_mutex());
+            note_change(health_seen(), ticked->object, ticked->health, *health);
+        }
+        return;
+    }
+    if (target_pc != kHitAdjust) return;
     std::uint32_t object = 0u;
     {
         std::lock_guard lock(numbers_mutex());
@@ -192,6 +279,11 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
         }
     }
     if (!have) return;
+    for (auto it = open_hits().rbegin(); it != open_hits().rend(); ++it) {
+        if (it->depth != native_depth) continue;
+        note_change(health_seen(), object, it->health, sample);
+        break;
+    }
     if (hit_trace::enabled()) {
         for (auto it = open_hits().rbegin(); it != open_hits().rend(); ++it) {
             if (it->depth != native_depth) continue;
@@ -199,8 +291,10 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
             break;
         }
     }
+    // The routine also takes health off a hunter the monster hits.
     if (std::optional<Number> number =
-            watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size())))
+            watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size()));
+        number && !is_hunter(runtime.memory(), number->object))
         remember_number(live_numbers(), *number);
 }
 
@@ -488,6 +582,70 @@ std::optional<int> monster_health(const psprecomp::GuestMemory &memory, std::uin
     return static_cast<int>(static_cast<std::int16_t>(memory.load16(address)));
 }
 
+bool parse_health_watch(const char *text) noexcept {
+    return text == nullptr || std::strcmp(text, "0") != 0;
+}
+
+bool health_watch_enabled() noexcept {
+    static const bool on = parse_health_watch(std::getenv("MHFU_DAMAGE_NUMBERS_HEALTH_WATCH"));
+    return on;
+}
+
+std::vector<HealthSeen> quest_health(const psprecomp::GuestMemory &memory) {
+    namespace layout = camera::lock_on_layout;
+    std::vector<HealthSeen> found;
+    const std::vector<ListEntry> entries = quest_entries(memory);
+    const std::vector<std::uint32_t> hunters = hunter_classes(memory, entries);
+    for (const ListEntry &entry : entries) {
+        const std::uint32_t entity = entry.entity;
+        if (entry.kind == layout::kPlayerNode || !hit_trace::in_ram(entity) || (entity & 1u) != 0u ||
+            !memory.contains(entity, 4u) || !memory.contains(entity + kMonsterMostHealth, 2u) ||
+            !memory.contains(entity + kMonsterHealth, 2u))
+            continue;
+        const std::uint32_t vtable = memory.load32(entity + layout::kVtable);
+        if (std::find(hunters.begin(), hunters.end(), vtable) != hunters.end()) continue;
+        const int most = static_cast<std::int16_t>(memory.load16(entity + kMonsterMostHealth));
+        if (most <= 0) continue; // a companion, or nothing with a health pool
+        const bool repeated = std::any_of(
+            found.begin(), found.end(), [entity](const HealthSeen &seen) { return seen.object == entity; });
+        if (repeated) continue;
+        found.push_back({entity, static_cast<std::int16_t>(memory.load16(entity + kMonsterHealth)), most, vtable,
+            entry.kind});
+    }
+    return found;
+}
+
+bool is_hunter(const psprecomp::GuestMemory &memory, std::uint32_t object) {
+    namespace layout = camera::lock_on_layout;
+    const std::vector<ListEntry> entries = quest_entries(memory);
+    for (const ListEntry &entry : entries)
+        if (entry.entity == object && entry.kind == layout::kPlayerNode) return true;
+    if (!hit_trace::in_ram(object) || !memory.contains(object, 4u)) return false;
+    const std::vector<std::uint32_t> hunters = hunter_classes(memory, entries);
+    return std::find(hunters.begin(), hunters.end(), memory.load32(object + layout::kVtable)) != hunters.end();
+}
+
+void note_change(std::vector<HealthSeen> &seen, std::uint32_t object, int before, int after) {
+    for (HealthSeen &entry : seen)
+        if (entry.object == object) entry.health += after - before;
+}
+
+std::vector<Number> watch_health(std::vector<HealthSeen> &seen, const std::vector<HealthSeen> &now, int lane) {
+    std::vector<Number> numbers;
+    for (const HealthSeen &reading : now) {
+        const auto before = std::find_if(
+            seen.begin(), seen.end(), [&reading](const HealthSeen &entry) { return entry.object == reading.object; });
+        if (before == seen.end() || before->most != reading.most) continue;
+        const std::optional<int> amount = damage_shown(before->health, reading.health);
+        if (!amount) continue;
+        Number number = make_number(*amount, Grade{}, lane++);
+        number.object = reading.object;
+        numbers.push_back(number);
+    }
+    seen = now;
+    return numbers;
+}
+
 void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, const std::optional<EyePose> &pose) {
     using Clock = std::chrono::steady_clock;
     static Clock::time_point previous = Clock::now();
@@ -505,6 +663,8 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
         remove_watch();
         std::lock_guard lock(numbers_mutex());
         open_hits().clear();
+        open_ticks().clear();
+        health_seen().clear();
         live_numbers().clear();
         shown_numbers().clear();
         pending_camera().vertices = 0u;
@@ -513,8 +673,28 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
     }
     install_watch();
     if (hit_trace::enabled() && memory != nullptr) hit_trace::frame(*memory, &monster_health);
+    std::vector<HealthSeen> readings;
+    const bool read_health = enabled && memory != nullptr && health_watch_enabled();
+    if (read_health) readings = quest_health(*memory);
     std::lock_guard lock(numbers_mutex());
     live_numbers() = age_numbers(std::move(live_numbers()), seconds);
+    if (read_health) {
+        if (hit_trace::enabled())
+            for (const HealthSeen &reading : readings)
+                if (std::none_of(health_seen().begin(), health_seen().end(),
+                        [&reading](const HealthSeen &seen) { return seen.object == reading.object; }))
+                    std::printf("[hit] watching health of %08X: node type %u, vtable %08X, species %u, health %d/%d\n",
+                        reading.object, static_cast<unsigned>(reading.kind), reading.vtable,
+                        memory->contains(reading.object + camera::lock_on_layout::kMonsterId, 1u)
+                            ? static_cast<unsigned>(memory->load8(reading.object + camera::lock_on_layout::kMonsterId))
+                            : 0u,
+                        reading.health, reading.most);
+        for (const Number &number :
+            watch_health(health_seen(), readings, static_cast<int>(live_numbers().size())))
+            remember_number(live_numbers(), number);
+    } else {
+        health_seen().clear();
+    }
     place_numbers(live_numbers(), memory, pose);
     if (enabled) shown_numbers() = live_numbers();
     else shown_numbers().clear();

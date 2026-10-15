@@ -368,7 +368,11 @@ void present_frame(Runtime &rt) {
     }
     bool window_open = renderer.pump_events();
     // The screenshot bind (#187): the frame just presented, as drawn.
-    if (renderer.take_screenshot_request()) (void)ui::take_screenshot();
+    // With MHFU_TRACE_CAPTURE, the frames after it are traced too.
+    if (renderer.take_screenshot_request()) {
+        (void)ui::take_screenshot();
+        gpu::hud::screenshot_taken();
+    }
     // The fast-forward bind as the events just pumped left it; the kernel's
     // pacing follows it from the next wait on.
     fast_forward::note_bind(renderer.pad().fast_forward);

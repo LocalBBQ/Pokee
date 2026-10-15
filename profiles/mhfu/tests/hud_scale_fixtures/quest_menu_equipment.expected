@@ -1,0 +1,564 @@
+f=2873 at=0x899ce74 other tex=0x40cc000 (0,0)-(480,272) -> none not-owner
+f=2873 at=0x8acc984 quest tex=0x9156ba0 (8,8)-(60,56) -> status shape (8,8)-(47,44)
+f=2873 at=0x8accb0c quest tex=0x915b5a0 (56,12)-(320,20) -> status shape (44,11)-(242,17)
+f=2873 at=0x8accb78 quest tex=0x9156ba0 (320,9)-(344,21) -> status shape (242,8.75)-(260,17.75)
+f=2873 at=0x8accba8 quest tex=0x0 (56,17)-(320,19) -> status shape (44,14.75)-(242,16.25)
+f=2873 at=0x8accc10 quest tex=0x915b620 (56,21)-(320,29) -> status shape (44,17.75)-(242,23.75)
+f=2873 at=0x8accc7c quest tex=0x9156ba0 (320,21)-(344,33) -> status shape (242,17.75)-(260,26.75)
+f=2873 at=0x8acccac quest tex=0x0 (56,22)-(320,24) -> status shape (44,18.5)-(242,20)
+f=2873 at=0x8accd18 quest tex=0x9156ba0 (60,32)-(104,40) -> sharpness shape (47,26)-(80,32)
+f=2873 at=0x8accd8c quest tex=0x9156ba0 (60,29)-(104,41) -> sharpness shape (47,23.75)-(80,32.75)
+f=2873 at=0x8acce00 quest tex=0x9156ba0 (8,56)-(24,72) -> status shape (8,44)-(20,56)
+f=2873 at=0x8acce74 quest tex=0x9156ba0 (24,56)-(96,72) -> status shape (20,44)-(74,56)
+f=2873 at=0x8accee8 quest tex=0x9156ba0 (96,56)-(104,72) -> status shape (74,44)-(80,56)
+f=2873 at=0x8accf54 quest tex=0x91874a0 (10,56)-(22,72) -> status shape (9.5,44)-(18.5,56)
+f=2873 at=0x8ad02dc quest tex=0x40cc000 (26,58)-(34,72) -> status shape (21.5,45.5)-(27.5,56)
+f=2873 at=0x8ad0344 quest tex=0x40cc000 (34,58)-(42,72) -> status shape (27.5,45.5)-(33.5,56)
+f=2873 at=0x8ad03ac quest tex=0x40cc000 (42,58)-(50,72) -> status shape (33.5,45.5)-(39.5,56)
+f=2873 at=0x8acd008 quest tex=0x9156ba0 (264,40)-(280,48) -> none no-piece
+f=2873 at=0x8acd070 quest tex=0x9163c20 (280,40)-(456,48) -> none no-piece
+f=2873 at=0x8acd0dc quest tex=0x9156ba0 (456,40)-(472,48) -> none no-piece
+f=2873 at=0x8acd144 quest tex=0x91643a0 (264,48)-(280,224) -> none no-piece
+f=2873 at=0x8acd1ac quest tex=0x91644a0 (456,48)-(472,224) -> none no-piece
+f=2873 at=0x8acd214 quest tex=0x9164420 (280,48)-(456,224) -> none no-piece
+f=2873 at=0x8acd280 quest tex=0x9156ba0 (264,224)-(280,232) -> none no-piece
+f=2873 at=0x8acd2e8 quest tex=0x9164c20 (280,224)-(456,232) -> none no-piece
+f=2873 at=0x8acd354 quest tex=0x9156ba0 (456,224)-(472,232) -> none piece-not-up was items
+f=2873 at=0x8acd38c quest tex=0x0 (270,46)-(466,61) -> none no-piece
+f=2873 at=0x8acd3c4 quest tex=0x0 (316,69)-(462,93) -> none no-piece
+f=2873 at=0x8acd438 quest tex=0x91874a0 (276,68)-(300,92) -> none no-piece
+f=2873 at=0x8acd4ac quest tex=0x91874a0 (276,94)-(300,118) -> none no-piece
+f=2873 at=0x8acd520 quest tex=0x91874a0 (276,120)-(300,144) -> none no-piece
+f=2873 at=0x8acd594 quest tex=0x91874a0 (276,146)-(300,170) -> none no-piece
+f=2873 at=0x8acd608 quest tex=0x91874a0 (276,172)-(300,196) -> none no-piece
+f=2873 at=0x8acd67c quest tex=0x91874a0 (276,198)-(300,222) -> none no-piece
+f=2873 at=0x8acd6e8 quest tex=0x9156ba0 (8,40)-(24,48) -> none no-piece
+f=2873 at=0x8acd750 quest tex=0x9163c20 (24,40)-(232,48) -> none no-piece
+f=2873 at=0x8acd7bc quest tex=0x9156ba0 (232,40)-(248,48) -> none no-piece
+f=2873 at=0x8acd824 quest tex=0x91643a0 (8,48)-(24,152) -> none no-piece
+f=2873 at=0x8acd88c quest tex=0x91644a0 (232,48)-(248,152) -> none no-piece
+f=2873 at=0x8acd8f4 quest tex=0x9164420 (24,48)-(232,152) -> none no-piece
+f=2873 at=0x8acd960 quest tex=0x9156ba0 (8,152)-(24,160) -> none no-piece
+f=2873 at=0x8acd9c8 quest tex=0x9164c20 (24,152)-(232,160) -> none no-piece
+f=2873 at=0x8acda34 quest tex=0x9156ba0 (232,152)-(248,160) -> none no-piece
+f=2873 at=0x8acdaa8 quest tex=0x91874a0 (172,139)-(185,153) -> none no-piece
+f=2873 at=0x8acdb1c quest tex=0x91874a0 (224,139)-(237,153) -> none no-piece
+f=2873 at=0x8acdb88 quest tex=0x91874a0 (16,58)-(40,82) -> none piece-not-up was status
+f=2873 at=0x8ad0444 quest tex=0x40cc000 (272,47)-(279,61) -> none no-piece
+f=2873 at=0x8ad04ac quest tex=0x40cc000 (279,47)-(286,61) -> none no-piece
+f=2873 at=0x8ad0514 quest tex=0x40cc000 (286,47)-(293,61) -> none no-piece
+f=2873 at=0x8ad057c quest tex=0x40cc000 (293,47)-(300,61) -> none no-piece
+f=2873 at=0x8ad05e4 quest tex=0x40cc000 (300,47)-(307,61) -> none no-piece
+f=2873 at=0x8ad064c quest tex=0x40cc000 (307,47)-(314,61) -> none no-piece
+f=2873 at=0x8ad06b4 quest tex=0x40cc000 (314,47)-(321,61) -> none no-piece
+f=2873 at=0x8ad071c quest tex=0x40cc000 (321,47)-(328,61) -> none no-piece
+f=2873 at=0x8ad0784 quest tex=0x40cc000 (328,47)-(335,61) -> none no-piece
+f=2873 at=0x8ad07ec quest tex=0x40cc000 (342,47)-(349,61) -> none no-piece
+f=2873 at=0x8ad0854 quest tex=0x40cc000 (349,47)-(356,61) -> none no-piece
+f=2873 at=0x8ad08bc quest tex=0x40cc000 (356,47)-(363,61) -> none no-piece
+f=2873 at=0x8ad0924 quest tex=0x40cc000 (363,47)-(370,61) -> none no-piece
+f=2873 at=0x8ad098c quest tex=0x40cc000 (370,47)-(377,61) -> none no-piece
+f=2873 at=0x8ad09f4 quest tex=0x40cc000 (377,47)-(384,61) -> none no-piece
+f=2873 at=0x8ad0a5c quest tex=0x40cc000 (384,47)-(391,61) -> none no-piece
+f=2873 at=0x8ad0ac4 quest tex=0x40cc000 (304,74)-(311,88) -> none no-piece
+f=2873 at=0x8ad0b2c quest tex=0x40cc000 (318,74)-(325,88) -> none no-piece
+f=2873 at=0x8ad0b94 quest tex=0x40cc000 (325,74)-(332,88) -> none no-piece
+f=2873 at=0x8ad0bfc quest tex=0x40cc000 (332,74)-(339,88) -> none no-piece
+f=2873 at=0x8ad0c64 quest tex=0x40cc000 (339,74)-(346,88) -> none no-piece
+f=2873 at=0x8ad0ccc quest tex=0x40cc000 (346,74)-(353,88) -> none no-piece
+f=2873 at=0x8ad0d34 quest tex=0x40cc000 (353,74)-(360,88) -> none no-piece
+f=2873 at=0x8ad0d9c quest tex=0x40cc000 (360,74)-(367,88) -> none no-piece
+f=2873 at=0x8ad0e04 quest tex=0x40cc000 (367,74)-(374,88) -> none no-piece
+f=2873 at=0x8ad0e6c quest tex=0x40cc000 (374,74)-(381,88) -> none no-piece
+f=2873 at=0x8ad0ed4 quest tex=0x40cc000 (381,74)-(388,88) -> none no-piece
+f=2873 at=0x8ad0f3c quest tex=0x40cc000 (388,74)-(395,88) -> none no-piece
+f=2873 at=0x8ad0fa4 quest tex=0x40cc000 (402,74)-(409,88) -> none no-piece
+f=2873 at=0x8ad100c quest tex=0x40cc000 (409,74)-(416,88) -> none no-piece
+f=2873 at=0x8ad1074 quest tex=0x40cc000 (416,74)-(423,88) -> none no-piece
+f=2873 at=0x8ad10dc quest tex=0x40cc000 (423,74)-(430,88) -> none no-piece
+f=2873 at=0x8ad1144 quest tex=0x40cc000 (304,100)-(311,114) -> none no-piece
+f=2873 at=0x8ad11ac quest tex=0x40cc000 (318,100)-(325,114) -> none no-piece
+f=2873 at=0x8ad1214 quest tex=0x40cc000 (325,100)-(332,114) -> none no-piece
+f=2873 at=0x8ad127c quest tex=0x40cc000 (332,100)-(339,114) -> none no-piece
+f=2873 at=0x8ad12e4 quest tex=0x40cc000 (339,100)-(346,114) -> none no-piece
+f=2873 at=0x8ad134c quest tex=0x40cc000 (346,100)-(353,114) -> none no-piece
+f=2873 at=0x8ad13b4 quest tex=0x40cc000 (353,100)-(360,114) -> none no-piece
+f=2873 at=0x8ad141c quest tex=0x40cc000 (360,100)-(367,114) -> none no-piece
+f=2873 at=0x8ad1484 quest tex=0x40cc000 (367,100)-(374,114) -> none no-piece
+f=2873 at=0x8ad14ec quest tex=0x40cc000 (374,100)-(381,114) -> none no-piece
+f=2873 at=0x8ad1554 quest tex=0x40cc000 (381,100)-(388,114) -> none no-piece
+f=2873 at=0x8ad15bc quest tex=0x40cc000 (395,100)-(402,114) -> none no-piece
+f=2873 at=0x8ad1624 quest tex=0x40cc000 (402,100)-(409,114) -> none no-piece
+f=2873 at=0x8ad168c quest tex=0x40cc000 (409,100)-(416,114) -> none no-piece
+f=2873 at=0x8ad16f4 quest tex=0x40cc000 (416,100)-(423,114) -> none no-piece
+f=2873 at=0x8ad175c quest tex=0x40cc000 (304,126)-(311,140) -> none no-piece
+f=2873 at=0x8ad17c4 quest tex=0x40cc000 (318,126)-(325,140) -> none no-piece
+f=2873 at=0x8ad182c quest tex=0x40cc000 (325,126)-(332,140) -> none no-piece
+f=2873 at=0x8ad1894 quest tex=0x40cc000 (332,126)-(339,140) -> none no-piece
+f=2873 at=0x8ad18fc quest tex=0x40cc000 (339,126)-(346,140) -> none no-piece
+f=2873 at=0x8ad1964 quest tex=0x40cc000 (346,126)-(353,140) -> none no-piece
+f=2873 at=0x8ad19cc quest tex=0x40cc000 (353,126)-(360,140) -> none no-piece
+f=2873 at=0x8ad1a34 quest tex=0x40cc000 (360,126)-(367,140) -> none no-piece
+f=2873 at=0x8ad1a9c quest tex=0x40cc000 (367,126)-(374,140) -> none no-piece
+f=2873 at=0x8ad1b04 quest tex=0x40cc000 (374,126)-(381,140) -> none no-piece
+f=2873 at=0x8ad1b6c quest tex=0x40cc000 (381,126)-(388,140) -> none no-piece
+f=2873 at=0x8ad1bd4 quest tex=0x40cc000 (395,126)-(402,140) -> none no-piece
+f=2873 at=0x8ad1c3c quest tex=0x40cc000 (402,126)-(409,140) -> none no-piece
+f=2873 at=0x8ad1ca4 quest tex=0x40cc000 (409,126)-(416,140) -> none no-piece
+f=2873 at=0x8ad1d0c quest tex=0x40cc000 (416,126)-(423,140) -> none no-piece
+f=2873 at=0x8ad1d74 quest tex=0x40cc000 (304,152)-(311,166) -> none no-piece
+f=2873 at=0x8ad1ddc quest tex=0x40cc000 (318,152)-(325,166) -> none no-piece
+f=2873 at=0x8ad1e44 quest tex=0x40cc000 (325,152)-(332,166) -> none no-piece
+f=2873 at=0x8ad1eac quest tex=0x40cc000 (332,152)-(339,166) -> none no-piece
+f=2873 at=0x8ad1f14 quest tex=0x40cc000 (339,152)-(346,166) -> none no-piece
+f=2873 at=0x8ad1f7c quest tex=0x40cc000 (346,152)-(353,166) -> none no-piece
+f=2873 at=0x8ad1fe4 quest tex=0x40cc000 (353,152)-(360,166) -> none no-piece
+f=2873 at=0x8ad204c quest tex=0x40cc000 (360,152)-(367,166) -> none no-piece
+f=2873 at=0x8ad20b4 quest tex=0x40cc000 (367,152)-(374,166) -> none no-piece
+f=2873 at=0x8ad211c quest tex=0x40cc000 (374,152)-(381,166) -> none no-piece
+f=2873 at=0x8ad2184 quest tex=0x40cc000 (381,152)-(388,166) -> none no-piece
+f=2873 at=0x8ad21ec quest tex=0x40cc000 (395,152)-(402,166) -> none no-piece
+f=2873 at=0x8ad2254 quest tex=0x40cc000 (402,152)-(409,166) -> none no-piece
+f=2873 at=0x8ad22bc quest tex=0x40cc000 (409,152)-(416,166) -> none no-piece
+f=2873 at=0x8ad2324 quest tex=0x40cc000 (416,152)-(423,166) -> none no-piece
+f=2873 at=0x8ad238c quest tex=0x40cc000 (423,152)-(430,166) -> none no-piece
+f=2873 at=0x8ad23f4 quest tex=0x40cc000 (430,152)-(437,166) -> none no-piece
+f=2873 at=0x8ad245c quest tex=0x40cc000 (304,178)-(311,192) -> none no-piece
+f=2873 at=0x8ad24c4 quest tex=0x40cc000 (318,178)-(325,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad252c quest tex=0x40cc000 (325,178)-(332,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad2594 quest tex=0x40cc000 (332,178)-(339,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad25fc quest tex=0x40cc000 (339,178)-(346,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad2664 quest tex=0x40cc000 (346,178)-(353,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad26cc quest tex=0x40cc000 (353,178)-(360,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad2734 quest tex=0x40cc000 (360,178)-(367,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad279c quest tex=0x40cc000 (367,178)-(374,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad2804 quest tex=0x40cc000 (381,178)-(388,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad286c quest tex=0x40cc000 (388,178)-(395,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad28d4 quest tex=0x40cc000 (395,178)-(402,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad293c quest tex=0x40cc000 (402,178)-(409,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad29a4 quest tex=0x40cc000 (409,178)-(416,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad2a0c quest tex=0x40cc000 (416,178)-(423,192) -> none piece-not-up was bowgun
+f=2873 at=0x8ad2a74 quest tex=0x40cc000 (304,204)-(311,218) -> none no-piece
+f=2873 at=0x8ad2adc quest tex=0x40cc000 (318,204)-(325,218) -> none piece-not-up was items
+f=2873 at=0x8ad2b44 quest tex=0x40cc000 (325,204)-(332,218) -> none piece-not-up was items
+f=2873 at=0x8ad2bac quest tex=0x40cc000 (332,204)-(339,218) -> none piece-not-up was items
+f=2873 at=0x8ad2c14 quest tex=0x40cc000 (339,204)-(346,218) -> none piece-not-up was items
+f=2873 at=0x8ad2c7c quest tex=0x40cc000 (346,204)-(353,218) -> none piece-not-up was items
+f=2873 at=0x8ad2ce4 quest tex=0x40cc000 (353,204)-(360,218) -> none piece-not-up was items
+f=2873 at=0x8ad2d4c quest tex=0x40cc000 (360,204)-(367,218) -> none piece-not-up was items
+f=2873 at=0x8ad2db4 quest tex=0x40cc000 (367,204)-(374,218) -> none piece-not-up was items
+f=2873 at=0x8ad2e1c quest tex=0x40cc000 (374,204)-(381,218) -> none piece-not-up was items
+f=2873 at=0x8ad2e84 quest tex=0x40cc000 (381,204)-(388,218) -> none piece-not-up was items
+f=2873 at=0x8ad2eec quest tex=0x40cc000 (395,204)-(402,218) -> none piece-not-up was items
+f=2873 at=0x8ad2f54 quest tex=0x40cc000 (402,204)-(409,218) -> none piece-not-up was items
+f=2873 at=0x8ad2fbc quest tex=0x40cc000 (409,204)-(416,218) -> none piece-not-up was items
+f=2873 at=0x8ad3024 quest tex=0x40cc000 (416,204)-(423,218) -> none piece-not-up was items
+f=2873 at=0x8ad308c quest tex=0x40cc000 (423,204)-(430,218) -> none piece-not-up was items
+f=2873 at=0x8ad30f4 quest tex=0x40cc000 (430,204)-(437,218) -> none piece-not-up was items
+f=2873 at=0x8ad315c quest tex=0x40cc000 (437,204)-(444,218) -> none piece-not-up was items
+f=2873 at=0x8ad31c4 quest tex=0x40cc000 (194,140)-(201,154) -> none no-piece
+f=2873 at=0x8ad322c quest tex=0x40cc000 (201,140)-(208,154) -> none no-piece
+f=2873 at=0x8ad3294 quest tex=0x40cc000 (215,140)-(222,154) -> none no-piece
+f=2873 at=0x8ad32fc quest tex=0x40cc000 (16,96)-(23,110) -> none piece-not-up was status
+f=2873 at=0x8ad3364 quest tex=0x40cc000 (23,96)-(30,110) -> none piece-not-up was status
+f=2873 at=0x8ad33cc quest tex=0x40cc000 (30,96)-(37,110) -> none no-piece
+f=2873 at=0x8ad3434 quest tex=0x40cc000 (37,96)-(44,110) -> none no-piece
+f=2873 at=0x8ad349c quest tex=0x40cc000 (44,96)-(51,110) -> none no-piece
+f=2873 at=0x8ad3504 quest tex=0x40cc000 (51,96)-(58,110) -> none no-piece
+f=2873 at=0x8ad356c quest tex=0x40cc000 (65,96)-(72,110) -> none no-piece
+f=2873 at=0x8ad35d4 quest tex=0x40cc000 (72,96)-(79,110) -> none no-piece
+f=2873 at=0x8ad363c quest tex=0x40cc000 (79,96)-(86,110) -> none no-piece
+f=2873 at=0x8ad36a4 quest tex=0x40cc000 (86,96)-(93,110) -> none no-piece
+f=2873 at=0x8ad370c quest tex=0x40cc000 (93,96)-(100,110) -> none no-piece
+f=2873 at=0x8ad3774 quest tex=0x40cc000 (16,112)-(23,126) -> none no-piece
+f=2873 at=0x8ad37dc quest tex=0x40cc000 (23,112)-(30,126) -> none no-piece
+f=2873 at=0x8ad3844 quest tex=0x40cc000 (30,112)-(37,126) -> none no-piece
+f=2873 at=0x8ad38ac quest tex=0x40cc000 (37,112)-(44,126) -> none no-piece
+f=2873 at=0x8ad3914 quest tex=0x40cc000 (44,112)-(51,126) -> none no-piece
+f=2873 at=0x8ad397c quest tex=0x40cc000 (51,112)-(58,126) -> none no-piece
+f=2873 at=0x8ad39e4 quest tex=0x40cc000 (58,112)-(65,126) -> none no-piece
+f=2873 at=0x8ad3a4c quest tex=0x40cc000 (16,128)-(23,142) -> none no-piece
+f=2873 at=0x8ad3ab4 quest tex=0x40cc000 (23,128)-(30,142) -> none no-piece
+f=2873 at=0x8ad3b1c quest tex=0x40cc000 (30,128)-(37,142) -> none no-piece
+f=2873 at=0x8ad3b84 quest tex=0x40cc000 (37,128)-(44,142) -> none no-piece
+f=2873 at=0x8ad3bec quest tex=0x40cc000 (44,128)-(51,142) -> none no-piece
+f=2873 at=0x8ad3c54 quest tex=0x40cc000 (51,128)-(58,142) -> none no-piece
+f=2873 at=0x8ad3cbc quest tex=0x40cc000 (44,48)-(51,62) -> none no-piece
+f=2873 at=0x8ad3d24 quest tex=0x40cc000 (58,48)-(65,62) -> none no-piece
+f=2873 at=0x8ad3d8c quest tex=0x40cc000 (65,48)-(72,62) -> none no-piece
+f=2873 at=0x8ad3df4 quest tex=0x40cc000 (72,48)-(79,62) -> none no-piece
+f=2873 at=0x8ad3e5c quest tex=0x40cc000 (79,48)-(86,62) -> none no-piece
+f=2873 at=0x8ad3ec4 quest tex=0x40cc000 (86,48)-(93,62) -> none no-piece
+f=2873 at=0x8ad3f2c quest tex=0x40cc000 (93,48)-(100,62) -> none no-piece
+f=2873 at=0x8ad3f94 quest tex=0x40cc000 (100,48)-(107,62) -> none no-piece
+f=2873 at=0x8ad3ffc quest tex=0x40cc000 (107,48)-(114,62) -> none no-piece
+f=2873 at=0x8ad4064 quest tex=0x40cc000 (121,48)-(128,62) -> none no-piece
+f=2873 at=0x8ad40cc quest tex=0x40cc000 (128,48)-(135,62) -> none no-piece
+f=2873 at=0x8ad4134 quest tex=0x40cc000 (135,48)-(142,62) -> none no-piece
+f=2873 at=0x8ad419c quest tex=0x40cc000 (142,48)-(149,62) -> none no-piece
+f=2873 at=0x8ad4204 quest tex=0x40cc000 (149,48)-(156,62) -> none no-piece
+f=2873 at=0x8ad426c quest tex=0x40cc000 (156,48)-(163,62) -> none no-piece
+f=2873 at=0x8ad42d4 quest tex=0x40cc000 (163,48)-(170,62) -> none no-piece
+f=2873 at=0x8ad433c quest tex=0x40cc000 (170,48)-(177,62) -> none no-piece
+f=2873 at=0x8ad43a4 quest tex=0x40cc000 (177,48)-(184,62) -> none no-piece
+f=2873 at=0x8ad440c quest tex=0x40cc000 (184,48)-(191,62) -> none no-piece
+f=2873 at=0x8ad4474 quest tex=0x40cc000 (198,48)-(205,62) -> none no-piece
+f=2873 at=0x8ad44dc quest tex=0x40cc000 (205,48)-(212,62) -> none no-piece
+f=2873 at=0x8ad4544 quest tex=0x40cc000 (212,48)-(219,62) -> none no-piece
+f=2873 at=0x8ad45ac quest tex=0x40cc000 (219,48)-(226,62) -> none no-piece
+f=2873 at=0x8ad4614 quest tex=0x40cc000 (226,48)-(233,62) -> none no-piece
+f=2873 at=0x8ad467c quest tex=0x40cc000 (44,64)-(51,78) -> none no-piece
+f=2873 at=0x8ad46e4 quest tex=0x40cc000 (51,64)-(58,78) -> none no-piece
+f=2873 at=0x8ad474c quest tex=0x40cc000 (58,64)-(65,78) -> none no-piece
+f=2873 at=0x8ad47b4 quest tex=0x40cc000 (65,64)-(72,78) -> none no-piece
+f=2873 at=0x8ad481c quest tex=0x40cc000 (72,64)-(79,78) -> none no-piece
+f=2873 at=0x8ad4884 quest tex=0x40cc000 (79,64)-(86,78) -> none no-piece
+f=2873 at=0x8ad48ec quest tex=0x40cc000 (86,64)-(93,78) -> none no-piece
+f=2873 at=0x8ad4954 quest tex=0x40cc000 (100,64)-(107,78) -> none no-piece
+f=2873 at=0x8ad49bc quest tex=0x40cc000 (107,64)-(114,78) -> none no-piece
+f=2873 at=0x8ad4a24 quest tex=0x40cc000 (114,64)-(121,78) -> none no-piece
+f=2873 at=0x8ad4a8c quest tex=0x40cc000 (121,64)-(128,78) -> none no-piece
+f=2873 at=0x8ad4af4 quest tex=0x40cc000 (135,64)-(142,78) -> none no-piece
+f=2873 at=0x8ad4b5c quest tex=0x40cc000 (142,64)-(149,78) -> none no-piece
+f=2873 at=0x8ad4bc4 quest tex=0x40cc000 (149,64)-(156,78) -> none no-piece
+f=2873 at=0x8ad4c2c quest tex=0x40cc000 (156,64)-(163,78) -> none no-piece
+f=2873 at=0x8ad4c94 quest tex=0x40cc000 (163,64)-(170,78) -> none no-piece
+f=2873 at=0x8ad4cfc quest tex=0x40cc000 (177,64)-(184,78) -> none no-piece
+f=2873 at=0x8ad4d64 quest tex=0x40cc000 (184,64)-(191,78) -> none no-piece
+f=2873 at=0x8ad4dcc quest tex=0x40cc000 (191,64)-(198,78) -> none no-piece
+f=2873 at=0x8ad4e34 quest tex=0x40cc000 (198,64)-(205,78) -> none no-piece
+f=2873 at=0x8ad4e9c quest tex=0x40cc000 (205,64)-(212,78) -> none no-piece
+f=2873 at=0x8ad4f04 quest tex=0x40cc000 (212,64)-(219,78) -> none no-piece
+f=2873 at=0x8ad4f6c quest tex=0x40cc000 (219,64)-(226,78) -> none no-piece
+f=2873 at=0x8ad4fd4 quest tex=0x40cc000 (226,64)-(233,78) -> none no-piece
+f=2873 at=0x8ad503c quest tex=0x40cc000 (233,64)-(240,78) -> none no-piece
+f=2873 at=0x8ad50a4 quest tex=0x40cc000 (44,80)-(51,94) -> none no-piece
+f=2873 at=0x8ad510c quest tex=0x40cc000 (51,80)-(58,94) -> none no-piece
+f=2873 at=0x8ad5174 quest tex=0x40cc000 (58,80)-(65,94) -> none no-piece
+f=2873 at=0x8ad51dc quest tex=0x40cc000 (65,80)-(72,94) -> none no-piece
+f=2873 at=0x8ad5244 quest tex=0x40cc000 (72,80)-(79,94) -> none no-piece
+f=2873 at=0x8ad52ac quest tex=0x40cc000 (79,80)-(86,94) -> none no-piece
+f=2873 at=0x8ad5314 quest tex=0x40cc000 (86,80)-(93,94) -> none no-piece
+f=2873 at=0x8ad537c quest tex=0x40cc000 (93,80)-(100,94) -> none no-piece
+f=2873 at=0x8ad53e4 quest tex=0x40cc000 (100,80)-(107,94) -> none no-piece
+f=2873 at=0x8ad544c quest tex=0x40cc000 (107,80)-(114,94) -> none no-piece
+f=2873 at=0x8ad54b4 quest tex=0x40cc000 (121,80)-(128,94) -> none no-piece
+f=2873 at=0x8ad551c quest tex=0x40cc000 (128,80)-(135,94) -> none no-piece
+f=2873 at=0x8ad5584 quest tex=0x40cc000 (135,80)-(142,94) -> none no-piece
+f=2873 at=0x8ad55ec quest tex=0x40cc000 (149,80)-(156,94) -> none no-piece
+f=2873 at=0x8ad5654 quest tex=0x40cc000 (156,80)-(163,94) -> none no-piece
+f=2873 at=0x8ad56bc quest tex=0x40cc000 (163,80)-(170,94) -> none no-piece
+f=2873 at=0x8ad5724 quest tex=0x40cc000 (170,80)-(177,94) -> none no-piece
+f=2873 at=0x8ad578c quest tex=0x40cc000 (177,80)-(184,94) -> none no-piece
+f=2873 at=0x8ad57f4 quest tex=0x40cc000 (184,80)-(191,94) -> none no-piece
+f=2873 at=0x8ad585c quest tex=0x40cc000 (191,80)-(198,94) -> none no-piece
+f=2873 at=0x8ad58c4 quest tex=0x40cc000 (198,80)-(205,94) -> none no-piece
+f=2873 at=0x8ad592c quest tex=0x40cc000 (205,80)-(212,94) -> none no-piece
+f=2873 at=0x8ad5994 quest tex=0x40cc000 (212,80)-(219,94) -> none no-piece
+f=2873 at=0x8ad59fc quest tex=0x40cc000 (100,96)-(107,110) -> none no-piece
+f=2873 at=0x8ad5a64 quest tex=0x40cc000 (107,96)-(114,110) -> none no-piece
+f=2873 at=0x8ad5acc quest tex=0x40cc000 (114,96)-(121,110) -> none piece-not-up was status
+f=2873 at=0x8ad5b34 quest tex=0x40cc000 (121,96)-(128,110) -> none piece-not-up was status
+f=2873 at=0x8ad5b9c quest tex=0x40cc000 (128,96)-(135,110) -> none piece-not-up was status
+f=2873 at=0x8ad5c04 quest tex=0x40cc000 (135,96)-(142,110) -> none piece-not-up was status
+f=2873 at=0x8ad5c6c quest tex=0x40cc000 (142,96)-(149,110) -> none piece-not-up was status
+f=2873 at=0x8ad5cd4 quest tex=0x40cc000 (149,96)-(156,110) -> none piece-not-up was status
+f=2873 at=0x8ad5d3c quest tex=0x40cc000 (156,96)-(163,110) -> none piece-not-up was status
+f=2873 at=0x8ad5da4 quest tex=0x40cc000 (163,96)-(170,110) -> none piece-not-up was status
+f=2873 at=0x8ad5e0c quest tex=0x40cc000 (170,96)-(177,110) -> none piece-not-up was status
+f=2873 at=0x8ad5e74 quest tex=0x40cc000 (72,112)-(79,126) -> none no-piece
+f=2873 at=0x8ad5edc quest tex=0x40cc000 (128,112)-(135,126) -> none no-piece
+f=2873 at=0x8ad5f44 quest tex=0x40cc000 (135,112)-(142,126) -> none no-piece
+f=2873 at=0x8ad5fac quest tex=0x40cc000 (142,112)-(149,126) -> none no-piece
+f=2873 at=0x8ad6014 quest tex=0x40cc000 (149,112)-(156,126) -> none no-piece
+f=2873 at=0x8ad607c quest tex=0x40cc000 (156,112)-(163,126) -> none no-piece
+f=2873 at=0x8ad60e4 quest tex=0x40cc000 (163,112)-(170,126) -> none no-piece
+f=2873 at=0x8ad614c quest tex=0x40cc000 (170,112)-(177,126) -> none no-piece
+f=2873 at=0x8ad61b4 quest tex=0x40cc000 (177,112)-(184,126) -> none no-piece
+f=2873 at=0x8ad621c quest tex=0x40cc000 (198,112)-(205,126) -> none no-piece
+f=2873 at=0x8ad6284 quest tex=0x40cc000 (205,112)-(212,126) -> none no-piece
+f=2873 at=0x8ad62ec quest tex=0x40cc000 (65,128)-(79,142) -> none piece-not-up was status
+f=2873 at=0x8ad6354 quest tex=0x40cc000 (79,128)-(93,142) -> none piece-not-up was status
+f=2873 at=0x8ad63bc quest tex=0x40cc000 (93,128)-(107,142) -> none piece-not-up was status
+f=2874 at=0x899cea4 other tex=0x40cc000 (0,0)-(480,272) -> none not-owner
+f=2874 at=0x8a8c984 quest tex=0x9156ba0 (8,8)-(60,56) -> status shape (8,8)-(47,44)
+f=2874 at=0x8a8cb0c quest tex=0x915b5a0 (56,12)-(320,20) -> status shape (44,11)-(242,17)
+f=2874 at=0x8a8cb78 quest tex=0x9156ba0 (320,9)-(344,21) -> status shape (242,8.75)-(260,17.75)
+f=2874 at=0x8a8cba8 quest tex=0x0 (56,17)-(320,19) -> status shape (44,14.75)-(242,16.25)
+f=2874 at=0x8a8cc10 quest tex=0x915b620 (56,21)-(320,29) -> status shape (44,17.75)-(242,23.75)
+f=2874 at=0x8a8cc7c quest tex=0x9156ba0 (320,21)-(344,33) -> status shape (242,17.75)-(260,26.75)
+f=2874 at=0x8a8ccac quest tex=0x0 (56,22)-(320,24) -> status shape (44,18.5)-(242,20)
+f=2874 at=0x8a8cd18 quest tex=0x9156ba0 (60,32)-(104,40) -> sharpness shape (47,26)-(80,32)
+f=2874 at=0x8a8cd8c quest tex=0x9156ba0 (60,29)-(104,41) -> sharpness shape (47,23.75)-(80,32.75)
+f=2874 at=0x8a8ce00 quest tex=0x9156ba0 (8,56)-(24,72) -> status shape (8,44)-(20,56)
+f=2874 at=0x8a8ce74 quest tex=0x9156ba0 (24,56)-(96,72) -> status shape (20,44)-(74,56)
+f=2874 at=0x8a8cee8 quest tex=0x9156ba0 (96,56)-(104,72) -> status shape (74,44)-(80,56)
+f=2874 at=0x8a8cf54 quest tex=0x91874a0 (10,56)-(22,72) -> status shape (9.5,44)-(18.5,56)
+f=2874 at=0x8a902dc quest tex=0x40cc000 (26,58)-(34,72) -> status shape (21.5,45.5)-(27.5,56)
+f=2874 at=0x8a90344 quest tex=0x40cc000 (34,58)-(42,72) -> status shape (27.5,45.5)-(33.5,56)
+f=2874 at=0x8a903ac quest tex=0x40cc000 (42,58)-(50,72) -> status shape (33.5,45.5)-(39.5,56)
+f=2874 at=0x8a8d008 quest tex=0x9156ba0 (264,40)-(280,48) -> none no-piece
+f=2874 at=0x8a8d070 quest tex=0x9163c20 (280,40)-(456,48) -> none no-piece
+f=2874 at=0x8a8d0dc quest tex=0x9156ba0 (456,40)-(472,48) -> none no-piece
+f=2874 at=0x8a8d144 quest tex=0x91643a0 (264,48)-(280,224) -> none no-piece
+f=2874 at=0x8a8d1ac quest tex=0x91644a0 (456,48)-(472,224) -> none no-piece
+f=2874 at=0x8a8d214 quest tex=0x9164420 (280,48)-(456,224) -> none no-piece
+f=2874 at=0x8a8d280 quest tex=0x9156ba0 (264,224)-(280,232) -> none no-piece
+f=2874 at=0x8a8d2e8 quest tex=0x9164c20 (280,224)-(456,232) -> none no-piece
+f=2874 at=0x8a8d354 quest tex=0x9156ba0 (456,224)-(472,232) -> none piece-not-up was items
+f=2874 at=0x8a8d38c quest tex=0x0 (270,46)-(466,61) -> none no-piece
+f=2874 at=0x8a8d3c4 quest tex=0x0 (316,69)-(462,93) -> none no-piece
+f=2874 at=0x8a8d438 quest tex=0x91874a0 (276,68)-(300,92) -> none no-piece
+f=2874 at=0x8a8d4ac quest tex=0x91874a0 (276,94)-(300,118) -> none no-piece
+f=2874 at=0x8a8d520 quest tex=0x91874a0 (276,120)-(300,144) -> none no-piece
+f=2874 at=0x8a8d594 quest tex=0x91874a0 (276,146)-(300,170) -> none no-piece
+f=2874 at=0x8a8d608 quest tex=0x91874a0 (276,172)-(300,196) -> none no-piece
+f=2874 at=0x8a8d67c quest tex=0x91874a0 (276,198)-(300,222) -> none no-piece
+f=2874 at=0x8a8d6e8 quest tex=0x9156ba0 (8,40)-(24,48) -> none no-piece
+f=2874 at=0x8a8d750 quest tex=0x9163c20 (24,40)-(232,48) -> none no-piece
+f=2874 at=0x8a8d7bc quest tex=0x9156ba0 (232,40)-(248,48) -> none no-piece
+f=2874 at=0x8a8d824 quest tex=0x91643a0 (8,48)-(24,152) -> none no-piece
+f=2874 at=0x8a8d88c quest tex=0x91644a0 (232,48)-(248,152) -> none no-piece
+f=2874 at=0x8a8d8f4 quest tex=0x9164420 (24,48)-(232,152) -> none no-piece
+f=2874 at=0x8a8d960 quest tex=0x9156ba0 (8,152)-(24,160) -> none no-piece
+f=2874 at=0x8a8d9c8 quest tex=0x9164c20 (24,152)-(232,160) -> none no-piece
+f=2874 at=0x8a8da34 quest tex=0x9156ba0 (232,152)-(248,160) -> none no-piece
+f=2874 at=0x8a8daa8 quest tex=0x91874a0 (172,139)-(185,153) -> none no-piece
+f=2874 at=0x8a8db1c quest tex=0x91874a0 (224,139)-(237,153) -> none no-piece
+f=2874 at=0x8a8db88 quest tex=0x91874a0 (16,58)-(40,82) -> none piece-not-up was status
+f=2874 at=0x8a90444 quest tex=0x40cc000 (272,47)-(279,61) -> none no-piece
+f=2874 at=0x8a904ac quest tex=0x40cc000 (279,47)-(286,61) -> none no-piece
+f=2874 at=0x8a90514 quest tex=0x40cc000 (286,47)-(293,61) -> none no-piece
+f=2874 at=0x8a9057c quest tex=0x40cc000 (293,47)-(300,61) -> none no-piece
+f=2874 at=0x8a905e4 quest tex=0x40cc000 (300,47)-(307,61) -> none no-piece
+f=2874 at=0x8a9064c quest tex=0x40cc000 (307,47)-(314,61) -> none no-piece
+f=2874 at=0x8a906b4 quest tex=0x40cc000 (314,47)-(321,61) -> none no-piece
+f=2874 at=0x8a9071c quest tex=0x40cc000 (321,47)-(328,61) -> none no-piece
+f=2874 at=0x8a90784 quest tex=0x40cc000 (328,47)-(335,61) -> none no-piece
+f=2874 at=0x8a907ec quest tex=0x40cc000 (342,47)-(349,61) -> none no-piece
+f=2874 at=0x8a90854 quest tex=0x40cc000 (349,47)-(356,61) -> none no-piece
+f=2874 at=0x8a908bc quest tex=0x40cc000 (356,47)-(363,61) -> none no-piece
+f=2874 at=0x8a90924 quest tex=0x40cc000 (363,47)-(370,61) -> none no-piece
+f=2874 at=0x8a9098c quest tex=0x40cc000 (370,47)-(377,61) -> none no-piece
+f=2874 at=0x8a909f4 quest tex=0x40cc000 (377,47)-(384,61) -> none no-piece
+f=2874 at=0x8a90a5c quest tex=0x40cc000 (384,47)-(391,61) -> none no-piece
+f=2874 at=0x8a90ac4 quest tex=0x40cc000 (304,74)-(311,88) -> none no-piece
+f=2874 at=0x8a90b2c quest tex=0x40cc000 (318,74)-(325,88) -> none no-piece
+f=2874 at=0x8a90b94 quest tex=0x40cc000 (325,74)-(332,88) -> none no-piece
+f=2874 at=0x8a90bfc quest tex=0x40cc000 (332,74)-(339,88) -> none no-piece
+f=2874 at=0x8a90c64 quest tex=0x40cc000 (339,74)-(346,88) -> none no-piece
+f=2874 at=0x8a90ccc quest tex=0x40cc000 (346,74)-(353,88) -> none no-piece
+f=2874 at=0x8a90d34 quest tex=0x40cc000 (353,74)-(360,88) -> none no-piece
+f=2874 at=0x8a90d9c quest tex=0x40cc000 (360,74)-(367,88) -> none no-piece
+f=2874 at=0x8a90e04 quest tex=0x40cc000 (367,74)-(374,88) -> none no-piece
+f=2874 at=0x8a90e6c quest tex=0x40cc000 (374,74)-(381,88) -> none no-piece
+f=2874 at=0x8a90ed4 quest tex=0x40cc000 (381,74)-(388,88) -> none no-piece
+f=2874 at=0x8a90f3c quest tex=0x40cc000 (388,74)-(395,88) -> none no-piece
+f=2874 at=0x8a90fa4 quest tex=0x40cc000 (402,74)-(409,88) -> none no-piece
+f=2874 at=0x8a9100c quest tex=0x40cc000 (409,74)-(416,88) -> none no-piece
+f=2874 at=0x8a91074 quest tex=0x40cc000 (416,74)-(423,88) -> none no-piece
+f=2874 at=0x8a910dc quest tex=0x40cc000 (423,74)-(430,88) -> none no-piece
+f=2874 at=0x8a91144 quest tex=0x40cc000 (304,100)-(311,114) -> none no-piece
+f=2874 at=0x8a911ac quest tex=0x40cc000 (318,100)-(325,114) -> none no-piece
+f=2874 at=0x8a91214 quest tex=0x40cc000 (325,100)-(332,114) -> none no-piece
+f=2874 at=0x8a9127c quest tex=0x40cc000 (332,100)-(339,114) -> none no-piece
+f=2874 at=0x8a912e4 quest tex=0x40cc000 (339,100)-(346,114) -> none no-piece
+f=2874 at=0x8a9134c quest tex=0x40cc000 (346,100)-(353,114) -> none no-piece
+f=2874 at=0x8a913b4 quest tex=0x40cc000 (353,100)-(360,114) -> none no-piece
+f=2874 at=0x8a9141c quest tex=0x40cc000 (360,100)-(367,114) -> none no-piece
+f=2874 at=0x8a91484 quest tex=0x40cc000 (367,100)-(374,114) -> none no-piece
+f=2874 at=0x8a914ec quest tex=0x40cc000 (374,100)-(381,114) -> none no-piece
+f=2874 at=0x8a91554 quest tex=0x40cc000 (381,100)-(388,114) -> none no-piece
+f=2874 at=0x8a915bc quest tex=0x40cc000 (395,100)-(402,114) -> none no-piece
+f=2874 at=0x8a91624 quest tex=0x40cc000 (402,100)-(409,114) -> none no-piece
+f=2874 at=0x8a9168c quest tex=0x40cc000 (409,100)-(416,114) -> none no-piece
+f=2874 at=0x8a916f4 quest tex=0x40cc000 (416,100)-(423,114) -> none no-piece
+f=2874 at=0x8a9175c quest tex=0x40cc000 (304,126)-(311,140) -> none no-piece
+f=2874 at=0x8a917c4 quest tex=0x40cc000 (318,126)-(325,140) -> none no-piece
+f=2874 at=0x8a9182c quest tex=0x40cc000 (325,126)-(332,140) -> none no-piece
+f=2874 at=0x8a91894 quest tex=0x40cc000 (332,126)-(339,140) -> none no-piece
+f=2874 at=0x8a918fc quest tex=0x40cc000 (339,126)-(346,140) -> none no-piece
+f=2874 at=0x8a91964 quest tex=0x40cc000 (346,126)-(353,140) -> none no-piece
+f=2874 at=0x8a919cc quest tex=0x40cc000 (353,126)-(360,140) -> none no-piece
+f=2874 at=0x8a91a34 quest tex=0x40cc000 (360,126)-(367,140) -> none no-piece
+f=2874 at=0x8a91a9c quest tex=0x40cc000 (367,126)-(374,140) -> none no-piece
+f=2874 at=0x8a91b04 quest tex=0x40cc000 (374,126)-(381,140) -> none no-piece
+f=2874 at=0x8a91b6c quest tex=0x40cc000 (381,126)-(388,140) -> none no-piece
+f=2874 at=0x8a91bd4 quest tex=0x40cc000 (395,126)-(402,140) -> none no-piece
+f=2874 at=0x8a91c3c quest tex=0x40cc000 (402,126)-(409,140) -> none no-piece
+f=2874 at=0x8a91ca4 quest tex=0x40cc000 (409,126)-(416,140) -> none no-piece
+f=2874 at=0x8a91d0c quest tex=0x40cc000 (416,126)-(423,140) -> none no-piece
+f=2874 at=0x8a91d74 quest tex=0x40cc000 (304,152)-(311,166) -> none no-piece
+f=2874 at=0x8a91ddc quest tex=0x40cc000 (318,152)-(325,166) -> none no-piece
+f=2874 at=0x8a91e44 quest tex=0x40cc000 (325,152)-(332,166) -> none no-piece
+f=2874 at=0x8a91eac quest tex=0x40cc000 (332,152)-(339,166) -> none no-piece
+f=2874 at=0x8a91f14 quest tex=0x40cc000 (339,152)-(346,166) -> none no-piece
+f=2874 at=0x8a91f7c quest tex=0x40cc000 (346,152)-(353,166) -> none no-piece
+f=2874 at=0x8a91fe4 quest tex=0x40cc000 (353,152)-(360,166) -> none no-piece
+f=2874 at=0x8a9204c quest tex=0x40cc000 (360,152)-(367,166) -> none no-piece
+f=2874 at=0x8a920b4 quest tex=0x40cc000 (367,152)-(374,166) -> none no-piece
+f=2874 at=0x8a9211c quest tex=0x40cc000 (374,152)-(381,166) -> none no-piece
+f=2874 at=0x8a92184 quest tex=0x40cc000 (381,152)-(388,166) -> none no-piece
+f=2874 at=0x8a921ec quest tex=0x40cc000 (395,152)-(402,166) -> none no-piece
+f=2874 at=0x8a92254 quest tex=0x40cc000 (402,152)-(409,166) -> none no-piece
+f=2874 at=0x8a922bc quest tex=0x40cc000 (409,152)-(416,166) -> none no-piece
+f=2874 at=0x8a92324 quest tex=0x40cc000 (416,152)-(423,166) -> none no-piece
+f=2874 at=0x8a9238c quest tex=0x40cc000 (423,152)-(430,166) -> none no-piece
+f=2874 at=0x8a923f4 quest tex=0x40cc000 (430,152)-(437,166) -> none no-piece
+f=2874 at=0x8a9245c quest tex=0x40cc000 (304,178)-(311,192) -> none no-piece
+f=2874 at=0x8a924c4 quest tex=0x40cc000 (318,178)-(325,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a9252c quest tex=0x40cc000 (325,178)-(332,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a92594 quest tex=0x40cc000 (332,178)-(339,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a925fc quest tex=0x40cc000 (339,178)-(346,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a92664 quest tex=0x40cc000 (346,178)-(353,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a926cc quest tex=0x40cc000 (353,178)-(360,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a92734 quest tex=0x40cc000 (360,178)-(367,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a9279c quest tex=0x40cc000 (367,178)-(374,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a92804 quest tex=0x40cc000 (381,178)-(388,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a9286c quest tex=0x40cc000 (388,178)-(395,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a928d4 quest tex=0x40cc000 (395,178)-(402,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a9293c quest tex=0x40cc000 (402,178)-(409,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a929a4 quest tex=0x40cc000 (409,178)-(416,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a92a0c quest tex=0x40cc000 (416,178)-(423,192) -> none piece-not-up was bowgun
+f=2874 at=0x8a92a74 quest tex=0x40cc000 (304,204)-(311,218) -> none no-piece
+f=2874 at=0x8a92adc quest tex=0x40cc000 (318,204)-(325,218) -> none piece-not-up was items
+f=2874 at=0x8a92b44 quest tex=0x40cc000 (325,204)-(332,218) -> none piece-not-up was items
+f=2874 at=0x8a92bac quest tex=0x40cc000 (332,204)-(339,218) -> none piece-not-up was items
+f=2874 at=0x8a92c14 quest tex=0x40cc000 (339,204)-(346,218) -> none piece-not-up was items
+f=2874 at=0x8a92c7c quest tex=0x40cc000 (346,204)-(353,218) -> none piece-not-up was items
+f=2874 at=0x8a92ce4 quest tex=0x40cc000 (353,204)-(360,218) -> none piece-not-up was items
+f=2874 at=0x8a92d4c quest tex=0x40cc000 (360,204)-(367,218) -> none piece-not-up was items
+f=2874 at=0x8a92db4 quest tex=0x40cc000 (367,204)-(374,218) -> none piece-not-up was items
+f=2874 at=0x8a92e1c quest tex=0x40cc000 (374,204)-(381,218) -> none piece-not-up was items
+f=2874 at=0x8a92e84 quest tex=0x40cc000 (381,204)-(388,218) -> none piece-not-up was items
+f=2874 at=0x8a92eec quest tex=0x40cc000 (395,204)-(402,218) -> none piece-not-up was items
+f=2874 at=0x8a92f54 quest tex=0x40cc000 (402,204)-(409,218) -> none piece-not-up was items
+f=2874 at=0x8a92fbc quest tex=0x40cc000 (409,204)-(416,218) -> none piece-not-up was items
+f=2874 at=0x8a93024 quest tex=0x40cc000 (416,204)-(423,218) -> none piece-not-up was items
+f=2874 at=0x8a9308c quest tex=0x40cc000 (423,204)-(430,218) -> none piece-not-up was items
+f=2874 at=0x8a930f4 quest tex=0x40cc000 (430,204)-(437,218) -> none piece-not-up was items
+f=2874 at=0x8a9315c quest tex=0x40cc000 (437,204)-(444,218) -> none piece-not-up was items
+f=2874 at=0x8a931c4 quest tex=0x40cc000 (194,140)-(201,154) -> none no-piece
+f=2874 at=0x8a9322c quest tex=0x40cc000 (201,140)-(208,154) -> none no-piece
+f=2874 at=0x8a93294 quest tex=0x40cc000 (215,140)-(222,154) -> none no-piece
+f=2874 at=0x8a932fc quest tex=0x40cc000 (16,96)-(23,110) -> none piece-not-up was status
+f=2874 at=0x8a93364 quest tex=0x40cc000 (23,96)-(30,110) -> none piece-not-up was status
+f=2874 at=0x8a933cc quest tex=0x40cc000 (30,96)-(37,110) -> none no-piece
+f=2874 at=0x8a93434 quest tex=0x40cc000 (37,96)-(44,110) -> none no-piece
+f=2874 at=0x8a9349c quest tex=0x40cc000 (44,96)-(51,110) -> none no-piece
+f=2874 at=0x8a93504 quest tex=0x40cc000 (51,96)-(58,110) -> none no-piece
+f=2874 at=0x8a9356c quest tex=0x40cc000 (65,96)-(72,110) -> none no-piece
+f=2874 at=0x8a935d4 quest tex=0x40cc000 (72,96)-(79,110) -> none no-piece
+f=2874 at=0x8a9363c quest tex=0x40cc000 (79,96)-(86,110) -> none no-piece
+f=2874 at=0x8a936a4 quest tex=0x40cc000 (86,96)-(93,110) -> none no-piece
+f=2874 at=0x8a9370c quest tex=0x40cc000 (93,96)-(100,110) -> none no-piece
+f=2874 at=0x8a93774 quest tex=0x40cc000 (16,112)-(23,126) -> none no-piece
+f=2874 at=0x8a937dc quest tex=0x40cc000 (23,112)-(30,126) -> none no-piece
+f=2874 at=0x8a93844 quest tex=0x40cc000 (30,112)-(37,126) -> none no-piece
+f=2874 at=0x8a938ac quest tex=0x40cc000 (37,112)-(44,126) -> none no-piece
+f=2874 at=0x8a93914 quest tex=0x40cc000 (44,112)-(51,126) -> none no-piece
+f=2874 at=0x8a9397c quest tex=0x40cc000 (51,112)-(58,126) -> none no-piece
+f=2874 at=0x8a939e4 quest tex=0x40cc000 (58,112)-(65,126) -> none no-piece
+f=2874 at=0x8a93a4c quest tex=0x40cc000 (16,128)-(23,142) -> none no-piece
+f=2874 at=0x8a93ab4 quest tex=0x40cc000 (23,128)-(30,142) -> none no-piece
+f=2874 at=0x8a93b1c quest tex=0x40cc000 (30,128)-(37,142) -> none no-piece
+f=2874 at=0x8a93b84 quest tex=0x40cc000 (37,128)-(44,142) -> none no-piece
+f=2874 at=0x8a93bec quest tex=0x40cc000 (44,128)-(51,142) -> none no-piece
+f=2874 at=0x8a93c54 quest tex=0x40cc000 (51,128)-(58,142) -> none no-piece
+f=2874 at=0x8a93cbc quest tex=0x40cc000 (44,48)-(51,62) -> none no-piece
+f=2874 at=0x8a93d24 quest tex=0x40cc000 (58,48)-(65,62) -> none no-piece
+f=2874 at=0x8a93d8c quest tex=0x40cc000 (65,48)-(72,62) -> none no-piece
+f=2874 at=0x8a93df4 quest tex=0x40cc000 (72,48)-(79,62) -> none no-piece
+f=2874 at=0x8a93e5c quest tex=0x40cc000 (79,48)-(86,62) -> none no-piece
+f=2874 at=0x8a93ec4 quest tex=0x40cc000 (86,48)-(93,62) -> none no-piece
+f=2874 at=0x8a93f2c quest tex=0x40cc000 (93,48)-(100,62) -> none no-piece
+f=2874 at=0x8a93f94 quest tex=0x40cc000 (100,48)-(107,62) -> none no-piece
+f=2874 at=0x8a93ffc quest tex=0x40cc000 (107,48)-(114,62) -> none no-piece
+f=2874 at=0x8a94064 quest tex=0x40cc000 (121,48)-(128,62) -> none no-piece
+f=2874 at=0x8a940cc quest tex=0x40cc000 (128,48)-(135,62) -> none no-piece
+f=2874 at=0x8a94134 quest tex=0x40cc000 (135,48)-(142,62) -> none no-piece
+f=2874 at=0x8a9419c quest tex=0x40cc000 (142,48)-(149,62) -> none no-piece
+f=2874 at=0x8a94204 quest tex=0x40cc000 (149,48)-(156,62) -> none no-piece
+f=2874 at=0x8a9426c quest tex=0x40cc000 (156,48)-(163,62) -> none no-piece
+f=2874 at=0x8a942d4 quest tex=0x40cc000 (163,48)-(170,62) -> none no-piece
+f=2874 at=0x8a9433c quest tex=0x40cc000 (170,48)-(177,62) -> none no-piece
+f=2874 at=0x8a943a4 quest tex=0x40cc000 (177,48)-(184,62) -> none no-piece
+f=2874 at=0x8a9440c quest tex=0x40cc000 (184,48)-(191,62) -> none no-piece
+f=2874 at=0x8a94474 quest tex=0x40cc000 (198,48)-(205,62) -> none no-piece
+f=2874 at=0x8a944dc quest tex=0x40cc000 (205,48)-(212,62) -> none no-piece
+f=2874 at=0x8a94544 quest tex=0x40cc000 (212,48)-(219,62) -> none no-piece
+f=2874 at=0x8a945ac quest tex=0x40cc000 (219,48)-(226,62) -> none no-piece
+f=2874 at=0x8a94614 quest tex=0x40cc000 (226,48)-(233,62) -> none no-piece
+f=2874 at=0x8a9467c quest tex=0x40cc000 (44,64)-(51,78) -> none no-piece
+f=2874 at=0x8a946e4 quest tex=0x40cc000 (51,64)-(58,78) -> none no-piece
+f=2874 at=0x8a9474c quest tex=0x40cc000 (58,64)-(65,78) -> none no-piece
+f=2874 at=0x8a947b4 quest tex=0x40cc000 (65,64)-(72,78) -> none no-piece
+f=2874 at=0x8a9481c quest tex=0x40cc000 (72,64)-(79,78) -> none no-piece
+f=2874 at=0x8a94884 quest tex=0x40cc000 (79,64)-(86,78) -> none no-piece
+f=2874 at=0x8a948ec quest tex=0x40cc000 (86,64)-(93,78) -> none no-piece
+f=2874 at=0x8a94954 quest tex=0x40cc000 (100,64)-(107,78) -> none no-piece
+f=2874 at=0x8a949bc quest tex=0x40cc000 (107,64)-(114,78) -> none no-piece
+f=2874 at=0x8a94a24 quest tex=0x40cc000 (114,64)-(121,78) -> none no-piece
+f=2874 at=0x8a94a8c quest tex=0x40cc000 (121,64)-(128,78) -> none no-piece
+f=2874 at=0x8a94af4 quest tex=0x40cc000 (135,64)-(142,78) -> none no-piece
+f=2874 at=0x8a94b5c quest tex=0x40cc000 (142,64)-(149,78) -> none no-piece
+f=2874 at=0x8a94bc4 quest tex=0x40cc000 (149,64)-(156,78) -> none no-piece
+f=2874 at=0x8a94c2c quest tex=0x40cc000 (156,64)-(163,78) -> none no-piece
+f=2874 at=0x8a94c94 quest tex=0x40cc000 (163,64)-(170,78) -> none no-piece
+f=2874 at=0x8a94cfc quest tex=0x40cc000 (177,64)-(184,78) -> none no-piece
+f=2874 at=0x8a94d64 quest tex=0x40cc000 (184,64)-(191,78) -> none no-piece
+f=2874 at=0x8a94dcc quest tex=0x40cc000 (191,64)-(198,78) -> none no-piece
+f=2874 at=0x8a94e34 quest tex=0x40cc000 (198,64)-(205,78) -> none no-piece
+f=2874 at=0x8a94e9c quest tex=0x40cc000 (205,64)-(212,78) -> none no-piece
+f=2874 at=0x8a94f04 quest tex=0x40cc000 (212,64)-(219,78) -> none no-piece
+f=2874 at=0x8a94f6c quest tex=0x40cc000 (219,64)-(226,78) -> none no-piece
+f=2874 at=0x8a94fd4 quest tex=0x40cc000 (226,64)-(233,78) -> none no-piece
+f=2874 at=0x8a9503c quest tex=0x40cc000 (233,64)-(240,78) -> none no-piece
+f=2874 at=0x8a950a4 quest tex=0x40cc000 (44,80)-(51,94) -> none no-piece
+f=2874 at=0x8a9510c quest tex=0x40cc000 (51,80)-(58,94) -> none no-piece
+f=2874 at=0x8a95174 quest tex=0x40cc000 (58,80)-(65,94) -> none no-piece
+f=2874 at=0x8a951dc quest tex=0x40cc000 (65,80)-(72,94) -> none no-piece
+f=2874 at=0x8a95244 quest tex=0x40cc000 (72,80)-(79,94) -> none no-piece
+f=2874 at=0x8a952ac quest tex=0x40cc000 (79,80)-(86,94) -> none no-piece
+f=2874 at=0x8a95314 quest tex=0x40cc000 (86,80)-(93,94) -> none no-piece
+f=2874 at=0x8a9537c quest tex=0x40cc000 (93,80)-(100,94) -> none no-piece
+f=2874 at=0x8a953e4 quest tex=0x40cc000 (100,80)-(107,94) -> none no-piece
+f=2874 at=0x8a9544c quest tex=0x40cc000 (107,80)-(114,94) -> none no-piece
+f=2874 at=0x8a954b4 quest tex=0x40cc000 (121,80)-(128,94) -> none no-piece
+f=2874 at=0x8a9551c quest tex=0x40cc000 (128,80)-(135,94) -> none no-piece
+f=2874 at=0x8a95584 quest tex=0x40cc000 (135,80)-(142,94) -> none no-piece
+f=2874 at=0x8a955ec quest tex=0x40cc000 (149,80)-(156,94) -> none no-piece
+f=2874 at=0x8a95654 quest tex=0x40cc000 (156,80)-(163,94) -> none no-piece
+f=2874 at=0x8a956bc quest tex=0x40cc000 (163,80)-(170,94) -> none no-piece
+f=2874 at=0x8a95724 quest tex=0x40cc000 (170,80)-(177,94) -> none no-piece
+f=2874 at=0x8a9578c quest tex=0x40cc000 (177,80)-(184,94) -> none no-piece
+f=2874 at=0x8a957f4 quest tex=0x40cc000 (184,80)-(191,94) -> none no-piece
+f=2874 at=0x8a9585c quest tex=0x40cc000 (191,80)-(198,94) -> none no-piece
+f=2874 at=0x8a958c4 quest tex=0x40cc000 (198,80)-(205,94) -> none no-piece
+f=2874 at=0x8a9592c quest tex=0x40cc000 (205,80)-(212,94) -> none no-piece
+f=2874 at=0x8a95994 quest tex=0x40cc000 (212,80)-(219,94) -> none no-piece
+f=2874 at=0x8a959fc quest tex=0x40cc000 (100,96)-(107,110) -> none no-piece
+f=2874 at=0x8a95a64 quest tex=0x40cc000 (107,96)-(114,110) -> none no-piece
+f=2874 at=0x8a95acc quest tex=0x40cc000 (114,96)-(121,110) -> none piece-not-up was status
+f=2874 at=0x8a95b34 quest tex=0x40cc000 (121,96)-(128,110) -> none piece-not-up was status
+f=2874 at=0x8a95b9c quest tex=0x40cc000 (128,96)-(135,110) -> none piece-not-up was status
+f=2874 at=0x8a95c04 quest tex=0x40cc000 (135,96)-(142,110) -> none piece-not-up was status
+f=2874 at=0x8a95c6c quest tex=0x40cc000 (142,96)-(149,110) -> none piece-not-up was status
+f=2874 at=0x8a95cd4 quest tex=0x40cc000 (149,96)-(156,110) -> none piece-not-up was status
+f=2874 at=0x8a95d3c quest tex=0x40cc000 (156,96)-(163,110) -> none piece-not-up was status
+f=2874 at=0x8a95da4 quest tex=0x40cc000 (163,96)-(170,110) -> none piece-not-up was status
+f=2874 at=0x8a95e0c quest tex=0x40cc000 (170,96)-(177,110) -> none piece-not-up was status
+f=2874 at=0x8a95e74 quest tex=0x40cc000 (72,112)-(79,126) -> none no-piece
+f=2874 at=0x8a95edc quest tex=0x40cc000 (128,112)-(135,126) -> none no-piece
+f=2874 at=0x8a95f44 quest tex=0x40cc000 (135,112)-(142,126) -> none no-piece
+f=2874 at=0x8a95fac quest tex=0x40cc000 (142,112)-(149,126) -> none no-piece
+f=2874 at=0x8a96014 quest tex=0x40cc000 (149,112)-(156,126) -> none no-piece
+f=2874 at=0x8a9607c quest tex=0x40cc000 (156,112)-(163,126) -> none no-piece
+f=2874 at=0x8a960e4 quest tex=0x40cc000 (163,112)-(170,126) -> none no-piece
+f=2874 at=0x8a9614c quest tex=0x40cc000 (170,112)-(177,126) -> none no-piece
+f=2874 at=0x8a961b4 quest tex=0x40cc000 (177,112)-(184,126) -> none no-piece
+f=2874 at=0x8a9621c quest tex=0x40cc000 (198,112)-(205,126) -> none no-piece
+f=2874 at=0x8a96284 quest tex=0x40cc000 (205,112)-(212,126) -> none no-piece
+f=2874 at=0x8a962ec quest tex=0x40cc000 (65,128)-(79,142) -> none piece-not-up was status
+f=2874 at=0x8a96354 quest tex=0x40cc000 (79,128)-(93,142) -> none piece-not-up was status
+f=2874 at=0x8a963bc quest tex=0x40cc000 (93,128)-(107,142) -> none piece-not-up was status

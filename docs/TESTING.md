@@ -108,6 +108,27 @@ These checks compile SDL first, then Pokee. In the CodeQL workflow initializatio
 
 `mhfu_font_bitmap_tests` and `mhfu_imgui_font_bitmap_tests` exercise both vendored stb_truetype copies with the same independently authored synthetic square font. They check oversized and invalid bitmap/atlas dimensions, row strides, non-finite scales, SDF padding and allocation failures, oversized or failed rasterizer scratch allocations, a glyph too wide for the baking atlas, and unchanged small bitmap/SDF output. The allocator and clear hooks bound synthetic requests; no external font, game data or GPU is required. These checks do not establish that stb_truetype can safely parse arbitrary untrusted fonts.
 
+### Interface sizes over traced screens
+
+`mhfu_hud_scale_replay_tests` replays real quest screens through the [UI scaling](../profiles/mhfu/README.md#ui-scaling) rules. Each `*.trace` in `profiles/mhfu/tests/hud_scale_fixtures/` holds the `[sprite]` lines of one `MHFU_TRACE_CAPTURE` run. The test draws them at sizes that move every piece and compares each quad's piece, the rule that decided it, and where it went against the matching `*.expected` file. A rule added for one screen that moves a quad on another fails here and names the quad.
+
+Add a screen whenever a menu, banner or window inside a quest was resized by mistake, before fixing it:
+
+1. Run with an interface size off 100% and `MHFU_TRACE_CAPTURE=1`, open the screen, take a screenshot, and quit.
+2. Keep the sprite lines and blank every texture coordinate except the area map's, so the glyphs in names and messages cannot be read back:
+
+   ```sh
+   grep '^\[sprite\] .* owner=' log.txt \
+     | sed -E '/ tex=1 0x419c200 /!s/ uv=\([^)]*\)-\([^)]*\)/ uv=(0,0)-(0,0)/' \
+     > profiles/mhfu/tests/hud_scale_fixtures/<screen>.trace
+   ```
+
+   On Windows, a log redirected by PowerShell is UTF-16; convert it first (`iconv -f UTF-16 -t UTF-8`).
+3. `MHFU_UPDATE_HUD_SCALE_FIXTURES=1 out/mhfu/bin/mhfu_hud_scale_replay_tests` writes `<screen>.expected`. Read it. It records what happens now, bug included, so the fix shows as changed lines.
+4. Fix the rule, write the files again, and review the diff of every `.expected`: each changed line is a quad now drawn somewhere else. Only the screen you meant should change.
+
+The trace has no clock hands or turned map arrow (those are strips, not sprites) and no aim, and its `owner=` and `name=` fields are what the build that took it knew. After the owner or name tracking changes, take the screen again.
+
 ## Smoke test
 
 About fifteen minutes. It walks through every part of the game that currently works, so a regression anywhere shows up. Start from a fresh profile — rename `profiles/mhfu/game/ms0` aside — so earlier state cannot hide a problem.
@@ -192,16 +213,17 @@ On a phone, with Controls → Touch screen → *Layout* set to Action, in a ques
 
 ### Texture pack import (#49)
 
-`mhfu_texture_pack_tests` (CTest) checks the import without game data or a window: finding a pack in each layout (the pack folder, `textures/ULUS10391`, `ULUS10391`, `PSP/TEXTURES/ULUS10391`, in any case), a pack named for `ULJM05800` taken only when its `[games]` lists `ULUS10391`, `quick` and hashless packs refused, zipped packs refused with "unpack it first", key, image, size and missing-image counts, the copy into a staging folder, the swap that moves the old pack to `textures/.backup/<date>_<time>/ULUS10391`, cancelling, and where the pack is read from with `MHFU_TEXTURE_PACK` and a pack used in place. `mhfu_texture_pack_tests --check <folder>` prints what the menu would find in a real folder and reads nothing else.
+`mhfu_texture_pack_tests` (CTest) checks the import without game data or a window: finding a pack in each layout (the pack folder, `textures/ULUS10391`, `ULUS10391`, `PSP/TEXTURES/ULUS10391`, in any case), a pack named for `ULJM05800` taken only when its `[games]` lists `ULUS10391`, hashless packs refused, `quick` packs accepted without `ignoreAddress`, `quick` keys for whole 64-byte blocks and for other sizes against values from PPSSPP's own hash, zipped packs refused with "unpack it first", key, image, size and missing-image counts, the copy into a staging folder, the swap that moves the old pack to `textures/.backup/<date>_<time>/ULUS10391`, cancelling, where the pack is read from with `MHFU_TEXTURE_PACK` and a pack used in place, and button icon sets: `(Xbox)`, `(PS)` and `(N)` variants found in their own folders and drawn in place of the images they stand in for, a set the pack lacks falling back to its default, and Auto following the pad except with confirm on the bottom button. `mhfu_texture_pack_tests --check <folder>` prints what the menu would find in a real folder and reads nothing else.
 
 For the manual check, use a throwaway data folder (`MHFU_DATA_DIR`, with a copy of `settings.ini`, `EBOOT.ELF` and the disc image) and a real pack, then in **Video**:
 
 - *Import texture pack…* with the gamepad only: browse to the pack, open its folder (it is chosen at once), and read the review: the key count, hash, images, size, missing images, free space and the pack in use now. Back returns to the folders; *Cancel* imports nothing.
-- Choose the pack's parent folder, a folder holding `PSP/TEXTURES/ULUS10391`, and a copy renamed `ULJM05800` with and without `ULUS10391 = true` under `[games]`: the first three are found, the last is refused with its reason. A copy whose `textures.ini` says `hash = quick` is refused.
+- Choose the pack's parent folder, a folder holding `PSP/TEXTURES/ULUS10391`, and a copy renamed `ULJM05800` with and without `ULUS10391 = true` under `[games]`: the first three are found, the last is refused with its reason. A pack whose `textures.ini` says `hash = quick` is accepted, and the review says *hash quick*.
 - *Copy into Pokee's data folder*: the progress bar moves, the game keeps drawing (or stays paused) without stutter, Esc/Start do not close the menu. Cancel half way: the console logs `[texpack] copy cancelled`, the result says nothing changed, `textures/` holds no `.incomplete-…` folder and the old pack still draws.
 - Copy again to the end: the Texture pack row shows the new count within a frame or two and the textures change on screen. Import a second time: the first pack is in `textures/.backup/<date>_<time>/ULUS10391`, whole.
 - *Use it where it is*: nothing is copied, `settings.ini` has `video.texture_pack_folder`, the textures stay. Rename the pack folder and turn *Texture pack* off and on: the row says *Pack folder missing: …*. *Stop using the pack folder* goes back to the installed pack.
 - With the keyboard and mouse: the same with clicks, and drag the pack folder from the file manager onto the window while the browser is open.
+- With a pack that has button icon sets (the community MHFU pack): *Button icons* appears under *Texture pack*. On Auto with an Xbox pad the game menu's button prompts show B A Y X and the footer says *Showing Xbox*; with a DualSense, PlayStation shapes. Switch between the sets: the prompts change within a frame or two. Set *Confirm button* to the bottom button: Auto shows the pack's default. With a pack without sets, the row is not shown.
 
 ### Mods (#79, #80, #82)
 

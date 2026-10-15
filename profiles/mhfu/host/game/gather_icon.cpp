@@ -343,6 +343,15 @@ std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::uint32
     // L with ○ or □ before a hold starts scrolls the item bar. Once the hold
     // has started, L is another button and must not open that bar.
     if ((buttons & kLead) != 0u && !holding_ && !latched_) return buttons;
+    // △+○ and the other chords are attacks, not a gather, even beside a point
+    // or a body. The pad goes through, and a hold already running ends.
+    if ((buttons & kGatherChord) != 0u) {
+        holding_ = false;
+        latched_ = false;
+        input_down_ = (buttons & button_) != 0u;
+        input_button_ = button_;
+        return buttons;
+    }
     // A hold already in progress keeps its own button. A new hold takes the
     // caller's, so mining can pulse □ while carving pulses ○.
     if (holding_) button = button_;
