@@ -632,6 +632,14 @@ inline constexpr float kPlateEndLeft = 96.0f;
         r.y0 >= 26.0f && r.y0 <= 36.0f && r.y1 <= 44.0f;
 }
 
+// The colour painted on the blade, sprite 9 at (60, 29), 44 by 12. The blade
+// under it is the shorter sprite at (60, 32), 44 by 7 or 8, and is not this.
+[[nodiscard]] inline bool is_sharpness_colour(Rect rect) {
+    const Rect r = normalized(rect);
+    const float height = r.y1 - r.y0;
+    return is_sharpness_frame(r) && height >= 10.0f && r.y0 <= 30.5f;
+}
+
 // The colored bar itself, (66, 44)-(162, 50).
 [[nodiscard]] inline bool is_sharpness_bar(Rect rect) {
     const Rect r = normalized(rect);
