@@ -1,6 +1,8 @@
 // Gather marks: the game's own radius, the area list, and the picture.
 // No game data. Guest memory is a stand-in.
 #include "game/gather_icon.hpp"
+#include "gpu/ui_motion.hpp"
+#include "input/button_face.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/guest_memory.hpp"
@@ -210,9 +212,9 @@ void test_on_the_picture() {
     GatherPicture flat = picture();
     flat.projection[11] = 0.0f;
     gather_note_draw(flat, 1000u);
-    const std::optional<std::array<float, 2>> at =
+    const std::optional<GatherMark> at =
         gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f});
-    check(at && std::fabs((*at)[0] - 0.5f) < 0.05f && std::fabs((*at)[1] - 0.5f) < 0.05f,
+    check(at && std::fabs(at->at[0] - 0.5f) < 0.05f && std::fabs(at->at[1] - 0.5f) < 0.05f,
         "the mark sits above the node, and an orthographic draw is not the world");
 
     plant_node(memory, nodes, 0.0f, 0.0f, 10.0f, 5.0f, 1u, 0u);
@@ -596,15 +598,23 @@ void test_mark_over_a_carve() {
     mhfu::settings::current().gather_icon = true;
     gather_note_draw(picture(), 100u);
     const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
-    const std::optional<std::array<float, 2>> at = gather_mark(memory, pose);
-    check(at && std::fabs((*at)[0] - 0.5f) < 0.05f && std::fabs((*at)[1] - 0.5f) < 0.05f,
+    const std::optional<GatherMark> at = gather_mark(memory, pose);
+    check(at && std::fabs(at->at[0] - 0.5f) < 0.05f && std::fabs(at->at[1] - 0.5f) < 0.05f,
         "with no gather point in range, the mark stands over the body that can be carved");
 
     // A gather point in range comes first, as in the game's circle handler.
     plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 0u);
     gather_note_draw(picture(), 100u);
-    const std::optional<std::array<float, 2>> gather_first = gather_mark(memory, pose);
-    check(gather_first && (*gather_first)[0] > 0.55f, "a gather point in range takes the mark before the body");
+    const std::optional<GatherMark> gather_first = gather_mark(memory, pose);
+    check(gather_first && gather_first->at[0] > 0.55f, "a gather point in range takes the mark before the body");
+    check(at && at->glyph == GatherGlyph::Carve && at->button == kGatherCircle, "a carve is ○ and shown as one");
+    check(gather_first && gather_first->glyph == GatherGlyph::Plant && gather_first->button == kGatherCircle,
+        "a kind 0 point is a plant, gathered with ○");
+    plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 3u);
+    gather_note_draw(picture(), 100u);
+    const std::optional<GatherMark> mining = gather_mark(memory, pose);
+    check(mining && mining->glyph == GatherGlyph::Mining && mining->button == kGatherSquare,
+        "a mining point is gathered with □");
     write_float(memory, nodes, -1.0f);
 
     memory.store16(table + 4u + 20u, 0xFFFFu);
@@ -620,9 +630,180 @@ void test_mark_over_a_carve() {
     check(!gather_mark(memory, pose), "nor one out of reach");
 }
 
+void test_glyphs() {
+    check(gather_glyph(0u) == GatherGlyph::Plant, "kind 0 is a plant");
+    check(gather_glyph(3u) == GatherGlyph::Mining, "kind 3 is mining");
+    check(gather_glyph(4u) == GatherGlyph::BugNet, "kind 4 is a bug net");
+    check(gather_glyph(7u) == GatherGlyph::Plant, "a kind ○ gathers is shown as a plant");
+}
+
+GatherTarget target_at(std::uint32_t address, float x) {
+    return GatherTarget{address, x, 0.0f, 0.0f, GatherGlyph::Plant, kGatherCircle};
+}
+
+void test_motion() {
+    GatherMotion motion;
+    check(!motion.shown(), "nothing is shown before a target");
+    motion.step(target_at(1u, 0.0f));
+    std::optional<GatherMotion::Shown> shown = motion.shown();
+    check(shown && near(shown->alpha, GatherMotion::kFadeStep) && shown->x == 0.0f,
+        "a new target starts on its place and fades in");
+    for (int i = 0; i < 10; ++i) motion.step(target_at(1u, 0.0f));
+    check(motion.shown() && near(motion.shown()->alpha, 1.0f), "and stays at full opacity");
+
+    // A target close by is glided to, half the way each frame, then reached.
+    motion.step(GatherTarget{2u, 100.0f, 0.0f, 0.0f, GatherGlyph::Mining, kGatherSquare});
+    shown = motion.shown();
+    check(shown && near(shown->x, 50.0f) && shown->glyph == GatherGlyph::Mining && shown->button == kGatherSquare,
+        "a near target is glided to and its kind shown at once");
+    for (int i = 0; i < 12; ++i) motion.step(target_at(2u, 100.0f));
+    check(motion.shown() && motion.shown()->x == 100.0f, "the glide ends on the target");
+
+    // A far one is jumped to.
+    motion.step(target_at(3u, 100.0f + GatherMotion::kJump + 1.0f));
+    check(motion.shown() && motion.shown()->x == 100.0f + GatherMotion::kJump + 1.0f, "a far target is jumped to");
+
+    // Losing the target fades the mark out where it was.
+    const float place = motion.shown()->x;
+    motion.step(std::nullopt);
+    shown = motion.shown();
+    check(shown && near(shown->alpha, 1.0f - GatherMotion::kFadeStep) && shown->x == place,
+        "with no target the mark fades out in place");
+    // A target found again while fading glides from there and fades back in.
+    motion.step(target_at(4u, place + 20.0f));
+    shown = motion.shown();
+    check(shown && near(shown->alpha, 1.0f) && near(shown->x, place + 10.0f),
+        "a target found while fading is glided to from the fading mark");
+    for (int i = 0; i < 4; ++i) motion.step(std::nullopt);
+    check(!motion.shown(), "four frames without a target and the mark is gone");
+    motion.step(target_at(5u, -300.0f));
+    shown = motion.shown();
+    check(shown && shown->x == -300.0f && near(shown->alpha, GatherMotion::kFadeStep),
+        "once gone, the next target starts on its own place");
+}
+
+void test_motion_on_the_picture() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    plant_words(memory);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 1u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    plant_node(memory, nodes, 0.0f, 0.0f, -10.0f, 5.0f, 1u, 4u);
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x200u, 0.0f);
+    write_float(memory, hunter + 0x204u, 0.0f);
+    write_float(memory, hunter + 0x208u, -10.0f);
+    memory.store16(hunter + 0x29Au, 1u);
+    mhfu::settings::current().gather_icon = true;
+
+    GatherMotion motion;
+    const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
+    gather_note_draw(picture(), 100u);
+    const std::optional<GatherMark> first = gather_mark(memory, pose, &motion);
+    check(first && !first->older && near(first->alpha, GatherMotion::kFadeStep) &&
+            first->glyph == GatherGlyph::BugNet && first->button == kGatherSquare,
+        "the first frame fades the mark in, with no older place to blend from");
+    // The camera turns a little: the next frame blends from the first one's place.
+    const GatherPose turned{0.0f, 100.0f, 0.0f, 1.0f, 100.0f, -10.0f};
+    gather_note_draw(picture(), 100u);
+    const std::optional<GatherMark> second = gather_mark(memory, turned, &motion);
+    check(first && second && second->older && near((*second->older)[0], first->at[0]) &&
+            near((*second->older)[1], first->at[1]) && second->at[0] != first->at[0],
+        "the next frame keeps where the last one drew the mark");
+
+    // The hunter walks off: the mark fades out where it was.
+    write_float(memory, hunter + 0x200u, 40.0f);
+    gather_note_draw(picture(), 100u);
+    const std::optional<GatherMark> leaving = gather_mark(memory, turned, &motion);
+    check(leaving && second && near(leaving->alpha, second->alpha - GatherMotion::kFadeStep) &&
+            near(leaving->at[0], second->at[0]),
+        "out of reach, the mark fades in place");
+
+    // A frame with no world draw (a menu, a load) ends the mark.
+    check(!gather_mark(memory, turned, &motion) && !motion.shown(), "a frame without the world resets the motion");
+    gather_note_draw(picture(), 100u);
+    check(!gather_mark(memory, turned, &motion), "and nothing is left to fade");
+}
+
+void test_ui_shift() {
+    mhfu::gpu::ui_motion::Shift shift{{10.0f, -4.0f}, {}};
+    std::array<float, 2> move = shift.to(0.0f);
+    check(near(move[0], 10.0f) && near(move[1], -4.0f), "weight 0 moves the piece to the older frame's place");
+    move = shift.to(0.5f);
+    check(near(move[0], -5.0f) && near(move[1], 2.0f), "halfway moves it back by half");
+    move = shift.to(0.5f);
+    check(move[0] == 0.0f && move[1] == 0.0f, "the same weight again does not move it");
+    move = shift.to(2.0f);
+    check(near(move[0], -5.0f) && near(move[1], 2.0f) && shift.applied[0] == 0.0f && shift.applied[1] == 0.0f,
+        "weight 1 (or past it) puts it back where it was built");
+    move = shift.to(-1.0f);
+    check(near(move[0], 10.0f), "a weight below 0 is the older frame");
+}
+
+void test_button_face() {
+    using namespace mhfu::input;
+    Bindings bindings{};
+    Slots &circle = bindings[static_cast<std::size_t>(Action::Circle)];
+    circle[0] = chord(pad(PadInput::LeftShoulder), pad(PadInput::West));
+    circle[1] = single(pad(PadInput::East));
+    check(pressed_for(bindings, Action::Circle, true, false) == pad(PadInput::East),
+        "a single button is preferred to a chord before it");
+    check(pressed_for(bindings, Action::Circle, true, true) == pad(PadInput::South),
+        "the confirm swap moves the right button to the bottom one");
+    circle[1] = {};
+    check(pressed_for(bindings, Action::Circle, true, false) == pad(PadInput::LeftShoulder),
+        "with only a chord, its first input");
+    check(pressed_for(bindings, Action::Square, true, false) == kNone, "nothing bound is nothing");
+    Slots &square = bindings[static_cast<std::size_t>(Action::Square)];
+    square[0] = single(key(4u));
+    check(pressed_for(bindings, Action::Square, false, true) == key(4u), "a key is not swapped");
+
+    ButtonFace face = button_face(pad(PadInput::East), PadStyle::Xbox);
+    check(face.shape == ButtonFace::Shape::Letter && face.text == "B" && face.red > face.blue,
+        "○ on an Xbox pad is a red B");
+    face = button_face(pad(PadInput::West), PadStyle::Xbox);
+    check(face.shape == ButtonFace::Shape::Letter && face.text == "X" && face.blue > face.red,
+        "□ on an Xbox pad is a blue X");
+    check(button_face(pad(PadInput::East), PadStyle::PlayStation).shape == ButtonFace::Shape::Circle,
+        "a PlayStation pad shows the circle");
+    check(button_face(pad(PadInput::West), PadStyle::PlayStation).shape == ButtonFace::Shape::Square,
+        "and the square");
+    check(button_face(pad(PadInput::South), PadStyle::Generic).shape == ButtonFace::Shape::Cross,
+        "an unknown pad takes the PSP symbols");
+    check(button_face(pad(PadInput::North), PadStyle::Generic).shape == ButtonFace::Shape::Triangle,
+        "the triangle as well");
+    check(button_face(pad(PadInput::East), PadStyle::Nintendo).text == "A", "Nintendo's right button is A");
+    check(button_face(pad(PadInput::West), PadStyle::Nintendo).text == "Y", "and its left one is Y");
+    face = button_face(pad(PadInput::LeftShoulder), PadStyle::Xbox);
+    check(face.shape == ButtonFace::Shape::Label && face.text == label(pad(PadInput::LeftShoulder), PadStyle::Xbox),
+        "another pad input is labelled as the bindings menu labels it");
+    face = button_face(key(4u), PadStyle::Generic);
+    check(face.shape == ButtonFace::Shape::Label && face.text == name(key(4u)), "a key is shown by its name");
+    check(button_face(kNone, PadStyle::Xbox).text.empty(), "nothing bound has no label");
+}
+
 } // namespace
 
 int main() {
+    test_glyphs();
+    test_motion();
+    test_motion_on_the_picture();
+    test_ui_shift();
+    test_button_face();
     test_the_radius();
     test_the_area_list();
     test_unmapped();
