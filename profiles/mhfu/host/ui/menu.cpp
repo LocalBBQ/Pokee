@@ -26,13 +26,13 @@
 #include "audio/audio_sink.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/gather_icon.hpp"
+#include "game/item_atlas.hpp"
 #include "gpu/screenshot.hpp"
 #include "gpu/game_hud.hpp"
 #include "gpu/ui_motion.hpp"
 #include "gpu/vulkan_renderer.hpp"
 #include "hle/hle_common.hpp"
 #include "input/bindings.hpp"
-#include "input/button_face.hpp"
 #include "install/game_identity.hpp"
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
@@ -554,15 +554,15 @@ void Menu::video() {
     }
     if (toggle_row("Gather icon", s.gather_icon,
             options_for("game.gather_icon",
-                "On: a ? floats above a gather point while you are close enough for ○ to gather it, and above "
-                "a monster or a cut tail you can carve, with the button that gathers it beside it. "
+                "On: a mark floats above a gather point while you are close enough to gather it, with the "
+                "picture of what it gives, and above a monster you can carve, with its icon. "
                 "Off: no mark, and the gather list is not read."))) {
         s.gather_icon = !s.gather_icon;
         settings::save();
     }
     {
         RowOptions o = options_for("game.gather_icon_size",
-            "How large the gather mark is, in percent of its usual size. The disc and the ? grow together, "
+            "How large the gather mark is, in percent of its usual size. The disc and its picture grow together, "
             "and the ring grows with them.");
         o.disabled = o.disabled || !s.gather_icon;
         int size = static_cast<int>(s.gather_icon_size);
@@ -587,10 +587,20 @@ void Menu::video() {
     if (toggle_row("Hold to gather", s.gather_hold,
             options_for("game.gather_hold",
                 "On: hold ○ on a gather point or a monster you can carve, or □ on a mining point or a bug net, and it "
-                "gathers or carves again each time you can. Moving or pressing another button does not stop it. "
+                "gathers or carves again each time you can. □ at the Pokke Farm's mining outcrops and bug "
+                "thickets works the same way. Moving or pressing another button does not stop it. "
                 "Letting go stops the next one. Pressing the same button again and holding it continues. "
                 "Off: each button gathers once per press. L+○ or L+□ before a hold starts still uses the item bar."))) {
         s.gather_hold = !s.gather_hold;
+        settings::save();
+    }
+    if (toggle_row("Empty item slot", s.empty_item_slot,
+            options_for("game.empty_item_slot",
+                "On: the item bar has an empty slot, Nothing Selected, before the first item, and each quest "
+                "starts on it. With it selected, □ with the weapon sheathed uses nothing. A pouch with all 24 "
+                "slots filled has no room for it. Off: the game's own bar, which starts on the first item and "
+                "wraps from the last item to the first."))) {
+        s.empty_item_slot = !s.empty_item_slot;
         settings::save();
     }
     section("Lock-on");
@@ -1852,7 +1862,8 @@ bool Menu::confirm_dialog() {
             ImGui::Dummy({0.0f, font * 0.6f});
             const float gap = font * 0.6f;
             const float width = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
-            if (big_button("Delete", width, true)) {
+            // Both choices look alike: only the focus ring shows which one is selected.
+            if (big_button("Delete", width)) {
                 std::erase_if(
                     s.user_presets, [&](const input::UserPreset &p) { return p.name == s.control_preset.user; });
                 settings::choose_preset(s, {input::Preset::Default, {}});
@@ -1879,7 +1890,8 @@ bool Menu::confirm_dialog() {
         ImGui::Dummy({0.0f, font * 0.6f});
         const float gap = font * 0.6f;
         const float width = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
-        if (big_button(quit ? "Quit" : "Close and set up", width, true)) {
+        // Both choices look alike: only the focus ring shows which one is selected.
+        if (big_button(quit ? "Quit" : "Close and set up", width)) {
             if (!quit) install::request_setup_on_exit();
             quit_ = true;
             keep_open = false;
@@ -2127,32 +2139,42 @@ std::vector<camera::HuntPortrait> &hunt_portraits_at() {
     return portraits;
 }
 
-struct HuntIconTexture {
+// A sheet decoded from the game (the monster icons, the item atlas) as an
+// interface texture.
+struct SheetTexture {
     ImTextureData *texture{};
     std::uint64_t generation{};
 };
 
-HuntIconTexture &hunt_icon_texture() {
-    static HuntIconTexture value;
+SheetTexture &hunt_icon_texture() {
+    static SheetTexture value;
     return value;
 }
 
-// Uploads the decoded icon sheet once per change. The first create is picked
-// up by the frame; later edits ask for an upload of the same texture.
-void upload_hunt_icons(const camera::HuntIconSheet &sheet) {
-    if (!sheet.ready || sheet.pixels == nullptr || sheet.width == 0u || sheet.height == 0u) return;
-    HuntIconTexture &icons = hunt_icon_texture();
-    if (icons.generation == sheet.generation && icons.texture != nullptr) return;
-    if (icons.texture == nullptr) {
-        icons.texture = new ImTextureData();
-        icons.texture->Create(ImTextureFormat_RGBA32, static_cast<int>(sheet.width), static_cast<int>(sheet.height));
-        ImGui::RegisterUserTexture(icons.texture);
+SheetTexture &item_atlas_texture() {
+    static SheetTexture value;
+    return value;
+}
+
+// Uploads a decoded sheet once per change. The first create is picked up by
+// the frame; later edits ask for an upload of the same texture.
+void upload_sheet(SheetTexture &sheet, bool ready, const std::uint32_t *pixels, std::uint32_t width,
+    std::uint32_t height, std::uint64_t generation) {
+    if (!ready || pixels == nullptr || width == 0u || height == 0u) return;
+    if (sheet.generation == generation && sheet.texture != nullptr) return;
+    if (sheet.texture == nullptr) {
+        sheet.texture = new ImTextureData();
+        sheet.texture->Create(ImTextureFormat_RGBA32, static_cast<int>(width), static_cast<int>(height));
+        ImGui::RegisterUserTexture(sheet.texture);
     }
-    std::memcpy(icons.texture->GetPixels(), sheet.pixels,
-        static_cast<std::size_t>(sheet.width) * sheet.height * sizeof(std::uint32_t));
-    if (icons.texture->Status == ImTextureStatus_OK || icons.texture->Status == ImTextureStatus_WantUpdates)
-        ImTextureDataQueueUpload(icons.texture, 0, 0, static_cast<int>(sheet.width), static_cast<int>(sheet.height));
-    icons.generation = sheet.generation;
+    std::memcpy(sheet.texture->GetPixels(), pixels, static_cast<std::size_t>(width) * height * sizeof(std::uint32_t));
+    if (sheet.texture->Status == ImTextureStatus_OK || sheet.texture->Status == ImTextureStatus_WantUpdates)
+        ImTextureDataQueueUpload(sheet.texture, 0, 0, static_cast<int>(width), static_cast<int>(height));
+    sheet.generation = generation;
+}
+
+void upload_hunt_icons(const camera::HuntIconSheet &sheet) {
+    upload_sheet(hunt_icon_texture(), sheet.ready, sheet.pixels, sheet.width, sheet.height, sheet.generation);
 }
 
 // The monster's icon, bottom left of the game's picture, with no panel behind
@@ -2167,7 +2189,7 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
     const float pixel = picture[3] * io.DisplaySize.y / 272.0f;
     const camera::HuntIconSheet sheet = camera::hunt_icon_sheet();
     upload_hunt_icons(sheet);
-    const HuntIconTexture &icons = hunt_icon_texture();
+    const SheetTexture &icons = hunt_icon_texture();
     const bool icons_ready = sheet.ready && icons.texture != nullptr && icons.generation == sheet.generation;
     ImDrawList *draw = ImGui::GetForegroundDrawList();
     ImFont *font = ImGui::GetFont();
@@ -2269,81 +2291,46 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
     }
 }
 
-// MHFU_GATHER_BUTTON_HINT=0 leaves the button off the gather mark.
-bool gather_button_hint() {
-    static const bool on = [] {
-        const char *value = std::getenv("MHFU_GATHER_BUTTON_HINT");
-        return value == nullptr || std::string_view(value) != "0";
-    }();
-    return on;
+// The mark's picture in a square of `side` around `centre`: the item's icon
+// from the game's atlas in the item's tint, or the carved monster's icon.
+// False when there is none to draw, and the ? stands in.
+bool draw_gather_art(ImDrawList *draw, const game::GatherMark &mark, ImVec2 centre, float side, float alpha) {
+    const ImVec2 min{centre.x - side * 0.5f, centre.y - side * 0.5f};
+    const ImVec2 max{centre.x + side * 0.5f, centre.y + side * 0.5f};
+    const int opacity = static_cast<int>(alpha * 255.0f);
+    if (mark.art.kind == game::GatherArt::Kind::Item && mark.icon) {
+        const game::ItemAtlas atlas = game::item_atlas();
+        SheetTexture &sheet = item_atlas_texture();
+        upload_sheet(sheet, atlas.ready, atlas.pixels, atlas.width, atlas.height, atlas.generation);
+        if (!atlas.ready || sheet.texture == nullptr || sheet.generation != atlas.generation) return false;
+        const game::ItemArt &icon = *mark.icon;
+        const float w = static_cast<float>(atlas.width);
+        const float h = static_cast<float>(atlas.height);
+        draw->AddImage(sheet.texture->GetTexRef(), min, max, {icon.u / w, icon.v / h},
+            {(icon.u + icon.width) / w, (icon.v + icon.height) / h}, IM_COL32(icon.red, icon.green, icon.blue, opacity));
+        return true;
+    }
+    if (mark.art.kind == game::GatherArt::Kind::Monster) {
+        const camera::HuntIconSheet sheet = camera::hunt_icon_sheet();
+        upload_hunt_icons(sheet);
+        const SheetTexture &icons = hunt_icon_texture();
+        const std::optional<camera::HuntIconCell> cell = camera::hunt_icon_cell(mark.art.monster);
+        if (!sheet.ready || icons.texture == nullptr || icons.generation != sheet.generation || !cell ||
+            cell->u + camera::kHuntIconTexels > sheet.width || cell->v + camera::kHuntIconTexels > sheet.height)
+            return false;
+        const float w = static_cast<float>(sheet.width);
+        const float h = static_cast<float>(sheet.height);
+        draw->AddImage(icons.texture->GetTexRef(), min, max, {cell->u / w, cell->v / h},
+            {(cell->u + camera::kHuntIconTexels) / w, (cell->v + camera::kHuntIconTexels) / h},
+            IM_COL32(255, 255, 255, opacity));
+        return true;
+    }
+    return false;
 }
 
-// The button that gathers, beside the mark (input/button_face.hpp): the
-// pad's face for it while a gamepad is connected, else the key bound to it.
-void draw_gather_button(ImDrawList *draw, ImVec2 centre, float radius, float alpha, std::uint32_t button) {
-    Layer &layer = Layer::get();
-    const bool pad = layer.renderer().gamepad() != nullptr;
-    const settings::Settings &player = settings::current();
-    const input::Action action = button == game::kGatherSquare ? input::Action::Square : input::Action::Circle;
-    const input::Binding pressed = input::pressed_for(
-        pad ? player.controls.pad : player.controls.keys, action, pad, player.confirm_south);
-    if (pressed == input::kNone) return;
-    const input::ButtonFace face = input::button_face(pressed, pad ? pad_style() : input::PadStyle::Generic);
-    const auto ink = [&](std::uint8_t r, std::uint8_t g, std::uint8_t b, float a) {
-        return IM_COL32(r, g, b, static_cast<int>(std::clamp(a * alpha, 0.0f, 1.0f) * 255.0f));
-    };
-    const ImU32 shadow = ink(0, 0, 0, 0.7f);
-    const ImU32 colour = ink(face.red, face.green, face.blue, 0.95f);
-    const ImU32 white = ink(250, 246, 236, 0.95f);
-    const ImU32 dark = ink(20, 16, 12, 0.85f);
-    const float line = std::max(1.0f, radius * 0.18f);
-    ImFont *font = ImGui::GetFont();
-    const auto text_at = [&](const std::string &text, float size, ImVec2 at) {
-        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
-        draw->AddText(font, size, {at.x - extent.x * 0.5f, at.y - extent.y * 0.5f}, white, text.c_str());
-    };
-    switch (face.shape) {
-    case input::ButtonFace::Shape::Letter:
-        draw->AddCircleFilled(centre, radius, colour, 24);
-        draw->AddCircle(centre, radius, shadow, 24, std::max(1.0f, line * 0.6f));
-        text_at(face.text, radius * 1.4f, centre);
-        break;
-    case input::ButtonFace::Shape::Label: {
-        const float size = radius * 1.2f;
-        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, face.text.c_str());
-        const float half_w = std::max(radius, extent.x * 0.5f + radius * 0.45f);
-        const ImVec2 min{centre.x - half_w, centre.y - radius};
-        const ImVec2 max{centre.x + half_w, centre.y + radius};
-        draw->AddRectFilled(min, max, dark, radius * 0.35f);
-        draw->AddRect(min, max, ink(250, 246, 236, 0.6f), radius * 0.35f, 0, std::max(1.0f, line * 0.5f));
-        text_at(face.text, size, centre);
-        break;
-    }
-    default: {
-        // The PlayStation symbols, drawn in their colour on a dark disc.
-        draw->AddCircleFilled(centre, radius, dark, 24);
-        draw->AddCircle(centre, radius, shadow, 24, std::max(1.0f, line * 0.6f));
-        const float s = radius * 0.5f;
-        if (face.shape == input::ButtonFace::Shape::Circle) {
-            draw->AddCircle(centre, s, colour, 20, line);
-        } else if (face.shape == input::ButtonFace::Shape::Cross) {
-            draw->AddLine({centre.x - s, centre.y - s}, {centre.x + s, centre.y + s}, colour, line);
-            draw->AddLine({centre.x - s, centre.y + s}, {centre.x + s, centre.y - s}, colour, line);
-        } else if (face.shape == input::ButtonFace::Shape::Square) {
-            draw->AddRect({centre.x - s * 0.9f, centre.y - s * 0.9f}, {centre.x + s * 0.9f, centre.y + s * 0.9f},
-                colour, 0.0f, 0, line);
-        } else {
-            draw->AddTriangle({centre.x, centre.y - s}, {centre.x - s * 1.05f, centre.y + s * 0.75f},
-                {centre.x + s * 1.05f, centre.y + s * 0.75f}, colour, line);
-        }
-        break;
-    }
-    }
-}
-
-// The gather mark (game/gather_icon.hpp): a dark disc and ?, in the game's
-// pixels, above the node, with the button that gathers it at its lower
-// right. It grows a little as it fades in. Its vertices follow frame
+// The gather mark (game/gather_icon.hpp): a dark disc in the game's pixels,
+// above the node, with the picture of what it gathers in it, or a ? when
+// there is none. It grows a little as it fades in. Its vertices follow frame
 // interpolation (gpu/ui_motion.hpp) from where the last game frame drew it.
 // Drawn by the interface and never into the game's frames.
 void draw_gather_mark(const game::GatherMark &mark) {
@@ -2370,22 +2357,20 @@ void draw_gather_mark(const game::GatherMark &mark) {
     const int first_vertex = draw->VtxBuffer.Size;
     draw->AddCircleFilled(centre, radius, fade(20, 16, 12, 210), segments);
     draw->AddCircle(centre, radius, fade(0, 0, 0, 180), segments, ring);
-    const char *label = "?";
-    const float size = shape.glyph * pixel;
-    ImFont *font = ImGui::GetFont();
-    const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
-    const ImVec2 origin{centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f};
-    const ImU32 ink = fade(245, 236, 214, 240);
-    const float weight = shape.weight * pixel;
-    if (weight >= 0.25f)
-        for (const game::Offset &offset : game::stroke_offsets(weight, 2))
-            if (offset.x != 0.0f || offset.y != 0.0f)
-                draw->AddText(font, size, {origin.x + offset.x, origin.y + offset.y}, ink, label);
-    draw->AddText(font, size, origin, ink, label);
-    if (gather_button_hint()) {
-        const float offset = radius * 0.78f;
-        draw_gather_button(
-            draw, {centre.x + offset, centre.y + offset}, std::max(3.0f, radius * 0.5f), alpha, mark.button);
+    // The picture fills most of the disc; the ring stays outside it.
+    if (!draw_gather_art(draw, mark, centre, radius * 1.7f, alpha)) {
+        const char *label = "?";
+        const float size = shape.glyph * pixel;
+        ImFont *font = ImGui::GetFont();
+        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
+        const ImVec2 origin{centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f};
+        const ImU32 ink = fade(245, 236, 214, 240);
+        const float weight = shape.weight * pixel;
+        if (weight >= 0.25f)
+            for (const game::Offset &offset : game::stroke_offsets(weight, 2))
+                if (offset.x != 0.0f || offset.y != 0.0f)
+                    draw->AddText(font, size, {origin.x + offset.x, origin.y + offset.y}, ink, label);
+        draw->AddText(font, size, origin, ink, label);
     }
     if (mark.older) {
         const ImVec2 older = screen(*mark.older);

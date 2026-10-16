@@ -12,8 +12,8 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 rsvg-convert -w 1024 -h 1024 "$emblem" -o "$work/emblem.png"
-# The background: the dark brown behind the setup screens.
-background="#130e0b"
+# The background: the navy of the emblem's night sky.
+background="#0b1024"
 
 for pair in mdpi:1 hdpi:1.5 xhdpi:2 xxhdpi:3 xxxhdpi:4; do
     density="${pair%%:*}"
