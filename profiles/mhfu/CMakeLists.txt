@@ -263,6 +263,7 @@ set(MHFU_HOST_SOURCES
     host/game/hit_trace.cpp
     host/game/item_box.cpp
     host/game/empty_item_slot.cpp
+    host/game/sharpness_gauge.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -517,6 +518,19 @@ add_executable(mhfu_damage_numbers_tests
     tests/damage_numbers_tests.cpp
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp)
+
+# Sharpness gauge: the colour and its fill, the weapon's colour ends through
+# the game's tables, and where the gauge stands. No game data.
+add_executable(mhfu_sharpness_gauge_tests
+    tests/sharpness_gauge_tests.cpp
+    host/game/sharpness_gauge.cpp
+    host/game/guest_ram.cpp)
+target_include_directories(mhfu_sharpness_gauge_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_sharpness_gauge_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_sharpness_gauge_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_sharpness_gauge_tests COMMAND mhfu_sharpness_gauge_tests)
+endif()
 
 # Gather marks: the radius the game searches, where the mark sits, and how it
 # moves between game frames.

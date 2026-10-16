@@ -116,6 +116,8 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"}, {PerfDisplay:
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
 const Names<LockOnStyle> kLockOnStyles{{{LockOnStyle::Follow, "follow"}, {LockOnStyle::Focus, "focus"}}};
+const Names<SharpnessEffect> kSharpnessEffects{
+    {{SharpnessEffect::Glow, "glow"}, {SharpnessEffect::Solid, "solid"}}};
 const Names<TouchLayout> kTouchLayouts{{{TouchLayout::Psp, "psp"}, {TouchLayout::Action, "action"}}};
 const Names<fast_forward::Mode> kFastForwardModes{
     {{fast_forward::Mode::Hold, "hold"}, {fast_forward::Mode::Toggle, "toggle"}, {fast_forward::Mode::Off, "off"}}};
@@ -534,6 +536,17 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_numbers); },
             [](const Settings &s) { return std::string(s.damage_numbers ? "1" : "0"); },
             [](Settings &s, const char *t) { s.damage_numbers = variable_flag(t); }},
+        {"game.sharpness_gauge", "MHFU_SHARPNESS_GAUGE",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.sharpness_gauge); },
+            [](const Settings &s) { return std::string(s.sharpness_gauge ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.sharpness_gauge = variable_flag(t); }},
+        {"game.sharpness_effect", "MHFU_SHARPNESS_EFFECT",
+            [](Settings &s, const std::string &t) { return kSharpnessEffects.parse(t, s.sharpness_effect); },
+            [](const Settings &s) { return kSharpnessEffects.format(s.sharpness_effect); },
+            [](Settings &s, const char *t) {
+                SharpnessEffect effect = s.sharpness_effect;
+                if (kSharpnessEffects.parse(t, effect)) s.sharpness_effect = effect;
+            }},
         {"game.gather_icon", "MHFU_GATHER_ICON",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_icon); },
             [](const Settings &s) { return std::string(s.gather_icon ? "1" : "0"); },

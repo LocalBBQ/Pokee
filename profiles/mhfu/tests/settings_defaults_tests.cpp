@@ -413,6 +413,15 @@ void test_lock_on_and_damage_numbers() {
     hits["game.damage_numbers"] = "1";
     check(from_entries(hits).damage_numbers, "the file turns damage numbers on");
     check(from_entries(to_entries(from_entries(hits))).damage_numbers, "and they survive a round trip");
+    check(!fresh.sharpness_gauge, "the sharpness gauge starts off, so the game's bar stays whole");
+    Entries gauge = to_entries(fresh);
+    gauge["game.sharpness_gauge"] = "1";
+    check(from_entries(to_entries(from_entries(gauge))).sharpness_gauge, "the file turns the sharpness gauge on");
+    check(fresh.sharpness_effect == SharpnessEffect::Glow, "the colour on the blade pulses by default");
+    Entries effect = to_entries(fresh);
+    effect["game.sharpness_effect"] = "solid";
+    check(from_entries(to_entries(from_entries(effect))).sharpness_effect == SharpnessEffect::Solid,
+        "the file sets the sharpness effect to solid");
     check(fresh.damage_number_size == 100u && fresh.damage_number_thickness == 1u,
         "damage numbers start at the interface's size and the thinnest stroke");
     Entries look = to_entries(fresh);

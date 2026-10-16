@@ -42,6 +42,9 @@ enum class RightStick { Camera, DPad, Off };
 // Follow keeps the quest camera on the monster Lock on selected. Focus keeps
 // that selection, and a tap of L centers the camera on the monster.
 enum class LockOnStyle { Follow, Focus };
+// The colour the game paints on the blade: glow pulses as the game drew it;
+// solid holds that colour at a full pulse.
+enum class SharpnessEffect { Glow, Solid };
 // The on-screen controls' layout: the PSP's buttons (touch_controls.hpp), or
 // the action-style one (touch_action.hpp).
 enum class TouchLayout { Psp, Action };
@@ -183,6 +186,12 @@ struct Settings {
     // game already shows. On, the health that hit removed is drawn over the
     // picture.
     bool damage_numbers{};
+    // Sharpness gauge (game/sharpness_gauge.hpp): off, the game's full drawing.
+    // On, the colour on the blade shortens as it is spent. The blade stays.
+    bool sharpness_gauge{};
+    // Sharpness effect: Glow (default) pulses the colour on the blade; Solid
+    // holds it at a full pulse.
+    SharpnessEffect sharpness_effect{SharpnessEffect::Glow};
     // A ? over a gather node the game would accept (game/gather_icon.hpp).
     // On by default. Off, the list is not read for the mark.
     bool gather_icon{true};
