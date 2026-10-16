@@ -288,10 +288,11 @@ bool hunter_entity(const psprecomp::GuestMemory &memory, std::uint32_t entity) {
     return memory.load32(entity + kVtable) == kHunterVtable;
 }
 
-// Large monsters on the quest list, including one in another zone. When
-// `trace` is set, the walk is printed and the flag cleared,
-// and only once the list can actually be read.
-std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bool *trace_flag) {
+// Large monsters on the quest list, including one in another zone, and the
+// small ones too with `keep_small`. When `trace` is set, the walk is printed
+// and the flag cleared, and only once the list can actually be read.
+std::vector<Candidate> collect_monsters(
+    const psprecomp::GuestMemory &memory, bool *trace_flag, bool keep_small = false) {
     std::vector<Candidate> found;
     if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return found;
     const std::uint32_t manager = memory.load32(kEntityList);
@@ -323,7 +324,7 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
         if (most <= 0) continue; // a companion, or not a monster with a health pool
         const std::uint8_t id = memory.load8(at + kMonsterId);
-        if (small_species(id)) continue;
+        if (!keep_small && small_species(id)) continue;
         const bool dead = health <= 0;
         const Vec3 position = load_vec(memory, at + kPosition);
         if (!finite(position)) continue;
@@ -457,6 +458,36 @@ std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory) {
         for (const HuntMonster &monster : found)
             if (monster.address == address) out.push_back(monster);
     return out;
+}
+
+std::optional<std::uint8_t> carved_monster(const psprecomp::GuestMemory &memory, const Vec3 &body) {
+    if (!on_quest(memory)) return std::nullopt;
+    std::optional<std::uint8_t> species;
+    float nearest = kCarveReach * kCarveReach;
+    // MHFU_TRACE_GATHER: each monster a new carve point is matched against.
+    static const bool trace = std::getenv("MHFU_TRACE_GATHER") != nullptr;
+    static Vec3 traced{};
+    const bool tell = trace && (traced.x != body.x || traced.y != body.y || traced.z != body.z);
+    if (tell) {
+        traced = body;
+        std::cout << "[gather] carve at " << body.x << "," << body.y << "," << body.z << std::endl;
+    }
+    for (const Candidate &candidate : collect_monsters(memory, nullptr, true)) {
+        const float dx = candidate.monster.position.x - body.x;
+        const float dz = candidate.monster.position.z - body.z;
+        const float distance = dx * dx + dz * dz;
+        if (tell)
+            std::cout << "[gather]   monster species " << static_cast<unsigned>(candidate.id) << " at "
+                      << candidate.monster.position.x << "," << candidate.monster.position.y << ","
+                      << candidate.monster.position.z << " distance " << std::sqrt(distance)
+                      << (candidate.dead ? " dead" : " alive") << (candidate.other_area ? " elsewhere" : "")
+                      << (hunt_icon_cell(candidate.id) ? "" : " (no icon)") << std::endl;
+        if (!candidate.dead || candidate.other_area) continue;
+        if (distance > nearest) continue;
+        nearest = distance;
+        species = candidate.id;
+    }
+    return species;
 }
 
 namespace {

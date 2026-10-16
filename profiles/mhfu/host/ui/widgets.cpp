@@ -800,11 +800,17 @@ bool big_button(const char *label, float width, bool primary, bool disabled) {
                 : hovered ? colors::kRowHover
                           : colors::kRow,
             rounding);
-        draw->AddRect(min, max, focused ? colors::kAccent : colors::kPanelEdge, rounding, 0, px(1.5f));
+        // A neutral edge when unfocused, so the gold focus edge stands out.
+        if (focused) {
+            draw->AddRect(min, max, colors::kAccentBright, rounding, 0, px(2.0f));
+            text = colors::kAccentBright;
+        } else {
+            draw->AddRect(min, max, colors::kTextDisabled, rounding, 0, px(1.5f));
+        }
     }
     if (focused && !disabled)
-        draw->AddRect({min.x - px(3.0f), min.y - px(3.0f)}, {max.x + px(3.0f), max.y + px(3.0f)}, colors::kAccentBright,
-            rounding + px(3.0f), 0, px(2.0f));
+        draw->AddRect({min.x - px(4.0f), min.y - px(4.0f)}, {max.x + px(4.0f), max.y + px(4.0f)}, colors::kAccentBright,
+            rounding + px(4.0f), 0, px(3.0f));
     const char *end = shown_end(label);
     const ImVec2 size = ImGui::CalcTextSize(label, end);
     draw->AddText({min.x + (width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f}, text, label, end);

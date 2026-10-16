@@ -128,6 +128,13 @@ struct HuntMonster {
 };
 [[nodiscard]] std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory);
 
+// The species of the dead monster lying at `body`, the place of a carve
+// record (game/gather_icon.hpp): the nearest dead one in this area, large or
+// small, within kCarveReach horizontally. Nothing for a cut tail, which no
+// dead monster lies under.
+inline constexpr float kCarveReach = 500.0f;
+[[nodiscard]] std::optional<std::uint8_t> carved_monster(const psprecomp::GuestMemory &memory, const Vec3 &body);
+
 // The card on the 480×272 picture, in PSP pixels: three quarters of the first
 // 68×52 card.
 inline constexpr float kHuntCardWidth = 51.0f;
