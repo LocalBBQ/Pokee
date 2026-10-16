@@ -313,7 +313,15 @@ void present_frame(Runtime &rt) {
     if (pose)
         gather_pose =
             game::GatherPose{pose->eye.x, pose->eye.y, pose->eye.z, pose->look_at.x, pose->look_at.y, pose->look_at.z};
-    ui::set_gather_mark(game::gather_mark(rt.memory(), gather_pose));
+    // The mark fades, glides between targets, and follows frame interpolation
+    // (game::GatherMotion, gpu/ui_motion.hpp). MHFU_GATHER_ICON_SMOOTH=0
+    // draws it where each game frame puts it.
+    static const bool gather_smooth = [] {
+        const char *value = std::getenv("MHFU_GATHER_ICON_SMOOTH");
+        return value == nullptr || std::string_view(value) != "0";
+    }();
+    static game::GatherMotion gather_motion;
+    ui::set_gather_mark(game::gather_mark(rt.memory(), gather_pose, gather_smooth ? &gather_motion : nullptr));
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more

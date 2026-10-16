@@ -125,6 +125,7 @@ if(MHFU_RENDERER)
             host/gpu/frame_pacing.cpp
             host/gpu/replacement_textures.cpp
             host/gpu/mmpx.cpp
+            host/gpu/ui_motion.cpp
             host/gpu/ui_textures.cpp
             host/gpu/vulkan_renderer.cpp
             host/input/gamepad_devices.cpp
@@ -193,6 +194,7 @@ set(MHFU_HOST_SOURCES
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
+    host/input/button_face.cpp
     host/input/chords.cpp
     host/input/presets.cpp
     host/input/gamepad_mapping.cpp
@@ -514,13 +516,15 @@ add_executable(mhfu_damage_numbers_tests
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp)
 
-# Gather marks: the radius the game searches, and where the mark sits.
+# Gather marks: the radius the game searches, where the mark sits, how it
+# moves between game frames, and the button drawn beside it.
 add_executable(mhfu_gather_icon_tests
     tests/gather_icon_tests.cpp
     host/game/gather_icon.cpp
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp
     host/input/bindings.cpp
+    host/input/button_face.cpp
     host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
