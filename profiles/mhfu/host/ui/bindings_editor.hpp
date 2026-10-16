@@ -14,10 +14,6 @@
 // a mouse and touch.
 namespace mhfu::ui {
 
-// How the menu labels the gamepad's inputs: as the connected pad does, Xbox
-// with none.
-[[nodiscard]] input::PadStyle pad_style();
-
 // Draws the bindings into the menu's content. `notice` receives what an edit
 // did to the presets (a new preset of the player's, made from a shipped one).
 void bindings_editor(std::string &notice);
