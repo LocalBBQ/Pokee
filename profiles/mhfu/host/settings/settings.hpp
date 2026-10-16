@@ -191,8 +191,8 @@ struct Settings {
     bool gather_hold{true};
     // The item bar gets an empty slot, Nothing Selected, before the first
     // item, and a quest starts on it, so □ uses no item
-    // (game/empty_item_slot.hpp). Off by default: the game's own bar.
-    bool empty_item_slot{};
+    // (game/empty_item_slot.hpp). On by default. Off: the game's own bar.
+    bool empty_item_slot{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize), and the weight of its ring and ? (1 to
     // kMaxGatherIconThickness). A larger mark keeps the same proportions, and
