@@ -16,6 +16,7 @@
 #include "game/empty_item_slot.hpp"
 #include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
+#include "game/sharpness_gauge.hpp"
 #include "platform/utf8_path.hpp"
 
 #include "audio/audio_sink.hpp"
@@ -268,6 +269,7 @@ void present_frame(Runtime &rt) {
     game::layered::frame(rt);
     game::item_box::frame(rt);
     game::empty_item_slot::frame(rt);
+    game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
         perf::end_frame(kernel().now_us());

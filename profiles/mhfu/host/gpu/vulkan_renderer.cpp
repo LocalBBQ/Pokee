@@ -5,6 +5,7 @@
 #include "game/damage_numbers.hpp"
 #include "game/gather_icon.hpp"
 #include "game/item_atlas.hpp"
+#include "game/sharpness_gauge.hpp"
 #include "game_hud.hpp"
 #include "hud_scale.hpp"
 #include "replacement_textures.hpp"
@@ -7490,13 +7491,15 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             drawn);
         if ((call.through && near_map) || (ortho && count <= 64u)) {
             const hud::Owner owner = hud::owner_of(call.command_address, call.call_return);
-            std::cout << "[mapdraw] f=" << impl.frames << " prim=" << static_cast<int>(call.primitive)
-                      << " n=" << count << (call.through ? " through" : " ortho") << " owner="
-                      << (owner == hud::Owner::QuestHud ? "quest" : owner == hud::Owner::Other ? "other" : "unknown")
+            std::cout << "[mapdraw] f=" << impl.frames << " prim=" << static_cast<int>(call.primitive) << " n=" << count
+                      << (call.through ? " through" : " ortho") << " owner="
+                      << (owner == hud::Owner::QuestHud       ? "quest"
+                                 : owner == hud::Owner::Other ? "other"
+                                                              : "unknown")
                       << " (" << drawn.x0 << "," << drawn.y0 << ")-(" << drawn.x1 << "," << drawn.y1 << ") tex=0x"
                       << std::hex << (call.texture.enabled ? call.texture.address : 0u) << " at=0x"
-                      << call.command_address << " ret=0x" << call.call_return << " color=0x"
-                      << vertex_at(0).color << std::dec << " blend=" << (call.blend.enabled ? 1 : 0) << "\n";
+                      << call.command_address << " ret=0x" << call.call_return << " color=0x" << vertex_at(0).color
+                      << std::dec << " blend=" << (call.blend.enabled ? 1 : 0) << "\n";
         }
     }
     if (call.through && call.primitive == PrimitiveType::Sprites && trace_sprites) {
@@ -7511,7 +7514,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         std::ostringstream name_text;
         if (traced_name.is_name) {
             name_text << (traced_name.glyph ? " name=1 letter" : " name=1 icon");
-            if (traced_name.has_origin) name_text << " origin=(" << traced_name.origin_x << "," << traced_name.origin_y << ")";
+            if (traced_name.has_origin)
+                name_text << " origin=(" << traced_name.origin_x << "," << traced_name.origin_y << ")";
         } else {
             name_text << " name=0";
         }
@@ -7862,10 +7866,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 const hud_scale::Rect to = hud_scale::quad_bounds(corner_scaled, first);
                 const hud_scale::Frame &state = impl.hud_scale_frame;
                 std::cout << "[mapmark] f=" << impl.frames << " " << hud_scale::piece_name(decision.piece) << " "
-                          << hud_scale::reason_name(decision.reason) << " was="
-                          << hud_scale::piece_name(decision.candidate) << " (" << from.x0 << "," << from.y0 << ")-("
-                          << from.x1 << "," << from.y1 << ") -> (" << to.x0 << "," << to.y0 << ")-(" << to.x1 << ","
-                          << to.y1 << ") tex=0x" << std::hex << hud_texture << std::dec
+                          << hud_scale::reason_name(decision.reason)
+                          << " was=" << hud_scale::piece_name(decision.candidate) << " (" << from.x0 << "," << from.y0
+                          << ")-(" << from.x1 << "," << from.y1 << ") -> (" << to.x0 << "," << to.y0 << ")-(" << to.x1
+                          << "," << to.y1 << ") tex=0x" << std::hex << hud_texture << std::dec
                           << " map=" << (state.map_now || state.map_live ? 1 : 0)
                           << " panel=" << (state.panel_up() ? 1 : 0)
                           << " list=" << (state.list_now || state.list_live ? 1 : 0)
@@ -7890,6 +7894,109 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                     std::cout << "[hudscale] f=" << impl.frames << " " << line.str();
                     if (moved) std::cout << " -> (" << to.x0 << "," << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")";
                     std::cout << "\n";
+                }
+            }
+        }
+    }
+    // The sharpness gauge (game/sharpness_gauge.hpp) shortens the colour the
+    // game painted and leaves the blade. That colour loses a point of itself
+    // from its right end; the long bar under a long sword ends at the sharpness
+    // that is left, and its cap moves with the cut. Off, the colour's pulse is
+    // held at a full beat so it stays solid. The draw is the executable's, not
+    // a quest-HUD packet, so the rectangles tell it apart from a menu.
+    const float sharpness_left = game::sharpness::bar_remaining();
+    const float colour_left = game::sharpness::colour_remaining();
+    const bool cut_bar = sharpness_left >= 0.0f && sharpness_left < 1.0f;
+    const bool cut_colour = colour_left >= 0.0f && colour_left < 1.0f;
+    // 0x08841400 turns a frame counter into 64 + 64*sin(...), so a full pulse
+    // is alpha 128. AABBGGRR as the GE colour word packs it.
+    constexpr std::uint32_t kSolidColourAlpha = 0x80000000u;
+    const bool hold_colour = settings::current().sharpness_effect == settings::SharpnessEffect::Solid;
+    if ((cut_bar || cut_colour || hold_colour) && through_quads && !named.is_name &&
+        framebuffer_source.target == nullptr && impl.shows(call.target.color_address)) {
+        const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
+        // The left cap sits on x 62. The right one sits on the bar's end.
+        const auto at_bar_end = [](const hud_scale::Rect &game) {
+            return hud_scale::is_sharpness_cap(game) &&
+                game.x0 >= game::sharpness::kBarLeft + game::sharpness::kBarWidth * 0.5f;
+        };
+        const auto cut_quad = [](std::vector<GpuVertex> &vertices, std::size_t first, float remaining) {
+            float x0 = vertices[first].x;
+            float x1 = x0;
+            float u0 = vertices[first].u;
+            float u1 = u0;
+            for (std::size_t i = 1; i < 6u; ++i) {
+                const float x = vertices[first + i].x;
+                if (x < x0) {
+                    x0 = x;
+                    u0 = vertices[first + i].u;
+                } else if (x > x1) {
+                    x1 = x;
+                    u1 = vertices[first + i].u;
+                }
+            }
+            const game::sharpness::Edge edge = game::sharpness::cut_right(x0, x1, u0, u1, remaining);
+            for (std::size_t i = 0; i < 6u; ++i) {
+                GpuVertex &vertex = vertices[first + i];
+                if (vertex.x >= x1 - 0.25f) {
+                    vertex.x = edge.x;
+                    vertex.u = edge.u;
+                }
+            }
+        };
+        bool bar = false;
+        bool right_cap = false;
+        bool colour = false;
+        for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
+            const hud_scale::Rect game = fit.to_game(hud_scale::quad_bounds(unscaled, first));
+            if (hud_scale::is_sharpness_bar(game))
+                bar = true;
+            else if (at_bar_end(game))
+                right_cap = true;
+            else if (hud_scale::is_sharpness_colour(game))
+                colour = true;
+        }
+        if ((cut_bar && (bar || right_cap)) || ((cut_colour || hold_colour) && colour)) {
+            if (!scale_corners) {
+                corner_scaled = unscaled;
+                scale_corners = true;
+            }
+            // The cap follows the bar's end. Measured from the bar when this
+            // draw has it, otherwise from the cap and the 96 the game drew.
+            float bar_width = 0.0f;
+            if (cut_bar) {
+                for (std::size_t first = 0; bar && first + 6u <= corner_scaled.size(); first += 6u) {
+                    if (!hud_scale::is_sharpness_bar(fit.to_game(hud_scale::quad_bounds(unscaled, first))))
+                        continue;
+                    const hud_scale::Rect placed = hud_scale::quad_bounds(corner_scaled, first);
+                    bar_width = std::max(bar_width, placed.x1 - placed.x0);
+                }
+                if (bar_width <= 0.0f) {
+                    for (std::size_t first = 0; first + 6u <= unscaled.size() && first + 6u <= corner_scaled.size();
+                        first += 6u) {
+                        const hud_scale::Rect game = fit.to_game(hud_scale::quad_bounds(unscaled, first));
+                        if (!at_bar_end(game)) continue;
+                        const float game_width = game.x1 - game.x0;
+                        const hud_scale::Rect placed = hud_scale::quad_bounds(corner_scaled, first);
+                        if (game_width > 0.5f)
+                            bar_width = (placed.x1 - placed.x0) * (game::sharpness::kBarWidth / game_width);
+                    }
+                }
+            }
+            for (std::size_t first = 0; first + 6u <= unscaled.size() && first + 6u <= corner_scaled.size();
+                first += 6u) {
+                const hud_scale::Rect game = fit.to_game(hud_scale::quad_bounds(unscaled, first));
+                if (cut_bar && hud_scale::is_sharpness_bar(game))
+                    cut_quad(corner_scaled, first, sharpness_left);
+                else if (cut_bar && right_cap && at_bar_end(game)) {
+                    const float dx = game::sharpness::cap_shift(bar_width, sharpness_left);
+                    for (std::size_t i = 0; i < 6u; ++i) corner_scaled[first + i].x += dx;
+                } else if (hud_scale::is_sharpness_colour(game)) {
+                    if (cut_colour) cut_quad(corner_scaled, first, colour_left);
+                    if (hold_colour)
+                        for (std::size_t i = 0; i < 6u; ++i)
+                            corner_scaled[first + i].color =
+                                (corner_scaled[first + i].color & 0x00FFFFFFu) | kSolidColourAlpha;
                 }
             }
         }
