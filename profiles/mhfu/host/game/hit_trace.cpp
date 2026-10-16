@@ -64,6 +64,22 @@ bool enabled() noexcept {
     return on;
 }
 
+namespace {
+std::atomic<GuestClock> &clock_source() {
+    static std::atomic<GuestClock> source{nullptr};
+    return source;
+}
+} // namespace
+
+void set_clock(GuestClock clock) noexcept {
+    clock_source().store(clock, std::memory_order_relaxed);
+}
+
+std::uint64_t now_ms() noexcept {
+    const GuestClock clock = clock_source().load(std::memory_order_relaxed);
+    return clock != nullptr ? clock() : 0u;
+}
+
 std::uint32_t parse_limit(const char *text) noexcept {
     if (text == nullptr || *text == '\0') return kDefaultLimit;
     char *end = nullptr;
@@ -279,7 +295,7 @@ void frame(const psprecomp::GuestMemory &memory, HealthOf health_of) {
         if (*now != last && !s.changed_by_call.contains(object))
             std::cout << "[hit] health of " << hex(object) << " went " << last << " -> " << *now
                       << " between frames with no change through the watched routine: "
-                      << "the hit is written elsewhere" << std::endl;
+                      << "the hit is written elsewhere t=" << now_ms() << "ms" << std::endl;
         last = *now;
     }
     s.changed_by_call.clear();

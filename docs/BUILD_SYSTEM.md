@@ -61,7 +61,7 @@ The build now implements ranks 1 to 5 and the `generate.sh` fix from item 4.
 
 | Mitigation | Where | Default | Turn off or tune |
 |---|---|---|---|
-| One Ninja per build directory (rank 1) | `cmake/BuildLock.cmake`, `cmake/ninja_locked.py.in` | on with a Ninja generator on macOS and Linux | `-DPSPRECOMP_BUILD_LOCK=OFF` |
+| One Ninja per build directory (rank 1) | `cmake/BuildLock.cmake`, `cmake/ninja_locked.py.in` (and `ninja_locked.cmd.in` on Windows) | on with a Ninja generator on every host | `-DPSPRECOMP_BUILD_LOCK=OFF` |
 | Repair of a damaged `.ninja_deps` before each build (rank 4) | the same wrapper | on together with the lock | as above |
 | Warning for Ninja 1.13.2 (rank 4) | `cmake/BuildLock.cmake` | once per build directory | — |
 | ccache (rank 2) | top-level `CMakeLists.txt` | used when installed | `-DPSPRECOMP_CCACHE=OFF` |
@@ -73,9 +73,10 @@ The build now implements ranks 1 to 5 and the `generate.sh` fix from item 4.
 
 How they behave:
 
-- **The lock.** CMake writes `<build>/ninja-locked` and makes it
-  `CMAKE_MAKE_PROGRAM`; the real Ninja is kept in `PSPRECOMP_REAL_NINJA`. The
-  wrapper is Appendix A with Appendix B built in and two further changes. It
+- **The lock.** CMake writes `<build>/ninja-locked` (Unix) or
+  `<build>/ninja-locked.cmd` plus `ninja-locked.py` (Windows) and makes that
+  path `CMAKE_MAKE_PROGRAM`; the real Ninja is kept in `PSPRECOMP_REAL_NINJA`.
+  The wrapper is Appendix A with Appendix B built in and two further changes. It
   locks every invocation except
   `--version` and `-h`, including `-n` and `-t` tools, because loading a
   damaged log can truncate it and `recompact`, `restat` and `clean` write it.
@@ -84,12 +85,11 @@ How they behave:
   CMake regeneration step (which calls `ninja -t recompact` and
   `ninja -t restat`) or a nested `cmake --build` of the same directory, do not
   deadlock on their own parent's lock. A reconfigure started by hand while a
-  build runs waits for that build. Compile jobs inherit the locked descriptor,
-  so the lock is released only when Ninja and all its jobs have exited. A
-  direct `ninja` call still bypasses the lock.
-- **Windows.** The lock is a no-op there, and with any generator other than
-  Ninja: `flock` does not exist, and a `.bat` shim with `msvcrt.locking` is
-  not written yet.
+  build runs waits for that build. On Unix, compile jobs inherit the flock'd
+  descriptor; on Windows they inherit an exclusive (share mode 0) open of
+  `.build_lock`. Either way the lock is released only when Ninja and all its
+  jobs have exited. A direct `ninja` call still bypasses the lock. Generators
+  other than Ninja leave `CMAKE_MAKE_PROGRAM` alone.
 - **Deps log repair.** Before a build, inside the lock, the wrapper runs the
   validator from Appendix B. If it finds a damaged record it prints the
   offset and runs `ninja -t recompact`, which drops the bad record and
@@ -366,9 +366,12 @@ Integration (applied, see "Mitigations in place"): the top-level
 **Lock via `CMAKE_MAKE_PROGRAM` (recommended).** `cmake --build` always runs
 `CMAKE_MAKE_PROGRAM`, so a wrapper there covers every entry point:
 `add_overlay.py`, `build_overlays.sh`, `bootstrap_overlays.sh`, `generate.sh`
-and manual builds. The wrapper takes `flock` on `<build>/.build_lock`, marks
-the descriptor inheritable and `exec`s Ninja, so Ninja itself holds the lock.
-Measured in the synthetic project:
+and manual builds. On Unix the wrapper takes `flock` on `<build>/.build_lock`,
+marks the descriptor inheritable and `exec`s Ninja. On Windows it opens the
+same file with share mode 0, marks the handle inheritable, spawns Ninja, and
+closes its own copy so only Ninja keeps the exclusive open (`LockFileEx` is
+process-owned and would drop if the wrapper exited). Measured in the synthetic
+project on macOS:
 
 - two concurrent `cmake --build` calls: the second waited 2.2 s, and the deps
   log stayed valid;
@@ -376,15 +379,13 @@ Measured in the synthetic project:
   waited **126 s** for the orphaned Ninja to finish instead of racing it, the
   deps log stayed valid, and the next build did only the remaining work.
 
-The kernel releases a `flock` when the holder dies, so a `kill -9` never leaves
-a stale lock. `ninja -t …`, `-n` and `--version` pass straight through. Only a
-direct `ninja -C out/mhfu` bypasses the lock. A build step that ran
-`cmake --build` on its own directory would deadlock; nothing in the project
-does that today. On Windows the same wrapper needs `msvcrt.locking` and a
-`.bat` shim, because `CMAKE_MAKE_PROGRAM` must be an executable. A lock that
-only the Python process holds (`subprocess.run` with the lock fd not passed
-on) is **not** enough: killing the wrapper releases the lock while its Ninja
-keeps running.
+The kernel releases a `flock` (or the exclusive open on Windows) when the
+holder dies, so a hard kill never leaves a stale lock. `ninja -t …`, `-n` and
+`--version` pass straight through. Only a direct `ninja -C out/mhfu` bypasses
+the lock. A build step that ran `cmake --build` on its own directory would
+deadlock; nothing in the project does that today. Windows also needs a `.cmd`
+shim because `CMAKE_MAKE_PROGRAM` must be an executable; `cmake/BuildLock.cmake`
+writes that next to the Python script.
 
 **One Ninja for all overlays.** `build_overlays.sh` could run the recompile
 step (`wrap_overlay.py` and `psp_recomp`) for every overlay first, then build

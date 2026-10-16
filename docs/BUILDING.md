@@ -108,7 +108,7 @@ Windows specifics:
 - **Data directory.** Step 2 writes `EBOOT.ELF` and `settings.ini` to the per-user data directory. It takes precedence over `profiles/mhfu/game`, and both hold the same data after step 3.
 - **Symbolic links.** `prepare_game.sh` links the disc image into `profiles/mhfu/game`. Git Bash copies the file instead unless Windows Developer Mode is on and `MSYS=winsymlinks:nativestrict` is exported. A copy works too; it costs about 1.3 GB.
 - **Overlay DLLs.** Each overlay links against the executable's import library. The runtime (`psprecomp_core`) is an object library, so its objects belong to the executable and `WINDOWS_EXPORT_ALL_SYMBOLS` exports them to the overlays.
-- **No build lock.** Unlike macOS and Linux, the build does not lock its directory on Windows yet, so never run two builds of the same directory at once.
+- **Build lock.** As on macOS and Linux, `cmake --build` locks the build directory through `ninja-locked.cmd`. A second build waits. Run builds through `cmake --build`, not `ninja` directly.
 - **Compiler cache on a non-English Windows.** `ccache` reads the include list MSVC prints, which is translated into the language of the installed Visual Studio language pack; with a non-English one it can fail to parse it. Install the English language pack of the Build Tools and `set VSLANG=1033` before configuring and building.
 - **Headless runs.** Redirected to a file, the program's output is block-buffered, and a process that is killed, for example at a time limit, loses what is still in the buffer. `MHFU_PERF=log` lines are flushed as they are written.
 - **Out of memory** while compiling a generated unit means the parallelism is too high. Rerun the same `cmake --build` with `-j 1`; it continues where it stopped.
@@ -200,7 +200,7 @@ MHFU_DATA_DIR=~/pokee-a MHFU_GAME_DIR=~/game-a MHFU_WINDOW_TITLE="Pokee A" out/m
 
 ### Rules the build enforces
 
-- **One build per build directory at a time.** On macOS and Linux, `cmake --build` takes a lock, so a second build waits for the first. Run builds through `cmake --build`, not `ninja` directly, because running `ninja` directly bypasses the lock. Windows has no lock yet: don't start two builds of one directory there.
+- **One build per build directory at a time.** `cmake --build` takes a lock on every platform with the Ninja generator, so a second build waits for the first. Run builds through `cmake --build`, not `ninja` directly, because running `ninja` directly bypasses the lock.
 - **Keep `.ninja_deps` and `.ninja_log`.** Deleting them forces a full rebuild. A damaged dependency log is repaired automatically before each build.
 
 [BUILD_SYSTEM.md](BUILD_SYSTEM.md) explains why these rules exist.

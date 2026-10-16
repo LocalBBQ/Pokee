@@ -1,0 +1,5 @@
+@echo off
+REM Ninja build-directory lock launcher (see cmake/BuildLock.cmake).
+REM CMAKE_MAKE_PROGRAM points here on Windows; the Python script holds the lock.
+"@Python3_EXECUTABLE@" "%~dp0ninja-locked.py" %*
+exit /b %ERRORLEVEL%
