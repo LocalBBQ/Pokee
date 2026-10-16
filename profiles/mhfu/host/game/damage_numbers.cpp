@@ -100,6 +100,26 @@ std::vector<std::uint32_t> hunter_classes(const psprecomp::GuestMemory &memory, 
     return classes;
 }
 
+// Frames since start, for MHFU_TRACE_HITS.
+std::atomic<std::uint64_t> &frame_count() {
+    static std::atomic<std::uint64_t> count{0u};
+    return count;
+}
+
+// MHFU_TRACE_HITS: one [dmg] line per drop a number is made from, whichever
+// way it was found, on the ad hoc trace's clock. `how` is "routine" (the hit
+// was applied on this console) or "health" (the drop was written elsewhere,
+// from the network: several hits in one update arrive as one drop).
+void trace_damage(const char *how, std::uint32_t object, int amount, int health, const char *note) {
+    if (!hit_trace::enabled()) return;
+    char line[160];
+    std::snprintf(line, sizeof(line), "[dmg] t=%llums frame=%llu %s %08X -%d -> %d%s",
+        static_cast<unsigned long long>(hit_trace::now_ms()),
+        static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), how, object, amount, health,
+        note);
+    std::cout << line << std::endl;
+}
+
 bool &hook_installed() {
     static bool installed = false;
     return installed;
@@ -293,9 +313,11 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
     }
     // The routine also takes health off a hunter the monster hits.
     if (std::optional<Number> number =
-            watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size()));
-        number && !is_hunter(runtime.memory(), number->object))
-        remember_number(live_numbers(), *number);
+            watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size()))) {
+        const bool hunter = is_hunter(runtime.memory(), number->object);
+        trace_damage("routine", number->object, number->amount, sample, hunter ? " hunter, not shown" : "");
+        if (!hunter) remember_number(live_numbers(), *number);
+    }
 }
 
 void install_watch() {
@@ -654,6 +676,7 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
     previous = now;
     if (seconds < 0.0f) seconds = 0.0f;
     if (seconds > 1.0f) seconds = 1.0f;
+    frame_count().fetch_add(1u, std::memory_order_relaxed);
 
     // The trace watches the same routine, with the numbers themselves off.
     const bool watch = enabled || hit_trace::enabled();
@@ -682,16 +705,24 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
         if (hit_trace::enabled())
             for (const HealthSeen &reading : readings)
                 if (std::none_of(health_seen().begin(), health_seen().end(),
-                        [&reading](const HealthSeen &seen) { return seen.object == reading.object; }))
-                    std::printf("[hit] watching health of %08X: node type %u, vtable %08X, species %u, health %d/%d\n",
+                        [&reading](const HealthSeen &seen) { return seen.object == reading.object; })) {
+                    char line[160];
+                    std::snprintf(line, sizeof(line),
+                        "[hit] watching health of %08X: node type %u, vtable %08X, species %u, health %d/%d",
                         reading.object, static_cast<unsigned>(reading.kind), reading.vtable,
                         memory->contains(reading.object + camera::lock_on_layout::kMonsterId, 1u)
                             ? static_cast<unsigned>(memory->load8(reading.object + camera::lock_on_layout::kMonsterId))
                             : 0u,
                         reading.health, reading.most);
+                    std::cout << line << std::endl;
+                }
         for (const Number &number :
-            watch_health(health_seen(), readings, static_cast<int>(live_numbers().size())))
+            watch_health(health_seen(), readings, static_cast<int>(live_numbers().size()))) {
+            const auto reading = std::find_if(readings.begin(), readings.end(),
+                [&number](const HealthSeen &r) { return r.object == number.object; });
+            trace_damage("health", number.object, number.amount, reading != readings.end() ? reading->health : 0, "");
             remember_number(live_numbers(), number);
+        }
     } else {
         health_seen().clear();
     }

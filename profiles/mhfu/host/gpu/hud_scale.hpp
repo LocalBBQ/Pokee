@@ -304,6 +304,41 @@ struct InterfaceFit {
     return is_map_sprite(rect) || (texture == kAreaMapTexture && is_area_map_texture_window(rect));
 }
 
+// The window frame the item bar is built from. Its top edge, body, bottom
+// edge and two sides each have their own texture; the corners come from the
+// HUD atlas. Other quest windows use the same frame: the banner a teammate
+// leaves with ("... broke off from the group!", (104, 120)-(376, 152)) and
+// the message box under a list. Traced with MHFU_TRACE_HUD_SCALE=all in an
+// ad hoc quest: the banner's 16 by 16 left side sits in the party list's
+// band, the size of a status icon, and was pulled toward the clock.
+inline constexpr std::uint32_t kFrameTopTexture = 0x09163C20u;
+inline constexpr std::uint32_t kFrameBodyTexture = 0x09164420u;
+inline constexpr std::uint32_t kFrameBottomTexture = 0x09164C20u;
+inline constexpr std::uint32_t kFrameLeftTexture = 0x091643A0u;
+inline constexpr std::uint32_t kFrameRightTexture = 0x091644A0u;
+
+[[nodiscard]] inline bool is_window_frame_texture(std::uint32_t texture) {
+    return texture == kFrameTopTexture || texture == kFrameBodyTexture || texture == kFrameBottomTexture ||
+        texture == kFrameLeftTexture || texture == kFrameRightTexture;
+}
+
+// The yellow ring around a paintballed monster, larger than any other mark.
+// Traced with MHFU_TRACE_MAP_MARKS in Volcano area 4: 43 by 43 at
+// (328, 121)-(371, 164), from the mark atlas (kMapIconTexture). Taken for a
+// window over the map, it held itself, the arrow and the camp icon at the
+// game's size while the map shrank to 60%. No window piece over the
+// map is square: the ad hoc window's side is 16 by 112 and its body 96 by
+// 112. The shop and return-to-town panels are 40 square, but they are filed
+// by other code, so only the quest HUD's ring is moved with the map.
+[[nodiscard]] inline bool is_map_ring(Rect rect, std::uint32_t texture) {
+    if (texture == kAreaMapTexture || is_window_frame_texture(texture)) return false;
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    return width > 36.0f && width <= 72.0f && std::fabs(width - height) <= 2.0f &&
+        overlaps({kMapLeft - 16.0f, kMapTop - 16.0f, kMapRight + 16.0f, kMapBottom + 16.0f}, r);
+}
+
 // A window over the area map: a sprite larger than any mark in both
 // directions that is neither the map's texture nor the full map tile. Traced
 // with MHFU_TRACE_HUD_SCALE in an ad hoc quest: a window at (344, 48)-(456,
@@ -312,9 +347,10 @@ struct InterfaceFit {
 // It overlaps the map, so its side and corners were sized with the map and
 // pulled toward the slot's corner while the rest stayed. The map is drawn
 // only from kAreaMapTexture and marks of 36 or less. The ammo menu reaches
-// below the slot and is not inside it.
+// below the slot and is not inside it. A paintball's ring is not a window:
+// taken for one, it held every mark on the map at the game's size.
 [[nodiscard]] inline bool is_map_panel(Rect rect, std::uint32_t texture) {
-    if (texture == kAreaMapTexture || is_fixed_map_sprite(rect)) return false;
+    if (texture == kAreaMapTexture || is_fixed_map_sprite(rect) || is_map_ring(rect, texture)) return false;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
@@ -773,6 +809,24 @@ inline constexpr float kPlateEndLeft = 96.0f;
     return false;
 }
 
+// The name plate a letter-sized quad sits on as a name's letter: its top on
+// a name's row and its left on the plate, from x 26. -1 for anything else.
+// The font is proportional: a Felyne named "Ken" draws K at x 26, e at 33
+// and n at 40, 7 wide each, while "LOU" is 8 apart. Only the first of those
+// is on the 8-pixel grid on_party_row checks, which keeps an overhead name
+// crossing the list out of it; the others continue a name already taken.
+[[nodiscard]] inline int party_letter_row(Rect rect) {
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    if (width < 6.0f || width > 10.0f || height < 12.0f || height > 16.0f || r.x0 < kNameLetterLeft - 0.5f ||
+        r.x0 >= kPlateEndLeft)
+        return -1;
+    for (int i = 0; i < kNamePlates; ++i)
+        if (std::fabs(r.y0 - (kNameTop + 4.0f + static_cast<float>(i) * kPlateStride)) <= 0.5f) return i;
+    return -1;
+}
+
 // While such a window is up, only what is certainly the party list keeps
 // Status in that band: the plates and their tiles, the weapon badges, a
 // teammate's health line and the names' own letters. The clock is above the
@@ -902,24 +956,6 @@ inline constexpr float kAmmoMenuBottom = 264.0f;
     return width >= 100.0f && width <= 170.0f && height >= 12.0f && height <= 20.0f && r.x0 >= 300.0f &&
         r.x0 <= 340.0f && r.y0 >= 180.0f && r.y0 <= 188.0f &&
         contains({kBowgunLeft, kBowgunTop, kBowgunRight, kBowgunBottom}, r);
-}
-
-// The window frame the item bar is built from. Its top edge, body, bottom
-// edge and two sides each have their own texture; the corners come from the
-// HUD atlas. Other quest windows use the same frame: the banner a teammate
-// leaves with ("... broke off from the group!", (104, 120)-(376, 152)) and
-// the message box under a list. Traced with MHFU_TRACE_HUD_SCALE=all in an
-// ad hoc quest: the banner's 16 by 16 left side sits in the party list's
-// band, the size of a status icon, and was pulled toward the clock.
-inline constexpr std::uint32_t kFrameTopTexture = 0x09163C20u;
-inline constexpr std::uint32_t kFrameBodyTexture = 0x09164420u;
-inline constexpr std::uint32_t kFrameBottomTexture = 0x09164C20u;
-inline constexpr std::uint32_t kFrameLeftTexture = 0x091643A0u;
-inline constexpr std::uint32_t kFrameRightTexture = 0x091644A0u;
-
-[[nodiscard]] inline bool is_window_frame_texture(std::uint32_t texture) {
-    return texture == kFrameTopTexture || texture == kFrameBodyTexture || texture == kFrameBottomTexture ||
-        texture == kFrameLeftTexture || texture == kFrameRightTexture;
 }
 
 // The notice's border and its letters share the map's rectangle. A mark from
@@ -1209,6 +1245,9 @@ struct Frame {
     // a sprite with both is left as drawn wherever it goes. Nothing of the
     // map is ever drawn there. Forgotten when the aim ends.
     bool aiming{};
+    // The draw being decided was filed by the quest HUD (hud::Owner), set by
+    // scale_quads. A paintball's ring is moved with the map only then.
+    bool quest_owned{};
     struct Reticle {
         std::uint32_t texture{};
         float width{};
@@ -1216,6 +1255,22 @@ struct Frame {
     };
     Reticle reticle[8]{};
     int reticles{};
+
+    // Where the last letter taken for each name plate's name ended this
+    // frame (party_letter_row), 0 before any. The next letter of a name
+    // starts there, whatever its width.
+    float party_letter_end[kNamePlates]{};
+
+    void note_party_letter(Rect rect) {
+        const int row = party_letter_row(rect);
+        if (row >= 0) party_letter_end[row] = normalized(rect).x1;
+    }
+
+    [[nodiscard]] bool continues_party_name(Rect rect) const {
+        const int row = party_letter_row(rect);
+        return row >= 0 && party_letter_end[row] > 0.0f &&
+            std::fabs(normalized(rect).x0 - party_letter_end[row]) <= 0.5f;
+    }
 
     void learn_reticle(Rect rect, std::uint32_t texture) {
         if (is_reticle(rect, texture) || reticles >= 8) return;
@@ -1261,6 +1316,7 @@ struct Frame {
         menu_body_live = menu_body;
         menu_corner = false;
         menu_body = false;
+        for (float &end : party_letter_end) end = 0.0f;
     }
 
     // The quest clock or the health bar, this frame or the one before.
@@ -1720,6 +1776,7 @@ enum class Reason : std::uint8_t {
     AmmoMenu,   // inside the open ammo menu, which takes the item bar's size
     MapTexture, // a window of the area-map texture outside the slot
     MapMark,    // a mark whose box crosses the map drawn this frame
+    PartyName,  // the next letter of a name in the party list, off the grid
     // Left as drawn.
     NoPiece,      // no rule took it
     ObtainBanner, // on the obtain window ("Herb obtained.")
@@ -1739,6 +1796,8 @@ enum class Reason : std::uint8_t {
         return "map-texture";
     case Reason::MapMark:
         return "map-mark";
+    case Reason::PartyName:
+        return "party-name";
     case Reason::NoPiece:
         return "no-piece";
     case Reason::ObtainBanner:
@@ -1789,6 +1848,18 @@ struct Decision {
         piece = Piece::Map;
         reason = Reason::MapMark;
     }
+    // A paintball's ring is larger than a mark, so neither rule above takes
+    // it. Left as drawn, it sat off a smaller map beside the monster's dot.
+    if (!in_ammo_menu && piece == Piece::None && frame.quest_owned && is_map_ring(bounds, texture)) {
+        piece = Piece::Map;
+        reason = Reason::MapMark;
+    }
+    // A name in the party list goes on where its last letter ended, though
+    // a narrow letter puts the rest off the grid piece_of knows.
+    if (!in_ammo_menu && piece == Piece::None && frame.continues_party_name(bounds)) {
+        piece = Piece::Vitals;
+        reason = Reason::PartyName;
+    }
     const Piece candidate = piece;
     // The obtain window ("Herb obtained.") crosses the map and the name
     // rows. Its frame, the item icon and the name stay as drawn. A weapon
@@ -1817,6 +1888,7 @@ struct Decision {
     }
     if (piece == Piece::None) return {Piece::None, on_banner ? Reason::ObtainBanner : Reason::NoPiece, candidate};
     if (!in_ammo_menu && !frame.allows(piece, bounds, texture)) return {Piece::None, Reason::PieceNotUp, candidate};
+    if (piece == Piece::Vitals) frame.note_party_letter(bounds);
     return {piece, reason, candidate};
 }
 
@@ -1845,6 +1917,7 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         return;
     }
     if (!frame.aiming) frame.reticles = 0;
+    frame.quest_owned = owner == hud::Owner::QuestHud;
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = quad_bounds(vertices, first);
         const Decision decision = decide(frame, bounds, texture);

@@ -375,6 +375,11 @@ void test_lock_on_and_damage_numbers() {
     gather["game.gather_hold"] = "0";
     check(!from_entries(gather).gather_hold, "the file turns holding ○ to gather off");
     check(!from_entries(to_entries(from_entries(gather))).gather_hold, "and that off survives a round trip");
+    check(!fresh.empty_item_slot, "the item bar starts without an empty slot");
+    Entries empty_slot = to_entries(fresh);
+    empty_slot["game.empty_item_slot"] = "1";
+    check(from_entries(empty_slot).empty_item_slot, "the file turns the empty item slot on");
+    check(from_entries(to_entries(from_entries(empty_slot))).empty_item_slot, "and on survives a round trip");
     check(fresh.gather_icon_size == 100u && fresh.gather_icon_thickness == 1u,
         "the gather mark starts at its usual size and the thinnest ring");
     Entries mark = to_entries(fresh);
@@ -1351,6 +1356,41 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(passing, status_125, overhead);
     check(passing[0].x == 55.0f && passing[0].y == 77.0f && passing[2].x == 63.0f && passing[2].y == 91.0f,
         "an overhead name crossing the party list stays where the game drew it");
+    {
+        // A Felyne named "Ken": K at x 26, then e and n 7 apart, each its own
+        // draw. Only K is on the grid; the rest follow it. The same letters
+        // with no K before them, or starting a pixel off, are not the list.
+        const auto letter = [](float x, float y) {
+            std::vector<Vertex> q(6, Vertex{x, y});
+            q[2] = {x + 7.0f, y + 14.0f};
+            return q;
+        };
+        Frame cat;
+        cat.note({8.0f, 8.0f, 60.0f, 56.0f});
+        std::vector<Vertex> k = letter(26.0f, 78.0f);
+        std::vector<Vertex> e = letter(33.0f, 78.0f);
+        std::vector<Vertex> n = letter(40.0f, 78.0f);
+        std::vector<mhfu::gpu::hud_scale::Decision> decided;
+        mhfu::gpu::hud_scale::scale_quads(k, status_125, cat);
+        mhfu::gpu::hud_scale::scale_quads(e, status_125, cat, 0x040CC000u, mhfu::gpu::hud::Owner::Unknown, &decided);
+        mhfu::gpu::hud_scale::scale_quads(n, status_125, cat);
+        check(k[0].x != 26.0f && e[0].x != 33.0f && n[0].x != 40.0f && e[0].x == k[2].x && n[0].x == e[2].x &&
+                e[0].y == k[0].y && n[0].y == k[0].y,
+            "a cat's narrow letters follow the first one with the plate");
+        check(decided.size() == 1u && decided[0].reason == mhfu::gpu::hud_scale::Reason::PartyName,
+            "a letter that continues a name is said to be one");
+        std::vector<Vertex> other_row = letter(33.0f, 98.0f);
+        std::vector<Vertex> gap = letter(41.0f, 78.0f);
+        mhfu::gpu::hud_scale::scale_quads(other_row, status_125, cat);
+        mhfu::gpu::hud_scale::scale_quads(gap, status_125, cat);
+        check(other_row[0].x == 33.0f && other_row[0].y == 98.0f && gap[0].x == 41.0f,
+            "a letter on another row, or not touching the name, stays where the game drew it");
+        cat.begin();
+        cat.note({8.0f, 8.0f, 60.0f, 56.0f});
+        std::vector<Vertex> next_frame = letter(33.0f, 78.0f);
+        mhfu::gpu::hud_scale::scale_quads(next_frame, status_125, cat);
+        check(next_frame[0].x == 33.0f, "a name's end is forgotten with the frame");
+    }
 
     {
     // A window over the area map, traced at (344, 48)-(456, 160): the side,
@@ -2062,6 +2102,65 @@ void test_hud_scale_draws() {
 
 // A bowgun's reticle moves with the aim. Crossing the map's slot it is the
 // size of a mark, and it must stay the size the game draws it.
+// A paintballed monster draws a ring 43 pixels square on the map, traced at
+// (328, 121) in Volcano area 4. With the map at 60% it was taken for a window
+// over the map: the ring, the arrow and the camp icon kept the game's size and place
+// while the map shrank, off it to the lower left.
+void test_paintball_ring_stays_on_map() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const auto stays = [](const std::vector<Vertex> &q, float x0, float y0) { return q[0].x == x0 && q[0].y == y0; };
+    const Scales map_60 = Scales::from_percent(60u, 100u, 100u);
+    constexpr std::uint32_t kRing = mhfu::gpu::hud_scale::kMapIconTexture;
+    const auto quest = [&](Frame &frame) {
+        std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+        scale_quads(clock, map_60, frame, 0u, Owner::QuestHud);
+        std::vector<Vertex> tile = quad(316.0f, 32.0f, 468.0f, 184.0f);
+        scale_quads(tile, map_60, frame, mhfu::gpu::hud_scale::kAreaMapTexture, Owner::QuestHud);
+    };
+
+    Frame frame;
+    quest(frame);
+    std::vector<Vertex> ring = quad(328.0f, 121.0f, 371.0f, 164.0f);
+    scale_quads(ring, map_60, frame, kRing, Owner::QuestHud);
+    check(ring[0].x != 328.0f && ring[2].x - ring[0].x < 43.0f, "a paintball's ring takes the map's size");
+    check(!frame.panel_up(), "a paintball's ring is not a window over the map");
+    std::vector<Vertex> camp = quad(357.0f, 175.0f, 368.0f, 185.0f);
+    scale_quads(camp, map_60, frame, mhfu::gpu::hud_scale::kMapIconTexture, Owner::QuestHud);
+    check(!stays(camp, 357.0f, 175.0f), "the camp icon stays on the map beside the ring");
+    frame.begin();
+    quest(frame);
+    std::vector<Vertex> arrow = quad(365.0f, 119.0f, 377.0f, 131.0f);
+    scale_quads(arrow, map_60, frame, mhfu::gpu::hud_scale::kMapIconTexture, Owner::QuestHud);
+    check(!stays(arrow, 365.0f, 119.0f), "the arrow in the next frame stays on the map too");
+
+    // Boundaries: a square larger than any ring, a ring off the map, and a
+    // ring drawn by other code (the shop's 40-square panels) stay as drawn.
+    check(!mhfu::gpu::hud_scale::is_map_ring({330.0f, 60.0f, 410.0f, 140.0f}, kRing), "an 80 square is no ring");
+    check(!mhfu::gpu::hud_scale::is_map_ring({100.0f, 100.0f, 144.0f, 144.0f}, kRing), "a ring off the map is not");
+    check(!mhfu::gpu::hud_scale::is_map_ring({323.0f, 129.0f, 367.0f, 173.0f},
+              mhfu::gpu::hud_scale::kAreaMapTexture),
+        "the map's own window is not a ring");
+    check(!mhfu::gpu::hud_scale::is_map_ring({344.0f, 48.0f, 360.0f, 160.0f}, 0x09165BA0u),
+        "a window's side over the map is not a ring");
+    Frame shop;
+    quest(shop);
+    std::vector<Vertex> panel = quad(400.0f, 80.0f, 440.0f, 120.0f);
+    scale_quads(panel, map_60, shop, kRing, Owner::Other);
+    check(stays(panel, 400.0f, 80.0f), "a square panel filed by other code stays as drawn");
+}
+
 void test_aim_reticle_is_not_a_map_mark() {
     using mhfu::gpu::hud::Owner;
     using mhfu::gpu::hud_scale::Frame;
@@ -2262,6 +2361,7 @@ int main() {
     test_interface_sizes_by_owner();
     test_quest_clock();
     test_aim_reticle_is_not_a_map_mark();
+    test_paintball_ring_stays_on_map();
     test_quest_windows_keep_their_pieces();
     test_menu_over_the_party_list();
     test_hud_scale_draws();

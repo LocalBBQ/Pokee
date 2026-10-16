@@ -34,8 +34,7 @@ float px(float value) {
     return std::round(value * Layer::get().scale());
 }
 
-} // namespace
-
+// How the menu labels the gamepad's inputs: as the connected pad does.
 input::PadStyle pad_style() {
     SDL_Gamepad *pad = Layer::get().renderer().gamepad();
     if (pad == nullptr) return input::PadStyle::Xbox;
@@ -53,8 +52,6 @@ input::PadStyle pad_style() {
         return input::PadStyle::Xbox;
     }
 }
-
-namespace {
 
 // The confirm setting swaps the pad's bottom and right buttons for every
 // binding (see the renderer): what a binding names and the button pressed

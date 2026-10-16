@@ -5,21 +5,26 @@ Two Ninja processes in one build directory both append to .ninja_deps with
 colliding record ids, and Ninja then throws the log away from the first bad
 record on, which rebuilds everything after it. This wrapper:
 
-1. takes an exclusive flock on <build dir>/.build_lock, waiting if another
-   build holds it, and execs Ninja with the locked descriptor inherited, so the
-   lock lives exactly as long as Ninja (and its compile jobs) do. Killing
-   `cmake --build` or a script around it does not release the lock while its
-   Ninja is still running, and a dead Ninja never leaves a stale lock;
+1. takes an exclusive lock on <build dir>/.build_lock, waiting if another
+   build holds it, then starts Ninja while that lock stays held for as long as
+   Ninja (and its compile jobs) run. Killing `cmake --build` or a script around
+   it does not let a new build start next to the Ninja that is still running,
+   and a dead Ninja never leaves a stale lock;
 2. before a build, checks .ninja_deps the way Ninja loads it and, if a record
    is damaged, repairs the log with `ninja -t recompact`, which keeps every
    record before the damage instead of losing the whole file.
+
+On Unix the lock is flock(2) on an open descriptor that Ninja inherits through
+exec. On Windows it is CreateFile with share mode 0 (no sharing): LockFileEx is
+owned by the process and would drop if the wrapper exited, so the open handle
+is marked inheritable, Ninja is spawned with handle inheritance, and the
+wrapper closes its own copy so only Ninja keeps the exclusive open.
 
 Commands that Ninja runs itself (the CMake regeneration step, or a nested
 `cmake --build` of the same directory) see PSPRECOMP_BUILD_LOCKS and do not try
 to take the lock their own parent already holds.
 """
 
-import fcntl
 import os
 import struct
 import subprocess
@@ -87,33 +92,133 @@ def check_deps_log(path):
     return None
 
 
+def handoff(args):
+    """Replace this process with Ninja (Unix) or run it and exit (Windows)."""
+    if os.name == "nt":
+        raise SystemExit(subprocess.call([REAL_NINJA] + list(args)))
+    os.execv(REAL_NINJA, [REAL_NINJA] + list(args))
+
+
+def acquire_unix(lock_path):
+    """Exclusive flock; return an inheritable fd Ninja will keep open after exec."""
+    import fcntl
+
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        key = os.path.realpath(os.path.dirname(lock_path) or ".")
+        sys.stderr.write(f"ninja: another build is running in {key}; waiting for it to finish\n")
+        sys.stderr.flush()
+        started = time.monotonic()
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        sys.stderr.write(f"ninja: waited {time.monotonic() - started:.1f} s\n")
+    os.set_inheritable(fd, True)
+    return fd
+
+
+def acquire_windows(lock_path, key):
+    """Exclusive CreateFile (share mode 0); return an inheritable HANDLE."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    CreateFileW = kernel32.CreateFileW
+    CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    CreateFileW.restype = wintypes.HANDLE
+    SetHandleInformation = kernel32.SetHandleInformation
+    SetHandleInformation.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD]
+    SetHandleInformation.restype = wintypes.BOOL
+
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    OPEN_ALWAYS = 4
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+    ERROR_SHARING_VIOLATION = 32
+    HANDLE_FLAG_INHERIT = 0x00000001
+
+    waited = False
+    started = 0.0
+    while True:
+        handle = CreateFileW(
+            lock_path,
+            GENERIC_READ | GENERIC_WRITE,
+            0,  # no sharing: other opens fail until every handle closes
+            None,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+        if handle != INVALID_HANDLE_VALUE:
+            if waited:
+                sys.stderr.write(f"ninja: waited {time.monotonic() - started:.1f} s\n")
+                sys.stderr.flush()
+            if not SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT):
+                raise ctypes.WinError(ctypes.get_last_error())
+            return handle
+        err = ctypes.get_last_error()
+        if err != ERROR_SHARING_VIOLATION:
+            raise ctypes.WinError(err)
+        if not waited:
+            sys.stderr.write(
+                f"ninja: another build is running in {key}; waiting for it to finish\n")
+            sys.stderr.flush()
+            started = time.monotonic()
+            waited = True
+        time.sleep(0.2)
+
+
+def run_windows(args, lock_handle):
+    """Spawn Ninja with the lock handle inherited, then keep only Ninja holding it."""
+    import ctypes
+    from ctypes import wintypes
+
+    CloseHandle = ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle
+    CloseHandle.argtypes = [wintypes.HANDLE]
+    CloseHandle.restype = wintypes.BOOL
+
+    # close_fds=False: inheritable handles (the lock) are passed to the child.
+    proc = subprocess.Popen([REAL_NINJA] + list(args), close_fds=False)
+    # Drop our copy so a killed wrapper does not release the exclusive open;
+    # Ninja's inherited handle keeps other builds waiting.
+    CloseHandle(lock_handle)
+    raise SystemExit(proc.wait())
+
+
 def main():
     args = sys.argv[1:]
     if any(a in ("--version", "-h", "--help") for a in args):
-        os.execv(REAL_NINJA, [REAL_NINJA] + args)
+        handoff(args)
     build_dir, is_build = parse(args)
     key = os.path.realpath(build_dir)
     held = [p for p in os.environ.get(HELD_ENV, "").split(os.pathsep) if p]
-    if key not in held:
-        fd = os.open(os.path.join(build_dir, LOCK_NAME), os.O_CREAT | os.O_RDWR, 0o644)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            sys.stderr.write(f"ninja: another build is running in {key}; waiting for it to finish\n")
+    if key in held:
+        handoff(args)
+        return
+
+    lock_path = os.path.join(build_dir, LOCK_NAME)
+    if os.name == "nt":
+        handle = acquire_windows(lock_path, key)
+    else:
+        acquire_unix(lock_path)
+
+    os.environ[HELD_ENV] = os.pathsep.join(held + [key])
+    if is_build:
+        damage = check_deps_log(os.path.join(build_dir, ".ninja_deps"))
+        if damage:
+            sys.stderr.write(f"ninja: {key}/.ninja_deps is damaged ({damage}); "
+                             "repairing it with 'ninja -t recompact'\n")
             sys.stderr.flush()
-            started = time.monotonic()
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            sys.stderr.write(f"ninja: waited {time.monotonic() - started:.1f} s\n")
-        os.set_inheritable(fd, True)
-        os.environ[HELD_ENV] = os.pathsep.join(held + [key])
-        if is_build:
-            damage = check_deps_log(os.path.join(build_dir, ".ninja_deps"))
-            if damage:
-                sys.stderr.write(f"ninja: {key}/.ninja_deps is damaged ({damage}); "
-                                 "repairing it with 'ninja -t recompact'\n")
-                sys.stderr.flush()
-                subprocess.run([REAL_NINJA, "-C", build_dir, "-t", "recompact"], check=False)
-    os.execv(REAL_NINJA, [REAL_NINJA] + args)
+            subprocess.run([REAL_NINJA, "-C", build_dir, "-t", "recompact"], check=False)
+
+    if os.name == "nt":
+        run_windows(args, handle)
+    else:
+        os.execv(REAL_NINJA, [REAL_NINJA] + args)
 
 
 if __name__ == "__main__":
