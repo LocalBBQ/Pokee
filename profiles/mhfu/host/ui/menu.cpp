@@ -552,6 +552,25 @@ void Menu::video() {
             settings::save();
         }
     }
+    if (toggle_row("Sharpness gauge", s.sharpness_gauge,
+            options_for("game.sharpness_gauge",
+                "On: the colour the game paints on the blade shortens as that colour is spent. "
+                "The blade stays. The bar under a long sword ends at the sharpness that is left. "
+                "A weapon that loses less per hit, a guard and Handicraft are all included. "
+                "Off: the game's full drawing."))) {
+        s.sharpness_gauge = !s.sharpness_gauge;
+        settings::save();
+    }
+    if (choice_row("Sharpness effect",
+            s.sharpness_effect == settings::SharpnessEffect::Solid ? "Solid" : "Glow",
+            options_for("game.sharpness_effect",
+                "Glow: the colour on the blade pulses as the game drew it. "
+                "Solid: that colour stays at the brightness of a full pulse."))) {
+        s.sharpness_effect = s.sharpness_effect == settings::SharpnessEffect::Glow
+            ? settings::SharpnessEffect::Solid
+            : settings::SharpnessEffect::Glow;
+        settings::save();
+    }
     if (toggle_row("Gather icon", s.gather_icon,
             options_for("game.gather_icon",
                 "On: a mark floats above a gather point while you are close enough to gather it, with the "
@@ -2307,7 +2326,8 @@ bool draw_gather_art(ImDrawList *draw, const game::GatherMark &mark, ImVec2 cent
         const float w = static_cast<float>(atlas.width);
         const float h = static_cast<float>(atlas.height);
         draw->AddImage(sheet.texture->GetTexRef(), min, max, {icon.u / w, icon.v / h},
-            {(icon.u + icon.width) / w, (icon.v + icon.height) / h}, IM_COL32(icon.red, icon.green, icon.blue, opacity));
+            {(icon.u + icon.width) / w, (icon.v + icon.height) / h},
+            IM_COL32(icon.red, icon.green, icon.blue, opacity));
         return true;
     }
     if (mark.art.kind == game::GatherArt::Kind::Monster) {
@@ -2430,6 +2450,7 @@ void draw_damage_numbers() {
                 font, size, {at.x + o.x, at.y + o.y}, IM_COL32(ink.red, ink.green, ink.blue, alpha), text.c_str());
     }
 }
+
 } // namespace
 
 std::string take_screenshot() {
