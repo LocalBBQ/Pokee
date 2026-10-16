@@ -148,8 +148,10 @@ constexpr const char *kRetiredComparableWeaponsKey = "game.comparable_weapons";
 //   2      Sharp text (text.crisp) off by default. v0.6.5 and v0.6.6 wrote
 //          text.crisp=1 into every file they saved, chosen or not, so a file
 //          without a version gets the new default.
+//   3      Empty item slot (game.empty_item_slot) on by default. Version 2
+//          wrote 0 into every file, so a file below 3 drops that key once.
 constexpr const char *kVersionKey = "settings.version";
-constexpr int kVersion = 2;
+constexpr int kVersion = 3;
 constexpr std::string_view kBindPrefix = "input.bind.";
 constexpr std::string_view kPadPrefix = "input.pad.";
 
@@ -908,8 +910,10 @@ bool upgrade(Entries &entries) {
     std::uint32_t version = 1u;
     if (const auto found = entries.find(kVersionKey); found != entries.end())
         (void)parse_uint(found->second, 1u, 1000u, version);
-    if (version >= 2u) return false;
-    return entries.erase("text.crisp") != 0u;
+    bool dropped = false;
+    if (version < 2u) dropped = entries.erase("text.crisp") != 0u || dropped;
+    if (version < 3u) dropped = entries.erase("game.empty_item_slot") != 0u || dropped;
+    return dropped;
 }
 
 void read_entries(Settings &values, const Entries &entries) {
@@ -937,10 +941,10 @@ void load(State &s) {
         std::cerr << "[settings] cannot read settings.ini: " << e.what() << "\n";
     }
     // Dropped from what the file held too, so a run whose environment
-    // decides Sharp text does not write the old default back as chosen.
+    // decides a setting does not write the old default back as chosen.
     if (upgrade(s.file))
-        std::cout << "[settings] text.crisp from an earlier version dropped: Sharp text is off by default now; "
-                     "turn it on in Video if you want it\n";
+        std::cout << "[settings] defaults from an earlier version dropped: Sharp text is off and Empty item slot "
+                     "is on by default now; change them in Video if you want otherwise\n";
     read_entries(s.values, s.file);
     for (const Field &field : all_fields()) {
         if (field.variable == nullptr) continue;

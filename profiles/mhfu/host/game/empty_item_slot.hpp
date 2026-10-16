@@ -1,8 +1,8 @@
 #pragma once
 
 // Empty item slot: scrolling the item bar past either end stops on nothing,
-// as the later games do, so □ with the weapon sheathed uses no item. Off by
-// default (`game.empty_item_slot`, `MHFU_EMPTY_ITEM_SLOT`).
+// as the later games do, so □ with the weapon sheathed uses no item. On by
+// default (`game.empty_item_slot`, `MHFU_EMPTY_ITEM_SLOT=0` turns it off).
 //
 // The executable (ULUS-10391) keeps the selected pouch slot in the halfword at
 // hunter +1608. The pouch is 24 slots of 4 bytes at GameSys + 0x6AEA6 (GameSys
