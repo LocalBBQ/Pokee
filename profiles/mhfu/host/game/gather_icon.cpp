@@ -249,6 +249,19 @@ bool body_in_reach(const psprecomp::GuestMemory &memory, std::uint32_t record, f
     return hunter_y >= y - kBelow && hunter_y < y + kAbove && dx * dx + dz * dz <= radius * radius;
 }
 
+// MHFU_TRACE_GATHER: the record of a body that comes into reach, past the
+// position and radius, to find which of its words names the monster.
+void trace_carve(const psprecomp::GuestMemory &memory, std::uint32_t record) {
+    if (!trace_on()) return;
+    static std::uint32_t last = 0u;
+    if (record == last) return;
+    last = record;
+    std::cout << "[gather] carve 0x" << std::hex << record << " +16:";
+    for (std::uint32_t offset = 16u; offset < kCarveStride; offset += 2u)
+        std::cout << ' ' << memory.load16(record + offset);
+    std::cout << std::dec << std::endl;
+}
+
 } // namespace
 
 std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
@@ -277,6 +290,7 @@ std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
                 continue;
             }
             if (memory.load16(record + kCarveId) == kCarveEmpty) return std::nullopt;
+            trace_carve(memory, record);
             return CarveBody{
                 record, load_float(memory, record), load_float(memory, record + 4u), load_float(memory, record + 8u)};
         }
@@ -303,37 +317,115 @@ void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices) {
     slot.vertices = vertices;
 }
 
-std::optional<std::array<float, 2>> gather_mark(
-    const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose) {
+GatherGlyph gather_glyph(std::uint16_t kind) noexcept {
+    if (kind == 3u) return GatherGlyph::Mining;
+    if (kind == 4u) return GatherGlyph::BugNet;
+    return GatherGlyph::Plant;
+}
+
+std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory) {
+    // The circle handler tries the gather list first and carves only when it
+    // misses, so a node in range takes the mark.
+    if (const std::optional<GatherNode> node = gather_node(memory))
+        return GatherTarget{node->address, node->x, node->y, node->z, gather_glyph(node->kind),
+            gather_uses_square(node->kind) ? kGatherSquare : kGatherCircle};
+    if (const std::optional<CarveBody> body = carve_body(memory))
+        return GatherTarget{body->address, body->x, body->y, body->z, GatherGlyph::Carve, kGatherCircle};
+    return std::nullopt;
+}
+
+void GatherMotion::step(const std::optional<GatherTarget> &target) {
+    if (!target) {
+        alpha_ = std::max(0.0f, alpha_ - kFadeStep);
+        if (alpha_ <= 0.0f) live_ = false;
+        return;
+    }
+    const float dx = target->x - x_;
+    const float dy = target->y - y_;
+    const float dz = target->z - z_;
+    // Nothing on screen, or too far to glide: the mark starts on the target.
+    if (!live_ || dx * dx + dy * dy + dz * dz > kJump * kJump) {
+        x_ = target->x;
+        y_ = target->y;
+        z_ = target->z;
+        if (!live_) alpha_ = 0.0f;
+    } else if (dx * dx + dy * dy + dz * dz <= kArrive * kArrive) {
+        x_ = target->x;
+        y_ = target->y;
+        z_ = target->z;
+    } else {
+        x_ += dx * kGlide;
+        y_ += dy * kGlide;
+        z_ += dz * kGlide;
+    }
+    live_ = true;
+    glyph_ = target->glyph;
+    button_ = target->button;
+    alpha_ = std::min(1.0f, alpha_ + kFadeStep);
+}
+
+std::optional<GatherMotion::Shown> GatherMotion::shown() const {
+    if (!live_ || alpha_ <= 0.0f) return std::nullopt;
+    return Shown{x_, y_, z_, alpha_, glyph_, button_};
+}
+
+std::optional<GatherMark> gather_mark(
+    const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose, GatherMotion *motion) {
     Noted &slot = noted();
     const GatherPicture picture = slot.picture;
     const std::uint32_t vertices = std::exchange(slot.vertices, 0u);
     slot.picture = {};
-    if (!settings::current().gather_icon || vertices == 0u || !pose) return std::nullopt;
-    // The circle handler tries the gather list first and carves only when it
-    // misses, so a node in range takes the mark.
+    if (!settings::current().gather_icon || vertices == 0u || !pose) {
+        if (motion != nullptr) motion->reset();
+        return std::nullopt;
+    }
+    const std::optional<GatherTarget> target = gather_target(memory);
     std::optional<std::array<float, 3>> point;
-    if (const std::optional<GatherNode> node = gather_node(memory))
-        point = std::array<float, 3>{node->x, node->y, node->z};
-    else if (const std::optional<CarveBody> body = carve_body(memory))
-        point = std::array<float, 3>{body->x, body->y, body->z};
+    GatherMark mark;
+    if (motion != nullptr) {
+        motion->step(target);
+        const std::optional<GatherMotion::Shown> shown = motion->shown();
+        if (!shown) {
+            motion->set_last_at(std::nullopt);
+            return std::nullopt;
+        }
+        point = std::array<float, 3>{shown->x, shown->y, shown->z};
+        mark.alpha = shown->alpha;
+        mark.glyph = shown->glyph;
+        mark.button = shown->button;
+    } else if (target) {
+        point = std::array<float, 3>{target->x, target->y, target->z};
+        mark.glyph = target->glyph;
+        mark.button = target->button;
+    }
     if (!point) return std::nullopt;
-    const WorldPoint eye{pose->eye_x, pose->eye_y, pose->eye_z};
-    const WorldPoint look{pose->look_x, pose->look_y, pose->look_z};
-    const std::optional<std::array<float, 16>> view = look_at_view(eye, look);
-    if (!view || picture.x_scale == 0.0f || picture.y_scale == 0.0f) return std::nullopt;
-    WorldCamera camera;
-    camera.view = *view;
-    camera.projection = picture.projection;
-    camera.x_scale = picture.x_scale;
-    camera.y_scale = picture.y_scale;
-    camera.x_offset = picture.x_offset;
-    camera.y_offset = picture.y_offset;
-    camera.origin_x = picture.origin_x;
-    camera.origin_y = picture.origin_y;
-    const std::optional<PicturePoint> at = project_world(camera, (*point)[0], (*point)[1] + kGatherLift, (*point)[2]);
+    const auto project = [&]() -> std::optional<std::array<float, 2>> {
+        const WorldPoint eye{pose->eye_x, pose->eye_y, pose->eye_z};
+        const WorldPoint look{pose->look_x, pose->look_y, pose->look_z};
+        const std::optional<std::array<float, 16>> view = look_at_view(eye, look);
+        if (!view || picture.x_scale == 0.0f || picture.y_scale == 0.0f) return std::nullopt;
+        WorldCamera camera;
+        camera.view = *view;
+        camera.projection = picture.projection;
+        camera.x_scale = picture.x_scale;
+        camera.y_scale = picture.y_scale;
+        camera.x_offset = picture.x_offset;
+        camera.y_offset = picture.y_offset;
+        camera.origin_x = picture.origin_x;
+        camera.origin_y = picture.origin_y;
+        const std::optional<PicturePoint> at =
+            project_world(camera, (*point)[0], (*point)[1] + kGatherLift, (*point)[2]);
+        if (!at) return std::nullopt;
+        return std::array<float, 2>{at->x, at->y};
+    };
+    const std::optional<std::array<float, 2>> at = project();
+    if (motion != nullptr) {
+        mark.older = motion->last_at();
+        motion->set_last_at(at);
+    }
     if (!at) return std::nullopt;
-    return std::array<float, 2>{at->x, at->y};
+    mark.at = *at;
+    return mark;
 }
 
 std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::uint32_t button) {

@@ -11,6 +11,7 @@
 #include "ui_textures.hpp"
 #include "texture_decode.hpp"
 #include "triangle_indices.hpp"
+#include "ui_motion.hpp"
 #include "texture_pack.hpp"
 #include "texture_pack_import.hpp"
 #include "descriptor_pools.hpp"
@@ -1038,6 +1039,9 @@ struct VulkanRenderer::Impl {
 #endif
     bool ui_ready{};
     ImDrawData *ui_draw_data{};
+    // The weight of the present that draws ui_draw_data next (ui_motion.hpp):
+    // 1 except for an interpolated present.
+    float ui_weight{1.0f};
     std::function<bool(const SDL_Event &)> event_hook;
     bool game_input{true};
     // The port's own binds in the presets (#187): a screenshot, counted
@@ -3973,6 +3977,7 @@ void VulkanRenderer::Impl::submit_and_present(
             if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
         }
     ImDrawData *ui = ui_ready ? ui_draw_data : nullptr;
+    const float ui_shift_weight = std::exchange(ui_weight, 1.0f);
     ui_draw_data = nullptr;
     const bool draw_ui = ui != nullptr && ui->CmdListsCount > 0;
     // A game flip before anything was drawn has nothing to show.
@@ -4045,6 +4050,7 @@ void VulkanRenderer::Impl::submit_and_present(
             pass.renderArea = {{0, 0}, swapchain_extent};
             vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
             perf::count_render_pass();
+            ui_motion::apply(ui_shift_weight);
             ImGui_ImplVulkan_RenderDrawData(ui, commands);
             vkCmdEndRenderPass(commands);
         }
@@ -8808,6 +8814,9 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
         }
     }
     ui_draw_data = frame_ui;
+    // The interface follows the picture this present shows: the blend, or
+    // one of the two frames as it is.
+    ui_weight = blended ? present.t : image == newer_image.color ? 1.0f : 0.0f;
     submit_and_present(commands, fence, image, true, false);
     // MHFU_INTERPOLATION_EXTRA_MS: busy CPU time added to each blended
     // present, to try the step-down on a fast machine as if it were a slow one.
