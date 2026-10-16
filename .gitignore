@@ -49,6 +49,10 @@ overlay_*.bin
 
 # Local dumps next to the repository root
 /dump/
+/atlasdump/
+
+# Diagnostic run logs captured while tracing a subsystem
+/*trace*.txt
 
 # Generated scratch output
 *.generated
