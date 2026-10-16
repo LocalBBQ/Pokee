@@ -2,7 +2,6 @@
 // No game data. Guest memory is a stand-in.
 #include "game/gather_icon.hpp"
 #include "gpu/ui_motion.hpp"
-#include "input/button_face.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/guest_memory.hpp"
@@ -560,6 +559,125 @@ void test_carving_a_monster() {
     (void)gather_hold(0u, memory);
 }
 
+// The village: lobby_task in the task slot and game_sub beside it, with the
+// farm's instructions in place.
+void plant_village(psprecomp::GuestMemory &memory) {
+    const auto overlay = [&](std::uint32_t slot, const char *name, std::size_t length) {
+        memory.store32(slot, 0x336F574Du);
+        memory.store32(slot + 8u, slot);
+        for (std::size_t i = 0; i <= length; ++i)
+            memory.store8(slot + 32u + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(name[i]));
+    };
+    overlay(0x09A5F300u, "lobby_task.ovl", 14u);
+    overlay(0x09C19100u, "game_sub.ovl", 12u);
+    for (const GatherWord &word : farm_checked_words()) memory.store32(word.address, word.instruction);
+}
+
+void test_farm_spots() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t farm = gamesys + 0x6A238u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    constexpr std::uint32_t state = 0x09800000u;
+    constexpr std::uint32_t point = 0x09900000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 40u, 1u); // the local hunter is slot 1
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    memory.store16(hunter + 486u, 1u);
+    memory.store32(0x09B22E70u, state);
+    memory.store32(hunter + 1364u, point);
+    memory.store16(point + 2u, kFarmMining);
+    memory.store16(point + 22u, 1u);
+    memory.store8(farm + 2u, 2u);         // two mining spots
+    memory.store16(farm + 8u + 8u, 3u);   // the second has three uses
+    memory.store8(farm + 3u, 1u);         // one bug thicket
+    memory.store16(farm + 48u + 0u, 5u);  // with five uses
+
+    check(!farm_point(memory), "nothing before the village overlays are loaded");
+    plant_village(memory);
+    check(farm_code_matches(memory), "the planted farm words match");
+    const std::optional<FarmPoint> mining = farm_point(memory);
+    check(mining && mining->address == point && mining->type == kFarmMining && mining->index == 1u &&
+            mining->uses == 3u,
+        "the mining outcrop in reach is found with its uses");
+    memory.store16(farm + 8u + 8u, 0u);
+    check(!farm_point(memory), "a mined-out outcrop is not a gather");
+    memory.store16(farm + 8u + 8u, 3u);
+    memory.store16(point + 22u, 2u);
+    memory.store16(farm + 8u + 16u, 4u);
+    check(farm_point(memory) && farm_point(memory)->uses == 4u, "an index equal to the count is still a spot");
+    memory.store16(point + 22u, 3u);
+    check(!farm_point(memory), "an index past the count is not");
+
+    memory.store16(point + 2u, kFarmBugs);
+    memory.store16(point + 22u, 0u);
+    const std::optional<FarmPoint> bugs = farm_point(memory);
+    check(bugs && bugs->type == kFarmBugs && bugs->uses == 5u, "a bug thicket reads its uses at +48");
+    memory.store16(point + 22u, 1u);
+    check(!farm_point(memory), "past the thicket count is not a spot");
+    memory.store16(point + 22u, 0u);
+    memory.store16(point + 2u, 17u);
+    check(!farm_point(memory), "another farm spot is left alone");
+    memory.store16(point + 2u, 1u);
+    check(!farm_point(memory), "a person is left alone");
+    memory.store16(point + 2u, kFarmMining);
+    memory.store16(point + 22u, 1u);
+
+    memory.store32(hunter + 1364u, 0u);
+    check(!farm_point(memory), "no point in reach is no spot");
+    memory.store32(hunter + 1364u, point);
+    memory.store32(state, 54u);
+    check(!farm_point(memory), "a gather already running is not a new one");
+    memory.store32(state, 0u);
+    memory.store16(state + 26u, 1u);
+    check(!farm_point(memory), "nor while the state object is held");
+    memory.store16(state + 26u, 0u);
+    memory.store16(hunter + 486u, 0u);
+    check(!farm_point(memory), "a hunter that is not the local one is not read");
+    memory.store16(hunter + 486u, 1u);
+    memory.store32(0x09B0F33Cu, 0u);
+    check(!farm_code_matches(memory) && !farm_point(memory), "a differing word turns the farm off");
+    plant_village(memory);
+    memory.store8(0x09C19100u + 32u, static_cast<std::uint8_t>('d'));
+    check(!farm_point(memory), "another sub overlay is not the farm's");
+    plant_village(memory);
+    check(farm_point(memory).has_value(), "and the farm is back");
+
+    // The hold pulses □ on the outcrop, as on a quest's mining point.
+    auto &settings = mhfu::settings::current();
+    settings.gather_hold = true;
+    check(gather_hold(kSquare | kCircle, memory) == kSquare && gather_hold_centres_stick(),
+        "holding □ at the outcrop starts a gather, and ○ is left off");
+    check(pulse(kGatherPulseDown + kGatherPulseUp, kSquare, [&] { return gather_hold(kSquare, memory); }) ==
+            expected_pulse(kGatherPulseDown + kGatherPulseUp, 1u),
+        "the □ pulse keeps going at the outcrop");
+    // While the swing runs the state object is not 0, so the pad goes
+    // through as held and the game ignores it.
+    memory.store32(state, 54u);
+    check(gather_hold(kSquare, memory) == kSquare && !gather_hold_centres_stick(),
+        "during the swing □ reaches the game as held");
+    memory.store32(state, 0u);
+    check(gather_hold(kSquare, memory) == 0u && gather_hold_centres_stick(),
+        "after the swing the hold lifts □ first, so the next read is a new press");
+    check(pulse(kGatherPulseDown + kGatherPulseUp - 1u, kSquare, [&] { return gather_hold(kSquare, memory); }) ==
+            expected_pulse(kGatherPulseDown + kGatherPulseUp - 1u, kGatherPulseDown + 1u),
+        "and the pulse carries on into the next press");
+    check(gather_hold(0u, memory) == 0u && !gather_hold_centres_stick(), "letting go of □ frees the stick");
+    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(), "○ at the outcrop is left alone");
+    (void)gather_hold(0u, memory);
+    memory.store16(farm + 8u + 8u, 0u);
+    check(gather_hold(kSquare, memory) == kSquare && !gather_hold_centres_stick(),
+        "□ at a mined-out outcrop is left alone");
+    (void)gather_hold(0u, memory);
+    memory.store16(farm + 8u + 8u, 3u);
+    settings.gather_hold = false;
+    check(gather_hold(kSquare, memory) == kSquare, "hold to gather off leaves □ alone at the farm");
+    settings.gather_hold = true;
+    (void)gather_hold(0u, memory);
+}
+
 // The gather mark also stands over a body or a cut tail ○ would carve.
 void test_mark_over_a_carve() {
     psprecomp::GuestMemory memory(32u * 1024u * 1024u);
@@ -607,14 +725,12 @@ void test_mark_over_a_carve() {
     gather_note_draw(picture(), 100u);
     const std::optional<GatherMark> gather_first = gather_mark(memory, pose);
     check(gather_first && gather_first->at[0] > 0.55f, "a gather point in range takes the mark before the body");
-    check(at && at->glyph == GatherGlyph::Carve && at->button == kGatherCircle, "a carve is ○ and shown as one");
-    check(gather_first && gather_first->glyph == GatherGlyph::Plant && gather_first->button == kGatherCircle,
-        "a kind 0 point is a plant, gathered with ○");
+    check(at && at->glyph == GatherGlyph::Carve, "a carve is shown as one");
+    check(gather_first && gather_first->glyph == GatherGlyph::Plant, "a kind 0 point is a plant");
     plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 3u);
     gather_note_draw(picture(), 100u);
     const std::optional<GatherMark> mining = gather_mark(memory, pose);
-    check(mining && mining->glyph == GatherGlyph::Mining && mining->button == kGatherSquare,
-        "a mining point is gathered with □");
+    check(mining && mining->glyph == GatherGlyph::Mining, "a mining point is shown as mining");
     write_float(memory, nodes, -1.0f);
 
     memory.store16(table + 4u + 20u, 0xFFFFu);
@@ -638,7 +754,7 @@ void test_glyphs() {
 }
 
 GatherTarget target_at(std::uint32_t address, float x) {
-    return GatherTarget{address, x, 0.0f, 0.0f, GatherGlyph::Plant, kGatherCircle};
+    return GatherTarget{address, x, 0.0f, 0.0f, GatherGlyph::Plant};
 }
 
 void test_motion() {
@@ -652,9 +768,9 @@ void test_motion() {
     check(motion.shown() && near(motion.shown()->alpha, 1.0f), "and stays at full opacity");
 
     // A target close by is glided to, half the way each frame, then reached.
-    motion.step(GatherTarget{2u, 100.0f, 0.0f, 0.0f, GatherGlyph::Mining, kGatherSquare});
+    motion.step(GatherTarget{2u, 100.0f, 0.0f, 0.0f, GatherGlyph::Mining});
     shown = motion.shown();
-    check(shown && near(shown->x, 50.0f) && shown->glyph == GatherGlyph::Mining && shown->button == kGatherSquare,
+    check(shown && near(shown->x, 50.0f) && shown->glyph == GatherGlyph::Mining,
         "a near target is glided to and its kind shown at once");
     for (int i = 0; i < 12; ++i) motion.step(target_at(2u, 100.0f));
     check(motion.shown() && motion.shown()->x == 100.0f, "the glide ends on the target");
@@ -715,7 +831,7 @@ void test_motion_on_the_picture() {
     gather_note_draw(picture(), 100u);
     const std::optional<GatherMark> first = gather_mark(memory, pose, &motion);
     check(first && !first->older && near(first->alpha, GatherMotion::kFadeStep) &&
-            first->glyph == GatherGlyph::BugNet && first->button == kGatherSquare,
+            first->glyph == GatherGlyph::BugNet,
         "the first frame fades the mark in, with no older place to blend from");
     // The camera turns a little: the next frame blends from the first one's place.
     const GatherPose turned{0.0f, 100.0f, 0.0f, 1.0f, 100.0f, -10.0f};
@@ -754,56 +870,132 @@ void test_ui_shift() {
     check(near(move[0], 10.0f), "a weight below 0 is the older frame");
 }
 
-void test_button_face() {
-    using namespace mhfu::input;
-    Bindings bindings{};
-    Slots &circle = bindings[static_cast<std::size_t>(Action::Circle)];
-    circle[0] = chord(pad(PadInput::LeftShoulder), pad(PadInput::West));
-    circle[1] = single(pad(PadInput::East));
-    check(pressed_for(bindings, Action::Circle, true, false) == pad(PadInput::East),
-        "a single button is preferred to a chord before it");
-    check(pressed_for(bindings, Action::Circle, true, true) == pad(PadInput::South),
-        "the confirm swap moves the right button to the bottom one");
-    circle[1] = {};
-    check(pressed_for(bindings, Action::Circle, true, false) == pad(PadInput::LeftShoulder),
-        "with only a chord, its first input");
-    check(pressed_for(bindings, Action::Square, true, false) == kNone, "nothing bound is nothing");
-    Slots &square = bindings[static_cast<std::size_t>(Action::Square)];
-    square[0] = single(key(4u));
-    check(pressed_for(bindings, Action::Square, false, true) == key(4u), "a key is not swapped");
+// A point's list (game/gather_art.hpp): base is the gather object's +80, and
+// the word at 0x08A5C584 is where the point offsets start past it.
+constexpr std::uint32_t kArtObject = 0x09200000u;
+constexpr std::uint32_t kArtBase = 0x09800000u;
+constexpr std::uint32_t kArtOffsets = 0x100u;
 
-    ButtonFace face = button_face(pad(PadInput::East), PadStyle::Xbox);
-    check(face.shape == ButtonFace::Shape::Letter && face.text == "B" && face.red > face.blue,
-        "○ on an Xbox pad is a red B");
-    face = button_face(pad(PadInput::West), PadStyle::Xbox);
-    check(face.shape == ButtonFace::Shape::Letter && face.text == "X" && face.blue > face.red,
-        "□ on an Xbox pad is a blue X");
-    check(button_face(pad(PadInput::East), PadStyle::PlayStation).shape == ButtonFace::Shape::Circle,
-        "a PlayStation pad shows the circle");
-    check(button_face(pad(PadInput::West), PadStyle::PlayStation).shape == ButtonFace::Shape::Square,
-        "and the square");
-    check(button_face(pad(PadInput::South), PadStyle::Generic).shape == ButtonFace::Shape::Cross,
-        "an unknown pad takes the PSP symbols");
-    check(button_face(pad(PadInput::North), PadStyle::Generic).shape == ButtonFace::Shape::Triangle,
-        "the triangle as well");
-    check(button_face(pad(PadInput::East), PadStyle::Nintendo).text == "A", "Nintendo's right button is A");
-    check(button_face(pad(PadInput::West), PadStyle::Nintendo).text == "Y", "and its left one is Y");
-    face = button_face(pad(PadInput::LeftShoulder), PadStyle::Xbox);
-    check(face.shape == ButtonFace::Shape::Label && face.text == label(pad(PadInput::LeftShoulder), PadStyle::Xbox),
-        "another pad input is labelled as the bindings menu labels it");
-    face = button_face(key(4u), PadStyle::Generic);
-    check(face.shape == ButtonFace::Shape::Label && face.text == name(key(4u)), "a key is shown by its name");
-    check(button_face(kNone, PadStyle::Xbox).text.empty(), "nothing bound has no label");
+void plant_list(psprecomp::GuestMemory &memory, std::uint16_t id, std::uint32_t entry,
+    std::initializer_list<std::array<std::uint16_t, 2>> pairs) {
+    memory.store32(0x08A62D9Cu, kArtObject);
+    memory.store32(kArtObject + 80u, kArtBase);
+    memory.store32(0x08A5C584u, kArtOffsets);
+    memory.store32(kArtBase + kArtOffsets + static_cast<std::uint32_t>(id) * 4u, entry);
+    std::uint32_t at = kArtBase + entry;
+    for (const std::array<std::uint16_t, 2> &pair : pairs) {
+        memory.store16(at, pair[0]);
+        memory.store16(at + 2u, pair[1]);
+        at += 4u;
+    }
+    memory.store16(at, 0xFFFFu);
+}
+
+// An item with an icon: its record, the icon's sprite, the rectangle and the tint.
+void plant_item(psprecomp::GuestMemory &memory, std::uint16_t item, std::uint8_t icon, std::uint8_t tint,
+    std::uint16_t sprite, std::array<std::uint16_t, 4> rect, std::array<std::uint8_t, 3> colour) {
+    const std::uint32_t record = 0x0899D2BCu + static_cast<std::uint32_t>(item) * 24u;
+    memory.store8(record + 1u, icon);
+    memory.store8(record + 2u, tint);
+    memory.store16(0x0893ABECu + static_cast<std::uint32_t>(icon) * 2u, sprite);
+    const std::uint32_t at = 0x089392C8u + static_cast<std::uint32_t>(sprite) * 12u;
+    for (std::uint32_t i = 0; i < 4u; ++i) memory.store16(at + i * 2u, rect[i]);
+    const std::uint32_t rgb = 0x0893AB7Cu + static_cast<std::uint32_t>(tint) * 4u;
+    for (std::uint32_t i = 0; i < 3u; ++i) memory.store8(rgb + i, colour[i]);
+}
+
+void test_gather_items() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    check(!gather_item(memory, 3u), "no gather object, no item");
+    plant_list(memory, 3u, 0x400u, {{10u, 7u}, {60u, 5u}, {60u, 9u}, {20u, 11u}});
+    const std::optional<std::uint16_t> item = gather_item(memory, 3u);
+    check(item && *item == 5u, "the heaviest item is shown, the first of equal weights");
+    plant_list(memory, 4u, 0x800u, {});
+    check(!gather_item(memory, 4u), "an empty list has no item");
+    // A list that never ends is not read past 64 pairs.
+    memory.store32(kArtBase + kArtOffsets + 5u * 4u, 0xC00u);
+    for (std::uint32_t i = 0; i < 70u; ++i) memory.store32(kArtBase + 0xC00u + i * 4u, 0x00010001u);
+    check(!gather_item(memory, 5u), "a list with no end is no item");
+
+    check(gather_art_for(memory, 3u, 3u) == GatherArt::of_item(kPickaxeItem), "a mining point shows the pickaxe");
+    check(gather_art_for(memory, 4u, 3u) == GatherArt::of_item(kBugNetItem), "a bug point shows the bug net");
+    check(gather_art_for(memory, 0u, 3u) == GatherArt::of_item(5u), "a ○ point shows what it gives");
+    check(gather_art_for(memory, 0u, 4u).kind == GatherArt::Kind::None, "and nothing when it gives nothing");
+}
+
+void test_item_art() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    plant_item(memory, 145u, 16u, 0u, 90u, {24u, 48u, 24u, 24u}, {0xEFu, 0xEFu, 0xE9u});
+    const std::optional<ItemArt> pick = item_art(memory, 145u);
+    check(pick && pick->u == 24u && pick->v == 48u && pick->width == 24u && pick->height == 24u &&
+            pick->red == 0xEFu && pick->blue == 0xE9u,
+        "an item's icon is its sprite's rectangle in its tint");
+    plant_item(memory, 7u, 255u, 0u, 0u, {}, {});
+    check(!item_art(memory, 7u), "icon 255 is none");
+    plant_item(memory, 8u, 20u, 2u, 91u, {240u, 0u, 24u, 24u}, {1u, 2u, 3u});
+    check(!item_art(memory, 8u), "a rectangle past the atlas is none");
+    plant_item(memory, 9u, 21u, 11u, 92u, {0u, 0u, 24u, 24u}, {1u, 2u, 3u});
+    check(!item_art(memory, 9u), "a tint past the palette is none");
+    check(!item_art(memory, 1500u), "nor an id past the table");
+
+    check(!gather_art_code_matches(memory), "the lookups need their code");
+    for (const GatherArtWord &word : gather_art_words()) memory.store32(word.address, word.instruction);
+    check(gather_art_code_matches(memory), "with every word, they run");
+    memory.store32(gather_art_words()[2].address, 0u);
+    check(!gather_art_code_matches(memory), "a word that differs stops them");
+}
+
+void test_mark_shows_art() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    plant_words(memory);
+    for (const GatherArtWord &word : gather_art_words()) memory.store32(word.address, word.instruction);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 1u);
+    plant_list(memory, 6u, 0x400u, {{80u, 41u}});
+    // The area list sits past the base, which +80 also adds to the area pointer.
+    memory.store32(kArtObject + 96u, areas);
+    memory.store32(areas, 0x1000u);
+    const std::uint32_t nodes = kArtBase + 0x1000u;
+    plant_node(memory, nodes, 0.0f, 0.0f, -10.0f, 5.0f, 6u, 0u);
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x208u, -10.0f);
+    memory.store16(hunter + 0x29Au, 1u);
+    mhfu::settings::current().gather_icon = true;
+
+    gather_note_draw(picture(), 100u);
+    GatherMotion motion;
+    const std::optional<GatherMark> mark =
+        gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motion);
+    check(mark && mark->art == GatherArt::of_item(41u), "the mark carries the item the point gives");
+    check(mark && mark->world[0] == 0.0f && mark->world[2] == -10.0f, "and the point it stands over");
+
+    // Mining shows the pickaxe whatever the list says.
+    memory.store16(nodes + 20u, 3u);
+    gather_note_draw(picture(), 100u);
+    const std::optional<GatherMark> mining =
+        gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motion);
+    check(mining && mining->art == GatherArt::of_item(kPickaxeItem), "a mining point's mark is the pickaxe");
 }
 
 } // namespace
 
 int main() {
+    test_gather_items();
+    test_item_art();
+    test_mark_shows_art();
     test_glyphs();
     test_motion();
     test_motion_on_the_picture();
     test_ui_shift();
-    test_button_face();
     test_the_radius();
     test_the_area_list();
     test_unmapped();
@@ -813,6 +1005,7 @@ int main() {
     test_holding_circle();
     test_pressing_again_on_the_pad();
     test_carving_a_monster();
+    test_farm_spots();
     test_mark_over_a_carve();
     std::cout << (failures ? "FAIL" : "PASS") << ": gather icon (" << failures << " failures)\n";
     return failures ? 1 : 0;

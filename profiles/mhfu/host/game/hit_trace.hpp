@@ -32,6 +32,13 @@ namespace mhfu::game::hit_trace {
 
 // MHFU_TRACE_HITS is set. Read once.
 [[nodiscard]] bool enabled() noexcept;
+
+// The emulated clock the ad hoc trace stamps its lines with (t=…ms), so a
+// health change can be matched to the packet that arrived before it. The
+// host sets it; until then the time is 0.
+using GuestClock = std::uint64_t (*)();
+void set_clock(GuestClock clock) noexcept;
+[[nodiscard]] std::uint64_t now_ms() noexcept;
 // How many hits are traced before the trace falls silent:
 // MHFU_TRACE_HITS_LIMIT, kDefaultLimit when unset or not a number.
 inline constexpr std::uint32_t kDefaultLimit = 200u;

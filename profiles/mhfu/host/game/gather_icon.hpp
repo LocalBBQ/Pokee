@@ -25,6 +25,7 @@
 // reads. The view a world draw uploads has no translation, so the mark is
 // placed from the follow camera's eye and look-at.
 
+#include "game/gather_art.hpp"
 #include "psprecomp/guest_memory.hpp"
 
 #include <array>
@@ -95,7 +96,7 @@ struct GatherWord {
 [[nodiscard]] std::optional<std::uint32_t> gather_list_for(const psprecomp::GuestMemory &memory, std::uint16_t stage);
 
 // The node ○ would gather now, when the instructions match. Nothing in the
-// village, with no hunter, or with no node in range.
+// village (see farm_point), with no hunter, or with no node in range.
 [[nodiscard]] std::optional<GatherNode> gather_node(const psprecomp::GuestMemory &memory);
 
 // The projection and viewport of one perspective draw. The view matrix is not
@@ -129,9 +130,6 @@ enum class GatherGlyph : std::uint8_t { Plant, Mining, BugNet, Carve };
 // as a plant.
 [[nodiscard]] GatherGlyph gather_glyph(std::uint16_t kind) noexcept;
 
-inline constexpr std::uint32_t kGatherCircle = 0x2000u; // ○
-inline constexpr std::uint32_t kGatherSquare = 0x8000u; // □
-
 // The thing ○ or □ would gather or carve now: the node, or with none in range
 // the body (carve_body). `address` is its record, so a new target is told
 // from the same one.
@@ -141,7 +139,9 @@ struct GatherTarget {
     float y{};
     float z{};
     GatherGlyph glyph{};
-    std::uint32_t button{kGatherCircle}; // kGatherCircle or kGatherSquare
+    // What the mark shows (game/gather_art.hpp). A carve leaves it empty; the
+    // caller knows the monsters.
+    GatherArt art{};
 };
 [[nodiscard]] std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory);
 
@@ -167,7 +167,7 @@ public:
         float z{};
         float alpha{};
         GatherGlyph glyph{};
-        std::uint32_t button{kGatherCircle};
+        GatherArt art{};
     };
 
     // One game frame with this target, or none.
@@ -186,7 +186,7 @@ private:
     float z_{};
     float alpha_{};
     GatherGlyph glyph_{};
-    std::uint32_t button_{kGatherCircle};
+    GatherArt art_{};
     std::optional<std::array<float, 2>> last_at_;
 };
 
@@ -198,7 +198,13 @@ struct GatherMark {
     std::optional<std::array<float, 2>> older;
     float alpha{1.0f};
     GatherGlyph glyph{};
-    std::uint32_t button{kGatherCircle};
+    GatherArt art{};
+    // The world point it stands over, before the lift: the node, or the body
+    // being carved.
+    std::array<float, 3> world{};
+    // The item's icon on the atlas and its tint, when `art` is an item that has
+    // one. Filled in by the caller, which reads the game's tables.
+    std::optional<ItemArt> icon;
 };
 
 // Where the mark goes on the picture while Gather icon is on: over the node
@@ -295,9 +301,45 @@ struct CarveBody {
 };
 [[nodiscard]] std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory);
 
+// A Pokke Farm spot that □ would mine or catch bugs at now (lobby_task.ovl).
+// The village keeps no gather list. Each frame 0x09AAF290 walks the stage's
+// 24-byte interaction points and stores the one in reach at village hunter
+// +1364, or 0 (0x09AAF3AC). The handler at 0x09AAD350 starts every point but
+// a person (type 1) when bit 0x8000, □, is new in hunter +1156, and switches
+// on the halfword at point +2 through the table at 0x09B0F300. Type 15 is a
+// mining outcrop and type 16 a bug thicket: they start sub-actions 0 and 1
+// of the hunter's action group 8, in the order of the quest's mining (81) and
+// bug net (82). The halfword at point +22 is the spot's index. Before
+// starting, the handler asks game_sub.ovl whether the spot has uses left:
+// 0x09C295F8 for type 15 and 0x09C29648 for type 16. Both read the farm at
+// GameSys +0x6A238: the spot count is the byte at +2 (mining) or +3 (bugs)
+// and the uses left are the halfword at +8 or +48, 8 bytes a spot. An index
+// past the count, or no uses, is no gather. The handler acts only while the
+// village state object (the word at 0x09B22E70) has 0 at +0 and +26, for the
+// local hunter (+486 equal to the byte at GameSys +40). The hunter is the one
+// the camera follows, as on a quest.
+struct FarmPoint {
+    std::uint32_t address{};
+    std::uint16_t type{}; // 15 mining, 16 bugs
+    std::uint16_t index{};
+    std::uint16_t uses{};
+};
+inline constexpr std::uint16_t kFarmMining = 15u;
+inline constexpr std::uint16_t kFarmBugs = 16u;
+
+// The instructions that establish the farm search, the handler and the checks.
+[[nodiscard]] std::span<const GatherWord> farm_checked_words();
+// As gather_code_matches, for the village: lobby_task.ovl and game_sub.ovl
+// must be loaded and every farm word must match.
+[[nodiscard]] bool farm_code_matches(const psprecomp::GuestMemory &memory);
+// The mining outcrop or bug thicket □ would gather at now, with uses left.
+// Nothing outside the village, in a menu, or with no such spot in reach.
+[[nodiscard]] std::optional<FarmPoint> farm_point(const psprecomp::GuestMemory &memory);
+
 // The buttons the game should see for this pad read. Off, or idle with the
 // gather button up, `buttons` comes back unchanged and the gather list is not
-// read. While the hold owns the pad, every other button is cleared.
+// read. While the hold owns the pad, every other button is cleared. A farm
+// spot (farm_point) is held with □ like a quest's mining point.
 // gather_hold_centres_stick is then true: the movement stick for that read is
 // centred, so a push does not walk the gather or the carve off.
 [[nodiscard]] std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory);

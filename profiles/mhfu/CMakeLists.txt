@@ -194,7 +194,6 @@ set(MHFU_HOST_SOURCES
     host/gpu/ge_state.cpp
     host/gpu/texture_decode.cpp
     host/input/bindings.cpp
-    host/input/button_face.cpp
     host/input/chords.cpp
     host/input/presets.cpp
     host/input/gamepad_mapping.cpp
@@ -258,9 +257,12 @@ set(MHFU_HOST_SOURCES
     host/game/layered_armor.cpp
     host/game/layered_armor_hook.cpp
     host/game/damage_numbers.cpp
+    host/game/gather_art.cpp
     host/game/gather_icon.cpp
+    host/game/item_atlas.cpp
     host/game/hit_trace.cpp
     host/game/item_box.cpp
+    host/game/empty_item_slot.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -516,15 +518,15 @@ add_executable(mhfu_damage_numbers_tests
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp)
 
-# Gather marks: the radius the game searches, where the mark sits, how it
-# moves between game frames, and the button drawn beside it.
+# Gather marks: the radius the game searches, where the mark sits, and how it
+# moves between game frames.
 add_executable(mhfu_gather_icon_tests
     tests/gather_icon_tests.cpp
+    host/game/gather_art.cpp
     host/game/gather_icon.cpp
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp
     host/input/bindings.cpp
-    host/input/button_face.cpp
     host/input/chords.cpp
     host/input/presets.cpp
     host/input/touch_action.cpp
@@ -562,6 +564,27 @@ target_link_libraries(mhfu_item_box_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_item_box_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_item_box_tests COMMAND mhfu_item_box_tests)
+endif()
+
+# Empty item slot: the scroll with an empty stop, the code and caller checks,
+# and the wrapper around a stand-in step. No game data.
+add_executable(mhfu_empty_item_slot_tests
+    tests/empty_item_slot_tests.cpp
+    host/game/empty_item_slot.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_empty_item_slot_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_empty_item_slot_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_empty_item_slot_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_empty_item_slot_tests COMMAND mhfu_empty_item_slot_tests)
 endif()
 
 # Installer release identities, and preparation of a supported executable when

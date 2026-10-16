@@ -4,6 +4,7 @@
 #include "frame_pacing.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/gather_icon.hpp"
+#include "game/item_atlas.hpp"
 #include "game_hud.hpp"
 #include "hud_scale.hpp"
 #include "replacement_textures.hpp"
@@ -7214,6 +7215,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                                                 world.y_offset, world.origin_x, world.origin_y},
                 vertices);
     }
+    // The gather mark draws item icons from the game's own atlas, decoded
+    // with the palette the HUD last drew it with.
+    if (call.through && call.texture.address == mhfu::game::kItemAtlasAddress && settings::current().gather_icon)
+        mhfu::game::note_item_atlas(call.texture);
     const perf::SplitScope split(perf::Split::Draw);
     if (!impl.recording) begin_frame();
     // Presents between flips fall due while the game draws, too: a busy
@@ -7461,6 +7466,38 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                   << " " << call.texture.width << "x" << call.texture.height
                   << " fmt=" << static_cast<int>(call.texture.format) << " filter=" << call.texture.min_filter << "/"
                   << call.texture.mag_filter << "\n";
+    }
+    // MHFU_TRACE_MAP_MARKS=1: while the quest clock is up, every draw near
+    // the area map, each frame and whatever its primitive, so a paintball's
+    // ring or a monster's ping that is not a sprite still shows up. Through
+    // draws give their screen bounds; small orthographic draws give their
+    // untransformed ones. Pair with the [mapmark] lines below, which say what
+    // the HUD sizes made of each quad.
+    static const bool trace_map_marks = std::getenv("MHFU_TRACE_MAP_MARKS") != nullptr;
+    if (trace_map_marks && !raw && !call.clear_mode && !call.vertices.empty() && count != 0u &&
+        impl.shows(call.target.color_address) && impl.quest_clock.up()) {
+        const bool ortho = !call.through && std::fabs(call.projection[11]) < 1e-6f;
+        hud_scale::Rect drawn{1e9f, 1e9f, -1e9f, -1e9f};
+        for (std::size_t i = 0; i < count; ++i) {
+            const Vertex &v = vertex_at(i);
+            drawn.x0 = std::min(drawn.x0, v.position[0]);
+            drawn.y0 = std::min(drawn.y0, v.position[1]);
+            drawn.x1 = std::max(drawn.x1, v.position[0]);
+            drawn.y1 = std::max(drawn.y1, v.position[1]);
+        }
+        const bool near_map = hud_scale::overlaps({hud_scale::kMapLeft - 48.0f, hud_scale::kMapTop - 32.0f,
+                                                      hud_scale::kMapRight + 16.0f, hud_scale::kMapBottom + 48.0f},
+            drawn);
+        if ((call.through && near_map) || (ortho && count <= 64u)) {
+            const hud::Owner owner = hud::owner_of(call.command_address, call.call_return);
+            std::cout << "[mapdraw] f=" << impl.frames << " prim=" << static_cast<int>(call.primitive)
+                      << " n=" << count << (call.through ? " through" : " ortho") << " owner="
+                      << (owner == hud::Owner::QuestHud ? "quest" : owner == hud::Owner::Other ? "other" : "unknown")
+                      << " (" << drawn.x0 << "," << drawn.y0 << ")-(" << drawn.x1 << "," << drawn.y1 << ") tex=0x"
+                      << std::hex << (call.texture.enabled ? call.texture.address : 0u) << " at=0x"
+                      << call.command_address << " ret=0x" << call.call_return << " color=0x"
+                      << vertex_at(0).color << std::dec << " blend=" << (call.blend.enabled ? 1 : 0) << "\n";
+        }
     }
     if (call.through && call.primitive == PrimitiveType::Sprites && trace_sprites) {
         // Who filed the draw, and whether it was taken for a name over a
@@ -7809,8 +7846,32 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             }();
             std::vector<hud_scale::Decision> decisions;
             hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner,
-                trace_hud_scale != 0 ? &decisions : nullptr);
+                trace_hud_scale != 0 || trace_map_marks ? &decisions : nullptr);
             map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture);
+            // MHFU_TRACE_MAP_MARKS: every quad near the map, every frame, with
+            // the piece it was given and the frame state that let it move or
+            // held it: map up, a window over the map, the item list.
+            for (std::size_t first = 0; trace_map_marks && first + 6u <= unscaled.size(); first += 6u) {
+                const hud_scale::Rect from = hud_scale::quad_bounds(unscaled, first);
+                if (!hud_scale::overlaps({hud_scale::kMapLeft - 48.0f, hud_scale::kMapTop - 32.0f,
+                                             hud_scale::kMapRight + 16.0f, hud_scale::kMapBottom + 48.0f},
+                        from))
+                    continue;
+                const hud_scale::Decision decision =
+                    first / 6u < decisions.size() ? decisions[first / 6u] : hud_scale::Decision{};
+                const hud_scale::Rect to = hud_scale::quad_bounds(corner_scaled, first);
+                const hud_scale::Frame &state = impl.hud_scale_frame;
+                std::cout << "[mapmark] f=" << impl.frames << " " << hud_scale::piece_name(decision.piece) << " "
+                          << hud_scale::reason_name(decision.reason) << " was="
+                          << hud_scale::piece_name(decision.candidate) << " (" << from.x0 << "," << from.y0 << ")-("
+                          << from.x1 << "," << from.y1 << ") -> (" << to.x0 << "," << to.y0 << ")-(" << to.x1 << ","
+                          << to.y1 << ") tex=0x" << std::hex << hud_texture << std::dec
+                          << " map=" << (state.map_now || state.map_live ? 1 : 0)
+                          << " panel=" << (state.panel_up() ? 1 : 0)
+                          << " list=" << (state.list_now || state.list_live ? 1 : 0)
+                          << " status=" << (state.status_up() ? 1 : 0)
+                          << " ring=" << (hud_scale::is_map_ring(from, hud_texture) ? 1 : 0) << "\n";
+            }
             for (std::size_t first = 0; trace_hud_scale != 0 && first + 6u <= unscaled.size(); first += 6u) {
                 const bool moved = hud_scale::quad_moved(unscaled, corner_scaled, first);
                 if (!moved && trace_hud_scale < 2) continue;

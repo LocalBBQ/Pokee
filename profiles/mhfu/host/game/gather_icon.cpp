@@ -94,6 +94,37 @@ void trace_node(const std::optional<GatherNode> &node) {
               << node->kind << " at " << node->x << "," << node->y << "," << node->z << std::endl;
 }
 
+// MHFU_TRACE_GATHER: the item a node's mark shows and its icon, once a node.
+void trace_art(const psprecomp::GuestMemory &memory, const GatherNode &node, const GatherArt &art) {
+    if (!trace_on()) return;
+    static std::uint32_t last = 0u;
+    if (node.address == last) return;
+    last = node.address;
+    if (art.kind != GatherArt::Kind::Item) {
+        std::cout << "[gather] node id " << node.id << " shows no item" << std::endl;
+        return;
+    }
+    std::cout << "[gather] node id " << node.id << " shows item " << art.item;
+    if (const std::optional<ItemArt> icon = item_art(memory, art.item))
+        std::cout << " at " << icon->u << "," << icon->v << " " << icon->width << "x" << icon->height << " tint "
+                  << static_cast<int>(icon->red) << "," << static_cast<int>(icon->green) << ","
+                  << static_cast<int>(icon->blue);
+    else
+        std::cout << ", which has no icon";
+    std::cout << std::endl;
+    // The whole list: weight, item, and the item's icon and tint numbers.
+    if (const std::optional<std::vector<GatherDrop>> drops = gather_drops(memory, node.id)) {
+        std::cout << "[gather]   list:";
+        for (const GatherDrop &drop : *drops) {
+            std::cout << ' ' << drop.weight << 'x' << drop.item;
+            if (const std::optional<std::array<std::uint8_t, 2>> look = item_icon_and_tint(memory, drop.item))
+                std::cout << "(icon " << static_cast<int>((*look)[0]) << " tint " << static_cast<int>((*look)[1])
+                          << ')';
+        }
+        std::cout << std::endl;
+    }
+}
+
 } // namespace
 
 std::span<const GatherWord> gather_checked_words() {
@@ -115,39 +146,53 @@ GatherShape gather_mark_shape(std::uint32_t size_percent, std::uint32_t thicknes
 // The search lives in game_task.ovl. Until that overlay is loaded the words
 // are not the search, and that is a quiet miss rather than a code change.
 constexpr std::uint32_t kTaskSlot = 0x09A5F300u;
+constexpr std::uint32_t kSubSlot = 0x09C19100u;
 constexpr std::uint32_t kOverlayMagic = 0x336F574Du; // "MWo3"
 constexpr char kQuestOverlay[] = "game_task.ovl";
+constexpr char kVillageOverlay[] = "lobby_task.ovl";
+constexpr char kSubOverlay[] = "game_sub.ovl";
 
-bool quest_overlay(const psprecomp::GuestMemory &memory) {
-    if (memory.raw_pointer(kTaskSlot, 64u) == nullptr || memory.load32(kTaskSlot) != kOverlayMagic ||
-        memory.load32(kTaskSlot + 8u) != kTaskSlot)
+namespace {
+
+template <std::size_t N>
+bool overlay_loaded(const psprecomp::GuestMemory &memory, std::uint32_t slot, const char (&name)[N]) {
+    if (memory.raw_pointer(slot, 64u) == nullptr || memory.load32(slot) != kOverlayMagic ||
+        memory.load32(slot + 8u) != slot)
         return false;
-    for (std::size_t i = 0; i < sizeof(kQuestOverlay); ++i)
-        if (memory.load8(kTaskSlot + 32u + static_cast<std::uint32_t>(i)) != static_cast<std::uint8_t>(kQuestOverlay[i]))
+    for (std::size_t i = 0; i < N; ++i)
+        if (memory.load8(slot + 32u + static_cast<std::uint32_t>(i)) != static_cast<std::uint8_t>(name[i]))
             return false;
     return true;
 }
 
-bool gather_code_matches(const psprecomp::GuestMemory &memory) {
-    if (!quest_overlay(memory)) return false;
+// Every word mapped and matching. A mapped word that differs is logged once
+// per `logged` flag.
+bool words_match(const psprecomp::GuestMemory &memory, std::span<const GatherWord> words, bool &logged) {
     bool ready = true;
     bool differs = false;
-    for (const GatherWord &word : kWords) {
+    for (const GatherWord &word : words) {
         if (memory.raw_pointer(word.address, 4u) == nullptr) {
             ready = false;
             continue;
         }
         if (memory.load32(word.address) != word.instruction) differs = true;
     }
-    if (differs && !code_logged()) {
-        code_logged() = true;
-        for (const GatherWord &word : kWords)
+    if (differs && !logged) {
+        logged = true;
+        for (const GatherWord &word : words)
             if (memory.raw_pointer(word.address, 4u) != nullptr && memory.load32(word.address) != word.instruction)
                 std::cout << "[gather] game code differs at 0x" << std::hex << word.address << ": 0x"
                           << memory.load32(word.address) << ", expected 0x" << word.instruction << std::dec
                           << std::endl;
     }
     return ready && !differs;
+}
+
+} // namespace
+
+bool gather_code_matches(const psprecomp::GuestMemory &memory) {
+    if (!overlay_loaded(memory, kTaskSlot, kQuestOverlay)) return false;
+    return words_match(memory, kWords, code_logged());
 }
 
 std::optional<GatherNode> gather_from_list(const psprecomp::GuestMemory &memory, std::uint32_t list, float hunter_x,
@@ -262,6 +307,26 @@ void trace_carve(const psprecomp::GuestMemory &memory, std::uint32_t record) {
     std::cout << std::dec << std::endl;
 }
 
+// MHFU_TRACE_GATHER: the object the spot search (game_task 0x09AA6B18) asks
+// for its list of fishing and other spots. Its first word is at the carve
+// table's word, and the search calls method +40 of its vtable for the area's
+// spots. Printed once for each object, to read that method.
+void trace_spot_source(const psprecomp::GuestMemory &memory) {
+    if (!trace_on() || !in_ram(kCarveTable, 4u, memory)) return;
+    const std::uint32_t table = memory.load32(kCarveTable);
+    if (!in_ram(table, 4u, memory)) return;
+    const std::uint32_t object = memory.load32(table);
+    static std::uint32_t last = 0u;
+    if (object == last || !in_ram(object, 64u, memory)) return;
+    last = object;
+    const std::uint32_t vtable = memory.load32(object);
+    const std::uint32_t method = in_ram(vtable + 40u, 4u, memory) ? memory.load32(vtable + 40u) : 0u;
+    std::cout << "[gather] spot source: table 0x" << std::hex << table << " object 0x" << object << " vtable 0x"
+              << vtable << " method+40 0x" << method << " words:";
+    for (std::uint32_t offset = 0; offset < 64u; offset += 4u) std::cout << ' ' << memory.load32(object + offset);
+    std::cout << std::dec << std::endl;
+}
+
 } // namespace
 
 std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
@@ -303,6 +368,119 @@ bool carve_in_reach(const psprecomp::GuestMemory &memory) {
     return carve_body(memory).has_value();
 }
 
+namespace {
+
+// lobby_task 0x09AAF290 keeps the point in reach, 0x09AAD350 starts it on □,
+// and game_sub counts the uses left on a farm spot.
+constexpr GatherWord kFarmWords[] = {
+    {0x09AAF3ACu, 0xAE510554u}, // sw s1,1364(s2): the point in reach
+    {0x09AAD4CCu, 0x962401E6u}, // lhu a0,486(s1): the local hunter only
+    {0x09AAD4F8u, 0x3C0309B2u}, // lui v1,0x09B2: the village state object
+    {0x09AAD4FCu, 0x8C702E70u}, // lw s0,11888(v1): the pointer at 0x09B22E70
+    {0x09AAD7B4u, 0x8E040000u}, // lw a0,0(s0): its state
+    {0x09AAD7CCu, 0x8603001Au}, // lh v1,26(s0): and the halfword at +26
+    {0x09AADA40u, 0x8E230484u}, // lw v1,1156(s1): the buttons new this read
+    {0x09AADA44u, 0x30638000u}, // andi v1,v1,0x8000: □ starts the point
+    {0x09AADA54u, 0x96430002u}, // lhu v1,2(s2): the point's type
+    {0x09AADA64u, 0x3C0409B1u}, // lui a0,0x09B1
+    {0x09AADA6Cu, 0x2484F300u}, // addiu a0,a0,-3328: the table at 0x09B0F300
+    {0x09B0F33Cu, 0x09AAE08Cu}, // type 15: mining
+    {0x09B0F340u, 0x09AAE118u}, // type 16: bugs
+    {0x09AAE094u, 0x0E70A57Eu}, // jal 0x09C295F8: mining uses left
+    {0x09AAE120u, 0x0E70A592u}, // jal 0x09C29648: bug uses left
+    {0x09C29604u, 0x3421A238u}, // ori at,at,0xA238: the farm in GameSys
+    {0x09C2960Cu, 0x90620002u}, // lbu v0,2(v1): the mining spot count
+    {0x09C29624u, 0x94420008u}, // lhu v0,8(v0): its uses left
+    {0x09C29654u, 0x3421A238u}, // ori at,at,0xA238
+    {0x09C2965Cu, 0x90620003u}, // lbu v0,3(v1): the bug spot count
+    {0x09C29674u, 0x94420030u}, // lhu v0,48(v0): its uses left
+    {0x08886E80u, 0x3C03089Du}, // lui v1,0x89d: the base of the hunter list
+    {0x08886EF8u, 0x8E130A84u}, // lw s3,2692(s0): the hunter the camera follows
+};
+
+constexpr std::uint32_t kVillageState = 0x09B22E70u;
+constexpr std::uint32_t kVillageBlock = 26u;
+constexpr std::uint32_t kPointInReach = 1364u;
+constexpr std::uint32_t kPointType = 2u;
+constexpr std::uint32_t kPointIndex = 22u;
+constexpr std::uint32_t kHunterSlot = 486u;
+constexpr std::uint32_t kLocalSlot = 40u;
+constexpr std::uint32_t kFarm = 0x6A238u;
+constexpr std::uint32_t kFarmStride = 8u;
+
+bool &farm_logged() {
+    static bool logged = false;
+    return logged;
+}
+
+// MHFU_TRACE_GATHER: the farm spot in reach, once each time it changes.
+void trace_farm(const std::optional<FarmPoint> &point) {
+    if (!trace_on()) return;
+    static std::uint32_t last = 1u;
+    static std::uint16_t last_uses = 0u;
+    const std::uint32_t address = point ? point->address : 0u;
+    const std::uint16_t uses = point ? point->uses : 0u;
+    if (address == last && uses == last_uses) return;
+    last = address;
+    last_uses = uses;
+    if (!point) {
+        std::cout << "[gather] farm none" << std::endl;
+        return;
+    }
+    std::cout << "[gather] farm 0x" << std::hex << point->address << std::dec << " type " << point->type << " index "
+              << point->index << " uses " << point->uses << std::endl;
+}
+
+std::optional<FarmPoint> read_farm(const psprecomp::GuestMemory &memory) {
+    if (!farm_code_matches(memory) || !in_ram(kHunterList, 4u, memory) || !in_ram(kGameSysPointer, 4u, memory) ||
+        !in_ram(kVillageState, 4u, memory))
+        return std::nullopt;
+    const std::uint32_t list = memory.load32(kHunterList);
+    if (!in_ram(list + kFollowedHunter, 4u, memory)) return std::nullopt;
+    const std::uint32_t hunter = memory.load32(list + kFollowedHunter);
+    const std::uint32_t gamesys = memory.load32(kGameSysPointer);
+    const std::uint32_t state = memory.load32(kVillageState);
+    if (!in_ram(hunter, kPointInReach + 4u, memory) || !in_ram(gamesys + kLocalSlot, 1u, memory) ||
+        !in_ram(gamesys + kFarm, 4u, memory) || !in_ram(state, kVillageBlock + 2u, memory))
+        return std::nullopt;
+    if (memory.load16(hunter + kHunterSlot) != memory.load8(gamesys + kLocalSlot)) return std::nullopt;
+    // Another state is a menu, a talk or a gather already running: the
+    // handler does not start a point then.
+    if (memory.load32(state) != 0u || memory.load16(state + kVillageBlock) != 0u) return std::nullopt;
+    const std::uint32_t point = memory.load32(hunter + kPointInReach);
+    if (!in_ram(point, kPointIndex + 2u, memory)) return std::nullopt;
+    const std::uint16_t type = memory.load16(point + kPointType);
+    if (type != kFarmMining && type != kFarmBugs) return std::nullopt;
+    const std::uint16_t index = memory.load16(point + kPointIndex);
+    const std::uint32_t farm = gamesys + kFarm;
+    // 0x09C295F8 and 0x09C29648: an index past the count has no uses.
+    const std::uint8_t count = memory.load8(farm + (type == kFarmMining ? 2u : 3u));
+    if (index > count) return std::nullopt;
+    const std::uint32_t uses_at = farm + (type == kFarmMining ? 8u : 48u) + index * kFarmStride;
+    if (!in_ram(uses_at, 2u, memory)) return std::nullopt;
+    const std::uint16_t uses = memory.load16(uses_at);
+    if (uses == 0u) return std::nullopt;
+    return FarmPoint{point, type, index, uses};
+}
+
+} // namespace
+
+std::span<const GatherWord> farm_checked_words() {
+    return kFarmWords;
+}
+
+bool farm_code_matches(const psprecomp::GuestMemory &memory) {
+    if (!overlay_loaded(memory, kTaskSlot, kVillageOverlay) || !overlay_loaded(memory, kSubSlot, kSubOverlay))
+        return false;
+    return words_match(memory, kFarmWords, farm_logged());
+}
+
+std::optional<FarmPoint> farm_point(const psprecomp::GuestMemory &memory) {
+    const std::optional<FarmPoint> point = read_farm(memory);
+    trace_farm(point);
+    return point;
+}
+
 std::optional<GatherNode> gather_node(const psprecomp::GuestMemory &memory) {
     const std::optional<GatherNode> node = read_node(memory);
     trace_node(node);
@@ -324,13 +502,18 @@ GatherGlyph gather_glyph(std::uint16_t kind) noexcept {
 }
 
 std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory) {
+    if (gather_code_matches(memory)) trace_spot_source(memory);
     // The circle handler tries the gather list first and carves only when it
     // misses, so a node in range takes the mark.
     if (const std::optional<GatherNode> node = gather_node(memory))
-        return GatherTarget{node->address, node->x, node->y, node->z, gather_glyph(node->kind),
-            gather_uses_square(node->kind) ? kGatherSquare : kGatherCircle};
+        {
+        GatherArt art;
+        if (gather_art_code_matches(memory)) art = gather_art_for(memory, node->kind, node->id);
+        trace_art(memory, *node, art);
+        return GatherTarget{node->address, node->x, node->y, node->z, gather_glyph(node->kind), art};
+    }
     if (const std::optional<CarveBody> body = carve_body(memory))
-        return GatherTarget{body->address, body->x, body->y, body->z, GatherGlyph::Carve, kGatherCircle};
+        return GatherTarget{body->address, body->x, body->y, body->z, GatherGlyph::Carve};
     return std::nullopt;
 }
 
@@ -360,13 +543,13 @@ void GatherMotion::step(const std::optional<GatherTarget> &target) {
     }
     live_ = true;
     glyph_ = target->glyph;
-    button_ = target->button;
+    art_ = target->art;
     alpha_ = std::min(1.0f, alpha_ + kFadeStep);
 }
 
 std::optional<GatherMotion::Shown> GatherMotion::shown() const {
     if (!live_ || alpha_ <= 0.0f) return std::nullopt;
-    return Shown{x_, y_, z_, alpha_, glyph_, button_};
+    return Shown{x_, y_, z_, alpha_, glyph_, art_};
 }
 
 std::optional<GatherMark> gather_mark(
@@ -392,13 +575,14 @@ std::optional<GatherMark> gather_mark(
         point = std::array<float, 3>{shown->x, shown->y, shown->z};
         mark.alpha = shown->alpha;
         mark.glyph = shown->glyph;
-        mark.button = shown->button;
+        mark.art = shown->art;
     } else if (target) {
         point = std::array<float, 3>{target->x, target->y, target->z};
         mark.glyph = target->glyph;
-        mark.button = target->button;
+        mark.art = target->art;
     }
     if (!point) return std::nullopt;
+    mark.world = *point;
     const auto project = [&]() -> std::optional<std::array<float, 2>> {
         const WorldPoint eye{pose->eye_x, pose->eye_y, pose->eye_z};
         const WorldPoint look{pose->look_x, pose->look_y, pose->look_z};
@@ -506,6 +690,8 @@ std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &m
             else circle_ready = true;
         }
         if (carve_in_reach(memory)) circle_ready = true;
+        // The farm's mining outcrops and bug thickets, in the village.
+        if (farm_point(memory)) square_ready = true;
     }
     // Even away from a point the held gather button is still tracked, so walking
     // onto one with it already down starts on the up part of the pulse.
