@@ -28,9 +28,11 @@
 #include "game/gather_icon.hpp"
 #include "gpu/screenshot.hpp"
 #include "gpu/game_hud.hpp"
+#include "gpu/ui_motion.hpp"
 #include "gpu/vulkan_renderer.hpp"
 #include "hle/hle_common.hpp"
 #include "input/bindings.hpp"
+#include "input/button_face.hpp"
 #include "install/game_identity.hpp"
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
@@ -57,6 +59,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <string_view>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -552,7 +555,7 @@ void Menu::video() {
     if (toggle_row("Gather icon", s.gather_icon,
             options_for("game.gather_icon",
                 "On: a ? floats above a gather point while you are close enough for ○ to gather it, and above "
-                "a monster or a cut tail you can carve. "
+                "a monster or a cut tail you can carve, with the button that gathers it beside it. "
                 "Off: no mark, and the gather list is not read."))) {
         s.gather_icon = !s.gather_icon;
         settings::save();
@@ -2232,9 +2235,9 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
     }
 }
 
-std::optional<std::array<float, 2>> &gather_mark_at() {
-    static std::optional<std::array<float, 2>> at;
-    return at;
+std::optional<game::GatherMark> &gather_mark_at() {
+    static std::optional<game::GatherMark> mark;
+    return mark;
 }
 
 // Lock-on's marker (camera/lock_on.hpp): a red ring, a cross through it, and
@@ -2266,34 +2269,128 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
     }
 }
 
+// MHFU_GATHER_BUTTON_HINT=0 leaves the button off the gather mark.
+bool gather_button_hint() {
+    static const bool on = [] {
+        const char *value = std::getenv("MHFU_GATHER_BUTTON_HINT");
+        return value == nullptr || std::string_view(value) != "0";
+    }();
+    return on;
+}
+
+// The button that gathers, beside the mark (input/button_face.hpp): the
+// pad's face for it while a gamepad is connected, else the key bound to it.
+void draw_gather_button(ImDrawList *draw, ImVec2 centre, float radius, float alpha, std::uint32_t button) {
+    Layer &layer = Layer::get();
+    const bool pad = layer.renderer().gamepad() != nullptr;
+    const settings::Settings &player = settings::current();
+    const input::Action action = button == game::kGatherSquare ? input::Action::Square : input::Action::Circle;
+    const input::Binding pressed = input::pressed_for(
+        pad ? player.controls.pad : player.controls.keys, action, pad, player.confirm_south);
+    if (pressed == input::kNone) return;
+    const input::ButtonFace face = input::button_face(pressed, pad ? pad_style() : input::PadStyle::Generic);
+    const auto ink = [&](std::uint8_t r, std::uint8_t g, std::uint8_t b, float a) {
+        return IM_COL32(r, g, b, static_cast<int>(std::clamp(a * alpha, 0.0f, 1.0f) * 255.0f));
+    };
+    const ImU32 shadow = ink(0, 0, 0, 0.7f);
+    const ImU32 colour = ink(face.red, face.green, face.blue, 0.95f);
+    const ImU32 white = ink(250, 246, 236, 0.95f);
+    const ImU32 dark = ink(20, 16, 12, 0.85f);
+    const float line = std::max(1.0f, radius * 0.18f);
+    ImFont *font = ImGui::GetFont();
+    const auto text_at = [&](const std::string &text, float size, ImVec2 at) {
+        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
+        draw->AddText(font, size, {at.x - extent.x * 0.5f, at.y - extent.y * 0.5f}, white, text.c_str());
+    };
+    switch (face.shape) {
+    case input::ButtonFace::Shape::Letter:
+        draw->AddCircleFilled(centre, radius, colour, 24);
+        draw->AddCircle(centre, radius, shadow, 24, std::max(1.0f, line * 0.6f));
+        text_at(face.text, radius * 1.4f, centre);
+        break;
+    case input::ButtonFace::Shape::Label: {
+        const float size = radius * 1.2f;
+        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, face.text.c_str());
+        const float half_w = std::max(radius, extent.x * 0.5f + radius * 0.45f);
+        const ImVec2 min{centre.x - half_w, centre.y - radius};
+        const ImVec2 max{centre.x + half_w, centre.y + radius};
+        draw->AddRectFilled(min, max, dark, radius * 0.35f);
+        draw->AddRect(min, max, ink(250, 246, 236, 0.6f), radius * 0.35f, 0, std::max(1.0f, line * 0.5f));
+        text_at(face.text, size, centre);
+        break;
+    }
+    default: {
+        // The PlayStation symbols, drawn in their colour on a dark disc.
+        draw->AddCircleFilled(centre, radius, dark, 24);
+        draw->AddCircle(centre, radius, shadow, 24, std::max(1.0f, line * 0.6f));
+        const float s = radius * 0.5f;
+        if (face.shape == input::ButtonFace::Shape::Circle) {
+            draw->AddCircle(centre, s, colour, 20, line);
+        } else if (face.shape == input::ButtonFace::Shape::Cross) {
+            draw->AddLine({centre.x - s, centre.y - s}, {centre.x + s, centre.y + s}, colour, line);
+            draw->AddLine({centre.x - s, centre.y + s}, {centre.x + s, centre.y - s}, colour, line);
+        } else if (face.shape == input::ButtonFace::Shape::Square) {
+            draw->AddRect({centre.x - s * 0.9f, centre.y - s * 0.9f}, {centre.x + s * 0.9f, centre.y + s * 0.9f},
+                colour, 0.0f, 0, line);
+        } else {
+            draw->AddTriangle({centre.x, centre.y - s}, {centre.x - s * 1.05f, centre.y + s * 0.75f},
+                {centre.x + s * 1.05f, centre.y + s * 0.75f}, colour, line);
+        }
+        break;
+    }
+    }
+}
+
 // The gather mark (game/gather_icon.hpp): a dark disc and ?, in the game's
-// pixels, above the node. Drawn by the interface and never into the game's frames.
-void draw_gather_mark(const std::array<float, 2> &at) {
+// pixels, above the node, with the button that gathers it at its lower
+// right. It grows a little as it fades in. Its vertices follow frame
+// interpolation (gpu/ui_motion.hpp) from where the last game frame drew it.
+// Drawn by the interface and never into the game's frames.
+void draw_gather_mark(const game::GatherMark &mark) {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
-    const ImVec2 centre{
-        (picture[0] + at[0] * picture[2]) * io.DisplaySize.x, (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
-    const float pixel = picture[3] * io.DisplaySize.y / 272.0f;
+    const auto screen = [&](const std::array<float, 2> &at) {
+        return ImVec2{
+            (picture[0] + at[0] * picture[2]) * io.DisplaySize.x, (picture[1] + at[1] * picture[3]) * io.DisplaySize.y};
+    };
+    const ImVec2 centre = screen(mark.at);
+    const float alpha = std::clamp(mark.alpha, 0.0f, 1.0f);
+    // Ease out: most of the growth comes early in the fade.
+    const float grow = 0.8f + 0.2f * (1.0f - (1.0f - alpha) * (1.0f - alpha));
+    const float pixel = picture[3] * io.DisplaySize.y / 272.0f * grow;
     const settings::Settings &player = settings::current();
     const game::GatherShape shape = game::gather_mark_shape(player.gather_icon_size, player.gather_icon_thickness);
     const float radius = shape.radius * pixel;
     const float ring = std::max(1.0f, shape.ring * pixel);
     const int segments = std::clamp(static_cast<int>(shape.radius * 3.0f), 16, 48);
+    const auto fade = [&](int r, int g, int b, int a) {
+        return IM_COL32(r, g, b, static_cast<int>(static_cast<float>(a) * alpha));
+    };
     ImDrawList *draw = ImGui::GetForegroundDrawList();
-    draw->AddCircleFilled(centre, radius, IM_COL32(20, 16, 12, 210), segments);
-    draw->AddCircle(centre, radius, IM_COL32(0, 0, 0, 180), segments, ring);
+    const int first_vertex = draw->VtxBuffer.Size;
+    draw->AddCircleFilled(centre, radius, fade(20, 16, 12, 210), segments);
+    draw->AddCircle(centre, radius, fade(0, 0, 0, 180), segments, ring);
     const char *label = "?";
     const float size = shape.glyph * pixel;
     ImFont *font = ImGui::GetFont();
     const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
     const ImVec2 origin{centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f};
-    const ImU32 ink = IM_COL32(245, 236, 214, 240);
+    const ImU32 ink = fade(245, 236, 214, 240);
     const float weight = shape.weight * pixel;
     if (weight >= 0.25f)
         for (const game::Offset &offset : game::stroke_offsets(weight, 2))
             if (offset.x != 0.0f || offset.y != 0.0f)
                 draw->AddText(font, size, {origin.x + offset.x, origin.y + offset.y}, ink, label);
     draw->AddText(font, size, origin, ink, label);
+    if (gather_button_hint()) {
+        const float offset = radius * 0.78f;
+        draw_gather_button(
+            draw, {centre.x + offset, centre.y + offset}, std::max(3.0f, radius * 0.5f), alpha, mark.button);
+    }
+    if (mark.older) {
+        const ImVec2 older = screen(*mark.older);
+        gpu::ui_motion::add(draw, first_vertex, draw->VtxBuffer.Size, {older.x - centre.x, older.y - centre.y});
+    }
 }
 } // namespace
 
@@ -2305,8 +2402,8 @@ void set_hunt_portraits(std::vector<camera::HuntPortrait> portraits) {
     hunt_portraits_at() = std::move(portraits);
 }
 
-void set_gather_mark(std::optional<std::array<float, 2>> at) {
-    gather_mark_at() = at;
+void set_gather_mark(std::optional<game::GatherMark> mark) {
+    gather_mark_at() = mark;
 }
 
 namespace {
@@ -2402,7 +2499,7 @@ void draw_over_game() {
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
     const std::vector<camera::HuntPortrait> portraits =
         menu ? std::vector<camera::HuntPortrait>{} : hunt_portraits_at();
-    const std::optional<std::array<float, 2>> gather = menu ? std::nullopt : gather_mark_at();
+    const std::optional<game::GatherMark> gather = menu ? std::nullopt : gather_mark_at();
     const bool numbers = !menu && !layer.renderer().window_capture_pending() && !game::damage_numbers().empty();
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !fast && !noted && hud_note <= 0.0 &&
         !marker && portraits.empty() && !gather && !numbers)

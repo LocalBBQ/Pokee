@@ -6,6 +6,7 @@
 #include "ui/input_script.hpp"
 #include "ui/widgets.hpp"
 
+#include "gpu/ui_motion.hpp"
 #include "gpu/vulkan_renderer.hpp"
 #include "input/bindings.hpp"
 #include "install/user_data.hpp"
@@ -477,6 +478,7 @@ void Layer::apply_theme() {
 }
 
 void Layer::begin_frame() {
+    gpu::ui_motion::begin_frame();
     renderer_->begin_ui_frame();
     // Blocked, the interface reads no gamepad at all, while the keyboard,
     // the mouse and touches still work. Afterwards the pads count again once
