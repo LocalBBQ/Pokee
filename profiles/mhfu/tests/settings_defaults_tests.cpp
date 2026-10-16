@@ -336,7 +336,7 @@ void test_crisp_text() {
     Settings chosen = from_entries({});
     chosen.crisp_text = true;
     const Entries written = to_entries(chosen);
-    check(written.count("settings.version") == 1u && written.at("settings.version") == "2",
+    check(written.count("settings.version") == 1u && written.at("settings.version") == "3",
         "every file written says its version");
     check(from_entries(written).crisp_text, "Sharp text turned on now stays on");
     Entries off = written;
@@ -375,11 +375,16 @@ void test_lock_on_and_damage_numbers() {
     gather["game.gather_hold"] = "0";
     check(!from_entries(gather).gather_hold, "the file turns holding ○ to gather off");
     check(!from_entries(to_entries(from_entries(gather))).gather_hold, "and that off survives a round trip");
-    check(!fresh.empty_item_slot, "the item bar starts without an empty slot");
+    check(fresh.empty_item_slot, "the item bar starts with an empty slot");
     Entries empty_slot = to_entries(fresh);
-    empty_slot["game.empty_item_slot"] = "1";
-    check(from_entries(empty_slot).empty_item_slot, "the file turns the empty item slot on");
-    check(from_entries(to_entries(from_entries(empty_slot))).empty_item_slot, "and on survives a round trip");
+    empty_slot["game.empty_item_slot"] = "0";
+    check(!from_entries(empty_slot).empty_item_slot, "the file turns the empty item slot off");
+    check(!from_entries(to_entries(from_entries(empty_slot))).empty_item_slot, "and off survives a round trip");
+    Entries earlier_slot = to_entries(fresh);
+    earlier_slot["settings.version"] = "2";
+    earlier_slot["game.empty_item_slot"] = "0";
+    check(from_entries(earlier_slot).empty_item_slot,
+        "game.empty_item_slot=0 from before version 3 is its default, not a choice");
     check(fresh.gather_icon_size == 100u && fresh.gather_icon_thickness == 1u,
         "the gather mark starts at its usual size and the thinnest ring");
     Entries mark = to_entries(fresh);
