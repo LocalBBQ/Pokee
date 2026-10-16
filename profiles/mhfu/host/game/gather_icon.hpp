@@ -46,6 +46,7 @@ struct GatherNode {
 };
 
 // True for the kinds the game gathers with □: mining (3) and a bug net (4).
+// gather_glyph names the same kinds.
 [[nodiscard]] inline bool gather_uses_square(std::uint16_t kind) noexcept {
     return kind == 3u || kind == 4u;
 }
@@ -121,14 +122,95 @@ struct GatherPose {
 // The perspective draw with the most vertices since the mark last asked.
 void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices);
 
-// Where the mark goes on the picture, 0..1 from the top left, while Gather
-// icon is on: over the node ○ or □ would gather, or, with no node in range,
-// over the monster body or the cut tail ○ would carve (carve_body). Nothing
-// when it is off, the code differs, there is nothing to gather or carve, or
-// that point is behind the camera or off the picture. Takes the draw noted
-// since the last call.
-[[nodiscard]] std::optional<std::array<float, 2>> gather_mark(
-    const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose);
+// What the mark stands for: the node's kind, or a carve.
+enum class GatherGlyph : std::uint8_t { Plant, Mining, BugNet, Carve };
+
+// 3 is mining and 4 a bug net; every other kind is gathered with ○ and shown
+// as a plant.
+[[nodiscard]] GatherGlyph gather_glyph(std::uint16_t kind) noexcept;
+
+inline constexpr std::uint32_t kGatherCircle = 0x2000u; // ○
+inline constexpr std::uint32_t kGatherSquare = 0x8000u; // □
+
+// The thing ○ or □ would gather or carve now: the node, or with none in range
+// the body (carve_body). `address` is its record, so a new target is told
+// from the same one.
+struct GatherTarget {
+    std::uint32_t address{};
+    float x{};
+    float y{};
+    float z{};
+    GatherGlyph glyph{};
+    std::uint32_t button{kGatherCircle}; // kGatherCircle or kGatherSquare
+};
+[[nodiscard]] std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory);
+
+// The mark as it moves, one step per game frame. A new target fades the mark
+// in, and losing it fades the mark out at the place it was. Moving from one
+// target to another near it glides there in world space; a far one is jumped
+// to. The screen place of the last step is kept, so a present between two
+// game frames can blend the mark as it blends the world.
+class GatherMotion {
+public:
+    // Opacity gained or lost per game frame: four frames, about 130 ms.
+    static constexpr float kFadeStep = 0.25f;
+    // The part of the way to a new target covered per game frame.
+    static constexpr float kGlide = 0.5f;
+    // Closer than this, in world units, a glide ends on the target.
+    static constexpr float kArrive = 1.0f;
+    // A target farther than this from the mark is jumped to.
+    static constexpr float kJump = 600.0f;
+
+    struct Shown {
+        float x{};
+        float y{};
+        float z{};
+        float alpha{};
+        GatherGlyph glyph{};
+        std::uint32_t button{kGatherCircle};
+    };
+
+    // One game frame with this target, or none.
+    void step(const std::optional<GatherTarget> &target);
+    // Where the mark is drawn after the last step; nothing once it has faded.
+    [[nodiscard]] std::optional<Shown> shown() const;
+    // The screen place drawn for the last step, 0..1, or nothing.
+    [[nodiscard]] const std::optional<std::array<float, 2>> &last_at() const { return last_at_; }
+    void set_last_at(std::optional<std::array<float, 2>> at) { last_at_ = at; }
+    void reset() { *this = GatherMotion{}; }
+
+private:
+    bool live_{};
+    float x_{};
+    float y_{};
+    float z_{};
+    float alpha_{};
+    GatherGlyph glyph_{};
+    std::uint32_t button_{kGatherCircle};
+    std::optional<std::array<float, 2>> last_at_;
+};
+
+// The mark for one game frame.
+struct GatherMark {
+    std::array<float, 2> at{}; // on the picture, 0..1 from the top left
+    // Where the previous game frame drew it, when it was drawn; an
+    // interpolated present between the two blends from there.
+    std::optional<std::array<float, 2>> older;
+    float alpha{1.0f};
+    GatherGlyph glyph{};
+    std::uint32_t button{kGatherCircle};
+};
+
+// Where the mark goes on the picture while Gather icon is on: over the node
+// ○ or □ would gather, or, with no node in range, over the monster body or
+// the cut tail ○ would carve (carve_body). Nothing when it is off, the code
+// differs, there is nothing to gather or carve, or that point is behind the
+// camera or off the picture. Takes the draw noted since the last call.
+// Without `motion` the mark is where the target is, at full opacity. With
+// it, `motion` steps once and the mark is where it shows; a frame without a
+// world draw, or the setting off, resets it.
+[[nodiscard]] std::optional<GatherMark> gather_mark(const psprecomp::GuestMemory &memory,
+    const std::optional<GatherPose> &pose, GatherMotion *motion = nullptr);
 
 // The pulse a hold sends, in pad reads the game takes: the gather button down
 // for kGatherPulseDown reads, then up for kGatherPulseUp. Each part is long
