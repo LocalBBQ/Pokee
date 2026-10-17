@@ -169,7 +169,7 @@ fi
 
 [[ -x "$stage/Pokee" ]] || fail "nothing staged in $stage; run without --skip-build"
 overlay_count="$(find "$stage/overlays" -name '*.so' | wc -l)"
-# One library per overlay corpus. Freedom Unite has 298; the old 355 figure was Portable 3rd.
+# One library per overlay corpus.
 expected_overlays="$(find "$profile_dir/overlays" -name meta.txt | wc -l)"
 expected_overlays="${expected_overlays//[[:space:]]/}"
 [[ "$overlay_count" -eq "$expected_overlays" ]] ||

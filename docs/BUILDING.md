@@ -6,7 +6,7 @@ You need your own copy of *Monster Hunter Freedom Unite* (USA, `ULUS-10391`, ver
 
 ## How the build works
 
-The game's executable and its 355 code overlays are MIPS code for the PSP. The build turns them into C++ and compiles that for your machine, in five stages:
+The game's executable and its 290 code overlays are MIPS code for the PSP. The build turns them into C++ and compiles that for your machine, in five stages:
 
 | Stage | What happens | Command |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ The game's executable and its 355 code overlays are MIPS code for the PSP. The b
 | 2. Prepare the executable | The bootstrap checks your disc image and prepares the decrypted `EBOOT.ELF` from it | `Pokee --install image.iso` |
 | 3. Generate | Analyse `EBOOT.ELF` and write the recompiled executable as 89 C++ units in `profiles/mhfu/generated/` | `profiles/mhfu/scripts/generate.sh` |
 | 4. Compile the executable | Compile the 89 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhfu --target Pokee` |
-| 5. Overlays | Extract the 355 code overlays from the disc image's `DATA.BIN`, recompile each one, and build a shared library per overlay | `profiles/mhfu/scripts/build_overlays.sh` |
+| 5. Overlays | Extract the 290 code overlays from the disc image's `DATA.BIN`, recompile each one, and build a shared library per overlay | `profiles/mhfu/scripts/build_overlays.sh` |
 
 The installer accepts USA Freedom Unite `ULUS-10391` version 1.01 only: the disc id in `PARAM.SFO` must be `ULUS10391`, and the SHA-256 of the encrypted `EBOOT.BIN` must be that release's. Portable 3rd and other regions are refused. The accepted executable starts on its 32 MiB layout. `generate.sh` stamps the SHA-256 of the prepared executable it translates, and launch registers that corpus only for an executable with the same hash. That resident code is 67 units; its overlay sections are named in the ELF and contain no file bytes.
 
@@ -27,8 +27,8 @@ Measured on real machines, from a fresh clone with an empty compiler cache:
 | Stage | Apple M1, 8 GB (clang) | Steam Deck (gcc, 4 cores) |
 | --- | --- | --- |
 | 1–3: bootstrap, prepare, generate | minutes | minutes |
-| 4: the 89 generated units | about 12–14 min | about 30–40 min |
-| 5: the 355 overlays | about 40 min | several hours at `-j3` |
+| 4: the 67 generated units | about 12–14 min | about 30–40 min |
+| 5: the 290 overlays | about 40 min | several hours at `-j3` |
 | Everything, fresh clone | about 1 h 50 min | about 5–6 h |
 
 The generated units are very large, so compiling them needs a lot of memory. The build limits how many compile at once to one per 4 GiB of memory, whatever `-j` you pass (`PSPRECOMP_GENERATED_JOBS`). That is 2 on an 8 GB machine.
@@ -79,7 +79,7 @@ For Game Mode, add a small launch script to Steam as a non-Steam game. The scrip
 
 ## Windows
 
-> **Status:** the game builds with MSVC, including all 355 overlay DLLs, and plays. Creating a character, saving several times, restarting the game and loading the save have been tested on Windows 11. Please report problems with a **Test report** issue.
+> **Status:** the game builds with MSVC, including all 290 overlay DLLs, and plays. Creating a character, saving several times, restarting the game and loading the save have been tested on Windows 11. Please report problems with a **Test report** issue.
 
 | Tool | Notes |
 | --- | --- |
@@ -176,7 +176,7 @@ The generated code is its own object library, and every compile goes through `cc
 | A shader | The embedded shaders and the renderer | Seconds |
 | The runtime's sources in `src/` | Those files, then every tool and executable that links the runtime | Seconds to a minute |
 | `profiles/mhfu/CMakeLists.txt` (flags, sources) | Host files only; the generated units have their own flags | Seconds to a minute |
-| Headers in `include/psprecomp/` (the runtime the generated code uses) | All 89 generated units **and** all 355 overlays | The full build again, unless `ccache` already holds that exact version |
+| Headers in `include/psprecomp/` (the runtime the generated code uses) | All 67 generated units **and** all 290 overlays | The full build again, unless `ccache` already holds that exact version |
 | The recompiler, then `generate.sh` | Only the units whose generated text changed | Depends on the change |
 
 Keep `include/psprecomp/` stable when you can. It is the one place where a small edit costs hours.
