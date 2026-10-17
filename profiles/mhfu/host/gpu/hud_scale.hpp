@@ -330,13 +330,23 @@ inline constexpr std::uint32_t kFrameRightTexture = 0x091644A0u;
 // map is square: the ad hoc window's side is 16 by 112 and its body 96 by
 // 112. The shop and return-to-town panels are 40 square, but they are filed
 // by other code, so only the quest HUD's ring is moved with the map.
+// When a paintballed flying monster lands in a new area, the map pings it: a
+// ring from the same atlas grows out of the monster's dot, past the map's
+// own size. Capped at 72 it was left at the game's size once it grew, and,
+// square and over the map, it was taken for a window that held every mark at
+// the game's size while it grew. A ring from the atlas stays a ring at any
+// size while its centre is on the map.
 [[nodiscard]] inline bool is_map_ring(Rect rect, std::uint32_t texture) {
     if (texture == kAreaMapTexture || is_window_frame_texture(texture)) return false;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    return width > 36.0f && width <= 72.0f && std::fabs(width - height) <= 2.0f &&
-        overlaps({kMapLeft - 16.0f, kMapTop - 16.0f, kMapRight + 16.0f, kMapBottom + 16.0f}, r);
+    if (width <= 36.0f || std::fabs(width - height) > 2.0f) return false;
+    if (width <= 72.0f) return overlaps({kMapLeft - 16.0f, kMapTop - 16.0f, kMapRight + 16.0f, kMapBottom + 16.0f}, r);
+    const float cx = 0.5f * (r.x0 + r.x1);
+    const float cy = 0.5f * (r.y0 + r.y1);
+    return texture == kMapIconTexture && width <= 480.0f && cx >= kMapLeft && cx <= kMapRight && cy >= kMapTop &&
+        cy <= kMapBottom;
 }
 
 // A window over the area map: a sprite larger than any mark in both
@@ -1572,7 +1582,9 @@ struct Frame {
         remember_notice_edge(rect);
         remember_obtain_banner(rect);
         if (is_bowgun_icon(rect)) bowgun_now = true;
-        if (is_item_list(rect)) list_now = true;
+        // A map ping grown past the map reaches the item bar's band, the
+        // list's own shape; taken for the list, it held the map as drawn.
+        if (is_item_list(rect) && !is_map_ring(rect, texture)) list_now = true;
         if (is_map_panel(rect, texture)) panel_now = true;
         if (is_party_window_tile(rect)) party_window_now = true;
     }

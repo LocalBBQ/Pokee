@@ -113,8 +113,12 @@ float gain(const settings::Settings &s) {
     return s.mute ? 0.0f : static_cast<float>(s.volume) / 100.0f;
 }
 
-constexpr const char *kTabs[] = {"Video", "Audio", "Controls", "Network", "Mods", "System"};
+// The menu's pages, in the order of kTabs. settings.ini keeps a page by
+// name, so the order can change between versions.
+enum class Page { Video, Audio, Controls, Game, Network, Mods, System };
+constexpr const char *kTabs[] = {"Video", "Audio", "Controls", "Game", "Network", "Mods", "System"};
 constexpr int kTabCount = static_cast<int>(std::size(kTabs));
+static_assert(kTabCount == static_cast<int>(Page::System) + 1, "a name for every page");
 
 // Where the menu was when it last closed (#189): its page, how far that page
 // was scrolled and which row had the focus. Opening the menu again goes back
@@ -168,12 +172,14 @@ private:
     void audio();
     void controls();
     void preset_rows();
+    void game();
     void network();
     void mods();
     void system();
     bool confirm_dialog();
 
     gpu::VulkanRenderer &renderer() { return Layer::get().renderer(); }
+    [[nodiscard]] Page page() const noexcept { return static_cast<Page>(tab_); }
 
     bool paused_{}; // the game is paused behind the menu, rather than running
     int tab_{};
@@ -206,9 +212,10 @@ bool Menu::frame() {
     const bool start = ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false);
     // Back closes the font list, or the save import and export, before it
     // closes the menu.
-    bool font_list_was_open = (tab_ == 0 && (font_list_open() || texture_pack_screen_open())) ||
-        (tab_ == 2 && controllers_screen_open()) ||
-        (tab_ == 4 && (mods_screen_open() || layered_armor_screen_open())) || (tab_ == 5 && save_screen_open());
+    bool font_list_was_open = (page() == Page::Video && (font_list_open() || texture_pack_screen_open())) ||
+        (page() == Page::Controls && controllers_screen_open()) ||
+        (page() == Page::Mods && (mods_screen_open() || layered_armor_screen_open())) ||
+        (page() == Page::System && save_screen_open());
     back_ = back || pad_back;
 
     // The touch layout's editor takes the whole screen until it is done.
@@ -219,16 +226,15 @@ bool Menu::frame() {
     }
 
     begin_panel("##menu", "Pokee", paused_ ? "Paused" : "Running", true);
-    const int tab_count = 6;
     // A page that is not there this run gives way to the first.
-    if (tab_ >= tab_count) tab_ = 0;
+    if (tab_ >= kTabCount) tab_ = 0;
     static int dropdown_tab = -1;
     if (dropdown_tab != tab_) {
         dismiss_dropdowns();
         dropdown_tab = tab_;
     }
     const bool opening = first_frame_;
-    const bool switched = tab_bar(kTabs, tab_count, tab_) || first_frame_;
+    const bool switched = tab_bar(kTabs, kTabCount, tab_) || first_frame_;
     first_frame_ = false;
     begin_content();
     MenuPlace &place = menu_place();
@@ -247,23 +253,26 @@ bool Menu::frame() {
         focus_next_row();
         ImGui::SetScrollY(0.0f);
     }
-    switch (tab_) {
-    case 0:
+    switch (page()) {
+    case Page::Video:
         video();
         break;
-    case 1:
+    case Page::Audio:
         audio();
         break;
-    case 2:
+    case Page::Controls:
         controls();
         break;
-    case 3:
+    case Page::Game:
+        game();
+        break;
+    case Page::Network:
         network();
         break;
-    case 4:
+    case Page::Mods:
         mods();
         break;
-    default:
+    case Page::System:
         system();
         break;
     }
@@ -285,7 +294,7 @@ bool Menu::frame() {
             place.focus = 0u;
     }
     begin_footer();
-    const BindingsFocus binding = tab_ == 2 ? bindings_focus() : BindingsFocus::None;
+    const BindingsFocus binding = page() == Page::Controls ? bindings_focus() : BindingsFocus::None;
     if (binding == BindingsFocus::Binding && bindings_focus_resettable())
         hints({{Control::Confirm, "Rebind"}, {Control::Clear, "Clear"}, {Control::Reset, "Reset action"},
             {Control::Back, "Back"}, {Control::Tabs, "Section"}});
@@ -298,7 +307,7 @@ bool Menu::frame() {
     else if (binding == BindingsFocus::Reset)
         hints({{Control::Confirm, "Reset action"}, {Control::Back, "Back"}, {Control::Tabs, "Section"},
             {Control::Menu, "Resume"}});
-    else if (tab_ >= 4 || binding == BindingsFocus::Fix)
+    else if (page() == Page::Mods || page() == Page::System || binding == BindingsFocus::Fix)
         hints({{Control::Confirm, "Select"}, {Control::Back, "Back"}, {Control::Tabs, "Section"},
             {Control::Menu, "Resume"}});
     else
@@ -518,180 +527,6 @@ void Menu::video() {
         }
     }
     texture_pack_rows();
-    section("Overlays");
-    if (toggle_row("Damage numbers", s.damage_numbers,
-            options_for("game.damage_numbers",
-                "On: a number shows how much health a hit takes off a monster, drawn on the monster. A weak point "
-                "(hitzone 45 or more, after sharpness for a blade) is orange and any other part "
-                "is gray. The number stays white until that part is known, and a critical hit "
-                "keeps its own mark. Off: nothing is added."))) {
-        s.damage_numbers = !s.damage_numbers;
-        settings::save();
-    }
-    {
-        RowOptions o = options_for("game.damage_number_size",
-            "How large damage numbers are drawn, in percent of the interface text. They still shrink when "
-            "the camera is close to the monster.");
-        o.disabled = o.disabled || !s.damage_numbers;
-        int size = static_cast<int>(s.damage_number_size);
-        if (slider_row("Damage number size", size, static_cast<int>(settings::kMinDamageNumberSize),
-                static_cast<int>(settings::kMaxDamageNumberSize), 10, "%d%%", o)) {
-            s.damage_number_size = static_cast<std::uint32_t>(size);
-            settings::save();
-        }
-    }
-    {
-        RowOptions o = options_for("game.damage_number_thickness",
-            "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and each "
-            "step thickens both the digits and the outline. 3 is the thickest that stays readable.");
-        o.disabled = o.disabled || !s.damage_numbers;
-        int thickness = static_cast<int>(s.damage_number_thickness);
-        if (slider_row("Damage number thickness", thickness, 1, static_cast<int>(settings::kMaxDamageNumberThickness),
-                1, "%d", o)) {
-            s.damage_number_thickness = static_cast<std::uint32_t>(thickness);
-            settings::save();
-        }
-    }
-    if (toggle_row("Sharpness gauge", s.sharpness_gauge,
-            options_for("game.sharpness_gauge",
-                "On: the colour the game paints on the blade shortens as that colour is spent. "
-                "The blade stays. The bar under a long sword ends at the sharpness that is left. "
-                "A weapon that loses less per hit, a guard and Handicraft are all included. "
-                "Off: the game's full drawing."))) {
-        s.sharpness_gauge = !s.sharpness_gauge;
-        settings::save();
-    }
-    if (choice_row("Sharpness effect",
-            s.sharpness_effect == settings::SharpnessEffect::Solid ? "Solid" : "Glow",
-            options_for("game.sharpness_effect",
-                "Glow: the colour on the blade pulses as the game drew it. "
-                "Solid: that colour stays at the brightness of a full pulse."))) {
-        s.sharpness_effect = s.sharpness_effect == settings::SharpnessEffect::Glow
-            ? settings::SharpnessEffect::Solid
-            : settings::SharpnessEffect::Glow;
-        settings::save();
-    }
-    if (toggle_row("Gather icon", s.gather_icon,
-            options_for("game.gather_icon",
-                "On: a mark floats above a gather point while you are close enough to gather it, with the "
-                "picture of what it gives, and above a monster you can carve, with its icon. "
-                "Off: no mark, and the gather list is not read."))) {
-        s.gather_icon = !s.gather_icon;
-        settings::save();
-    }
-    {
-        RowOptions o = options_for("game.gather_icon_size",
-            "How large the gather mark is, in percent of its usual size. The disc and its picture grow together, "
-            "and the ring grows with them.");
-        o.disabled = o.disabled || !s.gather_icon;
-        int size = static_cast<int>(s.gather_icon_size);
-        if (slider_row("Gather icon size", size, static_cast<int>(settings::kMinGatherIconSize),
-                static_cast<int>(settings::kMaxGatherIconSize), 10, "%d%%", o)) {
-            s.gather_icon_size = static_cast<std::uint32_t>(size);
-            settings::save();
-        }
-    }
-    {
-        RowOptions o = options_for("game.gather_icon_thickness",
-            "How bold the gather mark is: 1 is a one-pixel ring and the font's own ?. Each step thickens the "
-            "ring and the ?, and that weight grows with the size. 3 is the thickest that still leaves the ? clear.");
-        o.disabled = o.disabled || !s.gather_icon;
-        int thickness = static_cast<int>(s.gather_icon_thickness);
-        if (slider_row("Gather icon thickness", thickness, 1, static_cast<int>(settings::kMaxGatherIconThickness), 1,
-                "%d", o)) {
-            s.gather_icon_thickness = static_cast<std::uint32_t>(thickness);
-            settings::save();
-        }
-    }
-    if (toggle_row("Hold to gather", s.gather_hold,
-            options_for("game.gather_hold",
-                "On: hold ○ on a gather point or a monster you can carve, or □ on a mining point or a bug net, and it "
-                "gathers or carves again each time you can. □ at the Pokke Farm's mining outcrops and bug "
-                "thickets works the same way. Moving or pressing another button does not stop it. "
-                "Letting go stops the next one. Pressing the same button again and holding it continues. "
-                "Off: each button gathers once per press. L+○ or L+□ before a hold starts still uses the item bar."))) {
-        s.gather_hold = !s.gather_hold;
-        settings::save();
-    }
-    if (toggle_row("Empty item slot", s.empty_item_slot,
-            options_for("game.empty_item_slot",
-                "On: the item bar has an empty slot, Nothing Selected, before the first item, and each quest "
-                "starts on it. With it selected, □ with the weapon sheathed uses nothing. A pouch with all 24 "
-                "slots filled has no room for it. Off: the game's own bar, which starts on the first item and "
-                "wraps from the last item to the first."))) {
-        s.empty_item_slot = !s.empty_item_slot;
-        settings::save();
-    }
-    section("Lock-on");
-    {
-        const auto slot = static_cast<std::size_t>(input::Action::LockOn);
-        std::string bind = input::format(s.controls.keys[slot]);
-        const std::string pad = input::format(s.controls.pad[slot]);
-        if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
-        const std::string help = "A tap of Lock on" +
-            (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
-            " selects the nearest large monster. Tap again for the next one in the area; after the last one, a tap "
-            "lets go. Lock-on style says whether the camera stays on it. Off, the bind does nothing and the hunt "
-            "icon is hidden.";
-        if (toggle_row("Lock-on", s.lock_on, options_for("input.lock_on", help.c_str()))) {
-            s.lock_on = !s.lock_on;
-            settings::save();
-        }
-        const char *const styles[] = {"Follow", "Focus"};
-        const int style = s.lock_on_style == settings::LockOnStyle::Focus ? 1 : 0;
-        const auto focus = static_cast<std::size_t>(input::Action::FocusCamera);
-        std::string focus_bind = input::format(s.controls.keys[focus]);
-        const std::string focus_pad = input::format(s.controls.pad[focus]);
-        if (!focus_pad.empty()) focus_bind += (focus_bind.empty() ? "" : " / ") + focus_pad;
-        const std::string focus_button = focus_bind.empty() ? std::string("L") : focus_bind;
-        const std::string style_help = "Follow keeps the camera on the selected monster. " +
-            (focus_bind.empty() ? std::string("Focus/Follow Camera, once bound,") : focus_button) +
-            " turns that tracking off and on again; the selection stays. "
-            "Turning it by hand, the D-pad, or L lets go, and L "
-            "recenters behind the hunter. Focus keeps the selection, and a tap of " +
-            focus_button +
-            " centers the camera on that monster, even when it is already on screen, and L's own camera move stays "
-            "off for that tap. A second tap within a third of a second recenters behind the hunter; the selection stays. A "
-            "later tap centers again. With nothing selected, L recenters behind the hunter. Focus/Follow Camera in Controls "
-            "chooses that tap; with nothing bound, it is L.";
-        RowOptions o = options_for("input.lock_on_style", std::move(style_help));
-        if (!s.lock_on && !o.disabled) {
-            o.disabled = true;
-            o.note = "Lock-on is off";
-        }
-        if (const int delta = choice_row("Lock-on style", styles[style], o)) {
-            // Either way, or confirm, moves to the other style, as the other choice rows wrap.
-            const int next = cycle(style, delta, 2);
-            s.lock_on_style = next == 0 ? settings::LockOnStyle::Follow : settings::LockOnStyle::Focus;
-            settings::save();
-        }
-        o = options_for("input.lock_on_marker",
-            "A red ring, a cross through it, and four ticks, over the monster the camera is locked onto. "
-            "Follow keeps it up while the camera is tracking. The right stick or Focus/Follow Camera turns it off "
-            "with that tracking; the selection stays, and the same button turns both back on. In Focus, selecting "
-            "leaves it off. The focus button shows it for a third of a second.");
-        if (!s.lock_on && !o.disabled) {
-            o.disabled = true;
-            o.note = "Lock-on is off";
-        }
-        if (toggle_row("Lock-on marker", s.lock_on_marker, o)) {
-            s.lock_on_marker = !s.lock_on_marker;
-            settings::save();
-        }
-        int portrait = static_cast<int>(s.hunt_portrait_size);
-        o = options_for("video.hunt_portrait",
-            "The monster icon at the bottom left, as a percent of its usual size. "
-            "A loading screen shows none. Off with Lock-on.");
-        if (!s.lock_on && !o.disabled) {
-            o.disabled = true;
-            o.note = "Lock-on is off";
-        }
-        if (slider_row("Monster Icon", portrait, static_cast<int>(settings::kMinHuntPortraitSize),
-                static_cast<int>(settings::kMaxHuntPortraitSize), 10, "%d%%", o)) {
-            s.hunt_portrait_size = static_cast<std::uint32_t>(portrait);
-            settings::save();
-        }
-    }
     section("Timing");
     {
         struct Mode {
@@ -761,69 +596,6 @@ void Menu::video() {
             settings::save();
         }
     }
-    if (choice_row("Game speed", s.unthrottled ? "Unlimited" : "Normal",
-            options_for("video.unthrottled",
-                "Normal holds the game to real time. Unlimited lets it run as "
-                "fast as frames can be drawn, which also speeds up the game. "
-                "The window keeps up at about 30 pictures a second, so the "
-                "display's refresh does not hold it, and the sound is muted."))) {
-        s.unthrottled = !s.unthrottled;
-        settings::save();
-    }
-    {
-        RowOptions o = options_for("video.fast_loading",
-            "Lets the game run ahead of real time while it loads and is silent, so loads "
-            "take as long as the computer needs. Never during play, sound, movies or "
-            "ad hoc play.");
-        if (s.unthrottled && !o.disabled) {
-            o.disabled = true;
-            o.note = "Game speed is Unlimited";
-        }
-        if (toggle_row("Fast loading", s.fast_loading, o)) {
-            s.fast_loading = !s.fast_loading;
-            settings::save();
-        }
-    }
-    {
-        // Single player only: during ad hoc play the bind does nothing.
-        const bool online = adhoc_networking_on() || adhoc_session_active();
-        const auto guarded = [&](RowOptions o) {
-            if (o.disabled) return o;
-            if (s.unthrottled) {
-                o.disabled = true;
-                o.note = "Game speed is Unlimited";
-            } else if (online) {
-                o.disabled = true;
-                o.note = "Single player only";
-            }
-            return o;
-        };
-        static const char *const kModes[] = {"Hold", "Toggle", "Off"};
-        const int current = static_cast<int>(s.fast_forward);
-        const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::FastForward)]);
-        // Two lines at most, so the note of a disabled row still fits under it.
-        const std::string help = "The game runs faster while its key (" +
-            (key.empty() ? std::string("none: set it in Controls") : key) +
-            ") is held, or from one press to the next, muted. Single player only.";
-        if (const int delta =
-                choice_row("Fast-forward", kModes[current], guarded(options_for("video.fast_forward", help)))) {
-            s.fast_forward = static_cast<fast_forward::Mode>(cycle(current, delta, 3));
-            settings::save();
-        }
-        RowOptions o = guarded(options_for("video.fast_forward_speed",
-            "How many times faster than real time the game runs while it "
-            "fast-forwards, if the computer keeps up."));
-        if (s.fast_forward == fast_forward::Mode::Off && !o.disabled) {
-            o.disabled = true;
-            o.note = "Fast-forward is off";
-        }
-        int speed = static_cast<int>(s.fast_forward_speed);
-        if (slider_row("Fast-forward speed", speed, static_cast<int>(fast_forward::kMinSpeed),
-                static_cast<int>(fast_forward::kMaxSpeed), 1, "%dx", o)) {
-            s.fast_forward_speed = static_cast<std::uint32_t>(speed);
-            settings::save();
-        }
-    }
     {
         static const char *const kPerf[] = {"Off", "Overlay", "Overlay and log", "Log only"};
         const int current = static_cast<int>(s.perf);
@@ -870,19 +642,11 @@ void Menu::video() {
         restore("video.present_mode", s.present_mode, d.present_mode);
         restore("video.frame_rate", s.frame_rate, d.frame_rate);
         restore("video.frame_rate_auto", s.frame_rate_auto, d.frame_rate_auto);
-        restore("video.unthrottled", s.unthrottled, d.unthrottled);
-        restore("video.fast_loading", s.fast_loading, d.fast_loading);
-        restore("video.fast_forward", s.fast_forward, d.fast_forward);
-        restore("video.fast_forward_speed", s.fast_forward_speed, d.fast_forward_speed);
         restore("video.performance", s.perf, d.perf);
         restore("video.hud.map", s.hud.map, d.hud.map);
         restore("video.hud.health", s.hud.health, d.hud.health);
         restore("video.hud.item_bar", s.hud.item_bar, d.hud.item_bar);
         restore("video.hud.names", s.hud.names, d.hud.names);
-        restore("input.lock_on", s.lock_on, d.lock_on);
-        restore("input.lock_on_style", s.lock_on_style, d.lock_on_style);
-        restore("input.lock_on_marker", s.lock_on_marker, d.lock_on_marker);
-        restore("video.hunt_portrait", s.hunt_portrait_size, d.hunt_portrait_size);
         renderer().set_internal_scale(s.internal_scale);
         renderer().set_fullscreen(s.fullscreen);
         renderer().set_window_scale(s.window_scale);
@@ -1265,24 +1029,6 @@ void Menu::controls() {
         }
     }
 
-    section("Hunter name");
-    {
-        const bool keyboard = s.name_entry == settings::NameEntry::Keyboard;
-        if (choice_row("When the game asks for a name", keyboard ? "On-screen keyboard" : "Use the name below",
-                options_for("input.name_entry",
-                    "On-screen keyboard: type the name with the gamepad or the keyboard while the "
-                    "game waits. Otherwise the name below is given at once."))) {
-            s.name_entry = keyboard ? settings::NameEntry::Fixed : settings::NameEntry::Keyboard;
-            settings::save();
-        }
-    }
-    if (text_row("name", "Hunter name", s.name, kHunterNameLength, false, hunter_name_character,
-            options_for("input.name",
-                "Given when the game asks for a name and the on-screen keyboard is "
-                "off, and to other players when the network nickname is empty. "
-                "Letters, digits, spaces and simple punctuation.")))
-        settings::save();
-
     section("Keyboard and mouse");
     {
         RowOptions o = options_for("input.mouse",
@@ -1328,7 +1074,7 @@ void Menu::controls() {
     ImGui::Dummy({0.0f, font_gap()});
     if (button_row("Restore control defaults",
             {false, {},
-                "Every gamepad, keyboard, mouse, touch and name setting back to how "
+                "Every gamepad, keyboard, mouse and touch setting back to how "
                 "Pokee ships, with the Default preset. Your own presets and the Action layout's "
                 "arrangement are kept."})) {
         const settings::Settings &d = settings::defaults();
@@ -1345,8 +1091,6 @@ void Menu::controls() {
         restore("input.aim_speed", s.aim_speed, d.aim_speed);
         restore("input.invert_camera_x", s.invert_camera_x, d.invert_camera_x);
         restore("input.invert_camera_y", s.invert_camera_y, d.invert_camera_y);
-        restore("input.name_entry", s.name_entry, d.name_entry);
-        restore("input.name", s.name, d.name);
         restore("input.mouse", s.mouse, d.mouse);
         restore("input.mouse_sensitivity", s.mouse_sensitivity, d.mouse_sensitivity);
         restore("input.invert_mouse_x", s.invert_mouse_x, d.invert_mouse_x);
@@ -1441,6 +1185,305 @@ void Menu::controls() {
             s.touch_camera_speed = static_cast<float>(speed);
             settings::save();
         }
+    }
+}
+
+void Menu::game() {
+    settings::Settings &s = settings::current();
+    section("Hunting");
+    if (toggle_row("Hold to gather", s.gather_hold,
+            options_for("game.gather_hold",
+                "On: hold ○ on a gather point or a monster you can carve, or □ on a mining point or a bug net, and it "
+                "gathers or carves again each time you can. □ at the Pokke Farm's mining outcrops and bug "
+                "thickets works the same way. Moving or pressing another button does not stop it. "
+                "Letting go stops the next one. Pressing the same button again and holding it continues. "
+                "Off: each button gathers once per press. L+○ or L+□ before a hold starts still uses the item bar."))) {
+        s.gather_hold = !s.gather_hold;
+        settings::save();
+    }
+    if (toggle_row("Empty item slot", s.empty_item_slot,
+            options_for("game.empty_item_slot",
+                "On: the item bar has an empty slot, Nothing Selected, before the first item, and each quest "
+                "starts on it. With it selected, □ with the weapon sheathed uses nothing. A pouch with all 24 "
+                "slots filled has no room for it. Off: the game's own bar, which starts on the first item and "
+                "wraps from the last item to the first."))) {
+        s.empty_item_slot = !s.empty_item_slot;
+        settings::save();
+    }
+    section("Lock-on");
+    {
+        const auto slot = static_cast<std::size_t>(input::Action::LockOn);
+        std::string bind = input::format(s.controls.keys[slot]);
+        const std::string pad = input::format(s.controls.pad[slot]);
+        if (!pad.empty()) bind += (bind.empty() ? "" : " / ") + pad;
+        const std::string help = "A tap of Lock on" +
+            (bind.empty() ? std::string(" (unbound: set it in Controls)") : " (" + bind + ")") +
+            " selects the nearest large monster. Tap again for the next one in the area; after the last one, a tap "
+            "lets go. Lock-on style says whether the camera stays on it. Off, the bind does nothing and the hunt "
+            "icon is hidden.";
+        if (toggle_row("Lock-on", s.lock_on, options_for("input.lock_on", help.c_str()))) {
+            s.lock_on = !s.lock_on;
+            settings::save();
+        }
+        const char *const styles[] = {"Follow", "Focus"};
+        const int style = s.lock_on_style == settings::LockOnStyle::Focus ? 1 : 0;
+        const auto focus = static_cast<std::size_t>(input::Action::FocusCamera);
+        std::string focus_bind = input::format(s.controls.keys[focus]);
+        const std::string focus_pad = input::format(s.controls.pad[focus]);
+        if (!focus_pad.empty()) focus_bind += (focus_bind.empty() ? "" : " / ") + focus_pad;
+        const std::string focus_button = focus_bind.empty() ? std::string("L") : focus_bind;
+        const std::string style_help = "Follow keeps the camera on the selected monster. " +
+            (focus_bind.empty() ? std::string("Focus/Follow Camera, once bound,") : focus_button) +
+            " turns that tracking off and on again; the selection stays. "
+            "Turning it by hand, the D-pad, or L lets go, and L "
+            "recenters behind the hunter. Focus keeps the selection, and a tap of " +
+            focus_button +
+            " centers the camera on that monster, even when it is already on screen, and L's own camera move stays "
+            "off for that tap. A second tap within a third of a second recenters behind the hunter; the selection stays. A "
+            "later tap centers again. With nothing selected, L recenters behind the hunter. Focus/Follow Camera in Controls "
+            "chooses that tap; with nothing bound, it is L.";
+        RowOptions o = options_for("input.lock_on_style", std::move(style_help));
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (const int delta = choice_row("Lock-on style", styles[style], o)) {
+            // Either way, or confirm, moves to the other style, as the other choice rows wrap.
+            const int next = cycle(style, delta, 2);
+            s.lock_on_style = next == 0 ? settings::LockOnStyle::Follow : settings::LockOnStyle::Focus;
+            settings::save();
+        }
+        o = options_for("input.lock_on_marker",
+            "A red ring, a cross through it, and four ticks, over the monster the camera is locked onto. "
+            "Follow keeps it up while the camera is tracking. The right stick or Focus/Follow Camera turns it off "
+            "with that tracking; the selection stays, and the same button turns both back on. In Focus, selecting "
+            "leaves it off. The focus button shows it for a third of a second.");
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (toggle_row("Lock-on marker", s.lock_on_marker, o)) {
+            s.lock_on_marker = !s.lock_on_marker;
+            settings::save();
+        }
+        int portrait = static_cast<int>(s.hunt_portrait_size);
+        o = options_for("video.hunt_portrait",
+            "The monster icon at the bottom left, as a percent of its usual size. "
+            "A loading screen shows none. Off with Lock-on.");
+        if (!s.lock_on && !o.disabled) {
+            o.disabled = true;
+            o.note = "Lock-on is off";
+        }
+        if (slider_row("Monster Icon", portrait, static_cast<int>(settings::kMinHuntPortraitSize),
+                static_cast<int>(settings::kMaxHuntPortraitSize), 10, "%d%%", o)) {
+            s.hunt_portrait_size = static_cast<std::uint32_t>(portrait);
+            settings::save();
+        }
+    }
+    section("Overlays");
+    if (toggle_row("Damage numbers", s.damage_numbers,
+            options_for("game.damage_numbers",
+                "On: a number shows how much health a hit takes off a monster, drawn on the monster. A weak point "
+                "(hitzone 45 or more, after sharpness for a blade) is orange and any other part "
+                "is gray. The number stays white until that part is known, and a critical hit "
+                "keeps its own mark. Off: nothing is added."))) {
+        s.damage_numbers = !s.damage_numbers;
+        settings::save();
+    }
+    {
+        RowOptions o = options_for("game.damage_number_size",
+            "How large damage numbers are drawn, in percent of the interface text. They still shrink when "
+            "the camera is close to the monster.");
+        o.disabled = o.disabled || !s.damage_numbers;
+        int size = static_cast<int>(s.damage_number_size);
+        if (slider_row("Damage number size", size, static_cast<int>(settings::kMinDamageNumberSize),
+                static_cast<int>(settings::kMaxDamageNumberSize), 10, "%d%%", o)) {
+            s.damage_number_size = static_cast<std::uint32_t>(size);
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("game.damage_number_thickness",
+            "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and each "
+            "step thickens both the digits and the outline. 3 is the thickest that stays readable.");
+        o.disabled = o.disabled || !s.damage_numbers;
+        int thickness = static_cast<int>(s.damage_number_thickness);
+        if (slider_row("Damage number thickness", thickness, 1, static_cast<int>(settings::kMaxDamageNumberThickness),
+                1, "%d", o)) {
+            s.damage_number_thickness = static_cast<std::uint32_t>(thickness);
+            settings::save();
+        }
+    }
+    if (toggle_row("Sharpness gauge", s.sharpness_gauge,
+            options_for("game.sharpness_gauge",
+                "On: the colour the game paints on the blade shortens as that colour is spent, from "
+                "the tip back to the handle. It stays solid and glows, and orange and yellow get a "
+                "colour like the others. The bar under a long sword ends at the sharpness that is left. "
+                "A weapon that loses less per hit, a guard and Handicraft are all included. "
+                "Off: the game's own drawing."))) {
+        s.sharpness_gauge = !s.sharpness_gauge;
+        settings::save();
+    }
+    if (toggle_row("Gather icon", s.gather_icon,
+            options_for("game.gather_icon",
+                "On: a mark floats above a gather point while you are close enough to gather it, with the "
+                "picture of what it gives, and above a monster you can carve, with its icon. "
+                "Off: no mark, and the gather list is not read."))) {
+        s.gather_icon = !s.gather_icon;
+        settings::save();
+    }
+    {
+        RowOptions o = options_for("game.gather_icon_size",
+            "How large the gather mark is, in percent of its usual size. The disc and its picture grow together, "
+            "and the ring grows with them.");
+        o.disabled = o.disabled || !s.gather_icon;
+        int size = static_cast<int>(s.gather_icon_size);
+        if (slider_row("Gather icon size", size, static_cast<int>(settings::kMinGatherIconSize),
+                static_cast<int>(settings::kMaxGatherIconSize), 10, "%d%%", o)) {
+            s.gather_icon_size = static_cast<std::uint32_t>(size);
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("game.gather_icon_thickness",
+            "How bold the gather mark is: 1 is a one-pixel ring and the font's own ?. Each step thickens the "
+            "ring and the ?, and that weight grows with the size. 3 is the thickest that still leaves the ? clear.");
+        o.disabled = o.disabled || !s.gather_icon;
+        int thickness = static_cast<int>(s.gather_icon_thickness);
+        if (slider_row("Gather icon thickness", thickness, 1, static_cast<int>(settings::kMaxGatherIconThickness), 1,
+                "%d", o)) {
+            s.gather_icon_thickness = static_cast<std::uint32_t>(thickness);
+            settings::save();
+        }
+    }
+    section("Speed");
+    if (choice_row("Game speed", s.unthrottled ? "Unlimited" : "Normal",
+            options_for("video.unthrottled",
+                "Normal holds the game to real time. Unlimited lets it run as "
+                "fast as frames can be drawn, which also speeds up the game. "
+                "The window keeps up at about 30 pictures a second, so the "
+                "display's refresh does not hold it, and the sound is muted."))) {
+        s.unthrottled = !s.unthrottled;
+        settings::save();
+    }
+    {
+        RowOptions o = options_for("video.fast_loading",
+            "Lets the game run ahead of real time while it loads and is silent, so loads "
+            "take as long as the computer needs. Never during play, sound, movies or "
+            "ad hoc play.");
+        if (s.unthrottled && !o.disabled) {
+            o.disabled = true;
+            o.note = "Game speed is Unlimited";
+        }
+        if (toggle_row("Fast loading", s.fast_loading, o)) {
+            s.fast_loading = !s.fast_loading;
+            settings::save();
+        }
+    }
+    {
+        // Single player only: during ad hoc play the bind does nothing.
+        const bool online = adhoc_networking_on() || adhoc_session_active();
+        const auto guarded = [&](RowOptions o) {
+            if (o.disabled) return o;
+            if (s.unthrottled) {
+                o.disabled = true;
+                o.note = "Game speed is Unlimited";
+            } else if (online) {
+                o.disabled = true;
+                o.note = "Single player only";
+            }
+            return o;
+        };
+        static const char *const kModes[] = {"Hold", "Toggle", "Off"};
+        const int current = static_cast<int>(s.fast_forward);
+        const std::string key = input::format(s.controls.keys[static_cast<std::size_t>(input::Action::FastForward)]);
+        // Two lines at most, so the note of a disabled row still fits under it.
+        const std::string help = "The game runs faster while its key (" +
+            (key.empty() ? std::string("none: set it in Controls") : key) +
+            ") is held, or from one press to the next, muted. Single player only.";
+        if (const int delta =
+                choice_row("Fast-forward", kModes[current], guarded(options_for("video.fast_forward", help)))) {
+            s.fast_forward = static_cast<fast_forward::Mode>(cycle(current, delta, 3));
+            settings::save();
+        }
+        RowOptions o = guarded(options_for("video.fast_forward_speed",
+            "How many times faster than real time the game runs while it "
+            "fast-forwards, if the computer keeps up."));
+        if (s.fast_forward == fast_forward::Mode::Off && !o.disabled) {
+            o.disabled = true;
+            o.note = "Fast-forward is off";
+        }
+        int speed = static_cast<int>(s.fast_forward_speed);
+        if (slider_row("Fast-forward speed", speed, static_cast<int>(fast_forward::kMinSpeed),
+                static_cast<int>(fast_forward::kMaxSpeed), 1, "%dx", o)) {
+            s.fast_forward_speed = static_cast<std::uint32_t>(speed);
+            settings::save();
+        }
+    }
+    section("Pausing");
+    if (toggle_row("Pause the game when the menu opens", s.menu_pause,
+            options_for("ui.menu_pause",
+                "On: the game stops while this menu is open. Off: it keeps running "
+                "and playing sound behind the menu, which takes all input. Applies "
+                "the next time the menu opens."))) {
+        s.menu_pause = !s.menu_pause;
+        settings::save();
+    }
+    if (toggle_row("Pause during multiplayer", s.menu_pause_multiplayer,
+            options_for("ui.menu_pause_multiplayer",
+                "In ad hoc play the game keeps running behind the menu unless this is on: a paused "
+                "game stops answering the other players and can drop a quest. Applies the next time "
+                "the menu opens."))) {
+        s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
+        settings::save();
+    }
+
+    section("Hunter name");
+    {
+        const bool keyboard = s.name_entry == settings::NameEntry::Keyboard;
+        if (choice_row("When the game asks for a name", keyboard ? "On-screen keyboard" : "Use the name below",
+                options_for("input.name_entry",
+                    "On-screen keyboard: type the name with the gamepad or the keyboard while the "
+                    "game waits. Otherwise the name below is given at once."))) {
+            s.name_entry = keyboard ? settings::NameEntry::Fixed : settings::NameEntry::Keyboard;
+            settings::save();
+        }
+    }
+    if (text_row("name", "Hunter name", s.name, kHunterNameLength, false, hunter_name_character,
+            options_for("input.name",
+                "Given when the game asks for a name and the on-screen keyboard is "
+                "off, and to other players when the network nickname is empty. "
+                "Letters, digits, spaces and simple punctuation.")))
+        settings::save();
+
+    ImGui::Dummy({0.0f, font_gap()});
+    if (button_row("Restore game defaults", {false, {}, "Every setting on this page back to how Pokee ships."})) {
+        const settings::Settings &d = settings::defaults();
+        const auto restore = [&](const char *key, auto &value, const auto &fallback) {
+            if (settings::overridden_by(key) == nullptr) value = fallback;
+        };
+        restore("game.gather_hold", s.gather_hold, d.gather_hold);
+        restore("game.empty_item_slot", s.empty_item_slot, d.empty_item_slot);
+        restore("input.lock_on", s.lock_on, d.lock_on);
+        restore("input.lock_on_style", s.lock_on_style, d.lock_on_style);
+        restore("input.lock_on_marker", s.lock_on_marker, d.lock_on_marker);
+        restore("video.hunt_portrait", s.hunt_portrait_size, d.hunt_portrait_size);
+        restore("game.damage_numbers", s.damage_numbers, d.damage_numbers);
+        restore("game.damage_number_size", s.damage_number_size, d.damage_number_size);
+        restore("game.damage_number_thickness", s.damage_number_thickness, d.damage_number_thickness);
+        restore("game.sharpness_gauge", s.sharpness_gauge, d.sharpness_gauge);
+        restore("game.gather_icon", s.gather_icon, d.gather_icon);
+        restore("game.gather_icon_size", s.gather_icon_size, d.gather_icon_size);
+        restore("game.gather_icon_thickness", s.gather_icon_thickness, d.gather_icon_thickness);
+        restore("video.unthrottled", s.unthrottled, d.unthrottled);
+        restore("video.fast_loading", s.fast_loading, d.fast_loading);
+        restore("video.fast_forward", s.fast_forward, d.fast_forward);
+        restore("video.fast_forward_speed", s.fast_forward_speed, d.fast_forward_speed);
+        restore("ui.menu_pause", s.menu_pause, d.menu_pause);
+        restore("ui.menu_pause_multiplayer", s.menu_pause_multiplayer, d.menu_pause_multiplayer);
+        restore("input.name_entry", s.name_entry, d.name_entry);
+        restore("input.name", s.name, d.name);
+        settings::save();
     }
 }
 
@@ -1794,23 +1837,6 @@ void Menu::system() {
         }
     }
 #endif
-    settings::Settings &s = settings::current();
-    if (toggle_row("Pause the game when the menu opens", s.menu_pause,
-            options_for("ui.menu_pause",
-                "On: the game stops while this menu is open. Off: it keeps running "
-                "and playing sound behind the menu, which takes all input. Applies "
-                "the next time the menu opens."))) {
-        s.menu_pause = !s.menu_pause;
-        settings::save();
-    }
-    if (toggle_row("Pause during multiplayer", s.menu_pause_multiplayer,
-            options_for("ui.menu_pause_multiplayer",
-                "In ad hoc play the game keeps running behind the menu unless this is on: a paused "
-                "game stops answering the other players and can drop a quest. Applies the next time "
-                "the menu opens."))) {
-        s.menu_pause_multiplayer = !s.menu_pause_multiplayer;
-        settings::save();
-    }
 #if defined(MHFU_ANDROID_APP)
     // An Android app's data folder is out of the file manager's reach; its
     // log goes where the player picks instead, to send with a report.
@@ -2210,7 +2236,7 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
     upload_hunt_icons(sheet);
     const SheetTexture &icons = hunt_icon_texture();
     const bool icons_ready = sheet.ready && icons.texture != nullptr && icons.generation == sheet.generation;
-    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    ImDrawList *draw = ImGui::GetBackgroundDrawList();
     ImFont *font = ImGui::GetFont();
     const auto screen = [&](float psp_x, float psp_y) {
         return ImVec2{(picture[0] + psp_x / 480.0f * picture[2]) * io.DisplaySize.x,
@@ -2294,7 +2320,7 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
     const float arm = radius * 1.25f;
     const float tick_near = 4.5f * pixel;
     const float tick_far = 7.0f * pixel;
-    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    ImDrawList *draw = ImGui::GetBackgroundDrawList();
     const ImU32 shadow = IM_COL32(0, 0, 0, 170);
     const ImU32 ink = IM_COL32(220, 32, 28, 235);
     for (const auto &[colour, width] : {std::pair{shadow, 1.5f * pixel}, std::pair{ink, 1.0f * pixel}}) {
@@ -2373,7 +2399,7 @@ void draw_gather_mark(const game::GatherMark &mark) {
     const auto fade = [&](int r, int g, int b, int a) {
         return IM_COL32(r, g, b, static_cast<int>(static_cast<float>(a) * alpha));
     };
-    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    ImDrawList *draw = ImGui::GetBackgroundDrawList();
     const int first_vertex = draw->VtxBuffer.Size;
     draw->AddCircleFilled(centre, radius, fade(20, 16, 12, 210), segments);
     draw->AddCircle(centre, radius, fade(0, 0, 0, 180), segments, ring);
@@ -2417,7 +2443,7 @@ namespace {
 void draw_damage_numbers() {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
-    ImDrawList *draw = ImGui::GetForegroundDrawList();
+    ImDrawList *draw = ImGui::GetBackgroundDrawList();
     const settings::Settings &s = settings::current();
     const float base_size = Layer::get().font_size() * 0.85f;
     const float full_size = base_size * static_cast<float>(s.damage_number_size) / 100.0f;
@@ -2515,6 +2541,13 @@ void draw_over_game() {
     if (!portraits.empty()) draw_hunt_portraits(portraits);
     if (marker) draw_lock_on_marker(*marker);
     if (gather) draw_gather_mark(*gather);
+    // The marks are on the background list, under every window of the
+    // interface; the game's HUD is drawn again over them there.
+    if (numbers || !portraits.empty() || marker || gather) {
+        ImDrawList *under = ImGui::GetBackgroundDrawList();
+        under->AddCallback(&gpu::VulkanRenderer::draw_hud_cover, nullptr);
+        under->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);
+    }
     if (noted) draw_note(note());
     if (touch) {
         const settings::Settings &player = settings::current();

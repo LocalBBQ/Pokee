@@ -123,16 +123,16 @@ struct GatherPose {
 // The perspective draw with the most vertices since the mark last asked.
 void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices);
 
-// What the mark stands for: the node's kind, or a carve.
-enum class GatherGlyph : std::uint8_t { Plant, Mining, BugNet, Carve };
+// What the mark stands for: the node's kind, a carve, or a fishing spot.
+enum class GatherGlyph : std::uint8_t { Plant, Mining, BugNet, Carve, Fishing };
 
 // 3 is mining and 4 a bug net; every other kind is gathered with ○ and shown
 // as a plant.
 [[nodiscard]] GatherGlyph gather_glyph(std::uint16_t kind) noexcept;
 
 // The thing ○ or □ would gather or carve now: the node, or with none in range
-// the body (carve_body). `address` is its record, so a new target is told
-// from the same one.
+// the body (carve_body), or with neither the fishing spot (fishing_spot).
+// `address` is its record, so a new target is told from the same one.
 struct GatherTarget {
     std::uint32_t address{};
     float x{};
@@ -209,7 +209,8 @@ struct GatherMark {
 
 // Where the mark goes on the picture while Gather icon is on: over the node
 // ○ or □ would gather, or, with no node in range, over the monster body or
-// the cut tail ○ would carve (carve_body). Nothing when it is off, the code
+// the cut tail ○ would carve (carve_body), or else over the fishing spot a
+// bait would fish at (fishing_spot). Nothing when it is off, the code
 // differs, there is nothing to gather or carve, or that point is behind the
 // camera or off the picture. Takes the draw noted since the last call.
 // Without `motion` the mark is where the target is, at full opacity. With
@@ -300,6 +301,52 @@ struct CarveBody {
     float z{};
 };
 [[nodiscard]] std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory);
+
+// A fishing spot. Fishing is the item action, not the circle handler: with a
+// bait selected (items 136 to 143), the item handler (game_task 0x09AA7F98)
+// asks the spot search 0x09AA6B18 and fishes when the type it returns is 23.
+// The search reads the object at 0x09A44DB0, the word at 0x09A4F1A0 points to
+// it. Its first word is the loaded stage object, taken from the table at
+// 0x089B505C by 0x088C6A3C. The search calls that object's method +40 for the
+// area's spot table. In each of the 266 stage overlays (0x09D63100) that
+// method is lui v0, jr ra, addiu v0, so it returns a fixed address. The
+// address is decoded from those three words here, and nothing is called. In
+// that table the word at +16 is the spot list and the signed byte at +62 the
+// count. Spots are 24 bytes:
+//   +0 a halfword, +2 the type the search returns, +4 x, +8 y, +12 z,
+//   +16 radius, all floats, +20 a halfword the fishing action keeps
+// The hunter is inside when spot.y - 50 <= hunter.y < spot.y + 50 and the
+// horizontal distance is within the radius. The first such spot is the one
+// returned, so another spot in reach before it (a camp's bed or box) is no
+// fishing. Bait is not read: the mark shows where a bait would fish.
+struct FishingSpot {
+    std::uint32_t address{};
+    float x{};
+    float y{};
+    float z{};
+};
+inline constexpr std::uint16_t kFishingSpotType = 23u;
+
+// The instructions that establish the spot search and the bait case.
+[[nodiscard]] std::span<const GatherWord> fishing_checked_words();
+// The area's spot table, decoded from the stage's method +40, or nothing when
+// the pointers are not there or that method is not the three-word getter.
+[[nodiscard]] std::optional<std::uint32_t> spot_table(const psprecomp::GuestMemory &memory);
+// The first spot in `table` the hunter at (x, y, z) is inside, of any type.
+// Nothing with no list, a count of 0 or less, or no spot in reach.
+struct GatherSpot {
+    std::uint32_t address{};
+    std::uint16_t type{};
+    float x{};
+    float y{};
+    float z{};
+};
+[[nodiscard]] std::optional<GatherSpot> spot_from_table(const psprecomp::GuestMemory &memory, std::uint32_t table,
+    float hunter_x, float hunter_y, float hunter_z);
+// The spot a bait would fish at now: the first spot in reach, when its type is
+// 23. Nothing outside a quest, when the instructions differ, with no hunter,
+// or with another spot first.
+[[nodiscard]] std::optional<FishingSpot> fishing_spot(const psprecomp::GuestMemory &memory);
 
 // A Pokke Farm spot that □ would mine or catch bugs at now (lobby_task.ovl).
 // The village keeps no gather list. Each frame 0x09AAF290 walks the stage's

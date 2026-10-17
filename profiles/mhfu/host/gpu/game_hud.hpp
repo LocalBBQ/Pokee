@@ -84,7 +84,9 @@ struct HudFunction {
 // The name over another hunter in a quest: game_task 0x09B62488, and in an ad
 // hoc quest resident 0x088392F4 while game_task is loaded. The village
 // and the gathering hall draw those names with the rest of that interface, so
-// they are not names for this size. The words still have to match before a
+// they are not names for this size. The gathering hall's names count only to
+// glide under frame interpolation (resident 0x088351F0, while lobby_task is
+// loaded; NameDraw::glide_only). The words still have to match before a
 // call stack counts; this is the address only.
 [[nodiscard]] bool name_label(std::uint32_t address);
 [[nodiscard]] bool name_tag_only(std::uint32_t address);
@@ -108,6 +110,14 @@ void toggle();
 [[nodiscard]] double note_seconds_left();
 [[nodiscard]] std::string note_text();
 
+// True when a through-mode draw belongs to the HUD, hidden or not, once the
+// 2D draws are being watched. The interface's marks go under it
+// (VulkanRenderer's HUD cover).
+[[nodiscard]] bool is_hud(std::uint32_t command_address, std::uint32_t call_return);
+// Set by the renderer while the HUD is drawn over the interface's marks: the
+// 2D draws are then watched, so is_hud can tell the HUD apart.
+void want_cover(bool wanted);
+
 // True when a through-mode draw belongs to the HUD and the HUD is hidden.
 // `command_address` is its PRIM command, `call_return` where the list's
 // innermost CALL returns to.
@@ -120,6 +130,8 @@ void toggle();
 // the whole draw, so it is not set. Empty when this draw is not a name.
 // `glyph` is a letter of the name's own text, not an icon the label filed: a
 // letter takes the Names size wherever it is, and no other piece's rule.
+// `glide_only` is a name over a hunter in the gathering hall: frame
+// interpolation moves it with its hunter, and the Names size leaves it alone.
 struct NameDraw {
     bool is_name{};
     bool has_origin{};
@@ -127,6 +139,7 @@ struct NameDraw {
     bool glyph{};
     float origin_x{};
     float origin_y{};
+    bool glide_only{};
 };
 [[nodiscard]] NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return);
 
