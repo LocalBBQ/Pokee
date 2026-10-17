@@ -140,6 +140,91 @@ void test_cut() {
     check(near(cap_shift(48.0f, 0.5f), -24.0f), "a bar the HUD has shrunk still loses half of its own width");
 }
 
+void test_cut_blade() {
+    // The colour on the knife as the game draws it: 44 pixels from x 60 over
+    // texels 108 to 152, so the blade starts 9 pixels in.
+    const Edge full = cut_blade(60.0f, 104.0f, 108.0f, 152.0f, 1.0f);
+    check(near(full.x, 104.0f) && near(full.u, 152.0f), "a fresh colour covers the blade to its tip");
+    const Edge empty = cut_blade(60.0f, 104.0f, 108.0f, 152.0f, 0.0f);
+    check(near(empty.x, 69.0f) && near(empty.u, kBladeTexel), "an empty colour ends where the blade meets the handle");
+    const Edge half = cut_blade(60.0f, 104.0f, 108.0f, 152.0f, 0.5f);
+    check(near(half.x, 69.0f + 35.0f * 0.5f) && near(half.u, kBladeTexel + 35.0f * 0.5f),
+        "half the colour is half of the blade, the handle not counted");
+    const Edge scaled = cut_blade(120.0f, 208.0f, 108.0f, 152.0f, 0.0f);
+    check(near(scaled.x, 138.0f), "a HUD drawn twice as large keeps the blade's start in proportion");
+    const Edge no_handle = cut_blade(60.0f, 104.0f, 120.0f, 152.0f, 0.0f);
+    check(near(no_handle.x, 60.0f), "a quad that starts past the handle is cut from its own edge");
+    const Edge flipped = cut_blade(60.0f, 104.0f, 152.0f, 108.0f, 0.0f);
+    check(near(flipped.x, 60.0f), "a mirrored quad falls back to the plain cut");
+}
+
+void test_spirit_fill() {
+    const float full = kBarLeft + kBarWidth;
+    check(near(fill_remaining(kBarLeft, full, 1.0f), 1.0f), "a fresh blade keeps the spirit fill as drawn");
+    const float half = fill_remaining(kBarLeft, full, 0.5f);
+    check(near(kBarLeft + kBarWidth * half, kBarLeft + kBarWidth * 0.5f),
+        "a full fill ends at the cut end of the bar, not past it");
+    const float quarter = fill_remaining(kBarLeft, kBarLeft + 24.0f, 0.5f);
+    check(near(24.0f * quarter, 12.0f), "a quarter fill stays a quarter of the bar still drawn");
+    const float sliver = fill_remaining(kBarLeft + 1.0f, kBarLeft + 4.0f, 0.0f);
+    check(near(sliver, 0.0f), "no sharpness leaves no fill, even one that starts right of the bar's edge");
+    check(near(fill_remaining(70.0f, 70.0f, 0.5f), 1.0f), "an empty fill is left alone");
+}
+
+void test_glow_alpha() {
+    check(glow_alpha(kFullPulse) == kGlowPeak, "solid glow's crest is brighter than a full pulse");
+    check(glow_alpha(0u) == kFullPulse, "solid glow's trough is solid, not nothing");
+    check(glow_alpha(64u) == (kGlowPeak + kFullPulse) / 2u, "the game's mid pulse lands halfway up the glow");
+    check(glow_alpha(255u) == kGlowPeak, "an alpha past the game's pulse is held at the crest");
+    bool rising = true;
+    for (std::uint32_t a = 1; a <= kFullPulse; ++a) rising = rising && glow_alpha(a) >= glow_alpha(a - 1u);
+    check(rising && kGlowPeak > kFullPulse && kGlowPeak <= 255u,
+        "solid glow follows the game's pulse in the same direction and fits the colour word");
+}
+
+// The knife colour table as the executable holds it, red to purple.
+BufferRam knife_table() {
+    BufferRam ram(kKnifeColours, kKnifeColourBytes * kColours);
+    constexpr std::uint32_t kGame[kColours]{
+        0xFF0000FFu, 0u, 0u, 0xFF00D35Eu, 0xFFEE6830u, 0xFFF0F0F0u, 0xFFF000F0u};
+    for (std::size_t i = 0; i < kColours; ++i)
+        ram.store32(kKnifeColours + static_cast<std::uint32_t>(i) * kKnifeColourBytes, kGame[i]);
+    return ram;
+}
+
+std::uint32_t entry(const Ram &ram, Sharpness colour) {
+    return ram.load32(kKnifeColours + static_cast<std::uint32_t>(colour) * kKnifeColourBytes);
+}
+
+void test_knife_colours() {
+    BufferRam ram = knife_table();
+    fill_knife_colours(ram, true);
+    for (int c = 0; c < static_cast<int>(kColours); ++c)
+        check((entry(ram, static_cast<Sharpness>(c)) & 0xFFu) != 0u,
+            "every colour, red to purple, has a red byte, so the game paints its layer");
+    check(entry(ram, Sharpness::Orange) == 0xFF0080F0u && entry(ram, Sharpness::Yellow) == 0xFF00E0F0u,
+        "orange and yellow get their colour and a full pulse mask");
+    check(entry(ram, Sharpness::Red) == 0xFF0000FFu && entry(ram, Sharpness::Green) == 0xFF00D35Eu &&
+            entry(ram, Sharpness::Purple) == 0xFFF000F0u,
+        "the colours the game already paints are left as they were");
+    fill_knife_colours(ram, true);
+    check(entry(ram, Sharpness::Yellow) == 0xFF00E0F0u, "filling twice changes nothing");
+
+    fill_knife_colours(ram, false);
+    check(entry(ram, Sharpness::Orange) == 0u && entry(ram, Sharpness::Yellow) == 0u,
+        "off puts the game's empty entries back");
+    check(entry(ram, Sharpness::Red) == 0xFF0000FFu, "and leaves red alone");
+
+    ram.store32(kKnifeColours + static_cast<std::uint32_t>(Sharpness::Yellow) * kKnifeColourBytes, 0xFF112233u);
+    fill_knife_colours(ram, true);
+    fill_knife_colours(ram, false);
+    check(entry(ram, Sharpness::Yellow) == 0xFF112233u, "a colour a mod gave yellow is kept, on or off");
+
+    BufferRam elsewhere(0x09000000u, 16u);
+    fill_knife_colours(elsewhere, true);
+    check(elsewhere.load32(0x09000000u) == 0u, "a table outside memory is not written");
+}
+
 void test_remaining() {
     reset_for_tests();
     const Reading green = *gauge_reading(kTraced, 249, kTracedMost);
@@ -176,6 +261,10 @@ int main() {
     test_gauge_reading();
     test_tables();
     test_cut();
+    test_cut_blade();
+    test_spirit_fill();
+    test_glow_alpha();
+    test_knife_colours();
     test_remaining();
     if (failures != 0) {
         std::cerr << failures << " sharpness gauge test(s) failed\n";

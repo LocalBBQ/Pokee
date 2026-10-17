@@ -27,6 +27,10 @@
 // 1226. Their records share icon 16 (the pick) and icon 13 (the net), each in
 // the tiers' tints. The plain ones, 145 and 149, are the pickaxe and the bug
 // net shown here.
+//
+// Bait. The item handler fishes with items 136 to 143 (game/gather_icon.hpp).
+// Their records share icon 4 in eight tints; the first, 136, is the one a
+// fishing spot shows.
 
 #include "psprecomp/guest_memory.hpp"
 
@@ -40,6 +44,7 @@ namespace mhfu::game {
 
 inline constexpr std::uint16_t kPickaxeItem = 145u;
 inline constexpr std::uint16_t kBugNetItem = 149u;
+inline constexpr std::uint16_t kBaitItem = 136u;
 
 // The mark's picture: an item's icon, a monster's, or none (the ?).
 struct GatherArt {

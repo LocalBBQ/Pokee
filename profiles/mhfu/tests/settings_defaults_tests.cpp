@@ -417,11 +417,14 @@ void test_lock_on_and_damage_numbers() {
     Entries gauge = to_entries(fresh);
     gauge["game.sharpness_gauge"] = "1";
     check(from_entries(to_entries(from_entries(gauge))).sharpness_gauge, "the file turns the sharpness gauge on");
-    check(fresh.sharpness_effect == SharpnessEffect::Glow, "the colour on the blade pulses by default");
-    Entries effect = to_entries(fresh);
-    effect["game.sharpness_effect"] = "solid";
-    check(from_entries(to_entries(from_entries(effect))).sharpness_effect == SharpnessEffect::Solid,
-        "the file sets the sharpness effect to solid");
+    // The gauge decides how the colour looks; the earlier separate switches
+    // are not read or written again.
+    const Settings earlier_sharpness = from_entries({{"game.sharpness_effect", "solid"},
+        {"game.sharpness_colours", "0"}, {"game.sharpness_glow", "1"}, {"game.sharpness_gauge", "1"}});
+    const Entries rewritten = to_entries(earlier_sharpness);
+    check(earlier_sharpness.sharpness_gauge && rewritten.count("game.sharpness_effect") == 0u &&
+            rewritten.count("game.sharpness_colours") == 0u && rewritten.count("game.sharpness_glow") == 0u,
+        "the earlier sharpness effect and colour switches are dropped, and the gauge kept");
     check(fresh.damage_number_size == 100u && fresh.damage_number_thickness == 1u,
         "damage numbers start at the interface's size and the thinnest stroke");
     Entries look = to_entries(fresh);
@@ -2159,9 +2162,31 @@ void test_paintball_ring_stays_on_map() {
     scale_quads(arrow, map_60, frame, mhfu::gpu::hud_scale::kMapIconTexture, Owner::QuestHud);
     check(!stays(arrow, 365.0f, 119.0f), "the arrow in the next frame stays on the map too");
 
-    // Boundaries: a square larger than any ring, a ring off the map, and a
-    // ring drawn by other code (the shop's 40-square panels) stay as drawn.
-    check(!mhfu::gpu::hud_scale::is_map_ring({330.0f, 60.0f, 410.0f, 140.0f}, kRing), "an 80 square is no ring");
+    // A flying monster's new area pings the map: the ring grows from its dot
+    // past the map's size. Every size takes the map's, and none is a window
+    // that holds the marks under it.
+    for (const float side : {44.0f, 80.0f, 152.0f, 240.0f}) {
+        Frame ping;
+        quest(ping);
+        const float x0 = 349.5f - 0.5f * side;
+        const float y0 = 142.5f - 0.5f * side;
+        std::vector<Vertex> grown = quad(x0, y0, x0 + side, y0 + side);
+        scale_quads(grown, map_60, ping, kRing, Owner::QuestHud);
+        check(!stays(grown, x0, y0) && grown[2].x - grown[0].x < side, "a growing ping takes the map's size");
+        check(!ping.panel_up(), "a growing ping is not a window over the map");
+        std::vector<Vertex> dot = quad(345.0f, 138.0f, 354.0f, 147.0f);
+        scale_quads(dot, map_60, ping, kRing, Owner::QuestHud);
+        check(!stays(dot, 345.0f, 138.0f), "the monster's dot stays on the map under the ping");
+    }
+
+    // Boundaries: a large square from another texture, a large ring centred
+    // off the map, a ring off the map, and a ring drawn by other code (the
+    // shop's 40-square panels) stay as drawn.
+    check(!mhfu::gpu::hud_scale::is_map_ring({330.0f, 60.0f, 410.0f, 140.0f}, 0x09165C20u),
+        "an 80 square from another texture is no ring");
+    check(!mhfu::gpu::hud_scale::is_map_ring({250.0f, 60.0f, 330.0f, 140.0f}, kRing),
+        "a large ring centred off the map is not");
+    check(!mhfu::gpu::hud_scale::is_map_ring({300.0f, 0.0f, 900.0f, 600.0f}, kRing), "a ring past the picture is not");
     check(!mhfu::gpu::hud_scale::is_map_ring({100.0f, 100.0f, 144.0f, 144.0f}, kRing), "a ring off the map is not");
     check(!mhfu::gpu::hud_scale::is_map_ring({323.0f, 129.0f, 367.0f, 173.0f},
               mhfu::gpu::hud_scale::kAreaMapTexture),

@@ -112,12 +112,15 @@ void test_draw_owner() {
     const HudFunction &quest = functions[2];
 
     check(owner_of(0x09000000u, 0u) == Owner::Other, "nothing is resized before the 2D draws are watched");
+    check(!is_hud(0x09000000u, 0u), "and nothing is HUD before then");
     watch_for_tests();
 
     // The quest HUD files a packet: a draw inside it may be resized.
     psprecomp::AllegrexContext ctx = filed_from(memory, quest.address, quest.first, quest.saved_ra, 0x09000000u, 16u);
     packet_filed(runtime, ctx);
     check(owner_of(0x09000010u, 0u) == Owner::QuestHud, "a draw in a quest HUD packet is the quest HUD's");
+    check(is_hud(0x09000010u, 0u) && is_hud(0u, 0x09000020u), "and is HUD for the cover while it is shown");
+    check(!is_hud(0x09000040u, 0u) && !is_hud(0u, 0u), "a draw past the packet, or with no address, is not");
     check(owner_of(0x09000040u, 0u) == Owner::Other, "a draw past the packet's end is not");
     check(owner_of(0u, 0x09000020u) == Owner::QuestHud, "a draw called from that packet is the quest HUD's");
     check(owner_of(0u, 0u) == Owner::Other, "a draw with no address is no one's");
@@ -127,6 +130,7 @@ void test_draw_owner() {
     ctx = filed_from(memory, village.address, village.first, village.saved_ra, 0x09001000u, 16u);
     packet_filed(runtime, ctx);
     check(hides(0x09001010u, 0u) == false, "the HUD is shown, so nothing is left out");
+    check(is_hud(0x09001010u, 0u), "the village interface is HUD for the cover");
     check(owner_of(0x09001010u, 0u) == Owner::Other, "a village draw is never resized");
 
     // A menu's own code: not on the list.
@@ -233,6 +237,81 @@ void test_overhead_name() {
     check(!name_at(0x09007210u, 0u).is_name, "outside the quest HUD its text is not a name");
 }
 
+// The names over other hunters in the gathering hall. Traced with
+// MHFU_TRACE_CAPTURE: resident 0x088351F0 files the weapon icon beside a
+// name, and lobby_task then queues the name by a path no wrapper sees. The
+// name and its icon only glide under frame interpolation; they are never sized.
+void test_hall_names() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    constexpr std::uint32_t kLabel = 0x088351F0u;
+    constexpr std::uint32_t kLobby = 0x09A6C248u;
+    constexpr std::uint32_t kContext = 0x09100000u;
+    constexpr std::uint32_t kEntries = 0x09110000u;
+    memory.store32(0x08A632C8u, kContext);
+    memory.store32(kContext + 320u, kEntries);
+    const auto queued = [&](std::uint8_t length) { memory.store8(kContext + 308u, length); };
+    const auto place = [&](std::uint32_t index, std::int16_t x, std::int16_t y) {
+        memory.store16(kEntries + index * 12u, static_cast<std::uint16_t>(x));
+        memory.store16(kEntries + index * 12u + 2u, static_cast<std::uint16_t>(y));
+    };
+    constexpr std::uint32_t kGlyphStack = 0x09F10000u;
+    const auto glyph = [&](std::uint32_t index, std::uint32_t packet) {
+        memory.store32(kGlyphStack + 44u, 0x0889384Cu);
+        memory.store32(kGlyphStack + 20u, kEntries + index * 12u);
+        psprecomp::AllegrexContext ctx{};
+        ctx.gpr[29] = kGlyphStack;
+        ctx.gpr[31] = 0x08893C2Cu;
+        ctx.gpr[5] = packet;
+        ctx.gpr[6] = 16u;
+        packet_filed(runtime, ctx);
+    };
+    const auto icon = [&](std::uint32_t packet) {
+        psprecomp::AllegrexContext ctx = filed_from(memory, kLabel, 0x27BDFFE0u, 0xAFBF001Cu, packet, 9u);
+        packet_filed(runtime, ctx);
+    };
+    check(name_label(kLabel) && !name_tag_only(kLabel), "the hall name's icon is a name label");
+
+    // Outside lobby_task the resident function is no name.
+    memory.store32(kLobby, 0u);
+    watch_for_tests();
+    queued(0u);
+    icon(0x09008000u);
+    check(!name_at(0x09008010u, 0u).is_name, "without lobby_task the icon is not a name");
+
+    // In the hall: the icon, then the name queued after it.
+    memory.store32(kLobby, 0x27BDFFF0u);
+    memory.store32(kLobby + 4u, 0xAFBF000Cu);
+    watch_for_tests();
+    queued(0u);
+    icon(0x09008000u);
+    const NameDraw waiting = name_at(0x09008010u, 0u);
+    check(waiting.is_name && waiting.glide_only && !waiting.has_origin, "the icon waits for its name's point");
+    place(0u, 206, 123);
+    queued(1u);
+    glyph(0u, 0x09008100u);
+    const NameDraw letter = name_at(0x09008110u, 0u);
+    check(letter.is_name && letter.glyph && letter.glide_only, "a letter of the hall name glides");
+    check(letter.has_origin && letter.origin_x == 206.0f && letter.origin_y == 123.0f,
+        "it moves with the point the game placed it at");
+    const NameDraw placed = name_at(0x09008010u, 0u);
+    check(placed.has_origin && placed.origin_x == 206.0f && placed.origin_y == 123.0f,
+        "the icon takes the point of the name queued after it");
+
+    // A label followed by other code's packet queued no name: text after
+    // that is not one, and the icon keeps no point.
+    watch_for_tests();
+    queued(0u);
+    icon(0x09009000u);
+    psprecomp::AllegrexContext menu = filed_from(memory, 0x09A70000u, 0x27BDFFF0u, 0xAFBF000Cu, 0x09009200u, 4u);
+    packet_filed(runtime, menu);
+    place(0u, 50, 60);
+    queued(1u);
+    glyph(0u, 0x09009100u);
+    check(!name_at(0x09009110u, 0u).is_name, "text queued after other code's packet is no name");
+    check(!name_at(0x09009010u, 0u).has_origin, "an icon with no name after it keeps no point");
+}
+
 void test_capture_schedule() {
     CaptureSchedule c;
     check(!c.pending() && !c.packets(0u) && !c.sprites(0u), "nothing is traced before a screenshot");
@@ -265,6 +344,7 @@ int main() {
     test_draw_owner();
     test_names_over_characters();
     test_overhead_name();
+    test_hall_names();
     test_capture_schedule();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";

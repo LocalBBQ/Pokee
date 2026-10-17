@@ -1864,6 +1864,7 @@ struct VulkanRenderer::Impl {
         std::uint32_t raw_block{kNone}; // FrameRecord::raws: its format and bones
         VkBuffer vertices{};            // vertex_hold when the draw was kept there, else the ring
         std::uint32_t name{kNone};      // FrameRecord::names, for a name over a hunter
+        bool world_split{};             // the frame's first HUD draw: replay() copies the world first
     };
     // A name's draw: where its name was placed, and its vertices as drawn
     // (FrameRecord::name_vertices from `first`), to move between frames.
@@ -1962,6 +1963,64 @@ struct VulkanRenderer::Impl {
     bool older_picture_valid{};
     bool newer_picture_valid{};
     std::array<Target, 2> blend_targets{};
+
+    // The HUD over the interface's marks (shaders/hud_cover.frag). Each frame
+    // shown is copied just before its first HUD draw; where the finished frame
+    // differs from that copy, the HUD is drawn again over the marks.
+    // MHFU_HUD_OVER_MARKS=0 leaves the marks over the HUD, as before.
+    struct CoverImage {
+        VkImage image{};
+        VkDeviceMemory memory{};
+        VkImageView view{};
+        bool initialized{}; // in SHADER_READ_ONLY_OPTIMAL between copies
+    };
+    CoverImage live_world;                 // the frame being drawn
+    std::uint64_t live_world_frame{~0ull}; // `frames` when it was taken
+    std::uint32_t live_world_target{};
+    std::array<CoverImage, 2> picture_worlds{}; // with pictures
+    std::array<bool, 2> picture_world_valid{};
+    std::array<CoverImage, 2> blend_worlds{}; // with blend_targets
+    std::array<bool, 2> blend_world_taken{};  // by the last replay() into that slot
+    // The next group recorded for replay is the frame's first HUD draw.
+    bool world_split_next{};
+    // What the next submit_and_present draws the HUD from.
+    struct Cover {
+        VkImage finished{};
+        VkImageView finished_view{};
+        VkImageView world{};
+    };
+    std::optional<Cover> cover_next;
+    // Read by the interface's draw callback while its pass is recorded.
+    struct CoverDraw {
+        bool active{};
+        VkDescriptorSet set{};
+        VkRect2D picture{};
+    } cover_draw;
+    VkPipeline cover_pipeline{};
+    VkPipelineLayout cover_layout{};
+    VkDescriptorSetLayout cover_set_layout{};
+    VkShaderModule cover_vertex{};
+    VkShaderModule cover_fragment{};
+    DescriptorPools cover_sets;
+    std::map<VkCommandBuffer, VkDescriptorSet> cover_set_of; // reused with its command buffer
+    [[nodiscard]] static bool cover_wanted() {
+        static const bool on = [] {
+            const char *value = std::getenv("MHFU_HUD_OVER_MARKS");
+            return value == nullptr || *value != '0';
+        }();
+        return on;
+    }
+    bool ensure_cover_image(CoverImage &image, std::string &error);
+    void destroy_cover_images();
+    // Copies `from` (in `from_layout`, left there) into `to`, which ends in
+    // SHADER_READ_ONLY_OPTIMAL.
+    void copy_into_cover(VkCommandBuffer commands, VkImage from, VkImageLayout from_layout, CoverImage &to);
+    // In the frame's pass into `address`: ends it, copies the target into
+    // live_world and begins the pass again.
+    void take_live_world(std::uint32_t address);
+    bool create_cover_pipeline(std::string &error);
+    void destroy_cover_pipeline();
+
     // The presents between flips alternate between two command buffers, each
     // with its fence, its scratch area of the vertex buffer and its pair of
     // GPU timestamps.
@@ -3979,6 +4038,7 @@ void VulkanRenderer::Impl::submit_and_present(
             if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
         }
     ImDrawData *ui = ui_ready ? ui_draw_data : nullptr;
+    const std::optional<Cover> cover = std::exchange(cover_next, std::nullopt);
     const float ui_shift_weight = std::exchange(ui_weight, 1.0f);
     ui_draw_data = nullptr;
     const bool draw_ui = ui != nullptr && ui->CmdListsCount > 0;
@@ -4025,12 +4085,42 @@ void VulkanRenderer::Impl::submit_and_present(
         if (prerotated() && image_index < upright_images.size()) target = upright_images[image_index].image;
 #endif
         transition(commands, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        // The HUD over the interface's marks: the frame shown is read again
+        // in the interface's pass, from a draw callback the marks add.
+        VkDescriptorSet cover_set = VK_NULL_HANDLE;
+        if (cover && cover->finished == source && source != VK_NULL_HANDLE && draw_ui &&
+            image_index < ui_framebuffers.size() && cover_pipeline != VK_NULL_HANDLE) {
+            VkDescriptorSet &set = cover_set_of[commands];
+            std::string error;
+            if (set == VK_NULL_HANDLE) set = cover_sets.allocate(error);
+            if (set != VK_NULL_HANDLE) {
+                const VkSampler filter = sharp_screen ? clamp_sharp_sampler : clamp_sampler;
+                const std::array<VkDescriptorImageInfo, 2> images{
+                    VkDescriptorImageInfo{filter, cover->finished_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+                    VkDescriptorImageInfo{filter, cover->world, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+                std::array<VkWriteDescriptorSet, 2> writes{};
+                for (std::uint32_t i = 0; i < writes.size(); ++i) {
+                    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    writes[i].dstSet = set;
+                    writes[i].dstBinding = i;
+                    writes[i].descriptorCount = 1u;
+                    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    writes[i].pImageInfo = &images[i];
+                }
+                vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0u, nullptr);
+                cover_set = set;
+            } else {
+                static bool told = false;
+                if (!std::exchange(told, true)) std::cout << "[render] no set for the HUD cover: " << error << "\n";
+            }
+        }
         if (source != VK_NULL_HANDLE) {
             transition(
                 commands, source, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
             record_game_blit(commands, source, target);
-            transition(
-                commands, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            transition(commands, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                cover_set != VK_NULL_HANDLE ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                            : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         } else {
             // Behind the setup screens: the jungle black of the box art.
             const VkClearColorValue background{{0.063f, 0.075f, 0.051f, 1.0f}};
@@ -4053,9 +4143,14 @@ void VulkanRenderer::Impl::submit_and_present(
             vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
             perf::count_render_pass();
             ui_motion::apply(ui_shift_weight);
+            cover_draw = {cover_set != VK_NULL_HANDLE, cover_set, game_blit_rect()};
             ImGui_ImplVulkan_RenderDrawData(ui, commands);
+            cover_draw = {};
             vkCmdEndRenderPass(commands);
         }
+        if (cover_set != VK_NULL_HANDLE)
+            transition(
+                commands, source, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         if (!capture_path.empty() && (swapchain_usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0u) {
             const VkDeviceSize bytes = static_cast<VkDeviceSize>(swapchain_extent.width) * swapchain_extent.height * 4u;
             VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -4170,6 +4265,166 @@ void VulkanRenderer::Impl::destroy_target(Target &target) {
     target = Target{};
 }
 
+bool VulkanRenderer::Impl::ensure_cover_image(CoverImage &image, std::string &error) {
+    if (image.image != VK_NULL_HANDLE) return true;
+    if (create_image(target_extent.width, target_extent.height, VK_FORMAT_R8G8B8A8_UNORM,
+            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, image.image,
+            image.memory, image.view, VK_IMAGE_ASPECT_COLOR_BIT, error))
+        return true;
+    vkDestroyImageView(device, image.view, nullptr);
+    vkDestroyImage(device, image.image, nullptr);
+    vkFreeMemory(device, image.memory, nullptr);
+    image = CoverImage{};
+    return false;
+}
+
+void VulkanRenderer::Impl::destroy_cover_images() {
+    const auto destroy = [&](CoverImage &image) {
+        vkDestroyImageView(device, image.view, nullptr);
+        vkDestroyImage(device, image.image, nullptr);
+        vkFreeMemory(device, image.memory, nullptr);
+        image = CoverImage{};
+    };
+    destroy(live_world);
+    for (CoverImage &image : picture_worlds) destroy(image);
+    for (CoverImage &image : blend_worlds) destroy(image);
+    live_world_frame = ~0ull;
+    picture_world_valid = {};
+}
+
+void VulkanRenderer::Impl::copy_into_cover(
+    VkCommandBuffer commands, VkImage from, VkImageLayout from_layout, CoverImage &to) {
+    transition(commands, from, from_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transition(commands, to.image,
+        to.initialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy copy{};
+    copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
+    copy.dstSubresource = copy.srcSubresource;
+    copy.extent = {target_extent.width, target_extent.height, 1u};
+    vkCmdCopyImage(commands, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, to.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1u, &copy);
+    perf::count_target_copy();
+    transition(commands, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, from_layout);
+    transition(commands, to.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    to.initialized = true;
+}
+
+void VulkanRenderer::Impl::take_live_world(std::uint32_t address) {
+    live_world_frame = frames;
+    live_world_target = 0u;
+    std::string error;
+    if (cover_pipeline == VK_NULL_HANDLE || !ensure_cover_image(live_world, error)) return;
+    const auto found = targets.find(address);
+    if (found == targets.end()) return;
+    end_pass();
+    copy_into_cover(command_buffer, found->second.color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, live_world);
+    live_world_target = address;
+    world_split_next = true;
+    begin_pass(address);
+}
+
+// Drawn inside the interface's pass (ui_render_pass), from a draw callback.
+bool VulkanRenderer::Impl::create_cover_pipeline(std::string &error) {
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    for (std::uint32_t i = 0; i < bindings.size(); ++i) {
+        bindings[i].binding = i;
+        bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[i].descriptorCount = 1u;
+        bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo set_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    set_info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    set_info.pBindings = bindings.data();
+    if (!check(vkCreateDescriptorSetLayout(device, &set_info, nullptr, &cover_set_layout),
+            "vkCreateDescriptorSetLayout", error))
+        return false;
+    // A set per command buffer that presents: the frames in flight and the
+    // presents between flips.
+    if (!cover_sets.create(DescriptorPools::vulkan(device, cover_set_layout),
+            DescriptorPools::from_environment(
+                {"HUD cover sets", {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2u}}, 8u, 4u}),
+            error))
+        return false;
+    VkPushConstantRange push{VK_SHADER_STAGE_FRAGMENT_BIT, 0u, 4u * sizeof(float)};
+    VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    layout_info.setLayoutCount = 1u;
+    layout_info.pSetLayouts = &cover_set_layout;
+    layout_info.pushConstantRangeCount = 1u;
+    layout_info.pPushConstantRanges = &push;
+    if (!check(vkCreatePipelineLayout(device, &layout_info, nullptr, &cover_layout), "vkCreatePipelineLayout", error))
+        return false;
+    const auto create_shader = [&](const std::uint32_t *code, std::size_t size, VkShaderModule &module) {
+        VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        info.codeSize = size;
+        info.pCode = code;
+        return check(vkCreateShaderModule(device, &info, nullptr, &module), "vkCreateShaderModule", error);
+    };
+    if (!create_shader(kHudCoverVertexShader, sizeof(kHudCoverVertexShader), cover_vertex)) return false;
+    if (!create_shader(kHudCoverFragmentShader, sizeof(kHudCoverFragmentShader), cover_fragment)) return false;
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = cover_vertex;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = cover_fragment;
+    stages[1].pName = "main";
+    VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewport.viewportCount = 1u;
+    viewport.scissorCount = 1u;
+    VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    raster.polygonMode = VK_POLYGON_MODE_FILL;
+    raster.cullMode = VK_CULL_MODE_NONE;
+    raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    raster.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineColorBlendAttachmentState blend_attachment{};
+    blend_attachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    blend.attachmentCount = 1u;
+    blend.pAttachments = &blend_attachment;
+    const std::array<VkDynamicState, 2> dynamic_states{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamic_states.size());
+    dynamic.pDynamicStates = dynamic_states.data();
+    VkGraphicsPipelineCreateInfo pipeline_info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipeline_info.stageCount = static_cast<std::uint32_t>(stages.size());
+    pipeline_info.pStages = stages.data();
+    pipeline_info.pVertexInputState = &vertex_input;
+    pipeline_info.pInputAssemblyState = &assembly;
+    pipeline_info.pViewportState = &viewport;
+    pipeline_info.pRasterizationState = &raster;
+    pipeline_info.pMultisampleState = &multisample;
+    pipeline_info.pColorBlendState = &blend;
+    pipeline_info.pDynamicState = &dynamic;
+    pipeline_info.layout = cover_layout;
+    pipeline_info.renderPass = ui_render_pass;
+    return check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1u, &pipeline_info, nullptr, &cover_pipeline),
+        "vkCreateGraphicsPipelines", error);
+}
+
+void VulkanRenderer::Impl::destroy_cover_pipeline() {
+    if (cover_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, cover_pipeline, nullptr);
+    if (cover_layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, cover_layout, nullptr);
+    cover_sets.destroy();
+    cover_set_of.clear();
+    if (cover_set_layout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, cover_set_layout, nullptr);
+    if (cover_vertex != VK_NULL_HANDLE) vkDestroyShaderModule(device, cover_vertex, nullptr);
+    if (cover_fragment != VK_NULL_HANDLE) vkDestroyShaderModule(device, cover_fragment, nullptr);
+    cover_pipeline = VK_NULL_HANDLE;
+    cover_layout = VK_NULL_HANDLE;
+    cover_set_layout = VK_NULL_HANDLE;
+    cover_vertex = VK_NULL_HANDLE;
+    cover_fragment = VK_NULL_HANDLE;
+}
+
 // Records commands into a one-time buffer and waits for them to finish.
 void VulkanRenderer::Impl::run_commands(const std::function<void(VkCommandBuffer)> &record) {
     VkCommandBufferAllocateInfo command_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -4207,8 +4462,10 @@ VulkanRenderer::Impl::Target *VulkanRenderer::Impl::target_for(std::uint32_t add
 }
 
 bool VulkanRenderer::Impl::create_target(Target &target, std::string &error) {
+    // Sampled: the HUD cover reads the frame shown (shaders/hud_cover.frag).
     if (!create_image(target_extent.width, target_extent.height, VK_FORMAT_R8G8B8A8_UNORM,
-            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                VK_IMAGE_USAGE_SAMPLED_BIT,
             target.color, target.color_memory, target.color_view, VK_IMAGE_ASPECT_COLOR_BIT, error))
         return false;
     if (!create_image(target_extent.width, target_extent.height, depth_format,
@@ -6495,6 +6752,8 @@ void VulkanRenderer::Impl::resize_targets(VkExtent2D extent) {
     // into it, so the paused frame behind the menu, and render-to-texture
     // targets the game reads back, stay intact.
     vkDeviceWaitIdle(device);
+    // The HUD cover's copies are made again at the new size when next needed.
+    destroy_cover_images();
     // A held frame has the old size; let the game's own frames show again.
     if (holding) {
         holding = false;
@@ -6727,6 +6986,11 @@ void VulkanRenderer::capture_window(const std::filesystem::path &path) {
     }
 }
 
+namespace {
+// The renderer whose interface is up, for the HUD cover's draw callback.
+VulkanRenderer *cover_renderer = nullptr;
+} // namespace
+
 bool VulkanRenderer::initialize_ui(std::string &error) {
     Impl &impl = *impl_;
     if (!impl.ready) {
@@ -6792,18 +7056,29 @@ bool VulkanRenderer::initialize_ui(std::string &error) {
         error = "ImGui_ImplVulkan_Init failed";
         return false;
     }
+    // Without it the marks stay over the HUD; the interface still works.
+    if (Impl::cover_wanted()) {
+        std::string cover_error;
+        if (!impl.create_cover_pipeline(cover_error)) {
+            std::cout << "[render] the HUD cannot be drawn over the interface's marks: " << cover_error << "\n";
+            impl.destroy_cover_pipeline();
+        }
+    }
     impl.ui_ready = true;
+    cover_renderer = this;
     return true;
 }
 
 void VulkanRenderer::shutdown_ui() {
     Impl &impl = *impl_;
     if (!impl.ui_ready) return;
+    if (cover_renderer == this) cover_renderer = nullptr;
     vkDeviceWaitIdle(impl.device);
     ImGui_ImplVulkan_Shutdown();
     impl.ui_ready = false;
     for (VkFramebuffer framebuffer : impl.ui_framebuffers) vkDestroyFramebuffer(impl.device, framebuffer, nullptr);
     impl.ui_framebuffers.clear();
+    impl.destroy_cover_pipeline();
     vkDestroyRenderPass(impl.device, impl.ui_render_pass, nullptr);
     impl.ui_render_pass = VK_NULL_HANDLE;
 }
@@ -6814,6 +7089,27 @@ void VulkanRenderer::begin_ui_frame() {
 
 void VulkanRenderer::set_ui_draw_data(ImDrawData *draw_data) {
     if (impl_) impl_->ui_draw_data = draw_data;
+}
+
+void VulkanRenderer::draw_hud_cover(const ImDrawList *, const ImDrawCmd *) {
+    if (cover_renderer == nullptr || !cover_renderer->impl_) return;
+    const Impl &impl = *cover_renderer->impl_;
+    if (!impl.cover_draw.active || impl.cover_pipeline == VK_NULL_HANDLE) return;
+    const auto *state = static_cast<const ImGui_ImplVulkan_RenderState *>(ImGui::GetPlatformIO().Renderer_RenderState);
+    if (state == nullptr) return;
+    const VkCommandBuffer commands = state->CommandBuffer;
+    const VkRect2D &shown = impl.cover_draw.picture;
+    const VkViewport viewport{0.0f, 0.0f, static_cast<float>(impl.swapchain_extent.width),
+        static_cast<float>(impl.swapchain_extent.height), 0.0f, 1.0f};
+    vkCmdSetViewport(commands, 0u, 1u, &viewport);
+    vkCmdSetScissor(commands, 0u, 1u, &shown);
+    vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.cover_pipeline);
+    vkCmdBindDescriptorSets(
+        commands, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.cover_layout, 0u, 1u, &impl.cover_draw.set, 0u, nullptr);
+    const std::array<float, 4> picture{static_cast<float>(shown.offset.x), static_cast<float>(shown.offset.y),
+        static_cast<float>(shown.extent.width), static_cast<float>(shown.extent.height)};
+    vkCmdPushConstants(commands, impl.cover_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(picture), picture.data());
+    vkCmdDraw(commands, 3u, 1u, 0u, 0u);
 }
 
 void VulkanRenderer::present_ui(bool show_game) {
@@ -7816,9 +8112,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // With frame interpolation a name is told apart at any size too, so the
     // presents between game frames can move it with its character.
     const bool glide_names = impl.interpolating && names_glide();
-    const hud::NameDraw named = scale_corners || (through_quads && glide_names)
+    hud::NameDraw named = scale_corners || (through_quads && glide_names)
         ? hud::name_at(call.command_address, call.call_return)
         : hud::NameDraw{};
+    // A gathering-hall name is only moved, so without interpolation it is
+    // drawn as any other 2D draw.
+    if (named.glide_only && !glide_names) named = hud::NameDraw{};
     if (named.is_name) scale_corners = true;
     std::vector<GpuVertex> corner_scaled;
     // Where the area map and a name went, when their sizes moved them. The
@@ -7832,7 +8131,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         if (party_icons) {
             scale_corners = hud_scale::place_party_icons(corner_scaled, hud_scales, impl.hud_scale_frame);
         } else if (named.is_name) {
-            name_bounds = hud_scale::scale_name_draw(corner_scaled, hud_scales, impl.hud_scale_frame, named, fit);
+            // A hall name keeps the size the game draws it at.
+            if (!named.glide_only)
+                name_bounds = hud_scale::scale_name_draw(corner_scaled, hud_scales, impl.hud_scale_frame, named, fit);
         } else {
             // The moving map window is told from other panels of the same size by
             // the texture it samples (gpu/hud_scale.hpp).
@@ -7901,18 +8202,20 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // The sharpness gauge (game/sharpness_gauge.hpp) shortens the colour the
     // game painted and leaves the blade. That colour loses a point of itself
     // from its right end; the long bar under a long sword ends at the sharpness
-    // that is left, and its cap moves with the cut. Off, the colour's pulse is
-    // held at a full beat so it stays solid. The draw is the executable's, not
-    // a quest-HUD packet, so the rectangles tell it apart from a menu.
+    // that is left, and its cap moves with the cut. The red spirit fill inside
+    // that bar keeps its share of what is left, so it does not run past the
+    // cut end. On, the colour also glows above a full beat. Off, the game's
+    // drawing is left alone. The draw is the executable's, not a quest-HUD
+    // packet, so the rectangles tell it apart from a menu.
     const float sharpness_left = game::sharpness::bar_remaining();
     const float colour_left = game::sharpness::colour_remaining();
     const bool cut_bar = sharpness_left >= 0.0f && sharpness_left < 1.0f;
     const bool cut_colour = colour_left >= 0.0f && colour_left < 1.0f;
     // 0x08841400 turns a frame counter into 64 + 64*sin(...), so a full pulse
-    // is alpha 128. AABBGGRR as the GE colour word packs it.
-    constexpr std::uint32_t kSolidColourAlpha = 0x80000000u;
-    const bool hold_colour = settings::current().sharpness_effect == settings::SharpnessEffect::Solid;
-    if ((cut_bar || cut_colour || hold_colour) && through_quads && !named.is_name &&
+    // is alpha 128. AABBGGRR as the GE colour word packs it. The gauge moves
+    // the pulse above that (game::sharpness::glow_alpha).
+    const bool glow_colour = settings::current().sharpness_gauge;
+    if ((cut_bar || cut_colour || glow_colour) && through_quads && !named.is_name &&
         framebuffer_source.target == nullptr && impl.shows(call.target.color_address)) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
         // The left cap sits on x 62. The right one sits on the bar's end.
@@ -7920,7 +8223,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             return hud_scale::is_sharpness_cap(game) &&
                 game.x0 >= game::sharpness::kBarLeft + game::sharpness::kBarWidth * 0.5f;
         };
-        const auto cut_quad = [](std::vector<GpuVertex> &vertices, std::size_t first, float remaining) {
+        // `blade`: the colour on the knife, cut from where the blade starts
+        // rather than from the handle (game::sharpness::cut_blade).
+        const auto cut_quad = [](std::vector<GpuVertex> &vertices, std::size_t first, float remaining,
+                                  bool blade = false) {
             float x0 = vertices[first].x;
             float x1 = x0;
             float u0 = vertices[first].u;
@@ -7935,7 +8241,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                     u1 = vertices[first + i].u;
                 }
             }
-            const game::sharpness::Edge edge = game::sharpness::cut_right(x0, x1, u0, u1, remaining);
+            const game::sharpness::Edge edge = blade ? game::sharpness::cut_blade(x0, x1, u0, u1, remaining)
+                                                     : game::sharpness::cut_right(x0, x1, u0, u1, remaining);
             for (std::size_t i = 0; i < 6u; ++i) {
                 GpuVertex &vertex = vertices[first + i];
                 if (vertex.x >= x1 - 0.25f) {
@@ -7946,6 +8253,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         };
         bool bar = false;
         bool right_cap = false;
+        bool spirit_fill = false;
         bool colour = false;
         for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
             const hud_scale::Rect game = fit.to_game(hud_scale::quad_bounds(unscaled, first));
@@ -7953,10 +8261,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 bar = true;
             else if (at_bar_end(game))
                 right_cap = true;
+            else if (hud_scale::is_spirit_fill(game))
+                spirit_fill = true;
             else if (hud_scale::is_sharpness_colour(game))
                 colour = true;
         }
-        if ((cut_bar && (bar || right_cap)) || ((cut_colour || hold_colour) && colour)) {
+        if ((cut_bar && (bar || right_cap || spirit_fill)) || ((cut_colour || glow_colour) && colour)) {
             if (!scale_corners) {
                 corner_scaled = unscaled;
                 scale_corners = true;
@@ -7966,8 +8276,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             float bar_width = 0.0f;
             if (cut_bar) {
                 for (std::size_t first = 0; bar && first + 6u <= corner_scaled.size(); first += 6u) {
-                    if (!hud_scale::is_sharpness_bar(fit.to_game(hud_scale::quad_bounds(unscaled, first))))
-                        continue;
+                    if (!hud_scale::is_sharpness_bar(fit.to_game(hud_scale::quad_bounds(unscaled, first)))) continue;
                     const hud_scale::Rect placed = hud_scale::quad_bounds(corner_scaled, first);
                     bar_width = std::max(bar_width, placed.x1 - placed.x0);
                 }
@@ -7991,12 +8300,16 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 else if (cut_bar && right_cap && at_bar_end(game)) {
                     const float dx = game::sharpness::cap_shift(bar_width, sharpness_left);
                     for (std::size_t i = 0; i < 6u; ++i) corner_scaled[first + i].x += dx;
+                } else if (cut_bar && hud_scale::is_spirit_fill(game)) {
+                    cut_quad(corner_scaled, first, game::sharpness::fill_remaining(game.x0, game.x1, sharpness_left));
                 } else if (hud_scale::is_sharpness_colour(game)) {
-                    if (cut_colour) cut_quad(corner_scaled, first, colour_left);
-                    if (hold_colour)
-                        for (std::size_t i = 0; i < 6u; ++i)
-                            corner_scaled[first + i].color =
-                                (corner_scaled[first + i].color & 0x00FFFFFFu) | kSolidColourAlpha;
+                    if (cut_colour) cut_quad(corner_scaled, first, colour_left, true);
+                    if (glow_colour)
+                        for (std::size_t i = 0; i < 6u; ++i) {
+                            std::uint32_t &colour_word = corner_scaled[first + i].color;
+                            colour_word = (colour_word & 0x00FFFFFFu) |
+                                (game::sharpness::glow_alpha(colour_word >> 24) << 24);
+                        }
                 }
             }
         }
@@ -8280,6 +8593,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             }
         }
         impl.begin_pass(call.target.color_address, overwritten);
+        if (!impl.pass_active) return;
+    }
+    // The frame's first HUD draw into the picture shown: the world under it
+    // is copied first, so the HUD can be drawn again over the interface's
+    // marks (shaders/hud_cover.frag).
+    if (call.through && !call.clear_mode && Impl::cover_wanted() && impl.live_world_frame != impl.frames &&
+        impl.shows(call.target.color_address) && hud::is_hud(call.command_address, call.call_return)) {
+        impl.take_live_world(call.target.color_address);
         if (!impl.pass_active) return;
     }
     {
@@ -8735,6 +9056,7 @@ void VulkanRenderer::Impl::record_draw_for_replay(const DrawCall &call, bool lit
         added.skinned = skinned;
         added.raw = raw;
         added.vertices = vertices != VK_NULL_HANDLE ? vertices : vertex_buffer;
+        added.world_split = std::exchange(world_split_next, false);
         if (raw && ((call.vertex_type >> 9u) & 3u) != 0u) {
             // A skinned raw group is blended through its bones.
             if (frame.raws.empty() || frame.raw_offset != raw_offset) {
@@ -8810,6 +9132,14 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     transition(
         command_buffer, picture.color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     newer_picture_valid = true;
+    // The world under its HUD goes with the picture (shaders/hud_cover.frag).
+    picture_world_valid[newer_picture] = false;
+    if (live_world_frame == frames && live_world_target == displayed &&
+        ensure_cover_image(picture_worlds[newer_picture], error)) {
+        copy_into_cover(
+            command_buffer, live_world.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, picture_worlds[newer_picture]);
+        picture_world_valid[newer_picture] = true;
+    }
 
     if (older_frame.valid && older_frame.recorded && newer_frame.recorded) {
         matching = matcher.match(older_frame.summaries, newer_frame.summaries, cut_thresholds);
@@ -8985,6 +9315,14 @@ bool VulkanRenderer::Impl::present_between(const pacing::PresentClock::Present &
     // The interface follows the picture this present shows: the blend, or
     // one of the two frames as it is.
     ui_weight = blended ? present.t : image == newer_image.color ? 1.0f : 0.0f;
+    // The HUD over the marks, from the world under this picture's HUD.
+    if (blended && blend_world_taken[slot]) {
+        cover_next = Cover{image, blend_targets[slot].color_view, blend_worlds[slot].view};
+    } else if (!blended) {
+        const std::uint32_t shown = image == newer_image.color ? newer_picture : newer_picture ^ 1u;
+        if (picture_world_valid[shown])
+            cover_next = Cover{image, pictures[shown].color_view, picture_worlds[shown].view};
+    }
     submit_and_present(commands, fence, image, true, false);
     // MHFU_INTERPOLATION_EXTRA_MS: busy CPU time added to each blended
     // present, to try the step-down on a fast machine as if it were a slow one.
@@ -9089,8 +9427,22 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
     static const bool motion_guard = std::getenv("MHFU_INTERPOLATION_NO_MOTION_GUARD") == nullptr;
 
     replay_regions = 0u;
+    blend_world_taken[slot] = false;
     for (const ReplayGroup &drawn : older.groups) {
         if (drawn.target != older.displayed) continue;
+        // The frame's first HUD draw: the blended world under it is copied
+        // for the HUD cover (shaders/hud_cover.frag), as the frame did.
+        std::string cover_error;
+        if (drawn.world_split && !blend_world_taken[slot] && cover_pipeline != VK_NULL_HANDLE &&
+            ensure_cover_image(blend_worlds[slot], cover_error)) {
+            // Outside a render pass, as any copy.
+            vkCmdEndRenderPass(commands);
+            copy_into_cover(commands, target.color, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, blend_worlds[slot]);
+            vkCmdBeginRenderPass(commands, &pass, VK_SUBPASS_CONTENTS_INLINE);
+            perf::count_render_pass();
+            known = false;
+            blend_world_taken[slot] = true;
+        }
         // The regions this replay reads, for present_regions.
         const bool ring_vertices = drawn.vertices == VK_NULL_HANDLE || drawn.vertices == vertex_buffer;
         if (ring_vertices && drawn.vertex_base < static_cast<VkDeviceSize>(kFrameRegions) * vertex_region_bytes)
@@ -9460,6 +9812,8 @@ void VulkanRenderer::Impl::destroy_interpolation_targets() {
     for (Target &picture : pictures) destroy_target(picture);
     for (Target &target : blend_targets) destroy_target(target);
     older_picture_valid = newer_picture_valid = false;
+    picture_world_valid = {};
+    blend_world_taken = {};
 }
 
 bool VulkanRenderer::present(
@@ -9468,6 +9822,8 @@ bool VulkanRenderer::present(
     if (!impl.ready) return false;
     if (!impl.recording) begin_frame();
     impl.end_pass();
+    // The HUD cover tells the HUD's draws apart (take_live_world).
+    hud::want_cover(Impl::cover_wanted() && impl.cover_pipeline != VK_NULL_HANDLE);
 
     static const bool trace3d = std::getenv("MHFU_TRACE_3D") != nullptr;
     static const bool trace_camera = std::getenv("MHFU_TRACE_CAMERA") != nullptr;
@@ -9648,6 +10004,9 @@ bool VulkanRenderer::present(
         }
         impl.fast_forward_shown = now;
     }
+    if (!impl.holding && displayed != impl.targets.end() && impl.live_world_frame == impl.frames &&
+        impl.live_world_target == impl.presented_target)
+        impl.cover_next = Impl::Cover{source, displayed->second.color_view, impl.live_world.view};
     {
         const perf::SplitScope split(perf::Split::Present);
         impl.submit_and_present(source, true);
@@ -9824,6 +10183,7 @@ void VulkanRenderer::shutdown() {
         return;
     }
     Impl &impl = *impl_;
+    if (cover_renderer == this) cover_renderer = nullptr;
     vkDeviceWaitIdle(impl.device);
     // The interface may still be up when the game quits from its menu.
     if (impl.ui_ready && ImGui::GetCurrentContext() != nullptr) ImGui_ImplVulkan_Shutdown();
@@ -9832,6 +10192,8 @@ void VulkanRenderer::shutdown() {
 #if defined(__ANDROID__)
     impl.destroy_rotation_pipeline();
 #endif
+    impl.destroy_cover_pipeline();
+    impl.destroy_cover_images();
     if (impl.ui_render_pass != VK_NULL_HANDLE) vkDestroyRenderPass(impl.device, impl.ui_render_pass, nullptr);
     for (auto &[key, texture] : impl.textures) impl.destroy_texture(texture);
     impl.textures.clear();
