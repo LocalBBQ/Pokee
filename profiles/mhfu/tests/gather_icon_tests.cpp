@@ -1058,6 +1058,22 @@ void test_gather_items() {
     check(gather_art_for(memory, 4u, 3u) == GatherArt::of_item(kBugNetItem), "a bug point shows the bug net");
     check(gather_art_for(memory, 0u, 3u) == GatherArt::of_item(5u), "a ○ point shows what it gives");
     check(gather_art_for(memory, 0u, 4u).kind == GatherArt::Kind::None, "and nothing when it gives nothing");
+
+    // A bone pile as traced: mostly a husk (icon 28), then two bones (icon 10).
+    const auto icon_of = [&](std::uint16_t item, std::uint8_t icon, std::uint8_t tint) {
+        const std::uint32_t record = 0x0899D2BCu + static_cast<std::uint32_t>(item) * 24u;
+        memory.store8(record + 1u, icon);
+        memory.store8(record + 2u, tint);
+    };
+    icon_of(94u, kHuskIcon, 0u);
+    icon_of(292u, kBoneIcon, 0u);
+    icon_of(290u, kBoneIcon, 4u);
+    plant_list(memory, 27u, 0x1400u, {{60u, 94u}, {30u, 292u}, {10u, 290u}});
+    check(gather_art_for(memory, 0u, 27u) == GatherArt::of_item(kBoneItem), "a bone pile shows the bone, not the husk");
+    plant_list(memory, 28u, 0x1800u, {{50u, 94u}});
+    check(gather_art_for(memory, 0u, 28u) == GatherArt::of_item(kBoneItem), "so does a pile of husks alone");
+    plant_list(memory, 29u, 0x1C00u, {{40u, 290u}, {10u, 7u}});
+    check(gather_art_for(memory, 0u, 29u) == GatherArt::of_item(kBoneItem), "and one whose bone is not plain");
 }
 
 void test_item_art() {
