@@ -211,8 +211,7 @@ void test_on_the_picture() {
     GatherPicture flat = picture();
     flat.projection[11] = 0.0f;
     gather_note_draw(flat, 1000u);
-    const std::optional<GatherMark> at =
-        gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f});
+    const std::optional<GatherMark> at = gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f});
     check(at && std::fabs(at->at[0] - 0.5f) < 0.05f && std::fabs(at->at[1] - 0.5f) < 0.05f,
         "the mark sits above the node, and an orthographic draw is not the world");
 
@@ -590,17 +589,17 @@ void test_farm_spots() {
     memory.store32(hunter + 1364u, point);
     memory.store16(point + 2u, kFarmMining);
     memory.store16(point + 22u, 1u);
-    memory.store8(farm + 2u, 2u);         // two mining spots
-    memory.store16(farm + 8u + 8u, 3u);   // the second has three uses
-    memory.store8(farm + 3u, 1u);         // one bug thicket
-    memory.store16(farm + 48u + 0u, 5u);  // with five uses
+    memory.store8(farm + 2u, 2u);        // two mining spots
+    memory.store16(farm + 8u + 8u, 3u);  // the second has three uses
+    memory.store8(farm + 3u, 1u);        // one bug thicket
+    memory.store16(farm + 48u + 0u, 5u); // with five uses
 
     check(!farm_point(memory), "nothing before the village overlays are loaded");
     plant_village(memory);
     check(farm_code_matches(memory), "the planted farm words match");
     const std::optional<FarmPoint> mining = farm_point(memory);
-    check(mining && mining->address == point && mining->type == kFarmMining && mining->index == 1u &&
-            mining->uses == 3u,
+    check(
+        mining && mining->address == point && mining->type == kFarmMining && mining->index == 1u && mining->uses == 3u,
         "the mining outcrop in reach is found with its uses");
     memory.store16(farm + 8u + 8u, 0u);
     check(!farm_point(memory), "a mined-out outcrop is not a gather");
@@ -746,6 +745,145 @@ void test_mark_over_a_carve() {
     check(!gather_mark(memory, pose), "nor one out of reach");
 }
 
+// One 24-byte spot: +2 the type, +4 x, +8 y, +12 z, +16 the radius.
+void plant_spot(psprecomp::GuestMemory &memory, std::uint32_t address, std::uint16_t type, float x, float y, float z,
+    float radius) {
+    memory.store16(address + 2u, type);
+    write_float(memory, address + 4u, x);
+    write_float(memory, address + 8u, y);
+    write_float(memory, address + 12u, z);
+    write_float(memory, address + 16u, radius);
+}
+
+// The quest object behind 0x09A4F1A0, its stage object, and the stage's
+// method +40 returning the spot table: lui v0,0x0985; jr ra; addiu v0,v0,-0x7F00.
+constexpr std::uint32_t kSpotTable = 0x09848100u;
+constexpr std::uint32_t kSpots = 0x09860000u;
+
+void plant_stage(psprecomp::GuestMemory &memory) {
+    constexpr std::uint32_t quest = 0x09800000u;
+    constexpr std::uint32_t stage = 0x09810000u;
+    constexpr std::uint32_t vtable = 0x09820000u;
+    constexpr std::uint32_t method = 0x09830000u;
+    memory.store32(0x09A4F1A0u, quest);
+    memory.store32(quest, stage);
+    memory.store32(stage, vtable);
+    memory.store32(vtable + 40u, method);
+    memory.store32(method, 0x3C020985u);
+    memory.store32(method + 4u, 0x03E00008u);
+    memory.store32(method + 8u, 0x24428100u);
+    memory.store32(kSpotTable + 16u, kSpots);
+    memory.store8(kSpotTable + 62u, 2u);
+}
+
+void plant_fishing_words(psprecomp::GuestMemory &memory) {
+    for (const GatherWord &word : fishing_checked_words()) memory.store32(word.address, word.instruction);
+}
+
+void test_fishing_spots() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 4u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    write_float(memory, nodes, -1.0f); // no gather point
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x200u, 100.0f);
+    write_float(memory, hunter + 0x204u, -40.0f);
+    write_float(memory, hunter + 0x208u, 0.0f);
+    memory.store16(hunter + 0x29Au, 4u);
+    plant_stage(memory);
+    plant_spot(memory, kSpots, 24u, 5000.0f, 0.0f, 5000.0f, 200.0f); // a supply box far off
+    plant_spot(memory, kSpots + 24u, kFishingSpotType, 0.0f, -50.0f, 0.0f, 100.0f);
+
+    const std::optional<std::uint32_t> table = spot_table(memory);
+    check(table && *table == kSpotTable, "the stage's getter gives the spot table, its low half signed");
+    check(!fishing_spot(memory), "without the game's instructions there is no fishing spot");
+    plant_words(memory);
+    check(!fishing_spot(memory), "nor with only the gather search's");
+    plant_fishing_words(memory);
+    const std::optional<FishingSpot> spot = fishing_spot(memory);
+    check(spot && spot->address == kSpots + 24u && spot->x == 0.0f && spot->y == -50.0f && spot->z == 0.0f,
+        "the hunter at the water's edge is at the fishing spot");
+
+    write_float(memory, hunter + 0x200u, 100.1f);
+    check(!fishing_spot(memory), "just past the radius is not");
+    write_float(memory, hunter + 0x200u, 0.0f);
+    write_float(memory, hunter + 0x204u, -100.0f);
+    check(fishing_spot(memory).has_value(), "50 below the spot is still in reach");
+    write_float(memory, hunter + 0x204u, -100.1f);
+    check(!fishing_spot(memory), "and lower is not");
+    write_float(memory, hunter + 0x204u, -0.1f);
+    check(fishing_spot(memory).has_value(), "just under 50 above it is in reach");
+    write_float(memory, hunter + 0x204u, 0.0f);
+    check(!fishing_spot(memory), "50 above it is already outside");
+    write_float(memory, hunter + 0x204u, -40.0f);
+
+    // The search gives the first spot in reach, and the bait fishes only at 23.
+    plant_spot(memory, kSpots, 24u, 0.0f, -50.0f, 0.0f, 200.0f);
+    const std::optional<GatherSpot> first = spot_from_table(memory, kSpotTable, 0.0f, -40.0f, 0.0f);
+    check(first && first->address == kSpots && first->type == 24u, "the first spot in reach is returned");
+    check(!fishing_spot(memory), "so a camp spot before the water is no fishing");
+    plant_spot(memory, kSpots, 24u, 5000.0f, 0.0f, 5000.0f, 200.0f);
+    memory.store8(kSpotTable + 62u, 1u);
+    check(!fishing_spot(memory), "a spot past the count is not read");
+    memory.store8(kSpotTable + 62u, 0x80u);
+    check(!fishing_spot(memory), "a negative count is no spots");
+    memory.store8(kSpotTable + 62u, 2u);
+    memory.store32(kSpotTable + 16u, 0u);
+    check(!fishing_spot(memory), "an area without a list has no spots");
+    memory.store32(kSpotTable + 16u, kSpots);
+    memory.store32(kSpots + 24u + 8u, 0x7FC00000u);
+    check(!fishing_spot(memory), "a height that is not a number is skipped");
+    write_float(memory, kSpots + 24u + 8u, -50.0f);
+    check(fishing_spot(memory).has_value(), "and the spot is back");
+
+    memory.store32(0x09830000u + 4u, 0u);
+    check(!spot_table(memory) && !fishing_spot(memory), "a method that is not the getter is not followed");
+    memory.store32(0x09830000u + 4u, 0x03E00008u);
+    memory.store32(0x09800000u, 0u);
+    check(!spot_table(memory), "no stage object is no table");
+    memory.store32(0x09800000u, 0x09810000u);
+    memory.store32(fishing_checked_words()[4].address, 0u);
+    check(!fishing_spot(memory), "a differing spot instruction turns fishing off");
+    check(gather_code_matches(memory), "and leaves gathering on");
+    plant_fishing_words(memory);
+
+    // The mark: the bait's icon, below a gather point and a carve.
+    for (const GatherArtWord &word : gather_art_words()) memory.store32(word.address, word.instruction);
+    mhfu::settings::current().gather_icon = true;
+    // Straight ahead of the camera, so the mark is the picture's centre.
+    write_float(memory, hunter + 0x204u, 0.0f);
+    write_float(memory, hunter + 0x208u, -10.0f);
+    plant_spot(memory, kSpots + 24u, kFishingSpotType, 0.0f, 0.0f, -10.0f, 100.0f);
+    const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
+    gather_note_draw(picture(), 100u);
+    const std::optional<GatherMark> mark = gather_mark(memory, pose);
+    check(mark && mark->glyph == GatherGlyph::Fishing && mark->art == GatherArt::of_item(kBaitItem),
+        "a fishing spot is marked with the bait");
+    check(mark && std::fabs(mark->at[0] - 0.5f) < 0.05f && std::fabs(mark->at[1] - 0.5f) < 0.05f &&
+            mark->world[2] == -10.0f,
+        "over the spot");
+    plant_node(memory, nodes, 0.0f, 0.0f, -10.0f, 30.0f, 1u, 0u);
+    gather_note_draw(picture(), 100u);
+    const std::optional<GatherMark> gather_first = gather_mark(memory, pose);
+    check(gather_first && gather_first->glyph == GatherGlyph::Plant, "a gather point in range takes the mark first");
+    write_float(memory, nodes, -1.0f);
+}
+
 void test_glyphs() {
     check(gather_glyph(0u) == GatherGlyph::Plant, "kind 0 is a plant");
     check(gather_glyph(3u) == GatherGlyph::Mining, "kind 3 is mining");
@@ -830,8 +968,7 @@ void test_motion_on_the_picture() {
     const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
     gather_note_draw(picture(), 100u);
     const std::optional<GatherMark> first = gather_mark(memory, pose, &motion);
-    check(first && !first->older && near(first->alpha, GatherMotion::kFadeStep) &&
-            first->glyph == GatherGlyph::BugNet,
+    check(first && !first->older && near(first->alpha, GatherMotion::kFadeStep) && first->glyph == GatherGlyph::BugNet,
         "the first frame fades the mark in, with no older place to blend from");
     // The camera turns a little: the next frame blends from the first one's place.
     const GatherPose turned{0.0f, 100.0f, 0.0f, 1.0f, 100.0f, -10.0f};
@@ -927,8 +1064,8 @@ void test_item_art() {
     psprecomp::GuestMemory memory(32u * 1024u * 1024u);
     plant_item(memory, 145u, 16u, 0u, 90u, {24u, 48u, 24u, 24u}, {0xEFu, 0xEFu, 0xE9u});
     const std::optional<ItemArt> pick = item_art(memory, 145u);
-    check(pick && pick->u == 24u && pick->v == 48u && pick->width == 24u && pick->height == 24u &&
-            pick->red == 0xEFu && pick->blue == 0xE9u,
+    check(pick && pick->u == 24u && pick->v == 48u && pick->width == 24u && pick->height == 24u && pick->red == 0xEFu &&
+            pick->blue == 0xE9u,
         "an item's icon is its sprite's rectangle in its tint");
     plant_item(memory, 7u, 255u, 0u, 0u, {}, {});
     check(!item_art(memory, 7u), "icon 255 is none");
@@ -1007,6 +1144,7 @@ int main() {
     test_carving_a_monster();
     test_farm_spots();
     test_mark_over_a_carve();
+    test_fishing_spots();
     std::cout << (failures ? "FAIL" : "PASS") << ": gather icon (" << failures << " failures)\n";
     return failures ? 1 : 0;
 }

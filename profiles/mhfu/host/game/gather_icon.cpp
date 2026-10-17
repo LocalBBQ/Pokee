@@ -307,24 +307,53 @@ void trace_carve(const psprecomp::GuestMemory &memory, std::uint32_t record) {
     std::cout << std::dec << std::endl;
 }
 
-// MHFU_TRACE_GATHER: the object the spot search (game_task 0x09AA6B18) asks
-// for its list of fishing and other spots. Its first word is at the carve
-// table's word, and the search calls method +40 of its vtable for the area's
-// spots. Printed once for each object, to read that method.
-void trace_spot_source(const psprecomp::GuestMemory &memory) {
-    if (!trace_on() || !in_ram(kCarveTable, 4u, memory)) return;
-    const std::uint32_t table = memory.load32(kCarveTable);
-    if (!in_ram(table, 4u, memory)) return;
-    const std::uint32_t object = memory.load32(table);
-    static std::uint32_t last = 0u;
-    if (object == last || !in_ram(object, 64u, memory)) return;
-    last = object;
-    const std::uint32_t vtable = memory.load32(object);
-    const std::uint32_t method = in_ram(vtable + 40u, 4u, memory) ? memory.load32(vtable + 40u) : 0u;
-    std::cout << "[gather] spot source: table 0x" << std::hex << table << " object 0x" << object << " vtable 0x"
-              << vtable << " method+40 0x" << method << " words:";
-    for (std::uint32_t offset = 0; offset < 64u; offset += 4u) std::cout << ' ' << memory.load32(object + offset);
-    std::cout << std::dec << std::endl;
+// game_task 0x09AA6B18, the spot search, and the item handler's bait case
+// that asks it.
+constexpr GatherWord kSpotWords[] = {
+    {0x09AA6B34u, 0x3C0209A5u}, // lui v0,0x09A5
+    {0x09AA6B38u, 0x8C42F1A0u}, // lw v0,-3680(v0): the pointer at 0x09A4F1A0
+    {0x09AA6B44u, 0x8C440000u}, // lw a0,0(v0): the stage object
+    {0x09AA6B4Cu, 0x8C990000u}, // lw t9,0(a0): its vtable
+    {0x09AA6B50u, 0x8F390028u}, // lw t9,40(t9): method +40, the spot table
+    {0x09AA6B5Cu, 0x8C500010u}, // lw s0,16(v0): the spot list
+    {0x09AA6B88u, 0x8043003Eu}, // lb v1,62(v0): the spot count
+    {0x09AA6B94u, 0xC6840204u}, // lwc1 f4,516(s4): the hunter's height
+    {0x09AA6B98u, 0x3C024248u}, // lui v0,0x4248: 50 above and below the spot
+    {0x09AA6C0Cu, 0xC6010010u}, // lwc1 f1,16(s0): the spot's radius
+    {0x09AA6C4Cu, 0x96020002u}, // lhu v0,2(s0): the type it returns
+    {0x09AA6C5Cu, 0x26100018u}, // addiu s0,s0,24: 24 bytes a spot
+    {0x09AA7ABCu, 0x2402008Fu}, // addiu v0,zero,143: the last bait
+    {0x09AA7B10u, 0x24020088u}, // addiu v0,zero,136: the first bait
+    {0x09AA7FA4u, 0x0E6A9AC6u}, // jal 0x09AA6B18: a bait asks the spot search
+    {0x09AA7FB0u, 0x24020017u}, // addiu v0,zero,23: and fishes at type 23
+};
+
+constexpr std::uint32_t kSpotMethod = 40u;
+constexpr std::uint32_t kSpotList = 16u;
+constexpr std::uint32_t kSpotCount = 62u;
+constexpr std::uint32_t kSpotStride = 24u;
+constexpr std::uint32_t kSpotType = 2u;
+constexpr std::uint32_t kSpotRadius = 16u;
+constexpr float kSpotReach = 50.0f;
+
+bool &spot_logged() {
+    static bool logged = false;
+    return logged;
+}
+
+// MHFU_TRACE_GATHER: the fishing spot in reach, once each time it changes.
+void trace_fishing(const std::optional<FishingSpot> &spot) {
+    if (!trace_on()) return;
+    static std::uint32_t last = 1u;
+    const std::uint32_t address = spot ? spot->address : 0u;
+    if (address == last) return;
+    last = address;
+    if (!spot) {
+        std::cout << "[gather] fishing none" << std::endl;
+        return;
+    }
+    std::cout << "[gather] fishing 0x" << std::hex << spot->address << std::dec << " at " << spot->x << ","
+              << spot->y << "," << spot->z << std::endl;
 }
 
 } // namespace
@@ -366,6 +395,76 @@ std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
 
 bool carve_in_reach(const psprecomp::GuestMemory &memory) {
     return carve_body(memory).has_value();
+}
+
+std::span<const GatherWord> fishing_checked_words() {
+    return kSpotWords;
+}
+
+std::optional<std::uint32_t> spot_table(const psprecomp::GuestMemory &memory) {
+    if (!in_ram(kCarveTable, 4u, memory)) return std::nullopt;
+    const std::uint32_t quest = memory.load32(kCarveTable);
+    if (!in_ram(quest, 4u, memory)) return std::nullopt;
+    const std::uint32_t stage = memory.load32(quest);
+    if (!in_ram(stage, 4u, memory)) return std::nullopt;
+    const std::uint32_t vtable = memory.load32(stage);
+    if (!in_ram(vtable + kSpotMethod, 4u, memory)) return std::nullopt;
+    const std::uint32_t method = memory.load32(vtable + kSpotMethod);
+    if (!in_ram(method, 12u, memory)) return std::nullopt;
+    // lui v0,hi; jr ra; addiu v0,v0,lo
+    const std::uint32_t high = memory.load32(method);
+    const std::uint32_t low = memory.load32(method + 8u);
+    if ((high & 0xFFFF0000u) != 0x3C020000u || memory.load32(method + 4u) != 0x03E00008u ||
+        (low & 0xFFFF0000u) != 0x24420000u)
+        return std::nullopt;
+    const std::uint32_t table = (high << 16u) + static_cast<std::uint32_t>(static_cast<std::int16_t>(low & 0xFFFFu));
+    if (!in_ram(table, kSpotCount + 1u, memory)) return std::nullopt;
+    return table;
+}
+
+std::optional<GatherSpot> spot_from_table(const psprecomp::GuestMemory &memory, std::uint32_t table, float hunter_x,
+    float hunter_y, float hunter_z) {
+    if (!in_ram(table, kSpotCount + 1u, memory)) return std::nullopt;
+    std::uint32_t spot = memory.load32(table + kSpotList);
+    const auto count = static_cast<std::int8_t>(memory.load8(table + kSpotCount));
+    if (spot == 0u || count <= 0) return std::nullopt;
+    for (std::int8_t n = 0; n < count; ++n, spot += kSpotStride) {
+        if (!in_ram(spot, kSpotStride, memory)) return std::nullopt;
+        const float x = load_float(memory, spot + 4u);
+        const float y = load_float(memory, spot + 8u);
+        const float z = load_float(memory, spot + 12u);
+        // 0x09AA6BB4: below the spot minus 50, or a height that is not a
+        // number, is skipped; so is the spot plus 50 and above.
+        if (!(hunter_y >= y - kSpotReach) || !(hunter_y < y + kSpotReach)) continue;
+        const float dx = hunter_x - x;
+        const float dz = hunter_z - z;
+        if (!(std::sqrt(dx * dx + dz * dz) <= load_float(memory, spot + kSpotRadius))) continue;
+        return GatherSpot{spot, memory.load16(spot + kSpotType), x, y, z};
+    }
+    return std::nullopt;
+}
+
+namespace {
+
+std::optional<FishingSpot> read_fishing(const psprecomp::GuestMemory &memory) {
+    if (!gather_code_matches(memory) || !words_match(memory, kSpotWords, spot_logged())) return std::nullopt;
+    const std::optional<std::uint32_t> hunter = followed_hunter(memory);
+    if (!hunter || !in_ram(*hunter + kHunterPosition, 12u, memory)) return std::nullopt;
+    const std::optional<std::uint32_t> table = spot_table(memory);
+    if (!table) return std::nullopt;
+    const std::optional<GatherSpot> spot = spot_from_table(memory, *table, load_float(memory, *hunter + kHunterPosition),
+        load_float(memory, *hunter + kHunterPosition + 4u), load_float(memory, *hunter + kHunterPosition + 8u));
+    // The item handler takes the search's first spot and fishes only at 23.
+    if (!spot || spot->type != kFishingSpotType) return std::nullopt;
+    return FishingSpot{spot->address, spot->x, spot->y, spot->z};
+}
+
+} // namespace
+
+std::optional<FishingSpot> fishing_spot(const psprecomp::GuestMemory &memory) {
+    const std::optional<FishingSpot> spot = read_fishing(memory);
+    trace_fishing(spot);
+    return spot;
 }
 
 namespace {
@@ -502,9 +601,9 @@ GatherGlyph gather_glyph(std::uint16_t kind) noexcept {
 }
 
 std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory) {
-    if (gather_code_matches(memory)) trace_spot_source(memory);
     // The circle handler tries the gather list first and carves only when it
-    // misses, so a node in range takes the mark.
+    // misses, so a node in range takes the mark. Fishing is the item action,
+    // so a fishing spot is marked only when ○ has nothing to do there.
     if (const std::optional<GatherNode> node = gather_node(memory))
         {
         GatherArt art;
@@ -514,6 +613,11 @@ std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory) 
     }
     if (const std::optional<CarveBody> body = carve_body(memory))
         return GatherTarget{body->address, body->x, body->y, body->z, GatherGlyph::Carve};
+    if (const std::optional<FishingSpot> spot = fishing_spot(memory)) {
+        GatherArt art;
+        if (gather_art_code_matches(memory)) art = GatherArt::of_item(kBaitItem);
+        return GatherTarget{spot->address, spot->x, spot->y, spot->z, GatherGlyph::Fishing, art};
+    }
     return std::nullopt;
 }
 

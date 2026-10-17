@@ -97,7 +97,10 @@ if(MHFU_RENDERER)
             "kGeRawVertexShader=GE_RAW_VERTICES@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.vert"
             "kGeCheckVertexShader=GE_RAW_VERTICES,GE_CHECK_DECODE@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.vert"
             "kGeFragmentShader=${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.frag"
-            "kGeFragmentShaderPlain=GE_NO_SPECIALIZATION@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.frag")
+            "kGeFragmentShaderPlain=GE_NO_SPECIALIZATION@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.frag"
+            # The game's HUD drawn again over the interface's marks.
+            "kHudCoverVertexShader=${MHFU_PROFILE_DIR}/host/gpu/shaders/hud_cover.vert"
+            "kHudCoverFragmentShader=${MHFU_PROFILE_DIR}/host/gpu/shaders/hud_cover.frag")
         if(ANDROID)
             # Pre-rotation of the finished frame for a display turned sideways.
             list(APPEND MHFU_SHADERS
@@ -107,10 +110,14 @@ if(MHFU_RENDERER)
         set(MHFU_SHADER_SOURCES ${MHFU_SHADERS})
         list(TRANSFORM MHFU_SHADER_SOURCES REPLACE "^[A-Za-z]+=([A-Z_,]+@)?" "")
         list(REMOVE_DUPLICATES MHFU_SHADER_SOURCES)
+        # A real interpreter, not whatever `python3` names on PATH: on Windows
+        # that can be the Microsoft Store's placeholder, which runs nothing.
+        # The registry's installs come first there.
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
         add_custom_command(
             OUTPUT "${MHFU_SHADER_INC}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
-            COMMAND python3 "${MHFU_PROFILE_DIR}/tools/embed_shaders.py" "${MHFU_GLSLANG}" "${MHFU_SHADER_INC}"
+            COMMAND "${Python3_EXECUTABLE}" "${MHFU_PROFILE_DIR}/tools/embed_shaders.py" "${MHFU_GLSLANG}" "${MHFU_SHADER_INC}"
                     ${MHFU_SHADERS}
             DEPENDS ${MHFU_SHADER_SOURCES}
                     "${MHFU_PROFILE_DIR}/tools/embed_shaders.py"
