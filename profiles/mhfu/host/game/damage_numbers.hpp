@@ -26,6 +26,13 @@
 // picture and the smaller the number is drawn, so it keeps to that point
 // rather than spreading over the body.
 //
+// With frame interpolation the interface is built once per game frame, over
+// the newer of the two frames a present blends. Each number keeps its place
+// and age from the game frame before, and the interface moves it from there
+// towards this frame's place by each present's weight (gpu/ui_motion.hpp),
+// so it rides the monster and rises smoothly instead of stepping 30 times a
+// second. MHFU_DAMAGE_NUMBERS_SMOOTH=0 draws it where each game frame puts it.
+//
 // In ad hoc play the hit routine runs only on the console that applies the
 // hit: for a large monster the one in charge of it, for a small monster the
 // attacker's. Every other console receives the new health from the network
@@ -104,6 +111,12 @@ struct Number {
     float body{};           // kBodyHeight on the picture, 0..1 of its height
     bool placed{};
     std::uint8_t reports{}; // MHFU_TRACE_HITS lines about its placing so far
+    // The same in the game frame before, for frame interpolation.
+    float older_age{};
+    float older_x{};
+    float older_y{};
+    float older_body{};
+    bool older_placed{};
 };
 
 // The view and projection a transformed draw was made with, and the GE
@@ -182,6 +195,15 @@ struct Stroke {
 [[nodiscard]] std::string damage_number_text(const Number &number);
 [[nodiscard]] std::vector<Number> age_numbers(std::vector<Number> numbers, float seconds);
 [[nodiscard]] Anchor number_anchor(const Number &number) noexcept;
+// Where the number was in the game frame before: its older place and age.
+// Nothing when it was not placed then or is not placed now, so a new number,
+// or one that just came back on the picture, does not glide in.
+[[nodiscard]] std::optional<Anchor> older_anchor(const Number &number) noexcept;
+// The game frame begins: what the number is now becomes its older place.
+void keep_older_place(Number &number) noexcept;
+// MHFU_DAMAGE_NUMBERS_SMOOTH: unset or anything but "0" is on.
+[[nodiscard]] bool parse_smooth(const char *text) noexcept;
+[[nodiscard]] bool smooth_enabled() noexcept;
 // The size of a number for a monster whose kBodyHeight covers `body` of the
 // picture's height: 1 when it is far, down to kMinScale when it is close.
 [[nodiscard]] float closeness_scale(float body) noexcept;

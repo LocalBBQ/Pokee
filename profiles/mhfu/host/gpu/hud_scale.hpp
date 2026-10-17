@@ -1174,6 +1174,14 @@ void scale_name(std::vector<Vertex> &vertices, float scale, bool has_origin, flo
     }
 }
 
+// Whether a name over a hunter takes the Names size. A quest name always does.
+// A gathering-hall name does once Names is set to another size, unless
+// `hall_names` is off (MHFU_HUD_HALL_NAMES=0): then frame interpolation only
+// moves it with its hunter.
+[[nodiscard]] inline bool sizes_name(const hud::NameDraw &named, const Scales &scales, bool hall_names) {
+    return named.is_name && (!named.hall || (hall_names && scales.names != 1.0f));
+}
+
 // `scissor` is exclusive on x1 and y1, in the same pixels as the vertices.
 // A scaled piece must not stay clipped to the rectangle the game set, or a
 // larger map is cut back to the size the game drew.
@@ -1281,6 +1289,59 @@ struct Frame {
     // starts there, whatever its width.
     float party_letter_end[kNamePlates]{};
 
+    // A gathering-hall label: every draw filed with a name's point this frame
+    // (the weapon badge, the letters and their shadow), and the box they
+    // cover. The game's point is the first letter's top-left, so a label
+    // sized about it drifts up and right off its hunter and the badge slides
+    // onto the letters. The next frame sizes the label about the centre of
+    // that box instead, which keeps it over the hunter. The shadow's point is
+    // a pixel off the letters', so points that close are one label.
+    struct NameLabel {
+        float origin_x{};
+        float origin_y{};
+        Rect bounds{};
+    };
+    static constexpr int kNameLabels = 16;
+    NameLabel name_labels[kNameLabels]{};
+    int name_label_count{};
+    NameLabel name_labels_live[kNameLabels]{};
+    int name_label_live_count{};
+
+    void note_name_label(float origin_x, float origin_y, Rect drawn) {
+        const Rect d = normalized(drawn);
+        for (int i = 0; i < name_label_count; ++i) {
+            NameLabel &label = name_labels[i];
+            if (std::fabs(label.origin_x - origin_x) <= 4.0f && std::fabs(label.origin_y - origin_y) <= 4.0f) {
+                label.bounds = united(label.bounds, d);
+                return;
+            }
+        }
+        if (name_label_count < kNameLabels) name_labels[name_label_count++] = {origin_x, origin_y, d};
+    }
+
+    // Where a name placed at `origin` was centred last frame, moved with its
+    // point: the nearest label within `max_move` pixels. False on a label's
+    // first frame.
+    [[nodiscard]] bool name_label_centre(
+        float origin_x, float origin_y, float &x, float &y, float max_move = 32.0f) const {
+        int best = -1;
+        float best_distance = max_move * max_move;
+        for (int i = 0; i < name_label_live_count; ++i) {
+            const float dx = name_labels_live[i].origin_x - origin_x;
+            const float dy = name_labels_live[i].origin_y - origin_y;
+            const float distance = dx * dx + dy * dy;
+            if (distance <= best_distance) {
+                best = i;
+                best_distance = distance;
+            }
+        }
+        if (best < 0) return false;
+        const NameLabel &label = name_labels_live[best];
+        x = origin_x + 0.5f * (label.bounds.x0 + label.bounds.x1) - label.origin_x;
+        y = origin_y + 0.5f * (label.bounds.y0 + label.bounds.y1) - label.origin_y;
+        return true;
+    }
+
     void note_party_letter(Rect rect) {
         const int row = party_letter_row(rect);
         if (row >= 0) party_letter_end[row] = normalized(rect).x1;
@@ -1337,6 +1398,9 @@ struct Frame {
         menu_corner = false;
         menu_body = false;
         for (float &end : party_letter_end) end = 0.0f;
+        for (int i = 0; i < name_label_count; ++i) name_labels_live[i] = name_labels[i];
+        name_label_live_count = name_label_count;
+        name_label_count = 0;
     }
 
     // The quest clock or the health bar, this frame or the one before.
@@ -1693,13 +1757,14 @@ bool place_party_icons(std::vector<Vertex> &vertices, const Scales &scales, cons
 
 // A draw filed by a name label (hud::name_at): a name over another hunter, and
 // icons the label files in the party list's badge column, such as the cat's
-// face. The name takes the Names size about the point the game placed it; the
-// icons belong with the plates beside them and take Status. `vertices` are
+// face. The name takes the Names size about the point the game placed it, or a
+// hall label about its own middle; the icons belong with the plates beside
+// them and take Status. `vertices` are
 // where the draw lands, after `fit`; the rules are in the game's pixels.
 // Returns the bounds the name was moved to, for the scissor, when the Names
 // size moved it.
 template <typename Vertex>
-std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales &scales, const Frame &frame,
+std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame,
     const hud::NameDraw &named, InterfaceFit fit) {
     // A village label can also file a plate larger than the name. That draw
     // stays as the game drew it.
@@ -1716,6 +1781,17 @@ std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales 
     float origin_x = named.origin_x;
     float origin_y = named.origin_y;
     if (named.has_origin) fit.apply(origin_x, origin_y);
+    // A hall label is sized about the middle of its badge and letters
+    // together (Frame::NameLabel), once it has been seen for a frame.
+    if (named.hall && named.has_origin && !vertices.empty()) {
+        frame.note_name_label(origin_x, origin_y, bounds_of(drawn));
+        float centre_x = 0.0f;
+        float centre_y = 0.0f;
+        if (frame.name_label_centre(origin_x, origin_y, centre_x, centre_y)) {
+            origin_x = centre_x;
+            origin_y = centre_y;
+        }
+    }
     scale_name(vertices, scales.names, named.has_origin, origin_x, origin_y);
     std::optional<Rect> name_bounds;
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
