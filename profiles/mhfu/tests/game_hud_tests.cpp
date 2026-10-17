@@ -239,12 +239,16 @@ void test_overhead_name() {
 
 // The names over other hunters in the gathering hall. Traced with
 // MHFU_TRACE_CAPTURE: resident 0x088351F0 files the weapon icon beside a
-// name, and lobby_task then queues the name by a path no wrapper sees. The
-// name and its icon only glide under frame interpolation; they are never sized.
+// name through 0x08835470, and the name is queued by a path no wrapper sees.
+// In the village 0x088351F0 also draws the prompt over the hunter, which is
+// not part of the name. The
+// name and its icon glide under frame interpolation and take the Names size,
+// only where the draw is the size of a tag.
 void test_hall_names() {
     psprecomp::Runtime runtime;
     auto &memory = runtime.memory();
-    constexpr std::uint32_t kLabel = 0x088351F0u;
+    constexpr std::uint32_t kLabel = 0x08835470u;
+    constexpr std::uint32_t kOverHunter = 0x088351F0u;
     constexpr std::uint32_t kLobby = 0x09A6C248u;
     constexpr std::uint32_t kContext = 0x09100000u;
     constexpr std::uint32_t kEntries = 0x09110000u;
@@ -267,10 +271,10 @@ void test_hall_names() {
         packet_filed(runtime, ctx);
     };
     const auto icon = [&](std::uint32_t packet) {
-        psprecomp::AllegrexContext ctx = filed_from(memory, kLabel, 0x27BDFFE0u, 0xAFBF001Cu, packet, 9u);
+        psprecomp::AllegrexContext ctx = filed_from(memory, kLabel, 0x27BDFF50u, 0xAFBF004Cu, packet, 9u);
         packet_filed(runtime, ctx);
     };
-    check(name_label(kLabel) && !name_tag_only(kLabel), "the hall name's icon is a name label");
+    check(name_label(kLabel) && name_tag_only(kLabel), "the hall name's icon is a name label, limited to a tag");
 
     // Outside lobby_task the resident function is no name.
     memory.store32(kLobby, 0u);
@@ -286,12 +290,12 @@ void test_hall_names() {
     queued(0u);
     icon(0x09008000u);
     const NameDraw waiting = name_at(0x09008010u, 0u);
-    check(waiting.is_name && waiting.glide_only && !waiting.has_origin, "the icon waits for its name's point");
+    check(waiting.is_name && waiting.hall && !waiting.has_origin, "the icon waits for its name's point");
     place(0u, 206, 123);
     queued(1u);
     glyph(0u, 0x09008100u);
     const NameDraw letter = name_at(0x09008110u, 0u);
-    check(letter.is_name && letter.glyph && letter.glide_only, "a letter of the hall name glides");
+    check(letter.is_name && letter.glyph && letter.hall && letter.tag_only, "a letter of the hall name is a hall tag");
     check(letter.has_origin && letter.origin_x == 206.0f && letter.origin_y == 123.0f,
         "it moves with the point the game placed it at");
     const NameDraw placed = name_at(0x09008010u, 0u);
@@ -310,6 +314,26 @@ void test_hall_names() {
     glyph(0u, 0x09009100u);
     check(!name_at(0x09009110u, 0u).is_name, "text queued after other code's packet is no name");
     check(!name_at(0x09009010u, 0u).has_origin, "an icon with no name after it keeps no point");
+
+    // The prompt over the hunter (":Open Item Box", its button and the bar's
+    // end at (155, 16)-(187, 32)) is filed by 0x088351F0 after the name. Its
+    // pieces and the text it queues are no name, so the Names size never
+    // reaches them.
+    check(!name_label(kOverHunter), "the call that also draws the prompt is no name label");
+    watch_for_tests();
+    queued(0u);
+    icon(0x0900A000u);
+    place(0u, 229, 78);
+    queued(1u);
+    glyph(0u, 0x0900A100u);
+    psprecomp::AllegrexContext prompt = filed_from(memory, kOverHunter, 0x27BDFFE0u, 0xAFBF001Cu, 0x0900A200u, 12u);
+    packet_filed(runtime, prompt);
+    place(1u, 36, 18);
+    queued(2u);
+    glyph(1u, 0x0900A300u);
+    check(name_at(0x0900A110u, 0u).is_name, "the name before the prompt is still a name");
+    check(!name_at(0x0900A210u, 0u).is_name, "the prompt's bar end is no name");
+    check(!name_at(0x0900A310u, 0u).is_name, "the prompt's text is no name");
 }
 
 void test_capture_schedule() {

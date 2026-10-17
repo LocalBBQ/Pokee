@@ -433,6 +433,33 @@ Anchor number_anchor(const Number &number) noexcept {
     return anchor;
 }
 
+std::optional<Anchor> older_anchor(const Number &number) noexcept {
+    if (!number.placed || !number.older_placed) return std::nullopt;
+    Number older = number;
+    older.age = number.older_age;
+    older.x = number.older_x;
+    older.y = number.older_y;
+    older.body = number.older_body;
+    return number_anchor(older);
+}
+
+void keep_older_place(Number &number) noexcept {
+    number.older_age = number.age;
+    number.older_x = number.x;
+    number.older_y = number.y;
+    number.older_body = number.body;
+    number.older_placed = number.placed;
+}
+
+bool parse_smooth(const char *text) noexcept {
+    return text == nullptr || std::strcmp(text, "0") != 0;
+}
+
+bool smooth_enabled() noexcept {
+    static const bool on = parse_smooth(std::getenv("MHFU_DAMAGE_NUMBERS_SMOOTH"));
+    return on;
+}
+
 float closeness_scale(float body) noexcept {
     if (!std::isfinite(body) || body <= kShrinkFrom) return 1.0f;
     const float t = std::min((body - kShrinkFrom) / (kShrinkTo - kShrinkFrom), 1.0f);
@@ -677,6 +704,7 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
     const bool read_health = enabled && memory != nullptr && health_watch_enabled();
     if (read_health) readings = quest_health(*memory);
     std::lock_guard lock(numbers_mutex());
+    for (Number &number : live_numbers()) keep_older_place(number);
     live_numbers() = age_numbers(std::move(live_numbers()), seconds);
     if (read_health) {
         if (hit_trace::enabled())
