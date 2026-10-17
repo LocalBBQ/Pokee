@@ -625,6 +625,16 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_install_identity_tests COMMAND mhfu_install_identity_tests)
 endif()
 
+# What several features read in the game: the overlay in a slot, the camera
+# object and its hunter, the quest entity list. No game data.
+add_executable(mhfu_guest_layout_tests tests/guest_layout_tests.cpp host/game/guest_ram.cpp)
+target_include_directories(mhfu_guest_layout_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_guest_layout_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_guest_layout_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_guest_layout_tests COMMAND mhfu_guest_layout_tests)
+endif()
+
 # Freedom Unite overlay bases. Header only: no game data.
 add_executable(mhfu_overlay_slot_tests tests/overlay_slot_tests.cpp)
 target_include_directories(mhfu_overlay_slot_tests PRIVATE "${MHFU_PROFILE_DIR}/host")

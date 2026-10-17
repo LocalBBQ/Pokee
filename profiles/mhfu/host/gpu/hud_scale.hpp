@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/guest_layout.hpp"
 #include "gpu/game_hud.hpp"
 
 #include <algorithm>
@@ -110,8 +111,9 @@ struct Anchor {
 inline constexpr std::uint32_t kAreaMapTexture = 0x0419C200u;
 // The atlas for the marks drawn on that map: the player's arrow, the camp
 // icon, a monster dot. Traced with MHFU_TRACE_SPRITES. The notice's letters
-// are a different texture, so a mark of a letter's size is still a mark.
-inline constexpr std::uint32_t kMapIconTexture = 0x091874A0u;
+// are a different texture, so a mark of a letter's size is still a mark. It
+// is the item atlas (game/guest_layout.hpp).
+inline constexpr std::uint32_t kMapIconTexture = game::layout::kItemAtlas;
 inline constexpr float kMapLeft = 316.0f;
 inline constexpr float kMapTop = 32.0f;
 inline constexpr float kMapRight = 468.0f;
