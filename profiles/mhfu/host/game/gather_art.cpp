@@ -112,6 +112,10 @@ std::optional<std::array<std::uint8_t, 2>> item_icon_and_tint(
 GatherArt gather_art_for(const psprecomp::GuestMemory &memory, std::uint16_t kind, std::uint16_t id) {
     if (kind == 3u) return GatherArt::of_item(kPickaxeItem);
     if (kind == 4u) return GatherArt::of_item(kBugNetItem);
+    if (const std::optional<std::vector<GatherDrop>> drops = gather_drops(memory, id))
+        for (const GatherDrop &drop : *drops)
+            if (const std::optional<std::array<std::uint8_t, 2>> look = item_icon_and_tint(memory, drop.item))
+                if ((*look)[0] == kHuskIcon || (*look)[0] == kBoneIcon) return GatherArt::of_item(kBoneItem);
     if (const std::optional<std::uint16_t> item = gather_item(memory, id)) return GatherArt::of_item(*item);
     return {};
 }
