@@ -50,10 +50,7 @@ class Ram;
 
 namespace mhfu::game::sharpness {
 
-// The list of hunters and the followed one in it (camera/game_camera.cpp).
-inline constexpr std::uint32_t kHunterList = 0x089CBD04u;
-inline constexpr std::uint32_t kFollowedHunter = 2692u;
-// In the hunter.
+// In the hunter the camera follows (game::layout::followed_hunter).
 inline constexpr std::uint32_t kPoints = 4338u;
 inline constexpr std::uint32_t kMostPoints = 1548u;
 inline constexpr std::uint32_t kColourByte = 1522u;

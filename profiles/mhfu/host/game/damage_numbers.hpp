@@ -37,6 +37,7 @@
 // one received from another console cannot be told from a hit.
 // MHFU_DAMAGE_NUMBERS_HEALTH_WATCH=0 turns that reading off, for comparing.
 
+#include "game/guest_layout.hpp"
 #include "psprecomp/guest_memory.hpp"
 
 #include <array>
@@ -49,9 +50,9 @@ namespace mhfu::game {
 
 inline constexpr std::uint32_t kHitAdjust = 0x09AC7A08u;
 inline constexpr std::uint32_t kStatusTick = 0x09AD2698u;
-inline constexpr std::uint32_t kMonsterHealth = 0x2E4u;
-// World position, three floats, y up. Lock-on reads the same field.
-inline constexpr std::uint32_t kMonsterPosition = 0x200u;
+// An entity's health and world position (game/guest_layout.hpp).
+inline constexpr std::uint32_t kMonsterHealth = layout::kHealth;
+inline constexpr std::uint32_t kMonsterPosition = layout::kPosition;
 // Above the feet, where a number sits on the body.
 inline constexpr float kBodyHeight = 100.0f;
 inline constexpr int kWeakPointHitzone = 45;
@@ -228,7 +229,7 @@ void watch_hit_enter(std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t
 
 // A monster's health as last known, and its most health, which tells a new
 // monster in the same place in memory from the old one.
-inline constexpr std::uint32_t kMonsterMostHealth = 0x41Eu;
+inline constexpr std::uint32_t kMonsterMostHealth = layout::kMostHealth;
 struct HealthSeen {
     std::uint32_t object{};
     int health{};

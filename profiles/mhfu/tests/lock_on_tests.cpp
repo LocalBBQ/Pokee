@@ -5,6 +5,7 @@
 #include "camera/game_camera.hpp"
 #include "camera/hunt_icon.hpp"
 #include "camera/lock_on.hpp"
+#include "game/guest_layout.hpp"
 #include "input/bindings.hpp"
 #include "input/presets.hpp"
 #include "settings/settings.hpp"
@@ -27,7 +28,7 @@ Settings &current() {
 
 namespace {
 using namespace mhfu::camera;
-namespace game = mhfu::camera::lock_on_layout;
+namespace game = mhfu::game::layout;
 
 constexpr std::uint32_t helper = 0x08886E50u;
 constexpr std::uint32_t camera_address = 0x08900000u;
