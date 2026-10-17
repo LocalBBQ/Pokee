@@ -115,6 +115,37 @@ void trace_line(const std::string &line) {
         true);
 }
 
+// MHFU_TRACE_ADHOC_DATA=1: the bytes of every datagram and stream chunk the
+// game sends or receives, up to kDataBytes of each, with the clock the other
+// ad hoc lines use. Separate from MHFU_TRACE_ADHOC, whose calls and headers
+// it does not need, and too much for the network log kept for reports.
+constexpr std::size_t kDataBytes = 512u;
+
+bool trace_data() {
+    static const bool on = [] {
+        const char *text = std::getenv("MHFU_TRACE_ADHOC_DATA");
+        return text != nullptr && *text != '\0' && std::string(text) != "0";
+    }();
+    return on;
+}
+
+void trace_bytes(const std::string &what, const char *bytes, std::size_t size) {
+    if (!trace_data()) return;
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string line = "[adhoc-data] " + what + " len=" + std::to_string(size) +
+        " t=" + std::to_string(kernel().now_us() / 1000u) + "ms:";
+    const std::size_t shown = std::min(size, kDataBytes);
+    line.reserve(line.size() + shown * 3u + 4u);
+    for (std::size_t i = 0; i < shown; ++i) {
+        const auto byte = static_cast<unsigned char>(bytes[i]);
+        if (i % 4u == 0u) line += ' ';
+        line += kHex[byte >> 4u];
+        line += kHex[byte & 15u];
+    }
+    if (shown < size) line += " ...";
+    std::cerr << line << std::endl;
+}
+
 // Finishes an import and logs it.
 void done(AllegrexContext &ctx, const char *name, unsigned argc, std::uint32_t result, const std::string &note = {}) {
     if (trace_adhoc())
@@ -457,6 +488,8 @@ std::optional<std::uint32_t> receive_datagram(psprecomp::GuestMemory &memory, co
     }
     const auto datagram = Client::get().pdp_receive(socket.handle);
     if (!datagram) return std::nullopt;
+    trace_bytes("pdp recv from " + adhoc::format_mac(datagram->source) + " port " + std::to_string(datagram->port),
+        datagram->data.data(), datagram->data.size());
     for (std::size_t i = 0; i < datagram->data.size(); ++i)
         memory.store8(buffer + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(datagram->data[i]));
     memory.store32(length_address, static_cast<std::uint32_t>(datagram->data.size()));
@@ -515,6 +548,8 @@ void register_pdp(HleRegistrar &hle) {
         const Mac destination = read_mac(rt.memory(), mac_address);
         std::string bytes(length, '\0');
         for (std::uint32_t i = 0; i < length; ++i) bytes[i] = static_cast<char>(rt.memory().load8(data + i));
+        trace_bytes("pdp send to " + adhoc::format_mac(destination) + " port " + std::to_string(port), bytes.data(),
+            bytes.size());
         // The relay queues the datagram at once, so a send never has to wait.
         Client::get().pdp_send(socket->handle, destination, port, bytes.data(), bytes.size());
         done(ctx, name, 7, 0u, "to " + adhoc::format_mac(destination));
@@ -570,6 +605,7 @@ std::optional<std::uint32_t> try_stream_receive(
     if (info.readable != 0u) {
         std::string bytes(std::min<std::size_t>(room, info.readable), '\0');
         const std::size_t count = Client::get().ptp_receive(handle, bytes.data(), bytes.size());
+        trace_bytes("ptp recv on " + std::to_string(handle), bytes.data(), count);
         for (std::size_t i = 0; i < count; ++i)
             memory.store8(buffer + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(bytes[i]));
         memory.store32(length_address, static_cast<std::uint32_t>(count));
@@ -592,6 +628,7 @@ std::optional<std::uint32_t> try_stream_send(
         bytes[i] = static_cast<char>(memory.load8(data + static_cast<std::uint32_t>(i)));
     const std::size_t sent = Client::get().ptp_send(handle, bytes.data(), bytes.size());
     if (sent == 0u) return std::nullopt;
+    trace_bytes("ptp send on " + std::to_string(handle), bytes.data(), sent);
     memory.store32(length_address, static_cast<std::uint32_t>(sent));
     return 0u;
 }

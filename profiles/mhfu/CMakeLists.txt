@@ -97,7 +97,10 @@ if(MHFU_RENDERER)
             "kGeRawVertexShader=GE_RAW_VERTICES@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.vert"
             "kGeCheckVertexShader=GE_RAW_VERTICES,GE_CHECK_DECODE@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.vert"
             "kGeFragmentShader=${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.frag"
-            "kGeFragmentShaderPlain=GE_NO_SPECIALIZATION@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.frag")
+            "kGeFragmentShaderPlain=GE_NO_SPECIALIZATION@${MHFU_PROFILE_DIR}/host/gpu/shaders/ge.frag"
+            # The game's HUD drawn again over the interface's marks.
+            "kHudCoverVertexShader=${MHFU_PROFILE_DIR}/host/gpu/shaders/hud_cover.vert"
+            "kHudCoverFragmentShader=${MHFU_PROFILE_DIR}/host/gpu/shaders/hud_cover.frag")
         if(ANDROID)
             # Pre-rotation of the finished frame for a display turned sideways.
             list(APPEND MHFU_SHADERS
@@ -107,10 +110,14 @@ if(MHFU_RENDERER)
         set(MHFU_SHADER_SOURCES ${MHFU_SHADERS})
         list(TRANSFORM MHFU_SHADER_SOURCES REPLACE "^[A-Za-z]+=([A-Z_,]+@)?" "")
         list(REMOVE_DUPLICATES MHFU_SHADER_SOURCES)
+        # A real interpreter, not whatever `python3` names on PATH: on Windows
+        # that can be the Microsoft Store's placeholder, which runs nothing.
+        # The registry's installs come first there.
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
         add_custom_command(
             OUTPUT "${MHFU_SHADER_INC}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
-            COMMAND python3 "${MHFU_PROFILE_DIR}/tools/embed_shaders.py" "${MHFU_GLSLANG}" "${MHFU_SHADER_INC}"
+            COMMAND "${Python3_EXECUTABLE}" "${MHFU_PROFILE_DIR}/tools/embed_shaders.py" "${MHFU_GLSLANG}" "${MHFU_SHADER_INC}"
                     ${MHFU_SHADERS}
             DEPENDS ${MHFU_SHADER_SOURCES}
                     "${MHFU_PROFILE_DIR}/tools/embed_shaders.py"
@@ -125,6 +132,7 @@ if(MHFU_RENDERER)
             host/gpu/frame_pacing.cpp
             host/gpu/replacement_textures.cpp
             host/gpu/mmpx.cpp
+            host/gpu/ui_motion.cpp
             host/gpu/ui_textures.cpp
             host/gpu/vulkan_renderer.cpp
             host/input/gamepad_devices.cpp
@@ -256,9 +264,13 @@ set(MHFU_HOST_SOURCES
     host/game/layered_armor.cpp
     host/game/layered_armor_hook.cpp
     host/game/damage_numbers.cpp
+    host/game/gather_art.cpp
     host/game/gather_icon.cpp
+    host/game/item_atlas.cpp
     host/game/hit_trace.cpp
     host/game/item_box.cpp
+    host/game/empty_item_slot.cpp
+    host/game/sharpness_gauge.cpp
     third_party/tiny_aes/aes.c
 )
 # tiny-AES-c is C; the project only enables C++, which compiles it unchanged.
@@ -514,9 +526,24 @@ add_executable(mhfu_damage_numbers_tests
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp)
 
-# Gather marks: the radius the game searches, and where the mark sits.
+# Sharpness gauge: the colour and its fill, the weapon's colour ends through
+# the game's tables, and where the gauge stands. No game data.
+add_executable(mhfu_sharpness_gauge_tests
+    tests/sharpness_gauge_tests.cpp
+    host/game/sharpness_gauge.cpp
+    host/game/guest_ram.cpp)
+target_include_directories(mhfu_sharpness_gauge_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_sharpness_gauge_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_sharpness_gauge_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_sharpness_gauge_tests COMMAND mhfu_sharpness_gauge_tests)
+endif()
+
+# Gather marks: the radius the game searches, where the mark sits, and how it
+# moves between game frames.
 add_executable(mhfu_gather_icon_tests
     tests/gather_icon_tests.cpp
+    host/game/gather_art.cpp
     host/game/gather_icon.cpp
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp
@@ -560,6 +587,27 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_item_box_tests COMMAND mhfu_item_box_tests)
 endif()
 
+# Empty item slot: the scroll with an empty stop, the code and caller checks,
+# and the wrapper around a stand-in step. No game data.
+add_executable(mhfu_empty_item_slot_tests
+    tests/empty_item_slot_tests.cpp
+    host/game/empty_item_slot.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_empty_item_slot_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_empty_item_slot_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_empty_item_slot_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_empty_item_slot_tests COMMAND mhfu_empty_item_slot_tests)
+endif()
+
 # Installer release identities, and preparation of a supported executable when
 # a disc image path is passed. The default run uses no game data.
 add_executable(mhfu_install_identity_tests
@@ -575,6 +623,16 @@ target_link_libraries(mhfu_install_identity_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_install_identity_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_install_identity_tests COMMAND mhfu_install_identity_tests)
+endif()
+
+# What several features read in the game: the overlay in a slot, the camera
+# object and its hunter, the quest entity list. No game data.
+add_executable(mhfu_guest_layout_tests tests/guest_layout_tests.cpp host/game/guest_ram.cpp)
+target_include_directories(mhfu_guest_layout_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_guest_layout_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_guest_layout_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_guest_layout_tests COMMAND mhfu_guest_layout_tests)
 endif()
 
 # Freedom Unite overlay bases. Header only: no game data.

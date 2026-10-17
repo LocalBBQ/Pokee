@@ -1,6 +1,6 @@
 #include "game/damage_numbers.hpp"
 
-#include "camera/lock_on.hpp"
+#include "game/guest_layout.hpp"
 #include "game/hit_trace.hpp"
 #include "psprecomp/runtime.hpp"
 
@@ -55,19 +55,6 @@ std::vector<OpenHit> &open_ticks() {
     return open;
 }
 
-// The overlay header: "MWo3", its load address at +8, its name at +32.
-constexpr std::uint32_t kOverlayMagic = 0x336F574Du;
-constexpr char kQuestOverlay[] = "game_task.ovl";
-
-bool quest_running(const psprecomp::GuestMemory &memory) {
-    constexpr std::uint32_t slot = camera::lock_on_layout::kTaskSlot;
-    if (!memory.contains(slot, 64u) || memory.load32(slot) != kOverlayMagic || memory.load32(slot + 8u) != slot)
-        return false;
-    for (std::uint32_t i = 0; i < sizeof(kQuestOverlay); ++i)
-        if (memory.load8(slot + 32u + i) != static_cast<std::uint8_t>(kQuestOverlay[i])) return false;
-    return true;
-}
-
 struct ListEntry {
     std::uint32_t entity{};
     std::uint8_t kind{}; // the node's type byte
@@ -75,29 +62,41 @@ struct ListEntry {
 
 // The quest entity list, newest first. Empty outside a quest.
 std::vector<ListEntry> quest_entries(const psprecomp::GuestMemory &memory) {
-    namespace layout = camera::lock_on_layout;
     std::vector<ListEntry> entries;
-    if (!quest_running(memory) || !memory.contains(layout::kEntityList, 4u)) return entries;
-    const std::uint32_t manager = memory.load32(layout::kEntityList);
-    if (!hit_trace::in_ram(manager) || !memory.contains(manager + layout::kListHead, 4u)) return entries;
-    std::uint32_t node = memory.load32(manager + layout::kListHead);
-    for (std::uint32_t steps = 0; steps < layout::kMaxMonsters && hit_trace::in_ram(node); ++steps) {
-        if (!memory.contains(node, layout::kNodeType + 1u)) break;
-        entries.push_back({memory.load32(node + layout::kNodeEntity), memory.load8(node + layout::kNodeType)});
-        node = memory.load32(node + layout::kNodeOlder);
-    }
+    if (!layout::quest_running(memory)) return entries;
+    layout::for_each_entity(
+        memory, [&](const layout::EntityNode &node) { entries.push_back({node.entity, node.type}); });
     return entries;
 }
 
 // Hunters share a class. Only this console's own hunter is sure to carry the
 // player node type, so an entity with a player's vtable is a hunter too.
 std::vector<std::uint32_t> hunter_classes(const psprecomp::GuestMemory &memory, const std::vector<ListEntry> &entries) {
-    namespace layout = camera::lock_on_layout;
     std::vector<std::uint32_t> classes;
     for (const ListEntry &entry : entries)
-        if (entry.kind == layout::kPlayerNode && hit_trace::in_ram(entry.entity) && memory.contains(entry.entity, 4u))
+        if (entry.kind == layout::kPlayerNode && layout::in_ram(entry.entity) && memory.contains(entry.entity, 4u))
             classes.push_back(memory.load32(entry.entity + layout::kVtable));
     return classes;
+}
+
+// Frames since start, for MHFU_TRACE_HITS.
+std::atomic<std::uint64_t> &frame_count() {
+    static std::atomic<std::uint64_t> count{0u};
+    return count;
+}
+
+// MHFU_TRACE_HITS: one [dmg] line per drop a number is made from, whichever
+// way it was found, on the ad hoc trace's clock. `how` is "routine" (the hit
+// was applied on this console) or "health" (the drop was written elsewhere,
+// from the network: several hits in one update arrive as one drop).
+void trace_damage(const char *how, std::uint32_t object, int amount, int health, const char *note) {
+    if (!hit_trace::enabled()) return;
+    char line[160];
+    std::snprintf(line, sizeof(line), "[dmg] t=%llums frame=%llu %s %08X -%d -> %d%s",
+        static_cast<unsigned long long>(hit_trace::now_ms()),
+        static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), how, object, amount, health,
+        note);
+    std::cout << line << std::endl;
 }
 
 bool &hook_installed() {
@@ -293,9 +292,11 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
     }
     // The routine also takes health off a hunter the monster hits.
     if (std::optional<Number> number =
-            watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size()));
-        number && !is_hunter(runtime.memory(), number->object))
-        remember_number(live_numbers(), *number);
+            watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size()))) {
+        const bool hunter = is_hunter(runtime.memory(), number->object);
+        trace_damage("routine", number->object, number->amount, sample, hunter ? " hunter, not shown" : "");
+        if (!hunter) remember_number(live_numbers(), *number);
+    }
 }
 
 void install_watch() {
@@ -592,13 +593,12 @@ bool health_watch_enabled() noexcept {
 }
 
 std::vector<HealthSeen> quest_health(const psprecomp::GuestMemory &memory) {
-    namespace layout = camera::lock_on_layout;
     std::vector<HealthSeen> found;
     const std::vector<ListEntry> entries = quest_entries(memory);
     const std::vector<std::uint32_t> hunters = hunter_classes(memory, entries);
     for (const ListEntry &entry : entries) {
         const std::uint32_t entity = entry.entity;
-        if (entry.kind == layout::kPlayerNode || !hit_trace::in_ram(entity) || (entity & 1u) != 0u ||
+        if (entry.kind == layout::kPlayerNode || !layout::in_ram(entity) || (entity & 1u) != 0u ||
             !memory.contains(entity, 4u) || !memory.contains(entity + kMonsterMostHealth, 2u) ||
             !memory.contains(entity + kMonsterHealth, 2u))
             continue;
@@ -616,11 +616,10 @@ std::vector<HealthSeen> quest_health(const psprecomp::GuestMemory &memory) {
 }
 
 bool is_hunter(const psprecomp::GuestMemory &memory, std::uint32_t object) {
-    namespace layout = camera::lock_on_layout;
     const std::vector<ListEntry> entries = quest_entries(memory);
     for (const ListEntry &entry : entries)
         if (entry.entity == object && entry.kind == layout::kPlayerNode) return true;
-    if (!hit_trace::in_ram(object) || !memory.contains(object, 4u)) return false;
+    if (!layout::in_ram(object) || !memory.contains(object, 4u)) return false;
     const std::vector<std::uint32_t> hunters = hunter_classes(memory, entries);
     return std::find(hunters.begin(), hunters.end(), memory.load32(object + layout::kVtable)) != hunters.end();
 }
@@ -654,6 +653,7 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
     previous = now;
     if (seconds < 0.0f) seconds = 0.0f;
     if (seconds > 1.0f) seconds = 1.0f;
+    frame_count().fetch_add(1u, std::memory_order_relaxed);
 
     // The trace watches the same routine, with the numbers themselves off.
     const bool watch = enabled || hit_trace::enabled();
@@ -682,16 +682,24 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
         if (hit_trace::enabled())
             for (const HealthSeen &reading : readings)
                 if (std::none_of(health_seen().begin(), health_seen().end(),
-                        [&reading](const HealthSeen &seen) { return seen.object == reading.object; }))
-                    std::printf("[hit] watching health of %08X: node type %u, vtable %08X, species %u, health %d/%d\n",
+                        [&reading](const HealthSeen &seen) { return seen.object == reading.object; })) {
+                    char line[160];
+                    std::snprintf(line, sizeof(line),
+                        "[hit] watching health of %08X: node type %u, vtable %08X, species %u, health %d/%d",
                         reading.object, static_cast<unsigned>(reading.kind), reading.vtable,
-                        memory->contains(reading.object + camera::lock_on_layout::kMonsterId, 1u)
-                            ? static_cast<unsigned>(memory->load8(reading.object + camera::lock_on_layout::kMonsterId))
+                        memory->contains(reading.object + layout::kMonsterId, 1u)
+                            ? static_cast<unsigned>(memory->load8(reading.object + layout::kMonsterId))
                             : 0u,
                         reading.health, reading.most);
+                    std::cout << line << std::endl;
+                }
         for (const Number &number :
-            watch_health(health_seen(), readings, static_cast<int>(live_numbers().size())))
+            watch_health(health_seen(), readings, static_cast<int>(live_numbers().size()))) {
+            const auto reading = std::find_if(readings.begin(), readings.end(),
+                [&number](const HealthSeen &r) { return r.object == number.object; });
+            trace_damage("health", number.object, number.amount, reading != readings.end() ? reading->health : 0, "");
             remember_number(live_numbers(), number);
+        }
     } else {
         health_seen().clear();
     }

@@ -20,6 +20,8 @@ union SDL_Event;
 struct SDL_Window;
 struct SDL_Gamepad;
 struct ImDrawData;
+struct ImDrawList;
+struct ImDrawCmd;
 
 namespace mhfu::gpu {
 
@@ -303,6 +305,12 @@ public:
     void begin_ui_frame();
     // Draw data from ImGui::Render, drawn over the next presented image.
     void set_ui_draw_data(ImDrawData *draw_data);
+    // A draw callback (ImDrawList::AddCallback) that draws the game's HUD
+    // again over what the interface drew before it, so the marks over the
+    // game sit under the HUD (shaders/hud_cover.frag). It does nothing when
+    // the frame shown has no HUD, or with MHFU_HUD_OVER_MARKS=0. Follow it
+    // with the platform's DrawCallback_ResetRenderState.
+    static void draw_hud_cover(const ImDrawList *list, const ImDrawCmd *command);
     // Presents a frame outside the game's own flips: the last game frame when
     // there is one and `show_game` is set, a plain background otherwise, with
     // the interface over it. Used while the game is paused or not started.

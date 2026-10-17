@@ -1,6 +1,6 @@
 // Damage numbers: the hitzone colour, the health drop, and the hit watch.
 // No game data. Guest memory is a stand-in.
-#include "camera/lock_on.hpp"
+#include "game/guest_layout.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/hit_trace.hpp"
 
@@ -151,8 +151,8 @@ void test_the_hit_watch() {
     check(outer && outer->amount == 150 && outer->lane == 1 && open.empty(), "the outer hit shows what it removed");
 
     watch_hit_enter(open, kHitAdjust, 0u, 0x09000000u, 80);
-    check(!watch_hit_leave(open, kHitAdjust, 0u, 80, 0) && open.empty(),
-        "a call that does not change health is silent");
+    check(
+        !watch_hit_leave(open, kHitAdjust, 0u, 80, 0) && open.empty(), "a call that does not change health is silent");
     watch_hit_enter(open, kHitAdjust, 0u, 0x09000000u, 80);
     check(!watch_hit_leave(open, kHitAdjust, 0u, 90, 0) && open.empty(), "a heal through the same routine is silent");
 }
@@ -248,12 +248,14 @@ void test_the_stroke() {
     const Stroke tiny = number_stroke(1u, 6.0f, 24.0f);
     check(tiny.outline == 1.0f, "a small number keeps at least one pixel of outline");
     const Stroke none = number_stroke(0u, 24.0f, 24.0f);
-    check(none.outline == 0.0f && number_stroke(1u, 24.0f, 0.0f).outline == 0.0f, "no stroke without a thickness or a unit");
+    check(none.outline == 0.0f && number_stroke(1u, 24.0f, 0.0f).outline == 0.0f,
+        "no stroke without a thickness or a unit");
 
     check(stack_gap_px(10.0f, 3.0f, 60.0f, 7.0f, false) == 10.0f, "the default size and thickness keep the tuned gap");
     check(stack_gap_px(10.0f, 3.0f, 60.0f, 3.0f, true) == 66.0f, "a larger number is lifted by its whole height");
     check(stack_gap_px(10.0f, 1.0f, 20.0f, 7.0f, true) == 34.0f, "a thicker number clears the stroke on both sides");
-    check(stack_gap_px(10.0f, 0.5f, 4.0f, 1.0f, true) == 6.0f, "a smaller number keeps the scaled gap when that is taller");
+    check(stack_gap_px(10.0f, 0.5f, 4.0f, 1.0f, true) == 6.0f,
+        "a smaller number keeps the scaled gap when that is taller");
     check(stack_gap_px(-1.0f, 0.0f, -5.0f, -2.0f, true) == 0.0f, "a gap with no size is nothing");
 
     check(stroke_offsets(0.0f, 3).size() == 1u && stroke_offsets(0.2f, 3).size() == 1u &&
@@ -327,7 +329,7 @@ constexpr std::uint32_t kLarge = 0x09830000u;
 constexpr std::uint32_t kSmall = 0x09840000u;
 
 void stand_in_quest(psprecomp::GuestMemory &memory) {
-    namespace layout = mhfu::camera::lock_on_layout;
+    namespace layout = mhfu::game::layout;
     memory.store32(layout::kTaskSlot, 0x336F574Du);
     memory.store32(layout::kTaskSlot + 8u, layout::kTaskSlot);
     const char name[] = "game_task.ovl";
@@ -374,7 +376,7 @@ void test_the_health_watch() {
 
     // Another player's hunter, on a node that is not marked as a player: the
     // same class as this console's hunter gives it away.
-    namespace layout = mhfu::camera::lock_on_layout;
+    namespace layout = mhfu::game::layout;
     constexpr std::uint32_t hunter_class = 0x09A60000u, monster_class = 0x09D20000u;
     constexpr std::uint32_t remote = 0x09860000u, remote_node = 0x09810500u;
     memory.store32(remote + layout::kVtable, hunter_class);
@@ -393,7 +395,7 @@ void test_the_health_watch() {
     memory.store32(remote + layout::kVtable, monster_class);
     check(quest_health(memory).size() == 3u && !is_hunter(memory, remote), "an unmarked entity of another class is");
     memory.store32(0x09810400u + layout::kNodeOlder, 0u);
-    memory.store8(mhfu::camera::lock_on_layout::kTaskSlot + 32u, 'x');
+    memory.store8(mhfu::game::layout::kTaskSlot + 32u, 'x');
     check(quest_health(memory).empty(), "another overlay in the task slot is not a quest");
 
     std::vector<HealthSeen> seen;
@@ -486,7 +488,7 @@ void test_every_hit_once() {
 // functions in the quest overlay's range.
 void test_the_hit_records() {
     namespace tr = mhfu::game::hit_trace;
-    namespace layout = mhfu::camera::lock_on_layout;
+    namespace layout = mhfu::game::layout;
     psprecomp::GuestMemory memory(32u * 1024u * 1024u);
     check(tr::players_line(memory).empty(), "outside a quest there are no players to show");
 
@@ -509,11 +511,10 @@ void test_the_hit_records() {
     memory.store32(hunter + layout::kPosition, std::bit_cast<std::uint32_t>(1.0f));
     memory.store32(hunter + layout::kPosition + 4u, std::bit_cast<std::uint32_t>(2.0f));
     memory.store32(hunter + layout::kPosition + 8u, std::bit_cast<std::uint32_t>(3.0f));
-    check(tr::players_line(memory) == "[hit]   players 09820000 at 1 2 3", "the players on the list and where they are");
+    check(
+        tr::players_line(memory) == "[hit]   players 09820000 at 1 2 3", "the players on the list and where they are");
     memory.store32(older + layout::kNodeOlder, newest);
-    std::string around = "[hit]   players";
-    for (std::uint32_t i = 0; i < layout::kMaxMonsters / 2u; ++i) around += " 09820000 at 1 2 3";
-    check(tr::players_line(memory) == around, "a cyclic list stops at the bound");
+    check(tr::players_line(memory) == "[hit]   players 09820000 at 1 2 3", "a cyclic list names each player once");
 }
 
 void test_the_hit_trace() {
@@ -542,8 +543,8 @@ void test_the_hit_trace() {
     memory.store32(leaf, 0x27BDFFF0u);
     memory.store32(leaf + 4u, 0x03E00008u);
     constexpr std::uint32_t sp = 0x09F00000u;
-    memory.store32(sp + 0x2Cu, outer + 0x10u);          // inner's saved ra
-    memory.store32(sp + 0x30u + 0x1Cu, leaf + 0x8u);    // outer's saved ra
+    memory.store32(sp + 0x2Cu, outer + 0x10u);       // inner's saved ra
+    memory.store32(sp + 0x30u + 0x1Cu, leaf + 0x8u); // outer's saved ra
     const std::optional<tr::Frame> frame = tr::frame_of(memory, inner + 0x20u);
     check(frame && frame->start == inner && frame->size == 0x30u && frame->ra_offset == 0x2Cu,
         "a return address finds its function's start, frame size and saved ra");

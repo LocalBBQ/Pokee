@@ -20,6 +20,7 @@
 // Pure functions over a GuestMemory and a register file, so the tests run
 // them on a buffer. Nothing here changes guest memory.
 
+#include "game/guest_layout.hpp"
 #include "psprecomp/allegrex_context.hpp"
 #include "psprecomp/guest_memory.hpp"
 
@@ -32,6 +33,13 @@ namespace mhfu::game::hit_trace {
 
 // MHFU_TRACE_HITS is set. Read once.
 [[nodiscard]] bool enabled() noexcept;
+
+// The emulated clock the ad hoc trace stamps its lines with (t=…ms), so a
+// health change can be matched to the packet that arrived before it. The
+// host sets it; until then the time is 0.
+using GuestClock = std::uint64_t (*)();
+void set_clock(GuestClock clock) noexcept;
+[[nodiscard]] std::uint64_t now_ms() noexcept;
 // How many hits are traced before the trace falls silent:
 // MHFU_TRACE_HITS_LIMIT, kDefaultLimit when unset or not a number.
 inline constexpr std::uint32_t kDefaultLimit = 200u;
@@ -39,9 +47,7 @@ inline constexpr std::uint32_t kDefaultLimit = 200u;
 [[nodiscard]] std::uint32_t limit() noexcept;
 
 // User RAM, where the game's objects and code are.
-inline constexpr std::uint32_t kRamStart = 0x08800000u;
-inline constexpr std::uint32_t kRamEnd = 0x0A000000u;
-[[nodiscard]] bool in_ram(std::uint32_t address) noexcept;
+using layout::in_ram;
 // The game's code: the resident executable and the overlay slots. A stack
 // word in one of these ranges is probably a return address.
 [[nodiscard]] bool looks_like_code(std::uint32_t word) noexcept;

@@ -12,8 +12,11 @@
 #include "game/gather_icon.hpp"
 #include "game/guest_ram.hpp"
 #include "game/hit_trace.hpp"
+#include "game/item_atlas.hpp"
+#include "game/empty_item_slot.hpp"
 #include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
+#include "game/sharpness_gauge.hpp"
 #include "platform/utf8_path.hpp"
 
 #include "audio/audio_sink.hpp"
@@ -265,6 +268,8 @@ void present_frame(Runtime &rt) {
     // Layered armor puts its wrappers in place here, between two frames.
     game::layered::frame(rt);
     game::item_box::frame(rt);
+    game::empty_item_slot::frame(rt);
+    game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
         perf::end_frame(kernel().now_us());
@@ -287,6 +292,7 @@ void present_frame(Runtime &rt) {
             address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
     }
     const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
+    game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
     game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), pose);
     // The draws of this frame have already named the camera they used, so the
     // marker matches the picture about to be shown, aim camera included.
@@ -313,7 +319,38 @@ void present_frame(Runtime &rt) {
     if (pose)
         gather_pose =
             game::GatherPose{pose->eye.x, pose->eye.y, pose->eye.z, pose->look_at.x, pose->look_at.y, pose->look_at.z};
-    ui::set_gather_mark(game::gather_mark(rt.memory(), gather_pose));
+    // The mark fades, glides between targets, and follows frame interpolation
+    // (game::GatherMotion, gpu/ui_motion.hpp). MHFU_GATHER_ICON_SMOOTH=0
+    // draws it where each game frame puts it.
+    static const bool gather_smooth = [] {
+        const char *value = std::getenv("MHFU_GATHER_ICON_SMOOTH");
+        return value == nullptr || std::string_view(value) != "0";
+    }();
+    static game::GatherMotion gather_motion;
+    std::optional<game::GatherMark> gather =
+        game::gather_mark(rt.memory(), gather_pose, gather_smooth ? &gather_motion : nullptr);
+    // The mark shows the item a point gives, or the monster being carved
+    // (game/gather_art.hpp); the sheets they come from are decoded here.
+    if (gather && gather->glyph == game::GatherGlyph::Carve) {
+        const camera::Vec3 body{gather->world[0], gather->world[1], gather->world[2]};
+        if (const std::optional<std::uint8_t> species = camera::carved_monster(rt.memory(), body)) {
+            gather->art = game::GatherArt::of_monster(*species);
+            camera::refresh_hunt_icons(rt.memory());
+            // MHFU_TRACE_GATHER: whether the icon sheet could be read, once a change.
+            static const bool trace = std::getenv("MHFU_TRACE_GATHER") != nullptr;
+            static int told = -1;
+            const int ready = camera::hunt_icon_sheet().ready ? 1 : 0;
+            if (trace && ready != told) {
+                told = ready;
+                std::cout << "[gather] carving species " << static_cast<unsigned>(*species) << ", icon sheet "
+                          << (ready ? "ready" : "not decoded") << std::endl;
+            }
+        }
+    } else if (gather && gather->art.kind == game::GatherArt::Kind::Item) {
+        gather->icon = game::item_art(rt.memory(), gather->art.item);
+        if (gather->icon) game::refresh_item_atlas(rt.memory());
+    }
+    ui::set_gather_mark(gather);
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more

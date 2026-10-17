@@ -183,12 +183,21 @@ struct Settings {
     // game already shows. On, the health that hit removed is drawn over the
     // picture.
     bool damage_numbers{};
+    // Sharpness gauge (game/sharpness_gauge.hpp): off, the game's full drawing.
+    // On, the colour on the blade shortens as it is spent, never dims below a
+    // full pulse and glows brighter, and orange and yellow get a colour too.
+    // The blade stays.
+    bool sharpness_gauge{};
     // A ? over a gather node the game would accept (game/gather_icon.hpp).
     // On by default. Off, the list is not read for the mark.
     bool gather_icon{true};
     // Holding ○ gathers again each time the hunter is free on a node
     // (game/gather_icon.hpp). On by default. Off, ○ is one press.
     bool gather_hold{true};
+    // The item bar gets an empty slot, Nothing Selected, before the first
+    // item, and a quest starts on it, so □ uses no item
+    // (game/empty_item_slot.hpp). On by default. Off: the game's own bar.
+    bool empty_item_slot{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize), and the weight of its ring and ? (1 to
     // kMaxGatherIconThickness). A larger mark keeps the same proportions, and

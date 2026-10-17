@@ -57,48 +57,8 @@ struct Vec3 {
     float z{};
 };
 
-// What lock-on reads in the game. Exposed for tests, which build a stand-in.
-namespace lock_on_layout {
-inline constexpr std::uint32_t kTaskSlot = 0x09A5F300u; // game_task.ovl while a quest runs
-// The word at this address is the entity manager. Its list head is the
-// newest node; +4 of a node is the next older one, +12 the entity, +36 a
-// type byte. Type 1 is a player. The insert is game_sub 0x09C57CA0.
-inline constexpr std::uint32_t kEntityList = 0x09D19860u;
-inline constexpr std::uint32_t kListHead = 0x19030u;
-inline constexpr std::uint32_t kNodeOlder = 0x4u;
-inline constexpr std::uint32_t kNodeEntity = 0xCu;
-inline constexpr std::uint32_t kNodeType = 0x24u;
-inline constexpr std::uint8_t kPlayerNode = 1u;
-// game_sub 0x09C899E0 stores this halfword. em overlays pass 32, 34 or 36.
-inline constexpr std::uint32_t kNodeClass = 58u;
-inline constexpr std::uint32_t kMaxMonsters = 64u; // a bound on a corrupt or cyclic list
-// Object +0 is the vtable. A large monster's methods in the first slots lie
-// in the em overlay. The word at +8 is the one those overlays replace.
-inline constexpr std::uint32_t kVtable = 0x0u;
-inline constexpr std::uint32_t kVtableMethod = 0x8u;
-inline constexpr std::uint32_t kVtableSpan = 64u;
-inline constexpr std::uint32_t kEmOverlay = 0x09D1A280u;
-inline constexpr std::uint32_t kEmOverlayEnd = 0x09D63100u;
-// A hunter's vtable: the player's, and each partner's in an ad hoc quest.
-// Their list nodes are not type 1 (0, 3, 4 and 7 have been seen), they keep a
-// hunter's health pool, and +0x1E8 is not a species: it has read 7, 10 and
-// small species, which put a Lao-Shan Lung or a Rathian icon on a hunter.
-inline constexpr std::uint32_t kHunterVtable = 0x089BB3CCu;
-inline constexpr std::uint32_t kPosition = 0x200u;
-inline constexpr std::uint32_t kHealth = 0x2E4u;
-inline constexpr std::uint32_t kMostHealth = 0x41Eu;
-// Species. 0x088135D0 loads this byte and compares it with species constants.
-// The health halfword at +0x2E4 is read from the same pointer, so the id stays
-// on a monster whose position is held in another area.
-inline constexpr std::uint32_t kMonsterId = 0x1E8u;
-// Zone. 0x08813630 loads this halfword and compares it with the loaded stage,
-// the halfword at GameSys + 0x6AF0E. The GameSys pointer is the word at
-// 0x089CC558. A mismatch is another zone.
-inline constexpr std::uint32_t kStageId = 0x29Au;
-inline constexpr std::uint32_t kGameSysPointer = 0x089CC558u;
-inline constexpr std::uint32_t kGameSysStage = 0x6AF0Eu;
-inline constexpr std::uint32_t kExtent = 0x420u;
-} // namespace lock_on_layout
+// What lock-on reads in the game (the quest entity list and the fields of an
+// entity on it) is in game/guest_layout.hpp, shared with the other features.
 
 struct LockMonster {
     std::uint32_t address{};
@@ -127,6 +87,13 @@ struct HuntMonster {
     bool dead{};
 };
 [[nodiscard]] std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory);
+
+// The species of the dead monster lying at `body`, the place of a carve
+// record (game/gather_icon.hpp): the nearest dead one in this area, large or
+// small, within kCarveReach horizontally. Nothing for a cut tail, which no
+// dead monster lies under.
+inline constexpr float kCarveReach = 500.0f;
+[[nodiscard]] std::optional<std::uint8_t> carved_monster(const psprecomp::GuestMemory &memory, const Vec3 &body);
 
 // The card on the 480×272 picture, in PSP pixels: three quarters of the first
 // 68×52 card.

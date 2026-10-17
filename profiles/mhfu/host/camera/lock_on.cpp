@@ -2,6 +2,7 @@
 
 #include "camera/game_camera.hpp"
 #include "camera/hunt_icon.hpp"
+#include "game/guest_layout.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/runtime.hpp"
@@ -18,15 +19,11 @@
 namespace mhfu::camera {
 namespace {
 
-using namespace lock_on_layout;
+using namespace game::layout;
 
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kUnitsPerTurn = 65536.0f;
 constexpr float kDegrees = 180.0f / kPi;
-
-// The overlay header: "MWo3", its load address at +8, its name at +32.
-constexpr std::uint32_t kOverlayMagic = 0x336F574Du;
-constexpr std::string_view kQuestOverlay = "game_task.ovl";
 
 // Farther than this from the camera's look-at point, horizontally, a lock
 // lets go: well past what the camera can frame. Areas are a few thousand
@@ -153,9 +150,9 @@ float horizontal(const Vec3 &from, const Vec3 &to) {
 
 // The stage the quest has loaded, or nothing when GameSys is not up yet.
 std::optional<std::uint16_t> loaded_stage(const psprecomp::GuestMemory &memory) {
-    if (memory.raw_pointer(kGameSysPointer, 4u) == nullptr) return std::nullopt;
+    if (!memory.contains(kGameSysPointer, 4u)) return std::nullopt;
     const std::uint32_t sys = memory.load32(kGameSysPointer);
-    if (sys < 0x08800000u || memory.raw_pointer(sys + kGameSysStage, 2u) == nullptr) return std::nullopt;
+    if (!in_ram(sys) || !memory.contains(sys + kGameSysStage, 2u)) return std::nullopt;
     return memory.load16(sys + kGameSysStage);
 }
 
@@ -166,17 +163,6 @@ bool in_another_zone(const psprecomp::GuestMemory &memory, std::uint32_t entity)
     const std::optional<std::uint16_t> loaded = loaded_stage(memory);
     if (!loaded) return false;
     return memory.load16(entity + kStageId) != *loaded;
-}
-
-bool on_quest(const psprecomp::GuestMemory &memory) {
-    if (memory.raw_pointer(kTaskSlot, 64u) == nullptr || memory.load32(kTaskSlot) != kOverlayMagic ||
-        memory.load32(kTaskSlot + 8u) != kTaskSlot)
-        return false;
-    for (std::size_t i = 0; i < kQuestOverlay.size(); ++i)
-        if (memory.load8(kTaskSlot + 32u + static_cast<std::uint32_t>(i)) !=
-            static_cast<std::uint8_t>(kQuestOverlay[i]))
-            return false;
-    return memory.load8(kTaskSlot + 32u + static_cast<std::uint32_t>(kQuestOverlay.size())) == 0u;
 }
 
 const LockMonster *find(const std::vector<LockMonster> &monsters, std::uint32_t address) {
@@ -201,12 +187,17 @@ void lock(std::uint32_t target, const char *how) {
 }
 
 bool em_method(const psprecomp::GuestMemory &memory, std::uint32_t vtable) {
-    if (vtable < 0x08800000u || memory.raw_pointer(vtable, kVtableSpan) == nullptr) return false;
+    if (!in_ram(vtable) || !memory.contains(vtable, kVtableSpan)) return false;
     for (std::uint32_t off = kVtableMethod; off < kVtableSpan; off += 4u) {
         const std::uint32_t method = memory.load32(vtable + off);
         if (method >= kEmOverlay && method < kEmOverlayEnd) return true;
     }
     return false;
+}
+
+// The vtable's method at +8, the one em overlays replace, for the traces.
+std::uint32_t first_method(const psprecomp::GuestMemory &memory, std::uint32_t vtable) {
+    return in_ram(vtable) && memory.contains(vtable + kVtableMethod, 4u) ? memory.load32(vtable + kVtableMethod) : 0u;
 }
 
 bool marked_large(std::uint16_t class_id) {
@@ -288,62 +279,44 @@ bool hunter_entity(const psprecomp::GuestMemory &memory, std::uint32_t entity) {
     return memory.load32(entity + kVtable) == kHunterVtable;
 }
 
-// Large monsters on the quest list, including one in another zone. When
-// `trace` is set, the walk is printed and the flag cleared,
-// and only once the list can actually be read.
-std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bool *trace_flag) {
+// Large monsters on the quest list, including one in another zone, and the
+// small ones too with `keep_small`. When `trace` is set, the walk is printed
+// and the flag cleared, and only once the list can actually be read.
+std::vector<Candidate> collect_monsters(
+    const psprecomp::GuestMemory &memory, bool *trace_flag, bool keep_small = false) {
     std::vector<Candidate> found;
-    if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return found;
-    const std::uint32_t manager = memory.load32(kEntityList);
-    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) return found;
+    if (!quest_running(memory) || entity_manager(memory) == 0u) return found;
     const bool trace = trace_flag != nullptr && *trace_flag;
     if (trace_flag != nullptr) *trace_flag = false;
-    std::uint32_t node = memory.load32(manager + kListHead);
-    std::uint32_t seen[kMaxMonsters]{};
-    for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
-        if (memory.raw_pointer(node, kNodeClass + 2u) == nullptr) break;
-        bool repeated = false;
-        for (std::uint32_t earlier = 0; earlier < n; ++earlier)
-            if (seen[earlier] == node) repeated = true;
-        if (repeated) break;
-        seen[n] = node;
-        const std::uint32_t older = memory.load32(node + kNodeOlder);
-        const std::uint8_t kind = memory.load8(node + kNodeType);
-        const std::uint16_t class_id = memory.load16(node + kNodeClass);
-        const std::uint32_t at = memory.load32(node + kNodeEntity);
-        node = older;
-        if (kind == kPlayerNode) continue;
-        if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
-        if (hunter_entity(memory, at)) continue;
-        bool seen_entity = false;
+    for_each_entity(memory, [&](const EntityNode &node) {
+        const std::uint32_t at = node.entity;
+        if (node.type == kPlayerNode) return;
+        if (!entity_readable(memory, at)) return;
+        if (hunter_entity(memory, at)) return;
         for (const Candidate &already : found)
-            if (already.monster.address == at) seen_entity = true;
-        if (seen_entity) continue;
+            if (already.monster.address == at) return;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
-        if (most <= 0) continue; // a companion, or not a monster with a health pool
+        if (most <= 0) return; // a companion, or not a monster with a health pool
         const std::uint8_t id = memory.load8(at + kMonsterId);
-        if (small_species(id)) continue;
+        if (!keep_small && small_species(id)) return;
         const bool dead = health <= 0;
         const Vec3 position = load_vec(memory, at + kPosition);
-        if (!finite(position)) continue;
+        if (!finite(position)) return;
         const bool other_area = in_another_zone(memory, at);
         const std::uint32_t vtable = memory.load32(at + kVtable);
         const bool em = em_method(memory, vtable);
-        const bool marked = em || marked_large(class_id);
+        const bool marked = em || marked_large(node.class_id);
         if (trace) {
-            const std::uint32_t method = vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u)
-                ? memory.load32(vtable + kVtableMethod)
-                : 0u;
             std::cout << "[lockon] candidate 0x" << std::hex << at << std::dec << " type "
-                      << static_cast<unsigned>(kind) << " class " << class_id << " vtable 0x" << std::hex << vtable
-                      << " method 0x" << method << std::dec << " em " << (em ? 1 : 0) << " id "
-                      << static_cast<unsigned>(id) << " health " << health << "/" << most << " at " << position.x << ","
-                      << position.y << "," << position.z << (other_area ? " other-area" : "") << (dead ? " dead" : "")
-                      << std::endl;
+                      << static_cast<unsigned>(node.type) << " class " << node.class_id << " vtable 0x" << std::hex
+                      << vtable << " method 0x" << first_method(memory, vtable) << std::dec << " em " << (em ? 1 : 0)
+                      << " id " << static_cast<unsigned>(id) << " health " << health << "/" << most << " at "
+                      << position.x << "," << position.y << "," << position.z << (other_area ? " other-area" : "")
+                      << (dead ? " dead" : "") << std::endl;
         }
         found.push_back({LockMonster{at, 0u, position}, marked, other_area, dead, id});
-    }
+    });
     if (trace) {
         bool any_marked = false;
         unsigned lockable = 0;
@@ -361,46 +334,29 @@ std::vector<Candidate> collect_monsters(const psprecomp::GuestMemory &memory, bo
 // MHFU_TRACE_LOCK_ON: every node on the quest list, players and the entities
 // the walk leaves out included, one line each.
 void trace_entity_list(const psprecomp::GuestMemory &memory, const char *why) {
-    if (!on_quest(memory) || memory.raw_pointer(kEntityList, 4u) == nullptr) return;
-    const std::uint32_t manager = memory.load32(kEntityList);
-    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) return;
+    if (!quest_running(memory) || entity_manager(memory) == 0u) return;
     const std::optional<std::uint16_t> loaded = loaded_stage(memory);
-    std::cout << "[lockon] entity list (" << why << "), loaded stage "
-              << (loaded ? static_cast<int>(*loaded) : -1) << std::endl;
-    std::uint32_t node = memory.load32(manager + kListHead);
-    std::uint32_t seen[kMaxMonsters]{};
-    for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
-        if (memory.raw_pointer(node, kNodeClass + 2u) == nullptr) break;
-        bool repeated = false;
-        for (std::uint32_t earlier = 0; earlier < n; ++earlier)
-            if (seen[earlier] == node) repeated = true;
-        if (repeated) break;
-        seen[n] = node;
-        const std::uint8_t kind = memory.load8(node + kNodeType);
-        const std::uint16_t class_id = memory.load16(node + kNodeClass);
-        const std::uint32_t at = memory.load32(node + kNodeEntity);
-        std::cout << "[lockon]   node 0x" << std::hex << node << " entity 0x" << at << std::dec << " type "
-                  << static_cast<unsigned>(kind) << " class " << class_id;
-        node = memory.load32(node + kNodeOlder);
-        if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) {
+    std::cout << "[lockon] entity list (" << why << "), loaded stage " << (loaded ? static_cast<int>(*loaded) : -1)
+              << std::endl;
+    for_each_entity(memory, [&](const EntityNode &node) {
+        const std::uint32_t at = node.entity;
+        std::cout << "[lockon]   node 0x" << std::hex << node.node << " entity 0x" << at << std::dec << " type "
+                  << static_cast<unsigned>(node.type) << " class " << node.class_id;
+        if (!entity_readable(memory, at)) {
             std::cout << " unreadable" << std::endl;
-            continue;
+            return;
         }
         const std::uint32_t vtable = memory.load32(at + kVtable);
-        const std::uint32_t method = vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u)
-            ? memory.load32(vtable + kVtableMethod)
-            : 0u;
         const Vec3 position = load_vec(memory, at + kPosition);
         const std::uint8_t id = memory.load8(at + kMonsterId);
         std::cout << " vtable 0x" << std::hex << vtable << (vtable == kHunterVtable ? " (hunter)" : "") << " method 0x"
-                  << method << std::dec << " em "
-                  << (em_method(memory, vtable) ? 1 : 0) << " id " << static_cast<unsigned>(id)
-                  << (small_species(id) ? " (small)" : "") << " health "
+                  << first_method(memory, vtable) << std::dec << " em " << (em_method(memory, vtable) ? 1 : 0) << " id "
+                  << static_cast<unsigned>(id) << (small_species(id) ? " (small)" : "") << " health "
                   << static_cast<std::int16_t>(memory.load16(at + kHealth)) << "/"
                   << static_cast<std::int16_t>(memory.load16(at + kMostHealth)) << " stage "
                   << memory.load16(at + kStageId) << " at " << position.x << "," << position.y << "," << position.z
                   << std::endl;
-    }
+    });
 }
 
 // `present` keeps a monster in another zone, and a dead one, for the
@@ -433,7 +389,7 @@ std::vector<LockMonster> lock_on_monsters(const psprecomp::GuestMemory &memory) 
 }
 
 std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory) {
-    if (!on_quest(memory)) {
+    if (!quest_running(memory)) {
         state.icon_order.clear();
         return {};
     }
@@ -457,6 +413,36 @@ std::vector<HuntMonster> hunt_monsters(const psprecomp::GuestMemory &memory) {
         for (const HuntMonster &monster : found)
             if (monster.address == address) out.push_back(monster);
     return out;
+}
+
+std::optional<std::uint8_t> carved_monster(const psprecomp::GuestMemory &memory, const Vec3 &body) {
+    if (!quest_running(memory)) return std::nullopt;
+    std::optional<std::uint8_t> species;
+    float nearest = kCarveReach * kCarveReach;
+    // MHFU_TRACE_GATHER: each monster a new carve point is matched against.
+    static const bool trace = std::getenv("MHFU_TRACE_GATHER") != nullptr;
+    static Vec3 traced{};
+    const bool tell = trace && (traced.x != body.x || traced.y != body.y || traced.z != body.z);
+    if (tell) {
+        traced = body;
+        std::cout << "[gather] carve at " << body.x << "," << body.y << "," << body.z << std::endl;
+    }
+    for (const Candidate &candidate : collect_monsters(memory, nullptr, true)) {
+        const float dx = candidate.monster.position.x - body.x;
+        const float dz = candidate.monster.position.z - body.z;
+        const float distance = dx * dx + dz * dz;
+        if (tell)
+            std::cout << "[gather]   monster species " << static_cast<unsigned>(candidate.id) << " at "
+                      << candidate.monster.position.x << "," << candidate.monster.position.y << ","
+                      << candidate.monster.position.z << " distance " << std::sqrt(distance)
+                      << (candidate.dead ? " dead" : " alive") << (candidate.other_area ? " elsewhere" : "")
+                      << (hunt_icon_cell(candidate.id) ? "" : " (no icon)") << std::endl;
+        if (!candidate.dead || candidate.other_area) continue;
+        if (distance > nearest) continue;
+        nearest = distance;
+        species = candidate.id;
+    }
+    return species;
 }
 
 namespace {
@@ -516,21 +502,19 @@ HuntIconSquare hunt_icon_square(const HuntPortrait &portrait) {
 namespace {
 // Why a tap found nothing, from the same walk as lock_on_monsters. One line.
 void explain_miss(const psprecomp::GuestMemory &memory) {
-    if (!on_quest(memory)) {
+    if (!quest_running(memory)) {
         std::cout << "[lockon] no large monster to lock onto: not in a quest" << std::endl;
         return;
     }
-    if (memory.raw_pointer(kEntityList, 4u) == nullptr) {
+    if (!memory.contains(kEntityList, 4u)) {
         std::cout << "[lockon] no large monster to lock onto: entity list unreadable" << std::endl;
         return;
     }
-    const std::uint32_t manager = memory.load32(kEntityList);
-    if (manager < 0x08800000u || memory.raw_pointer(manager + kListHead, 4u) == nullptr) {
-        std::cout << "[lockon] no large monster to lock onto: no entity manager at 0x" << std::hex << manager
-                  << std::dec << std::endl;
+    if (entity_manager(memory) == 0u) {
+        std::cout << "[lockon] no large monster to lock onto: no entity manager at 0x" << std::hex
+                  << memory.load32(kEntityList) << std::dec << std::endl;
         return;
     }
-    unsigned nodes = 0;
     unsigned players = 0;
     unsigned unwell = 0;
     unsigned unplaced = 0;
@@ -539,43 +523,28 @@ void explain_miss(const psprecomp::GuestMemory &memory) {
     std::uint8_t sample_type = 0;
     int sample_health = 0;
     int sample_most = 0;
-    std::uint32_t node = memory.load32(manager + kListHead);
-    std::uint32_t seen[kMaxMonsters]{};
-    for (std::uint32_t n = 0; n < kMaxMonsters && node >= 0x08800000u; ++n) {
-        if (memory.raw_pointer(node, kNodeType + 1u) == nullptr) break;
-        bool repeated = false;
-        for (std::uint32_t earlier = 0; earlier < n; ++earlier)
-            if (seen[earlier] == node) repeated = true;
-        if (repeated) break;
-        seen[n] = node;
-        const std::uint8_t kind = memory.load8(node + kNodeType);
-        const std::uint32_t at = memory.load32(node + kNodeEntity);
-        node = memory.load32(node + kNodeOlder);
-        ++nodes;
-        if (kind == kPlayerNode) {
+    const std::uint32_t nodes = for_each_entity(memory, [&](const EntityNode &node) {
+        const std::uint32_t at = node.entity;
+        if (node.type == kPlayerNode) {
             ++players;
-            continue;
+            return;
         }
-        if (at < 0x08800000u || memory.raw_pointer(at, kExtent) == nullptr) continue;
-        const std::uint32_t vtable = memory.load32(at + kVtable);
-        const std::uint32_t method = vtable >= 0x08800000u && memory.raw_pointer(vtable + kVtableMethod, 4u) != nullptr
-            ? memory.load32(vtable + kVtableMethod)
-            : 0u;
+        if (!entity_readable(memory, at)) return;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
         if (sample == 0) {
             sample = at;
-            sample_method = method;
-            sample_type = kind;
+            sample_method = first_method(memory, memory.load32(at + kVtable));
+            sample_type = node.type;
             sample_health = health;
             sample_most = most;
         }
         if (most <= 0 || health <= 0) {
             ++unwell;
-            continue;
+            return;
         }
         if (!finite(load_vec(memory, at + kPosition))) ++unplaced;
-    }
+    });
     std::cout << "[lockon] no large monster to lock onto: " << nodes << " entities, " << players << " players, "
               << unwell << " without health, " << unplaced << " with no position";
     if (sample != 0)
@@ -941,8 +910,8 @@ namespace {
 // 0x088144B4 writes the projection at +0xC00 (x scale at +0, y scale at +0x14,
 // m[11] = -1 at +0x2C). 0x08814268 then writes the view, with its translation,
 // at +0xC80. The view a draw uploads has no translation, so a world position
-// projected through it misses the picture.
-constexpr std::uint32_t kCameraPointer = 0x089CBD04u;
+// projected through it misses the picture. The object is camera_object()
+// (game/guest_layout.hpp).
 constexpr std::uint32_t kProjection = 0xC00u;
 constexpr std::uint32_t kViewMatrix = 0xC80u;
 
@@ -1005,10 +974,9 @@ std::optional<LockOnView> posed_view(const psprecomp::GuestMemory &memory, const
 // The camera object's view and projection, mapped by the viewport of the
 // world draw when one was noted, otherwise by the full 480×272 picture.
 std::optional<LockOnView> camera_object_view(const psprecomp::GuestMemory &memory, const LockOnView &noted) {
-    if (!marker_instructions(memory) || memory.raw_pointer(kCameraPointer, 4u) == nullptr) return std::nullopt;
-    const std::uint32_t camera = memory.load32(kCameraPointer);
-    if (camera < 0x08800000u || memory.raw_pointer(camera + kProjection, kViewMatrix - kProjection + 64u) == nullptr)
-        return std::nullopt;
+    if (!marker_instructions(memory)) return std::nullopt;
+    const std::uint32_t camera = camera_object(memory);
+    if (camera == 0u || !memory.contains(camera + kProjection, kViewMatrix - kProjection + 64u)) return std::nullopt;
     LockOnView view;
     load_matrix(memory, camera + kViewMatrix, view.view);
     load_matrix(memory, camera + kProjection, view.projection);

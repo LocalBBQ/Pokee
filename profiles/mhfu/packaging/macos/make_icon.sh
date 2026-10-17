@@ -22,7 +22,7 @@ trap 'rm -rf "$work"' EXIT
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
 <defs>
   <linearGradient id="pokee-icon-night" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#3a2856"/><stop offset="1" stop-color="#1a1029"/>
+    <stop offset="0" stop-color="#1d2c5a"/><stop offset="1" stop-color="#070b1d"/>
   </linearGradient>
 </defs>
 <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#pokee-icon-night)"/>

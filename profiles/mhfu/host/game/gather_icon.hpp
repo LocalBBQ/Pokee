@@ -25,6 +25,7 @@
 // reads. The view a world draw uploads has no translation, so the mark is
 // placed from the follow camera's eye and look-at.
 
+#include "game/gather_art.hpp"
 #include "psprecomp/guest_memory.hpp"
 
 #include <array>
@@ -46,6 +47,7 @@ struct GatherNode {
 };
 
 // True for the kinds the game gathers with □: mining (3) and a bug net (4).
+// gather_glyph names the same kinds.
 [[nodiscard]] inline bool gather_uses_square(std::uint16_t kind) noexcept {
     return kind == 3u || kind == 4u;
 }
@@ -94,7 +96,7 @@ struct GatherWord {
 [[nodiscard]] std::optional<std::uint32_t> gather_list_for(const psprecomp::GuestMemory &memory, std::uint16_t stage);
 
 // The node ○ would gather now, when the instructions match. Nothing in the
-// village, with no hunter, or with no node in range.
+// village (see farm_point), with no hunter, or with no node in range.
 [[nodiscard]] std::optional<GatherNode> gather_node(const psprecomp::GuestMemory &memory);
 
 // The projection and viewport of one perspective draw. The view matrix is not
@@ -121,14 +123,101 @@ struct GatherPose {
 // The perspective draw with the most vertices since the mark last asked.
 void gather_note_draw(const GatherPicture &picture, std::uint32_t vertices);
 
-// Where the mark goes on the picture, 0..1 from the top left, while Gather
-// icon is on: over the node ○ or □ would gather, or, with no node in range,
-// over the monster body or the cut tail ○ would carve (carve_body). Nothing
-// when it is off, the code differs, there is nothing to gather or carve, or
-// that point is behind the camera or off the picture. Takes the draw noted
-// since the last call.
-[[nodiscard]] std::optional<std::array<float, 2>> gather_mark(
-    const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose);
+// What the mark stands for: the node's kind, a carve, or a fishing spot.
+enum class GatherGlyph : std::uint8_t { Plant, Mining, BugNet, Carve, Fishing };
+
+// 3 is mining and 4 a bug net; every other kind is gathered with ○ and shown
+// as a plant.
+[[nodiscard]] GatherGlyph gather_glyph(std::uint16_t kind) noexcept;
+
+// The thing ○ or □ would gather or carve now: the node, or with none in range
+// the body (carve_body), or with neither the fishing spot (fishing_spot).
+// `address` is its record, so a new target is told from the same one.
+struct GatherTarget {
+    std::uint32_t address{};
+    float x{};
+    float y{};
+    float z{};
+    GatherGlyph glyph{};
+    // What the mark shows (game/gather_art.hpp). A carve leaves it empty; the
+    // caller knows the monsters.
+    GatherArt art{};
+};
+[[nodiscard]] std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory);
+
+// The mark as it moves, one step per game frame. A new target fades the mark
+// in, and losing it fades the mark out at the place it was. Moving from one
+// target to another near it glides there in world space; a far one is jumped
+// to. The screen place of the last step is kept, so a present between two
+// game frames can blend the mark as it blends the world.
+class GatherMotion {
+public:
+    // Opacity gained or lost per game frame: four frames, about 130 ms.
+    static constexpr float kFadeStep = 0.25f;
+    // The part of the way to a new target covered per game frame.
+    static constexpr float kGlide = 0.5f;
+    // Closer than this, in world units, a glide ends on the target.
+    static constexpr float kArrive = 1.0f;
+    // A target farther than this from the mark is jumped to.
+    static constexpr float kJump = 600.0f;
+
+    struct Shown {
+        float x{};
+        float y{};
+        float z{};
+        float alpha{};
+        GatherGlyph glyph{};
+        GatherArt art{};
+    };
+
+    // One game frame with this target, or none.
+    void step(const std::optional<GatherTarget> &target);
+    // Where the mark is drawn after the last step; nothing once it has faded.
+    [[nodiscard]] std::optional<Shown> shown() const;
+    // The screen place drawn for the last step, 0..1, or nothing.
+    [[nodiscard]] const std::optional<std::array<float, 2>> &last_at() const { return last_at_; }
+    void set_last_at(std::optional<std::array<float, 2>> at) { last_at_ = at; }
+    void reset() { *this = GatherMotion{}; }
+
+private:
+    bool live_{};
+    float x_{};
+    float y_{};
+    float z_{};
+    float alpha_{};
+    GatherGlyph glyph_{};
+    GatherArt art_{};
+    std::optional<std::array<float, 2>> last_at_;
+};
+
+// The mark for one game frame.
+struct GatherMark {
+    std::array<float, 2> at{}; // on the picture, 0..1 from the top left
+    // Where the previous game frame drew it, when it was drawn; an
+    // interpolated present between the two blends from there.
+    std::optional<std::array<float, 2>> older;
+    float alpha{1.0f};
+    GatherGlyph glyph{};
+    GatherArt art{};
+    // The world point it stands over, before the lift: the node, or the body
+    // being carved.
+    std::array<float, 3> world{};
+    // The item's icon on the atlas and its tint, when `art` is an item that has
+    // one. Filled in by the caller, which reads the game's tables.
+    std::optional<ItemArt> icon;
+};
+
+// Where the mark goes on the picture while Gather icon is on: over the node
+// ○ or □ would gather, or, with no node in range, over the monster body or
+// the cut tail ○ would carve (carve_body), or else over the fishing spot a
+// bait would fish at (fishing_spot). Nothing when it is off, the code
+// differs, there is nothing to gather or carve, or that point is behind the
+// camera or off the picture. Takes the draw noted since the last call.
+// Without `motion` the mark is where the target is, at full opacity. With
+// it, `motion` steps once and the mark is where it shows; a frame without a
+// world draw, or the setting off, resets it.
+[[nodiscard]] std::optional<GatherMark> gather_mark(const psprecomp::GuestMemory &memory,
+    const std::optional<GatherPose> &pose, GatherMotion *motion = nullptr);
 
 // The pulse a hold sends, in pad reads the game takes: the gather button down
 // for kGatherPulseDown reads, then up for kGatherPulseUp. Each part is long
@@ -213,9 +302,91 @@ struct CarveBody {
 };
 [[nodiscard]] std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory);
 
+// A fishing spot. Fishing is the item action, not the circle handler: with a
+// bait selected (items 136 to 143), the item handler (game_task 0x09AA7F98)
+// asks the spot search 0x09AA6B18 and fishes when the type it returns is 23.
+// The search reads the object at 0x09A44DB0, the word at 0x09A4F1A0 points to
+// it. Its first word is the loaded stage object, taken from the table at
+// 0x089B505C by 0x088C6A3C. The search calls that object's method +40 for the
+// area's spot table. In each of the 266 stage overlays (0x09D63100) that
+// method is lui v0, jr ra, addiu v0, so it returns a fixed address. The
+// address is decoded from those three words here, and nothing is called. In
+// that table the word at +16 is the spot list and the signed byte at +62 the
+// count. Spots are 24 bytes:
+//   +0 a halfword, +2 the type the search returns, +4 x, +8 y, +12 z,
+//   +16 radius, all floats, +20 a halfword the fishing action keeps
+// The hunter is inside when spot.y - 50 <= hunter.y < spot.y + 50 and the
+// horizontal distance is within the radius. The first such spot is the one
+// returned, so another spot in reach before it (a camp's bed or box) is no
+// fishing. Bait is not read: the mark shows where a bait would fish.
+struct FishingSpot {
+    std::uint32_t address{};
+    float x{};
+    float y{};
+    float z{};
+};
+inline constexpr std::uint16_t kFishingSpotType = 23u;
+
+// The instructions that establish the spot search and the bait case.
+[[nodiscard]] std::span<const GatherWord> fishing_checked_words();
+// The area's spot table, decoded from the stage's method +40, or nothing when
+// the pointers are not there or that method is not the three-word getter.
+[[nodiscard]] std::optional<std::uint32_t> spot_table(const psprecomp::GuestMemory &memory);
+// The first spot in `table` the hunter at (x, y, z) is inside, of any type.
+// Nothing with no list, a count of 0 or less, or no spot in reach.
+struct GatherSpot {
+    std::uint32_t address{};
+    std::uint16_t type{};
+    float x{};
+    float y{};
+    float z{};
+};
+[[nodiscard]] std::optional<GatherSpot> spot_from_table(const psprecomp::GuestMemory &memory, std::uint32_t table,
+    float hunter_x, float hunter_y, float hunter_z);
+// The spot a bait would fish at now: the first spot in reach, when its type is
+// 23. Nothing outside a quest, when the instructions differ, with no hunter,
+// or with another spot first.
+[[nodiscard]] std::optional<FishingSpot> fishing_spot(const psprecomp::GuestMemory &memory);
+
+// A Pokke Farm spot that □ would mine or catch bugs at now (lobby_task.ovl).
+// The village keeps no gather list. Each frame 0x09AAF290 walks the stage's
+// 24-byte interaction points and stores the one in reach at village hunter
+// +1364, or 0 (0x09AAF3AC). The handler at 0x09AAD350 starts every point but
+// a person (type 1) when bit 0x8000, □, is new in hunter +1156, and switches
+// on the halfword at point +2 through the table at 0x09B0F300. Type 15 is a
+// mining outcrop and type 16 a bug thicket: they start sub-actions 0 and 1
+// of the hunter's action group 8, in the order of the quest's mining (81) and
+// bug net (82). The halfword at point +22 is the spot's index. Before
+// starting, the handler asks game_sub.ovl whether the spot has uses left:
+// 0x09C295F8 for type 15 and 0x09C29648 for type 16. Both read the farm at
+// GameSys +0x6A238: the spot count is the byte at +2 (mining) or +3 (bugs)
+// and the uses left are the halfword at +8 or +48, 8 bytes a spot. An index
+// past the count, or no uses, is no gather. The handler acts only while the
+// village state object (the word at 0x09B22E70) has 0 at +0 and +26, for the
+// local hunter (+486 equal to the byte at GameSys +40). The hunter is the one
+// the camera follows, as on a quest.
+struct FarmPoint {
+    std::uint32_t address{};
+    std::uint16_t type{}; // 15 mining, 16 bugs
+    std::uint16_t index{};
+    std::uint16_t uses{};
+};
+inline constexpr std::uint16_t kFarmMining = 15u;
+inline constexpr std::uint16_t kFarmBugs = 16u;
+
+// The instructions that establish the farm search, the handler and the checks.
+[[nodiscard]] std::span<const GatherWord> farm_checked_words();
+// As gather_code_matches, for the village: lobby_task.ovl and game_sub.ovl
+// must be loaded and every farm word must match.
+[[nodiscard]] bool farm_code_matches(const psprecomp::GuestMemory &memory);
+// The mining outcrop or bug thicket □ would gather at now, with uses left.
+// Nothing outside the village, in a menu, or with no such spot in reach.
+[[nodiscard]] std::optional<FarmPoint> farm_point(const psprecomp::GuestMemory &memory);
+
 // The buttons the game should see for this pad read. Off, or idle with the
 // gather button up, `buttons` comes back unchanged and the gather list is not
-// read. While the hold owns the pad, every other button is cleared.
+// read. While the hold owns the pad, every other button is cleared. A farm
+// spot (farm_point) is held with □ like a quest's mining point.
 // gather_hold_centres_stick is then true: the movement stick for that read is
 // centred, so a push does not walk the gather or the carve off.
 [[nodiscard]] std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory);
