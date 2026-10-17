@@ -51,7 +51,7 @@ The [profile README](profiles/mhfu/README.md) covers player settings, environmen
 - **Overlays.** Don't rebuild them per checkout: `MHFU_OVERLAY_DIR=/path/to/out/mhfu/bin/overlays`. This is safe while `include/psprecomp/` is unchanged.
 - **ccache.** Install it; the build uses it automatically, across checkouts.
 - **Game data.** Set `MHFU_GAME_DIR` to a game directory instead of running `prepare_game.sh` in every clone.
-- **Host-only changes rebuild in seconds.** Changes under `include/psprecomp/` rebuild everything, including all 355 overlays, so avoid them unless they are the point.
+- **Host-only changes rebuild in seconds.** Changes under `include/psprecomp/` rebuild everything, including all 290 overlays, so avoid them unless they are the point.
 - **Build commands.** Build with `cmake --build`, never `ninja` directly: `cmake --build` holds the per-directory lock. Run one build per build directory. Keep parallelism low (`-j2`), because generated units need gigabytes of memory each. Never delete `.ninja_deps` or `.ninja_log`.
 
 ## Running and testing
