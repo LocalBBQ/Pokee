@@ -270,7 +270,7 @@ set(MHFU_HOST_SOURCES
     host/game/hit_trace.cpp
     host/game/item_box.cpp
     host/game/empty_item_slot.cpp
-    host/game/deliver_rarity.cpp
+    host/game/give_rarity.cpp
     host/game/sharpness_gauge.cpp
     third_party/tiny_aes/aes.c
 )
@@ -588,11 +588,11 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_item_box_tests COMMAND mhfu_item_box_tests)
 endif()
 
-# Deliver at any rarity: the item lookup, the code check, and the wrapper
+# Give at any rarity: the item lookup, the code check, and the wrapper
 # around a stand-in check. No game data.
-add_executable(mhfu_deliver_rarity_tests
-    tests/deliver_rarity_tests.cpp
-    host/game/deliver_rarity.cpp
+add_executable(mhfu_give_rarity_tests
+    tests/give_rarity_tests.cpp
+    host/game/give_rarity.cpp
     host/settings/settings.cpp
     host/install/user_data.cpp
     host/app_paths.cpp
@@ -602,11 +602,11 @@ add_executable(mhfu_deliver_rarity_tests
     host/input/touch_action.cpp
     host/input/touch_controls.cpp
     host/platform/utf8_path.cpp)
-target_include_directories(mhfu_deliver_rarity_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
-target_link_libraries(mhfu_deliver_rarity_tests PRIVATE psprecomp_core)
-set_target_properties(mhfu_deliver_rarity_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+target_include_directories(mhfu_give_rarity_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_give_rarity_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_give_rarity_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
-    add_test(NAME mhfu_deliver_rarity_tests COMMAND mhfu_deliver_rarity_tests)
+    add_test(NAME mhfu_give_rarity_tests COMMAND mhfu_give_rarity_tests)
 endif()
 
 # Empty item slot: the scroll with an empty stop, the code and caller checks,
