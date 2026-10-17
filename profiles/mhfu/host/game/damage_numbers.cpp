@@ -1,6 +1,6 @@
 #include "game/damage_numbers.hpp"
 
-#include "camera/lock_on.hpp"
+#include "game/guest_layout.hpp"
 #include "game/hit_trace.hpp"
 #include "psprecomp/runtime.hpp"
 
@@ -55,19 +55,6 @@ std::vector<OpenHit> &open_ticks() {
     return open;
 }
 
-// The overlay header: "MWo3", its load address at +8, its name at +32.
-constexpr std::uint32_t kOverlayMagic = 0x336F574Du;
-constexpr char kQuestOverlay[] = "game_task.ovl";
-
-bool quest_running(const psprecomp::GuestMemory &memory) {
-    constexpr std::uint32_t slot = camera::lock_on_layout::kTaskSlot;
-    if (!memory.contains(slot, 64u) || memory.load32(slot) != kOverlayMagic || memory.load32(slot + 8u) != slot)
-        return false;
-    for (std::uint32_t i = 0; i < sizeof(kQuestOverlay); ++i)
-        if (memory.load8(slot + 32u + i) != static_cast<std::uint8_t>(kQuestOverlay[i])) return false;
-    return true;
-}
-
 struct ListEntry {
     std::uint32_t entity{};
     std::uint8_t kind{}; // the node's type byte
@@ -75,27 +62,19 @@ struct ListEntry {
 
 // The quest entity list, newest first. Empty outside a quest.
 std::vector<ListEntry> quest_entries(const psprecomp::GuestMemory &memory) {
-    namespace layout = camera::lock_on_layout;
     std::vector<ListEntry> entries;
-    if (!quest_running(memory) || !memory.contains(layout::kEntityList, 4u)) return entries;
-    const std::uint32_t manager = memory.load32(layout::kEntityList);
-    if (!hit_trace::in_ram(manager) || !memory.contains(manager + layout::kListHead, 4u)) return entries;
-    std::uint32_t node = memory.load32(manager + layout::kListHead);
-    for (std::uint32_t steps = 0; steps < layout::kMaxMonsters && hit_trace::in_ram(node); ++steps) {
-        if (!memory.contains(node, layout::kNodeType + 1u)) break;
-        entries.push_back({memory.load32(node + layout::kNodeEntity), memory.load8(node + layout::kNodeType)});
-        node = memory.load32(node + layout::kNodeOlder);
-    }
+    if (!layout::quest_running(memory)) return entries;
+    layout::for_each_entity(
+        memory, [&](const layout::EntityNode &node) { entries.push_back({node.entity, node.type}); });
     return entries;
 }
 
 // Hunters share a class. Only this console's own hunter is sure to carry the
 // player node type, so an entity with a player's vtable is a hunter too.
 std::vector<std::uint32_t> hunter_classes(const psprecomp::GuestMemory &memory, const std::vector<ListEntry> &entries) {
-    namespace layout = camera::lock_on_layout;
     std::vector<std::uint32_t> classes;
     for (const ListEntry &entry : entries)
-        if (entry.kind == layout::kPlayerNode && hit_trace::in_ram(entry.entity) && memory.contains(entry.entity, 4u))
+        if (entry.kind == layout::kPlayerNode && layout::in_ram(entry.entity) && memory.contains(entry.entity, 4u))
             classes.push_back(memory.load32(entry.entity + layout::kVtable));
     return classes;
 }
@@ -614,13 +593,12 @@ bool health_watch_enabled() noexcept {
 }
 
 std::vector<HealthSeen> quest_health(const psprecomp::GuestMemory &memory) {
-    namespace layout = camera::lock_on_layout;
     std::vector<HealthSeen> found;
     const std::vector<ListEntry> entries = quest_entries(memory);
     const std::vector<std::uint32_t> hunters = hunter_classes(memory, entries);
     for (const ListEntry &entry : entries) {
         const std::uint32_t entity = entry.entity;
-        if (entry.kind == layout::kPlayerNode || !hit_trace::in_ram(entity) || (entity & 1u) != 0u ||
+        if (entry.kind == layout::kPlayerNode || !layout::in_ram(entity) || (entity & 1u) != 0u ||
             !memory.contains(entity, 4u) || !memory.contains(entity + kMonsterMostHealth, 2u) ||
             !memory.contains(entity + kMonsterHealth, 2u))
             continue;
@@ -638,11 +616,10 @@ std::vector<HealthSeen> quest_health(const psprecomp::GuestMemory &memory) {
 }
 
 bool is_hunter(const psprecomp::GuestMemory &memory, std::uint32_t object) {
-    namespace layout = camera::lock_on_layout;
     const std::vector<ListEntry> entries = quest_entries(memory);
     for (const ListEntry &entry : entries)
         if (entry.entity == object && entry.kind == layout::kPlayerNode) return true;
-    if (!hit_trace::in_ram(object) || !memory.contains(object, 4u)) return false;
+    if (!layout::in_ram(object) || !memory.contains(object, 4u)) return false;
     const std::vector<std::uint32_t> hunters = hunter_classes(memory, entries);
     return std::find(hunters.begin(), hunters.end(), memory.load32(object + layout::kVtable)) != hunters.end();
 }
@@ -710,8 +687,8 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
                     std::snprintf(line, sizeof(line),
                         "[hit] watching health of %08X: node type %u, vtable %08X, species %u, health %d/%d",
                         reading.object, static_cast<unsigned>(reading.kind), reading.vtable,
-                        memory->contains(reading.object + camera::lock_on_layout::kMonsterId, 1u)
-                            ? static_cast<unsigned>(memory->load8(reading.object + camera::lock_on_layout::kMonsterId))
+                        memory->contains(reading.object + layout::kMonsterId, 1u)
+                            ? static_cast<unsigned>(memory->load8(reading.object + layout::kMonsterId))
                             : 0u,
                         reading.health, reading.most);
                     std::cout << line << std::endl;

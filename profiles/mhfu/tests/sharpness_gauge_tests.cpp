@@ -2,6 +2,7 @@
 // weapon's colour ends through the game's tables, and the cut that shortens
 // the bar. No game data. Guest memory is a buffer laid out like the traced
 // great sword (id 182).
+#include "game/guest_layout.hpp"
 #include "game/guest_ram.hpp"
 #include "game/sharpness_gauge.hpp"
 
@@ -74,8 +75,8 @@ constexpr std::uint8_t kRow = 1u;
 
 BufferRam traced_memory() {
     BufferRam ram(kBase, 0x300000u);
-    ram.store32(kHunterList, kHunters);
-    ram.store32(kHunters + kFollowedHunter, kHunter);
+    ram.store32(layout::kCameraObject, kHunters);
+    ram.store32(kHunters + layout::kFollowedHunter, kHunter);
     ram.store8(kHunter + kWeaponSlot, 1u);
     ram.store8(kHunter + kWeaponSlot + 1u, kWeaponKind);
     ram.store16(kHunter + kWeaponSlot + 2u, kId);
@@ -185,8 +186,7 @@ void test_glow_alpha() {
 // The knife colour table as the executable holds it, red to purple.
 BufferRam knife_table() {
     BufferRam ram(kKnifeColours, kKnifeColourBytes * kColours);
-    constexpr std::uint32_t kGame[kColours]{
-        0xFF0000FFu, 0u, 0u, 0xFF00D35Eu, 0xFFEE6830u, 0xFFF0F0F0u, 0xFFF000F0u};
+    constexpr std::uint32_t kGame[kColours]{0xFF0000FFu, 0u, 0u, 0xFF00D35Eu, 0xFFEE6830u, 0xFFF0F0F0u, 0xFFF000F0u};
     for (std::size_t i = 0; i < kColours; ++i)
         ram.store32(kKnifeColours + static_cast<std::uint32_t>(i) * kKnifeColourBytes, kGame[i]);
     return ram;
@@ -231,8 +231,7 @@ void test_remaining() {
     check(bar_remaining() < 0.0f && colour_remaining() < 0.0f, "the drawing is left whole before a reading");
 
     set_reading_for_tests(green, false);
-    check(bar_remaining() < 0.0f && colour_remaining() < 0.0f,
-        "with the setting off the game's drawing stays whole");
+    check(bar_remaining() < 0.0f && colour_remaining() < 0.0f, "with the setting off the game's drawing stays whole");
 
     set_reading_for_tests(green, true);
     check(near(bar_remaining(), 249.0f / static_cast<float>(kTracedMost)),
@@ -242,8 +241,8 @@ void test_remaining() {
     check(near(bar_remaining(), 1.0f) && near(colour_remaining(), 1.0f),
         "a fresh blade keeps the whole bar and the whole colour");
     set_reading_for_tests(*gauge_reading(kTraced, 0, kTracedMost), true);
-    check(near(bar_remaining(), 0.0f) && near(colour_remaining(), 0.0f),
-        "no sharpness cuts the bar and the colour away");
+    check(
+        near(bar_remaining(), 0.0f) && near(colour_remaining(), 0.0f), "no sharpness cuts the bar and the colour away");
 
     set_reading_for_tests(std::nullopt, true);
     check(bar_remaining() < 0.0f && colour_remaining() < 0.0f, "a gun has no bar and the game's HUD is left alone");
