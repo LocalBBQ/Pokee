@@ -1,6 +1,6 @@
-// Deliver at any rarity: the item lookup, the code check, and the wrapper
+// Give at any rarity: the item lookup, the code check, and the wrapper
 // around a stand-in for the game's check. No game data.
-#include "game/deliver_rarity.hpp"
+#include "game/give_rarity.hpp"
 
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
@@ -12,7 +12,7 @@
 #include <string>
 
 namespace {
-using namespace mhfu::game::deliver_rarity;
+using namespace mhfu::game::give_rarity;
 
 int failures{};
 
@@ -67,7 +67,7 @@ std::uint32_t run_check(psprecomp::Runtime &runtime) {
     psprecomp::AllegrexContext ctx{};
     ctx.gpr[4] = kHunter;
     ctx.gpr[31] = kReturn;
-    runtime.function_at(kCanDeliver)(runtime, ctx);
+    runtime.function_at(kCanGive)(runtime, ctx);
     check(ctx.pc == kReturn, "the check returns to its caller");
     return ctx.gpr[2];
 }
@@ -99,17 +99,17 @@ void test_wrapper() {
     psprecomp::Runtime runtime(32u * 1024u * 1024u);
     psprecomp::GuestMemory &memory = runtime.memory();
     write_signature(memory);
-    mhfu::game::deliver_rarity::frame(runtime);
-    check(runtime.function_at(kCanDeliver) == nullptr, "nothing is put in place before the code is installed");
+    mhfu::game::give_rarity::frame(runtime);
+    check(runtime.function_at(kCanGive) == nullptr, "nothing is put in place before the code is installed");
 
-    runtime.register_function(kCanDeliver, &game_check, "game_check");
-    mhfu::game::deliver_rarity::frame(runtime);
-    check(runtime.function_at(kCanDeliver) != &game_check, "the check is wrapped");
-    mhfu::game::deliver_rarity::frame(runtime);
+    runtime.register_function(kCanGive, &game_check, "game_check");
+    mhfu::game::give_rarity::frame(runtime);
+    check(runtime.function_at(kCanGive) != &game_check, "the check is wrapped");
+    mhfu::game::give_rarity::frame(runtime);
 
     put_item(memory, 2u, 300u, 6u);
     calls = 0;
-    check(run_check(runtime) == 1u, "a Rare 7 item can be delivered");
+    check(run_check(runtime) == 1u, "a Rare 7 item can be given");
     check(calls == 1, "the game's check runs once");
     check(seen_rarity == 0u, "the game sees the lifted rarity");
     check(memory.load8(rarity_of(300u)) == 6u, "the record's rarity is put back");
@@ -121,30 +121,30 @@ void test_wrapper() {
     check(run_check(runtime) == 1u && seen_rarity == 1u, "a rarity under the limit is not touched");
 
     auto &settings = mhfu::settings::current();
-    settings.deliver_any_rarity = false;
+    settings.give_any_rarity = false;
     put_item(memory, 2u, 300u, 6u);
     check(run_check(runtime) == 0u, "turned off, the game's limit holds");
     check(memory.load8(rarity_of(300u)) == 6u, "and the record is left alone");
-    settings.deliver_any_rarity = true;
+    settings.give_any_rarity = true;
     check(run_check(runtime) == 1u, "turned on again in the session, the next call lifts it");
 }
 
 void test_other_code() {
     psprecomp::Runtime runtime(32u * 1024u * 1024u);
-    runtime.register_function(kCanDeliver, &game_check, "other_code");
-    mhfu::game::deliver_rarity::frame(runtime);
-    check(runtime.function_at(kCanDeliver) == &game_check, "code that does not match is not wrapped");
+    runtime.register_function(kCanGive, &game_check, "other_code");
+    mhfu::game::give_rarity::frame(runtime);
+    check(runtime.function_at(kCanGive) == &game_check, "code that does not match is not wrapped");
 }
 
 } // namespace
 
 int main() {
-    const std::filesystem::path data = std::filesystem::temp_directory_path() / "pokee_deliver_rarity_tests";
+    const std::filesystem::path data = std::filesystem::temp_directory_path() / "pokee_give_rarity_tests";
     std::filesystem::create_directories(data);
     set_environment("MHFU_DATA_DIR", data.string());
-    set_environment("MHFU_DELIVER_ANY_RARITY", "");
-    set_environment("MHFU_TRACE_DELIVER", "");
-    check(mhfu::settings::current().deliver_any_rarity, "delivery at any rarity is on by default");
+    set_environment("MHFU_GIVE_ANY_RARITY", "");
+    set_environment("MHFU_TRACE_GIVE", "");
+    check(mhfu::settings::current().give_any_rarity, "giving at any rarity is on by default");
     test_rarity_address();
     test_code_check();
     test_other_code();
@@ -155,6 +155,6 @@ int main() {
         std::cerr << failures << " failure(s)\n";
         return 1;
     }
-    std::cout << "deliver rarity tests passed\n";
+    std::cout << "give rarity tests passed\n";
     return 0;
 }

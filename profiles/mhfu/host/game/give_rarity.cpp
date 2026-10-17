@@ -1,4 +1,4 @@
-#include "game/deliver_rarity.hpp"
+#include "game/give_rarity.hpp"
 
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
@@ -8,11 +8,11 @@
 #include <iostream>
 #include <string>
 
-namespace mhfu::game::deliver_rarity {
+namespace mhfu::game::give_rarity {
 namespace {
 
 constexpr std::array<CodeWord, 12> kSignature = {{
-    {kCanDeliver, 0x27BDFFF0u}, // addiu sp, sp, -16
+    {kCanGive, 0x27BDFFF0u},    // addiu sp, sp, -16
     {0x08829960u, 0x0E2099CDu}, // jal 0x08826734: the item id
     {0x08829964u, 0x92050586u}, // lbu a1, 1414(s0): the slot
     {0x08829978u, 0x3C02089Au}, // lui v0, 0x089A
@@ -37,20 +37,20 @@ State &state() {
     return s;
 }
 
-void can_deliver(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+void can_give(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     State &s = state();
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t hunter = ctx.gpr[4];
     const std::optional<std::uint32_t> rarity =
-        settings::current().deliver_any_rarity ? rarity_address(memory, hunter) : std::nullopt;
+        settings::current().give_any_rarity ? rarity_address(memory, hunter) : std::nullopt;
     const std::uint8_t game_rarity = rarity ? memory.load8(*rarity) : std::uint8_t{0u};
     const bool lowered = rarity && game_rarity >= kGameLimit;
     if (lowered) memory.store8(*rarity, 0u);
-    ctx.pc = kCanDeliver;
+    ctx.pc = kCanGive;
     s.original(runtime, ctx);
     if (lowered) memory.store8(*rarity, game_rarity);
     if (s.trace)
-        std::cout << "[deliver] hunter " << std::hex << hunter << std::dec << " rarity "
+        std::cout << "[give] hunter " << std::hex << hunter << std::dec << " rarity "
                   << (rarity ? std::to_string(game_rarity) : std::string("?")) << (lowered ? " (lifted)" : "") << " -> "
                   << ctx.gpr[2] << std::endl;
 }
@@ -84,19 +84,19 @@ std::optional<std::uint32_t> rarity_address(const psprecomp::GuestMemory &memory
 void frame(psprecomp::Runtime &runtime) {
     State &s = state();
     static const bool trace = [] {
-        const char *text = std::getenv("MHFU_TRACE_DELIVER");
+        const char *text = std::getenv("MHFU_TRACE_GIVE");
         return text != nullptr && *text != '\0' && std::string(text) != "0";
     }();
     s.trace = trace;
-    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(kCanDeliver);
-    if (current == &can_deliver) return;
+    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(kCanGive);
+    if (current == &can_give) return;
     if (current == nullptr || !code_matches(runtime.memory())) return;
     s.original = current;
-    runtime.register_function(kCanDeliver, &can_deliver, "mhfu_deliver_any_rarity");
+    runtime.register_function(kCanGive, &can_give, "mhfu_give_any_rarity");
     if (!s.reported) {
         s.reported = true;
-        std::cout << "[deliver] any rarity in place" << std::endl;
+        std::cout << "[give] any rarity in place" << std::endl;
     }
 }
 
-} // namespace mhfu::game::deliver_rarity
+} // namespace mhfu::game::give_rarity
