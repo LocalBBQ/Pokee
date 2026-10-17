@@ -1,6 +1,6 @@
 # Releasing
 
-A release gives players the program ready to run: the executable with the recompiled game code built in and the 355 overlay libraries. Like the repository, it does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. On first start it asks for the files from the player's own legally obtained copy, the disc image, checks it, accepts only the original release, and prepares the game from it (see [Installer](../profiles/mhfu/README.md#installer)).
+A release gives players the program ready to run: the executable with the recompiled game code built in and the 290 overlay libraries. Like the repository, it does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. On first start it asks for the files from the player's own legally obtained copy, the disc image, checks it, accepts only the original release, and prepares the game from it (see [Installer](../profiles/mhfu/README.md#installer)).
 
 Releases are built by maintainers, not by CI: the recompiled code is generated from the game's executable, so a build needs a copy of the game. The game data stays on the maintainer's machine. Every artifact is checked for it before it is published.
 
@@ -158,7 +158,7 @@ Contents/
     MacOS/Pokee               the executable
     Frameworks/                libSDL3.0.dylib, libvulkan.1.dylib, libMoltenVK.dylib,
                                libavcodec.61.dylib, libavutil.59.dylib
-    Frameworks/overlays/       the 355 overlay libraries
+    Frameworks/overlays/       the 290 overlay libraries
     Resources/Pokee.icns      the icon, from docs/images/emblem.svg (packaging/macos/make_icon.sh)
     Resources/fonts/           Noto Sans CJK JP, the fallback Japanese font
     Resources/vulkan/icd.d/    MoltenVK's driver manifest, found by the bundled Vulkan loader
@@ -171,7 +171,7 @@ The app is signed **ad hoc**: no Apple Developer ID, no notarization. Gatekeeper
 
 ### What the script does
 
-1. Checks the build directory: an arm64 `Pokee` built with `-DMHFU_RELEASE=ON` (a developer build, which names its checkout's game directory, is refused), 355 overlay libraries in `bin/overlays`, and the bundled LGPL FFmpeg in `bin/lib` configured as `cmake/FFmpeg.cmake` pins it. Nothing in the build directory is rebuilt or changed.
+1. Checks the build directory: an arm64 `Pokee` built with `-DMHFU_RELEASE=ON` (a developer build, which names its checkout's game directory, is refused), 290 overlay libraries in `bin/overlays`, one per corpus in `profiles/mhfu/overlays`, and the bundled LGPL FFmpeg in `bin/lib` configured as `cmake/FFmpeg.cmake` pins it. Nothing in the build directory is rebuilt or changed.
 2. Fetches the pinned sources in `packaging/macos/sources.sh` (which takes SDL3 and the font from `packaging/linux/sources.sh`) and builds SDL3 and the Vulkan loader for arm64 and the deployment target, macOS 13. MoltenVK is the Khronos release build, thinned to arm64.
 3. Assembles `Pokee.app`, points every library reference at `@rpath` with the single rpath `@executable_path/../Frameworks`, and strips local symbols (the symbols the executable exports to the overlays stay).
 4. Checks that every symbol the binaries import from the C and C++ runtime exists in the macOS 13 SDK, then marks the binaries that were built for a newer macOS (the build machine's) for macOS 13 with `vtool`. This is what lets a build made on the newest macOS run on older ones without recompiling the game code.
@@ -236,7 +236,7 @@ spctl --assess --type execute -vv "$check/Pokee.app"
 rm -rf "$check"
 ```
 
-`--install` without `--in-place` copies the 1.3 GB image into the throwaway directory instead. The window run should start the game, print `Overlay corpora: 355 from …/Pokee.app/Contents/Frameworks/overlays`, and play the intro movie with sound. Then play the release once with a gamepad, a save and a reload, following [`TESTING.md`](TESTING.md), and open it once through Finder from a quarantined copy to see the Gatekeeper steps players will see.
+`--install` without `--in-place` copies the 1.3 GB image into the throwaway directory instead. The window run should start the game, print `Overlay corpora: 290 from …/Pokee.app/Contents/Frameworks/overlays`, and play the intro movie with sound. Then play the release once with a gamepad, a save and a reload, following [`TESTING.md`](TESTING.md), and open it once through Finder from a quarantined copy to see the Gatekeeper steps players will see.
 
 ### Publish
 
@@ -252,7 +252,7 @@ SDL3 and the font are pinned in `packaging/linux/sources.sh` for both systems; t
 
 | Artifact | Contents |
 | --- | --- |
-| `pokee-<version>-windows-x86_64.zip` | The folder `pokee-<version>-windows-x86_64` with `Pokee.exe`, `overlays/` (the 355 overlay DLLs), `SDL3.dll`, the FFmpeg DLLs (`avcodec`, `avutil`, `swresample`), the Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), `licenses/`, `README.txt` and `BUILDINFO.txt`. It keeps its data in `%APPDATA%\Pokee\MHFU` |
+| `pokee-<version>-windows-x86_64.zip` | The folder `pokee-<version>-windows-x86_64` with `Pokee.exe`, `overlays/` (the 290 overlay DLLs), `SDL3.dll`, the FFmpeg DLLs (`avcodec`, `avutil`, `swresample`), the Visual C++ runtime (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), `licenses/`, `README.txt` and `BUILDINFO.txt`. It keeps its data in `%APPDATA%\Pokee\MHFU` |
 | `pokee-<version>-windows-x86_64-portable.zip` | The same in a folder named `…-portable`, plus `portable.txt`, which keeps all data in `data\` next to `Pokee.exe` (see [Portable copy](../profiles/mhfu/README.md#portable-copy)) ([#152](https://github.com/TeamGDB/Yakumo/issues/152)) |
 | `BUILDINFO-windows.txt` | Commit, compiler, SDL3 and FFmpeg versions and the overlay count, for the release notes |
 
