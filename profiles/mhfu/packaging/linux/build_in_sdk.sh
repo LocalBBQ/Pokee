@@ -5,7 +5,7 @@
 #   1. SDL3 from the source pinned in sources.sh
 #   2. the recompiled executable (generate.sh, then Pokee), with the
 #      LGPL-only FFmpeg the build bundles (cmake/FFmpeg.cmake)
-#   3. all 355 overlay libraries (build_overlays.sh)
+#   3. all overlay libraries (build_overlays.sh)
 #   4. a staging tree with the executable, overlays/, lib/, fonts/ and
 #      licenses/, the part both the tarball and the Flatpak ship
 #

@@ -28,28 +28,25 @@ The license covering **Pokee** applies only to the project's own original code a
 
 ## Status
 
-The host is aimed at a playable USA Freedom Unite: a save copied from a PSP or a new game, the village and hunts, music, movies and lighting, then a save in the PSP's own format. The simulation stays at the PSP's 30 frames per second. Optional frame interpolation presents it at 45, 60, 90, 120 or the display's refresh rate. While the game loads in silence it can run ahead of real time (*Fast loading*, on by default).
+Playable: a new game or a save copied from a PSP, the village and hunts, music, movies, and saves in the PSP's own format. The game runs at the PSP's 30 frames per second; frame interpolation can present it at up to the display's refresh rate. The executable (3095 functions) and all 290 code overlays are recompiled ahead of time; an interpreter covers anything they miss.
 
-`generate.sh` translates the resident executable (3095 functions) and stamps its SHA-256. Launch registers that corpus only when the prepared executable has the same hash. The game fits in 32 MiB of guest RAM. All 355 code overlays are recompiled ahead of time; an interpreter covers anything they miss.
-
-| In this tree | Still open |
+| Done | Still open |
 | --- | --- |
-| Boot, menus, character creation, the village and hunting areas | Curved surfaces (Bézier and spline patches) |
-| PSP-format saves, including saves and downloaded quests copied from a PSP; import, export and backups from the menu | Save-data and message dialogs answer as if confirmed and draw nothing ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
-| Vulkan graphics: models, animation, textures, transparency, lighting, fog and frame interpolation | Widescreen projection, HUD placement, the lock-on marker and layered armor. Those were traced on Portable 3rd and stay off until they are traced in this executable |
-| Analog camera follow, bow and bowgun aim, and lock-on, read from this executable | |
-| PPSSPP-compatible HD texture packs for `ULUS10391`, installed from the menu or copied into the data directory | |
-| File-replacement mods, managed from the menu (see the [profile README](profiles/mhfu/README.md#mods)) | Code mods |
-| Sound effects, streamed music and cutscene movies | Download mode (`sceHttp`, `sceNetInet`) |
-| Rebindable keyboard, mouse and gamepad controls, including an analog right-stick camera and aim | |
-| First-run setup, the in-game menu, the file browser and the on-screen keyboard | |
-| Ad hoc between Pokee instances, on a LAN or through an ad hoc server | Play with PPSSPP, and play on public servers |
+| Boot, menus, character creation, the village and hunts | Curved surfaces (Bézier and spline patches) |
+| PSP-format saves, including saves and downloaded quests copied from a PSP; import, export and backups | Save-data and message dialogs draw nothing and answer as if confirmed ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| Vulkan graphics, frame interpolation, widescreen, HUD scaling and hiding | |
+| Analog camera and aim, lock-on and its marker, layered armor | |
+| PPSSPP-compatible HD texture packs | |
+| File-replacement mods ([profile README](profiles/mhfu/README.md#mods)) | Code mods |
+| Sound effects, music and cutscene movies | Download mode (`sceHttp`, `sceNetInet`) |
+| Rebindable keyboard, mouse and gamepad controls | |
+| Ad hoc between Pokee instances, on a LAN or through an ad hoc server | Play with PPSSPP and on public servers |
 
-The rows in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) were checked on Yakumo before this tree was retargeted. They describe Portable 3rd sessions. Freedom Unite still needs its own pass on each platform.
+The results in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) are from Portable 3rd, before this tree was retargeted; Freedom Unite still needs its own pass on each platform.
 
 ## Play
 
-Linux downloads are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). Building from source stays fully supported; the steps are in [Getting started](#getting-started). The first-run setup checks the image, prepares the game from it and keeps settings and saves in a per-user directory (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable).
+Windows downloads are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). Building from source stays fully supported; the steps are in [Getting started](#getting-started). The first-run setup checks the image, prepares the game from it and keeps settings and saves in a per-user directory (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable).
 
 When a finished build exists, [`docs/LINUX.md`](docs/LINUX.md) and [`docs/MACOS.md`](docs/MACOS.md) cover installing, the first start and where saves live. Android targets 64-bit Android 10 or newer with Vulkan 1.1; touch controls are drawn over the game, and gamepads work too.
 
@@ -83,7 +80,6 @@ Esc, or both sticks pressed together (L3+R3), opens Pokee's own menu. It holds v
 
 ## Roadmap
 
-- Trace the widescreen projection, HUD placement, lock-on marker and layered armor in the Freedom Unite executable. They stay off until that work is done
 - Curved surfaces, and save-data dialogs that draw
 - Ad hoc play with PPSSPP and on the public servers PSP players use
 - Android on real phones: device testing, graphics drivers and performance ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
@@ -91,7 +87,7 @@ Esc, or both sticks pressed together (L3+R3), opens Pokee's own menu. It holds v
 
 ## How it works
 
-The executable is analyzed and every instruction of its code is emitted as C++, which is compiled into the program. The game also loads 355 code overlays at run time into a handful of shared memory slots; each is recompiled into its own library, and when the game loads one, the matching library is installed between frames. An interpreter covers any code the recompiled set does not reach, so nothing stops the game — it only runs slower there.
+The executable is analyzed and every instruction of its code is emitted as C++, which is compiled into the program. The game also loads 290 code overlays at run time into a handful of shared memory slots; each is recompiled into its own library, and when the game loads one, the matching library is installed between frames. An interpreter covers any code the recompiled set does not reach, so nothing stops the game — it only runs slower there.
 
 Around that code sits a reimplementation of the PSP system: a kernel with threads, semaphores, event flags and timers; disc I/O read straight from the image; a Vulkan renderer for the PSP's graphics engine; software voice mixing for audio; and input from SDL3.
 
