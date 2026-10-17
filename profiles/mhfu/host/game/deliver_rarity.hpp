@@ -1,12 +1,12 @@
 #pragma once
 
-// Exchange at any rarity: in the Guild Hall, Start > Item > Exchange gives an
+// Deliver at any rarity: in the Guild Hall, Start > Item > Deliver gives an
 // item of any rarity to another hunter, not only Rare 1 to 3. On by default
-// (Mods page, `game.exchange_any_rarity`; `MHFU_EXCHANGE_ANY_RARITY=0` turns it
+// (Mods page, `game.deliver_any_rarity`; `MHFU_DELIVER_ANY_RARITY=0` turns it
 // off). Off, the game's own limit applies. The switch is read at each call.
 //
 // The executable (ULUS-10391) decides whether the selected pouch item can be
-// exchanged in 0x08829928(hunter). The item menu calls it to offer the entry
+// delivered in 0x08829928(hunter). The item menu calls it to offer the entry
 // (0x08816F88) and again when it is chosen (0x0881CF64, 0x0881D24C); 1 is yes.
 // It reads the item id from the pouch slot in the hunter's byte at +1414
 // (0x08826734, through 0x08856884: GameSys + 0x6AEA6 + 4 * slot, slot 0 for
@@ -28,9 +28,9 @@ namespace psprecomp {
 class Runtime;
 }
 
-namespace mhfu::game::exchange_rarity {
+namespace mhfu::game::deliver_rarity {
 
-inline constexpr std::uint32_t kCanExchange = 0x08829928u;
+inline constexpr std::uint32_t kCanDeliver = 0x08829928u;
 inline constexpr std::uint32_t kGameSysPointer = 0x089CC558u;
 inline constexpr std::uint32_t kPouch = 0x6AEA6u;
 inline constexpr std::uint32_t kPouchSlots = 25u; // 0x08856884 takes 0 to 24
@@ -38,7 +38,7 @@ inline constexpr std::uint32_t kSelectedSlot = 1414u;
 inline constexpr std::uint32_t kItemTable = 0x0899D2B8u;
 inline constexpr std::uint32_t kItemRecord = 24u;
 inline constexpr std::uint32_t kRarity = 2u;
-inline constexpr std::uint8_t kGameLimit = 3u; // rarity bytes below this exchange
+inline constexpr std::uint8_t kGameLimit = 3u; // rarity bytes below this can be delivered
 
 struct CodeWord {
     std::uint32_t address;
@@ -58,4 +58,4 @@ struct CodeWord {
 // installed. Runs every frame; wrapping again is a no-op.
 void frame(psprecomp::Runtime &runtime);
 
-} // namespace mhfu::game::exchange_rarity
+} // namespace mhfu::game::deliver_rarity
