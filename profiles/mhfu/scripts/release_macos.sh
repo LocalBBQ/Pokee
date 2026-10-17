@@ -204,7 +204,9 @@ if strings -a "$executable" | grep -q '/profiles/mhfu/game$'; then
     fail "$executable is a developer build; configure with -DMHFU_RELEASE=ON, build Pokee and pass it with --executable"
 fi
 overlay_count="$(find "$build_dir/bin/overlays" -name '*.dylib' | wc -l | tr -d ' ')"
-[[ "$overlay_count" -eq 355 ]] || fail "expected 355 overlay libraries in $build_dir/bin/overlays, found $overlay_count"
+expected_overlays="$(find "$profile_dir/overlays" -mindepth 2 -maxdepth 2 -name meta.txt | wc -l | tr -d ' ')"
+[[ "$overlay_count" -eq "$expected_overlays" ]] ||
+    fail "expected $expected_overlays overlay libraries in $build_dir/bin/overlays, found $overlay_count"
 for file in "libavcodec.61.dylib" "libavutil.59.dylib" "FFmpeg-COPYING.LGPLv2.1.txt" "FFmpeg-SOURCE.txt"; do
     [[ -e "$build_dir/bin/lib/$file" ]] || fail "$build_dir/bin/lib/$file is missing; configure with -DMHFU_FFMPEG=bundled"
 done
