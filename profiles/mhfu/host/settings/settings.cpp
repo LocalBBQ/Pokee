@@ -116,8 +116,6 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"}, {PerfDisplay:
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
 const Names<LockOnStyle> kLockOnStyles{{{LockOnStyle::Follow, "follow"}, {LockOnStyle::Focus, "focus"}}};
-const Names<SharpnessEffect> kSharpnessEffects{
-    {{SharpnessEffect::Glow, "glow"}, {SharpnessEffect::Solid, "solid"}}};
 const Names<TouchLayout> kTouchLayouts{{{TouchLayout::Psp, "psp"}, {TouchLayout::Action, "action"}}};
 const Names<fast_forward::Mode> kFastForwardModes{
     {{fast_forward::Mode::Hold, "hold"}, {fast_forward::Mode::Toggle, "toggle"}, {fast_forward::Mode::Off, "off"}}};
@@ -143,6 +141,11 @@ constexpr const char *kRetiredMapItemScaleKey = "video.map_item_scale";
 // Written by earlier versions: a switch that was going to show attack and
 // element with the class coefficient divided out. Nothing reads it now.
 constexpr const char *kRetiredComparableWeaponsKey = "game.comparable_weapons";
+// Written by earlier versions: how the colour on the blade looked, and whether
+// orange and yellow got one. The sharpness gauge decides both now.
+constexpr const char *kRetiredSharpnessEffectKey = "game.sharpness_effect";
+constexpr const char *kRetiredSharpnessColoursKey = "game.sharpness_colours";
+constexpr const char *kRetiredSharpnessGlowKey = "game.sharpness_glow";
 // settings.ini's format. Every save writes every key, defaults included, so
 // once a default changes, a file must say which version wrote it for the
 // player's choices to be told from the old defaults:
@@ -540,13 +543,6 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.sharpness_gauge); },
             [](const Settings &s) { return std::string(s.sharpness_gauge ? "1" : "0"); },
             [](Settings &s, const char *t) { s.sharpness_gauge = variable_flag(t); }},
-        {"game.sharpness_effect", "MHFU_SHARPNESS_EFFECT",
-            [](Settings &s, const std::string &t) { return kSharpnessEffects.parse(t, s.sharpness_effect); },
-            [](const Settings &s) { return kSharpnessEffects.format(s.sharpness_effect); },
-            [](Settings &s, const char *t) {
-                SharpnessEffect effect = s.sharpness_effect;
-                if (kSharpnessEffects.parse(t, effect)) s.sharpness_effect = effect;
-            }},
         {"game.gather_icon", "MHFU_GATHER_ICON",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_icon); },
             [](const Settings &s) { return std::string(s.gather_icon ? "1" : "0"); },
@@ -915,6 +911,9 @@ void write_entries(const Settings &values, Entries &entries) {
     entries.erase(kRetiredTriggerProfileKey);
     entries.erase(kRetiredMapItemScaleKey);
     entries.erase(kRetiredComparableWeaponsKey);
+    entries.erase(kRetiredSharpnessEffectKey);
+    entries.erase(kRetiredSharpnessColoursKey);
+    entries.erase(kRetiredSharpnessGlowKey);
 }
 
 // Drops what a file an earlier version wrote holds only because that

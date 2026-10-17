@@ -79,8 +79,37 @@ Edge cut_right(float x0, float x1, float u0, float u1, float remaining) noexcept
     return {x0 + (x1 - x0) * remaining, u0 + (u1 - u0) * remaining};
 }
 
+Edge cut_blade(float x0, float x1, float u0, float u1, float remaining) noexcept {
+    if (u1 <= u0 || kBladeTexel <= u0 || kBladeTexel >= u1) return cut_right(x0, x1, u0, u1, remaining);
+    const float blade_x = x0 + (x1 - x0) * (kBladeTexel - u0) / (u1 - u0);
+    return cut_right(blade_x, x1, kBladeTexel, u1, remaining);
+}
+
 float cap_shift(float bar_width, float remaining) noexcept {
     return bar_width * (std::clamp(remaining, 0.0f, 1.0f) - 1.0f);
+}
+
+float fill_remaining(float x0, float x1, float remaining) noexcept {
+    if (x1 - x0 <= 0.0f) return 1.0f;
+    const float end = kBarLeft + (x1 - kBarLeft) * std::clamp(remaining, 0.0f, 1.0f);
+    return std::clamp((end - x0) / (x1 - x0), 0.0f, 1.0f);
+}
+
+std::uint32_t glow_alpha(std::uint32_t game_alpha) noexcept {
+    const std::uint32_t pulse = std::min(game_alpha, kFullPulse);
+    return kFullPulse + pulse * (kGlowPeak - kFullPulse) / kFullPulse;
+}
+
+void fill_knife_colours(Ram &ram, bool fill) {
+    for (const AddedColour &added : kAddedColours) {
+        const std::uint32_t at = kKnifeColours + static_cast<std::uint32_t>(added.colour) * kKnifeColourBytes;
+        if (!ram.contains(at, kKnifeColourBytes)) continue;
+        const std::uint32_t entry = ram.load32(at);
+        if (fill && entry == 0u)
+            ram.store32(at, added.entry);
+        else if (!fill && entry == added.entry)
+            ram.store32(at, 0u);
+    }
 }
 
 namespace {
@@ -117,9 +146,10 @@ bool trace_enabled() {
 
 void gauge_frame(bool enabled, psprecomp::GuestMemory *memory) {
     std::optional<Reading> reading;
-    if ((enabled || trace_enabled()) && memory != nullptr) {
-        const GuestRam ram(*memory);
-        reading = read_hunter(ram, followed_hunter(ram));
+    if (memory != nullptr) {
+        GuestRam ram(*memory);
+        fill_knife_colours(ram, enabled);
+        if (enabled || trace_enabled()) reading = read_hunter(ram, followed_hunter(ram));
     }
     State &s = state();
     std::lock_guard lock(s.mutex);

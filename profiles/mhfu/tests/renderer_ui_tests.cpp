@@ -2857,7 +2857,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     };
     frame();
     frame();
-    for (int tab = 0; tab < 6; ++tab) {
+    for (int tab = 0; tab < 7; ++tab) {
         ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
         frame();
         ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
@@ -2930,9 +2930,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
             settings::current().*field == original, (std::string(label) + " menu restores its selected mode").c_str());
     };
     cycle_setting("UI textures", &settings::Settings::ui_textures);
-    cycle_setting("Game speed", &settings::Settings::unthrottled);
-    cycle_setting("Fast loading", &settings::Settings::fast_loading, true);
-    cycle_setting("Fast-forward", &settings::Settings::fast_forward);
     cycle_setting("Performance", &settings::Settings::perf);
     if (settings::overridden_by("video.gpu_compat")) {
         const auto locked_compat = settings::current().gpu_compat;
@@ -2942,22 +2939,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     } else {
         cycle_setting("GPU compatibility", &settings::Settings::gpu_compat);
     }
-    // Lock-on style wraps like the other choice rows: from either style, left
-    // or right moves to the other one. It used to stop at each end.
-    const auto original_style = settings::current().lock_on_style;
-    settings::current().lock_on = true;
-    settings::current().lock_on_style = settings::LockOnStyle::Follow;
-    change_video("Lock-on style", ImGuiKey_RightArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style steps right to Focus");
-    change_video("Lock-on style", ImGuiKey_RightArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow,
-        "lock-on style wraps right from Focus back to Follow");
-    change_video("Lock-on style", ImGuiKey_LeftArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus,
-        "lock-on style wraps left from Follow to Focus");
-    change_video("Lock-on style", ImGuiKey_LeftArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style steps left to Follow");
-    settings::current().lock_on_style = original_style;
     const auto original_window_scale = settings::current().window_scale;
     change_video("Window size", ImGuiKey_RightArrow);
     expect(settings::current().window_scale == original_window_scale + 1,
@@ -2989,25 +2970,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         "frame-rate selector reaches actual display-refresh mode");
     change_video("Frame rate", ImGuiKey_RightArrow);
     expect(settings::current().frame_rate == original_rate, "all six frame-rate choices wrap back to thirty");
-    const auto original_fast_mode = settings::current().fast_forward;
-    const auto original_fast_speed = settings::current().fast_forward_speed;
-    change_video("Fast-forward speed", ImGuiKey_RightArrow);
-    expect(settings::current().fast_forward_speed == original_fast_speed + 1,
-        "fast-forward speed increments by exactly one multiplier");
-    change_video("Fast-forward speed", ImGuiKey_LeftArrow);
-    change_video("Fast-forward", ImGuiKey_LeftArrow);
-    expect(settings::current().fast_forward == fast_forward::Mode::Off, "reverse mode step selects fast-forward Off");
-    change_video("Fast-forward speed", ImGuiKey_RightArrow);
-    expect(settings::current().fast_forward_speed == original_fast_speed,
-        "disabled speed row cannot change a multiplier while fast-forward is Off");
-    change_video("Fast-forward", ImGuiKey_RightArrow);
-    expect(settings::current().fast_forward == original_fast_mode, "fast-forward mode round trip restores Hold");
-    change_video("Game speed", ImGuiKey_RightArrow);
-    const auto unlimited = settings::current().unthrottled;
-    change_video("Fast-forward", ImGuiKey_RightArrow);
-    expect(unlimited && settings::current().fast_forward == original_fast_mode,
-        "Unlimited game speed disables independent fast-forward mode selection");
-    change_video("Game speed", ImGuiKey_LeftArrow);
     const auto original_resolution = settings::current().internal_scale;
     change_video("Resolution", ImGuiKey_RightArrow);
     expect(settings::current().internal_scale == original_resolution + 1 &&
@@ -3026,74 +2988,12 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         expect(settings::current().*field == original,
             (std::string(label) + " control menu toggle round trip restores its own setting").c_str());
     };
-    // Lock-on, damage numbers and the gather icon are on the Video page.
-    toggle_setting("Lock-on", &settings::Settings::lock_on);
-    change_video("Lock-on style", ImGuiKey_RightArrow);
-    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style switches to focus");
-    change_video("Lock-on style", ImGuiKey_LeftArrow);
-    expect(
-        settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style round trip restores follow");
-    toggle_setting("Lock-on marker", &settings::Settings::lock_on_marker);
-    {
-        const bool lock_on = settings::current().lock_on;
-        const auto style = settings::current().lock_on_style;
-        const bool marker = settings::current().lock_on_marker;
-        settings::current().lock_on = false;
-        change_video("Lock-on style", ImGuiKey_RightArrow);
-        change_video("Lock-on marker", ImGuiKey_Space);
-        expect(settings::current().lock_on_style == style && settings::current().lock_on_marker == marker,
-            "lock-on style and marker are locked while lock-on is off");
-        settings::current().lock_on = lock_on;
-    }
-    toggle_setting("Damage numbers", &settings::Settings::damage_numbers);
-    {
-        const bool numbers = settings::current().damage_numbers;
-        const std::uint32_t size = settings::current().damage_number_size;
-        const std::uint32_t thickness = settings::current().damage_number_thickness;
-        settings::current().damage_numbers = false;
-        change_video("Damage number size", ImGuiKey_RightArrow);
-        change_video("Damage number thickness", ImGuiKey_RightArrow);
-        expect(
-            settings::current().damage_number_size == size && settings::current().damage_number_thickness == thickness,
-            "damage number size and thickness are locked while the numbers are off");
-        settings::current().damage_numbers = true;
-        change_video("Damage number size", ImGuiKey_RightArrow);
-        change_video("Damage number thickness", ImGuiKey_RightArrow);
-        expect(settings::current().damage_number_size == size + 10u &&
-                settings::current().damage_number_thickness == thickness + 1u,
-            "damage number size steps by 10% and thickness by 1");
-        change_video("Damage number size", ImGuiKey_LeftArrow);
-        change_video("Damage number thickness", ImGuiKey_LeftArrow);
-        expect(
-            settings::current().damage_number_size == size && settings::current().damage_number_thickness == thickness,
-            "damage number size and thickness round trip");
-        settings::current().damage_numbers = numbers;
-    }
-    {
-        const bool icon = settings::current().gather_icon;
-        const std::uint32_t size = settings::current().gather_icon_size;
-        const std::uint32_t thickness = settings::current().gather_icon_thickness;
-        settings::current().gather_icon = false;
-        change_video("Gather icon size", ImGuiKey_RightArrow);
-        change_video("Gather icon thickness", ImGuiKey_RightArrow);
-        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
-            "gather icon size and thickness are locked while the icon is off");
-        settings::current().gather_icon = true;
-        change_video("Gather icon size", ImGuiKey_RightArrow);
-        change_video("Gather icon thickness", ImGuiKey_RightArrow);
-        expect(settings::current().gather_icon_size == size + 10u &&
-                settings::current().gather_icon_thickness == thickness + 1u,
-            "gather icon size steps by 10% and thickness by 1");
-        change_video("Gather icon size", ImGuiKey_LeftArrow);
-        change_video("Gather icon thickness", ImGuiKey_LeftArrow);
-        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
-            "gather icon size and thickness round trip");
-        settings::current().gather_icon = icon;
-    }
     const auto before_video_reset = settings::current();
     settings::current().sharp_screen = !settings::defaults().sharp_screen;
     settings::current().sharp_textures = !settings::defaults().sharp_textures;
     settings::current().aspect = settings::Aspect::Stretch;
+    // Fast-forward is on the Game page now; the Video page's restore keeps it.
+    settings::current().fast_forward_speed = settings::defaults().fast_forward_speed + 1u;
     change_video("Restore video defaults", ImGuiKey_Space);
     const auto &video_defaults = settings::defaults();
     const auto &reset_video = settings::current();
@@ -3102,9 +3002,10 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
             reset_video.fullscreen == video_defaults.fullscreen && reset_video.aspect == video_defaults.aspect &&
             reset_video.sharp_screen == video_defaults.sharp_screen &&
             reset_video.sharp_textures == video_defaults.sharp_textures &&
-            reset_video.frame_rate == video_defaults.frame_rate &&
-            reset_video.fast_forward == video_defaults.fast_forward && reset_video.perf == video_defaults.perf,
+            reset_video.frame_rate == video_defaults.frame_rate && reset_video.perf == video_defaults.perf,
         "video defaults restore resolution, dimensions, filters, timing and performance settings");
+    expect(reset_video.fast_forward_speed == video_defaults.fast_forward_speed + 1u,
+        "video defaults leave the Game page's fast-forward speed alone");
     expect(renderer.target_size() == std::array<std::uint32_t, 2>{960, 544},
         "restoring video defaults applies their real double-resolution target");
     settings::current() = before_video_reset;
@@ -3340,14 +3241,149 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     const auto &reset_controls = settings::current();
     expect(reset_controls.dead_zone == defaults.dead_zone && reset_controls.trigger == defaults.trigger &&
             reset_controls.camera_speed == defaults.camera_speed && reset_controls.aim_speed == defaults.aim_speed &&
-            reset_controls.mouse_sensitivity == defaults.mouse_sensitivity && reset_controls.name == defaults.name &&
+            reset_controls.mouse_sensitivity == defaults.mouse_sensitivity &&
             reset_controls.touch_size == defaults.touch_size &&
             reset_controls.touch_opacity == defaults.touch_opacity &&
             reset_controls.control_preset == defaults.control_preset && reset_controls.controls == defaults.controls,
-        "control defaults restore modified analog, mouse, touch, camera, name and shipped bindings");
+        "control defaults restore modified analog, mouse, touch, camera and shipped bindings");
+    expect(reset_controls.name == "Public test hunter", "control defaults leave the Game page's hunter name alone");
     expect(settings::find_user_preset(settings::current(), retained_preset) != nullptr,
         "control defaults keep the player's independently saved presets");
     settings::current() = before_control_reset;
+
+    // The Game page: lock-on, the hunt overlays, speed, pausing and the hunter name.
+    page();
+    cycle_setting("Game speed", &settings::Settings::unthrottled);
+    cycle_setting("Fast loading", &settings::Settings::fast_loading, true);
+    cycle_setting("Fast-forward", &settings::Settings::fast_forward);
+    // Lock-on style wraps like the other choice rows: from either style, left
+    // or right moves to the other one. It used to stop at each end.
+    const auto original_style = settings::current().lock_on_style;
+    settings::current().lock_on = true;
+    settings::current().lock_on_style = settings::LockOnStyle::Follow;
+    change_video("Lock-on style", ImGuiKey_RightArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style steps right to Focus");
+    change_video("Lock-on style", ImGuiKey_RightArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow,
+        "lock-on style wraps right from Focus back to Follow");
+    change_video("Lock-on style", ImGuiKey_LeftArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus,
+        "lock-on style wraps left from Follow to Focus");
+    change_video("Lock-on style", ImGuiKey_LeftArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style steps left to Follow");
+    settings::current().lock_on_style = original_style;
+    const auto original_fast_mode = settings::current().fast_forward;
+    const auto original_fast_speed = settings::current().fast_forward_speed;
+    change_video("Fast-forward speed", ImGuiKey_RightArrow);
+    expect(settings::current().fast_forward_speed == original_fast_speed + 1,
+        "fast-forward speed increments by exactly one multiplier");
+    change_video("Fast-forward speed", ImGuiKey_LeftArrow);
+    change_video("Fast-forward", ImGuiKey_LeftArrow);
+    expect(settings::current().fast_forward == fast_forward::Mode::Off, "reverse mode step selects fast-forward Off");
+    change_video("Fast-forward speed", ImGuiKey_RightArrow);
+    expect(settings::current().fast_forward_speed == original_fast_speed,
+        "disabled speed row cannot change a multiplier while fast-forward is Off");
+    change_video("Fast-forward", ImGuiKey_RightArrow);
+    expect(settings::current().fast_forward == original_fast_mode, "fast-forward mode round trip restores Hold");
+    change_video("Game speed", ImGuiKey_RightArrow);
+    const auto unlimited = settings::current().unthrottled;
+    change_video("Fast-forward", ImGuiKey_RightArrow);
+    expect(unlimited && settings::current().fast_forward == original_fast_mode,
+        "Unlimited game speed disables independent fast-forward mode selection");
+    change_video("Game speed", ImGuiKey_LeftArrow);
+    toggle_setting("Lock-on", &settings::Settings::lock_on);
+    change_video("Lock-on style", ImGuiKey_RightArrow);
+    expect(settings::current().lock_on_style == settings::LockOnStyle::Focus, "lock-on style switches to focus");
+    change_video("Lock-on style", ImGuiKey_LeftArrow);
+    expect(
+        settings::current().lock_on_style == settings::LockOnStyle::Follow, "lock-on style round trip restores follow");
+    toggle_setting("Lock-on marker", &settings::Settings::lock_on_marker);
+    {
+        const bool lock_on = settings::current().lock_on;
+        const auto style = settings::current().lock_on_style;
+        const bool marker = settings::current().lock_on_marker;
+        settings::current().lock_on = false;
+        change_video("Lock-on style", ImGuiKey_RightArrow);
+        change_video("Lock-on marker", ImGuiKey_Space);
+        expect(settings::current().lock_on_style == style && settings::current().lock_on_marker == marker,
+            "lock-on style and marker are locked while lock-on is off");
+        settings::current().lock_on = lock_on;
+    }
+    toggle_setting("Damage numbers", &settings::Settings::damage_numbers);
+    {
+        const bool numbers = settings::current().damage_numbers;
+        const std::uint32_t size = settings::current().damage_number_size;
+        const std::uint32_t thickness = settings::current().damage_number_thickness;
+        settings::current().damage_numbers = false;
+        change_video("Damage number size", ImGuiKey_RightArrow);
+        change_video("Damage number thickness", ImGuiKey_RightArrow);
+        expect(
+            settings::current().damage_number_size == size && settings::current().damage_number_thickness == thickness,
+            "damage number size and thickness are locked while the numbers are off");
+        settings::current().damage_numbers = true;
+        change_video("Damage number size", ImGuiKey_RightArrow);
+        change_video("Damage number thickness", ImGuiKey_RightArrow);
+        expect(settings::current().damage_number_size == size + 10u &&
+                settings::current().damage_number_thickness == thickness + 1u,
+            "damage number size steps by 10% and thickness by 1");
+        change_video("Damage number size", ImGuiKey_LeftArrow);
+        change_video("Damage number thickness", ImGuiKey_LeftArrow);
+        expect(
+            settings::current().damage_number_size == size && settings::current().damage_number_thickness == thickness,
+            "damage number size and thickness round trip");
+        settings::current().damage_numbers = numbers;
+    }
+    {
+        const bool icon = settings::current().gather_icon;
+        const std::uint32_t size = settings::current().gather_icon_size;
+        const std::uint32_t thickness = settings::current().gather_icon_thickness;
+        settings::current().gather_icon = false;
+        change_video("Gather icon size", ImGuiKey_RightArrow);
+        change_video("Gather icon thickness", ImGuiKey_RightArrow);
+        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
+            "gather icon size and thickness are locked while the icon is off");
+        settings::current().gather_icon = true;
+        change_video("Gather icon size", ImGuiKey_RightArrow);
+        change_video("Gather icon thickness", ImGuiKey_RightArrow);
+        expect(settings::current().gather_icon_size == size + 10u &&
+                settings::current().gather_icon_thickness == thickness + 1u,
+            "gather icon size steps by 10% and thickness by 1");
+        change_video("Gather icon size", ImGuiKey_LeftArrow);
+        change_video("Gather icon thickness", ImGuiKey_LeftArrow);
+        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
+            "gather icon size and thickness round trip");
+        settings::current().gather_icon = icon;
+    }
+    toggle_setting("Hold to gather", &settings::Settings::gather_hold);
+    toggle_setting("Empty item slot", &settings::Settings::empty_item_slot);
+    toggle_setting("Sharpness gauge", &settings::Settings::sharpness_gauge);
+    toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
+    toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
+    {
+        const auto before_game_reset = settings::current();
+        const auto &shipped = settings::defaults();
+        auto &changed = settings::current();
+        changed.lock_on = !shipped.lock_on;
+        changed.damage_numbers = !shipped.damage_numbers;
+        changed.gather_icon_size = shipped.gather_icon_size + 10u;
+        changed.unthrottled = !shipped.unthrottled;
+        changed.fast_forward_speed = shipped.fast_forward_speed + 1u;
+        changed.menu_pause = !shipped.menu_pause;
+        changed.name = "Public test hunter";
+        // A Video setting, which the Game page's restore leaves as it is.
+        changed.sharp_screen = !shipped.sharp_screen;
+        change_video("Restore game defaults", ImGuiKey_Space);
+        const auto &reset_game = settings::current();
+        expect(reset_game.lock_on == shipped.lock_on && reset_game.damage_numbers == shipped.damage_numbers &&
+                reset_game.gather_icon_size == shipped.gather_icon_size &&
+                reset_game.unthrottled == shipped.unthrottled &&
+                reset_game.fast_forward_speed == shipped.fast_forward_speed &&
+                reset_game.menu_pause == shipped.menu_pause && reset_game.name == shipped.name,
+            "game defaults restore lock-on, overlays, speed, pausing and the hunter name");
+        expect(reset_game.sharp_screen != shipped.sharp_screen, "game defaults leave the Video page's settings alone");
+        settings::current() = before_game_reset;
+        renderer.set_sharp_screen(before_game_reset.sharp_screen);
+    }
 
     page();
     const auto before_network_edit = settings::current();
@@ -3487,8 +3523,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         for (const auto &entry : std::filesystem::directory_iterator(screenshot::folder()))
             if (entry.path().extension() == ".png") ++menu_screenshots;
     expect(menu_screenshots == 1, "System screenshot action saves exactly one real PNG in the isolated folder");
-    toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
-    toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
     for (const char *action : {"Quit game", "Set up game data again…"}) {
         change_video(action, ImGuiKey_Space);
         frame();
@@ -3562,7 +3596,11 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     const std::uint32_t saved_gather_thickness = settings::current().gather_icon_thickness;
     settings::current().gather_icon_size = 100u;
     settings::current().gather_icon_thickness = 1u;
-    ui::set_gather_mark(std::array<float, 2>{0.5f, 0.5f});
+    {
+        game::GatherMark mark;
+        mark.at = {0.5f, 0.5f};
+        ui::set_gather_mark(mark);
+    }
     frame();
     const int usual = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
     settings::current().gather_icon_thickness = 3u;
@@ -4232,6 +4270,8 @@ int run_contracts(int scripts) {
             png[3] == 'G' && png[16] == 0 && png[17] == 0 && png[18] == 1 && png[19] == 224 && png[20] == 0 &&
             png[21] == 0 && png[22] == 1 && png[23] == 16,
         "UI screenshot saves an actual PNG with the native game frame dimensions");
+    // Windows cannot remove a folder while a file in it is open.
+    png_input.close();
     screenshot::finish_writes();
     const auto screenshot_directory = screenshot::folder();
     std::filesystem::remove_all(screenshot_directory);
