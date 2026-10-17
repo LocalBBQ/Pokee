@@ -1,6 +1,7 @@
 #include "game/gather_icon.hpp"
 
 #include "game/damage_numbers.hpp"
+#include "game/guest_layout.hpp"
 #include "settings/settings.hpp"
 
 #include <algorithm>
@@ -34,13 +35,12 @@ constexpr GatherWord kWords[] = {
 constexpr std::uint32_t kGatherObject = 0x08A62D9Cu;
 constexpr std::uint32_t kAreas = 96u;
 constexpr std::uint32_t kListBias = 80u;
-constexpr std::uint32_t kGameSysPointer = 0x089CC558u;
+using layout::kGameSysPointer;
 constexpr std::uint32_t kAreaByte = 0x6AF10u;
 constexpr std::uint32_t kStageTable = 0x09CE4808u;
-constexpr std::uint32_t kHunterList = 0x089CBD04u;
-constexpr std::uint32_t kFollowedHunter = 2692u;
-constexpr std::uint32_t kHunterPosition = 0x200u;
-constexpr std::uint32_t kHunterStage = 0x29Au;
+// The hunter's position, and the stage it stands in.
+constexpr std::uint32_t kHunterPosition = layout::kPosition;
+constexpr std::uint32_t kHunterStage = layout::kStageId;
 constexpr std::uint32_t kNodeStride = 24u;
 constexpr std::uint32_t kNodeRadius = 12u;
 constexpr std::uint32_t kNodeId = 16u;
@@ -50,7 +50,6 @@ constexpr std::uint32_t kMaxNodes = 64u;
 constexpr std::uint32_t kMaxStages = 256u;
 constexpr float kBelow = 200.0f;
 constexpr float kAbove = 100.0f;
-constexpr std::uint32_t kRam = 0x08800000u;
 
 struct Noted {
     GatherPicture picture{};
@@ -72,7 +71,7 @@ float load_float(const psprecomp::GuestMemory &memory, std::uint32_t address) {
 }
 
 bool in_ram(std::uint32_t address, std::uint32_t bytes, const psprecomp::GuestMemory &memory) {
-    return address >= kRam && memory.raw_pointer(address, bytes) != nullptr;
+    return layout::in_ram(address) && memory.contains(address, bytes);
 }
 
 bool &code_logged() {
@@ -145,25 +144,7 @@ GatherShape gather_mark_shape(std::uint32_t size_percent, std::uint32_t thicknes
 
 // The search lives in game_task.ovl. Until that overlay is loaded the words
 // are not the search, and that is a quiet miss rather than a code change.
-constexpr std::uint32_t kTaskSlot = 0x09A5F300u;
-constexpr std::uint32_t kSubSlot = 0x09C19100u;
-constexpr std::uint32_t kOverlayMagic = 0x336F574Du; // "MWo3"
-constexpr char kQuestOverlay[] = "game_task.ovl";
-constexpr char kVillageOverlay[] = "lobby_task.ovl";
-constexpr char kSubOverlay[] = "game_sub.ovl";
-
 namespace {
-
-template <std::size_t N>
-bool overlay_loaded(const psprecomp::GuestMemory &memory, std::uint32_t slot, const char (&name)[N]) {
-    if (memory.raw_pointer(slot, 64u) == nullptr || memory.load32(slot) != kOverlayMagic ||
-        memory.load32(slot + 8u) != slot)
-        return false;
-    for (std::size_t i = 0; i < N; ++i)
-        if (memory.load8(slot + 32u + static_cast<std::uint32_t>(i)) != static_cast<std::uint8_t>(name[i]))
-            return false;
-    return true;
-}
 
 // Every word mapped and matching. A mapped word that differs is logged once
 // per `logged` flag.
@@ -191,7 +172,7 @@ bool words_match(const psprecomp::GuestMemory &memory, std::span<const GatherWor
 } // namespace
 
 bool gather_code_matches(const psprecomp::GuestMemory &memory) {
-    if (!overlay_loaded(memory, kTaskSlot, kQuestOverlay)) return false;
+    if (!layout::quest_running(memory)) return false;
     return words_match(memory, kWords, code_logged());
 }
 
@@ -250,20 +231,18 @@ std::optional<std::uint32_t> gather_list_for(const psprecomp::GuestMemory &memor
 
 namespace {
 
+// The hunter the camera follows, readable from the position at +0x200
+// through the stage halfword at +0x29A.
 std::optional<std::uint32_t> followed_hunter(const psprecomp::GuestMemory &memory) {
-    if (!gather_code_matches(memory) || !in_ram(kHunterList, 4u, memory)) return std::nullopt;
-    const std::uint32_t list = memory.load32(kHunterList);
-    if (!in_ram(list + kFollowedHunter, 4u, memory)) return std::nullopt;
-    const std::uint32_t hunter = memory.load32(list + kFollowedHunter);
-    if (hunter < kRam) return std::nullopt;
+    if (!gather_code_matches(memory)) return std::nullopt;
+    const std::uint32_t hunter = layout::followed_hunter(memory, kHunterStage + 2u);
+    if (hunter == 0u) return std::nullopt;
     return hunter;
 }
 
 std::optional<GatherNode> read_node(const psprecomp::GuestMemory &memory) {
     const std::optional<std::uint32_t> hunter = followed_hunter(memory);
     if (!hunter) return std::nullopt;
-    // Position at +0x200 through the stage halfword at +0x29A.
-    if (!in_ram(*hunter + kHunterPosition, kHunterStage + 2u - kHunterPosition, memory)) return std::nullopt;
     const std::uint16_t stage = memory.load16(*hunter + kHunterStage);
     const std::optional<std::uint32_t> nodes = gather_list_for(memory, stage);
     if (!nodes) return std::nullopt;
@@ -367,7 +346,7 @@ std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
     if ((memory.load32(*hunter + kCarveBlocked) & kCarveBlockBit) != 0u) return std::nullopt;
     if (!in_ram(kCarveTable, 4u, memory)) return std::nullopt;
     const std::uint32_t table = memory.load32(kCarveTable);
-    if (table < kRam || !in_ram(table + kCarveFirst, kCarveStride, memory)) return std::nullopt;
+    if (!layout::in_ram(table) || !in_ram(table + kCarveFirst, kCarveStride, memory)) return std::nullopt;
     const float hunter_x = load_float(memory, *hunter + kHunterPosition);
     const float hunter_y = load_float(memory, *hunter + kHunterPosition + 4u);
     const float hunter_z = load_float(memory, *hunter + kHunterPosition + 8u);
@@ -531,15 +510,12 @@ void trace_farm(const std::optional<FarmPoint> &point) {
 }
 
 std::optional<FarmPoint> read_farm(const psprecomp::GuestMemory &memory) {
-    if (!farm_code_matches(memory) || !in_ram(kHunterList, 4u, memory) || !in_ram(kGameSysPointer, 4u, memory) ||
-        !in_ram(kVillageState, 4u, memory))
+    if (!farm_code_matches(memory) || !in_ram(kGameSysPointer, 4u, memory) || !in_ram(kVillageState, 4u, memory))
         return std::nullopt;
-    const std::uint32_t list = memory.load32(kHunterList);
-    if (!in_ram(list + kFollowedHunter, 4u, memory)) return std::nullopt;
-    const std::uint32_t hunter = memory.load32(list + kFollowedHunter);
+    const std::uint32_t hunter = layout::followed_hunter(memory, kPointInReach + 4u);
     const std::uint32_t gamesys = memory.load32(kGameSysPointer);
     const std::uint32_t state = memory.load32(kVillageState);
-    if (!in_ram(hunter, kPointInReach + 4u, memory) || !in_ram(gamesys + kLocalSlot, 1u, memory) ||
+    if (hunter == 0u || !in_ram(gamesys + kLocalSlot, 1u, memory) ||
         !in_ram(gamesys + kFarm, 4u, memory) || !in_ram(state, kVillageBlock + 2u, memory))
         return std::nullopt;
     if (memory.load16(hunter + kHunterSlot) != memory.load8(gamesys + kLocalSlot)) return std::nullopt;
@@ -569,7 +545,8 @@ std::span<const GatherWord> farm_checked_words() {
 }
 
 bool farm_code_matches(const psprecomp::GuestMemory &memory) {
-    if (!overlay_loaded(memory, kTaskSlot, kVillageOverlay) || !overlay_loaded(memory, kSubSlot, kSubOverlay))
+    if (!layout::overlay_loaded(memory, layout::kTaskSlot, layout::kVillageOverlay) ||
+        !layout::overlay_loaded(memory, layout::kSubSlot, layout::kSubOverlay))
         return false;
     return words_match(memory, kFarmWords, farm_logged());
 }
