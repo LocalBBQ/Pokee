@@ -555,6 +555,10 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.empty_item_slot); },
             [](const Settings &s) { return std::string(s.empty_item_slot ? "1" : "0"); },
             [](Settings &s, const char *t) { s.empty_item_slot = variable_flag(t); }},
+        {"game.exchange_any_rarity", "MHFU_EXCHANGE_ANY_RARITY",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.exchange_any_rarity); },
+            [](const Settings &s) { return std::string(s.exchange_any_rarity ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.exchange_any_rarity = variable_flag(t); }},
         {"game.gather_icon_size", "MHFU_GATHER_ICON_SIZE",
             [](Settings &s, const std::string &t) {
                 return parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, s.gather_icon_size);
