@@ -13,7 +13,7 @@ The game's executable and its 290 code overlays are MIPS code for the PSP. The b
 | 1. Bootstrap | Build a small `Pokee` that contains no game code yet | `cmake --build out/mhfu --target Pokee` |
 | 2. Prepare the executable | The bootstrap checks your disc image and prepares the decrypted `EBOOT.ELF` from it | `Pokee --install image.iso` |
 | 3. Generate | Analyse `EBOOT.ELF` and write the recompiled executable as 89 C++ units in `profiles/mhfu/generated/` | `profiles/mhfu/scripts/generate.sh` |
-| 4. Compile the executable | Compile the 89 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhfu --target Pokee` |
+| 4. Compile the executable | Compile the 67 units together with the host (kernel, HLE, renderer, audio, interface) | `cmake --build out/mhfu --target Pokee` |
 | 5. Overlays | Extract the 290 code overlays from the disc image's `DATA.BIN`, recompile each one, and build a shared library per overlay | `profiles/mhfu/scripts/build_overlays.sh` |
 
 The installer accepts USA Freedom Unite `ULUS-10391` version 1.01 only: the disc id in `PARAM.SFO` must be `ULUS10391`, and the SHA-256 of the encrypted `EBOOT.BIN` must be that release's. Portable 3rd and other regions are refused. The accepted executable starts on its 32 MiB layout. `generate.sh` stamps the SHA-256 of the prepared executable it translates, and launch registers that corpus only for an executable with the same hash. That resident code is 67 units; its overlay sections are named in the ELF and contain no file bytes.
