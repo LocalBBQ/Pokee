@@ -1790,7 +1790,18 @@ void Menu::network() {
 
 void Menu::mods() {
     if (layered_armor_screen(back_)) return;
-    if (!mods_screen_open()) layered_armor_row();
+    if (!mods_screen_open()) {
+        layered_armor_row();
+        settings::Settings &s = settings::current();
+        section("Gameplay");
+        if (toggle_row("Exchange any rarity", s.exchange_any_rarity,
+                options_for("game.exchange_any_rarity",
+                    "On: in the Guild Hall, Start > Item > Exchange gives an item of any rarity to another hunter. "
+                    "Off: the game's own limit, Rare 1 to 3 only."))) {
+            s.exchange_any_rarity = !s.exchange_any_rarity;
+            settings::save();
+        }
+    }
     mods_page(back_);
     if (take_mods_restart_request()) {
         install::request_restart_on_exit();
