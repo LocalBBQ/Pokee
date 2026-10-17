@@ -385,11 +385,11 @@ void test_lock_on_and_damage_numbers() {
     earlier_slot["game.empty_item_slot"] = "0";
     check(from_entries(earlier_slot).empty_item_slot,
         "game.empty_item_slot=0 from before version 3 is its default, not a choice");
-    check(fresh.exchange_any_rarity, "the Guild Hall exchange starts at any rarity");
-    Entries exchange = to_entries(fresh);
-    exchange["game.exchange_any_rarity"] = "0";
-    check(!from_entries(exchange).exchange_any_rarity, "the file turns exchange at any rarity off");
-    check(!from_entries(to_entries(from_entries(exchange))).exchange_any_rarity, "and off survives a round trip");
+    check(fresh.deliver_any_rarity, "Guild Hall delivery starts at any rarity");
+    Entries deliver = to_entries(fresh);
+    deliver["game.deliver_any_rarity"] = "0";
+    check(!from_entries(deliver).deliver_any_rarity, "the file turns delivery at any rarity off");
+    check(!from_entries(to_entries(from_entries(deliver))).deliver_any_rarity, "and off survives a round trip");
     check(fresh.gather_icon_size == 100u && fresh.gather_icon_thickness == 1u,
         "the gather mark starts at its usual size and the thinnest ring");
     Entries mark = to_entries(fresh);
