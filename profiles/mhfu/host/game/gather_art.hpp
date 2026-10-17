@@ -44,6 +44,14 @@ namespace mhfu::game {
 
 inline constexpr std::uint16_t kPickaxeItem = 145u;
 inline constexpr std::uint16_t kBugNetItem = 149u;
+
+// Bone piles. Their lists mix the bone husks (items 93 to 95, the only items
+// with icon 28) with bones (icon 10, the skull and ribs, in each bone's tint),
+// and a husk is usually the heaviest. Any point that can give either shows
+// the plain white bone, item 292, so every bone pile looks the same.
+inline constexpr std::uint8_t kHuskIcon = 28u;
+inline constexpr std::uint8_t kBoneIcon = 10u;
+inline constexpr std::uint16_t kBoneItem = 292u;
 inline constexpr std::uint16_t kBaitItem = 136u;
 
 // The mark's picture: an item's icon, a monster's, or none (the ?).
@@ -89,7 +97,8 @@ struct GatherDrop {
     const psprecomp::GuestMemory &memory, std::uint16_t item);
 
 // The art for a gather record of this kind and id: the pickaxe for mining
-// (3), the bug net for a bug point (4), else the item the point gives.
+// (3), the bug net for a bug point (4), the bone for a bone pile, else the
+// item the point gives.
 [[nodiscard]] GatherArt gather_art_for(const psprecomp::GuestMemory &memory, std::uint16_t kind, std::uint16_t id);
 
 // An item's icon: its rectangle on the item atlas, in texels, and its tint.
