@@ -10,33 +10,43 @@
 // window, and every control works with a gamepad, a keyboard and a mouse.
 namespace mhfu::ui {
 
-// Colours from the North American box art: the jungle at night, the gold of
-// "Monster Hunter", and the orange of "Freedom Unite".
+// Colours from the game's own menus: a grey-green glass over the scene with a
+// diamond lattice, a black and orange frame, a solid green bar behind the chosen
+// entry and yellow text on it.
 namespace colors {
 [[nodiscard]] constexpr ImU32 with_alpha(ImU32 color, int alpha) {
     return (color & ~IM_COL32_A_MASK) | (static_cast<ImU32>(alpha) << IM_COL32_A_SHIFT);
 }
 
-inline constexpr ImU32 kBackdrop = IM_COL32(6, 10, 6, 170);
-inline constexpr ImU32 kPanel = IM_COL32(18, 26, 16, 246);
-inline constexpr ImU32 kPopup = IM_COL32(26, 36, 24, 252);
+inline constexpr ImU32 kBackdrop = IM_COL32(6, 10, 6, 150);
+inline constexpr ImU32 kPanel = IM_COL32(36, 46, 40, 232);
+inline constexpr ImU32 kPopup = IM_COL32(36, 46, 40, 248);
 inline constexpr ImU32 kShade = IM_COL32(6, 10, 6, 150);
-inline constexpr ImU32 kPanelEdge = IM_COL32(166, 124, 48, 255);
+inline constexpr ImU32 kPanelEdge = IM_COL32(222, 138, 58, 255);
 inline constexpr ImU32 kRow = IM_COL32(220, 232, 214, 12);
-inline constexpr ImU32 kRowHover = IM_COL32(244, 216, 120, 28);
-inline constexpr ImU32 kRowFocus = IM_COL32(244, 216, 120, 56);
-inline constexpr ImU32 kAccent = IM_COL32(212, 172, 72, 255);
-inline constexpr ImU32 kAccentBright = IM_COL32(244, 216, 120, 255);
-inline constexpr ImU32 kEmber = IM_COL32(232, 117, 30, 255);
-inline constexpr ImU32 kText = IM_COL32(228, 234, 220, 255);
-inline constexpr ImU32 kTextDim = IM_COL32(164, 176, 154, 255);
-inline constexpr ImU32 kTextDisabled = IM_COL32(108, 118, 100, 255);
+inline constexpr ImU32 kRowHover = IM_COL32(40, 160, 36, 60);
+inline constexpr ImU32 kRowFocus = IM_COL32(40, 160, 36, 150);
+inline constexpr ImU32 kAccent = IM_COL32(72, 184, 56, 255);
+inline constexpr ImU32 kAccentBright = IM_COL32(248, 236, 72, 255);
+inline constexpr ImU32 kEmber = IM_COL32(222, 138, 58, 255);
+inline constexpr ImU32 kText = IM_COL32(236, 236, 228, 255);
+inline constexpr ImU32 kTextDim = IM_COL32(168, 178, 166, 255);
+inline constexpr ImU32 kTextDisabled = IM_COL32(108, 118, 108, 255);
 inline constexpr ImU32 kDanger = IM_COL32(232, 96, 72, 255);
 inline constexpr ImU32 kGood = IM_COL32(132, 174, 96, 255);
 inline constexpr ImU32 kTrack = IM_COL32(220, 232, 214, 36);
+// The selection bar, the frame's ink, and the lattice behind the panel.
+inline constexpr ImU32 kSelect = IM_COL32(34, 150, 30, 255);
+inline constexpr ImU32 kFrameInk = IM_COL32(10, 10, 8, 255);
+inline constexpr ImU32 kLatticeDark = IM_COL32(0, 0, 0, 46);
+inline constexpr ImU32 kLatticeLight = IM_COL32(170, 190, 170, 20);
 } // namespace colors
 
 ImGuiStyle make_style(float scale, float font_size);
+
+// The game's selection behind a row: a solid green bar.
+// 235 for the focused row, 80 for one under the mouse.
+void draw_selection(ImDrawList *draw, ImVec2 min, ImVec2 max, int alpha);
 
 // The panel every screen sits in, centred in the window: title and optional
 // subtitle, then fixed parts such as tabs, then the scrolling content from
