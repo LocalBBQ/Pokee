@@ -1,5 +1,6 @@
 #include "camera/game_aspect.hpp"
 
+#include "game/guest_layout.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <algorithm>
@@ -32,7 +33,7 @@ namespace {
 // sides can clip; the factor cannot be shrunk without changing the
 // recompiled function.
 constexpr std::uint32_t kGameAspectBits = 0x3FE1E1E2u; // 480/272
-constexpr std::uint32_t kCameraPointer = 0x089CBD04u;
+// In the camera object (game::layout::camera_object).
 constexpr std::uint32_t kNear = 0x00u;
 constexpr std::uint32_t kFar = 0x04u;
 constexpr std::uint32_t kAspect = 0x08u;
@@ -84,8 +85,8 @@ void store_float(psprecomp::GuestMemory &memory, std::uint32_t address, float va
 
 // The camera, when the pointer leads to one that looks like it.
 std::uint32_t camera_address(const psprecomp::GuestMemory &memory) {
-    const std::uint32_t address = memory.load32(kCameraPointer);
-    if (address == 0u || memory.raw_pointer(address, kCameraBytes) == nullptr) return 0u;
+    const std::uint32_t address = game::layout::camera_object(memory);
+    if (address == 0u || !memory.contains(address, kCameraBytes)) return 0u;
     const float near_plane = load_float(memory, address + kNear);
     const float far_plane = load_float(memory, address + kFar);
     const float aspect = load_float(memory, address + kAspect);

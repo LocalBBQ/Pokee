@@ -6,6 +6,7 @@
 // game last loaded it, so the renderer notes the texture state of a draw
 // that samples the atlas, and the sheet is decoded from that state.
 
+#include "game/guest_layout.hpp"
 #include "gpu/ge_state.hpp"
 
 #include <cstdint>
@@ -16,7 +17,7 @@ class GuestMemory;
 
 namespace mhfu::game {
 
-inline constexpr std::uint32_t kItemAtlasAddress = 0x091874A0u;
+inline constexpr std::uint32_t kItemAtlasAddress = layout::kItemAtlas;
 
 // From the renderer, for each draw: kept when it samples the atlas.
 void note_item_atlas(const gpu::TextureState &texture);
