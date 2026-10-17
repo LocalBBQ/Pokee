@@ -1,7 +1,5 @@
 #include "game/hit_trace.hpp"
 
-#include "camera/lock_on.hpp"
-
 #include <atomic>
 #include <bit>
 #include <cstdio>
@@ -15,11 +13,9 @@ namespace mhfu::game::hit_trace {
 namespace {
 
 // The resident executable's code, and the two overlay slots a quest's code
-// runs from: game_task.ovl and the monster's em overlay (camera/lock_on.hpp).
+// runs from: game_task.ovl and the monster's em overlay (game/guest_layout.hpp).
 constexpr std::uint32_t kResidentStart = 0x08804000u;
 constexpr std::uint32_t kResidentEnd = 0x08A40000u;
-constexpr std::uint32_t kTaskStart = 0x09A5F300u;
-constexpr std::uint32_t kEmOverlayEnd = 0x09D63100u;
 
 std::atomic<std::uint32_t> &count() {
     static std::atomic<std::uint32_t> hits{0u};
@@ -93,13 +89,10 @@ std::uint32_t limit() noexcept {
     return value;
 }
 
-bool in_ram(std::uint32_t address) noexcept {
-    return address >= kRamStart && address < kRamEnd;
-}
-
 bool looks_like_code(std::uint32_t word) noexcept {
     if ((word & 3u) != 0u) return false;
-    return (word >= kResidentStart && word < kResidentEnd) || (word >= kTaskStart && word < kEmOverlayEnd);
+    return (word >= kResidentStart && word < kResidentEnd) ||
+        (word >= layout::kTaskSlot && word < layout::kEmOverlayEnd);
 }
 
 std::optional<Frame> frame_of(const psprecomp::GuestMemory &memory, std::uint32_t ra) {
@@ -167,26 +160,18 @@ std::string floats_line(
 }
 
 std::string players_line(const psprecomp::GuestMemory &memory) {
-    namespace layout = camera::lock_on_layout;
-    if (!memory.contains(layout::kEntityList, 4u)) return {};
-    const std::uint32_t manager = memory.load32(layout::kEntityList);
-    if (!in_ram(manager) || !memory.contains(manager + layout::kListHead, 4u)) return {};
     std::string line;
-    std::uint32_t node = memory.load32(manager + layout::kListHead);
-    for (std::uint32_t steps = 0; steps < layout::kMaxMonsters && in_ram(node); ++steps) {
-        if (!memory.contains(node, layout::kNodeType + 1u)) break;
-        const std::uint32_t entity = memory.load32(node + layout::kNodeEntity);
-        if (memory.load8(node + layout::kNodeType) == layout::kPlayerNode && in_ram(entity) &&
-            memory.contains(entity + layout::kPosition, 12u)) {
-            char text[96];
-            std::snprintf(text, sizeof(text), " %s at %g %g %g", hex(entity).c_str(),
-                static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition))),
-                static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 4u))),
-                static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 8u))));
-            line += text;
-        }
-        node = memory.load32(node + layout::kNodeOlder);
-    }
+    layout::for_each_entity(memory, [&](const layout::EntityNode &node) {
+        const std::uint32_t entity = node.entity;
+        if (node.type != layout::kPlayerNode || !in_ram(entity) || !memory.contains(entity + layout::kPosition, 12u))
+            return;
+        char text[96];
+        std::snprintf(text, sizeof(text), " %s at %g %g %g", hex(entity).c_str(),
+            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition))),
+            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 4u))),
+            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 8u))));
+        line += text;
+    });
     return line.empty() ? std::string{} : "[hit]   players" + line;
 }
 

@@ -729,12 +729,13 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
     ImDrawList *draw = ImGui::GetWindowDrawList();
     // Highlighted like the other rows; the field reports its focus only after
     // it is drawn, so last frame's state is used.
-    if (field.focused)
-        draw->AddRectFilled(
-            start, {start.x + width, start.y + row_height}, colors::kRowFocus, std::round(6.0f * Layer::get().scale()));
+    if (field.focused) draw_selection(draw, start, {start.x + width, start.y + row_height}, 235);
     draw->AddText(
         {start.x + std::round(16.0f * Layer::get().scale()), start.y + (row_height - Layer::get().font_size()) * 0.5f},
-        o.disabled ? colors::kTextDisabled : colors::kText, label);
+        o.disabled         ? colors::kTextDisabled
+            : field.focused ? colors::kAccentBright
+                            : colors::kText,
+        label);
     const float field_width = std::min(width * 0.45f, Layer::get().font_size() * 12.0f);
     ImGui::SetCursorScreenPos({start.x + width - field_width - std::round(16.0f * Layer::get().scale()),
         start.y + (row_height - ImGui::GetFrameHeight()) * 0.5f});
