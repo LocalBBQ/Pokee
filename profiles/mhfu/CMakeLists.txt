@@ -270,6 +270,7 @@ set(MHFU_HOST_SOURCES
     host/game/hit_trace.cpp
     host/game/item_box.cpp
     host/game/empty_item_slot.cpp
+    host/game/exchange_rarity.cpp
     host/game/sharpness_gauge.cpp
     third_party/tiny_aes/aes.c
 )
@@ -585,6 +586,27 @@ target_link_libraries(mhfu_item_box_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_item_box_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_item_box_tests COMMAND mhfu_item_box_tests)
+endif()
+
+# Exchange at any rarity: the item lookup, the code check, and the wrapper
+# around a stand-in check. No game data.
+add_executable(mhfu_exchange_rarity_tests
+    tests/exchange_rarity_tests.cpp
+    host/game/exchange_rarity.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_exchange_rarity_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_exchange_rarity_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_exchange_rarity_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_exchange_rarity_tests COMMAND mhfu_exchange_rarity_tests)
 endif()
 
 # Empty item slot: the scroll with an empty stop, the code and caller checks,

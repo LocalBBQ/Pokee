@@ -198,6 +198,9 @@ struct Settings {
     // item, and a quest starts on it, so □ uses no item
     // (game/empty_item_slot.hpp). On by default. Off: the game's own bar.
     bool empty_item_slot{true};
+    // The Guild Hall's Exchange gives items of any rarity, not only Rare 1
+    // to 3 (game/exchange_rarity.hpp). On by default. Off: the game's limit.
+    bool exchange_any_rarity{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize), and the weight of its ring and ? (1 to
     // kMaxGatherIconThickness). A larger mark keeps the same proportions, and
