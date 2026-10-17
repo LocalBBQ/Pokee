@@ -108,11 +108,64 @@ struct Edge {
     float u{};
 };
 [[nodiscard]] Edge cut_right(float x0, float x1, float u0, float u1, float remaining) noexcept;
+// The colour on the knife (sprite 9) is drawn as wide as the knife, handle
+// included, but its colour starts where the blade does. In the quest HUD's
+// atlas (0x09156BA0) the knife spans texels 108 to 152 and the colour's opaque
+// texels run from 117, the blade's first, to 150.
+inline constexpr float kBladeTexel = 117.0f;
+// cut_right over the blade alone: the left edge is kBladeTexel's place in the
+// quad, so with nothing left the colour ends where the blade meets the handle
+// instead of at the handle's end. A quad that does not span that texel is cut
+// whole, as cut_right does.
+[[nodiscard]] Edge cut_blade(float x0, float x1, float u0, float u1, float remaining) noexcept;
 // How far the cap at the bar's right end moves when the bar is cut. Negative
 // once any of the bar is spent.
 [[nodiscard]] float cap_shift(float bar_width, float remaining) noexcept;
+// The long sword's red spirit fill, from `x0` to `x1` in the game's pixels, is
+// drawn as a share of the whole bar. Once the bar is cut to `remaining`, the
+// fill keeps that share of the bar still drawn: this is the fraction of the
+// fill's own width to keep, for cut_right. Left alone it ran past the cut end.
+[[nodiscard]] float fill_remaining(float x0, float x1, float remaining) noexcept;
 
-// Once a flip, on the game thread.
+// The game pulses the colour's alpha as 64 + 64*sin(...) (0x08841400), so a
+// full pulse is 128. With the gauge on, the colour keeps the game's pulse but
+// on kFullPulse..kGlowPeak: it never dims below a full pulse, and its crest is
+// brighter than the game ever draws the colour.
+inline constexpr std::uint32_t kFullPulse = 128u;
+inline constexpr std::uint32_t kGlowPeak = 192u;
+// The alpha the gauge draws for the game's `game_alpha`.
+[[nodiscard]] std::uint32_t glow_alpha(std::uint32_t game_alpha) noexcept;
+
+// After the knife, 0x08841100 paints the colour on it (sprite 9 at (60, 29))
+// from a 4-byte entry per colour at kKnifeColours: red, green, blue, and the
+// mask the pulse is ANDed with. A zero red byte skips that layer
+// (0x08841404). Read from the executable: red FF 00 00 FF, orange and yellow
+// all zero, green 5E D3 00 FF, blue 30 68 EE FF, white F0 F0 F0 FF, purple
+// F0 00 F0 FF. The knife sprites at kKnifeSprites are 12 for red, 11 for
+// orange and 10 for the rest, so yellow's knife is the plain one the colour
+// layer tints, and with no layer it shows no colour and no pulse; orange keeps
+// its own knife but does not pulse.
+inline constexpr std::uint32_t kKnifeSprites = 0x08938978u;
+inline constexpr std::uint32_t kKnifeColours = 0x08938980u;
+inline constexpr std::uint32_t kKnifeColourBytes = 4u;
+// The entries the game leaves empty, as a little-endian word of those bytes
+// (mask, blue, green, red from the top). Their strength follows the game's
+// own: a full mask, and channels at F0 like white and purple.
+struct AddedColour {
+    Sharpness colour;
+    std::uint32_t entry;
+};
+inline constexpr std::array<AddedColour, 2> kAddedColours{{
+    {Sharpness::Orange, 0xFF0080F0u},
+    {Sharpness::Yellow, 0xFF00E0F0u},
+}};
+// With `fill`, writes kAddedColours over the game's empty entries; without,
+// puts the empty entries back. An entry holding anything else (a mod's own
+// colour) is left alone either way.
+void fill_knife_colours(Ram &ram, bool fill);
+
+// Once a flip, on the game thread. While `enabled`, it also fills in the knife
+// colours above; off, it puts the game's back.
 void gauge_frame(bool enabled, psprecomp::GuestMemory *memory);
 
 // The fraction of the game's bar still sharp, 0..1, while the gauge is on and
