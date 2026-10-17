@@ -8,7 +8,7 @@ The game boots, loads its overlays, creates a character or loads a save, walks t
 
 | Area | State |
 | --- | --- |
-| Code | The whole executable (362 478 instructions, 89 units) and all 355 code overlays are recompiled ahead of time; an interpreter covers anything they miss |
+| Code | The whole executable (178 138 instructions, 67 units) and all 290 code overlays are recompiled ahead of time; an interpreter covers anything they miss |
 | Kernel | Threads with a deterministic virtual clock, semaphores, event flags, mutexes, callbacks, VTimers, partition memory, VBlank interrupts, file I/O straight from the disc image |
 | Imports | 244 of 296 implemented; the rest are logging stubs that return 0 |
 | Graphics | Vulkan: textures (palettes, DXT, swizzle), skinning, per-vertex lighting (four directional, point or spot lights and the full material model) and fog, blending, depth and alpha test, sprites, per-framebuffer render targets, arbitrary window shapes and frame interpolation; PPSSPP-compatible HD texture packs are supported |
@@ -183,7 +183,7 @@ Players can use a prebuilt release instead of building: it contains the program 
 
 ## Code overlays
 
-Beyond the main executable, the game loads 355 code overlays (`*.ovl`) from `USRDIR/DATA.BIN` into 12 fixed slots at run time: mode tasks (`game_task`, `lobby_task`, …), maps (`P_m*`, `P_v*`), monsters (`em*m0`–`m3`) and weapons (`we*player00`–`03`). The ELF section table lists them as zero-sized sections, so their code is not part of `EBOOT.ELF`.
+Beyond the main executable, the game loads 290 code overlays (`*.ovl`) from `USRDIR/DATA.BIN` into fixed slots at run time: mode tasks (`game_task`, `lobby_task`, …), maps (`P_m*`, `P_v*`), monsters (`em*m0`–`m3`) and weapons (`we*player00`–`03`). The ELF section table lists them as zero-sized sections, so their code is not part of `EBOOT.ELF`.
 
 Build them all once:
 
