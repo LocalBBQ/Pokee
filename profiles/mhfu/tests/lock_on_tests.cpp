@@ -421,6 +421,32 @@ void test_monster_in_another_area() {
         "with no large monster in this area, R3 locks nothing and shows no reticle");
 }
 
+// The gather mark's carve picture: the body under the carve point, or for a
+// cut tail the large monster it came from.
+void test_carved_monster() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    memory.store8(monster_a + game::kMonsterId, 11u);
+    memory.store8(monster_b + game::kMonsterId, 1u);
+    memory.store8(small + game::kMonsterId, 0x46u); // a Popo
+    set_loaded_stage(memory, zone_here);
+    for (const std::uint32_t monster : {monster_a, monster_b, small}) set_stage(memory, monster, zone_here);
+
+    place(memory, small, 200.0f, -200.0f, 0);
+    check(carved_monster(memory, Vec3{210.0f, 0.0f, -190.0f}) == std::optional<std::uint8_t>{0x46u},
+        "a dead small monster under the carve point is the one carved");
+    place(memory, small, 200.0f, -200.0f, 500);
+    place(memory, monster_a, 1000.0f, 0.0f, 0);
+    check(carved_monster(memory, Vec3{1050.0f, 0.0f, 20.0f}) == std::optional<std::uint8_t>{11u},
+        "so is a dead large one");
+
+    check(!carved_monster(memory, Vec3{2000.0f, 0.0f, 0.0f}), "a dead monster out of reach is not the one carved");
+
+    // Nothing dead there, as under a cut tail: no monster, so the mark shows the ?.
+    place(memory, monster_a, 1000.0f, 0.0f);
+    check(!carved_monster(memory, Vec3{1050.0f, 0.0f, 20.0f}), "a living monster nearby does not own a tail");
+}
+
 void test_hunt_portrait_keeps_the_id_in_another_area() {
     Fixture f;
     auto &memory = f.runtime.memory();
@@ -1511,6 +1537,7 @@ int main() {
     test_monsters_and_pick();
     test_monster_in_another_area();
     test_hunt_portrait_keeps_the_id_in_another_area();
+    test_carved_monster();
     test_unmarked_monsters_still_lock();
     test_hunters_take_no_icon_or_lock();
     test_lock_follows_and_lets_go();

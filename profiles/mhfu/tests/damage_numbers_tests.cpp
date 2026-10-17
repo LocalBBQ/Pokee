@@ -134,6 +134,45 @@ void test_text_and_place() {
         "only the latest numbers stay on screen");
 }
 
+void test_the_older_frame() {
+    Number fresh = make_number(40, Grade{}, 1);
+    fresh.placed = true;
+    fresh.x = 0.40f;
+    fresh.y = 0.55f;
+    check(!older_anchor(fresh), "a number placed for the first time has no older place to glide from");
+
+    Number moving = fresh;
+    keep_older_place(moving);
+    check(moving.older_placed && moving.older_x == 0.40f && moving.older_y == 0.55f && moving.older_age == 0.0f,
+        "a new game frame keeps the number's place and age as the older one");
+    moving = age_numbers({moving}, 0.1f).front();
+    moving.x = 0.50f;
+    moving.y = 0.45f;
+    const std::optional<Anchor> older = older_anchor(moving);
+    const Anchor newer = number_anchor(moving);
+    const Anchor expected = number_anchor(fresh);
+    check(older && older->x == expected.x && older->y == expected.y,
+        "the older anchor is where the last game frame drew it, lane and age included");
+    check(older && newer.x > older->x && newer.y < older->y, "and the number moves from there to its new place");
+
+    Number same = fresh;
+    keep_older_place(same);
+    same = age_numbers({same}, 0.1f).front();
+    const std::optional<Anchor> rising = older_anchor(same);
+    check(rising && rising->x == number_anchor(same).x && rising->y > number_anchor(same).y,
+        "a number on a monster standing still still rises between the two frames");
+
+    Number lost = moving;
+    lost.placed = false;
+    check(!older_anchor(lost), "a number off the picture now does not glide");
+    Number back = moving;
+    back.older_placed = false;
+    check(!older_anchor(back), "a number just back on the picture does not glide in");
+
+    check(parse_smooth(nullptr) && parse_smooth("") && parse_smooth("1"), "the numbers follow interpolation by default");
+    check(!parse_smooth("0"), "MHFU_DAMAGE_NUMBERS_SMOOTH=0 turns that off");
+}
+
 void test_the_hit_watch() {
     std::vector<OpenHit> open;
     watch_hit_enter(open, kStatusTick, 0u, 0x09000000u, 400);
@@ -631,6 +670,7 @@ int main() {
     test_sharpness_and_colour();
     test_the_drop();
     test_text_and_place();
+    test_the_older_frame();
     test_the_hit_watch();
     test_health_halfword();
     test_on_the_monster();

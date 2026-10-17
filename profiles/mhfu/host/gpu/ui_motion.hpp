@@ -10,7 +10,8 @@
 // towards the newer one by that present's weight.
 //
 // MHFU_GATHER_ICON_SMOOTH=0 leaves the gather mark where the game frame
-// put it (hle_media.cpp registers nothing).
+// put it (hle_media.cpp registers nothing), and MHFU_DAMAGE_NUMBERS_SMOOTH=0
+// does the same for damage numbers (menu.cpp registers none).
 
 #include <array>
 

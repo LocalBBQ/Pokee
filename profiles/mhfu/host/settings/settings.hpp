@@ -183,11 +183,12 @@ struct Settings {
     // game already shows. On, the health that hit removed is drawn over the
     // picture.
     bool damage_numbers{};
-    // Sharpness gauge (game/sharpness_gauge.hpp): off, the game's full drawing.
+    // Sharpness gauge (game/sharpness_gauge.hpp). On by default. Off, the
+    // game's full drawing.
     // On, the colour on the blade shortens as it is spent, never dims below a
     // full pulse and glows brighter, and orange and yellow get a colour too.
     // The blade stays.
-    bool sharpness_gauge{};
+    bool sharpness_gauge{true};
     // A ? over a gather node the game would accept (game/gather_icon.hpp).
     // On by default. Off, the list is not read for the mark.
     bool gather_icon{true};
