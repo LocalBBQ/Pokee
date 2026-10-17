@@ -47,8 +47,10 @@ inline constexpr std::uint16_t kBugNetItem = 149u;
 
 // Bone piles. Their lists mix the bone husks (items 93 to 95, the only items
 // with icon 28) with bones (icon 10, the skull and ribs, in each bone's tint),
-// and a husk is usually the heaviest. Any point that can give either shows
-// the plain white bone, item 292, so every bone pile looks the same.
+// and a husk is usually the heaviest. A point whose heaviest item is either
+// shows the plain white bone, item 292, so every bone pile looks the same.
+// Herb points list the grey husk (93) as filler, so having one on the list
+// is not enough.
 inline constexpr std::uint8_t kHuskIcon = 28u;
 inline constexpr std::uint8_t kBoneIcon = 10u;
 inline constexpr std::uint16_t kBoneItem = 292u;
@@ -115,5 +117,14 @@ struct ItemArt {
 // Nothing for an item without an icon, past the table, or with a rectangle
 // that is not on the 256 by 256 atlas.
 [[nodiscard]] std::optional<ItemArt> item_art(const psprecomp::GuestMemory &memory, std::uint16_t item);
+
+// The same for an icon and tint number, as an item record holds them.
+[[nodiscard]] std::optional<ItemArt> icon_art(
+    const psprecomp::GuestMemory &memory, std::uint8_t icon, std::uint8_t tint);
+
+// The game's red ?, for a mark with no picture of its own: icon 33 in tint 1,
+// as the game's own unknown items (1168, 1179 and 1180) draw it.
+inline constexpr std::uint8_t kUnknownIcon = 33u;
+inline constexpr std::uint8_t kUnknownTint = 1u;
 
 } // namespace mhfu::game

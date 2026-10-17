@@ -350,7 +350,11 @@ void present_frame(Runtime &rt) {
         }
     } else if (gather && gather->art.kind == game::GatherArt::Kind::Item) {
         gather->icon = game::item_art(rt.memory(), gather->art.item);
-        if (gather->icon) game::refresh_item_atlas(rt.memory());
+    }
+    // Anything without a picture shows the game's red ?.
+    if (gather) {
+        gather->unknown = game::icon_art(rt.memory(), game::kUnknownIcon, game::kUnknownTint);
+        game::refresh_item_atlas(rt.memory());
     }
     ui::set_gather_mark(gather);
     ui::draw_over_game();

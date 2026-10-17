@@ -432,9 +432,10 @@ void Menu::video() {
                 "100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::item_bar},
             {"Names", "video.hud.names",
-                "The names over other hunters in a quest, and the mark beside each. "
+                "The names over other hunters in a quest and in the gathering hall, and the mark beside each. "
                 "Each name stays on the point the game places it, and the map's size does not change it. "
-                "The village and the gathering hall stay at the size the game draws, names included. "
+                "The names over hunters in the village follow it too; the rest of the village and the hall stay at the "
+                "size the game draws. "
                 "The name under the quest clock follows Status. "
                 "100% is the size the game draws.",
                 &settings::Settings::InterfaceScale::names},
@@ -1315,7 +1316,7 @@ void Menu::game() {
             settings::save();
         }
     }
-    if (toggle_row("Sharpness gauge", s.sharpness_gauge,
+    if (toggle_row("Modern sharpness gauge", s.sharpness_gauge,
             options_for("game.sharpness_gauge",
                 "On: the colour the game paints on the blade shortens as that colour is spent, from "
                 "the tip back to the handle. It stays solid and glows, and orange and yellow get a "
@@ -2351,22 +2352,29 @@ void draw_lock_on_marker(const std::array<float, 2> &at) {
 // The mark's picture in a square of `side` around `centre`: the item's icon
 // from the game's atlas in the item's tint, or the carved monster's icon.
 // False when there is none to draw, and the ? stands in.
+// One icon from the game's item atlas, in its tint. False while the atlas is
+// not decoded.
+bool draw_atlas_icon(ImDrawList *draw, const game::ItemArt &icon, ImVec2 min, ImVec2 max, int opacity) {
+    const game::ItemAtlas atlas = game::item_atlas();
+    SheetTexture &sheet = item_atlas_texture();
+    upload_sheet(sheet, atlas.ready, atlas.pixels, atlas.width, atlas.height, atlas.generation);
+    if (!atlas.ready || sheet.texture == nullptr || sheet.generation != atlas.generation) return false;
+    const float w = static_cast<float>(atlas.width);
+    const float h = static_cast<float>(atlas.height);
+    draw->AddImage(sheet.texture->GetTexRef(), min, max, {icon.u / w, icon.v / h},
+        {(icon.u + icon.width) / w, (icon.v + icon.height) / h}, IM_COL32(icon.red, icon.green, icon.blue, opacity));
+    return true;
+}
+
 bool draw_gather_art(ImDrawList *draw, const game::GatherMark &mark, ImVec2 centre, float side, float alpha) {
     const ImVec2 min{centre.x - side * 0.5f, centre.y - side * 0.5f};
     const ImVec2 max{centre.x + side * 0.5f, centre.y + side * 0.5f};
     const int opacity = static_cast<int>(alpha * 255.0f);
+    // Nothing else to show: the game's red ?.
+    const auto unknown = [&] { return mark.unknown && draw_atlas_icon(draw, *mark.unknown, min, max, opacity); };
     if (mark.art.kind == game::GatherArt::Kind::Item && mark.icon) {
-        const game::ItemAtlas atlas = game::item_atlas();
-        SheetTexture &sheet = item_atlas_texture();
-        upload_sheet(sheet, atlas.ready, atlas.pixels, atlas.width, atlas.height, atlas.generation);
-        if (!atlas.ready || sheet.texture == nullptr || sheet.generation != atlas.generation) return false;
-        const game::ItemArt &icon = *mark.icon;
-        const float w = static_cast<float>(atlas.width);
-        const float h = static_cast<float>(atlas.height);
-        draw->AddImage(sheet.texture->GetTexRef(), min, max, {icon.u / w, icon.v / h},
-            {(icon.u + icon.width) / w, (icon.v + icon.height) / h},
-            IM_COL32(icon.red, icon.green, icon.blue, opacity));
-        return true;
+        if (draw_atlas_icon(draw, *mark.icon, min, max, opacity)) return true;
+        return unknown();
     }
     if (mark.art.kind == game::GatherArt::Kind::Monster) {
         const camera::HuntIconSheet sheet = camera::hunt_icon_sheet();
@@ -2375,7 +2383,7 @@ bool draw_gather_art(ImDrawList *draw, const game::GatherMark &mark, ImVec2 cent
         const std::optional<camera::HuntIconCell> cell = camera::hunt_icon_cell(mark.art.monster);
         if (!sheet.ready || icons.texture == nullptr || icons.generation != sheet.generation || !cell ||
             cell->u + camera::kHuntIconTexels > sheet.width || cell->v + camera::kHuntIconTexels > sheet.height)
-            return false;
+            return unknown();
         const float w = static_cast<float>(sheet.width);
         const float h = static_cast<float>(sheet.height);
         draw->AddImage(icons.texture->GetTexRef(), min, max, {cell->u / w, cell->v / h},
@@ -2383,12 +2391,12 @@ bool draw_gather_art(ImDrawList *draw, const game::GatherMark &mark, ImVec2 cent
             IM_COL32(255, 255, 255, opacity));
         return true;
     }
-    return false;
+    return unknown();
 }
 
 // The gather mark (game/gather_icon.hpp): a dark disc in the game's pixels,
-// above the node, with the picture of what it gathers in it, or a ? when
-// there is none. It grows a little as it fades in. Its vertices follow frame
+// above the node, with the picture of what it gathers in it, or the game's
+// red ? when there is none (the interface's own ? until the atlas is read). It grows a little as it fades in. Its vertices follow frame
 // interpolation (gpu/ui_motion.hpp) from where the last game frame drew it.
 // Drawn by the interface and never into the game's frames.
 void draw_gather_mark(const game::GatherMark &mark) {
@@ -2451,7 +2459,9 @@ void set_gather_mark(std::optional<game::GatherMark> mark) {
 
 namespace {
 // A hit's number (game/damage_numbers.hpp), drawn by the interface over the
-// game's picture and never into the game's own frames.
+// game's picture and never into the game's own frames. Its vertices follow
+// frame interpolation (gpu/ui_motion.hpp) from where the last game frame
+// drew it.
 void draw_damage_numbers() {
     const ImGuiIO &io = ImGui::GetIO();
     const std::array<float, 4> picture = Layer::get().renderer().game_picture();
@@ -2481,11 +2491,17 @@ void draw_damage_numbers() {
         const int alpha = static_cast<int>(anchor.alpha * 230.0f);
         if (alpha <= 0) continue;
         const game::Ink ink = game::damage_number_ink(number.grade.fill);
+        const int first_vertex = draw->VtxBuffer.Size;
         for (const game::Offset &o : game::stroke_offsets(stroke.outline + stroke.weight, 3))
             draw->AddText(font, size, {at.x + o.x, at.y + o.y}, IM_COL32(0, 0, 0, alpha), text.c_str());
         for (const game::Offset &o : game::stroke_offsets(stroke.weight, 2))
             draw->AddText(
                 font, size, {at.x + o.x, at.y + o.y}, IM_COL32(ink.red, ink.green, ink.blue, alpha), text.c_str());
+        if (!game::smooth_enabled()) continue;
+        if (const std::optional<game::Anchor> older = game::older_anchor(number))
+            gpu::ui_motion::add(draw, first_vertex, draw->VtxBuffer.Size,
+                {(older->x - anchor.x) * picture[2] * io.DisplaySize.x,
+                    (older->y - anchor.y) * picture[3] * io.DisplaySize.y});
     }
 }
 

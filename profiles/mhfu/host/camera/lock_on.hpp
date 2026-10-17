@@ -91,7 +91,8 @@ struct HuntMonster {
 // The species of the dead monster lying at `body`, the place of a carve
 // record (game/gather_icon.hpp): the nearest dead one in this area, large or
 // small, within kCarveReach horizontally. Nothing for a cut tail, which no
-// dead monster lies under.
+// dead monster lies under: nothing in memory has been found that names its
+// monster, and the nearest one may be the wrong one, so it shows the ?.
 inline constexpr float kCarveReach = 500.0f;
 [[nodiscard]] std::optional<std::uint8_t> carved_monster(const psprecomp::GuestMemory &memory, const Vec3 &body);
 
