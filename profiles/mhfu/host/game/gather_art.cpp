@@ -112,20 +112,23 @@ std::optional<std::array<std::uint8_t, 2>> item_icon_and_tint(
 GatherArt gather_art_for(const psprecomp::GuestMemory &memory, std::uint16_t kind, std::uint16_t id) {
     if (kind == 3u) return GatherArt::of_item(kPickaxeItem);
     if (kind == 4u) return GatherArt::of_item(kBugNetItem);
-    if (const std::optional<std::vector<GatherDrop>> drops = gather_drops(memory, id))
-        for (const GatherDrop &drop : *drops)
-            if (const std::optional<std::array<std::uint8_t, 2>> look = item_icon_and_tint(memory, drop.item))
-                if ((*look)[0] == kHuskIcon || (*look)[0] == kBoneIcon) return GatherArt::of_item(kBoneItem);
-    if (const std::optional<std::uint16_t> item = gather_item(memory, id)) return GatherArt::of_item(*item);
-    return {};
+    const std::optional<std::uint16_t> item = gather_item(memory, id);
+    if (!item) return {};
+    // Other points list the grey husk as filler, so only a point that mostly
+    // gives a husk or a bone is a bone pile.
+    if (const std::optional<std::array<std::uint8_t, 2>> look = item_icon_and_tint(memory, *item))
+        if ((*look)[0] == kHuskIcon || (*look)[0] == kBoneIcon) return GatherArt::of_item(kBoneItem);
+    return GatherArt::of_item(*item);
 }
 
 std::optional<ItemArt> item_art(const psprecomp::GuestMemory &memory, std::uint16_t item) {
     if (item >= kItems) return std::nullopt;
     const std::uint32_t record = kItemRecords + static_cast<std::uint32_t>(item) * kItemStride;
     if (!readable(memory, record, 3u)) return std::nullopt;
-    const std::uint8_t icon = memory.load8(record + 1u);
-    const std::uint8_t tint = memory.load8(record + 2u);
+    return icon_art(memory, memory.load8(record + 1u), memory.load8(record + 2u));
+}
+
+std::optional<ItemArt> icon_art(const psprecomp::GuestMemory &memory, std::uint8_t icon, std::uint8_t tint) {
     if (icon == kNoIcon || icon >= kIcons || tint >= kTintCount) return std::nullopt;
     const std::uint32_t entry = kIconSprites + static_cast<std::uint32_t>(icon) * 2u;
     if (!readable(memory, entry, 2u)) return std::nullopt;

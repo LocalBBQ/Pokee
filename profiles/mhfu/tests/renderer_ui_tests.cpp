@@ -3356,7 +3356,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     }
     toggle_setting("Hold to gather", &settings::Settings::gather_hold);
     toggle_setting("Empty item slot", &settings::Settings::empty_item_slot);
-    toggle_setting("Sharpness gauge", &settings::Settings::sharpness_gauge);
+    toggle_setting("Modern sharpness gauge", &settings::Settings::sharpness_gauge);
     toggle_setting("Pause the game when the menu opens", &settings::Settings::menu_pause);
     toggle_setting("Pause during multiplayer", &settings::Settings::menu_pause_multiplayer);
     {
