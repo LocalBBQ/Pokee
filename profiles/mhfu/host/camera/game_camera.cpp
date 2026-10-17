@@ -2,6 +2,7 @@
 
 #include "camera/camera_input.hpp"
 #include "camera/lock_on.hpp"
+#include "game/guest_layout.hpp"
 #include "game/layered_armor.hpp"
 #include "input/bindings.hpp"
 #include "platform/utf8_path.hpp"
@@ -99,11 +100,9 @@ constexpr std::uint32_t kSnapCount = 0x8Du;
 // and the follow driver leaves that update to the game.
 constexpr std::uint32_t kAim = 0x91u;
 // The followed hunter is not an argument of the camera update. 0x08886E80
-// loads the list at 0x089CBD04 (0x089D0000 - 17148) and 0x08886EF8 loads the
-// hunter from that plus 2692. The same object is s3 where the aim camera
+// loads the camera object and 0x08886EF8 loads the hunter from it
+// (game::layout::followed_hunter). The same object is s3 where the aim camera
 // reads the facing and the pitch.
-constexpr std::uint32_t kHunterList = 0x089CBD04u;
-constexpr std::uint32_t kFollowedHunter = 2692u;
 // Bow and bowgun aim is the action at halfword +804 equal to 1001. The aim
 // function at 0x09AA4DD0 (game_task) returns unless that action is current,
 // then steps the aim heading at halfword +800 by 128, 215 or 400 as the left
@@ -491,8 +490,7 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
     state.focus_held = focus_down;
     // Follow uses this same bind as a toggle. A hold is one press. With the
     // bind empty, L stays the game's recenter and does not toggle.
-    if (focus_press && bound && lock_on_allowed() &&
-        settings::current().lock_on_style == settings::LockOnStyle::Follow)
+    if (focus_press && bound && lock_on_allowed() && settings::current().lock_on_style == settings::LockOnStyle::Follow)
         lock_on_toggle_follow();
     // R shares the bit the game's recenter check reads. A snap it starts has
     // to be ignored after the button is up as well, until that snap is gone,
@@ -519,8 +517,7 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
     // it is the focus bind, still recenters through the game, aimed below.
     state.quiet_l = steal_recenter && l_down;
     const bool game_will_recenter = r_down && !state.quiet_l;
-    if (!state.quiet_l && steal_recenter && game_will_recenter &&
-        memory.raw_pointer(hunter + kFacing, 4u) != nullptr &&
+    if (!state.quiet_l && steal_recenter && game_will_recenter && memory.raw_pointer(hunter + kFacing, 4u) != nullptr &&
         memory.raw_pointer(address + 0x18u, 4u) != nullptr) {
         const Vec3 look_at{load_float(memory, address + 0x10u), load_float(memory, address + 0x14u),
             load_float(memory, address + 0x18u)};
@@ -683,21 +680,16 @@ void trace_modes(const psprecomp::GuestMemory &memory, const psprecomp::Allegrex
     out.flush();
 }
 
-// The followed hunter, or 0 when the list is not in guest RAM yet.
+// The followed hunter, or 0 when the camera object is not in guest RAM yet.
 std::uint32_t followed_hunter(const psprecomp::GuestMemory &memory) {
-    if (memory.raw_pointer(kHunterList, 4u) == nullptr) return 0u;
-    const auto list = memory.load32(kHunterList);
-    if (list < 0x08800000u || memory.raw_pointer(list + kFollowedHunter, 4u) == nullptr) return 0u;
-    const auto hunter = memory.load32(list + kFollowedHunter);
-    if (hunter < 0x08800000u || memory.raw_pointer(hunter, kHunterExtent) == nullptr) return 0u;
-    return hunter;
+    return game::layout::followed_hunter(memory, kHunterExtent);
 }
 
 // The hunter carries a bow: the game's weapon switch sends its weapon to the
 // bow's case. Another overlay at that address, or another weapon, is not.
 bool carries_bow(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
-    if (memory.raw_pointer(kWeaponTable, kWeaponTypes * 4u) == nullptr ||
-        memory.raw_pointer(kBowCase, 4u) == nullptr || memory.load32(kBowCase) != kBowCaseCall)
+    if (memory.raw_pointer(kWeaponTable, kWeaponTypes * 4u) == nullptr || memory.raw_pointer(kBowCase, 4u) == nullptr ||
+        memory.load32(kBowCase) != kBowCaseCall)
         return false;
     const std::uint32_t weapon = memory.load8(hunter + kWeaponType);
     return weapon < kWeaponTypes && memory.load32(kWeaponTable + weapon * 4u) == kBowCase;
@@ -778,8 +770,7 @@ void store_heading(psprecomp::GuestMemory &memory, std::uint32_t hunter, std::ui
     const auto facing = memory.load32(hunter + kFacing);
     const auto body = static_cast<std::uint16_t>(facing);
     const int apart = static_cast<std::int16_t>(static_cast<std::uint16_t>(body - previous));
-    if (std::abs(apart) <= kLargestYawStep)
-        memory.store32(hunter + kFacing, (facing & 0xFFFF0000u) | heading);
+    if (std::abs(apart) <= kLargestYawStep) memory.store32(hunter + kFacing, (facing & 0xFFFF0000u) | heading);
 }
 
 int sign_of(float value) {
@@ -1002,8 +993,7 @@ void resize_shown_aim(psprecomp::GuestMemory &memory, std::uint32_t hunter, std:
         if (game_yaw != 0 && std::abs(game_yaw) <= kLargestYawStep) {
             const float degrees = std::fabs(state.aim_scale_x) * speed * seconds;
             const int step = take_yaw_units(degrees);
-            store_heading(memory, hunter,
-                static_cast<std::uint16_t>(heading_before + (game_yaw > 0 ? step : -step)));
+            store_heading(memory, hunter, static_cast<std::uint16_t>(heading_before + (game_yaw > 0 ? step : -step)));
             state.sized_yaw_frame = state.frame;
         }
     }
@@ -1068,8 +1058,7 @@ void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     ++state.aim_calls;
     const auto hunter = ctx.gpr[4];
     const auto &memory = runtime.memory();
-    if (memory.raw_pointer(hunter, kHunterExtent) != nullptr &&
-        memory.load16(hunter + kAimAction) == kAimingAction) {
+    if (memory.raw_pointer(hunter, kHunterExtent) != nullptr && memory.load16(hunter + kAimAction) == kAimingAction) {
         state.aim_ran_frame = state.frame;
         state.aim_ran_hunter = hunter;
     }
@@ -1094,8 +1083,7 @@ void install_one(psprecomp::Runtime &runtime, std::uint32_t address, const std::
 }
 
 void install_aim_hook(psprecomp::Runtime &runtime) {
-    if (option_on())
-        install_one(runtime, kAimFunction, kAimSignature, &aim_step, state.aim_original, "mhfu_aim_step");
+    if (option_on()) install_one(runtime, kAimFunction, kAimSignature, &aim_step, state.aim_original, "mhfu_aim_step");
     state.aim_wrapped = runtime.function_at(kAimFunction) == &aim_step;
 }
 
@@ -1120,9 +1108,8 @@ void trace_weapon(const psprecomp::GuestMemory &memory) {
     std::cout << "[weapon] frame=" << state.frame << " hunter=0x" << std::hex << hunter << std::dec
               << " entity=" << hex(hunter, kHunterExtent);
     namespace layered = game::layered;
-    const std::uint32_t block = memory.raw_pointer(layered::kGameBlockPointer, 4u) != nullptr
-        ? memory.load32(layered::kGameBlockPointer)
-        : 0u;
+    const std::uint32_t block =
+        memory.raw_pointer(layered::kGameBlockPointer, 4u) != nullptr ? memory.load32(layered::kGameBlockPointer) : 0u;
     const std::uint32_t record = block + layered::kHunterRecords;
     if (block != 0u && memory.raw_pointer(record, layered::kHunterRecordBytes) != nullptr)
         std::cout << " record=" << hex(record, layered::kHunterRecordBytes);
@@ -1153,7 +1140,8 @@ void trace_aim_state(psprecomp::Runtime &runtime, bool aiming) {
     if (!changed && !(aiming && state.frame - last_line >= 30u)) return;
     last_line = state.frame;
     std::cout << "[aim] frame=" << state.frame << (changed ? (aiming ? " start" : " end") : " held")
-              << " wrapper=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0) << " bow=" << (state.bow_aiming ? 1 : 0) << " option=" << (option_on() ? 1 : 0)
+              << " wrapper=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0)
+              << " bow=" << (state.bow_aiming ? 1 : 0) << " option=" << (option_on() ? 1 : 0)
               << " hooked=" << (state.hooked ? 1 : 0) << " available=" << (state.available ? 1 : 0)
               << " lock_on_drives=" << (lock_on_drives_camera() ? 1 : 0)
               << " driving=" << (game_camera_driving() ? 1 : 0) << " boost=" << (game_camera_aim_boost() ? 1 : 0)
@@ -1185,7 +1173,8 @@ struct RecenterWatch {
     bool nudged{};
 };
 
-std::optional<RecenterWatch> watch_recenter(psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t hunter) {
+std::optional<RecenterWatch> watch_recenter(
+    psprecomp::GuestMemory &memory, std::uint32_t address, std::uint32_t hunter) {
     if (hunter == 0u || !lock_on_allowed() || settings::current().lock_on_style != settings::LockOnStyle::Focus ||
         !lock_on_status().locked)
         return std::nullopt;
@@ -1301,7 +1290,6 @@ std::span<const CodeWord> game_code_signature() {
 std::span<const CodeWord> aim_code_signature() {
     return kAimSignature;
 }
-
 
 bool game_camera_hunter_aiming() {
     return state.hunter_aiming;

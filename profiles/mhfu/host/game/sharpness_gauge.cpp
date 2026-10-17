@@ -1,5 +1,6 @@
 #include "game/sharpness_gauge.hpp"
 
+#include "game/guest_layout.hpp"
 #include "game/guest_ram.hpp"
 
 #include <algorithm>
@@ -66,12 +67,7 @@ std::optional<Reading> read_hunter(const Ram &ram, std::uint32_t hunter) {
 }
 
 std::uint32_t followed_hunter(const Ram &ram) {
-    if (!ram.contains(kHunterList, 4u)) return 0u;
-    const std::uint32_t list = ram.load32(kHunterList);
-    if (list < 0x08800000u || !ram.contains(list + kFollowedHunter, 4u)) return 0u;
-    const std::uint32_t hunter = ram.load32(list + kFollowedHunter);
-    if (hunter < 0x08800000u || !ram.contains(hunter, kPoints + 2u)) return 0u;
-    return hunter;
+    return layout::followed_hunter(ram, kPoints + 2u);
 }
 
 Edge cut_right(float x0, float x1, float u0, float u1, float remaining) noexcept {
