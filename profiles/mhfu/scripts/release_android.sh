@@ -7,7 +7,7 @@
 # toolchain, -DMHFU_ANDROID_APP=ON; docs/RELEASING.md has the commands),
 # this switches it to a release build (MHFU_RELEASE, the pinned SDL3,
 # Android 10 as the oldest system), rebuilds libmain.so if that changes it,
-# copies the 355 overlay libraries as they are, packs and signs the APK with
+# copies the overlay libraries as they are, packs and signs the APK with
 # the release key, checks that it holds no game data and that its libraries
 # import nothing Android 10 lacks, and prints its size and SHA-256. Everything lands in
 # out/release-android; the artifacts in out/release-android/dist.

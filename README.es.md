@@ -40,28 +40,25 @@ La licencia de **Pokee** se aplica únicamente al código y los materiales origi
 
 ## Estado
 
-El host apunta a un Freedom Unite de EE. UU. jugable: una partida copiada de una PSP o una partida nueva, la aldea y las cacerías, música, cinemáticas e iluminación, y después un guardado en el formato de la propia PSP. La simulación se mantiene a 30 fotogramas por segundo. La interpolación opcional la presenta a 45, 60, 90, 120 o a la frecuencia de la pantalla. Mientras el juego carga en silencio puede avanzar más deprisa que el tiempo real (*Fast loading*, activado por defecto).
+Jugable: una partida nueva o una copiada de una PSP, la aldea y las cacerías, música, cinemáticas y guardado en el formato de la propia PSP. El juego corre a los 30 fotogramas por segundo de la PSP; la interpolación puede presentarlo hasta la frecuencia de la pantalla. El ejecutable (3095 funciones) y los 290 overlays de código se recompilan por adelantado; un intérprete cubre lo que ellos no alcanzan.
 
-`generate.sh` traduce el ejecutable residente (3095 funciones) y sella su SHA-256. El arranque registra ese corpus solo cuando el ejecutable preparado tiene el mismo hash. El juego cabe en 32 MiB de RAM de invitado. Los 355 overlays de código se recompilan por adelantado; un intérprete cubre lo que ellos no alcanzan.
-
-| En este árbol | Sigue abierto |
+| Hecho | Sigue abierto |
 | --- | --- |
-| Arranque, menús, creación de personaje, la aldea y las zonas de caza | Superficies curvas (parches de Bézier y splines) |
-| Partidas en formato PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y copias de seguridad desde el menú | Los diálogos de guardado y de mensaje responden como si se confirmaran y no dibujan nada ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
-| Gráficos Vulkan: modelos, animación, texturas, transparencias, iluminación, niebla e interpolación de fotogramas | Proyección panorámica, colocación del HUD, el marcador de fijación y la armadura por capas. Se trazaron en Portable 3rd y siguen apagados hasta que se trazen en este ejecutable |
-| Seguimiento de cámara analógica, apuntado de arco y ballesta, y fijación, leídos de este ejecutable | |
-| Paquetes de texturas HD compatibles con PPSSPP para `ULUS10391`, instalados desde el menú o copiados al directorio de datos | |
-| Mods por reemplazo de archivos, gestionados desde el menú (ver el [README del perfil](profiles/mhfu/README.md#mods)) | Mods de código |
-| Efectos de sonido, música en streaming y cinemáticas | Modo de descarga (`sceHttp`, `sceNetInet`) |
-| Controles reasignables de teclado, ratón y mando, incluida la cámara y el apuntado analógicos en el stick derecho | |
-| Configuración inicial, menú dentro del juego, explorador de archivos y teclado en pantalla | |
+| Arranque, menús, creación de personaje, la aldea y las cacerías | Superficies curvas (parches de Bézier y splines) |
+| Partidas en formato PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y copias de seguridad | Los diálogos de guardado y de mensaje no dibujan nada y responden como si se confirmaran ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| Gráficos Vulkan, interpolación de fotogramas, panorámico, escala y ocultación del HUD | |
+| Cámara y apuntado analógicos, fijación y su marcador, armadura por capas | |
+| Paquetes de texturas HD compatibles con PPSSPP | |
+| Mods por reemplazo de archivos ([README del perfil](profiles/mhfu/README.md#mods)) | Mods de código |
+| Efectos de sonido, música y cinemáticas | Modo de descarga (`sceHttp`, `sceNetInet`) |
+| Controles reasignables de teclado, ratón y mando | |
 | Ad hoc entre instancias de Pokee, en una red local o a través de un servidor ad hoc | Jugar con PPSSPP y en servidores públicos |
 
-Las filas de [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) se comprobaron en Yakumo antes de redirigir este árbol. Describen sesiones de Portable 3rd. Freedom Unite todavía necesita su propia pasada en cada plataforma.
+Los resultados de [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) son de Portable 3rd, de antes de redirigir este árbol; Freedom Unite todavía necesita su propia pasada en cada plataforma.
 
 ## Jugar
 
-Las descargas para Linux están en la [página de versiones](https://github.com/LocalBBQ/Pokee/releases). Compilar desde el código fuente sigue siendo totalmente compatible; los pasos están en [Primeros pasos](#primeros-pasos). La configuración inicial comprueba la imagen, prepara el juego a partir de ella y guarda los ajustes y las partidas en un directorio del usuario (o en una [carpeta portátil `data`](profiles/mhfu/README.md#portable-copy) junto al ejecutable).
+Las descargas para Windows están en la [página de versiones](https://github.com/LocalBBQ/Pokee/releases). Compilar desde el código fuente sigue siendo totalmente compatible; los pasos están en [Primeros pasos](#primeros-pasos). La configuración inicial comprueba la imagen, prepara el juego a partir de ella y guarda los ajustes y las partidas en un directorio del usuario (o en una [carpeta portátil `data`](profiles/mhfu/README.md#portable-copy) junto al ejecutable).
 
 Cuando exista una compilación terminada, [`docs/LINUX.md`](docs/LINUX.md) y [`docs/MACOS.md`](docs/MACOS.md) (en inglés) explican la instalación, el primer inicio y dónde viven las partidas. Android apunta a Android 10 o posterior de 64 bits con Vulkan 1.1; los controles táctiles se dibujan sobre el juego y los mandos también funcionan.
 
@@ -95,7 +92,6 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Pokee. 
 
 ## Hoja de ruta
 
-- Trazar la proyección panorámica, la colocación del HUD, el marcador de fijación y la armadura por capas en el ejecutable de Freedom Unite. Siguen apagados hasta que ese trabajo esté hecho
 - Superficies curvas, y diálogos de guardado que dibujen
 - Juego ad hoc con PPSSPP y en los servidores públicos que usan los jugadores de PSP
 - Android en teléfonos reales: pruebas en dispositivos, controladores gráficos y rendimiento ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
@@ -103,7 +99,7 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Pokee. 
 
 ## Cómo funciona
 
-El ejecutable se analiza y cada instrucción de su código se convierte en C++, que se compila dentro del programa. Además, el juego carga durante la ejecución 355 overlays de código en unas pocas regiones de memoria compartidas; cada uno se recompila en su propia biblioteca, y cuando el juego carga uno, la biblioteca correspondiente se instala entre fotogramas. Un intérprete ejecuta cualquier código que el conjunto recompilado no cubra, así que el juego nunca se detiene; solo va más lento en esas partes.
+El ejecutable se analiza y cada instrucción de su código se convierte en C++, que se compila dentro del programa. Además, el juego carga durante la ejecución 290 overlays de código en unas pocas regiones de memoria compartidas; cada uno se recompila en su propia biblioteca, y cuando el juego carga uno, la biblioteca correspondiente se instala entre fotogramas. Un intérprete ejecuta cualquier código que el conjunto recompilado no cubra, así que el juego nunca se detiene; solo va más lento en esas partes.
 
 Alrededor de ese código hay una reimplementación del sistema de la PSP: un núcleo con hilos, semáforos, flags de eventos y temporizadores; lectura del disco directamente desde la imagen; un renderizador en Vulkan para el motor gráfico de la PSP; mezcla de voces por software para el audio; y entrada mediante SDL3.
 
