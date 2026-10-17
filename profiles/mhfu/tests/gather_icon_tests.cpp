@@ -1074,6 +1074,11 @@ void test_gather_items() {
     check(gather_art_for(memory, 0u, 28u) == GatherArt::of_item(kBoneItem), "so does a pile of husks alone");
     plant_list(memory, 29u, 0x1C00u, {{40u, 290u}, {10u, 7u}});
     check(gather_art_for(memory, 0u, 29u) == GatherArt::of_item(kBoneItem), "and one whose bone is not plain");
+    // An herb point as traced, with the grey husk as filler: still the herb.
+    icon_of(93u, kHuskIcon, 10u);
+    icon_of(166u, 15u, 2u);
+    plant_list(memory, 14u, 0x2000u, {{55u, 166u}, {30u, 93u}, {15u, 137u}});
+    check(gather_art_for(memory, 0u, 14u) == GatherArt::of_item(166u), "a husk as filler leaves an herb point an herb");
 }
 
 void test_item_art() {
@@ -1090,6 +1095,13 @@ void test_item_art() {
     plant_item(memory, 9u, 21u, 11u, 92u, {0u, 0u, 24u, 24u}, {1u, 2u, 3u});
     check(!item_art(memory, 9u), "a tint past the palette is none");
     check(!item_art(memory, 1500u), "nor an id past the table");
+
+    // The red ? goes through the same icon and tint tables.
+    plant_item(memory, 1168u, kUnknownIcon, kUnknownTint, 107u, {48u, 96u, 24u, 24u}, {0xFFu, 0x5Du, 0x5Du});
+    const std::optional<ItemArt> unknown = icon_art(memory, kUnknownIcon, kUnknownTint);
+    check(unknown && unknown->u == 48u && unknown->v == 96u && unknown->red == 0xFFu && unknown->green == 0x5Du,
+        "the game's ? is icon 33 in its red");
+    check(!icon_art(memory, 255u, 0u), "icon 255 has no picture");
 
     check(!gather_art_code_matches(memory), "the lookups need their code");
     for (const GatherArtWord &word : gather_art_words()) memory.store32(word.address, word.instruction);

@@ -418,10 +418,10 @@ void test_lock_on_and_damage_numbers() {
     hits["game.damage_numbers"] = "1";
     check(from_entries(hits).damage_numbers, "the file turns damage numbers on");
     check(from_entries(to_entries(from_entries(hits))).damage_numbers, "and they survive a round trip");
-    check(!fresh.sharpness_gauge, "the sharpness gauge starts off, so the game's bar stays whole");
+    check(fresh.sharpness_gauge, "the sharpness gauge starts on");
     Entries gauge = to_entries(fresh);
-    gauge["game.sharpness_gauge"] = "1";
-    check(from_entries(to_entries(from_entries(gauge))).sharpness_gauge, "the file turns the sharpness gauge on");
+    gauge["game.sharpness_gauge"] = "0";
+    check(!from_entries(to_entries(from_entries(gauge))).sharpness_gauge, "the file turns the sharpness gauge off");
     // The gauge decides how the colour looks; the earlier separate switches
     // are not read or written again.
     const Settings earlier_sharpness = from_entries({{"game.sharpness_effect", "solid"},
@@ -2060,6 +2060,79 @@ void test_hud_scale_draws() {
     check(!mhfu::gpu::hud_scale::scale_name_draw(plate, names_half, quiet, village, InterfaceFit{}) &&
             plate[0].x == 100.0f && plate[2].x == 300.0f,
         "a village plate larger than a name stays as drawn");
+
+    // A gathering-hall name takes the Names size too, toward the point the
+    // game placed it, unless MHFU_HUD_HALL_NAMES=0. At the game's size it is
+    // only moved by frame interpolation.
+    using mhfu::gpu::hud_scale::sizes_name;
+    NameDraw hall = named;
+    hall.tag_only = true;
+    hall.hall = true;
+    check(sizes_name(named, Scales{}, false) && sizes_name(named, names_half, false),
+        "a quest name always takes the Names size");
+    check(sizes_name(hall, names_half, true), "a hall name takes the Names size");
+    check(!sizes_name(hall, names_half, false), "MHFU_HUD_HALL_NAMES=0 leaves a hall name as drawn");
+    check(!sizes_name(hall, Scales{}, true), "a hall name at the game's size is only moved");
+    check(!sizes_name(NameDraw{}, names_half, true), "a draw that is no name is not sized as one");
+    std::vector<Vertex> hall_name = quad(200.0f, 109.0f, 208.0f, 123.0f);
+    hall.origin_x = 208.0f;
+    hall.origin_y = 123.0f;
+    check(mhfu::gpu::hud_scale::scale_name_draw(hall_name, names_half, quiet, hall, InterfaceFit{}) &&
+            hall_name[0].x == 204.0f && hall_name[0].y == 116.0f && hall_name[2].x == 208.0f &&
+            hall_name[2].y == 123.0f,
+        "a hall name shrinks toward its point");
+    // From the next frame a hall label is sized about the middle of its badge
+    // and letters, so it stays over its hunter. Traced in the village: the
+    // badge at (214, 75)-(226, 91), the letters from (229, 78) to (253, 92),
+    // all on the point (229, 78); the shadow's point is a pixel off.
+    Frame labels;
+    NameDraw badge;
+    badge.is_name = badge.has_origin = badge.tag_only = badge.hall = true;
+    badge.origin_x = 229.0f;
+    badge.origin_y = 78.0f;
+    NameDraw shadow = badge;
+    shadow.glyph = true;
+    NameDraw letters_on_top = shadow;
+    letters_on_top.origin_x = 228.0f;
+    letters_on_top.origin_y = 77.0f;
+    const auto draw_label = [&](std::vector<Vertex> &b, std::vector<Vertex> &s, std::vector<Vertex> &t) {
+        b = quad(214.0f, 75.0f, 226.0f, 91.0f);
+        s = quad(229.0f, 78.0f, 253.0f, 92.0f);
+        t = quad(228.0f, 77.0f, 252.0f, 91.0f);
+        mhfu::gpu::hud_scale::scale_name_draw(b, names_half, labels, badge, InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(s, names_half, labels, shadow, InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(t, names_half, labels, letters_on_top, InterfaceFit{});
+    };
+    std::vector<Vertex> b;
+    std::vector<Vertex> s;
+    std::vector<Vertex> t;
+    draw_label(b, s, t);
+    check(b[0].x == 221.5f && b[0].y == 76.5f && s[0].x == 229.0f && s[0].y == 78.0f,
+        "a hall label's first frame is sized about the game's point");
+    labels.begin();
+    draw_label(b, s, t);
+    // The box is (214, 75)-(253, 92), its middle (233.5, 83.5).
+    check(b[0].x == 223.75f && b[0].y == 79.25f && b[2].x == 229.75f && b[2].y == 87.25f,
+        "the badge shrinks toward the label's middle");
+    check(s[0].x == 231.25f && s[0].y == 80.75f && s[2].x == 243.25f && s[2].y == 87.75f,
+        "the letters shrink toward the label's middle");
+    check(t[0].x == s[0].x - 1.0f && t[0].y == s[0].y - 1.0f, "the letters stay a pixel off their shadow");
+    const float middle_before = 0.5f * (214.0f + 253.0f);
+    const float middle_after = 0.5f * (b[0].x + s[2].x);
+    check(middle_after == middle_before, "the label keeps its middle over the hunter");
+    // The hunter walks: the label's point moves, and the middle moves with it.
+    labels.begin();
+    badge.origin_x += 6.0f;
+    shadow.origin_x += 6.0f;
+    letters_on_top.origin_x += 6.0f;
+    std::vector<Vertex> moved_badge = quad(220.0f, 75.0f, 232.0f, 91.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(moved_badge, names_half, labels, badge, InterfaceFit{});
+    check(moved_badge[0].x == 229.75f, "a moved label keeps its middle relative to its point");
+
+    std::vector<Vertex> hall_window = quad(100.0f, 100.0f, 300.0f, 140.0f);
+    check(!mhfu::gpu::hud_scale::scale_name_draw(hall_window, names_half, quiet, hall, InterfaceFit{}) &&
+            hall_window[0].x == 100.0f && hall_window[2].x == 300.0f,
+        "a hall window queued after the last name stays as drawn");
 
     // The cat's face filed with its name takes Status from the clock while
     // the name takes the Names size.

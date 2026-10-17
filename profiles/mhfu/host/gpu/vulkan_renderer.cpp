@@ -178,6 +178,17 @@ bool names_glide() {
     return !off;
 }
 
+// Names (video.hud.names) reaches the names over other hunters in the
+// gathering hall too. MHFU_HUD_HALL_NAMES=0 leaves those at the size the game
+// draws, as before.
+bool hall_names_sized() {
+    static const bool off = [] {
+        const char *value = std::getenv("MHFU_HUD_HALL_NAMES");
+        return value != nullptr && std::strcmp(value, "0") == 0;
+    }();
+    return !off;
+}
+
 void set_uv_rect(GpuVertex &vertex, float u_min, float v_min, float u_max, float v_max) {
     vertex.nx = u_min;
     vertex.ny = v_min;
@@ -7770,8 +7781,17 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // draws give their screen bounds; small orthographic draws give their
     // untransformed ones. Pair with the [mapmark] lines below, which say what
     // the HUD sizes made of each quad.
-    static const bool trace_map_marks = std::getenv("MHFU_TRACE_MAP_MARKS") != nullptr;
-    if (trace_map_marks && !raw && !call.clear_mode && !call.vertices.empty() && count != 0u &&
+    // MHFU_TRACE_MAP_MARKS=new prints only [mapdraw] lines, each kind of draw
+    // (primitive, vertex count, texture, caller) once, with orthographic
+    // draws of any size, so it can run through a whole hunt while waiting for
+    // a ping that is hard to bring about.
+    static const int trace_map_marks_mode = [] {
+        const char *value = std::getenv("MHFU_TRACE_MAP_MARKS");
+        if (value == nullptr) return 0;
+        return std::strcmp(value, "new") == 0 ? 2 : 1;
+    }();
+    static const bool trace_map_marks = trace_map_marks_mode == 1;
+    if (trace_map_marks_mode != 0 && !raw && !call.clear_mode && !call.vertices.empty() && count != 0u &&
         impl.shows(call.target.color_address) && impl.quest_clock.up()) {
         const bool ortho = !call.through && std::fabs(call.projection[11]) < 1e-6f;
         hud_scale::Rect drawn{1e9f, 1e9f, -1e9f, -1e9f};
@@ -7785,7 +7805,17 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         const bool near_map = hud_scale::overlaps({hud_scale::kMapLeft - 48.0f, hud_scale::kMapTop - 32.0f,
                                                       hud_scale::kMapRight + 16.0f, hud_scale::kMapBottom + 48.0f},
             drawn);
-        if ((call.through && near_map) || (ortho && count <= 64u)) {
+        bool first_of_kind = true;
+        if (trace_map_marks_mode == 2) {
+            static std::set<std::string> kinds;
+            std::ostringstream kind;
+            kind << static_cast<int>(call.primitive) << ' ' << count << ' ' << call.through << ' '
+                 << (call.texture.enabled ? call.texture.address : 0u) << ' ' << call.command_address << ' '
+                 << call.call_return;
+            first_of_kind = kinds.insert(kind.str()).second;
+        }
+        if (first_of_kind &&
+            ((call.through && near_map) || (ortho && (count <= 64u || trace_map_marks_mode == 2)))) {
             const hud::Owner owner = hud::owner_of(call.command_address, call.call_return);
             std::cout << "[mapdraw] f=" << impl.frames << " prim=" << static_cast<int>(call.primitive) << " n=" << count
                       << (call.through ? " through" : " ortho") << " owner="
@@ -8115,9 +8145,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     hud::NameDraw named = scale_corners || (through_quads && glide_names)
         ? hud::name_at(call.command_address, call.call_return)
         : hud::NameDraw{};
-    // A gathering-hall name is only moved, so without interpolation it is
-    // drawn as any other 2D draw.
-    if (named.glide_only && !glide_names) named = hud::NameDraw{};
+    // A gathering-hall name at the size the game draws is only moved, so
+    // without interpolation it is drawn as any other 2D draw.
+    const bool sized_name = hud_scale::sizes_name(named, hud_scales, hall_names_sized());
+    if (named.hall && !glide_names && !sized_name) named = hud::NameDraw{};
     if (named.is_name) scale_corners = true;
     std::vector<GpuVertex> corner_scaled;
     // Where the area map and a name went, when their sizes moved them. The
@@ -8131,8 +8162,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         if (party_icons) {
             scale_corners = hud_scale::place_party_icons(corner_scaled, hud_scales, impl.hud_scale_frame);
         } else if (named.is_name) {
-            // A hall name keeps the size the game draws it at.
-            if (!named.glide_only)
+            // A hall name with MHFU_HUD_HALL_NAMES=0 keeps the size the game
+            // draws it at.
+            if (sized_name)
                 name_bounds = hud_scale::scale_name_draw(corner_scaled, hud_scales, impl.hud_scale_frame, named, fit);
         } else {
             // The moving map window is told from other panels of the same size by
@@ -8151,13 +8183,18 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             }();
             std::vector<hud_scale::Decision> decisions;
             hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner,
-                trace_hud_scale != 0 || trace_map_marks ? &decisions : nullptr);
+                trace_hud_scale != 0 || trace_map_marks_mode != 0 ? &decisions : nullptr);
             map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture);
             // MHFU_TRACE_MAP_MARKS: every quad near the map, every frame, with
             // the piece it was given and the frame state that let it move or
             // held it: map up, a window over the map, the item list.
-            for (std::size_t first = 0; trace_map_marks && first + 6u <= unscaled.size(); first += 6u) {
+            // With =new, only the icon atlas's quads of 28 pixels and more:
+            // a ping's quarters, a paintball's ring and the menu icons.
+            for (std::size_t first = 0; trace_map_marks_mode != 0 && first + 6u <= unscaled.size(); first += 6u) {
                 const hud_scale::Rect from = hud_scale::quad_bounds(unscaled, first);
+                if (trace_map_marks_mode == 2 &&
+                    (hud_texture != hud_scale::kMapIconTexture || from.x1 - from.x0 < 28.0f || from.y1 - from.y0 < 28.0f))
+                    continue;
                 if (!hud_scale::overlaps({hud_scale::kMapLeft - 48.0f, hud_scale::kMapTop - 32.0f,
                                              hud_scale::kMapRight + 16.0f, hud_scale::kMapBottom + 48.0f},
                         from))
@@ -8175,7 +8212,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                           << " panel=" << (state.panel_up() ? 1 : 0)
                           << " list=" << (state.list_now || state.list_live ? 1 : 0)
                           << " status=" << (state.status_up() ? 1 : 0)
-                          << " ring=" << (hud_scale::is_map_ring(from, hud_texture) ? 1 : 0) << "\n";
+                          << " ring=" << (hud_scale::is_map_ring(from, hud_texture) ? 1 : 0)
+                          << " aiming=" << (state.aiming ? 1 : 0) << " owner=" << static_cast<int>(hud_owner)
+                          << " size=" << hud_scales.map << "\n";
             }
             for (std::size_t first = 0; trace_hud_scale != 0 && first + 6u <= unscaled.size(); first += 6u) {
                 const bool moved = hud_scale::quad_moved(unscaled, corner_scaled, first);

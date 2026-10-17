@@ -205,6 +205,10 @@ struct GatherMark {
     // The item's icon on the atlas and its tint, when `art` is an item that has
     // one. Filled in by the caller, which reads the game's tables.
     std::optional<ItemArt> icon;
+    // The game's red ? (kUnknownIcon), drawn when there is no picture: an item
+    // without an icon, a monster the sheet has no picture for, a cut tail.
+    // Filled in by the caller; without it the interface draws its own ?.
+    std::optional<ItemArt> unknown;
 };
 
 // Where the mark goes on the picture while Gather icon is on: over the node
