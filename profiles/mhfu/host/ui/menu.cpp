@@ -1346,18 +1346,6 @@ void Menu::game() {
             settings::save();
         }
     }
-    {
-        RowOptions o = options_for("game.gather_icon_thickness",
-            "How bold the gather mark is: 1 is a one-pixel ring and the font's own ?. Each step thickens the "
-            "ring and the ?, and that weight grows with the size. 3 is the thickest that still leaves the ? clear.");
-        o.disabled = o.disabled || !s.gather_icon;
-        int thickness = static_cast<int>(s.gather_icon_thickness);
-        if (slider_row("Gather icon thickness", thickness, 1, static_cast<int>(settings::kMaxGatherIconThickness), 1,
-                "%d", o)) {
-            s.gather_icon_thickness = static_cast<std::uint32_t>(thickness);
-            settings::save();
-        }
-    }
     section("Speed");
     if (choice_row("Game speed", s.unthrottled ? "Unlimited" : "Normal",
             options_for("video.unthrottled",
@@ -1476,7 +1464,6 @@ void Menu::game() {
         restore("game.sharpness_gauge", s.sharpness_gauge, d.sharpness_gauge);
         restore("game.gather_icon", s.gather_icon, d.gather_icon);
         restore("game.gather_icon_size", s.gather_icon_size, d.gather_icon_size);
-        restore("game.gather_icon_thickness", s.gather_icon_thickness, d.gather_icon_thickness);
         restore("video.unthrottled", s.unthrottled, d.unthrottled);
         restore("video.fast_loading", s.fast_loading, d.fast_loading);
         restore("video.fast_forward", s.fast_forward, d.fast_forward);
@@ -1798,7 +1785,7 @@ void Menu::mods() {
         if (toggle_row("Give Any Rarity Item", s.give_any_rarity,
                 options_for("game.give_any_rarity",
                     "On: in the Guild Hall, Start > Item > Give hands an item of any rarity to another hunter. "
-                    "Off: the game's own limit, Rare 1 to 3 only."))) {
+                    "Off (default): the game's own limit, Rare 1 to 3 only."))) {
             s.give_any_rarity = !s.give_any_rarity;
             settings::save();
         }
@@ -2412,7 +2399,7 @@ void draw_gather_mark(const game::GatherMark &mark) {
     const float grow = 0.8f + 0.2f * (1.0f - (1.0f - alpha) * (1.0f - alpha));
     const float pixel = picture[3] * io.DisplaySize.y / 272.0f * grow;
     const settings::Settings &player = settings::current();
-    const game::GatherShape shape = game::gather_mark_shape(player.gather_icon_size, player.gather_icon_thickness);
+    const game::GatherShape shape = game::gather_mark_shape(player.gather_icon_size);
     const float radius = shape.radius * pixel;
     const float ring = std::max(1.0f, shape.ring * pixel);
     const int segments = std::clamp(static_cast<int>(shape.radius * 3.0f), 16, 48);
@@ -2430,13 +2417,7 @@ void draw_gather_mark(const game::GatherMark &mark) {
         ImFont *font = ImGui::GetFont();
         const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
         const ImVec2 origin{centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f};
-        const ImU32 ink = fade(245, 236, 214, 240);
-        const float weight = shape.weight * pixel;
-        if (weight >= 0.25f)
-            for (const game::Offset &offset : game::stroke_offsets(weight, 2))
-                if (offset.x != 0.0f || offset.y != 0.0f)
-                    draw->AddText(font, size, {origin.x + offset.x, origin.y + offset.y}, ink, label);
-        draw->AddText(font, size, origin, ink, label);
+        draw->AddText(font, size, origin, fade(245, 236, 214, 240), label);
     }
     if (mark.older) {
         const ImVec2 older = screen(*mark.older);

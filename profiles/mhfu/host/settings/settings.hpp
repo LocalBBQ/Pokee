@@ -200,14 +200,11 @@ struct Settings {
     // (game/empty_item_slot.hpp). On by default. Off: the game's own bar.
     bool empty_item_slot{true};
     // The Guild Hall's Give hands over items of any rarity, not only Rare 1
-    // to 3 (game/give_rarity.hpp). On by default. Off: the game's limit.
-    bool give_any_rarity{true};
+    // to 3 (game/give_rarity.hpp). Off by default: the game's limit.
+    bool give_any_rarity{};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
-    // kMaxGatherIconSize), and the weight of its ring and ? (1 to
-    // kMaxGatherIconThickness). A larger mark keeps the same proportions, and
-    // a thicker one widens the ring and the ?.
+    // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};
-    std::uint32_t gather_icon_thickness{1};
     // Their size, in percent of the interface font's (kMinDamageNumberSize to
     // kMaxDamageNumberSize), and the weight of their strokes and dark outline
     // (1 to kMaxDamageNumberThickness, 1 the thinnest). Both scale with the
@@ -251,8 +248,6 @@ inline constexpr std::uint32_t kMaxDamageNumberSize = 300u;
 inline constexpr std::uint32_t kMaxDamageNumberThickness = 3u;
 inline constexpr std::uint32_t kMinGatherIconSize = 50u;
 inline constexpr std::uint32_t kMaxGatherIconSize = 300u;
-// Past 3 the ring and the ? stroke meet, so 3 is as thick as stays readable.
-inline constexpr std::uint32_t kMaxGatherIconThickness = 3u;
 inline constexpr float kMinMouseSensitivity = 0.01f;
 inline constexpr float kMinTouchOpacity = 0.1f;
 inline constexpr float kMaxTouchOpacity = 1.0f;
