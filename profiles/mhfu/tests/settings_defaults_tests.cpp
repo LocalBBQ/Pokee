@@ -2129,6 +2129,95 @@ void test_hud_scale_draws() {
     mhfu::gpu::hud_scale::scale_name_draw(moved_badge, names_half, labels, badge, InterfaceFit{});
     check(moved_badge[0].x == 229.75f, "a moved label keeps its middle relative to its point");
 
+    // A hunter who takes a quest or readies up gets a mark on the label's
+    // point; a ready mark blinks. Neither moves the label: only the letters
+    // and the badge against them set its middle.
+    Frame marked;
+    badge.origin_x = shadow.origin_x = 229.0f;
+    letters_on_top.origin_x = 228.0f;
+    const auto draw_marked = [&](bool mark, bool letters, std::vector<Vertex> &out_badge) {
+        out_badge = quad(214.0f, 75.0f, 226.0f, 91.0f);
+        std::vector<Vertex> shadow_quad = quad(229.0f, 78.0f, 253.0f, 92.0f);
+        std::vector<Vertex> top_quad = quad(228.0f, 77.0f, 252.0f, 91.0f);
+        std::vector<Vertex> left_mark = quad(196.0f, 75.0f, 210.0f, 91.0f);
+        std::vector<Vertex> right_mark = quad(256.0f, 60.0f, 272.0f, 76.0f);
+        mhfu::gpu::hud_scale::scale_name_draw(out_badge, names_half, marked, badge, InterfaceFit{});
+        if (mark) {
+            mhfu::gpu::hud_scale::scale_name_draw(left_mark, names_half, marked, badge, InterfaceFit{});
+            mhfu::gpu::hud_scale::scale_name_draw(right_mark, names_half, marked, badge, InterfaceFit{});
+        }
+        if (letters) {
+            mhfu::gpu::hud_scale::scale_name_draw(shadow_quad, names_half, marked, shadow, InterfaceFit{});
+            mhfu::gpu::hud_scale::scale_name_draw(top_quad, names_half, marked, letters_on_top, InterfaceFit{});
+        }
+    };
+    std::vector<Vertex> marked_badge;
+    draw_marked(false, true, marked_badge);
+    marked.begin();
+    draw_marked(true, true, marked_badge);
+    check(marked_badge[0].x == 223.75f && marked_badge[0].y == 79.25f, "a quest mark does not move the label");
+    bool steady = true;
+    for (int blink = 0; blink < 6; ++blink) {
+        marked.begin();
+        draw_marked(blink % 2 == 0, true, marked_badge);
+        steady = steady && marked_badge[0].x == 223.75f && marked_badge[0].y == 79.25f;
+    }
+    check(steady, "a blinking ready mark leaves the label where it is");
+    marked.begin();
+    draw_marked(true, false, marked_badge);
+    marked.begin();
+    draw_marked(true, true, marked_badge);
+    check(marked_badge[0].x == 223.75f, "a frame without the letters keeps the label's middle");
+    for (int frame = 0; frame < 3; ++frame) marked.begin();
+    draw_marked(false, true, marked_badge);
+    check(marked_badge[0].x == 223.75f, "a label missing for a few frames comes back to its middle");
+    for (int frame = 0; frame <= Frame::kNameLabelKeep + 1; ++frame) marked.begin();
+    draw_marked(false, true, marked_badge);
+    check(marked_badge[0].x == 221.5f, "a label gone for over a second starts again from the game's point");
+
+    // Traced in the hall: the ready mark over this hunter's name, at
+    // (236, 106)-(244, 122), is filed after the name with no point, or with
+    // the point of the next hunter's name, (625, 307). It is sized toward the
+    // middle of the label it sits on, (233.5, 83.5) here, either way.
+    std::vector<Vertex> other_badge = quad(610.0f, 304.0f, 622.0f, 320.0f);
+    std::vector<Vertex> other_letters = quad(625.0f, 307.0f, 649.0f, 321.0f);
+    NameDraw other_badge_draw = badge;
+    other_badge_draw.origin_x = 625.0f;
+    other_badge_draw.origin_y = 307.0f;
+    NameDraw other_letters_draw = other_badge_draw;
+    other_letters_draw.glyph = true;
+    const auto draw_hall = [&] {
+        std::vector<Vertex> b0;
+        draw_marked(false, true, b0);
+        other_badge = quad(610.0f, 304.0f, 622.0f, 320.0f);
+        other_letters = quad(625.0f, 307.0f, 649.0f, 321.0f);
+        mhfu::gpu::hud_scale::scale_name_draw(other_badge, names_half, marked, other_badge_draw, InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(other_letters, names_half, marked, other_letters_draw, InterfaceFit{});
+    };
+    marked = Frame{};
+    draw_hall();
+    marked.begin();
+    draw_hall();
+    marked.begin();
+    NameDraw ready = other_badge_draw; // the next hunter's point
+    std::vector<Vertex> ready_mark = quad(236.0f, 66.0f, 244.0f, 74.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(ready_mark, names_half, marked, ready, InterfaceFit{});
+    check(ready_mark[0].x == 234.75f && ready_mark[0].y == 74.75f,
+        "a mark filed with the next hunter's point is sized toward its own label");
+    NameDraw paper = badge;
+    paper.has_origin = false;
+    paper.origin_x = paper.origin_y = 0.0f;
+    std::vector<Vertex> paper_mark = quad(628.0f, 290.0f, 644.0f, 306.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(paper_mark, names_half, marked, paper, InterfaceFit{});
+    check(paper_mark[0].x == 628.75f && paper_mark[0].y == 301.25f,
+        "a quest paper filed with no point is sized toward the label under it");
+    // A turning camera moves a name 60 pixels in a frame; it keeps its middle.
+    marked.begin();
+    other_badge_draw.origin_x = other_letters_draw.origin_x = 565.0f;
+    std::vector<Vertex> turned = quad(550.0f, 304.0f, 562.0f, 320.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(turned, names_half, marked, other_badge_draw, InterfaceFit{});
+    check(turned[0].x == 559.75f, "a label that moved 60 pixels keeps its middle");
+
     std::vector<Vertex> hall_window = quad(100.0f, 100.0f, 300.0f, 140.0f);
     check(!mhfu::gpu::hud_scale::scale_name_draw(hall_window, names_half, quiet, hall, InterfaceFit{}) &&
             hall_window[0].x == 100.0f && hall_window[2].x == 300.0f,
