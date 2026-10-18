@@ -24,6 +24,9 @@ namespace mhfu {
 
 // An environment variable's value as UTF-8; nothing when it is not set.
 [[nodiscard]] std::optional<std::string> environment_utf8(const char *name);
+// Sets an environment variable of this process from UTF-8, where both
+// environment_utf8 and std::getenv see it.
+void set_environment_utf8(const char *name, const std::string &value);
 // An environment variable that names a path; empty when unset or empty.
 [[nodiscard]] std::filesystem::path environment_path(const char *name);
 
