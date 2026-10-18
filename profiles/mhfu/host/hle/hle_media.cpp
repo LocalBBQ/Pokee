@@ -8,6 +8,7 @@
 #include "kernel/load_trace.hpp"
 
 #include "overlays.hpp"
+#include "game/body_trace.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/gather_icon.hpp"
 #include "game/guest_ram.hpp"
@@ -296,6 +297,10 @@ void present_frame(Runtime &rt) {
     const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
     game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
     game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), pose);
+    if (game::body_trace::enabled()) {
+        static game::body_trace::Tracker bodies;
+        bodies.frame(rt.memory(), std::cout);
+    }
     // The draws of this frame have already named the camera they used, so the
     // marker matches the picture about to be shown, aim camera included.
     ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
