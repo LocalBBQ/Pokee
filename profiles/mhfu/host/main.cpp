@@ -5,6 +5,7 @@
 
 #include "adhoc/client.hpp"
 #include "adhoc/discovery.hpp"
+#include "adhoc/join.hpp"
 #include "adhoc/server.hpp"
 #include "adhoc/session.hpp"
 
@@ -110,6 +111,7 @@ std::uint64_t configured_max_dispatches() {
 
 constexpr const char *kUsage = "usage: Pokee [game_dir]\n"
                                "       Pokee --install [image.iso [--in-place]]\n"
+                               "       Pokee --join [address] [game_dir]\n"
                                "       Pokee --adhoc-server [port]\n"
                                "  game_dir        play from a directory holding EBOOT.ELF, disc.iso and ms0/\n"
                                "  --data-dir dir  keep settings, saves and the prepared game in dir\n"
@@ -119,6 +121,10 @@ constexpr const char *kUsage = "usage: Pokee [game_dir]\n"
                                "  --install       run the setup again on screen, then play\n"
                                "  --install image set up from image.iso without the setup screens, then exit\n"
                                "  --in-place      use the image where it is instead of copying it\n"
+                               "  --join [address] go on line with the session hosted at address (host or\n"
+                               "                  host:port; this machine's when left out) for this run\n"
+                               "                  only, without changing settings.ini. Joining this machine,\n"
+                               "                  the run takes a player address of its own\n"
                                "  --adhoc-server  run only the ad hoc server that Network > Host a session\n"
                                "                  starts, on TCP port (default 27312) and the next one up,\n"
                                "                  announced on the local network, until Ctrl+C\n";
@@ -131,6 +137,7 @@ struct Options {
     std::optional<std::filesystem::path> data_dir;
     bool portable = false;
     bool copy_user_data = false;
+    std::optional<std::string> join; // empty: the session this machine hosts
 };
 
 class UsageError final : public std::runtime_error {
@@ -155,6 +162,14 @@ Options parse_options(const std::vector<std::string> &arguments) {
         else if (arg == "--data-dir") {
             if (i + 1 >= arguments.size()) throw UsageError("--data-dir needs a directory");
             options.data_dir = mhfu::path_from_utf8(arguments[++i]);
+        } else if (arg == "--join") {
+            // The address is optional: the next argument is one unless it is
+            // an option or the game_dir.
+            options.join.emplace();
+            std::error_code ec;
+            if (i + 1 < arguments.size() && !arguments[i + 1].empty() && arguments[i + 1][0] != '-' &&
+                !std::filesystem::is_directory(mhfu::path_from_utf8(arguments[i + 1]), ec))
+                options.join = arguments[++i];
         } else if (!arg.empty() && arg[0] == '-')
             throw UsageError("unknown option " + arg);
         else if (options.install && !options.install_image)
@@ -169,7 +184,21 @@ Options parse_options(const std::vector<std::string> &arguments) {
     if (options.portable && options.data_dir) throw UsageError("--portable and --data-dir choose the same thing");
     if (options.copy_user_data && !options.portable && !options.data_dir)
         throw UsageError("--copy-user-data needs --portable or --data-dir");
+    if (options.join && options.install) throw UsageError("--join and --install do not go together");
     return options;
+}
+
+// --join: the overrides the settings read for this run, before they are
+// first loaded. They are never written to settings.ini.
+void apply_join(const std::string &address) {
+    const mhfu::adhoc::JoinTarget target = mhfu::adhoc::join_target(address);
+    mhfu::set_environment_utf8("MHFU_ADHOC", "1");
+    mhfu::set_environment_utf8("MHFU_ADHOC_SERVER", target.server);
+    if (target.this_machine && !mhfu::environment_utf8("MHFU_ADHOC_MAC"))
+        mhfu::set_environment_utf8("MHFU_ADHOC_MAC", mhfu::adhoc::made_up_mac());
+    std::cout << "[adhoc] joining " << target.server
+              << (target.this_machine ? " (this machine; a player address for this run only)" : "")
+              << "; choose Online Gathering Hall in Pokke Village" << std::endl;
 }
 
 struct GameFiles {
@@ -421,6 +450,7 @@ int main(int argc, char **argv) {
             std::cerr << "Pokee: " << e.what() << "\n" << kUsage;
             return 2;
         }
+        if (options.join) apply_join(*options.join);
 #if !defined(MHFU_ANDROID_APP)
         if (const int code = prepare_data_directory(options); code >= 0) return code;
 #endif

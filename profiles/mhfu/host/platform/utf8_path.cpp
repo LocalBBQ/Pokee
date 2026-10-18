@@ -59,6 +59,11 @@ std::optional<std::string> environment_utf8(const char *name) {
     return narrow(value);
 }
 
+// _wputenv_s also sets the variable Windows keeps, which environment_utf8 reads.
+void set_environment_utf8(const char *name, const std::string &value) {
+    (void)_wputenv_s(widen(name).c_str(), widen(value).c_str());
+}
+
 std::vector<std::string> utf8_arguments(int argc, char **argv) {
     int count = 0;
     wchar_t **wide = CommandLineToArgvW(GetCommandLineW(), &count);
@@ -89,6 +94,10 @@ std::optional<std::string> environment_utf8(const char *name) {
     const char *value = std::getenv(name);
     if (value == nullptr) return std::nullopt;
     return std::string(value);
+}
+
+void set_environment_utf8(const char *name, const std::string &value) {
+    (void)setenv(name, value.c_str(), 1);
 }
 
 std::vector<std::string> utf8_arguments(int argc, char **argv) {
