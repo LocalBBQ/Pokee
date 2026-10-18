@@ -227,43 +227,32 @@ bool near(float a, float b) {
 }
 
 // The ring is drawn on the disc's edge, so half of it lies inside. The ? stays
-// clear when that inner edge is still outside the stroked glyph.
+// clear when that inner edge is still outside the glyph.
 bool question_stays_clear(const GatherShape &shape) {
-    const float inner = shape.radius - shape.ring * 0.5f;
-    const float mark = shape.glyph * 0.5f + shape.weight;
-    return inner >= mark;
+    return shape.radius - shape.ring * 0.5f >= shape.glyph * 0.5f;
 }
 
-void test_size_and_thickness() {
-    const GatherShape usual = gather_mark_shape(100u, 1u);
-    check(near(usual.radius, kGatherDisc) && near(usual.ring, 1.0f) && near(usual.glyph, kGatherGlyph) &&
-            near(usual.weight, 0.0f),
+void test_size() {
+    const GatherShape usual = gather_mark_shape(100u);
+    check(near(usual.radius, kGatherDisc) && near(usual.ring, 1.0f) && near(usual.glyph, kGatherGlyph),
         "the usual mark is an 8-pixel disc, a one-pixel ring and the font's own ?");
-    const GatherShape half = gather_mark_shape(mhfu::settings::kMinGatherIconSize, 1u);
-    check(near(half.radius, kGatherDisc * 0.5f) && near(half.ring, 0.5f) && near(half.glyph, kGatherGlyph * 0.5f) &&
-            near(half.weight, 0.0f),
+    const GatherShape half = gather_mark_shape(mhfu::settings::kMinGatherIconSize);
+    check(near(half.radius, kGatherDisc * 0.5f) && near(half.ring, 0.5f) && near(half.glyph, kGatherGlyph * 0.5f),
         "half size keeps the usual proportions");
-    const GatherShape doubled = gather_mark_shape(200u, 1u);
+    const GatherShape doubled = gather_mark_shape(200u);
     check(near(doubled.radius, kGatherDisc * 2.0f) && near(doubled.ring, 2.0f) &&
-            near(doubled.glyph, kGatherGlyph * 2.0f) && near(doubled.weight, 0.0f),
+            near(doubled.glyph, kGatherGlyph * 2.0f),
         "double size keeps the usual proportions");
-    const GatherShape odd = gather_mark_shape(73u, 1u);
+    const GatherShape odd = gather_mark_shape(73u);
     check(near(odd.radius, kGatherDisc * 0.73f) && near(odd.glyph, kGatherGlyph * 0.73f),
         "a size the menu does not step to is still that percent");
-    const GatherShape bold = gather_mark_shape(100u, mhfu::settings::kMaxGatherIconThickness);
-    check(near(bold.radius, kGatherDisc) && near(bold.glyph, kGatherGlyph) && near(bold.ring, 3.0f) &&
-            near(bold.weight, 1.0f),
-        "thickness 3 widens the ring and the ? without changing the disc");
-    const GatherShape small_bold = gather_mark_shape(mhfu::settings::kMinGatherIconSize, 3u);
-    const GatherShape large_bold = gather_mark_shape(mhfu::settings::kMaxGatherIconSize, 3u);
-    check(question_stays_clear(bold) && question_stays_clear(small_bold) && question_stays_clear(large_bold),
-        "the thickest mark still leaves the ? clear, small or large");
-    const GatherShape huge = gather_mark_shape(1000u, 9u);
-    check(near(huge.radius, kGatherDisc * 3.0f) && near(huge.ring, 9.0f) && near(huge.weight, 3.0f),
-        "a size or thickness past the limit clamps to it");
-    const GatherShape tiny = gather_mark_shape(0u, 0u);
-    check(near(tiny.radius, kGatherDisc * 0.5f) && near(tiny.ring, 0.5f) && near(tiny.weight, 0.0f),
-        "a size or thickness under the limit clamps up");
+    const GatherShape large = gather_mark_shape(mhfu::settings::kMaxGatherIconSize);
+    check(question_stays_clear(usual) && question_stays_clear(half) && question_stays_clear(large),
+        "the ring leaves the ? clear, small or large");
+    const GatherShape huge = gather_mark_shape(1000u);
+    check(near(huge.radius, kGatherDisc * 3.0f) && near(huge.ring, 3.0f), "a size past the limit clamps to it");
+    const GatherShape tiny = gather_mark_shape(0u);
+    check(near(tiny.radius, kGatherDisc * 0.5f) && near(tiny.ring, 0.5f), "a size under the limit clamps up");
 }
 
 constexpr std::uint32_t kCircle = 0x2000u;
@@ -1166,7 +1155,7 @@ int main() {
     test_unmapped();
     test_words_and_the_hunter();
     test_on_the_picture();
-    test_size_and_thickness();
+    test_size();
     test_holding_circle();
     test_pressing_again_on_the_pad();
     test_carving_a_monster();

@@ -55,24 +55,21 @@ struct GatherNode {
 // Above the node's origin, where the mark floats.
 inline constexpr float kGatherLift = 100.0f;
 // The usual mark, in the picture's pixels (the 272-tall frame): the disc's
-// radius and the ? drawn in it. Size is a percent of these; thickness widens
-// the ring and the ? (gather_mark_shape).
+// radius and the ? drawn in it. Size is a percent of these
+// (gather_mark_shape).
 inline constexpr float kGatherDisc = 8.0f;
 inline constexpr float kGatherGlyph = 9.0f;
 
-// The mark as drawn, in those same pixels. `ring` is the outline's width and
-// `weight` is how far the ? is stroked past the font; weight is 0 at thickness 1.
+// The mark as drawn, in those same pixels. `ring` is the outline's width.
 struct GatherShape {
     float radius{};
     float ring{};
     float glyph{};
-    float weight{};
 };
 
-// `size_percent` and `thickness` are clamped to the settings ranges. Thickness
-// 1 is a one-pixel ring and the font's own ?, scaled with the size. Each step
-// adds a pixel of ring and half a pixel of ? stroke, both scaled the same way.
-[[nodiscard]] GatherShape gather_mark_shape(std::uint32_t size_percent, std::uint32_t thickness) noexcept;
+// `size_percent` is clamped to the settings range. The mark is a one-pixel
+// ring and the font's own ?, scaled with the size.
+[[nodiscard]] GatherShape gather_mark_shape(std::uint32_t size_percent) noexcept;
 
 struct GatherWord {
     std::uint32_t address{};
