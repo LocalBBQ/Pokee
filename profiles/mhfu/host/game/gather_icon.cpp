@@ -130,15 +130,13 @@ std::span<const GatherWord> gather_checked_words() {
     return kWords;
 }
 
-GatherShape gather_mark_shape(std::uint32_t size_percent, std::uint32_t thickness) noexcept {
+GatherShape gather_mark_shape(std::uint32_t size_percent) noexcept {
     const std::uint32_t size = std::clamp(size_percent, settings::kMinGatherIconSize, settings::kMaxGatherIconSize);
-    const std::uint32_t weight = std::clamp(thickness, 1u, settings::kMaxGatherIconThickness);
     const float scale = static_cast<float>(size) / 100.0f;
     GatherShape shape;
     shape.radius = kGatherDisc * scale;
     shape.glyph = kGatherGlyph * scale;
-    shape.ring = scale * static_cast<float>(weight);
-    shape.weight = 0.5f * scale * static_cast<float>(weight - 1u);
+    shape.ring = scale;
     return shape;
 }
 
