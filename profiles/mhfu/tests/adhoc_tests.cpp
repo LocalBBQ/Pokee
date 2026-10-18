@@ -4,6 +4,7 @@
 // Needs no game data. Every wait is bounded.
 #include "adhoc/client.hpp"
 #include "adhoc/discovery.hpp"
+#include "adhoc/join.hpp"
 #include "adhoc/protocol.hpp"
 #include "adhoc/server.hpp"
 #include "adhoc/sockets.hpp"
@@ -28,6 +29,29 @@ int failures = 0;
 void check(bool condition, const std::string &what) {
     std::cout << (condition ? "ok   " : "FAIL ") << what << std::endl;
     if (!condition) ++failures;
+}
+
+// Pokee --join: which server a run uses, and when it needs an address of its
+// own because the session is hosted on this machine.
+void join() {
+    const JoinTarget local = join_target("");
+    check(local.server == "127.0.0.1" && local.this_machine, "--join alone joins this machine's session");
+    check(join_target("127.0.0.1:27400").this_machine && join_target("127.0.0.1:27400").server == "127.0.0.1:27400",
+        "a port is kept");
+    check(join_target("localhost").this_machine && join_target("[::1]:27312").this_machine &&
+            join_target("::1").this_machine,
+        "localhost and the IPv6 loopback are this machine");
+    const JoinTarget lan = join_target("192.168.1.20");
+    check(lan.server == "192.168.1.20" && !lan.this_machine, "another machine keeps the saved player address");
+    check(!join_target("127host.example").this_machine && !join_target("100.101.102.103:27312").this_machine,
+        "only a loopback host counts as this machine");
+    check(join_host("[fe80::1]:27312") == "fe80::1" && join_host("fe80::1") == "fe80::1" &&
+            join_host("host:1") == "host",
+        "the host part of an address");
+    const std::string mac = made_up_mac();
+    const unsigned first = static_cast<unsigned>(std::stoul(mac.substr(0, 2), nullptr, 16));
+    check(mac.size() == 17u && (first & 1u) == 0u && (first & 2u) != 0u,
+        "a made-up address is unicast and locally administered");
 }
 
 bool wait_until(const std::function<bool()> &done, int timeout_ms = 5000) {
@@ -392,6 +416,7 @@ int main(int argc, char **argv) {
     bool clean = true;
     for (int run = 0; run < 5 && clean; ++run) clean = exits_cleanly(argv[0], "--exit-while-hosting");
     check(clean, "a hosting process that just returns exits with 0, five times");
+    join();
     server_and_client();
     discovery(37500);
     std::cout << (failures == 0 ? "all ad hoc tests passed" : std::to_string(failures) + " failed") << std::endl;
