@@ -336,7 +336,7 @@ void test_crisp_text() {
     Settings chosen = from_entries({});
     chosen.crisp_text = true;
     const Entries written = to_entries(chosen);
-    check(written.count("settings.version") == 1u && written.at("settings.version") == "3",
+    check(written.count("settings.version") == 1u && written.at("settings.version") == "4",
         "every file written says its version");
     check(from_entries(written).crisp_text, "Sharp text turned on now stays on");
     Entries off = written;
@@ -385,34 +385,28 @@ void test_lock_on_and_damage_numbers() {
     earlier_slot["game.empty_item_slot"] = "0";
     check(from_entries(earlier_slot).empty_item_slot,
         "game.empty_item_slot=0 from before version 3 is its default, not a choice");
-    check(fresh.give_any_rarity, "Guild Hall's Give starts at any rarity");
+    check(!fresh.give_any_rarity, "Guild Hall's Give starts at the game's limit");
     Entries give = to_entries(fresh);
-    give["game.give_any_rarity"] = "0";
-    check(!from_entries(give).give_any_rarity, "the file turns giving at any rarity off");
-    check(!from_entries(to_entries(from_entries(give))).give_any_rarity, "and off survives a round trip");
-    check(fresh.gather_icon_size == 100u && fresh.gather_icon_thickness == 1u,
-        "the gather mark starts at its usual size and the thinnest ring");
+    give["game.give_any_rarity"] = "1";
+    check(from_entries(give).give_any_rarity, "the file turns giving at any rarity on");
+    check(from_entries(to_entries(from_entries(give))).give_any_rarity, "and on survives a round trip");
+    Entries earlier_give = to_entries(fresh);
+    earlier_give["settings.version"] = "3";
+    earlier_give["game.give_any_rarity"] = "1";
+    check(!from_entries(earlier_give).give_any_rarity,
+        "game.give_any_rarity=1 from before version 4 is its default, not a choice");
+    check(fresh.gather_icon_size == 100u, "the gather mark starts at its usual size");
     Entries mark = to_entries(fresh);
     mark["game.gather_icon_size"] = "180";
-    mark["game.gather_icon_thickness"] = "2";
     const Settings sized = from_entries(to_entries(from_entries(mark)));
-    check(sized.gather_icon_size == 180u && sized.gather_icon_thickness == 2u,
-        "the gather mark's size and thickness come from the file and survive a round trip");
+    check(sized.gather_icon_size == 180u, "the gather mark's size comes from the file and survives a round trip");
     mark["game.gather_icon_size"] = std::to_string(kMaxGatherIconSize + 1u);
-    mark["game.gather_icon_thickness"] = "9";
-    const Settings huge = from_entries(mark);
-    check(huge.gather_icon_size == kMaxGatherIconSize && huge.gather_icon_thickness == kMaxGatherIconThickness,
-        "a gather mark past either limit clamps to it");
+    check(from_entries(mark).gather_icon_size == kMaxGatherIconSize, "a gather mark past the limit clamps to it");
     mark["game.gather_icon_size"] = "1";
-    mark["game.gather_icon_thickness"] = "0";
-    const Settings tiny = from_entries(mark);
-    check(tiny.gather_icon_size == kMinGatherIconSize && tiny.gather_icon_thickness == 1u,
-        "a gather mark under either limit clamps up");
-    mark["game.gather_icon_size"] = std::to_string(kMinGatherIconSize);
-    mark["game.gather_icon_thickness"] = std::to_string(kMaxGatherIconThickness);
-    const Settings ends = from_entries(mark);
-    check(ends.gather_icon_size == kMinGatherIconSize && ends.gather_icon_thickness == kMaxGatherIconThickness,
-        "the ends of the gather mark's ranges are allowed");
+    check(from_entries(mark).gather_icon_size == kMinGatherIconSize, "a gather mark under the limit clamps up");
+    mark["game.gather_icon_thickness"] = "3";
+    check(from_entries(mark).gather_icon_size == kMinGatherIconSize,
+        "a gather icon thickness an earlier version saved is ignored");
     check(!fresh.damage_numbers, "damage numbers start off");
     Entries hits = to_entries(fresh);
     hits["game.damage_numbers"] = "1";

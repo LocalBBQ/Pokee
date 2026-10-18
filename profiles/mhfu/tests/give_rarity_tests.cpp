@@ -99,6 +99,7 @@ void test_wrapper() {
     psprecomp::Runtime runtime(32u * 1024u * 1024u);
     psprecomp::GuestMemory &memory = runtime.memory();
     write_signature(memory);
+    mhfu::settings::current().give_any_rarity = true;
     mhfu::game::give_rarity::frame(runtime);
     check(runtime.function_at(kCanGive) == nullptr, "nothing is put in place before the code is installed");
 
@@ -144,7 +145,7 @@ int main() {
     set_environment("MHFU_DATA_DIR", data.string());
     set_environment("MHFU_GIVE_ANY_RARITY", "");
     set_environment("MHFU_TRACE_GIVE", "");
-    check(mhfu::settings::current().give_any_rarity, "giving at any rarity is on by default");
+    check(!mhfu::settings::current().give_any_rarity, "giving at any rarity is off by default");
     test_rarity_address();
     test_code_check();
     test_other_code();
