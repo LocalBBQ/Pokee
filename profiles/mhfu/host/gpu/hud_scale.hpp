@@ -1289,46 +1289,110 @@ struct Frame {
     // starts there, whatever its width.
     float party_letter_end[kNamePlates]{};
 
-    // A gathering-hall label: every draw filed with a name's point this frame
-    // (the weapon badge, the letters and their shadow), and the box they
-    // cover. The game's point is the first letter's top-left, so a label
-    // sized about it drifts up and right off its hunter and the badge slides
-    // onto the letters. The next frame sizes the label about the centre of
-    // that box instead, which keeps it over the hunter. The shadow's point is
-    // a pixel off the letters', so points that close are one label.
+    // A gathering-hall label: the draws filed with a name's point this frame
+    // (the weapon badge, the letters and their shadow, and any mark the hall
+    // adds beside a hunter). The game's point is the first letter's top-left,
+    // so a label sized about it drifts up and right off its hunter and the
+    // badge slides onto the letters. The next frame sizes the label about the
+    // middle of its letters and the badge against them instead, which keeps
+    // it over the hunter. Other marks do not count: a hunter who takes a
+    // quest or readies up gets one, and one that blinks moved that middle
+    // every blink. The shadow's point is a pixel off the letters', so points
+    // that close are one label.
     struct NameLabel {
         float origin_x{};
         float origin_y{};
-        Rect bounds{};
+        bool has_letters{};
+        Rect letters{};
+        static constexpr int kIcons = 4;
+        Rect icons[kIcons]{};
+        int icon_count{};
+    };
+    // Where a label is sized about, from its point, and the frames since it
+    // was last drawn. A label kept for a second after it is last drawn, and
+    // one drawn without its letters, keeps its middle: a mark or a name that
+    // blinks does not move it.
+    struct NameCentre {
+        float origin_x{};
+        float origin_y{};
+        float dx{};
+        float dy{};
+        int unseen{};
     };
     static constexpr int kNameLabels = 16;
+    static constexpr int kNameLabelKeep = 30;
+    // How far a label's point may move between frames and still be the same
+    // label. Traced in the hall: a turning camera moves a name 60 pixels in a
+    // frame, and a label taken for new then shrank toward its first letter.
+    static constexpr float kNameLabelMove = 96.0f;
     NameLabel name_labels[kNameLabels]{};
     int name_label_count{};
-    NameLabel name_labels_live[kNameLabels]{};
-    int name_label_live_count{};
+    NameCentre name_centres[kNameLabels]{};
+    int name_centre_count{};
+    // The point the last name draw was sized about, and whether it was a
+    // label's kept middle rather than the game's point (MHFU_TRACE_HALL_NAMES).
+    float name_pivot_x{};
+    float name_pivot_y{};
+    bool name_pivot_kept{};
 
-    void note_name_label(float origin_x, float origin_y, Rect drawn) {
+    void note_name_label(float origin_x, float origin_y, Rect drawn, bool glyph) {
         const Rect d = normalized(drawn);
-        for (int i = 0; i < name_label_count; ++i) {
-            NameLabel &label = name_labels[i];
-            if (std::fabs(label.origin_x - origin_x) <= 4.0f && std::fabs(label.origin_y - origin_y) <= 4.0f) {
-                label.bounds = united(label.bounds, d);
-                return;
-            }
+        NameLabel *label = nullptr;
+        for (int i = 0; i < name_label_count && label == nullptr; ++i)
+            if (std::fabs(name_labels[i].origin_x - origin_x) <= 4.0f &&
+                std::fabs(name_labels[i].origin_y - origin_y) <= 4.0f)
+                label = &name_labels[i];
+        if (label == nullptr) {
+            if (name_label_count == kNameLabels) return;
+            label = &name_labels[name_label_count++];
+            *label = NameLabel{origin_x, origin_y};
         }
-        if (name_label_count < kNameLabels) name_labels[name_label_count++] = {origin_x, origin_y, d};
+        if (glyph) {
+            label->letters = label->has_letters ? united(label->letters, d) : d;
+            label->has_letters = true;
+        } else if (label->icon_count < NameLabel::kIcons) {
+            label->icons[label->icon_count++] = d;
+        }
     }
 
-    // Where a name placed at `origin` was centred last frame, moved with its
-    // point: the nearest label within `max_move` pixels. False on a label's
-    // first frame.
-    [[nodiscard]] bool name_label_centre(
-        float origin_x, float origin_y, float &x, float &y, float max_move = 32.0f) const {
+    // The nearest kept middle within `max_move` pixels of a point, or -1.
+    [[nodiscard]] int nearest_name_centre(float origin_x, float origin_y, float max_move = kNameLabelMove) const {
         int best = -1;
         float best_distance = max_move * max_move;
-        for (int i = 0; i < name_label_live_count; ++i) {
-            const float dx = name_labels_live[i].origin_x - origin_x;
-            const float dy = name_labels_live[i].origin_y - origin_y;
+        for (int i = 0; i < name_centre_count; ++i) {
+            const float dx = name_centres[i].origin_x - origin_x;
+            const float dy = name_centres[i].origin_y - origin_y;
+            const float distance = dx * dx + dy * dy;
+            if (distance <= best_distance) {
+                best = i;
+                best_distance = distance;
+            }
+        }
+        return best;
+    }
+
+    // Where a name placed at `origin` is sized about, moved with its point:
+    // the nearest label kept within `max_move` pixels. False on a label's
+    // first frame.
+    [[nodiscard]] bool name_label_centre(
+        float origin_x, float origin_y, float &x, float &y, float max_move = kNameLabelMove) const {
+        const int best = nearest_name_centre(origin_x, origin_y, max_move);
+        if (best < 0) return false;
+        x = origin_x + name_centres[best].dx;
+        y = origin_y + name_centres[best].dy;
+        return true;
+    }
+
+    // The kept middle nearest a point, as a point on screen: where an icon
+    // the label filed without its own point is sized about. False when no
+    // label's middle is within `max_distance`.
+    [[nodiscard]] bool nearest_name_middle(float x, float y, float &middle_x, float &middle_y,
+        float max_distance = 64.0f) const {
+        int best = -1;
+        float best_distance = max_distance * max_distance;
+        for (int i = 0; i < name_centre_count; ++i) {
+            const float dx = name_centres[i].origin_x + name_centres[i].dx - x;
+            const float dy = name_centres[i].origin_y + name_centres[i].dy - y;
             const float distance = dx * dx + dy * dy;
             if (distance <= best_distance) {
                 best = i;
@@ -1336,10 +1400,58 @@ struct Frame {
             }
         }
         if (best < 0) return false;
-        const NameLabel &label = name_labels_live[best];
-        x = origin_x + 0.5f * (label.bounds.x0 + label.bounds.x1) - label.origin_x;
-        y = origin_y + 0.5f * (label.bounds.y0 + label.bounds.y1) - label.origin_y;
+        middle_x = name_centres[best].origin_x + name_centres[best].dx;
+        middle_y = name_centres[best].origin_y + name_centres[best].dy;
         return true;
+    }
+
+    // The middle of a label's letters and the badge against them: an icon
+    // whose right edge is within a few pixels of the first letter, beside the
+    // letters' row. Without letters this frame, the middle the label had.
+    [[nodiscard]] bool name_label_middle(const NameLabel &label, float &dx, float &dy) const {
+        if (label.has_letters) {
+            Rect box = label.letters;
+            for (int i = 0; i < label.icon_count; ++i) {
+                const Rect icon = label.icons[i];
+                const float gap = label.letters.x0 - icon.x1;
+                if (gap >= -2.0f && gap <= 8.0f && icon.y0 < label.letters.y1 && icon.y1 > label.letters.y0)
+                    box = united(box, icon);
+            }
+            dx = 0.5f * (box.x0 + box.x1) - label.origin_x;
+            dy = 0.5f * (box.y0 + box.y1) - label.origin_y;
+            return true;
+        }
+        const int kept = nearest_name_centre(label.origin_x, label.origin_y);
+        if (kept < 0) return false;
+        dx = name_centres[kept].dx;
+        dy = name_centres[kept].dy;
+        return true;
+    }
+
+    void keep_name_centres() {
+        NameCentre next[kNameLabels]{};
+        int count = 0;
+        for (int i = 0; i < name_label_count; ++i) {
+            float dx = 0.0f;
+            float dy = 0.0f;
+            if (name_label_middle(name_labels[i], dx, dy))
+                next[count++] = {name_labels[i].origin_x, name_labels[i].origin_y, dx, dy, 0};
+        }
+        // A label not drawn this frame keeps its middle for a while.
+        for (int i = 0; i < name_centre_count && count < kNameLabels; ++i) {
+            const NameCentre &old = name_centres[i];
+            if (old.unseen + 1 > kNameLabelKeep) continue;
+            bool drawn = false;
+            for (int j = 0; j < name_label_count && !drawn; ++j) {
+                const float dx = name_labels[j].origin_x - old.origin_x;
+                const float dy = name_labels[j].origin_y - old.origin_y;
+                drawn = dx * dx + dy * dy <= kNameLabelMove * kNameLabelMove;
+            }
+            if (!drawn) next[count++] = {old.origin_x, old.origin_y, old.dx, old.dy, old.unseen + 1};
+        }
+        for (int i = 0; i < count; ++i) name_centres[i] = next[i];
+        name_centre_count = count;
+        name_label_count = 0;
     }
 
     void note_party_letter(Rect rect) {
@@ -1398,9 +1510,7 @@ struct Frame {
         menu_corner = false;
         menu_body = false;
         for (float &end : party_letter_end) end = 0.0f;
-        for (int i = 0; i < name_label_count; ++i) name_labels_live[i] = name_labels[i];
-        name_label_live_count = name_label_count;
-        name_label_count = 0;
+        keep_name_centres();
     }
 
     // The quest clock or the health bar, this frame or the one before.
@@ -1781,18 +1891,49 @@ std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales 
     float origin_x = named.origin_x;
     float origin_y = named.origin_y;
     if (named.has_origin) fit.apply(origin_x, origin_y);
-    // A hall label is sized about the middle of its badge and letters
-    // together (Frame::NameLabel), once it has been seen for a frame.
-    if (named.hall && named.has_origin && !vertices.empty()) {
-        frame.note_name_label(origin_x, origin_y, bounds_of(drawn));
+    // A hall label is sized about the middle of its letters and badge
+    // (Frame::NameLabel), once it has been seen for a frame.
+    frame.name_pivot_kept = false;
+    bool has_origin = named.has_origin;
+    // The hall's marks over a hunter, the quest paper and the blinking ready
+    // mark, are filed by the label after its name is queued. They come with
+    // no point, or with the next hunter's, so a mark over one name was sized
+    // toward another, across the screen, and jumped as it blinked. Such an
+    // icon is sized about the middle of the label nearest it instead.
+    if (named.hall && !named.glyph && !vertices.empty()) {
+        const Rect box = bounds_of(drawn);
+        const float x = 0.5f * (box.x0 + box.x1);
+        const float y = 0.5f * (box.y0 + box.y1);
+        const bool own_point =
+            has_origin && std::fabs(x - origin_x) <= 32.0f && std::fabs(y - origin_y) <= 32.0f;
+        if (!own_point) {
+            float middle_x = 0.0f;
+            float middle_y = 0.0f;
+            if (frame.nearest_name_middle(x, y, middle_x, middle_y)) {
+                scale_name(vertices, scales.names, true, middle_x, middle_y);
+                frame.name_pivot_x = middle_x;
+                frame.name_pivot_y = middle_y;
+                frame.name_pivot_kept = true;
+            } else {
+                scale_name(vertices, scales.names, false, 0.0f, 0.0f);
+                frame.name_pivot_x = frame.name_pivot_y = 0.0f;
+            }
+            return scales.names == 1.0f ? std::nullopt : std::optional<Rect>(bounds_of(vertices));
+        }
+    }
+    if (named.hall && has_origin && !vertices.empty()) {
+        frame.note_name_label(origin_x, origin_y, bounds_of(drawn), named.glyph);
         float centre_x = 0.0f;
         float centre_y = 0.0f;
         if (frame.name_label_centre(origin_x, origin_y, centre_x, centre_y)) {
             origin_x = centre_x;
             origin_y = centre_y;
+            frame.name_pivot_kept = true;
         }
     }
-    scale_name(vertices, scales.names, named.has_origin, origin_x, origin_y);
+    frame.name_pivot_x = origin_x;
+    frame.name_pivot_y = origin_y;
+    scale_name(vertices, scales.names, has_origin, origin_x, origin_y);
     std::optional<Rect> name_bounds;
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         if (party_icon[first / 6u] != 0u) {
