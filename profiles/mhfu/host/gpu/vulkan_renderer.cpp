@@ -189,6 +189,20 @@ bool hall_names_sized() {
     return !off;
 }
 
+// MHFU_TRACE_HALL_NAMES=1: each draw of a name over a hunter in the village
+// and the gathering hall, where it was sized about and where it went, and the
+// 2D draws near a label that were not taken for part of it.
+bool trace_hall_names() {
+    static const bool on = std::getenv("MHFU_TRACE_HALL_NAMES") != nullptr;
+    return on;
+}
+
+std::string hall_rect_text(hud_scale::Rect r) {
+    std::ostringstream text;
+    text << "(" << r.x0 << "," << r.y0 << ")-(" << r.x1 << "," << r.y1 << ")";
+    return text.str();
+}
+
 void set_uv_rect(GpuVertex &vertex, float u_min, float v_min, float u_max, float v_max) {
     vertex.nx = u_min;
     vertex.ny = v_min;
@@ -8150,6 +8164,25 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     const bool sized_name = hud_scale::sizes_name(named, hud_scales, hall_names_sized());
     if (named.hall && !glide_names && !sized_name) named = hud::NameDraw{};
     if (named.is_name) scale_corners = true;
+    // MHFU_TRACE_HALL_NAMES: a 2D draw near a hall label that is not taken
+    // for part of it, such as a mark the hall draws by other code.
+    if (trace_hall_names() && through_quads && !named.is_name && impl.hud_scale_frame.name_centre_count > 0) {
+        const std::vector<GpuVertex> &drawn = reused_expanded ? *reused : impl.scratch;
+        const hud_scale::Rect box = hud_scale::bounds_of(drawn);
+        const hud_scale::Frame &f = impl.hud_scale_frame;
+        for (int i = 0; i < f.name_centre_count; ++i) {
+            const float x = f.name_centres[i].origin_x;
+            const float y = f.name_centres[i].origin_y;
+            if (box.x1 - box.x0 > 96.0f || box.y1 - box.y0 > 96.0f ||
+                !hud_scale::overlaps({x - 64.0f, y - 64.0f, x + 64.0f, y + 32.0f}, box))
+                continue;
+            std::cout << "[hallname] f=" << impl.frames << " other tex=0x" << std::hex
+                      << (call.texture.enabled ? call.texture.address : 0u) << std::dec << " n=" << count << " at "
+                      << hall_rect_text(box) << " near (" << x << "," << y << ") cmd=0x" << std::hex
+                      << call.command_address << " ret=0x" << call.call_return << std::dec << "\n";
+            break;
+        }
+    }
     std::vector<GpuVertex> corner_scaled;
     // Where the area map and a name went, when their sizes moved them. The
     // scissor has to take them in, and a moved map has to replace the one
@@ -8166,6 +8199,17 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             // draws it at.
             if (sized_name)
                 name_bounds = hud_scale::scale_name_draw(corner_scaled, hud_scales, impl.hud_scale_frame, named, fit);
+            if (trace_hall_names() && named.hall) {
+                const hud_scale::Frame &f = impl.hud_scale_frame;
+                std::cout << "[hallname] f=" << impl.frames << " name " << (named.glyph ? "letters" : "icon")
+                          << " tex=0x" << std::hex << (call.texture.enabled ? call.texture.address : 0u) << std::dec
+                          << " n=" << count << " origin=(" << named.origin_x << "," << named.origin_y << ") from "
+                          << hall_rect_text(hud_scale::bounds_of(unscaled)) << " to "
+                          << hall_rect_text(hud_scale::bounds_of(corner_scaled)) << " pivot=(" << f.name_pivot_x
+                          << "," << f.name_pivot_y << ")" << (f.name_pivot_kept ? " kept" : " point")
+                          << (name_bounds ? "" : " unsized") << " cmd=0x" << std::hex << call.command_address
+                          << " ret=0x" << call.call_return << std::dec << "\n";
+            }
         } else {
             // The moving map window is told from other panels of the same size by
             // the texture it samples (gpu/hud_scale.hpp).
