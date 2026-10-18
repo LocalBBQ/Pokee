@@ -84,13 +84,10 @@ bool contains(const std::string &haystack, const std::string &needle) {
     return haystack.find(needle) != std::string::npos;
 }
 
-// Sets an environment variable to UTF-8 text, as a player's shell would.
+// Sets an environment variable to UTF-8 text, as a player's shell would, and
+// as Pokee --join does for its run.
 void set_environment(const char *name, const std::string &value) {
-#if defined(_WIN32)
-    _wputenv_s(mhfu::widen(name).c_str(), mhfu::widen(value).c_str());
-#else
-    setenv(name, value.c_str(), 1);
-#endif
+    mhfu::set_environment_utf8(name, value);
 }
 
 struct Scratch {
@@ -120,6 +117,7 @@ void test_conversions(const fs::path &root) {
     check(mhfu::environment_path("MHFU_PATH_TESTS_VALUE") == root, "an environment variable gives the path back");
     check(mhfu::environment_utf8("MHFU_PATH_TESTS_VALUE").value_or("") == path_to_utf8(root),
         "an environment variable reads as UTF-8");
+    check(std::getenv("MHFU_PATH_TESTS_VALUE") != nullptr, "a variable set for the run is seen by std::getenv too");
     check(!mhfu::environment_utf8("MHFU_PATH_TESTS_UNSET"), "an unset variable has no value");
     check(mhfu::environment_path("MHFU_PATH_TESTS_UNSET").empty(), "an unset variable names no path");
 
