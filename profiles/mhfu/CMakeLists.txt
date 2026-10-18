@@ -268,6 +268,7 @@ set(MHFU_HOST_SOURCES
     host/game/gather_icon.cpp
     host/game/item_atlas.cpp
     host/game/hit_trace.cpp
+    host/game/body_trace.cpp
     host/game/item_box.cpp
     host/game/empty_item_slot.cpp
     host/game/give_rarity.cpp
@@ -526,6 +527,18 @@ add_executable(mhfu_damage_numbers_tests
     tests/damage_numbers_tests.cpp
     host/game/damage_numbers.cpp
     host/game/hit_trace.cpp)
+
+# The MHFU_TRACE_BODIES trace: which fields of a dead monster count, and when
+# a body is reported. No game data.
+add_executable(mhfu_body_trace_tests
+    tests/body_trace_tests.cpp
+    host/game/body_trace.cpp)
+target_include_directories(mhfu_body_trace_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_body_trace_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_body_trace_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_body_trace_tests COMMAND mhfu_body_trace_tests)
+endif()
 
 # Sharpness gauge: the colour and its fill, the weapon's colour ends through
 # the game's tables, and where the gauge stands. No game data.
