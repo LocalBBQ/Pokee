@@ -146,6 +146,9 @@ constexpr const char *kRetiredComparableWeaponsKey = "game.comparable_weapons";
 constexpr const char *kRetiredSharpnessEffectKey = "game.sharpness_effect";
 constexpr const char *kRetiredSharpnessColoursKey = "game.sharpness_colours";
 constexpr const char *kRetiredSharpnessGlowKey = "game.sharpness_glow";
+// Written by earlier versions: how bold the gather mark was. It is always a
+// one-pixel ring and the font's own ? now, scaled with its size.
+constexpr const char *kRetiredGatherIconThicknessKey = "game.gather_icon_thickness";
 // settings.ini's format. Every save writes every key, defaults included, so
 // once a default changes, a file must say which version wrote it for the
 // player's choices to be told from the old defaults:
@@ -155,8 +158,11 @@ constexpr const char *kRetiredSharpnessGlowKey = "game.sharpness_glow";
 //          without a version gets the new default.
 //   3      Empty item slot (game.empty_item_slot) on by default. Version 2
 //          wrote 0 into every file, so a file below 3 drops that key once.
+//   4      Give Any Rarity Item (game.give_any_rarity) off by default.
+//          Version 3 wrote 1 into every file, so a file below 4 drops that
+//          key once.
 constexpr const char *kVersionKey = "settings.version";
-constexpr int kVersion = 3;
+constexpr int kVersion = 4;
 constexpr std::string_view kBindPrefix = "input.bind.";
 constexpr std::string_view kPadPrefix = "input.pad.";
 
@@ -568,15 +574,6 @@ const std::vector<Field> &fields() {
                 std::uint32_t value = s.gather_icon_size;
                 if (parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, value)) s.gather_icon_size = value;
             }},
-        {"game.gather_icon_thickness", "MHFU_GATHER_ICON_THICKNESS",
-            [](Settings &s, const std::string &t) {
-                return parse_uint(t, 1u, kMaxGatherIconThickness, s.gather_icon_thickness);
-            },
-            [](const Settings &s) { return std::to_string(s.gather_icon_thickness); },
-            [](Settings &s, const char *t) {
-                std::uint32_t value = s.gather_icon_thickness;
-                if (parse_uint(t, 1u, kMaxGatherIconThickness, value)) s.gather_icon_thickness = value;
-            }},
         {"game.damage_number_size", "MHFU_DAMAGE_NUMBER_SIZE",
             [](Settings &s, const std::string &t) {
                 return parse_uint(t, kMinDamageNumberSize, kMaxDamageNumberSize, s.damage_number_size);
@@ -918,6 +915,7 @@ void write_entries(const Settings &values, Entries &entries) {
     entries.erase(kRetiredSharpnessEffectKey);
     entries.erase(kRetiredSharpnessColoursKey);
     entries.erase(kRetiredSharpnessGlowKey);
+    entries.erase(kRetiredGatherIconThicknessKey);
 }
 
 // Drops what a file an earlier version wrote holds only because that
@@ -929,6 +927,7 @@ bool upgrade(Entries &entries) {
     bool dropped = false;
     if (version < 2u) dropped = entries.erase("text.crisp") != 0u || dropped;
     if (version < 3u) dropped = entries.erase("game.empty_item_slot") != 0u || dropped;
+    if (version < 4u) dropped = entries.erase("game.give_any_rarity") != 0u || dropped;
     return dropped;
 }
 
@@ -959,8 +958,9 @@ void load(State &s) {
     // Dropped from what the file held too, so a run whose environment
     // decides a setting does not write the old default back as chosen.
     if (upgrade(s.file))
-        std::cout << "[settings] defaults from an earlier version dropped: Sharp text is off and Empty item slot "
-                     "is on by default now; change them in Video if you want otherwise\n";
+        std::cout << "[settings] defaults from an earlier version dropped: Sharp text is off, Empty item slot "
+                     "is on and Give Any Rarity Item is off by default now; change them in the menu if you want "
+                     "otherwise\n";
     read_entries(s.values, s.file);
     for (const Field &field : all_fields()) {
         if (field.variable == nullptr) continue;

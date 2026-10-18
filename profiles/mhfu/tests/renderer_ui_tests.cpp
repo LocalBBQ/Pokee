@@ -3336,22 +3336,14 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     {
         const bool icon = settings::current().gather_icon;
         const std::uint32_t size = settings::current().gather_icon_size;
-        const std::uint32_t thickness = settings::current().gather_icon_thickness;
         settings::current().gather_icon = false;
         change_video("Gather icon size", ImGuiKey_RightArrow);
-        change_video("Gather icon thickness", ImGuiKey_RightArrow);
-        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
-            "gather icon size and thickness are locked while the icon is off");
+        expect(settings::current().gather_icon_size == size, "gather icon size is locked while the icon is off");
         settings::current().gather_icon = true;
         change_video("Gather icon size", ImGuiKey_RightArrow);
-        change_video("Gather icon thickness", ImGuiKey_RightArrow);
-        expect(settings::current().gather_icon_size == size + 10u &&
-                settings::current().gather_icon_thickness == thickness + 1u,
-            "gather icon size steps by 10% and thickness by 1");
+        expect(settings::current().gather_icon_size == size + 10u, "gather icon size steps by 10%");
         change_video("Gather icon size", ImGuiKey_LeftArrow);
-        change_video("Gather icon thickness", ImGuiKey_LeftArrow);
-        expect(settings::current().gather_icon_size == size && settings::current().gather_icon_thickness == thickness,
-            "gather icon size and thickness round trip");
+        expect(settings::current().gather_icon_size == size, "gather icon size round trips");
         settings::current().gather_icon = icon;
     }
     toggle_setting("Hold to gather", &settings::Settings::gather_hold);
@@ -3593,9 +3585,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     frame();
     const int bare = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
     const std::uint32_t saved_gather_size = settings::current().gather_icon_size;
-    const std::uint32_t saved_gather_thickness = settings::current().gather_icon_thickness;
     settings::current().gather_icon_size = 100u;
-    settings::current().gather_icon_thickness = 1u;
     {
         game::GatherMark mark;
         mark.at = {0.5f, 0.5f};
@@ -3603,15 +3593,11 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     }
     frame();
     const int usual = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
-    settings::current().gather_icon_thickness = 3u;
-    frame();
-    const int bold = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
     settings::current().gather_icon_size = settings::kMaxGatherIconSize;
     frame();
     const int large = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
-    expect(usual > bare && bold > usual && large > bold, "the gather mark is drawn, and thickness and size add ink");
+    expect(usual > bare && large > usual, "the gather mark is drawn, and a larger one is drawn smoother");
     settings::current().gather_icon_size = saved_gather_size;
-    settings::current().gather_icon_thickness = saved_gather_thickness;
     ui::set_gather_mark(std::nullopt);
     auto &layer = ui::Layer::get();
     layer.set_interactive(true);
