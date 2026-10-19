@@ -863,22 +863,16 @@ void info_row(const char *label, const std::string &value) {
         focused ? colors::kAccentBright : colors::kText, value.c_str(), nullptr, width);
 }
 
-// A section title at full size with an orange rule after it, so the rows below
-// read as one group.
+// A section title in orange, smaller than the rows, so the rows below read as
+// one group without a rule across the panel.
 void section(const char *title) {
     ImGui::Dummy({0.0f, px(10.0f)});
-    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + px(16.0f));
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.85f);
     ImGui::PushStyleColor(ImGuiCol_Text, colors::kEmber);
     ImGui::TextUnformatted(title);
     ImGui::PopStyleColor();
-    const ImVec2 text_max = ImGui::GetItemRectMax();
-    const float mid_y = std::round((ImGui::GetItemRectMin().y + text_max.y) * 0.5f);
-    const float u = unit();
-    ImDrawList *draw = ImGui::GetWindowDrawList();
-    if (right - text_max.x > font())
-        draw->AddRectFilled({text_max.x + font() * 0.6f, mid_y - u * 0.5f}, {right - px(16.0f), mid_y + u * 0.5f},
-            colors::kEmber);
+    ImGui::PopFont();
     ImGui::Dummy({0.0f, px(4.0f)});
 }
 
