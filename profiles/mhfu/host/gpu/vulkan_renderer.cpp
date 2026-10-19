@@ -5234,7 +5234,9 @@ void VulkanRenderer::Impl::apply_texture_pack() {
         return;
     }
     pack_status = std::to_string(pack->entry_count()) + " textures";
-    std::cout << "[texpack] " << pack->entry_count() << " textures from " << path_to_utf8(folder) << "\n";
+    std::cout << "[texpack] " << pack->entry_count() << " textures from " << path_to_utf8(folder) << "; "
+              << pack->loader_count() << " loader threads, " << (replacements.budget_bytes() >> 20u)
+              << " MB of GPU memory\n";
 }
 
 namespace {
@@ -9974,7 +9976,8 @@ bool VulkanRenderer::present(
             std::cout << std::fixed << std::setprecision(4) << "[camera] frame " << impl.frames
                       << " stick=" << static_cast<int>(impl.pad.right_x) - 0x80 << ","
                       << static_cast<int>(impl.pad.right_y) - 0x80 << " yaw=" << yaw << " pitch=" << pitch
-                      << " turn=" << turn << " pos=" << std::setprecision(1) << px << "," << py << "," << pz
+                      << " turn=" << turn << " up=" << view[1] << "," << view[5] << "," << view[9]
+                      << " pos=" << std::setprecision(1) << px << "," << py << "," << pz
                       << " views=" << impl.frame_views.size() << "\n";
             std::cout.flags(flags);
             // Precision is not one of a stream's flags, so restoring the flags
