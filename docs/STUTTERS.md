@@ -37,6 +37,22 @@ One run with the pack on, release/0.3 plus this branch, GPU compatibility mode o
 
 Next run: pack on and off along the same route into a quest, with `MHFU_TRACE_IO=1` added, and once with GPU compatibility mode off.
 
+## Second measurement: the vertex cache
+
+Same machine, GPU compatibility mode off. The pack is ruled out: `pack` is 1 to 3 ms on the first frame of an area. With the render split on each `[slow-frame]` line, that frame is almost all `vertices` (writing a draw's vertices, with the copies a cache miss makes) and `decode`:
+
+| Area | Frame | vertices | decode | texture | rest |
+| --- | --- | --- | --- | --- | --- |
+| stage016 | 43 ms | 14.7 | 8.0 | 2.5 | ~2 |
+| stage044 | 68 ms | 40.5 | 17.8 | 2.3 | ~2 |
+| stage068 | 80 ms | 40.1 | 17.8 | 1.4 | ~2 |
+| stage075, second visit | 48 ms | 25.5 | 12.1 | 0.3 | ~2 |
+| stage070 | 139 ms | 70.1 | 33.5 | 2.1 | ~4 |
+
+Two causes. The cache dropped every span not drawn in the last three frames once a second, so an area left and entered again, or a building the camera turned away from, was decoded again. And each miss allocated a new vector: a standalone benchmark of 55 MiB in 4000 spans on the same machine took 22 ms, 12 to 15 ms of it in allocating and touching fresh memory, which Windows takes back when it is freed. Reusing the vectors of dropped spans brought it to 8.8 ms.
+
+Changed: spans stay cached until the cache or the hold is full, and then the least recently drawn give way; the hold is 384 MiB where `choose_vertex_hold` allows (it was written for this and never used); the vectors of dropped spans are kept, up to a quarter of the hold, for the next misses; a miss's built span moves into the cache instead of being copied. `MHFU_OLD_VERTEX_CACHE=1` restores the old behaviour. Not measured in the game yet. The first visit to an area still misses for every draw until the cache has filled once, and `decode` is unchanged.
+
 ## Next step: measure on the affected hardware
 
 Build the branch with MSVC ([BUILDING.md](BUILDING.md#windows)). Only host code changed and `include/psprecomp/` matches `main`, so an existing build directory rebuilds `Pokee.exe` only. Back up the saves in `%APPDATA%\Pokee\MHFU\ms0` first.
