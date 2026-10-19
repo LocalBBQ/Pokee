@@ -1396,7 +1396,8 @@ struct VulkanRenderer::Impl {
         std::vector<CheckDraw> checks;
         std::vector<GpuVertex> check_expected;
         std::vector<std::uint8_t> check_drawn; // for each: the draw's indices name it, so the shader ran for it
-        std::uint32_t check_used{};            // vertices of the slot's check area handed out
+        std::uint32_t check_used{};            // vertices of the unskinned half handed out
+        std::uint32_t check_used_skinned{};    // and of the skinned half
     };
     static constexpr std::uint32_t kNoRegion = 0xFFFFFFFFu;
     std::array<FrameSlot, kMaxSlots> slots{};
@@ -1482,14 +1483,24 @@ struct VulkanRenderer::Impl {
     VkDeviceMemory check_memory{};
     void *check_mapped{};
     static constexpr std::uint32_t kCheckVertices = 65536u; // compared per frame slot
+    // Half of a slot's check area takes the frame's skinned draws, in the
+    // order drawn; the other half a window of its unskinned ones, which
+    // moves on by that half each frame. Filling the area in draw order
+    // compared only what a frame draws first: in a quest the scenery, never
+    // the hunters and monsters.
+    static constexpr std::uint32_t kCheckHalf = kCheckVertices / 2u;
+    std::uint64_t check_frame{~std::uint64_t{0}}; // the frame the counts below are for
+    std::uint64_t check_unskinned_seen{};          // unskinned raw vertices drawn so far this frame
+    std::uint64_t check_window{};                  // where this frame's unskinned window starts
+    // By kind: 0 unskinned, 1 skinned.
     struct CheckTally {
-        std::uint64_t draws{};
-        std::uint64_t vertices{};
-        std::uint64_t exact{};
-        std::uint64_t close{};
-        std::uint64_t differed{};
-        double max_error{};
-        std::array<std::array<std::uint64_t, 12>, 2> fields{}; // inexact values by kind (unskinned, skinned) and field
+        std::array<std::uint64_t, 2> draws{};
+        std::array<std::uint64_t, 2> vertices{};
+        std::array<std::uint64_t, 2> exact{};
+        std::array<std::uint64_t, 2> close{};
+        std::array<std::uint64_t, 2> differed{};
+        std::array<double, 2> max_error{};
+        std::array<std::array<std::uint64_t, 12>, 2> fields{}; // inexact values by kind and field
     } check_tally;
     VkShaderModule fragment_shader{};
     // GPU compatibility mode (settings::GpuCompat): it leaves out what old
@@ -2625,8 +2636,9 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
     const auto *out = static_cast<const float *>(check_mapped);
     CheckTally &tally = check_tally;
     for (const CheckDraw &draw : frame.checks) {
-        ++tally.draws;
         const bool skinned = ((draw.vertex_type >> 9u) & 3u) != 0u;
+        const std::size_t kind = skinned ? 1u : 0u;
+        ++tally.draws[kind];
         for (std::uint32_t v = 0; v < draw.count; ++v) {
             if (frame.check_drawn[draw.first + v] == 0u) continue;
             const float *got = out + (static_cast<std::size_t>(draw.slot) + v * 3u) * 4u;
@@ -2641,7 +2653,7 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
             for (std::uint32_t i = 0; i < 12u; ++i) {
                 if (got[i] == expected[i]) continue;
                 exact = false;
-                ++tally.fields[skinned ? 1u : 0u][i];
+                ++tally.fields[kind][i];
                 // Relative to the size of the vector the value belongs to
                 // (a position's largest component, say), at least 1: a small
                 // coordinate of a large skinned position is the difference
@@ -2654,19 +2666,22 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
                 const double error = std::fabs(static_cast<double>(got[i]) - expected[i]) / size;
                 worst = std::max(worst, error);
             }
-            ++tally.vertices;
+            ++tally.vertices[kind];
             if (exact) {
-                ++tally.exact;
+                ++tally.exact[kind];
             } else if (worst <= (skinned ? 1e-5 : 1e-6)) {
-                ++tally.close;
-                tally.max_error = std::max(tally.max_error, worst);
+                ++tally.close[kind];
+                tally.max_error[kind] = std::max(tally.max_error[kind], worst);
             } else {
-                if (++tally.differed <= 20u)
-                    std::cout << "[gpu-decode-check] vertex type 0x" << std::hex << draw.vertex_type << std::dec
-                              << " vertex " << v << " differs by " << worst << ": got (" << got[0] << ", " << got[1]
-                              << ", " << got[2] << ") expected (" << expected[0] << ", " << expected[1] << ", "
-                              << expected[2] << ")\n";
-                tally.max_error = std::max(tally.max_error, worst);
+                // The first ten of each kind, so skinned models in play are
+                // named even after a menu's differences.
+                if (++tally.differed[kind] <= 10u)
+                    std::cout << "[gpu-decode-check] " << (skinned ? "skinned" : "unskinned") << " vertex type 0x"
+                              << std::hex << draw.vertex_type << std::dec << " vertex " << v << " of " << draw.count
+                              << " differs by " << worst << ": got (" << got[0] << ", " << got[1] << ", " << got[2]
+                              << ") expected (" << expected[0] << ", " << expected[1] << ", " << expected[2]
+                              << ")\n";
+                tally.max_error[kind] = std::max(tally.max_error[kind], worst);
             }
         }
     }
@@ -2674,18 +2689,17 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
     frame.check_expected.clear();
     frame.check_drawn.clear();
     frame.check_used = 0u;
-    if (tally.draws != 0u && frames % 300u == 0u)
-        std::cout << "[gpu-decode-check] " << tally.draws << " draws, " << tally.vertices
-                  << " vertices: " << tally.exact << " exact, " << tally.close << " within rounding (largest "
-                  << tally.max_error << "), " << tally.differed << " differed" << std::endl;
-    if (tally.draws != 0u && frames % 300u == 0u) {
-        // Inexact values of unskinned and skinned vertices, by field: x y z u
-        // nx ny nz v r g b a.
-        for (std::uint32_t kind = 0; kind < 2u; ++kind) {
-            std::cout << "[gpu-decode-check] inexact " << (kind == 0u ? "unskinned" : "skinned") << ":";
-            for (const std::uint64_t count : tally.fields[kind]) std::cout << " " << count;
-            std::cout << std::endl;
-        }
+    frame.check_used_skinned = 0u;
+    if (frames % 300u != 0u || tally.draws[0] + tally.draws[1] == 0u) return;
+    for (std::size_t kind = 0; kind < 2u; ++kind) {
+        std::cout << "[gpu-decode-check] " << (kind == 0u ? "unskinned" : "skinned") << ": " << tally.draws[kind]
+                  << " draws, " << tally.vertices[kind] << " vertices: " << tally.exact[kind] << " exact, "
+                  << tally.close[kind] << " within rounding, " << tally.differed[kind] << " differed (largest "
+                  << tally.max_error[kind] << ")\n";
+        // Inexact values by field: x y z u nx ny nz v r g b a.
+        std::cout << "[gpu-decode-check] inexact " << (kind == 0u ? "unskinned" : "skinned") << ":";
+        for (const std::uint64_t count : tally.fields[kind]) std::cout << " " << count;
+        std::cout << std::endl;
     }
 }
 
@@ -8198,10 +8212,32 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         if (impl.check_gpu_decode) {
             Impl::FrameSlot &frame = impl.slots[impl.slot];
             const std::uint32_t half = impl.slot * 2u * Impl::kCheckVertices * 3u;
-            if (frame.check_used + call.raw_count <= Impl::kCheckVertices) {
-                check_slot = half + frame.check_used * 3u;
-                frame.check_used += call.raw_count;
-                checked = true;
+            if (impl.check_frame != impl.frames) {
+                // A new frame: its unskinned window starts where the last one
+                // ended, and back at the first draw once past them all.
+                impl.check_frame = impl.frames;
+                impl.check_window += Impl::kCheckHalf;
+                if (impl.check_window >= impl.check_unskinned_seen) impl.check_window = 0u;
+                impl.check_unskinned_seen = 0u;
+            }
+            std::uint32_t at = 0u;
+            if (((call.vertex_type >> 9u) & 3u) != 0u) {
+                if (frame.check_used_skinned + call.raw_count <= Impl::kCheckHalf) {
+                    at = frame.check_used_skinned;
+                    frame.check_used_skinned += call.raw_count;
+                    checked = true;
+                }
+            } else {
+                const std::uint64_t seen = impl.check_unskinned_seen;
+                impl.check_unskinned_seen += call.raw_count;
+                if (seen >= impl.check_window && frame.check_used + call.raw_count <= Impl::kCheckHalf) {
+                    at = Impl::kCheckHalf + frame.check_used;
+                    frame.check_used += call.raw_count;
+                    checked = true;
+                }
+            }
+            if (checked) {
+                check_slot = half + at * 3u;
             } else {
                 // Past the compared part: written, never read.
                 check_slot = half + Impl::kCheckVertices * 3u;
