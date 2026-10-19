@@ -317,10 +317,14 @@ void menu_draw(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
 }
 
 void set_label(psprecomp::GuestMemory &memory, bool on) {
-    const std::uint16_t label = memory.load16(kHallLabel);
-    if (label != kGreyLabel && label != kLabel) return;
-    const std::uint16_t wanted = on ? kLabel : kGreyLabel;
-    if (label != wanted) memory.store16(kHallLabel, wanted);
+    for (std::uint32_t row = 0; row < kHallLabelRows; ++row) {
+        const std::uint32_t at = kHallLabels + 2u * row;
+        const std::uint16_t label = memory.load16(at);
+        if (label != kGreyLabel && label != kLabel) continue;
+        const std::uint16_t wanted = on ? kLabel : kGreyLabel;
+        if (label != wanted) memory.store16(at, wanted);
+        return;
+    }
 }
 
 } // namespace
