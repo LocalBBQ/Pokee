@@ -17,6 +17,7 @@
 #include "game/empty_item_slot.hpp"
 #include "game/give_rarity.hpp"
 #include "game/hall_equipment.hpp"
+#include "game/item_sets.hpp"
 #include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
 #include "game/sharpness_gauge.hpp"
@@ -293,6 +294,7 @@ void present_frame(Runtime &rt) {
     game::empty_item_slot::frame(rt);
     game::give_rarity::frame(rt);
     game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
+    game::item_sets::frame(rt);
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
