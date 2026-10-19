@@ -95,7 +95,9 @@ void test_split_reaches_the_slow_frame_line() {
     check(at != std::string::npos, "the frame's render split is on its slow-frame line: " + line);
     if (at != std::string::npos)
         check(std::strtod(line.c_str() + at + 9u, nullptr) >= 4.0, "the split gives the scope's time: " + line);
-    check(line.find(" draw ") != std::string::npos && line.find(" writeback ") != std::string::npos,
+    check(line.find(" draw ") != std::string::npos && line.find(" vertices ") != std::string::npos &&
+            line.find(" pipeline ") != std::string::npos && line.find(" other ") != std::string::npos &&
+            line.find(" writeback ") != std::string::npos,
         "every part of the split is named: " + line);
 
     const std::string next = slow_frame_line(166'835u);
