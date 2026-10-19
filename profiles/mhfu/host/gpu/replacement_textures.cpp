@@ -1,5 +1,7 @@
 #include "replacement_textures.hpp"
 
+#include "perf/frame_stats.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <cstdlib>
@@ -157,6 +159,7 @@ VkDescriptorSet ReplacementTextures::descriptor(Replacement &replacement, Textur
         return VK_NULL_HANDLE; // next frame; the original is drawn meanwhile
     if (resident_.size() >= kMaxResident) return VK_NULL_HANDLE;
 
+    const perf::StallScope timed(perf::Stall::Pack);
     auto resident = std::make_unique<Resident>();
     resident->owner = &replacement;
     if (!upload(replacement, *resident)) {
@@ -330,6 +333,8 @@ void ReplacementTextures::destroy(Resident &resident) {
 
 void ReplacementTextures::begin_frame(std::uint64_t frame) {
     if (device_.device == VK_NULL_HANDLE) return;
+    if (uploads_.empty() && resident_bytes_ <= budget_bytes_ && resident_.size() < kMaxResident) return;
+    const perf::StallScope timed(perf::Stall::Pack);
     const VkDevice device = device_.device;
     // Finished uploads give back their staging memory.
     std::erase_if(uploads_, [&](Upload &upload) {
