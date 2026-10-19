@@ -322,7 +322,8 @@ std::unique_ptr<TexturePack> TexturePack::open(
     if (texture_pack_trace() && pack->has_button_icons())
         std::cout << "[texpack] button icons: " << button_icons_name(pack->button_icons()) << ", " << changed
                   << " textures use them\n";
-    const unsigned threads = std::clamp(std::thread::hardware_concurrency() / 4u, 1u, 2u);
+    const unsigned threads =
+        texture_pack_loader_threads(std::thread::hardware_concurrency(), std::getenv("MHFU_TEXTURE_PACK_THREADS"));
     for (unsigned i = 0; i < threads; ++i) pack->loaders_.emplace_back([p = pack.get()] { p->loader_main(); });
     return pack;
 }
@@ -625,6 +626,27 @@ const char *button_icons_name(ButtonIcons icons) {
 ButtonIcons pick_button_icons(std::optional<ButtonIcons> chosen, ButtonIcons pad, bool confirm_south) {
     if (chosen) return *chosen;
     return confirm_south ? ButtonIcons::Pack : pad;
+}
+
+unsigned texture_pack_loader_threads(unsigned hardware_threads, const char *setting) {
+    if (setting != nullptr && *setting != '\0') {
+        char *end = nullptr;
+        const unsigned long parsed = std::strtoul(setting, &end, 10);
+        if (end != setting && parsed >= 1u && parsed <= 16u) return static_cast<unsigned>(parsed);
+    }
+    return std::clamp(hardware_threads / 4u, 1u, 6u);
+}
+
+std::uint64_t texture_pack_budget_bytes(std::uint64_t device_local_bytes, bool discrete, const char *setting) {
+    constexpr std::uint64_t kMiB = 1024u * 1024u;
+    if (setting != nullptr && *setting != '\0') {
+        char *end = nullptr;
+        const unsigned long long parsed = std::strtoull(setting, &end, 10);
+        if (end != setting && parsed >= 64u) return parsed * kMiB;
+    }
+    constexpr std::uint64_t kFloor = 1024u * kMiB;
+    if (!discrete) return kFloor;
+    return std::clamp(device_local_bytes / 4u, kFloor, 8192u * kMiB);
 }
 
 template <typename Map>
