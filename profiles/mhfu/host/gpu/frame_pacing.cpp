@@ -85,6 +85,13 @@ void PresentClock::flip(std::int64_t time_us, std::int64_t now_us) noexcept {
     std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(rank),
         sorted.begin() + static_cast<std::ptrdiff_t>(count), std::greater<>{});
     work_us_ = sorted[rank];
+    if (recent_bound_) {
+        const std::size_t newest = count < kWorkWindowFrames ? count - 1u : (work_cursor_ + count - 1u) % count;
+        std::int64_t recent = 0;
+        for (std::size_t back = 0; back < std::min(count, kRecentFrames); ++back)
+            recent = std::max(recent, work_window_[(newest + count - back) % count]);
+        work_us_ = std::min(work_us_, recent);
+    }
     if (has_newer_) {
         older_us_ = newer_us_;
         has_older_ = true;
