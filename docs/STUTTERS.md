@@ -24,6 +24,18 @@ None of these has been measured on the affected hardware yet. Windows with an NV
 - **Stall trace.** `MHFU_TRACE_STALLS` reports three more kinds in `[slow-frame]` and `[stalls]`: `texture` (creating or destroying a texture), `alloc` (the memory allocations and frees in it, and for upload buffers) and `cache-save` (writing the pipeline cache). A `[load] fast …` line says `, in a quest` when a quest was running as the stretch began.
 - **Texture pack resources.** Loader threads are a quarter of the hardware threads, one to six (`MHFU_TEXTURE_PACK_THREADS`), unchanged up to 11 hardware threads. The GPU budget is a quarter of a discrete GPU's memory, 1 to 8 GiB; integrated GPUs keep 1 GiB (`MHFU_TEXTURE_PACK_MEMORY` still overrides).
 - **Test fix.** The renderer/UI test counts the gather mark on the background draw list, where it is drawn, and no longer checks its thickness.
+- **Texture pack timing.** A `pack` kind covers the pack's work on the game thread: the hash that looks up each new game texture, each image's upload, and freeing finished uploads or images over the budget.
+
+## First measurement (RTX 4090, Windows, NVIDIA 616.92)
+
+One run with the pack on, release/0.3 plus this branch, GPU compatibility mode on from the Video setting, 3840x2160 at 240 Hz, frame interpolation to 120. The pack-off run ended before a quest, so it shows nothing about areas. The player saw a stutter on every area entry and when fog rolled into the swamp.
+
+- **Every area entry in a quest** (stage044, 067, 068) gives the same three frames. First, about 60 ms of `guest` once the stage overlay is installed, during the load. Then one or two frames of 30 to 56 ms `pacing`. Last, the first frame of the new area: 48 to 67 ms of `render`, of which `texture` and `alloc` are only about 2.5 ms (30 to 35 textures). Most of that render time is not in any kind; the pack's lookups and uploads were not timed, hence `pack`.
+- **First quest load:** 4 pipelines in 75 ms inline (`pipeline 75.24 x4`). GPU compatibility mode turns off the pipeline cache and background pipelines, so every new pipeline is compiled on the game thread in every run.
+- **Fog in the swamp (likely frame 3406):** 56 ms, nearly all `pacing` (42 ms), with the game at 29.5 frames that second. The game itself missed a vblank; the renderer did not stall. A disc read the game waits for (emulated read time) is the first suspect; `MHFU_TRACE_IO` shows it.
+- Between hitches play is steady: 120 fps, the game at 30, frames at most about 11 ms.
+
+Next run: pack on and off along the same route into a quest, with `MHFU_TRACE_IO=1` added, and once with GPU compatibility mode off.
 
 ## Next step: measure on the affected hardware
 
