@@ -1059,7 +1059,7 @@ On a Mac with an M1, from the button press to the new scene's first sound (for t
 | Village to a quest's base camp | 6.9 s | 1.7 s |
 | Quest end to the village | 6.0 s | 1.4 s |
 
-What is left is the game's own music fading out and its animations, which play at real time, the game's check of what it read (`sha1Thread`) and unpacking, and installing a code overlay. While a load runs fast, a flip reaches the window at most about 30 times a second and the others are drawn and not shown, so Vsync never holds it back; frame interpolation pauses and picks up again after it. Each fast stretch logs one line: `[load] fast 4922 ms of game time in 434 ms real, 4488 ms saved (sound; 18.4 s saved so far)`, with what ended it. `MHFU_FAST_LOADING=0` or the menu's Off keeps every load at the PSP's pace.
+What is left is the game's own music fading out and its animations, which play at real time, the game's check of what it read (`sha1Thread`) and unpacking, and installing a code overlay. While a load runs fast, a flip reaches the window at most about 30 times a second and the others are drawn and not shown, so Vsync never holds it back; frame interpolation pauses and picks up again after it. Each fast stretch logs one line: `[load] fast 4922 ms of game time in 434 ms real, 4488 ms saved (sound; 18.4 s saved so far)`, with what ended it, and `, in a quest` after it when a quest was running as it began (an area change, or a quiet moment of play taken for a load). `MHFU_FAST_LOADING=0` or the menu's Off keeps every load at the PSP's pace.
 
 ### Fast-forward
 
@@ -1349,6 +1349,9 @@ On Android, where no variable can be set, the `[stalls]` line comes with the `[p
 | `decode` | Waiting at the frame's submit for textures decoded in the background |
 | `pipeline` | CPU time creating graphics pipelines the frame needed (part of `render`). A burst of them, as in a new area, is also reported once it settles: `[render] 4 new pipelines in 12.3 ms, 57 so far; pipeline cache saved` |
 | `store` | CPU time converting that frame into guest memory, `store_frame` (part of `render`) |
+| `texture` | CPU time creating or destroying a texture's image, memory, view and descriptor: each texture seen for the first time, and each one evicted to make room (part of `render`) |
+| `alloc` | `vkAllocateMemory` and `vkFreeMemory` calls for images and upload buffers, the costliest part of `texture`; the count says how many a frame made |
+| `cache-save` | CPU time writing `pipeline_cache.bin` and `pipeline_keys.bin`, a few seconds after a burst of new pipelines (part of `render`) |
 
 #### A report from a phone
 
@@ -1359,6 +1362,8 @@ On Android, set Performance to *Log* in the menu, play to the place that is slow
 - `fence`, `acquire` or `present` large in `[stalls]`: waiting for the GPU or the display.
 - `pipeline` and `[render] N new pipelines in X ms` lines: shader compiles. They should appear once per new area and not again in a later run, which loads them from `pipeline_cache.bin`.
 - `upload` in `[stalls]`: texture uploads that waited for the GPU, which should not happen during play any more.
+- `texture` and `alloc` with large counts on entering an area: textures created one allocation each; `cache-save` a few seconds after new pipelines: the cache written to disk.
+- A `[load] fast …, in a quest` line with no area change around it: fast loading took a quiet moment of play for a load.
 
 ## Host layout
 
