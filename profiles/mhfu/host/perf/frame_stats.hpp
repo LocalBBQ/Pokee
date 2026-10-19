@@ -182,6 +182,7 @@ enum class NewPath : std::uint8_t {
 // [render-split] line once a second in milliseconds per game frame. The parts
 // are timed with the CPU's own counter (cntvct/rdtsc), cheap enough to leave
 // the frame's timing nearly as it was; off, a scope costs one test of a flag.
+// MHFU_TRACE_STALLS times the parts too, for each [slow-frame] line.
 //   Lists:     running display lists (GeState::execute), draws included
 //   Decode:    reading a draw's indices and decoding its vertices
 //   Draw:      the renderer's handling of a draw (VulkanRenderer::submit)
