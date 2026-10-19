@@ -19,6 +19,7 @@ Read the documents relevant to the task before changing code, testing, packaging
 | [COVERAGE.md](docs/COVERAGE.md) | Coverage scope, full-suite/diff policy and remaining test gaps |
 | [TESTING.md](docs/TESTING.md) | Automated checks, manual smoke tests and subsystem regression checks |
 | [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Verified behavior and remaining problems by platform, with tested commits |
+| [STUTTERS.md](docs/STUTTERS.md) | Status of the area-entry and fight stutter investigation: suspects, changes made, how to measure and what comes next |
 | [RELEASING.md](docs/RELEASING.md) | Release branches, stable/test policy, packaging, artifact checks and publishing; `release/X.Y` branches are retained for patch releases |
 | [MACOS.md](docs/MACOS.md) | macOS installation, player data, updates and troubleshooting |
 | [LINUX.md](docs/LINUX.md) | Linux and Steam Deck installation, Flatpak, portable releases and Game Mode |
