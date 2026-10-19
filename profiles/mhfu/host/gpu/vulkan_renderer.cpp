@@ -4920,6 +4920,7 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
             const std::uint16_t seen = update_max_seen_v(texture.max_seen_v, drawn_max_v(call), call.through);
             if (seen != texture.max_seen_v) {
                 texture.max_seen_v = seen;
+                const perf::StallScope timed(perf::Stall::Pack);
                 texture.replacement = pack->find(memory, state, seen);
             }
         }
@@ -5005,7 +5006,10 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
     texture.key = key;
     // The pack's hash reads the whole texture, so it is taken here, once per
     // upload, and never on the per-draw path above.
-    if (pack) texture.replacement = pack->find(memory, state, max_seen_v);
+    if (pack) {
+        const perf::StallScope timed(perf::Stall::Pack);
+        texture.replacement = pack->find(memory, state, max_seen_v);
+    }
     Texture &cached = textures.emplace(key, std::move(texture)).first->second;
     memo->texture = &cached;
     memo->erased = textures_erased;
