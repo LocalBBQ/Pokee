@@ -501,6 +501,26 @@ void present_clock() {
         steady.flip(frame * kGameFrameUs, frame * kGameFrameUs + code);
     }
     check(steady.work_us() == 21000, "one frame in five that slow does");
+
+    // The town flips 20 ms after a frame's moment, a quest 6 ms: half a
+    // second into the quest the delay is the quest's, not the town's for two
+    // seconds more. Going the other way it follows as soon as it did.
+    const auto scene_change = [](bool bound, std::int64_t from_us, std::int64_t to_us, int frames_after) {
+        PresentClock clock;
+        clock.set_recent_bound(bound);
+        clock.set_presents_per_frame(8.0);
+        for (std::int64_t frame = 0; frame < 120; ++frame)
+            clock.flip(frame * kGameFrameUs, frame * kGameFrameUs + from_us);
+        for (std::int64_t frame = 120; frame < 120 + frames_after; ++frame)
+            clock.flip(frame * kGameFrameUs, frame * kGameFrameUs + to_us);
+        return clock.work_us();
+    };
+    check(scene_change(true, 20000, 6000, 14) == 21000, "fourteen quest frames still allow for the town's");
+    check(scene_change(true, 20000, 6000, 15) == 7000, "fifteen bring the delay down to the quest's");
+    check(scene_change(false, 20000, 6000, 15) == 21000, "without the bound the town's lasts");
+    check(scene_change(false, 20000, 6000, 52) == 7000, "until the window has all but turned over");
+    check(scene_change(true, 6000, 20000, 9) == 21000, "a later scene lengthens the delay as soon as before");
+    check(scene_change(true, 6000, 20000, 8) == 7000, "but not before nine of its frames");
 }
 
 Second second_with(double speed, double idle_ms, double blend_ms, double plain_ms, double rate) {

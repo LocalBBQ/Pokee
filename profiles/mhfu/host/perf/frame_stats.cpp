@@ -525,11 +525,14 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
         // at the start of this frame was waiting for.
         const double render_ms = std::max(0.0, to_ms(s.render) - to_ms(s.wait));
         const double wait_ms = to_ms(s.wait) + to_ms(s.pacing);
-        char head[192];
+        // The frame's draws tell a black fade or loading screen (a handful)
+        // from a frame of the area (thousands). The emulated time it ended
+        // at lines it up with MHFU_TRACE_KERNEL's at= times.
+        char head[256];
         std::snprintf(head, sizeof(head),
-            "[slow-frame] %llu %.1f ms | guest %.1f render %.1f wait %.1f ms | gpu(prev) ",
-            static_cast<unsigned long long>(s.frame_number), frame_ms, std::max(0.0, frame_ms - render_ms - wait_ms),
-            render_ms, wait_ms);
+            "[slow-frame] %llu %.1f ms at %.1fms | guest %.1f render %.1f wait %.1f ms | draws %u | gpu(prev) ",
+            static_cast<unsigned long long>(s.frame_number), frame_ms, static_cast<double>(virtual_us) / 1000.0,
+            std::max(0.0, frame_ms - render_ms - wait_ms), render_ms, wait_ms, s.draws);
         std::string line = head;
         if (s.gpu_samples != 0u) {
             char gpu[32];
