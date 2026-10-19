@@ -3583,7 +3583,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     game::set_shown_damage_numbers({});
     ui::set_lock_on_marker(std::nullopt);
     frame();
-    const int bare = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+    const int bare = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
     const std::uint32_t saved_gather_size = settings::current().gather_icon_size;
     settings::current().gather_icon_size = 100u;
     {
@@ -3592,10 +3592,10 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         ui::set_gather_mark(mark);
     }
     frame();
-    const int usual = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+    const int usual = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
     settings::current().gather_icon_size = settings::kMaxGatherIconSize;
     frame();
-    const int large = ImGui::GetForegroundDrawList()->VtxBuffer.Size;
+    const int large = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
     expect(usual > bare && large > usual, "the gather mark is drawn, and a larger one is drawn smoother");
     settings::current().gather_icon_size = saved_gather_size;
     ui::set_gather_mark(std::nullopt);
