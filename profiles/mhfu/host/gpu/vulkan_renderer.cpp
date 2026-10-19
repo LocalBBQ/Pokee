@@ -8419,6 +8419,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             }
         }
     }
+    // Timed by hand: the variables this part sets are used after it, and a
+    // draw that runs out of frame space returns from inside it untimed.
+    const bool split_vertices = perf::split_enabled();
+    const std::uint64_t vertices_start = split_vertices ? perf::split_ticks() : 0u;
     // A span remembered while the hold was full has no offset. Once an area
     // stops being drawn its bytes come back, and the next hit of this span
     // takes them. Until then the span is copied into the ring like a miss.
@@ -8558,6 +8562,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         // scales its own copy.
         impl.remember_span(impl.scratch, !skinned);
     }
+    if (split_vertices) perf::add_split(perf::Split::Vertices, perf::split_ticks() - vertices_start);
     const auto drawn_vertices = static_cast<std::uint32_t>(reused_expanded ? reused->size()
             : direct                                                       ? vertex_total
                                                                            : impl.scratch.size());
@@ -8626,7 +8631,11 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     static const bool no_depth = std::getenv("MHFU_NO_DEPTH") != nullptr;
     if (no_cull) key.cull = false;
     if (no_depth && !call.clear_mode) key.depth_test = false;
-    VkPipeline pipeline = impl.pipeline_for(key);
+    VkPipeline pipeline{};
+    {
+        const perf::SplitScope split_pipeline(perf::Split::Pipeline);
+        pipeline = impl.pipeline_for(key);
+    }
     if (pipeline == VK_NULL_HANDLE) return;
 
     PushConstants push{};
