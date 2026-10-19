@@ -203,8 +203,9 @@ struct Settings {
     // to 3 (game/give_rarity.hpp). Off by default: the game's limit.
     bool give_any_rarity{};
     // The Guild Hall's box offers Change Equipment, as the house box does
-    // (game/hall_equipment.hpp). Off by default: greyed out, as in the game.
-    bool hall_equipment{};
+    // (game/hall_equipment.hpp). On by default. Off: greyed out, as in the
+    // game.
+    bool hall_equipment{true};
     // The item box menu gets Item Sets, to register the pouch as a set and to
     // load a set from the box (game/item_sets.hpp). On by default. Off: the
     // game's own six entries.
