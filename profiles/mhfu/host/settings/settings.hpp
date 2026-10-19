@@ -202,6 +202,10 @@ struct Settings {
     // The Guild Hall's Give hands over items of any rarity, not only Rare 1
     // to 3 (game/give_rarity.hpp). Off by default: the game's limit.
     bool give_any_rarity{};
+    // The item box menu gets Item Sets, to register the pouch as a set and to
+    // load a set from the box (game/item_sets.hpp). On by default. Off: the
+    // game's own six entries.
+    bool item_sets{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};
