@@ -268,6 +268,36 @@ void test_location(const fs::path &root) {
 #endif
 }
 
+void test_resource_scaling() {
+    // Up to 11 hardware threads, as many loaders as before: a quarter, 1 or 2.
+    check(texture_pack_loader_threads(0u, nullptr) == 1u, "an unknown CPU gets one loader");
+    check(texture_pack_loader_threads(4u, nullptr) == 1u, "four threads get one loader");
+    check(texture_pack_loader_threads(8u, nullptr) == 2u, "a Steam Deck's eight threads get two loaders, as before");
+    check(texture_pack_loader_threads(11u, nullptr) == 2u, "eleven threads still get two");
+    check(texture_pack_loader_threads(16u, nullptr) == 4u, "sixteen threads get four");
+    check(texture_pack_loader_threads(32u, nullptr) == 6u, "a 32-thread CPU gets six, the most");
+    check(texture_pack_loader_threads(32u, "2") == 2u, "MHFU_TEXTURE_PACK_THREADS sets the count");
+    check(texture_pack_loader_threads(4u, "16") == 16u, "the setting may go up to 16");
+    check(texture_pack_loader_threads(32u, "0") == 6u && texture_pack_loader_threads(32u, "17") == 6u &&
+            texture_pack_loader_threads(32u, "many") == 6u && texture_pack_loader_threads(32u, "") == 6u,
+        "a setting out of range or not a number is ignored");
+
+    constexpr std::uint64_t kMiB = 1024u * 1024u;
+    constexpr std::uint64_t kGiB = 1024u * kMiB;
+    check(texture_pack_budget_bytes(24u * kGiB, true, nullptr) == 6u * kGiB, "a 24 GB card gives a quarter, 6 GiB");
+    check(texture_pack_budget_bytes(8u * kGiB, true, nullptr) == 2u * kGiB, "an 8 GB card gives 2 GiB");
+    check(texture_pack_budget_bytes(2u * kGiB, true, nullptr) == kGiB, "a small card keeps 1 GiB");
+    check(texture_pack_budget_bytes(48u * kGiB, true, nullptr) == 8u * kGiB, "the default stops at 8 GiB");
+    check(texture_pack_budget_bytes(16u * kGiB, false, nullptr) == kGiB,
+        "an integrated GPU keeps 1 GiB, whatever its shared heap");
+    check(texture_pack_budget_bytes(24u * kGiB, true, "512") == 512u * kMiB,
+        "MHFU_TEXTURE_PACK_MEMORY wins, in megabytes");
+    check(texture_pack_budget_bytes(1u * kGiB, false, "12000") == 12000u * kMiB, "the setting may exceed the default");
+    check(texture_pack_budget_bytes(24u * kGiB, true, "63") == 6u * kGiB &&
+            texture_pack_budget_bytes(24u * kGiB, true, "lots") == 6u * kGiB,
+        "a setting under 64 MB or not a number is ignored");
+}
+
 } // namespace
 
 int check_folder(const char *folder) {
@@ -484,6 +514,7 @@ int main(int argc, char **argv) {
     test_dxt_decode();
     test_quick_keys();
     test_button_icons(scratch.root);
+    test_resource_scaling();
     std::printf("%s\n", failures == 0 ? "all texture pack checks passed" : "texture pack checks FAILED");
     return failures == 0 ? 0 : 1;
 }
