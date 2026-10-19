@@ -272,6 +272,7 @@ set(MHFU_HOST_SOURCES
     host/game/item_box.cpp
     host/game/empty_item_slot.cpp
     host/game/give_rarity.cpp
+    host/game/hall_equipment.cpp
     host/game/sharpness_gauge.cpp
     third_party/tiny_aes/aes.c
 )
@@ -620,6 +621,27 @@ target_link_libraries(mhfu_give_rarity_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_give_rarity_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_give_rarity_tests COMMAND mhfu_give_rarity_tests)
+endif()
+
+# Change Equipment in the Guild Hall: the button read, the refused choice, the
+# label, the code check, and the wrappers around a stand-in box. No game data.
+add_executable(mhfu_hall_equipment_tests
+    tests/hall_equipment_tests.cpp
+    host/game/hall_equipment.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_hall_equipment_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_hall_equipment_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_hall_equipment_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_hall_equipment_tests COMMAND mhfu_hall_equipment_tests)
 endif()
 
 # Empty item slot: the scroll with an empty stop, the code and caller checks,
