@@ -84,5 +84,8 @@ void attach(psprecomp::Runtime &runtime);
 // Calls `reader` with the game's memory; false (and no call) before the game
 // has run a frame.
 bool read(const std::function<void(const Ram &)> &reader);
+// The same for an interface action that changes the game's memory, such as
+// loading an item set (game/item_sets.hpp). Only between two game frames.
+bool write(const std::function<void(Ram &)> &writer);
 
 } // namespace mhfu::game
