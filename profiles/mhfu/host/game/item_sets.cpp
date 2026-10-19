@@ -4,6 +4,7 @@
 #include "game/guest_calls.hpp"
 #include "game/guest_layout.hpp"
 #include "game/guest_ram.hpp"
+#include "game/hooks.hpp"
 #include "game/item_sets_menu.hpp"
 #include "install/user_data.hpp"
 #include "psprecomp/runtime.hpp"
@@ -799,10 +800,9 @@ void frame(psprecomp::Runtime &runtime) {
         s.text = runtime.function_at(kText);
         runtime.register_function(kText, &text, "mhfu_item_sets_text");
     }
-    if (runtime.function_at(kBoxFrame) != &box_frame && runtime.function_at(kBoxFrame) != nullptr) {
-        s.box_frame = runtime.function_at(kBoxFrame);
-        runtime.register_function(kBoxFrame, &box_frame, "mhfu_item_sets_box");
-    }
+    // Change Equipment in the Guild Hall wraps the box's frame too
+    // (game/hooks.hpp).
+    (void)hooks::wrap(runtime, kBoxFrame, &box_frame, s.box_frame, "mhfu_item_sets_box");
     if (!s.reported) {
         s.reported = true;
         std::cout << "[item sets] box menu entry in place" << std::endl;
