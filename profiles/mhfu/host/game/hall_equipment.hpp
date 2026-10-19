@@ -1,8 +1,8 @@
 #pragma once
 
 // Change Equipment in the Guild Hall: the box there offers Change Equipment as
-// the house box does. Off by default (Mods page, `game.hall_equipment`;
-// `MHFU_HALL_EQUIPMENT=1` turns it on). Off, the entry stays greyed out and
+// the house box does. On by default (Mods page, `game.hall_equipment`;
+// `MHFU_HALL_EQUIPMENT=0` turns it off). Off, the entry stays greyed out and
 // refused, as the game has it. The switch is read at each confirm.
 //
 // lobby_task (ULUS-10391, at 0x09A5F300) opens one box screen for both rooms

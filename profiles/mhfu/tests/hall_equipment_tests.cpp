@@ -911,7 +911,7 @@ int main() {
     set_environment("MHFU_DATA_DIR", data.string());
     set_environment("MHFU_HALL_EQUIPMENT", "");
     set_environment("MHFU_TRACE_HALL_EQUIPMENT", "");
-    check(!mhfu::settings::current().hall_equipment, "Change Equipment in the Guild Hall is off by default");
+    check(mhfu::settings::current().hall_equipment, "Change Equipment in the Guild Hall is on by default");
     test_pressed();
     test_refused_choice();
     test_session();
