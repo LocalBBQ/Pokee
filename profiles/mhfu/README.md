@@ -1354,6 +1354,7 @@ On Android, where no variable can be set, the `[stalls]` line comes with the `[p
 | `texture` | CPU time creating or destroying a texture's image, memory, view and descriptor: each texture seen for the first time, and each one evicted to make room (part of `render`) |
 | `alloc` | `vkAllocateMemory` and `vkFreeMemory` calls for images and upload buffers, the costliest part of `texture`; the count says how many a frame made |
 | `cache-save` | CPU time writing `pipeline_cache.bin` and `pipeline_keys.bin`, a few seconds after a burst of new pipelines (part of `render`) |
+| `pack` | CPU time the HD texture pack spends on the game thread: hashing each new game texture to look it up, uploading a decoded image (its allocations, the copy into staging memory and its own submit), and freeing finished uploads or dropping images over the budget (part of `render`) |
 
 #### A report from a phone
 
@@ -1365,6 +1366,8 @@ On Android, set Performance to *Log* in the menu, play to the place that is slow
 - `pipeline` and `[render] N new pipelines in X ms` lines: shader compiles. They should appear once per new area and not again in a later run, which loads them from `pipeline_cache.bin`.
 - `upload` in `[stalls]`: texture uploads that waited for the GPU, which should not happen during play any more.
 - `texture` and `alloc` with large counts on entering an area: textures created one allocation each; `cache-save` a few seconds after new pipelines: the cache written to disk.
+- `pack` on entering an area: the texture pack's lookups and uploads; compare a run with `MHFU_TEXTURE_PACK=0`.
+- Large `render` with none of the kinds above: CPU work in the renderer that no kind covers yet.
 - A `[load] fast …, in a quest` line with no area change around it: fast loading took a quiet moment of play for a load.
 
 ## Host layout

@@ -54,6 +54,7 @@ enum class Stall : std::uint8_t {
     Texture,  // creating or destroying a texture's image, memory, view and descriptor (CPU work inside "render")
     Allocate, // vkAllocateMemory and vkFreeMemory for images and upload buffers (part of the above)
     Cache,    // writing pipeline_cache.bin and pipeline_keys.bin after new pipelines (CPU work inside "render")
+    Pack,     // the HD texture pack: hashing new textures, uploading and dropping its images (CPU work inside "render")
     Count,
 };
 [[nodiscard]] const char *stall_name(Stall kind);
