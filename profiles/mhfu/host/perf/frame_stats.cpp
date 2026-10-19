@@ -234,6 +234,12 @@ const char *stall_name(Stall kind) {
         return "pipeline";
     case Stall::Decode:
         return "decode";
+    case Stall::Texture:
+        return "texture";
+    case Stall::Allocate:
+        return "alloc";
+    case Stall::Cache:
+        return "cache-save";
     case Stall::Count:
         break;
     }
