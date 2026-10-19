@@ -41,6 +41,7 @@ void test_every_kind_has_its_own_name() {
     check(std::string(stall_name(Stall::Texture)) == "texture", "texture creation is named texture");
     check(std::string(stall_name(Stall::Allocate)) == "alloc", "memory allocation is named alloc");
     check(std::string(stall_name(Stall::Cache)) == "cache-save", "the pipeline cache save is named cache-save");
+    check(std::string(stall_name(Stall::Pack)) == "pack", "the texture pack's work is named pack");
 }
 
 std::string slow_frame_line(std::uint64_t virtual_us) {
