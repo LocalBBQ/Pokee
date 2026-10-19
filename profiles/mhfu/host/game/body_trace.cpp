@@ -17,6 +17,23 @@ bool enabled() noexcept {
     return on;
 }
 
+std::optional<std::uint32_t> parse_watch(const char *text) noexcept {
+    if (text == nullptr || *text == '\0') return std::nullopt;
+    char *end = nullptr;
+    const unsigned long offset = std::strtoul(text, &end, 0);
+    if (end == text || *end != '\0' || offset >= kSpan) return std::nullopt;
+    return static_cast<std::uint32_t>(offset);
+}
+
+std::optional<std::uint32_t> watch_offset() noexcept {
+    static const std::optional<std::uint32_t> offset = parse_watch(std::getenv("MHFU_TRACE_BODIES_WATCH"));
+    return offset;
+}
+
+bool raptor(std::uint8_t species) noexcept {
+    return species == 0x0Du || species == 0x10u || species == 0x1Eu || species == 0x23u;
+}
+
 namespace {
 
 using Follow = Fields::Follow;
@@ -228,6 +245,12 @@ void Tracker::frame(const psprecomp::GuestMemory &memory, std::ostream &out, std
                 << " died, stage " << memory.load16(at + kStageId) << std::endl;
             bodies_.push_back({at, species, frame_, now, false, {}});
             known = bodies_.end() - 1;
+            if (watch_ && !watched_ && raptor(species)) {
+                watched_ = true;
+                watch_request_ = at + *watch_;
+                out << "[bodies] watching writes to +0x" << std::hex << *watch_ << " of 0x" << at << std::dec
+                    << std::endl;
+            }
         }
         known->seen = true;
         for (std::uint32_t i = 0; i < kSpan; ++i) bytes[i] = memory.load8(at + i);
