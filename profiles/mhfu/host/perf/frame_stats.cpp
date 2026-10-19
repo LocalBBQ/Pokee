@@ -240,6 +240,8 @@ const char *stall_name(Stall kind) {
         return "alloc";
     case Stall::Cache:
         return "cache-save";
+    case Stall::Pack:
+        return "pack";
     case Stall::Count:
         break;
     }
