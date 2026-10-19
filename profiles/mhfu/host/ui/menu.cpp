@@ -11,6 +11,7 @@
 #include "ui/font_menu.hpp"
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
+#include "ui/item_sets_screen.hpp"
 #include "ui/layered_armor_screen.hpp"
 #include "ui/mods_screen.hpp"
 #include "ui/save_screen.hpp"
@@ -1789,6 +1790,13 @@ void Menu::mods() {
             s.give_any_rarity = !s.give_any_rarity;
             settings::save();
         }
+        if (toggle_row("Item Sets", s.item_sets,
+                options_for("game.item_sets",
+                    "On: the item box menu has Item Sets, to register the pouch as a set and load it again "
+                    "from the box. Off: the game's own six entries."))) {
+            s.item_sets = !s.item_sets;
+            settings::save();
+        }
     }
     mods_page(back_);
     if (take_mods_restart_request()) {
@@ -2523,9 +2531,16 @@ void draw_over_game() {
     std::optional<Menu> &menu = menu_over_game_state();
     // The game's keyboard request: drawn over every game frame until done. A
     // keyboard opened from the menu over the running game is the menu's.
-    if (text_input_open() && !menu) {
+    if (text_input_open() && !menu && !item_sets_open()) {
         layer.begin_frame();
         text_input_frame();
+        layer.end_frame();
+        return;
+    }
+    // The item box's Item Sets screen, the same way, with its own keyboard.
+    if (item_sets_open() && !menu) {
+        layer.begin_frame();
+        (void)item_sets_frame();
         layer.end_frame();
         return;
     }

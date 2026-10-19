@@ -16,6 +16,7 @@
 #include "game/item_atlas.hpp"
 #include "game/empty_item_slot.hpp"
 #include "game/give_rarity.hpp"
+#include "game/item_sets.hpp"
 #include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
 #include "game/sharpness_gauge.hpp"
@@ -40,6 +41,7 @@
 #include "perf/frame_stats.hpp"
 #if defined(MHFU_HAS_RENDERER)
 #include "gpu/vulkan_renderer.hpp"
+#include "ui/item_sets_screen.hpp"
 #include "ui/ui.hpp"
 #if defined(MHFU_ANDROID_APP)
 #include "platform/android_fatal.hpp"
@@ -272,6 +274,14 @@ void present_frame(Runtime &rt) {
     game::item_box::frame(rt);
     game::empty_item_slot::frame(rt);
     game::give_rarity::frame(rt);
+    game::item_sets::frame(rt);
+    // The box menu's Item Sets opens its screen over the game; without an
+    // interface to draw it, the box goes back to its menu at once.
+#if defined(MHFU_HAS_RENDERER)
+    if (game::item_sets::take_screen_request() && !ui::open_item_sets()) game::item_sets::screen_closed();
+#else
+    if (game::item_sets::take_screen_request()) game::item_sets::screen_closed();
+#endif
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
