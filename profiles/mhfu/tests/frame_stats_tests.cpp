@@ -104,6 +104,18 @@ void test_split_reaches_the_slow_frame_line() {
     check(next.find(" | lists 0.0 ") != std::string::npos, "the split does not carry over to the next frame: " + next);
 }
 
+void test_draws_reach_the_slow_frame_line() {
+    (void)slow_frame_line(200'202u);
+    for (int i = 0; i < 3; ++i) count_draw();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    const std::string line = slow_frame_line(233'569u);
+    check(line.find(" | draws 3 | ") != std::string::npos, "the frame's draws are on its slow-frame line: " + line);
+    check(line.find(" at 233.6ms | ") != std::string::npos, "so is the emulated time it ended at: " + line);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    const std::string next = slow_frame_line(266'936u);
+    check(next.find(" | draws 0 | ") != std::string::npos, "draws do not carry over to the next frame: " + next);
+}
+
 } // namespace
 
 int main() {
@@ -113,6 +125,7 @@ int main() {
     test_every_kind_has_its_own_name();
     test_scopes_reach_the_slow_frame_line();
     test_split_reaches_the_slow_frame_line();
+    test_draws_reach_the_slow_frame_line();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;
