@@ -23,17 +23,6 @@ constexpr std::uint64_t kUploadBytesPerFrame = 32ull * 1024u * 1024u;
 // enough while each frame waited for the one before.)
 constexpr std::uint64_t kKeepFrames = 4u;
 
-std::uint64_t budget_from_environment() {
-    // MHFU_TEXTURE_PACK_MEMORY: megabytes of GPU memory for replacements.
-    std::uint64_t megabytes = 1024u;
-    if (const char *value = std::getenv("MHFU_TEXTURE_PACK_MEMORY"); value != nullptr && *value != '\0') {
-        char *end = nullptr;
-        const unsigned long long parsed = std::strtoull(value, &end, 10);
-        if (end != value && parsed >= 64u) megabytes = parsed;
-    }
-    return megabytes * 1024u * 1024u;
-}
-
 bool check(VkResult result, const char *what, std::string &error) {
     if (result == VK_SUCCESS) return true;
     error = std::string(what) + " failed (" + std::to_string(static_cast<int>(result)) + ")";
@@ -59,8 +48,17 @@ void barrier(VkCommandBuffer commands, VkImage image, std::uint32_t level, std::
 
 bool ReplacementTextures::initialize(const Device &device, std::string &error) {
     device_ = device;
-    budget_bytes_ = budget_from_environment();
     vkGetPhysicalDeviceMemoryProperties(device.physical_device, &memory_properties_);
+    // The budget grows with a discrete GPU's own memory: its largest
+    // device-local heap.
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(device.physical_device, &properties);
+    VkDeviceSize device_local = 0u;
+    for (std::uint32_t i = 0; i < memory_properties_.memoryHeapCount; ++i)
+        if ((memory_properties_.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0u)
+            device_local = std::max(device_local, memory_properties_.memoryHeaps[i].size);
+    budget_bytes_ = texture_pack_budget_bytes(device_local,
+        properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU, std::getenv("MHFU_TEXTURE_PACK_MEMORY"));
 
     VkCommandPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;

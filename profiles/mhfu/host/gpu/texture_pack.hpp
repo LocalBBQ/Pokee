@@ -145,6 +145,21 @@ enum class ButtonIcons : std::uint8_t { Pack, Xbox, PlayStation, Nintendo };
 // on the bottom button: that swap puts ○ on A, which no set shows.
 [[nodiscard]] ButtonIcons pick_button_icons(std::optional<ButtonIcons> chosen, ButtonIcons pad, bool confirm_south);
 
+// How many loader threads decode a pack's images on a CPU with
+// `hardware_threads`: a quarter of them, at least one and at most six. Up to
+// 11 hardware threads that is one or two, as it always was; a large desktop
+// CPU gets more, so a new area's images arrive sooner. `setting`
+// (MHFU_TEXTURE_PACK_THREADS, may be null) overrides it with 1 to 16.
+[[nodiscard]] unsigned texture_pack_loader_threads(unsigned hardware_threads, const char *setting);
+
+// GPU memory for a pack's images, in bytes: `setting`
+// (MHFU_TEXTURE_PACK_MEMORY, may be null) in megabytes when it is at least
+// 64; otherwise 1 GiB, or on a discrete GPU a quarter of its largest
+// device-local heap, up to 8 GiB. An integrated GPU shares that heap with the
+// system, so it keeps 1 GiB.
+[[nodiscard]] std::uint64_t texture_pack_budget_bytes(
+    std::uint64_t device_local_bytes, bool discrete, const char *setting);
+
 class TexturePack {
 public:
     // Reads textures.ini (and the hash-named images in the folder itself) from
@@ -175,6 +190,7 @@ public:
     [[nodiscard]] const std::filesystem::path &directory() const noexcept { return directory_; }
     [[nodiscard]] const TexturePackOptions &options() const noexcept { return options_; }
     [[nodiscard]] std::size_t entry_count() const noexcept { return entries_.size(); }
+    [[nodiscard]] std::size_t loader_count() const noexcept { return loaders_.size(); }
     // Whether the pack comes with any button icon set besides its own.
     [[nodiscard]] bool has_button_icons() const noexcept { return button_icon_sets_ != 0u; }
     [[nodiscard]] bool offers(ButtonIcons icons) const noexcept {

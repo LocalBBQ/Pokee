@@ -49,6 +49,7 @@ public:
 
     [[nodiscard]] std::uint64_t resident_bytes() const noexcept { return resident_bytes_; }
     [[nodiscard]] std::size_t resident_count() const noexcept { return resident_.size(); }
+    [[nodiscard]] std::uint64_t budget_bytes() const noexcept { return budget_bytes_; }
 
 private:
     struct Resident {
