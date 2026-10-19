@@ -1754,6 +1754,10 @@ struct VulkanRenderer::Impl {
         bool color_baked{};
         bool expanded{};
         std::vector<GpuVertex> vertices;
+        // Vertices written straight into vertex_hold with no copy in
+        // `vertices` (remember_held). Such a span is drawn from the hold only
+        // and leaves the cache when its range there is taken back.
+        std::uint32_t held_count{};
         std::uint64_t frame{};
         VkDeviceSize hold_at{~VkDeviceSize{0}}; // bytes into vertex_hold, or none
         VkDeviceSize hold_reserved{};           // bytes that placement occupies, aligned
@@ -1762,6 +1766,10 @@ struct VulkanRenderer::Impl {
     std::vector<GpuVertex> cache_build;
     std::uint64_t vertex_cache_bytes{};
     const std::vector<GpuVertex> *reused_vertices{};
+    // A hit on a span that lives in the hold alone: its vertex count, with
+    // reused_vertices null.
+    std::uint32_t reused_held{};
+    SpanKey reused_key{};
     bool reused_expanded{};
     SpanEntry *reused_entry{};
     VkDeviceSize reused_hold_at{~VkDeviceSize{0}};
@@ -1786,6 +1794,15 @@ struct VulkanRenderer::Impl {
         static const bool old = std::getenv("MHFU_OLD_VERTEX_CACHE") != nullptr;
         return old;
     }
+    // A transformed draw the cache misses is converted once, straight into
+    // vertex_hold, and drawn from there in that frame too, so a new area's
+    // spans need no memory of their own and are not copied into the frame's
+    // buffer and then into the hold. MHFU_NO_MISS_TO_HOLD=1 converts into a
+    // vector of the span's own and copies it twice, as before.
+    [[nodiscard]] static bool misses_to_hold() {
+        static const bool on = !old_vertex_cache() && std::getenv("MHFU_NO_MISS_TO_HOLD") == nullptr;
+        return on;
+    }
     // Bytes of decoded vertices the cache keeps: as many as the hold has.
     [[nodiscard]] std::uint64_t vertex_cache_cap() const {
         return old_vertex_cache() || hold_bytes == 0u ? kVertexHoldBase : hold_bytes;
@@ -1801,10 +1818,19 @@ struct VulkanRenderer::Impl {
     // free. True when `kept`, the span just stored, had to go too: it is
     // larger than the whole cache.
     bool drop_spans(const SpanKey &kept);
+    // Stores the pending span as `count` vertices already written at `placed`
+    // in vertex_hold, with no copy of its own.
+    void remember_held(const VertexHoldHeap::Placement &placed, std::uint32_t count);
+    // Drops one span, its hold range once the frames in flight are done.
+    void forget_span(const SpanKey &key);
+    // Room for `bytes` in vertex_hold, making it from the oldest spans when
+    // full. offset is ~0 when the hold is off or has none.
+    [[nodiscard]] VertexHoldHeap::Placement claim_hold(VkDeviceSize bytes);
     // Copies decoded vertices into vertex_hold once. offset is ~0 when the hold is off or full.
     [[nodiscard]] VertexHoldHeap::Placement place_hold(const std::vector<GpuVertex> &vertices);
     // A full hold: spans not drawn in the last three frames give back their
-    // ranges, least recently drawn first, until an eighth of it is free.
+    // ranges, least recently drawn first, until an eighth of it is free. One
+    // kept in the hold alone leaves the cache with its range.
     void make_hold_room(VkDeviceSize bytes);
     // Returns how far the append cursor moved back. A reclaim that is still in
     // flight stays reserved until `ready_frame`.
@@ -2759,6 +2785,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     impl.sharp_screen = player.sharp_screen;
     impl.sharp_textures = player.sharp_textures;
     impl.trace_interpolation = std::getenv("MHFU_TRACE_INTERPOLATION") != nullptr;
+    impl.present_clock.set_recent_bound(std::getenv("MHFU_INTERPOLATION_SLOW_DELAY") == nullptr);
     if (std::getenv("MHFU_INTERPOLATION_NO_MOTION_GUARD") != nullptr) impl.cut_thresholds.max_own_motion = 0.0f;
     if (std::getenv("MHFU_INTERPOLATION_NO_NEAREST_INSTANCES") != nullptr)
         impl.cut_thresholds.nearest_instances = false;
@@ -7451,6 +7478,7 @@ bool VulkanRenderer::Impl::direct_vertex_layout(PrimitiveType primitive, bool th
 
 bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
     reused_vertices = nullptr;
+    reused_held = 0u;
     reused_entry = nullptr;
     reused_hold_at = ~VkDeviceSize{0};
     cache_pending = false;
@@ -7469,13 +7497,16 @@ bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
         SpanEntry &entry = found->second;
         if (entry.source_hash == source_hash && entry.bone_hash == bone_hash &&
             entry.color_stamp == lookup.color_stamp && entry.color_baked == lookup.color_baked &&
-            entry.expanded == expanded && !entry.vertices.empty()) {
+            entry.expanded == expanded && (!entry.vertices.empty() || entry.held_count != 0u)) {
             entry.frame = frames;
-            reused_vertices = &entry.vertices;
+            reused_vertices = entry.held_count != 0u ? nullptr : &entry.vertices;
+            reused_held = entry.held_count;
+            reused_key = key;
             reused_expanded = expanded;
             reused_entry = &entry;
             reused_hold_at = entry.hold_at;
-            cache_hit_bytes += entry.vertices.size() * sizeof(GpuVertex);
+            cache_hit_bytes +=
+                (entry.held_count != 0u ? entry.held_count : entry.vertices.size()) * sizeof(GpuVertex);
             return true;
         }
     }
@@ -7490,8 +7521,19 @@ bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
 }
 
 VertexHoldHeap::Placement VulkanRenderer::Impl::place_hold(const std::vector<GpuVertex> &vertices) {
-    if (vertex_hold == VK_NULL_HANDLE || hold_mapped == nullptr || vertices.empty()) return {};
+    if (vertices.empty()) return {};
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(vertices.size()) * sizeof(GpuVertex);
+    const VertexHoldHeap::Placement placed = claim_hold(bytes);
+    if (placed.offset == VertexHoldHeap::kNone) return {};
+    std::memcpy(static_cast<std::uint8_t *>(hold_mapped) + static_cast<std::size_t>(placed.offset), vertices.data(),
+        static_cast<std::size_t>(bytes));
+    const VkDeviceSize end = static_cast<VkDeviceSize>(placed.offset + bytes);
+    if (end > hold_dirty) hold_dirty = end;
+    return placed;
+}
+
+VertexHoldHeap::Placement VulkanRenderer::Impl::claim_hold(VkDeviceSize bytes) {
+    if (vertex_hold == VK_NULL_HANDLE || hold_mapped == nullptr || bytes == 0u) return {};
     VertexHoldHeap::Placement placed = hold_heap.place(bytes, frames);
     // Spans are kept after they leave the screen, so a full hold makes room
     // from the oldest; once a frame finds none, the rest of it does not look.
@@ -7507,22 +7549,20 @@ VertexHoldHeap::Placement VulkanRenderer::Impl::place_hold(const std::vector<Gpu
         }
         return {};
     }
-    std::memcpy(static_cast<std::uint8_t *>(hold_mapped) + static_cast<std::size_t>(placed.offset), vertices.data(),
-        static_cast<std::size_t>(bytes));
-    const VkDeviceSize end = static_cast<VkDeviceSize>(placed.offset + bytes);
-    if (end > hold_dirty) hold_dirty = end;
     return placed;
 }
 
 void VulkanRenderer::Impl::make_hold_room(VkDeviceSize bytes) {
     // Only spans the frames in flight no longer read can give theirs back.
-    std::vector<SpanEntry *> spans;
+    using Spans = std::map<SpanKey, SpanEntry>;
+    std::vector<Spans::iterator> spans;
     std::vector<std::uint64_t> drawn;
     std::vector<std::uint64_t> held;
     std::uint64_t total = 0u;
-    for (auto &[key, entry] : vertex_spans) {
+    for (Spans::iterator it = vertex_spans.begin(); it != vertex_spans.end(); ++it) {
+        const SpanEntry &entry = it->second;
         if (entry.hold_at == ~VkDeviceSize{0} || entry.frame + 2u >= frames) continue;
-        spans.push_back(&entry);
+        spans.push_back(it);
         drawn.push_back(entry.frame);
         held.push_back(entry.hold_reserved);
         total += entry.hold_reserved;
@@ -7532,8 +7572,13 @@ void VulkanRenderer::Impl::make_hold_room(VkDeviceSize bytes) {
     std::uint64_t freed = 0u;
     for (const std::size_t index :
         vertex_spans_to_drop(drawn.data(), held.data(), spans.size(), total, keep, spans.size())) {
-        SpanEntry &entry = *spans[index];
+        SpanEntry &entry = spans[index]->second;
         freed += release_hold(entry.hold_at, entry.hold_reserved, frames);
+        // A span with no copy of its own has nothing left to draw from.
+        if (entry.held_count != 0u) {
+            vertex_spans.erase(spans[index]);
+            continue;
+        }
         entry.hold_at = ~VkDeviceSize{0};
         entry.hold_reserved = 0u;
     }
@@ -7560,6 +7605,9 @@ bool VulkanRenderer::Impl::drop_spans(const SpanKey &kept) {
     drawn.reserve(vertex_spans.size());
     sizes.reserve(vertex_spans.size());
     for (Spans::iterator it = vertex_spans.begin(); it != vertex_spans.end(); ++it) {
+        // A span in the hold alone takes none of the cache's bytes; the hold
+        // makes its own room (make_hold_room).
+        if (it->second.held_count != 0u) continue;
         if (it == kept_at) protect = spans.size();
         spans.push_back(it);
         drawn.push_back(it->second.frame);
@@ -7607,6 +7655,7 @@ void VulkanRenderer::Impl::remember_span(std::vector<GpuVertex> &vertices, bool 
         spare_spans.reserve(entry.vertices, vertices.size());
         entry.vertices.assign(vertices.begin(), vertices.end());
     }
+    entry.held_count = 0u;
     entry.frame = frames;
     entry.hold_at = ~VkDeviceSize{0};
     entry.hold_reserved = 0u;
@@ -7633,6 +7682,39 @@ void VulkanRenderer::Impl::remember_span(std::vector<GpuVertex> &vertices, bool 
     if (placed.offset == VertexHoldHeap::kNone) return;
     entry.hold_at = static_cast<VkDeviceSize>(placed.offset);
     entry.hold_reserved = static_cast<VkDeviceSize>(placed.reserved);
+}
+
+void VulkanRenderer::Impl::remember_held(const VertexHoldHeap::Placement &placed, std::uint32_t count) {
+    if (!cache_pending || count == 0u || placed.offset == VertexHoldHeap::kNone) {
+        cache_pending = false;
+        return;
+    }
+    cache_pending = false;
+    SpanEntry &entry = vertex_spans[cache_pending_key];
+    const std::uint64_t retired = release_hold(entry.hold_at, entry.hold_reserved, frames + kVertexHoldRetireFrames);
+    vertex_cache_bytes -= entry.vertices.size() * sizeof(GpuVertex);
+    spare_spans.give(std::move(entry.vertices));
+    std::vector<GpuVertex>().swap(entry.vertices); // what the spares had no room for
+    entry.source_hash = cache_pending_source;
+    entry.bone_hash = cache_pending_bone;
+    entry.color_stamp = cache_pending_color;
+    entry.color_baked = cache_pending_baked;
+    entry.expanded = cache_pending_expanded;
+    entry.held_count = count;
+    entry.frame = frames;
+    entry.hold_at = static_cast<VkDeviceSize>(placed.offset);
+    entry.hold_reserved = static_cast<VkDeviceSize>(placed.reserved);
+    cache_miss_bytes += static_cast<std::uint64_t>(count) * sizeof(GpuVertex);
+    if (retired >= (1ull << 20u)) std::cout << "[render] vertex hold freed " << (retired >> 20u) << " MiB\n";
+}
+
+void VulkanRenderer::Impl::forget_span(const SpanKey &key) {
+    const auto found = vertex_spans.find(key);
+    if (found == vertex_spans.end()) return;
+    SpanEntry &entry = found->second;
+    release_hold(entry.hold_at, entry.hold_reserved, frames + kVertexHoldRetireFrames);
+    vertex_cache_bytes -= entry.vertices.size() * sizeof(GpuVertex);
+    vertex_spans.erase(found);
 }
 
 void VulkanRenderer::Impl::report_vertex_cache() {
@@ -7707,13 +7789,18 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         ~DropPending() {
             impl.cache_pending = false;
             impl.reused_vertices = nullptr;
+            impl.reused_held = 0u;
             impl.reused_entry = nullptr;
             impl.reused_hold_at = ~VkDeviceSize{0};
         }
     } drop_pending{impl};
     const std::vector<GpuVertex> *reused = call.vertices_reused ? impl.reused_vertices : nullptr;
+    // A hit on a span kept in vertex_hold alone (remember_held) has no vector:
+    // `reused` is null and it is drawn from the hold.
+    const std::uint32_t reused_held = call.vertices_reused && reused == nullptr ? impl.reused_held : 0u;
+    const bool reuse = reused != nullptr || reused_held != 0u;
     const bool reused_expanded = reused != nullptr && impl.reused_expanded;
-    if (call.vertices.empty() && !raw && reused == nullptr) return;
+    if (call.vertices.empty() && !raw && !reuse) return;
     // While the game's HUD is hidden, its draws are left out (game_hud.hpp);
     // the GE state they were made with was already set, so nothing else
     // changes.
@@ -7759,6 +7846,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         return call.vertices[std::min(index, call.vertices.size() - 1u)];
     };
     const std::size_t vertex_total = raw        ? call.raw_count
+        : reused_held != 0u                     ? reused_held
         : reused != nullptr && !reused_expanded ? reused->size()
                                                 : call.vertices.size();
     const std::size_t count = call.indices.empty() ? vertex_total : call.indices.size();
@@ -7860,6 +7948,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         }
         return true;
     };
+    // A span in the hold alone has no vertices here to expand. A draw that
+    // cannot take the direct path this time (a trace or capture frame, a HUD
+    // size that makes it a small icon) is left out once and its span
+    // forgotten, so the next frame decodes it again.
+    if (reused_held != 0u && !direct) {
+        impl.forget_span(impl.reused_key);
+        return;
+    }
     if (reused_expanded) {
         // The expanded triangle list was cached with the source it came from.
     } else if (direct) {
@@ -8587,10 +8683,39 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             impl.reused_hold_at = placed.offset;
         }
     }
+    // A miss on the direct path is converted once, straight into the hold,
+    // and drawn from there like a hit (misses_to_hold). A hold with no room
+    // leaves it to the copies below.
+    VkDeviceSize fresh_hold_at = ~VkDeviceSize{0};
+    if (miss_goes_to_hold({Impl::misses_to_hold(), impl.vertex_hold != VK_NULL_HANDLE && impl.hold_mapped != nullptr,
+            impl.cache_pending && !reuse, direct, raw, skinned, call.vertex_type, call.vertices.size()})) {
+        const auto count = static_cast<std::uint32_t>(call.vertices.size());
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(count) * sizeof(GpuVertex);
+        const VertexHoldHeap::Placement placed = impl.claim_hold(bytes);
+        if (placed.offset != VertexHoldHeap::kNone) {
+            auto *out = static_cast<std::uint8_t *>(impl.hold_mapped) + static_cast<std::size_t>(placed.offset);
+            for (const Vertex &vertex : call.vertices) {
+                const GpuVertex converted = to_gpu(vertex);
+                std::memcpy(out, &converted, sizeof(GpuVertex));
+                out += sizeof(GpuVertex);
+            }
+            const VkDeviceSize end = static_cast<VkDeviceSize>(placed.offset) + bytes;
+            if (end > impl.hold_dirty) impl.hold_dirty = end;
+            impl.remember_held(placed, count);
+            fresh_hold_at = static_cast<VkDeviceSize>(placed.offset);
+        }
+    }
     // A cache hit that is not skinned already lives in the hold buffer.
     // Drawing it from there leaves this frame's ring region alone.
-    const bool held = !scale_corners && reused != nullptr && !skinned && impl.vertex_hold != VK_NULL_HANDLE &&
-        impl.reused_hold_at != ~VkDeviceSize{0};
+    const bool held = fresh_hold_at != ~VkDeviceSize{0} ||
+        (!scale_corners && reuse && !skinned && impl.vertex_hold != VK_NULL_HANDLE &&
+            impl.reused_hold_at != ~VkDeviceSize{0});
+    const VkDeviceSize hold_at = fresh_hold_at != ~VkDeviceSize{0} ? fresh_hold_at : impl.reused_hold_at;
+    // A span in the hold alone can be drawn from nowhere else.
+    if (reused_held != 0u && !held) {
+        impl.forget_span(impl.reused_key);
+        return;
+    }
     const VkBuffer vertex_source = held ? impl.vertex_hold : impl.vertex_buffer;
     VkDeviceSize vertex_start = impl.vertex_offset;
     VkDeviceSize index_start = 0u;
@@ -8614,7 +8739,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         const VkDeviceSize vertex_bytes = raw ? static_cast<VkDeviceSize>(call.raw_count) * call.raw_stride
                                               : static_cast<VkDeviceSize>(vertex_total) * sizeof(GpuVertex);
         if (held) {
-            vertex_start = impl.reused_hold_at;
+            vertex_start = hold_at;
             draw_end = vertex_start + vertex_bytes;
             if (merge) {
                 if (impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit) {
@@ -8678,7 +8803,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         draw_count = static_cast<std::uint32_t>(impl.direct_indices.size());
     } else if (held) {
         const VkDeviceSize bytes = reused->size() * sizeof(GpuVertex);
-        vertex_start = impl.reused_hold_at;
+        vertex_start = hold_at;
         draw_end = vertex_start + bytes;
         draw_count = static_cast<std::uint32_t>(reused->size());
     } else if (reused_expanded) {
@@ -9816,6 +9941,14 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
                     RawBlock blended = a;
                     for (std::size_t i = 0; i < blended.bones.size(); ++i)
                         blended.bones[i] += (b.bones[i] - blended.bones[i]) * t;
+                    // MHFU_CHECK_GPU_DECODE: the copy names the frame's check
+                    // slot, so this in-between pose would overwrite what the
+                    // frame decoded before it is compared. It writes past the
+                    // compared part of its slot's area instead.
+                    if (check_gpu_decode) {
+                        constexpr std::uint32_t kSlotArea = 2u * kCheckVertices * 3u;
+                        blended.extra[1] = blended.extra[1] / kSlotArea * kSlotArea + kCheckVertices * 3u;
+                    }
                     const VkDeviceSize at =
                         (scratch_at + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
                     if (at + sizeof(RawBlock) <= scratch_end) {

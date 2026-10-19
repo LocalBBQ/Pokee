@@ -24,7 +24,11 @@
 // moment, and the first grid moment past a frame's moment needs that frame.
 // So the delay is the frame time less the shortest step from a frame's moment
 // to the next grid moment, plus the time the game's code takes: the ninth
-// longest of the last 60 frames, and a millisecond. A frame later than that,
+// longest of the last 60 frames, but no more than the longest of the last 15,
+// and a millisecond. The game flips about 20 ms after a frame's moment in the
+// town and 6 ms in a quest; without the second bound, two seconds of presents
+// after going from one to the other were late enough to fall before the older
+// frame and show it again. A frame later than that,
 // a stall or a load, holds the newest picture for a present or two rather
 // than keep every present late for two seconds. At 60 a frame is on screen as
 // it is 16.7 ms plus that time after its moment; without interpolation it is
@@ -54,6 +58,9 @@ public:
     void flip(std::int64_t time_us, std::int64_t now_us) noexcept;
     // Forgets the frames and the grid, as after a pause.
     void reset() noexcept;
+    // Off, the code time is the ninth longest of the last 60 frames alone, as
+    // before (MHFU_INTERPOLATION_SLOW_DELAY).
+    void set_recent_bound(bool on) noexcept { recent_bound_ = on; }
 
     // The time of the next present, once there is a frame to show.
     [[nodiscard]] std::optional<std::int64_t> next_due() const noexcept;
@@ -78,6 +85,7 @@ public:
     static constexpr std::int64_t kWorkMarginUs = 1000;
     static constexpr std::size_t kWorkWindowFrames = 60;
     static constexpr std::size_t kWorkRank = 8; // how many of the window may be later
+    static constexpr std::size_t kRecentFrames = 15; // the frames whose longest bounds it
 
 private:
     // The grid moment `index`, and when it is presented.
@@ -90,6 +98,7 @@ private:
     std::int64_t work_us_{kWorkMarginUs};
     std::vector<std::int64_t> work_window_; // the last frames' code time, oldest first
     std::size_t work_cursor_{};
+    bool recent_bound_{true};
     std::int64_t frame_us_{kGameFrameUs};
     bool has_newer_{};
     bool has_older_{};

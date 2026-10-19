@@ -9,6 +9,8 @@
 
 namespace {
 
+using mhfu::gpu::HoldMiss;
+using mhfu::gpu::miss_goes_to_hold;
 using mhfu::gpu::SpareVectors;
 using mhfu::gpu::vertex_spans_to_drop;
 
@@ -113,6 +115,57 @@ void a_smaller_buffer_becomes_a_spare() {
         "a buffer with room already is emptied and keeps its memory");
 }
 
+// A scenery draw: direct, decoded, unweighted, waiting to be cached.
+HoldMiss scenery() {
+    HoldMiss miss;
+    miss.enabled = true;
+    miss.hold_ready = true;
+    miss.pending = true;
+    miss.direct = true;
+    miss.vertex_type = 0x0000011Fu; // bits 9 and 10, the weight format, clear
+    miss.count = 300u;
+    return miss;
+}
+
+void a_scenery_miss_goes_to_the_hold() {
+    check(miss_goes_to_hold(scenery()), "a direct, unweighted miss is written straight into the hold");
+}
+
+void what_keeps_a_miss_out_of_the_hold() {
+    HoldMiss miss = scenery();
+    miss.enabled = false;
+    check(!miss_goes_to_hold(miss), "MHFU_NO_MISS_TO_HOLD keeps the copies");
+    miss = scenery();
+    miss.hold_ready = false;
+    check(!miss_goes_to_hold(miss), "no hold, no writing into it");
+    miss = scenery();
+    miss.pending = false;
+    check(!miss_goes_to_hold(miss), "a draw the cache does not store keeps the ring");
+    miss = scenery();
+    miss.direct = false;
+    check(!miss_goes_to_hold(miss), "an expanded draw keeps its own copy");
+    miss = scenery();
+    miss.raw = true;
+    check(!miss_goes_to_hold(miss), "an undecoded draw has nothing to convert");
+    miss = scenery();
+    miss.skinned = true;
+    check(!miss_goes_to_hold(miss), "a skinned draw is copied for interpolation");
+    miss = scenery();
+    miss.count = 0u;
+    check(!miss_goes_to_hold(miss), "an empty draw is not stored");
+}
+
+void a_weighted_miss_keeps_its_copy() {
+    for (std::uint32_t weights = 1u; weights <= 3u; ++weights) {
+        HoldMiss miss = scenery();
+        miss.vertex_type |= weights << 9u;
+        check(!miss_goes_to_hold(miss), "every weight format keeps a copy on the CPU");
+    }
+    HoldMiss neighbours = scenery();
+    neighbours.vertex_type |= (1u << 8u) | (1u << 11u);
+    check(miss_goes_to_hold(neighbours), "the bits beside the weight field do not count as weights");
+}
+
 } // namespace
 
 int main() {
@@ -124,6 +177,9 @@ int main() {
     a_far_larger_spare_is_left();
     the_spares_keep_to_their_limit();
     a_smaller_buffer_becomes_a_spare();
+    a_scenery_miss_goes_to_the_hold();
+    what_keeps_a_miss_out_of_the_hold();
+    a_weighted_miss_keeps_its_copy();
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;
