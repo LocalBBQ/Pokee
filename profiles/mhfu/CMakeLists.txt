@@ -273,6 +273,7 @@ set(MHFU_HOST_SOURCES
     host/game/empty_item_slot.cpp
     host/game/give_rarity.cpp
     host/game/hall_equipment.cpp
+    host/game/hooks.cpp
     host/game/guest_calls.cpp
     host/game/item_sets.cpp
     host/game/item_sets_menu.cpp
@@ -592,6 +593,7 @@ add_executable(mhfu_item_sets_tests
     host/game/game_data.cpp
     host/game/guest_calls.cpp
     host/game/item_sets.cpp
+    host/game/hooks.cpp
     host/game/item_sets_menu.cpp
     host/game/guest_ram.cpp
     host/settings/settings.cpp
@@ -652,11 +654,24 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_give_rarity_tests COMMAND mhfu_give_rarity_tests)
 endif()
 
+# Wrappers that share a guest function: two in either order run once each,
+# and a function registered again starts a new chain. No game data.
+add_executable(mhfu_hooks_tests
+    tests/hooks_tests.cpp
+    host/game/hooks.cpp)
+target_include_directories(mhfu_hooks_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_hooks_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_hooks_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_hooks_tests COMMAND mhfu_hooks_tests)
+endif()
+
 # Change Equipment in the Guild Hall: the button read, the refused choice, the
 # label, the code check, and the wrappers around a stand-in box. No game data.
 add_executable(mhfu_hall_equipment_tests
     tests/hall_equipment_tests.cpp
     host/game/hall_equipment.cpp
+    host/game/hooks.cpp
     host/settings/settings.cpp
     host/install/user_data.cpp
     host/app_paths.cpp
