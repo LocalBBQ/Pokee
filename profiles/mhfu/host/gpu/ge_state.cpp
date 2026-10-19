@@ -266,7 +266,9 @@ void decode_run(const std::uint8_t *data, std::uint32_t count, const VertexLayou
     const std::uint32_t bones = std::min(layout.weight_count, 8u);
     for (std::uint32_t i = 0; i < count; ++i) {
         const std::uint8_t *base = data + static_cast<std::size_t>(i) * layout.stride;
-        Vertex vertex{};
+        // Written in place: `out` holds default vertices. Building one on the
+        // stack and copying it out took three times as long under MSVC.
+        Vertex &vertex = out[i];
         if (layout.texcoord_offset != kNoField) {
             const std::uint8_t *at = base + layout.texcoord_offset;
             switch (texcoord_type) {
@@ -327,7 +329,6 @@ void decode_run(const std::uint8_t *data, std::uint32_t count, const VertexLayou
                 vertex.normal = normal;
             }
         }
-        out[i] = vertex;
     }
 }
 
@@ -439,6 +440,7 @@ std::uint32_t decode_vertices(const GuestMemory &memory, std::uint32_t address, 
         layout.stride = stride;
         layout.through = through;
         layout.skinned = skinned;
+        out.clear();
         out.resize(count);
         fast_run(data, count, layout, out.data(), bone_matrices);
         if (!check_decode) return stride;

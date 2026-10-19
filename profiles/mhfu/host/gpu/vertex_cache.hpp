@@ -43,6 +43,27 @@ namespace mhfu::gpu {
     return drop;
 }
 
+// A draw the vertex cache missed, as the renderer sees it.
+struct HoldMiss {
+    bool enabled{};     // not MHFU_NO_MISS_TO_HOLD or MHFU_OLD_VERTEX_CACHE
+    bool hold_ready{};  // the hold buffer exists and is mapped
+    bool pending{};     // the cache is waiting to store this draw's span
+    bool direct{};      // vertices written once, with an index list
+    bool raw{};         // handed to the GPU undecoded
+    bool skinned{};     // copied each frame for frame interpolation
+    std::uint32_t vertex_type{};
+    std::size_t count{};
+};
+
+// Whether that draw is converted straight into the hold and drawn from there,
+// keeping no copy of its own. Only a direct, decoded draw without bone
+// weights: a skinned one needs its vertices on the CPU for interpolation.
+[[nodiscard]] constexpr bool miss_goes_to_hold(const HoldMiss &miss) {
+    const bool weighted = ((miss.vertex_type >> 9u) & 3u) != 0u;
+    return miss.enabled && miss.hold_ready && miss.pending && miss.direct && !miss.raw && !miss.skinned &&
+        !weighted && miss.count != 0u;
+}
+
 // The vectors of spans the cache dropped, kept with their memory for the
 // spans that miss next. Fresh memory is what makes a miss slow: on Windows the
 // 55 MiB of new spans an area brings took 12 to 15 ms in allocations alone,
