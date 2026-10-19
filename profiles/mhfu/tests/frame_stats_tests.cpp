@@ -1,5 +1,6 @@
 // The stall trace (MHFU_TRACE_STALLS): every kind has a name of its own, and
-// the time a StallScope measures reaches the [slow-frame] line of its frame.
+// the time a StallScope measures reaches the [slow-frame] line of its frame,
+// and so does the frame's render split.
 // No game data and no GPU.
 #include "perf/frame_stats.hpp"
 
@@ -79,6 +80,28 @@ void test_scopes_reach_the_slow_frame_line() {
         "stalls do not carry over to the next frame: " + next);
 }
 
+void test_split_reaches_the_slow_frame_line() {
+    check(split_enabled(), "the stall trace times the render split");
+    // The counter is calibrated over the first quarter second of frames.
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    (void)slow_frame_line(100'101u);
+    {
+        const SplitScope lists(Split::Lists);
+        const SplitScope draw(Split::Draw);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    const std::string line = slow_frame_line(133'468u);
+    const std::size_t at = line.find(" | lists ");
+    check(at != std::string::npos, "the frame's render split is on its slow-frame line: " + line);
+    if (at != std::string::npos)
+        check(std::strtod(line.c_str() + at + 9u, nullptr) >= 4.0, "the split gives the scope's time: " + line);
+    check(line.find(" draw ") != std::string::npos && line.find(" writeback ") != std::string::npos,
+        "every part of the split is named: " + line);
+
+    const std::string next = slow_frame_line(166'835u);
+    check(next.find(" | lists 0.0 ") != std::string::npos, "the split does not carry over to the next frame: " + next);
+}
+
 } // namespace
 
 int main() {
@@ -87,6 +110,7 @@ int main() {
     set_environment("MHFU_TRACE_STALLS_MS", "0.001");
     test_every_kind_has_its_own_name();
     test_scopes_reach_the_slow_frame_line();
+    test_split_reaches_the_slow_frame_line();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;
