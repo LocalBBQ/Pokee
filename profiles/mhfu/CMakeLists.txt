@@ -838,6 +838,15 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_vertex_hold_tests COMMAND mhfu_vertex_hold_tests)
 endif()
 
+# Which cached spans give way when the vertex cache is full, and the spare
+# vectors later misses reuse. No GPU is used.
+add_executable(mhfu_vertex_cache_tests tests/vertex_cache_tests.cpp)
+target_include_directories(mhfu_vertex_cache_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+set_target_properties(mhfu_vertex_cache_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_vertex_cache_tests COMMAND mhfu_vertex_cache_tests)
+endif()
+
 # Descriptor pools counted the way a phone's driver counts them: growth,
 # freeing, a driver that refuses early, the pool limit. No GPU is used.
 if(Vulkan_FOUND)
