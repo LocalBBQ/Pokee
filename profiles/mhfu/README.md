@@ -1356,7 +1356,7 @@ On Android, where no variable can be set, the `[stalls]` line comes with the `[p
 | `cache-save` | CPU time writing `pipeline_cache.bin` and `pipeline_keys.bin`, a few seconds after a burst of new pipelines (part of `render`) |
 | `pack` | CPU time the HD texture pack spends on the game thread: hashing each new game texture to look it up, uploading a decoded image (its allocations, the copy into staging memory and its own submit), and freeing finished uploads or dropping images over the budget (part of `render`) |
 
-After the kinds, a `[slow-frame]` line gives the frame's render split, in milliseconds, as `MHFU_TRACE_RENDER` times it: `| lists 52.3 (decode 4.1 draw 45.0: texture 3.2 record 38.7 summary 0.4) interp 0.3 replay 0.0 present 0.6 writeback 0.2`. `lists` is running the display lists, with the vertex decode and the renderer's handling of each draw inside it; `texture`, `record` and `summary` are parts of `draw`. The split is left out for the first quarter second, while its counter is calibrated.
+After the kinds, a `[slow-frame]` line gives the frame's render split, in milliseconds, as `MHFU_TRACE_RENDER` times it: `| lists 52.3 (decode 4.1 draw 45.0: texture 3.2 vertices 30.1 pipeline 0.4 record 6.9 summary 0.4 other 4.0) interp 0.3 replay 0.0 present 0.6 writeback 0.2`. `lists` is running the display lists, with the vertex decode and the renderer's handling of each draw inside it. The parts of `draw` are its texture, writing its vertices into the frame's buffers (and keeping a span the vertex cache missed), finding its pipeline, recording its commands and what interpolation keeps of it; `other` is the rest of `draw`. The split is left out for the first quarter second, while its counter is calibrated.
 
 #### A report from a phone
 

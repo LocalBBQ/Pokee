@@ -195,6 +195,9 @@ enum class NewPath : std::uint8_t {
 //              (MoltenVK's own encoding included when submits are synchronous)
 //   Writeback: storing the shown frame into guest memory
 //   Summary:   of Draw, what interpolation keeps of each draw
+//   Vertices:  of Draw, writing its vertices and indices into the frame's
+//              buffers, and remembering a span the vertex cache missed
+//   Pipeline:  of Draw, finding (or making) the pipeline for its state
 enum class Split : std::uint8_t {
     Lists,
     Decode,
@@ -206,6 +209,8 @@ enum class Split : std::uint8_t {
     Replay,
     Present,
     Writeback,
+    Vertices,
+    Pipeline,
     Count
 };
 [[nodiscard]] bool split_enabled() noexcept;
