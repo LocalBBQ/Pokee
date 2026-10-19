@@ -51,6 +51,9 @@ enum class Stall : std::uint8_t {
     Store,    // converting that frame into guest memory (store_frame)
     Pipeline, // creating a graphics pipeline the frame needs (CPU work inside "render")
     Decode,   // waiting at the frame's submit for textures decoded in the background
+    Texture,  // creating or destroying a texture's image, memory, view and descriptor (CPU work inside "render")
+    Allocate, // vkAllocateMemory and vkFreeMemory for images and upload buffers (part of the above)
+    Cache,    // writing pipeline_cache.bin and pipeline_keys.bin after new pipelines (CPU work inside "render")
     Count,
 };
 [[nodiscard]] const char *stall_name(Stall kind);
@@ -60,6 +63,18 @@ void add_wait_time(Clock::duration duration, Stall kind);
 // CPU work that reads GPU-written memory; only traced, it is already part of
 // the render call it happens in.
 void note_stall(Stall kind, Clock::duration duration);
+// Notes the time from construction to destruction as one stall of `kind`.
+class StallScope {
+public:
+    explicit StallScope(Stall kind) noexcept : kind_(kind), start_(Clock::now()) {}
+    ~StallScope() { note_stall(kind_, Clock::now() - start_); }
+    StallScope(const StallScope &) = delete;
+    StallScope &operator=(const StallScope &) = delete;
+
+private:
+    Stall kind_;
+    Clock::time_point start_;
+};
 // GPU execution time of the frame recorded before this one, measured with
 // timestamp queries, in milliseconds.
 void add_gpu_time(double milliseconds);
