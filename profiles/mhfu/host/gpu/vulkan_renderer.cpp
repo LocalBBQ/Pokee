@@ -2398,7 +2398,12 @@ struct VulkanRenderer::Impl {
         VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         allocate.allocationSize = requirements.size;
         allocate.memoryTypeIndex = find_memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        if (!check(vkAllocateMemory(device, &allocate, nullptr, &memory), "vkAllocateMemory", error)) return false;
+        VkResult allocated{};
+        {
+            const perf::StallScope timed(perf::Stall::Allocate);
+            allocated = vkAllocateMemory(device, &allocate, nullptr, &memory);
+        }
+        if (!check(allocated, "vkAllocateMemory", error)) return false;
         vkBindImageMemory(device, image, memory, 0u);
 
         // An image only copied to and from (the overlay, the write-back, a
@@ -4587,6 +4592,7 @@ VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(
 }
 
 VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture_image(std::uint32_t width, std::uint32_t height) {
+    const perf::StallScope timed(perf::Stall::Texture);
     Texture texture{};
     std::string error;
     if (!create_image(width, height, VK_FORMAT_R8G8B8A8_UNORM,
@@ -4735,8 +4741,12 @@ bool VulkanRenderer::Impl::stage_upload(
         allocate.allocationSize = requirements.size;
         allocate.memoryTypeIndex = find_memory_type(
             requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        if (vkAllocateMemory(device, &allocate, nullptr, &memory) != VK_SUCCESS ||
-            vkBindBufferMemory(device, made, memory, 0u) != VK_SUCCESS ||
+        VkResult allocated{};
+        {
+            const perf::StallScope timed(perf::Stall::Allocate);
+            allocated = vkAllocateMemory(device, &allocate, nullptr, &memory);
+        }
+        if (allocated != VK_SUCCESS || vkBindBufferMemory(device, made, memory, 0u) != VK_SUCCESS ||
             vkMapMemory(device, memory, 0u, size, 0u, &mapped) != VK_SUCCESS) {
             vkDestroyBuffer(device, made, nullptr);
             vkFreeMemory(device, memory, nullptr);
@@ -4813,6 +4823,7 @@ void VulkanRenderer::Impl::release_frame_uploads(std::uint32_t from) {
     }
     for (const auto &[buffer, memory] : frame.retired_buffers) {
         vkDestroyBuffer(device, buffer, nullptr);
+        const perf::StallScope timed(perf::Stall::Allocate);
         vkFreeMemory(device, memory, nullptr);
     }
     frame.retired_buffers.clear();
@@ -4826,10 +4837,14 @@ void VulkanRenderer::Impl::release_frame_uploads(std::uint32_t from) {
 }
 
 void VulkanRenderer::Impl::destroy_texture(Texture &texture) {
+    const perf::StallScope timed(perf::Stall::Texture);
     texture_sets.free(texture.descriptor);
     if (texture.view != VK_NULL_HANDLE) vkDestroyImageView(device, texture.view, nullptr);
     if (texture.image != VK_NULL_HANDLE) vkDestroyImage(device, texture.image, nullptr);
-    if (texture.memory != VK_NULL_HANDLE) vkFreeMemory(device, texture.memory, nullptr);
+    if (texture.memory != VK_NULL_HANDLE) {
+        const perf::StallScope timed_free(perf::Stall::Allocate);
+        vkFreeMemory(device, texture.memory, nullptr);
+    }
     texture = Texture{};
 }
 
@@ -5756,6 +5771,7 @@ void VulkanRenderer::Impl::report_pipelines(bool final) {
         pipelines_new = 0u;
         pipeline_new_ms = 0.0;
     }
+    const perf::StallScope timed(perf::Stall::Cache);
     save_pipeline_cache();
     save_pipeline_keys();
 }
