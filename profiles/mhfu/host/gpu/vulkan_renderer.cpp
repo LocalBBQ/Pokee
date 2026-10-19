@@ -7516,30 +7516,36 @@ bool VulkanRenderer::reuse_decoded_vertices(const VertexReuseLookup &lookup) {
 void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     Impl &impl = *impl_;
     if (!impl.ready) return;
+    // Read once per draw: a game frame has thousands of them, and the menu
+    // that changes settings runs between frames.
+    const settings::Settings &player = settings::current();
     // Damage numbers and the lock-on marker sit on the monster. The perspective
     // draw with the most vertices is the world camera, follow or aim; the HUD
     // is orthographic and is ignored.
-    if (!call.through && !call.clear_mode &&
-        (mhfu::game::damage_numbers_watching() || settings::current().gather_icon ||
-            (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted()))) {
-        const std::uint32_t vertices = call.vertices_reused
-            ? call.reused_count
-            : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
-        const mhfu::game::WorldCamera world{call.view, call.projection, call.viewport.x_scale, call.viewport.y_scale,
-            call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x, call.viewport.offset_y};
-        if (mhfu::game::damage_numbers_watching()) mhfu::game::note_world_camera(world, vertices);
-        if (settings::current().gather_icon)
-            mhfu::game::gather_note_draw({world.projection, world.x_scale, world.y_scale, world.x_offset,
-                                             world.y_offset, world.origin_x, world.origin_y},
-                vertices);
-        if (settings::current().lock_on_marker && mhfu::camera::lock_on_marker_wanted())
-            mhfu::camera::lock_on_note_view({world.view, world.projection, world.x_scale, world.y_scale, world.x_offset,
-                                                world.y_offset, world.origin_x, world.origin_y},
-                vertices);
+    if (!call.through && !call.clear_mode) {
+        const bool watching = mhfu::game::damage_numbers_watching();
+        const bool marker = player.lock_on_marker && mhfu::camera::lock_on_marker_wanted();
+        if (watching || player.gather_icon || marker) {
+            const std::uint32_t vertices = call.vertices_reused
+                ? call.reused_count
+                : (call.raw_vertices != nullptr ? call.raw_count : static_cast<std::uint32_t>(call.vertices.size()));
+            const mhfu::game::WorldCamera world{call.view, call.projection, call.viewport.x_scale,
+                call.viewport.y_scale, call.viewport.x_offset, call.viewport.y_offset, call.viewport.offset_x,
+                call.viewport.offset_y};
+            if (watching) mhfu::game::note_world_camera(world, vertices);
+            if (player.gather_icon)
+                mhfu::game::gather_note_draw({world.projection, world.x_scale, world.y_scale, world.x_offset,
+                                                 world.y_offset, world.origin_x, world.origin_y},
+                    vertices);
+            if (marker)
+                mhfu::camera::lock_on_note_view({world.view, world.projection, world.x_scale, world.y_scale,
+                                                    world.x_offset, world.y_offset, world.origin_x, world.origin_y},
+                    vertices);
+        }
     }
     // The gather mark draws item icons from the game's own atlas, decoded
     // with the palette the HUD last drew it with.
-    if (call.through && call.texture.address == mhfu::game::kItemAtlasAddress && settings::current().gather_icon)
+    if (call.through && call.texture.address == mhfu::game::kItemAtlasAddress && player.gather_icon)
         mhfu::game::note_item_atlas(call.texture);
     const perf::SplitScope split(perf::Split::Draw);
     if (!impl.recording) begin_frame();
@@ -7642,7 +7648,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // Quest HUD pieces can each change size (gpu/hud_scale.hpp). The copy that
     // is drawn is scaled; the one the vertex cache keeps is not, so 100% is
     // the vertices the game submitted.
-    const settings::Settings::InterfaceScale &hud = settings::current().hud;
+    const settings::Settings::InterfaceScale &hud = player.hud;
     const hud_scale::Scales hud_scales = hud_scale::Scales::from_percent(hud.map, hud.health, hud.item_bar, hud.names);
     // A small orthographic draw, such as the cat's face in the party list, is
     // expanded while a size is set so it can take Status with the plates
@@ -8297,7 +8303,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // 0x08841400 turns a frame counter into 64 + 64*sin(...), so a full pulse
     // is alpha 128. AABBGGRR as the GE colour word packs it. The gauge moves
     // the pulse above that (game::sharpness::glow_alpha).
-    const bool glow_colour = settings::current().sharpness_gauge;
+    const bool glow_colour = player.sharpness_gauge;
     if ((cut_bar || cut_colour || glow_colour) && through_quads && !named.is_name &&
         framebuffer_source.target == nullptr && impl.shows(call.target.color_address)) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
@@ -8649,7 +8655,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             texture_descriptor = impl.texture_descriptor(memory, call);
             // The 2D interface's textures sampled sharp bilinear (ge.frag),
             // with either UI texture mode, above x1 (#164).
-            if (call.through && settings::current().ui_textures != settings::UiTextures::Off && impl.ui_scale() >= 2u)
+            if (call.through && player.ui_textures != settings::UiTextures::Off && impl.ui_scale() >= 2u)
                 push.texture_params[0] = 2.0f;
         }
     }

@@ -118,6 +118,7 @@ struct PendingView {
 struct PendingCamera {
     std::vector<PendingView> views;
     std::uint32_t vertices{}; // over every view; 0 when nothing was drawn
+    std::size_t last{};       // the view the previous draw used; draws in a row mostly share one
 };
 
 constexpr std::size_t kMaxViews = 16u;
@@ -547,13 +548,24 @@ void note_world_camera(const WorldCamera &camera, std::uint32_t vertices) {
     std::lock_guard lock(numbers_mutex());
     PendingCamera &pending = pending_camera();
     pending.vertices += vertices;
-    for (PendingView &view : pending.views) {
-        if (view.camera.view == camera.view && view.camera.projection == camera.projection) {
-            view.vertices += vertices;
+    const auto same = [&camera](const PendingView &view) {
+        return view.camera.view == camera.view && view.camera.projection == camera.projection;
+    };
+    if (pending.last < pending.views.size() && same(pending.views[pending.last])) {
+        pending.views[pending.last].vertices += vertices;
+        return;
+    }
+    for (std::size_t i = 0; i < pending.views.size(); ++i) {
+        if (same(pending.views[i])) {
+            pending.views[i].vertices += vertices;
+            pending.last = i;
             return;
         }
     }
-    if (pending.views.size() < kMaxViews) pending.views.push_back({camera, vertices});
+    if (pending.views.size() < kMaxViews) {
+        pending.last = pending.views.size();
+        pending.views.push_back({camera, vertices});
+    }
 }
 
 std::optional<WorldCamera> take_world_camera() {

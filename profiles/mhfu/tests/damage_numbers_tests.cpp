@@ -275,6 +275,18 @@ void test_on_the_monster() {
     note_world_camera(camera, 20u);
     const std::optional<WorldCamera> only_sky = take_world_camera();
     check(only_sky && camera_centred(*only_sky), "a centred view is still a camera when there is no other");
+
+    // Draws through two cameras in turn: each goes to its own view, not to
+    // the one the draw before used.
+    note_world_camera(world, 300u);
+    note_world_camera(other, 500u);
+    note_world_camera(world, 300u);
+    const std::optional<WorldCamera> alternating = take_world_camera();
+    check(alternating && alternating->view[13] == 0.0f, "draws that alternate between views are counted per view");
+    note_world_camera(other, 100u);
+    note_world_camera(world, 50u);
+    const std::optional<WorldCamera> after_take = take_world_camera();
+    check(after_take && after_take->view[13] == 7.0f, "the next frame does not reuse the last frame's view");
 }
 
 void test_the_stroke() {

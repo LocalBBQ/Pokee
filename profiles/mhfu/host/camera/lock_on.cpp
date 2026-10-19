@@ -892,9 +892,8 @@ void lock_on_focus_reticle() {
 
 bool lock_on_marker_wanted() {
     if (!state.locked) return false;
-    if (!focus_style() && state.follow_paused) return false;
-    if (focus_style() && state.marker_expired) return false;
-    return true;
+    // Asked for every draw while locked on: the style is read once.
+    return focus_style() ? !state.marker_expired : !state.follow_paused;
 }
 
 void lock_on_note_view(const LockOnView &view, std::uint32_t vertices) {
