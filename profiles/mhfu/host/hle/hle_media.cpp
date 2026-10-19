@@ -16,6 +16,7 @@
 #include "game/item_atlas.hpp"
 #include "game/empty_item_slot.hpp"
 #include "game/give_rarity.hpp"
+#include "game/hall_equipment.hpp"
 #include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
 #include "game/sharpness_gauge.hpp"
@@ -267,6 +268,19 @@ std::uint64_t frame_start_us(std::uint64_t latest_vblank_us) {
     return start;
 }
 
+void call_guest_function(
+    AllegrexContext &ctx, std::uint32_t function, std::uint32_t argument, game::hall_equipment::ThenFunction then) {
+    kernel().call_guest(ctx, function, {argument, 0u, 0u, 0u}, [then](AllegrexContext &c, std::uint32_t) { then(c); });
+}
+
+// From the top of user memory, as thread stacks are, and never given back.
+std::uint32_t allocate_guest_block(std::uint32_t size) {
+    const std::int32_t uid = kernel().allocate_block("mhfu_hall_equipment", 1u, size, 0u);
+    if (uid < 0) return 0u;
+    const MemoryBlock *block = kernel().find_block(uid);
+    return block != nullptr ? block->address : 0u;
+}
+
 void present_frame(Runtime &rt) {
     load_trace::note_flip();
     // Overlays are swapped between frames; re-check before drawing the next one.
@@ -278,6 +292,7 @@ void present_frame(Runtime &rt) {
     game::item_box::frame(rt);
     game::empty_item_slot::frame(rt);
     game::give_rarity::frame(rt);
+    game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {

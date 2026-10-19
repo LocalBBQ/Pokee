@@ -202,6 +202,9 @@ struct Settings {
     // The Guild Hall's Give hands over items of any rarity, not only Rare 1
     // to 3 (game/give_rarity.hpp). Off by default: the game's limit.
     bool give_any_rarity{};
+    // The Guild Hall's box offers Change Equipment, as the house box does
+    // (game/hall_equipment.hpp). Off by default: greyed out, as in the game.
+    bool hall_equipment{};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};

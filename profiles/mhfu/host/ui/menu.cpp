@@ -1789,6 +1789,15 @@ void Menu::mods() {
             s.give_any_rarity = !s.give_any_rarity;
             settings::save();
         }
+        if (toggle_row("Change Equipment in the Guild Hall", s.hall_equipment,
+                options_for("game.hall_equipment",
+                    "On: the item box in the Guild Hall, online or not, offers Change Equipment, as the box at "
+                    "home does, and sends the new equipment to the hall when the equipment screen closes, so "
+                    "the other hunters see it, in a full hall too. Refused while readied for a quest. "
+                    "Off (default): greyed out, as in the game."))) {
+            s.hall_equipment = !s.hall_equipment;
+            settings::save();
+        }
     }
     mods_page(back_);
     if (take_mods_restart_request()) {
