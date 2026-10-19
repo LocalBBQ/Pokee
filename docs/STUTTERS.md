@@ -53,6 +53,34 @@ Two causes. The cache dropped every span not drawn in the last three frames once
 
 Changed: spans stay cached until the cache or the hold is full, and then the least recently drawn give way; the hold is 384 MiB where `choose_vertex_hold` allows (it was written for this and never used); the vectors of dropped spans are kept, up to a quarter of the hold, for the next misses; a miss's built span moves into the cache instead of being copied. `MHFU_OLD_VERTEX_CACHE=1` restores the old behaviour. Not measured in the game yet. The first visit to an area still misses for every draw until the cache has filled once, and `decode` is unchanged.
 
+## Third measurement: the cache in the game
+
+Same machine, the same quest route with the new cache and with `MHFU_OLD_VERTEX_CACHE=1`. Returning to an area no longer stalls the renderer: with the old cache the first frame back in stage044 took 78.8 ms (40.2 `vertices`) and in stage067 64.0 and 46.3 ms; with the new one none of the three revisits made a `[slow-frame]`, and the frame's buffer took 1.2 to 1.5 MiB of vertices instead of 55 to 86. The cache held the four areas, about 257 MiB, without dropping a span.
+
+First visits did not change: 55 to 73 ms, of which `vertices` 24 to 42 and `decode` 12 to 18 (stage044 73.4 ms, 35.5 `vertices`, 17.8 `decode`; stage068 68.4, 41.5, 18.1). A miss converted its vertices into memory of its own, which a new area had none of to reuse, copied them into the frame's buffer and then copied them into the hold.
+
+Changed: a transformed draw without bone weights that the cache misses is converted once, straight into the hold, and drawn from there in that frame too. The span keeps no other copy; when the hold takes its range back, it leaves the cache. Skinned draws, expanded draws and a hold with no room keep the old path. `MHFU_NO_MISS_TO_HOLD=1` restores it.
+
+## Fourth measurement: what the player sees
+
+Same machine and route, with misses written into the hold. `vertices` on the first frame of a new area fell from 24 to 42 ms to 6 to 10, and the frame from 55 to 73 ms to 40 to 50 (stage044 73.4 to 50.2 ms, stage067 57.1 to 40.1, stage075 55.5 to 45.2); stage016 no longer made a `[slow-frame]`.
+
+Every area entry, revisits too, also has a frame of 85 to 92 ms, about 58 `guest` and 31 `pacing`, as the stage overlay is installed, and sometimes a second one of 60 to 150 ms of `guest`. `MHFU_TRACE_LOAD` puts it in `sha1Thread` (40 to 60 ms, once 163) checking the 1.2 to 2.7 MiB just read, and `user_main`. Each of those frames has 16 draws, the black screen between areas, against 7000 to 8500 in a frame of an area, so the player does not see them. The hitch seen as an area appears is its first frame: 37 to 50 ms, most of it `decode` (8 to 19 ms).
+
+With `MHFU_TRACE_STALLS_MS=36`, play also has one to three frames a second of 36 to 38 ms with about 14 ms of work and the rest `pacing`: the sleep that holds the game to real time overshooting by about 3 ms. Not looked into yet.
+
+## Decode
+
+A standalone benchmark of `decode_vertices` on this machine, about 2 million vertices in 4000 draws (one first visit), took 13 to 15 ms whatever the format, against 4 ms for a plain loop decoding the same bytes. The difference was the fast path building each vertex on the stack and copying it into the output, which MSVC compiled into a slow sequence; writing each field in place took the decoder to 4.5 to 8.7 ms by format, 1.7 ms of it the output vector's default fill. `MHFU_CHECK_DECODE` still finds the fast path and the general loop the same bit for bit. In the game, along the same route, `decode` on the first frame of an area halved (stage044 18.9 to 9.9 ms, stage067 13.2 to 6.9) and so did the frame's excess: stage044 50.3 to 41.2 ms, stage067 47.9 to 37.4, while stage016 and stage075 no longer made a `[slow-frame]` at 36 ms.
+
+A few seconds into stage075 the same run had five frames of 40 to 52 ms with 5 ms of `guest`, about 10 of `render` and 16 to 25 ms of `fence`, against 2 to 5 ms of GPU time for the game's own frame: the GPU busy with something that figure leaves out, most likely the frames interpolation draws between the game's (about eight per game frame at 240 Hz, at 3840x2160). The town showed the same once before. Converting into the hold stays at about 5 ms, the speed memory takes 80 MB at; hashing the source for the cache is 2 to 4 ms.
+
+## Frame interpolation on loading into a quest
+
+The stutter seen loading into the first area of a quest, at 240 Hz, was frame interpolation, not a slow frame. For the first second or two, about half the presents showed the older game frame again instead of a blend (123 of 218 in the first second, 76 of 237 in the next, against about 30 in play) and the delay from a frame's moment to its present was 51 ms instead of 36. `MHFU_TRACE_INTERPOLATION=frames` showed why: the game flips 17 to 27 ms after a frame's moment in the town and 6 ms in a quest, and the delay allows for the ninth longest of the last 60 frames, so it kept the town's for about 52 quest frames. Presents that late fall before the older of the two frames they blend and show it as it is. A run that waited on a screen with early flips before the quest had no such second.
+
+Changed: the code time the delay allows for is also no more than the longest of the last 15 frames, so it follows a scene with earlier flips within half a second; a later scene lengthens it after nine frames, as before. `MHFU_INTERPOLATION_SLOW_DELAY=1` restores the old estimate. Not measured in the game yet.
+
 ## Next step: measure on the affected hardware
 
 Build the branch with MSVC ([BUILDING.md](BUILDING.md#windows)). Only host code changed and `include/psprecomp/` matches `main`, so an existing build directory rebuilds `Pokee.exe` only. Back up the saves in `%APPDATA%\Pokee\MHFU\ms0` first.
