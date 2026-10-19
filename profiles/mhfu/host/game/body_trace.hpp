@@ -25,6 +25,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -111,13 +112,39 @@ private:
 [[nodiscard]] std::string describe(const Counter &counter);
 [[nodiscard]] std::string describe(const Flag &flag, std::uint32_t frames);
 
+// MHFU_TRACE_BODIES_WATCH=OFFSET: the field of a raptor's body whose guest
+// writes are logged ([watch-write] lines, with the code address of each).
+// PSPRECOMP_WATCH_WRITE must be set too, to any address: it arms the store
+// check at start-up, and slows every store while it is armed. The sinking at
+// the end of a body's time was seen at +0x244 on a Giaprey. Nothing when
+// unset or not a number.
+[[nodiscard]] std::optional<std::uint32_t> parse_watch(const char *text) noexcept;
+[[nodiscard]] std::optional<std::uint32_t> watch_offset() noexcept;
+
+// The species the watch is armed by: Velociprey, Genprey, Ioprey, Giaprey.
+[[nodiscard]] bool raptor(std::uint8_t species) noexcept;
+
 class Tracker {
 public:
+    // With a watch offset, the first raptor body to die asks for that field
+    // to be watched; take_watch() hands the address over once.
+    explicit Tracker(std::optional<std::uint32_t> watch = std::nullopt) : watch_(watch) {}
+
     // Reads the list once. `now` stamps the seconds a body lay there.
     void frame(const psprecomp::GuestMemory &memory, std::ostream &out,
         std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 
+    [[nodiscard]] std::optional<std::uint32_t> take_watch() noexcept {
+        const std::optional<std::uint32_t> request = watch_request_;
+        watch_request_.reset();
+        return request;
+    }
+
 private:
+    std::optional<std::uint32_t> watch_;
+    std::optional<std::uint32_t> watch_request_;
+    bool watched_{};
+
     struct Body {
         std::uint32_t entity{};
         std::uint8_t species{};
