@@ -60,6 +60,12 @@
 #include <string_view>
 #include <vector>
 
+namespace psprecomp {
+// Defined in the core library and declared here, as camera_probe.cpp does, so
+// that arming a watch does not rebuild every generated unit and overlay.
+void set_write_watch(std::uint32_t address, std::uint32_t size);
+} // namespace psprecomp
+
 namespace mhfu {
 namespace {
 
@@ -298,8 +304,9 @@ void present_frame(Runtime &rt) {
     game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
     game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), pose);
     if (game::body_trace::enabled()) {
-        static game::body_trace::Tracker bodies;
+        static game::body_trace::Tracker bodies{game::body_trace::watch_offset()};
         bodies.frame(rt.memory(), std::cout);
+        if (const std::optional<std::uint32_t> watch = bodies.take_watch()) psprecomp::set_write_watch(*watch, 4u);
     }
     // The draws of this frame have already named the camera they used, so the
     // marker matches the picture about to be shown, aim camera included.

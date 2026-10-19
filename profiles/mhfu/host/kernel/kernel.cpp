@@ -44,6 +44,17 @@ bool trace_enabled() {
     return enabled;
 }
 
+// MHFU_TRACE_KERNEL=1 traces the blocks and wakes of every thread; another
+// value, such as user_main, only those of the thread with that name, small
+// enough to leave on through a hunt.
+bool trace_thread(const std::string &name) {
+    static const std::string only = [] {
+        const char *value = std::getenv("MHFU_TRACE_KERNEL");
+        return value != nullptr && std::string(value) != "1" ? std::string(value) : std::string();
+    }();
+    return trace_enabled() && (only.empty() || name == only);
+}
+
 void native_thread_exit(Runtime &, AllegrexContext &ctx) {
     kernel().thread_exit_stub(ctx);
 }
@@ -308,6 +319,10 @@ std::int32_t Kernel::change_priority(AllegrexContext &ctx, SceUID uid, std::uint
 // Scheduling
 
 void Kernel::make_ready(Thread &thread) {
+    if (thread.status == ThreadStatus::Waiting && trace_thread(thread.name))
+        std::cerr << "[kernel] wake uid=" << thread.uid << " name=" << thread.name
+                  << " from=" << wait_name(thread.wait.type) << " object=" << thread.wait.object
+                  << " at=" << static_cast<double>(now_us_) / 1000.0 << "ms\n";
     thread.status = ThreadStatus::Ready;
     thread.wait = WaitState{};
     thread.ready_sequence = next_ready_sequence_++;
@@ -384,9 +399,10 @@ void Kernel::block(AllegrexContext &ctx, const WaitState &wait, std::uint32_t re
     saved.set_gpr(2, result);
     saved.pc = ctx.gpr[31];
     save_current(saved, ThreadStatus::Waiting);
-    if (trace_enabled())
+    if (trace_thread(thread->name))
         std::cerr << "[kernel] block uid=" << thread->uid << " name=" << thread->name
-                  << " wait=" << wait_name(wait.type) << " object=" << wait.object << "\n";
+                  << " wait=" << wait_name(wait.type) << " object=" << wait.object
+                  << " at=" << static_cast<double>(now_us_) / 1000.0 << "ms\n";
     current_uid_ = 0;
     schedule(ctx);
 }
