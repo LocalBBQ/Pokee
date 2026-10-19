@@ -144,6 +144,11 @@ inline constexpr std::uint16_t kCancel = 0x2000u;
 inline constexpr std::uint16_t kStart = 0x0008u; // puts the house's menu away
 // The hall's label for Change Equipment, and the two texts it can hold.
 inline constexpr std::uint32_t kHallLabel = 0x09B05168u + 2u * kChangeEquipment;
+// The hall's labels, where Change Equipment's is entry 3, or entry 4 once
+// Item Sets (game/item_sets.hpp) has put its row before it. The label is
+// found by its text, which no other row of the hall's box has.
+inline constexpr std::uint32_t kHallLabels = 0x09B05168u;
+inline constexpr std::uint32_t kHallLabelRows = 8u;
 inline constexpr std::uint16_t kGreyLabel = 0x012Fu;
 inline constexpr std::uint16_t kLabel = 0x0129u;
 // The buttons as 0x0884FB6C returns them: none while the byte at
