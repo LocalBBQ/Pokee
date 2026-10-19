@@ -1,5 +1,6 @@
 #include "game/hall_equipment.hpp"
 
+#include "game/hooks.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -702,10 +703,8 @@ void frame(psprecomp::Runtime &runtime, GuestCaller caller, BlockAllocator alloc
         runtime.register_function(kRequestOwnReload, &request_reload, "mhfu_hall_equipment_request");
     }
     // lobby_task registers its functions again each time it is installed.
-    if (box != &box_update) {
-        s.box_update = box;
-        runtime.register_function(kBoxUpdate, &box_update, "mhfu_hall_equipment");
-    }
+    // Item Sets wraps the box's frame too (game/hooks.hpp).
+    (void)hooks::wrap(runtime, kBoxUpdate, &box_update, s.box_update, "mhfu_hall_equipment");
     if (draw != &menu_draw) {
         s.menu_draw = draw;
         runtime.register_function(kMenuDraw, &menu_draw, "mhfu_hall_equipment_draw");
