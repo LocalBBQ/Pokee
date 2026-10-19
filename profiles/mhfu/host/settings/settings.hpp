@@ -205,6 +205,10 @@ struct Settings {
     // The Guild Hall's box offers Change Equipment, as the house box does
     // (game/hall_equipment.hpp). Off by default: greyed out, as in the game.
     bool hall_equipment{};
+    // The item box menu gets Item Sets, to register the pouch as a set and to
+    // load a set from the box (game/item_sets.hpp). On by default. Off: the
+    // game's own six entries.
+    bool item_sets{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};

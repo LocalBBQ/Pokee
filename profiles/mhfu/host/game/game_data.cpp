@@ -64,6 +64,12 @@ std::string text_entry(const Ram &ram, std::uint32_t block, int index, std::uint
     return read_text(ram, table->first + read32(ram, table->first + entry * 4u));
 }
 
+std::uint32_t text_entry_address(const Ram &ram, std::uint32_t block, int index, std::uint32_t entry) {
+    const auto table = find_table(ram, block, index);
+    if (!table || entry >= table->second) return 0u;
+    return table->first + read32(ram, table->first + entry * 4u);
+}
+
 std::uint32_t text_count(const Ram &ram, std::uint32_t block, int index) {
     const auto table = find_table(ram, block, index);
     return table ? table->second : 0u;

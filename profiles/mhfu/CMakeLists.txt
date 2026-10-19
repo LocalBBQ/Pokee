@@ -273,6 +273,9 @@ set(MHFU_HOST_SOURCES
     host/game/empty_item_slot.cpp
     host/game/give_rarity.cpp
     host/game/hall_equipment.cpp
+    host/game/guest_calls.cpp
+    host/game/item_sets.cpp
+    host/game/item_sets_menu.cpp
     host/game/sharpness_gauge.cpp
     third_party/tiny_aes/aes.c
 )
@@ -579,6 +582,32 @@ target_link_libraries(mhfu_damage_numbers_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_damage_numbers_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_damage_numbers_tests COMMAND mhfu_damage_numbers_tests)
+endif()
+
+# Item sets: loading a set through the box, the sets file, the screens'
+# buttons, and the hooks and the game calls they make on stand-ins for the
+# item box menu. No game data.
+add_executable(mhfu_item_sets_tests
+    tests/item_sets_tests.cpp
+    host/game/game_data.cpp
+    host/game/guest_calls.cpp
+    host/game/item_sets.cpp
+    host/game/item_sets_menu.cpp
+    host/game/guest_ram.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_item_sets_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_item_sets_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_item_sets_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_item_sets_tests COMMAND mhfu_item_sets_tests)
 endif()
 
 # Fast item box: the shortened wait, the lobby_task code check, and the wrapper

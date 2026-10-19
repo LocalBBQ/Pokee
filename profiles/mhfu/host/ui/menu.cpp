@@ -1798,6 +1798,13 @@ void Menu::mods() {
             s.hall_equipment = !s.hall_equipment;
             settings::save();
         }
+        if (toggle_row("Item Sets", s.item_sets,
+                options_for("game.item_sets",
+                    "On: the item box menu has Item Sets, to register the pouch as a set and load it again "
+                    "from the box, in the game's own windows. Off: the game's own six entries."))) {
+            s.item_sets = !s.item_sets;
+            settings::save();
+        }
     }
     mods_page(back_);
     if (take_mods_restart_request()) {

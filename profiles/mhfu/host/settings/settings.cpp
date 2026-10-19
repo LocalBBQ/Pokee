@@ -569,6 +569,10 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.hall_equipment); },
             [](const Settings &s) { return std::string(s.hall_equipment ? "1" : "0"); },
             [](Settings &s, const char *t) { s.hall_equipment = variable_flag(t); }},
+        {"game.item_sets", "MHFU_ITEM_SETS",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.item_sets); },
+            [](const Settings &s) { return std::string(s.item_sets ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.item_sets = variable_flag(t); }},
         {"game.gather_icon_size", "MHFU_GATHER_ICON_SIZE",
             [](Settings &s, const std::string &t) {
                 return parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, s.gather_icon_size);
