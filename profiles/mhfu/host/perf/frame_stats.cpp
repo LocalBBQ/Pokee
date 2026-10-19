@@ -13,6 +13,10 @@
 #include <cstring>
 #include <iostream>
 
+#if defined(_MSC_VER) && defined(_M_X64)
+#include <intrin.h>
+#endif
+
 namespace mhfu::perf {
 namespace {
 
@@ -303,9 +307,10 @@ namespace {
 constexpr std::size_t kSplitKinds = static_cast<std::size_t>(Split::Count);
 
 struct RenderSplit {
-    std::array<std::uint64_t, kSplitKinds> ticks{};
+    std::array<std::uint64_t, kSplitKinds> ticks{};       // the second in progress
+    std::array<std::uint64_t, kSplitKinds> frame_ticks{}; // the frame in progress, for [slow-frame]
     // Counter ticks per millisecond, measured against the steady clock over
-    // the first second.
+    // the first quarter second the split is timed.
     double ticks_per_ms{};
     std::uint64_t calibration_ticks{};
     Clock::time_point calibration_start{};
@@ -316,22 +321,49 @@ RenderSplit &render_split() {
     return value;
 }
 
-// Prints the second's split per game frame; `frames` flips in it.
-void report_split(double frames) {
-    RenderSplit &split = render_split();
+// MHFU_TRACE_RENDER: the [render-split] line once a second.
+bool render_split_line() {
+    static const bool enabled = std::getenv("MHFU_TRACE_RENDER") != nullptr;
+    return enabled;
+}
+
+void calibrate(RenderSplit &split) {
+    if (split.ticks_per_ms != 0.0) return;
     const std::uint64_t now_ticks = split_ticks();
     const Clock::time_point now = Clock::now();
     if (split.calibration_ticks == 0u) {
         split.calibration_ticks = now_ticks;
         split.calibration_start = now;
+        return;
+    }
+    const double ms = to_ms(now - split.calibration_start);
+    if (ms >= 250.0) split.ticks_per_ms = static_cast<double>(now_ticks - split.calibration_ticks) / ms;
+}
+
+// The frame's split for its [slow-frame] line, empty until calibrated.
+std::string format_frame_split(const RenderSplit &split) {
+    if (split.ticks_per_ms <= 0.0) return {};
+    const auto ms = [&](Split kind) {
+        return static_cast<double>(split.frame_ticks[static_cast<std::size_t>(kind)]) / split.ticks_per_ms;
+    };
+    const double replay = ms(Split::Replay);
+    char text[256];
+    std::snprintf(text, sizeof(text),
+        " | lists %.1f (decode %.1f draw %.1f: texture %.1f record %.1f summary %.1f) interp %.1f replay %.1f "
+        "present %.1f writeback %.1f",
+        ms(Split::Lists), ms(Split::Decode), ms(Split::Draw), ms(Split::Texture), ms(Split::Record),
+        ms(Split::Summary), ms(Split::Interp), replay, std::max(0.0, ms(Split::Present) - replay),
+        ms(Split::Writeback));
+    return text;
+}
+
+// Prints the second's split per game frame; `frames` flips in it.
+void report_split(double frames) {
+    RenderSplit &split = render_split();
+    if (split.ticks_per_ms <= 0.0 || frames <= 0.0) {
         split.ticks = {};
         return;
     }
-    if (split.ticks_per_ms == 0.0) {
-        const double ms = to_ms(now - split.calibration_start);
-        if (ms > 0.0) split.ticks_per_ms = static_cast<double>(now_ticks - split.calibration_ticks) / ms;
-    }
-    if (split.ticks_per_ms <= 0.0 || frames <= 0.0) return;
     const auto ms = [&](Split kind) {
         return static_cast<double>(split.ticks[static_cast<std::size_t>(kind)]) / split.ticks_per_ms / frames;
     };
@@ -350,7 +382,7 @@ void report_split(double frames) {
 } // namespace
 
 bool split_enabled() noexcept {
-    static const bool enabled = std::getenv("MHFU_TRACE_RENDER") != nullptr;
+    static const bool enabled = render_split_line() || stall_trace().enabled;
     return enabled;
 }
 
@@ -361,6 +393,8 @@ std::uint64_t split_ticks() noexcept {
     return value;
 #elif (defined(__x86_64__) || defined(_M_X64)) && !defined(_MSC_VER)
     return __builtin_ia32_rdtsc();
+#elif defined(_M_X64)
+    return __rdtsc();
 #else
     return static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
@@ -368,7 +402,9 @@ std::uint64_t split_ticks() noexcept {
 }
 
 void add_split(Split kind, std::uint64_t ticks) noexcept {
-    render_split().ticks[static_cast<std::size_t>(kind)] += ticks;
+    RenderSplit &split = render_split();
+    split.ticks[static_cast<std::size_t>(kind)] += ticks;
+    split.frame_ticks[static_cast<std::size_t>(kind)] += ticks;
 }
 void add_wait_time(Clock::duration duration, Stall kind) {
     State &s = state();
@@ -479,6 +515,8 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
         std::chrono::duration_cast<std::chrono::nanoseconds>(now - (s.frame_start_previous + s.pacing)).count());
 #endif
     const StallTrace &trace = stall_trace();
+    RenderSplit &split = render_split();
+    if (split_enabled()) calibrate(split);
     if (trace.enabled && frame_ms > trace.slow_frame_ms) {
         // The GPU time is the previous frame's: that is the work a fence wait
         // at the start of this frame was waiting for.
@@ -497,9 +535,10 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
         } else {
             line += "n/a";
         }
-        line += " |" + format_stalls(s.stalls, 1.0, false);
+        line += " |" + format_stalls(s.stalls, 1.0, false) + format_frame_split(split);
         std::cout << line << std::endl;
     }
+    split.frame_ticks = {};
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
     s.lists = 0u;
     s.draws = s.recorded_draws = 0u;
@@ -548,7 +587,10 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     out.frame_rate = s.frame_rate;
     out.requested_rate = s.requested_rate;
     if (options().log) print(out);
-    if (split_enabled()) report_split(frames);
+    if (render_split_line())
+        report_split(frames);
+    else
+        split.ticks = {};
     // A phone has no environment to set MHFU_TRACE_STALLS in: there the
     // [stalls] line comes with the [perf] line (Performance: Log), so a log a
     // player saves from the menu says where the frame time went.
