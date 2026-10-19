@@ -347,13 +347,15 @@ std::string format_frame_split(const RenderSplit &split) {
         return static_cast<double>(split.frame_ticks[static_cast<std::size_t>(kind)]) / split.ticks_per_ms;
     };
     const double replay = ms(Split::Replay);
-    char text[256];
+    const double draw = ms(Split::Draw), texture = ms(Split::Texture), record = ms(Split::Record);
+    const double summary = ms(Split::Summary), vertices = ms(Split::Vertices), pipeline = ms(Split::Pipeline);
+    char text[320];
     std::snprintf(text, sizeof(text),
-        " | lists %.1f (decode %.1f draw %.1f: texture %.1f record %.1f summary %.1f) interp %.1f replay %.1f "
-        "present %.1f writeback %.1f",
-        ms(Split::Lists), ms(Split::Decode), ms(Split::Draw), ms(Split::Texture), ms(Split::Record),
-        ms(Split::Summary), ms(Split::Interp), replay, std::max(0.0, ms(Split::Present) - replay),
-        ms(Split::Writeback));
+        " | lists %.1f (decode %.1f draw %.1f: texture %.1f vertices %.1f pipeline %.1f record %.1f summary %.1f "
+        "other %.1f) interp %.1f replay %.1f present %.1f writeback %.1f",
+        ms(Split::Lists), ms(Split::Decode), draw, texture, vertices, pipeline, record, summary,
+        std::max(0.0, draw - texture - vertices - pipeline - record - summary), ms(Split::Interp), replay,
+        std::max(0.0, ms(Split::Present) - replay), ms(Split::Writeback));
     return text;
 }
 
@@ -369,12 +371,13 @@ void report_split(double frames) {
     };
     const double lists = ms(Split::Lists), decode = ms(Split::Decode), draw = ms(Split::Draw);
     const double texture = ms(Split::Texture), record = ms(Split::Record), summary = ms(Split::Summary);
-    const double replay = ms(Split::Replay);
+    const double replay = ms(Split::Replay), vertices = ms(Split::Vertices), pipeline = ms(Split::Pipeline);
     std::printf("[render-split] ms per game frame: lists %.2f = parse %.2f + decode %.2f + draw %.2f (host %.2f, "
-                "texture %.2f, record %.2f, summary %.2f) | interp %.2f replay %.2f present %.2f writeback %.2f\n",
-        lists, std::max(0.0, lists - decode - draw), decode, draw, std::max(0.0, draw - texture - record - summary),
-        texture, record, summary, ms(Split::Interp), replay, std::max(0.0, ms(Split::Present) - replay),
-        ms(Split::Writeback));
+                "texture %.2f, vertices %.2f, pipeline %.2f, record %.2f, summary %.2f) | interp %.2f replay %.2f "
+                "present %.2f writeback %.2f\n",
+        lists, std::max(0.0, lists - decode - draw), decode, draw,
+        std::max(0.0, draw - texture - vertices - pipeline - record - summary), texture, vertices, pipeline, record,
+        summary, ms(Split::Interp), replay, std::max(0.0, ms(Split::Present) - replay), ms(Split::Writeback));
     std::fflush(stdout);
     split.ticks = {};
 }
