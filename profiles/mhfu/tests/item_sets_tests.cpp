@@ -376,6 +376,34 @@ void test_hooks() {
     check(memory.load32(kMenuRecord + 8u) == 0x00060014u, "another overlay is left alone");
 }
 
+// Change Equipment in the Guild Hall gives the hall's Change Equipment the
+// house's text: Item Sets still knows the list, and keeps that text.
+void test_hall_equipment_label() {
+    psprecomp::Runtime runtime(32u * 1024u * 1024u);
+    psprecomp::GuestMemory &memory = runtime.memory();
+    mhfu::settings::current().item_sets = true;
+    runtime.register_function(kCursor, &game_cursor, "game_cursor");
+    write_words(memory, code_signature());
+    install_lobby(memory);
+    runtime.register_function(kText, &game_text, "game_text");
+    runtime.register_function(kBoxFrame, &game_update, "game_box_frame");
+    // The hall's mod ran first: entry 3 has the house's text.
+    memory.store16(kSmallBoxList + 6u, 0x129u);
+    frame(runtime);
+    check(memory.load32(kMenuRecord + 8u) == 0x00070014u, "with the hall's label changed, the menu has seven rows");
+    check(memory.load16(kSmallBoxList + 6u) == kTextId && memory.load16(kSmallBoxList + 8u) == 0x129u,
+        "and Change Equipment keeps the house's text below Item Sets");
+    frame(runtime);
+    check(memory.load32(kMenuRecord + 8u) == 0x00070014u && memory.load16(kSmallBoxList + 8u) == 0x129u,
+        "a later frame keeps both");
+    mhfu::settings::current().item_sets = false;
+    frame(runtime);
+    check(memory.load32(kMenuRecord + 8u) == 0x00060014u && memory.load16(kSmallBoxList + 6u) == 0x129u &&
+              memory.load32(kSmallBoxList + 12u) == 0u,
+        "off, the six rows come back with the house's text where it was");
+    mhfu::settings::current().item_sets = true;
+}
+
 // Item Sets shown fourth, numbered 6.
 void test_rows() {
     const std::uint8_t shown[] = {0u, 1u, 2u, 4u, 5u, 6u, 3u};
@@ -866,6 +894,7 @@ int main() {
     test_store();
     test_signatures();
     test_hooks();
+    test_hall_equipment_label();
     test_rows();
     test_menu();
     test_guest_calls();

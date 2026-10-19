@@ -462,12 +462,24 @@ void write_list(Ram &ram, std::uint32_t at, const List &list) {
     for (std::uint32_t i = 0; i < list.size(); ++i) ram.store16(at + i * 2u, list[i]);
 }
 
+// Change Equipment in the Guild Hall (game/hall_equipment.hpp) gives the
+// Small Item Box's Change Equipment the house's text, 0x129, in place of the
+// greyed 303. The list is still the game's, and keeps that text when Item
+// Sets' row is put in or taken out.
+constexpr std::uint16_t kGreyChangeEquipment = 303u;
+constexpr std::uint16_t kOfferedChangeEquipment = 0x129u;
+
+List as_game(List list) {
+    std::replace(list.begin(), list.end(), kOfferedChangeEquipment, kGreyChangeEquipment);
+    return list;
+}
+
 // The menu's data as the game left it, or as the hooks did.
 bool menu_data_known(const Ram &ram) {
     const std::uint32_t rows = ram.load32(kMenuRecord + 8u);
     const std::uint32_t place = ram.load32(kMenuRecord);
     const auto list_is = [&](std::uint32_t at, const List &a, const List &b) {
-        const List now = read_list(ram, at);
+        const List now = at == kSmallBoxList ? as_game(read_list(ram, at)) : read_list(ram, at);
         return now == a || now == b;
     };
     return (place == kRecordPlace || place == kPatchedPlace) && ram.load32(kMenuRecord + 12u) == kBoxList &&
@@ -479,7 +491,11 @@ void set_menu(Ram &ram, bool seven) {
     ram.store32(kMenuRecord, seven ? kPatchedPlace : kRecordPlace);
     ram.store32(kMenuRecord + 8u, seven ? kPatchedRows : kRecordRows);
     write_list(ram, kBoxList, seven ? kPatchedBoxRows : kBoxRows);
-    write_list(ram, kSmallBoxList, seven ? kPatchedSmallBoxRows : kSmallBoxRows);
+    const List hall = read_list(ram, kSmallBoxList);
+    List small = seven ? kPatchedSmallBoxRows : kSmallBoxRows;
+    if (std::find(hall.begin(), hall.end(), kOfferedChangeEquipment) != hall.end())
+        std::replace(small.begin(), small.end(), kGreyChangeEquipment, kOfferedChangeEquipment);
+    write_list(ram, kSmallBoxList, small);
 }
 
 // Text the game prints, cut to fit and ended by a 0.
