@@ -244,9 +244,43 @@ void skips_what_is_not_a_body() {
     check(out.find("0x9003000") == std::string::npos, "the player's node is not a body");
 }
 
+void parses_the_watch() {
+    check(parse_watch("0x244") == 0x244u, "a hex offset is read");
+    check(parse_watch("580") == 580u, "a decimal offset is read");
+    check(!parse_watch(nullptr) && !parse_watch(""), "unset is no watch");
+    check(!parse_watch("0x24x") && !parse_watch("abc"), "text that is not a number is no watch");
+    check(!parse_watch("0x1000"), "an offset past the followed span is no watch");
+    check(raptor(0x0Du) && raptor(0x10u) && raptor(0x1Eu) && raptor(0x23u), "the four raptors arm it");
+    check(!raptor(0x45u) && !raptor(0x46u), "an Anteka or a Popo does not");
+}
+
+void watches_the_first_raptor() {
+    psprecomp::GuestMemory memory(64u * 1024u * 1024u);
+    start_quest(memory);
+    list_monster(memory, true);
+    set_monster(memory, 0, 0x45u); // an Anteka
+    Tracker tracker(0x244u);
+    run(tracker, memory, {});
+    check(!tracker.take_watch(), "a body that is not a raptor asks for nothing");
+    set_monster(memory, 0, 0x23u); // a Giaprey in the same slot
+    const std::string out = run(tracker, memory, {});
+    check(out.find("watching writes to +0x244 of 0x9000000") != std::string::npos, "the watch is printed");
+    check(tracker.take_watch() == monster + 0x244u, "the first raptor's field is asked for");
+    check(!tracker.take_watch(), "the request is handed over once");
+    set_monster(memory, 0, 0x10u); // a Velociprey after it
+    run(tracker, memory, {});
+    check(!tracker.take_watch(), "a later raptor does not move the watch");
+    Tracker plain;
+    set_monster(memory, 0, 0x23u);
+    run(plain, memory, {});
+    check(!plain.take_watch(), "without an offset nothing is watched");
+}
+
 } // namespace
 
 int main() {
+    parses_the_watch();
+    watches_the_first_raptor();
     counting_fields();
     too_few_changes();
     steps_of_two_break_a_counter();
