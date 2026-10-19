@@ -71,6 +71,8 @@ inline constexpr std::uint32_t kThreadExitStub = 0x08800000u;
 inline constexpr std::uint32_t kInterruptReturnStub = 0x08800004u;
 inline constexpr std::uint32_t kIdleStub = 0x08800008u;
 inline constexpr std::uint32_t kGuestCallReturnStub = 0x0880000Cu;
+// 0x08800010: where game/guest_calls.hpp's calls return.
+// 0x08802000..0x088025A0: the Item Sets screens' windows and words (game/item_sets.hpp).
 // 0x08803F00..0x08803F20: the item bar's "Nothing Selected" (game/empty_item_slot.hpp).
 // Kernel partition scratch used by the host (boot arguments, interrupt stack).
 inline constexpr std::uint32_t kBootArgumentAddress = 0x08100000u;
