@@ -143,7 +143,6 @@ if(MHFU_RENDERER)
             host/ui/input_script.cpp
             host/ui/layer.cpp
             host/ui/menu.cpp
-            host/ui/item_sets_screen.cpp
             host/ui/layered_armor_screen.cpp
             host/ui/mods_screen.cpp
             host/ui/save_screen.cpp
@@ -273,7 +272,9 @@ set(MHFU_HOST_SOURCES
     host/game/item_box.cpp
     host/game/empty_item_slot.cpp
     host/game/give_rarity.cpp
+    host/game/guest_calls.cpp
     host/game/item_sets.cpp
+    host/game/item_sets_menu.cpp
     host/game/sharpness_gauge.cpp
     third_party/tiny_aes/aes.c
 )
@@ -582,11 +583,15 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_damage_numbers_tests COMMAND mhfu_damage_numbers_tests)
 endif()
 
-# Item sets: loading a set through the box, the sets file, and the hooks on
-# stand-ins for the item box menu. No game data.
+# Item sets: loading a set through the box, the sets file, the screens'
+# buttons, and the hooks and the game calls they make on stand-ins for the
+# item box menu. No game data.
 add_executable(mhfu_item_sets_tests
     tests/item_sets_tests.cpp
+    host/game/game_data.cpp
+    host/game/guest_calls.cpp
     host/game/item_sets.cpp
+    host/game/item_sets_menu.cpp
     host/game/guest_ram.cpp
     host/settings/settings.cpp
     host/install/user_data.cpp
