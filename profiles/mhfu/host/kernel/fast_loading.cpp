@@ -1,5 +1,6 @@
 #include "kernel/fast_loading.hpp"
 
+#include "game/guest_layout.hpp"
 #include "hle/hle_common.hpp"
 #include "settings/settings.hpp"
 #include "adhoc/session.hpp"
@@ -23,6 +24,9 @@ struct State {
     // The episode running fast now: when it started, in both clocks.
     Clock::time_point real_start{};
     std::uint64_t emulated_start{};
+    // A quest was running when it started: an area change, or a quiet moment
+    // in play taken for a load.
+    bool in_quest{};
     // Everything saved in this run.
     double saved_ms{};
     std::uint64_t episodes{};
@@ -55,6 +59,7 @@ void begin_episode() {
     State &s = state();
     s.real_start = Clock::now();
     s.emulated_start = kernel().now_us();
+    s.in_quest = game::layout::quest_running(kernel().runtime().memory());
 }
 
 void end_episode(Reason reason) {
@@ -64,8 +69,8 @@ void end_episode(Reason reason) {
     const double saved = emulated_ms > real_ms ? emulated_ms - real_ms : 0.0;
     s.saved_ms += saved;
     ++s.episodes;
-    std::printf("[load] fast %.0f ms of game time in %.0f ms real, %.0f ms saved (%s; %.1f s saved so far)\n",
-        emulated_ms, real_ms, saved, reason_name(reason), s.saved_ms / 1000.0);
+    std::printf("[load] fast %.0f ms of game time in %.0f ms real, %.0f ms saved (%s%s; %.1f s saved so far)\n",
+        emulated_ms, real_ms, saved, reason_name(reason), s.in_quest ? ", in a quest" : "", s.saved_ms / 1000.0);
     std::fflush(stdout);
 }
 
