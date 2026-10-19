@@ -767,6 +767,19 @@ void test_wrappers() {
     frame(runtime, &guest_call, &allocate);
     check(memory.load16(kHallLabel) == 0x0200u, "a label that is neither text is left alone");
 
+    // Item Sets' row before it moves Change Equipment's label to entry 4.
+    const std::uint16_t with_sets[] = {300u, 301u, 302u, 0x7FF0u, kGreyLabel, 304u, 305u, 0u};
+    for (std::uint32_t row = 0; row < kHallLabelRows; ++row) memory.store16(kHallLabels + 2u * row, with_sets[row]);
+    frame(runtime, &guest_call, &allocate);
+    check(memory.load16(kHallLabels + 8u) == kLabel && memory.load16(kHallLabels + 6u) == 0x7FF0u,
+        "after Item Sets' row the label is found in entry 4, and Item Sets' row is left alone");
+    settings.hall_equipment = false;
+    frame(runtime, &guest_call, &allocate);
+    check(memory.load16(kHallLabels + 8u) == kGreyLabel, "and greyed there again when off");
+    settings.hall_equipment = true;
+    memory.store16(kHallLabels + 8u, 304u);
+    memory.store16(kHallLabel, 0x0200u);
+
     // lobby_task installed again registers its own functions.
     install(runtime);
     check(runtime.function_at(kBoxUpdate) != &game_box && runtime.function_at(kMenuDraw) != &game_draw,
