@@ -1347,7 +1347,8 @@ std::uint32_t GeState::execute(const GuestMemory &memory, std::uint32_t pc, std:
             continue;
         case kBezier:
         case kSpline:
-            // Curved surfaces are not tessellated yet.
+            // MHFU never draws curved surfaces: none were traced in the village,
+            // the gathering hall or a quest. They are counted and skipped.
             ++unhandled_commands_;
             trace_unhandled(command, data);
             continue;
