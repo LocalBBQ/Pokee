@@ -812,12 +812,9 @@ void frame(psprecomp::Runtime &runtime) {
     }
     guest_calls::install(runtime);
     set_menu(ram, enabled());
-    if (runtime.function_at(kText) != &text && runtime.function_at(kText) != nullptr) {
-        s.text = runtime.function_at(kText);
-        runtime.register_function(kText, &text, "mhfu_item_sets_text");
-    }
-    // Change Equipment in the Guild Hall wraps the box's frame too
-    // (game/hooks.hpp).
+    // Change Equipment in the Guild Hall wraps the box's frame too, and Eat in
+    // the Guild Hall the text call (game/hooks.hpp).
+    (void)hooks::wrap(runtime, kText, &text, s.text, "mhfu_item_sets_text");
     (void)hooks::wrap(runtime, kBoxFrame, &box_frame, s.box_frame, "mhfu_item_sets_box");
     if (!s.reported) {
         s.reported = true;

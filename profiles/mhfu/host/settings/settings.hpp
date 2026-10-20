@@ -210,6 +210,10 @@ struct Settings {
     // load a set from the box (game/item_sets.hpp). On by default. Off: the
     // game's own six entries.
     bool item_sets{true};
+    // A hunter seated at a table in the Guild Hall orders from the home
+    // kitchen's menu with △ (game/hall_meal.hpp). On by default. Off: △ does
+    // nothing there, as in the game.
+    bool hall_meal{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};
