@@ -122,6 +122,10 @@ struct Settings {
     // On by default. Off writes nothing at all, so the camera is exactly as
     // the game made it.
     bool analog_camera{true};
+    // While the analog camera is on, the D-pad also turns the game's own
+    // camera left and right and steps its height levels. Off by default: the
+    // two cameras on one view fought each other.
+    bool dpad_camera{false};
     // The Lock on bind selects a large monster (camera/lock_on.hpp). Nothing
     // happens until the bind is pressed; off, the bind does nothing at all.
     bool lock_on{true};
