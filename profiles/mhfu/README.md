@@ -22,7 +22,6 @@ The game boots, loads its overlays, creates a character or loads a save, walks t
 
 Not done yet:
 
-- **Curved surfaces** (Bézier and spline patches).
 - **Infrastructure networking** (`sceHttp`, `sceNetInet`): the game's download mode. Ad hoc multiplayer works.
 - **Dialog screens.** The save-data and message dialogs work but draw nothing; each answers as if the player confirmed it ([#33](https://github.com/TeamGDB/Yakumo/issues/33)).
 
