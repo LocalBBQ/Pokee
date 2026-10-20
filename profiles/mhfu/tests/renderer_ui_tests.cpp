@@ -3188,6 +3188,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     expect(ui::Layer::get().confirm_south(), "the menu keeps the south button after the round trip");
     expect(settings::current().confirm_south == original_confirm, "confirm convention round trip restores setting");
     toggle_setting("Analog camera", &settings::Settings::analog_camera);
+    toggle_setting("D-pad camera", &settings::Settings::dpad_camera);
     toggle_setting("Invert camera horizontally", &settings::Settings::invert_camera_x);
     toggle_setting("Invert camera vertically", &settings::Settings::invert_camera_y);
     toggle_setting("Mouse", &settings::Settings::mouse);
