@@ -426,6 +426,10 @@ void test_lock_on_and_damage_numbers() {
     earlier_give["game.give_any_rarity"] = "1";
     check(!from_entries(earlier_give).give_any_rarity,
         "game.give_any_rarity=1 from before version 4 is its default, not a choice");
+    check(!fresh.true_attack, "weapons start with the game's shown attack");
+    Entries true_attack = to_entries(fresh);
+    true_attack["game.true_attack"] = "1";
+    check(from_entries(to_entries(from_entries(true_attack))).true_attack, "true attack on survives a round trip");
     check(fresh.gather_icon_size == 100u, "the gather mark starts at its usual size");
     Entries mark = to_entries(fresh);
     mark["game.gather_icon_size"] = "180";
