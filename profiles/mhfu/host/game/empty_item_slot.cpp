@@ -88,7 +88,7 @@ void trace_scroll(const psprecomp::GuestMemory &memory, const Pouch &pouch, std:
     const std::optional<std::uint16_t> game = game_step(pouch, from, direction);
     const std::optional<std::uint16_t> empty = empty_slot(pouch);
     std::cout << "[item bar] " << name(direction) << ' ' << from << " -> " << to;
-    if (to < kSlots && !pouch[to].on_bar) std::cout << " (empty)";
+    if (to <= kSpare && !pouch[to].on_bar) std::cout << " (empty)";
     std::cout << ", game " << (game ? std::to_string(*game) : std::string("none")) << ", empty slot "
               << (empty ? std::to_string(*empty) : std::string("none"));
     // The four bytes past the pouch, the 25th slot 0x08856884 still accepts.
@@ -117,18 +117,18 @@ void step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
                 return;
             }
         } else if (return_address == kTakeReturn) {
-            if (s.chosen == current && current < kSlots && read_pouch(memory, ctx.gpr[4]) &&
+            if (s.chosen == current && current <= kSpare && read_pouch(memory, ctx.gpr[4]) &&
                 slot_empty(memory, current)) {
                 answer(ctx, current);
                 return;
             }
-        } else if (current < kSlots) {
+        } else if (current <= kSpare) {
             if (const std::optional<Direction> direction = scroll_direction(memory, return_address, ctx.gpr[6])) {
                 if (const std::optional<Pouch> pouch = read_pouch(memory, ctx.gpr[4])) {
                     const std::uint16_t next = scroll(*pouch, current, *direction);
                     s.hunter = ctx.gpr[4];
                     s.chosen =
-                        next < kSlots && !(*pouch)[next].on_bar ? std::optional<std::uint16_t>{next} : std::nullopt;
+                        next <= kSpare && !(*pouch)[next].on_bar ? std::optional<std::uint16_t>{next} : std::nullopt;
                     if (s.trace) trace_scroll(memory, *pouch, current, next, *direction);
                     answer(ctx, next);
                     return;
@@ -265,14 +265,15 @@ std::optional<Pouch> read_pouch(const psprecomp::GuestMemory &memory, std::uint3
     if (!memory.contains(game_sys + kLocalHunterByte, 1u)) return std::nullopt;
     if (memory.load16(hunter + kHunterIndex) != memory.load8(game_sys + kLocalHunterByte)) return std::nullopt;
     const std::uint32_t base = game_sys + kPouch;
-    if (!memory.contains(base, kSlots * 4u)) return std::nullopt;
+    if (!memory.contains(base, (kSpare + 1u) * 4u)) return std::nullopt;
     Pouch pouch{};
-    for (std::uint16_t i = 0; i < kSlots; ++i) {
+    for (std::uint16_t i = 0; i <= kSpare; ++i) {
         Slot &slot = pouch[i];
         slot.item = memory.load16(base + i * 4u);
         slot.count = memory.load16(base + i * 4u + 2u);
         const std::uint32_t record = kItemTable + std::uint32_t{slot.item} * kItemRecord;
-        slot.on_bar = slot.item != 0u && memory.contains(record + 1u, 1u) && (memory.load8(record + 1u) & 1u) != 0u;
+        slot.on_bar = i < kSlots && slot.item != 0u && memory.contains(record + 1u, 1u) &&
+            (memory.load8(record + 1u) & 1u) != 0u;
     }
     return pouch;
 }
@@ -288,13 +289,13 @@ std::optional<std::uint16_t> game_step(const Pouch &pouch, std::uint16_t current
 }
 
 std::optional<std::uint16_t> empty_slot(const Pouch &pouch) {
-    for (std::uint16_t i = kSlots; i-- > 0;)
+    for (std::uint16_t i = kSpare + 1u; i-- > 0;)
         if (pouch[i].item == 0u && pouch[i].count == 0u) return i;
     return std::nullopt;
 }
 
 std::uint16_t scroll(const Pouch &pouch, std::uint16_t current, Direction direction) {
-    if (current >= kSlots) return current;
+    if (current > kSpare) return current;
     if (!pouch[current].on_bar) {
         // Nothing is selected: ○ starts at the first item, □ at the last. A
         // step from the far edge looks at every slot, the edge last.
@@ -324,7 +325,7 @@ std::uint16_t strip_step(const Pouch &pouch, std::uint16_t current, Direction di
 }
 
 bool slot_empty(const psprecomp::GuestMemory &memory, std::uint32_t slot) {
-    if (slot >= kSlots || !memory.contains(kGameSysPointer, 4u)) return false;
+    if (slot > kSpare || !memory.contains(kGameSysPointer, 4u)) return false;
     const std::uint32_t address = memory.load32(kGameSysPointer) + kPouch + slot * 4u;
     return memory.contains(address, 4u) && memory.load32(address) == 0u;
 }
