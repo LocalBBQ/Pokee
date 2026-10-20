@@ -35,6 +35,14 @@ unsigned original_calls{};
 // The eye height the camera update was entered with, before the stand-in
 // copies the offset it was handed. The game eases that height by an eighth.
 float eye_on_entry{};
+// A wall: the stand-in's collision brings the eye this far of the way from
+// the point looked at (the origin here) after it has placed it.
+float wall_scale = 1.0f;
+// The behind-the-hunter gate the update was entered with.
+int gate_on_entry{};
+// The button halfwords the update copies onto the camera, as it found them.
+std::uint16_t copied_turn{};
+std::uint16_t copied_vertical{};
 
 void check(bool condition, const char *message) {
     if (!condition) {
@@ -54,13 +62,24 @@ void original(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     ++original_calls;
     auto &memory = runtime.memory();
     const auto camera = ctx.gpr[4] + 0xA0u;
-    if (memory.raw_pointer(camera, 0x98u) != nullptr) eye_on_entry = read_float(memory, camera + 4u);
+    if (memory.raw_pointer(camera, 0x98u) != nullptr) {
+        eye_on_entry = read_float(memory, camera + 4u);
+        gate_on_entry = static_cast<std::int8_t>(memory.load8(camera + 0x91u));
+    }
+    if (const auto object = memory.load32(0x089CBD04u); object != 0u && memory.raw_pointer(object, 0xA74u)) {
+        copied_turn = memory.load16(object + 0xA70u);
+        copied_vertical = memory.load16(object + 0xA72u);
+    }
     const auto preset = memory.raw_pointer(camera, 0x98u) != nullptr ? memory.load32(camera + 0x70u) : 0u;
     if (memory.raw_pointer(preset, 0x0Cu) != nullptr) {
         // The game reads the preset, then builds the eye. Copying it here lets
         // the test see the offset after the driver has put the preset back.
         memory.store32(camera + 4u, memory.load32(preset + 4u));
         memory.store32(camera + 8u, memory.load32(preset + 8u));
+        if (wall_scale != 1.0f) {
+            write_float(memory, camera + 4u, read_float(memory, camera + 4u) * wall_scale);
+            write_float(memory, camera + 8u, read_float(memory, camera + 8u) * wall_scale);
+        }
     }
     ctx.pc = ctx.gpr[31];
 }
@@ -140,7 +159,7 @@ void test_passthrough() {
     f.frame(1.0f, 1.0f);
     check(f.snapshot() == before, "a call that is not the camera's parent is unchanged");
     f.ctx.gpr[4] = parent_address;
-    f.runtime.memory().store8(camera_address + 0x91u, 0u);
+    f.runtime.memory().store8(camera_address + 0x91u, 1u);
     before = f.snapshot();
     f.frame(1.0f, 1.0f);
     check(f.snapshot() == before && !game_camera_driving() && f.stock_preset(),
@@ -165,7 +184,7 @@ void test_rates_and_release() {
     for (int i = 0; i < 100; ++i) f.frame(0.0f, 1.0f);
     check(std::fabs(f.pitch() - 70.0f) < 0.001f, "upper pitch limit is bounded");
     for (int i = 0; i < 100; ++i) f.frame(0.0f, -1.0f);
-    check(std::fabs(f.pitch() + 60.0f) < 0.001f, "lower pitch limit is bounded");
+    check(std::fabs(f.pitch() + 30.0f) < 0.001f, "lower pitch limit is the game's own 30 degrees below");
 }
 
 void test_ownership() {
@@ -208,6 +227,149 @@ void test_ownership() {
         f.frame(1.0f, 1.0f);
         check(before == f.snapshot() && !game_camera_driving(), "D-pad mapping disables analog integration");
     }
+}
+
+// With the analog camera on, the D-pad does not also move the game's camera.
+// The update sees its halfwords without the D-pad's camera bits, and they are
+// put back after it for everything else that reads the pad.
+void test_dpad_camera_is_off() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    constexpr std::uint32_t object = 0x08905000u;
+    memory.store32(0x089CBD04u, object);
+    memory.store16(object + 0xA70u, 0x0120u); // right, and L
+    memory.store16(object + 0xA72u, 0x0210u); // up, and R
+    memory.store16(camera_address + 0x84u, 0x0020u);
+    const auto yaw = memory.load16(camera_address + 0x80u);
+    const float level = f.pitch();
+    f.frame(1.0f, 1.0f);
+    check(copied_turn == 0x0100u && copied_vertical == 0x0200u,
+        "the update is not shown the D-pad's turn or height, only the other buttons");
+    check(memory.load16(object + 0xA70u) == 0x0120u && memory.load16(object + 0xA72u) == 0x0210u,
+        "the halfwords are put back after it");
+    check(memory.load16(camera_address + 0x80u) != yaw && f.pitch() > level,
+        "the right stick still turns and tilts while the D-pad is held");
+    check(game_camera_driving(), "and stays off the game's camera");
+
+    mhfu::settings::current().dpad_camera = true;
+    f.frame(0.0f, 0.0f);
+    check(copied_turn == 0x0120u && copied_vertical == 0x0210u, "D-pad camera on gives the D-pad back to the game");
+    mhfu::settings::current().dpad_camera = false;
+    mhfu::settings::current().analog_camera = false;
+    f.frame(0.0f, 0.0f);
+    check(copied_turn == 0x0120u && copied_vertical == 0x0210u, "and so does the analog camera being off");
+    memory.store32(0x089CBD04u, 0u);
+}
+
+// The gate at +0x91 can stay set for seconds, after a bowgun's aim among
+// others. With the game's option byte at 1 the update skips the placement
+// however the gate is set, so the stick must keep driving the camera then.
+void test_gate_without_the_placement() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    constexpr std::uint32_t options = 0x08906000u;
+    memory.store32(0x089CC558u, options);
+    memory.store8(camera_address + 0x91u, 1u);
+    f.frame(1.0f, 0.0f);
+    check(!game_camera_driving(), "a set gate is the game's placement while the option allows it");
+    memory.store8(options + 0x6ADE0u, 1u);
+    const auto yaw = memory.load16(camera_address + 0x80u);
+    f.frame(1.0f, 0.0f);
+    f.frame(1.0f, 0.0f);
+    check(game_camera_driving(), "with the placement turned off, the stick stays the driver's");
+    check(memory.load16(camera_address + 0x80u) != yaw, "and turns the camera");
+    memory.store8(camera_address + 0x91u, 0xFFu);
+    memory.store32(0x089CC558u, 0u);
+}
+
+// A gate of exactly 0 is the game's soft follow, which drags the camera back
+// behind the hunter. It can stay 0 for seconds; the stick keeps the camera.
+void test_soft_follow_keeps_the_stick() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    memory.store8(camera_address + 0x91u, 0u);
+    const auto yaw = memory.load16(camera_address + 0x80u);
+    f.frame(1.0f, 0.0f);
+    f.frame(1.0f, 0.0f);
+    check(game_camera_driving() && memory.load16(camera_address + 0x80u) != yaw,
+        "the stick turns the camera while the game's soft follow is selected");
+    check(gate_on_entry < 0, "the update does not also follow behind the hunter");
+    check(memory.load8(camera_address + 0x91u) == 0u, "and the gate is put back after it");
+    mhfu::settings::current().analog_camera = false;
+    f.frame(0.0f, 0.0f);
+    check(gate_on_entry == 0, "with the option off, the soft follow is the game's");
+    memory.store8(camera_address + 0x91u, 0xFFu);
+}
+
+// A wall pulls the eye in at once. The game's collision comes and goes from
+// one update to the next with the back against a wall, so the view goes back
+// out only a part of the way each update instead of snapping, and the game's
+// own eye is put back before its next update.
+void test_wall_eases_back_out() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    const float full = std::hypot(kStockHeight, kStockDistance);
+    const auto distance = [&] {
+        return std::hypot(read_float(memory, camera_address + 4u), read_float(memory, camera_address + 8u));
+    };
+    f.frame(0.0f, 0.0f);
+    check(std::fabs(distance() - full) < 0.01f, "with nothing in the way the eye is where the game put it");
+    wall_scale = 0.3f;
+    f.frame(0.0f, 0.0f);
+    check(std::fabs(distance() - 0.3f * full) < 0.01f, "a wall pulls the eye in at once");
+    wall_scale = 1.0f;
+    f.frame(0.0f, 0.0f);
+    check(std::fabs(distance() - (0.3f + 0.7f * 0.2f) * full) < 0.01f, "and it goes back out a part of the way");
+    f.frame(0.0f, 0.0f);
+    check(eye_on_entry == kStockHeight, "the game's own eye is put back before its next update");
+    for (int i = 0; i < 40; ++i) f.frame(0.0f, 0.0f);
+    check(std::fabs(distance() - full) < 0.5f, "and the view gets all the way back out");
+
+    wall_scale = 0.3f;
+    f.frame(0.0f, 0.0f);
+    wall_scale = 1.0f;
+    f.frame(0.0f, 0.0f);
+    check(distance() < 0.5f * full, "one update clear of the wall does not snap the view out");
+    wall_scale = 0.3f;
+    f.frame(0.0f, 0.0f);
+    check(std::fabs(distance() - 0.3f * full) < 0.01f, "and the wall coming back keeps it in");
+
+    mhfu::settings::current().analog_camera = false;
+    wall_scale = 1.0f;
+    f.frame(0.0f, 0.0f);
+    check(std::fabs(distance() - full) < 0.01f, "with the option off the eye is the game's");
+}
+
+// The game's choice at 0x0888FCE4, behind the hunter: the blocked eye is held
+// where the wall stopped it (0), not pulled in along the view line (1).
+void pull_in_behind(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    ctx.gpr[2] = 0u;
+    ctx.pc = ctx.gpr[31];
+}
+
+// With the back against a wall, the game held the eye on the near side of the
+// wall while the view turned, then snapped. While the analog camera drives, a
+// blocked eye is pulled in along the view line from any side.
+void test_wall_pulls_in_behind_the_hunter() {
+    Fixture f;
+    f.runtime.register_function(0x0888FCE4u, &pull_in_behind, "recomp_pull_in_test");
+    f.enable();
+    f.frame(0.0f, 0.0f);
+    psprecomp::AllegrexContext choice{};
+    choice.gpr[4] = parent_address;
+    choice.gpr[31] = 0x09C00000u;
+    check(f.runtime.invoke_isolated_aot(0x0888FCE4u, choice), "the choice dispatches");
+    check(choice.gpr[2] == 1u, "behind the hunter a blocked eye is pulled in");
+    mhfu::settings::current().analog_camera = false;
+    f.frame(0.0f, 0.0f);
+    choice.gpr[2] = 7u;
+    choice.gpr[31] = 0x09C00000u;
+    check(f.runtime.invoke_isolated_aot(0x0888FCE4u, choice), "the choice dispatches with the option off");
+    check(choice.gpr[2] == 0u, "with the option off the choice is the game's");
 }
 
 void test_dispatch_and_write_extent() {
@@ -355,6 +517,7 @@ void plant_hunter(psprecomp::GuestMemory &memory, std::uint16_t action) {
     memory.store32(kHunter + kFacing, 0xABC00000u | 10000u);
     memory.store8(kHunter + kPitch, 0u);
     memory.store16(kHunter + kMagnitude, 0u);
+    memory.store32(kHunter + 1152u, 0x0200u); // R, the aim button, held
 }
 
 void game_steps(psprecomp::GuestMemory &memory, int yaw, int pitch) {
@@ -385,7 +548,7 @@ void test_aim_stick_is_not_movement() {
     f.runtime.register_function(0x09AA4DD0u, &aim_original, "recomp_unit_aim_test");
     f.flip(0.0f, 0.0f);
     constexpr std::uint32_t kButtons = 1152u;
-    memory.store32(kHunter + kButtons, 0x00800001u);
+    memory.store32(kHunter + kButtons, 0x00800201u);
     memory.store16(kHunter + kMagnitude, 10u);
     memory.store8(kHunter + 1380u, 1u);
     game_camera_present_aim(127, -40);
@@ -393,25 +556,34 @@ void test_aim_stick_is_not_movement() {
     f.ctx.gpr[31] = 0x09C00000u;
     check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches");
     check(seen_magnitude == 127u, "the aim function is shown a full push");
-    check(seen_buttons == 0x00300031u, "right and up replace the stick and D-pad directions; the real button stays");
+    check(seen_buttons == 0x00300231u, "right and up replace the stick and D-pad directions; the real button stays");
     check(memory.load16(kHunter + kMagnitude) == 10u, "the movement magnitude is put back");
-    check(memory.load32(kHunter + kButtons) == 0x00800001u, "the movement direction is put back");
+    check(memory.load32(kHunter + kButtons) == 0x00800201u, "the movement direction is put back");
 
     game_camera_present_aim(0, 0);
     check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches with no push");
     check(seen_magnitude == 10u, "no push leaves the stick the game copied");
-    check(seen_buttons == 0x00800001u, "and leaves its direction");
+    check(seen_buttons == 0x00800201u, "and leaves its direction");
 
     // +1380 is the function's own repeat timer. With it clear the game may
     // take either branch (bit 0x1000 of +1556 decides), so the push is the
     // same: both the stick half and the D-pad bits.
     memory.store8(kHunter + 1380u, 0u);
-    memory.store32(kHunter + kButtons, 0x00000041u);
+    memory.store32(kHunter + kButtons, 0x00000241u);
     game_camera_present_aim(-127, 0);
     check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches with the timer clear");
-    check(seen_buttons == 0x00800081u, "left on both, and the held D-pad down is replaced");
+    check(seen_buttons == 0x00800281u, "left on both, and the held D-pad down is replaced");
     check(seen_magnitude == 127u, "a full push with the timer clear too");
-    check(memory.load32(kHunter + kButtons) == 0x00000041u, "the held D-pad is put back");
+    check(memory.load32(kHunter + kButtons) == 0x00000241u, "the held D-pad is put back");
+
+    // A bowgun stays in its aim while the function sees a direction. Once R
+    // is up, the push is not shown, so the aim ends and the stick goes back to
+    // the camera.
+    memory.store32(kHunter + kButtons, 0x00000001u);
+    memory.store16(kHunter + kMagnitude, 10u);
+    game_camera_present_aim(127, 0);
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches after R is released");
+    check(seen_buttons == 0x00000001u && seen_magnitude == 10u, "with R up the push is not shown to the aim");
 }
 
 // The bow aims from the D-pad in code no wrapper reaches (0x09BB6D98, called
@@ -565,6 +737,25 @@ void test_action_1001_without_the_aim_function() {
     f.flip(0.0f, 0.0f);
     check(game_camera_hunter_aiming() && game_camera_aim_boost(), "once it runs in 1001, the hunter is aiming");
 
+    // The game drops the reticle when R is released, but the hunter stays in
+    // 1001 and the aim function keeps running. The stick is the camera's then.
+    memory.store32(kHunter + 1152u, 0u);
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function runs on after R is released");
+    f.flip(0.0f, 0.0f);
+    check(!game_camera_hunter_aiming() && !game_camera_aim_boost(), "with R released, 1001 is no longer the aim");
+    f.ctx.gpr[4] = parent_address;
+    f.ctx.gpr[31] = 0x09C00000u;
+    const auto released_yaw = memory.load16(camera_address + 0x80u);
+    f.flip(1.0f, 0.0f);
+    f.update();
+    check(memory.load16(camera_address + 0x80u) != released_yaw, "and the right stick turns the camera again");
+    memory.store32(kHunter + 1152u, 0x0200u);
+    f.ctx.gpr[4] = kHunter;
+    f.ctx.gpr[31] = 0x09C00000u;
+    check(f.runtime.invoke_isolated_aot(0x09AA4DD0u, f.ctx), "the aim function dispatches with R held again");
+    f.flip(0.0f, 0.0f);
+    check(game_camera_hunter_aiming(), "and holding R again is the aim");
+
     f.flip(0.0f, 0.0f);
     check(game_camera_hunter_aiming(), "a frame the aim function skips does not end the aim");
     f.flip(0.0f, 0.0f);
@@ -700,6 +891,11 @@ int main() {
     test_passthrough();
     test_rates_and_release();
     test_ownership();
+    test_dpad_camera_is_off();
+    test_gate_without_the_placement();
+    test_soft_follow_keeps_the_stick();
+    test_wall_eases_back_out();
+    test_wall_pulls_in_behind_the_hunter();
     test_dispatch_and_write_extent();
     test_pitch_is_handed_whole();
     test_pitch_is_not_left_for_the_eye_ease();
