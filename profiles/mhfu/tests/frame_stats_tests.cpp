@@ -1,8 +1,16 @@
 // The stall trace (MHFU_TRACE_STALLS): every kind has a name of its own, and
 // the time a StallScope measures reaches the [slow-frame] line of its frame,
-// and so does the frame's render split.
+// and so does the frame's render split. The performance setting's overlay
+// choices, the compact overlay's line, and the audio gain with background
+// muting.
 // No game data and no GPU.
+#include "audio/audio_sink.hpp"
 #include "perf/frame_stats.hpp"
+#include "perf/perf_overlay.hpp"
+#include "settings/settings.hpp"
+
+#include <algorithm>
+#include <cstdint>
 
 #include <cstdlib>
 #include <iostream>
@@ -10,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 using namespace mhfu::perf;
@@ -116,6 +125,125 @@ void test_draws_reach_the_slow_frame_line() {
     check(next.find(" | draws 0 | ") != std::string::npos, "draws do not carry over to the next frame: " + next);
 }
 
+void test_performance_setting_options() {
+    using mhfu::settings::PerfDisplay;
+    mhfu::settings::Settings &s = mhfu::settings::current();
+    const PerfDisplay saved = s.perf;
+    const auto is = [](bool log, bool overlay, bool compact) {
+        const Options o = options();
+        return o.log == log && o.overlay == overlay && o.compact == compact;
+    };
+    s.perf = PerfDisplay::Off;
+    check(is(false, false, false), "Off shows nothing");
+    s.perf = PerfDisplay::Overlay;
+    check(is(false, true, false), "Overlay is the full overlay");
+    s.perf = PerfDisplay::OverlayAndLog;
+    check(is(true, true, false), "Overlay and log");
+    s.perf = PerfDisplay::Log;
+    check(is(true, false, false), "Log only");
+    s.perf = PerfDisplay::Compact;
+    check(is(false, true, true), "Compact is the overlay in its one-line form");
+    s.perf = PerfDisplay::CompactAndLog;
+    check(is(true, true, true), "Compact and log");
+    s.perf = saved;
+    check(overlay_rows(true) == kCompactOverlayHeight && overlay_rows(false) == kOverlayHeight,
+        "each overlay fills its own rows");
+    check(kCompactOverlayHeight < kOverlayHeight, "the compact overlay fits the full overlay's image");
+}
+
+constexpr std::uint32_t rgb(std::uint32_t r, std::uint32_t g, std::uint32_t b) {
+    return r | (g << 8u) | (b << 16u) | 0xFF000000u;
+}
+
+// The compact line's pixels for `summary`, drawn into a full-size image
+// filled with `kSentinel` first, so rows it must leave alone can be checked.
+constexpr std::uint32_t kSentinel = 0x12345678u;
+std::vector<std::uint32_t> compact_pixels(const Summary &summary) {
+    std::vector<std::uint32_t> pixels(static_cast<std::size_t>(kOverlayWidth) * kOverlayHeight, kSentinel);
+    draw_compact_overlay(pixels.data(), summary);
+    return pixels;
+}
+
+bool has(const std::vector<std::uint32_t> &pixels, std::uint32_t color) {
+    return std::find(pixels.begin(), pixels.begin() + kOverlayWidth * kCompactOverlayHeight, color) !=
+        pixels.begin() + kOverlayWidth * kCompactOverlayHeight;
+}
+
+void test_compact_overlay() {
+    const std::uint32_t text = rgb(235u, 235u, 235u);
+    const std::uint32_t good = rgb(80u, 210u, 90u);
+    const std::uint32_t slow = rgb(235u, 200u, 60u);
+    const std::uint32_t bad = rgb(235u, 70u, 60u);
+
+    const std::vector<std::uint32_t> measuring = compact_pixels(Summary{});
+    check(has(measuring, text) && !has(measuring, good), "before the first second the line is dashes, not a speed");
+    bool kept = true;
+    for (std::size_t i = kOverlayWidth * kCompactOverlayHeight; i < measuring.size(); ++i)
+        kept = kept && measuring[i] == kSentinel;
+    check(kept, "the compact line writes only its own rows");
+    bool filled = true;
+    for (std::size_t i = 0; i < kOverlayWidth * kCompactOverlayHeight; ++i) filled = filled && measuring[i] != kSentinel;
+    check(filled, "and every pixel of them");
+
+    Summary summary{};
+    summary.valid = true;
+    summary.fps = 60.0;
+    summary.game_fps = 30.0;
+    summary.speed = 1.0;
+    const std::vector<std::uint32_t> full = compact_pixels(summary);
+    check(has(full, good) && !has(full, slow) && !has(full, bad) && !has(full, text), "full speed is green");
+    summary.speed = 0.99;
+    check(has(compact_pixels(summary), good), "99% still counts as full speed");
+    summary.speed = 0.95;
+    const std::vector<std::uint32_t> behind = compact_pixels(summary);
+    check(has(behind, slow) && !has(behind, good), "95% is yellow");
+    summary.speed = 0.5;
+    const std::vector<std::uint32_t> slow_motion = compact_pixels(summary);
+    check(has(slow_motion, bad) && !has(slow_motion, slow), "half speed is red");
+    summary.speed = 1.0;
+    summary.game_fps = 20.0;
+    check(compact_pixels(summary) != full, "the game's own frame rate is on the line");
+}
+
+void test_background_mute_gain() {
+    using mhfu::audio::output_gain;
+    using mhfu::audio::settings_gain;
+    check(settings_gain(100u, false) == 1.0f && settings_gain(50u, false) == 0.5f, "the volume is a fraction");
+    check(settings_gain(80u, true) == 0.0f, "mute is silence at any volume");
+    check(output_gain(0.7f, true, true) == 0.7f, "with focus, background muting changes nothing");
+    check(output_gain(0.7f, false, false) == 0.7f, "without background muting, the background is heard");
+    check(output_gain(0.7f, true, false) == 0.0f, "background muting silences an unfocused window");
+    check(output_gain(2.0f, false, true) == 1.0f && output_gain(-1.0f, false, true) == 0.0f,
+        "the gain stays within 0..1");
+}
+
+void test_background_mute_follows_focus() {
+    mhfu::settings::Settings &s = mhfu::settings::current();
+    const bool saved = s.background_mute;
+    auto &sink = mhfu::audio::AudioSink::instance();
+    s.volume = 60u;
+    s.mute = false;
+    s.background_mute = true;
+    sink.set_window_focused(true);
+    sink.apply_settings();
+    check(sink.output_gain() == 0.6f, "the volume applies with focus");
+    sink.set_window_focused(false);
+    check(sink.output_gain() == 0.0f, "losing focus silences the game");
+    s.volume = 90u;
+    sink.apply_settings();
+    check(sink.output_gain() == 0.0f, "a volume change in the background does not unmute it");
+    sink.set_window_focused(true);
+    check(sink.output_gain() == 0.9f, "focus brings back the newest volume");
+    s.background_mute = false;
+    sink.set_window_focused(false);
+    sink.apply_settings();
+    check(sink.output_gain() == 0.9f, "with the setting off the background is heard");
+    sink.set_window_focused(true);
+    s.background_mute = saved;
+    s.volume = 100u;
+    sink.apply_settings();
+}
+
 } // namespace
 
 int main() {
@@ -126,6 +254,11 @@ int main() {
     test_scopes_reach_the_slow_frame_line();
     test_split_reaches_the_slow_frame_line();
     test_draws_reach_the_slow_frame_line();
+    test_performance_setting_options();
+    test_compact_overlay();
+    test_background_mute_gain();
+    // The sink is never opened here (no initialize()), so only its gain moves.
+    test_background_mute_follows_focus();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;

@@ -9,6 +9,12 @@ namespace mhfu::audio {
 inline constexpr std::uint32_t kSampleRate = 44'100u;
 inline constexpr std::uint32_t kChannels = 2u;
 
+// The device's output gain in 0..1 for a gain the player chose: none while
+// the window is in the background with background muting on.
+[[nodiscard]] float output_gain(float gain, bool background_mute, bool focused);
+// The gain the volume and mute settings choose.
+[[nodiscard]] float settings_gain(std::uint32_t volume, bool mute);
+
 // Host playback for the guest's 44100 Hz stereo stream.
 //
 // The guest and the audio device run on unrelated clocks: the kernel's virtual
@@ -36,8 +42,16 @@ public:
         std::uint32_t right_volume);
 
     // Output gain in 0..1, from the volume and mute settings. Only the device
-    // output is scaled; MHFU_AUDIO_DUMP keeps the game's own levels.
+    // output is scaled; MHFU_AUDIO_DUMP keeps the game's own levels. While the
+    // window is in the background, background muting still applies to it.
     void set_volume(float gain);
+    // set_volume() with the gain the current settings choose.
+    void apply_settings();
+    // Whether the window has focus, for background muting. Cheap when it is
+    // unchanged, so the renderer reports it on every event pump.
+    void set_window_focused(bool focused);
+    // The gain the device is set to.
+    [[nodiscard]] float output_gain() const;
     // Stops and restarts the device, for the in-game menu's pause. What the
     // game queued before the pause stays in the ring and plays on resume.
     void set_paused(bool paused);

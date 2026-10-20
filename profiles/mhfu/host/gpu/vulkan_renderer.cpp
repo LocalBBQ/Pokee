@@ -22,6 +22,7 @@
 #include "vertex_cache.hpp"
 #include "vertex_hold.hpp"
 
+#include "audio/audio_sink.hpp"
 #include "camera/game_camera.hpp"
 #include "camera/lock_on.hpp"
 #include "install/game_identity.hpp"
@@ -2296,6 +2297,15 @@ struct VulkanRenderer::Impl {
     // devices, both work that way, whichever port the pad is in.
     SDL_Gamepad *gamepad{};
     SDL_JoystickID gamepad_id{};
+    // Whether SDL is told to deliver gamepad events without focus, as the
+    // Gamepad in background setting last asked (the input script's own
+    // virtual pads ask for it by themselves).
+    bool background_gamepad_events{};
+    // input::gamepad_readable for the pad the game follows.
+    [[nodiscard]] bool pad_readable(bool focused) const {
+        return input::gamepad_readable(gamepad != nullptr, focused, settings::current().background_gamepad,
+            gamepad != nullptr && SDL_IsJoystickVirtual(gamepad_id));
+    }
     std::vector<std::pair<SDL_JoystickID, SDL_Gamepad *>> pads;
     bool recording{};
     bool quit{};
@@ -2807,6 +2817,10 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         error = std::string("SDL_Init failed: ") + SDL_GetError();
         return false;
     }
+    // Gamepad in background: SDL otherwise drops gamepad events while no
+    // window of ours has focus. Off leaves SDL's default alone.
+    impl.background_gamepad_events = settings::current().background_gamepad;
+    if (impl.background_gamepad_events) SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     // A missing gamepad subsystem is not fatal; the keyboard still drives the pad.
     if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
         std::cout << "[pad] no gamepad support: " << SDL_GetError() << "\n";
@@ -3606,25 +3620,31 @@ bool VulkanRenderer::Impl::create_overlay(std::string &error) {
     return true;
 }
 
-// Draws the overlay over the top-left corner of the swapchain image, which is
-// in TRANSFER_DST layout with the game frame already blitted into it. The
-// staging buffer is free to rewrite: the frame fence has been waited on before
-// any recording of this frame started.
+// Draws the overlay over the top-left corner of the swapchain image, or the
+// compact one over the bottom-left corner. The image is in TRANSFER_DST layout
+// with the game frame already blitted into it. The staging buffer is free to
+// rewrite: the frame fence has been waited on before any recording of this
+// frame started.
 void VulkanRenderer::Impl::record_overlay(VkCommandBuffer commands, VkImage destination) {
+    const bool compact = perf::options().compact;
+    const std::uint32_t rows = perf::overlay_rows(compact);
     const std::uint32_t scale = perf::overlay_scale(content_rect.extent.height);
     const std::uint32_t inset = 4u * scale;
     const std::uint32_t width = perf::kOverlayWidth * scale;
-    const std::uint32_t height = perf::kOverlayHeight * scale;
+    const std::uint32_t height = rows * scale;
     if (inset + width > content_rect.extent.width || inset + height > content_rect.extent.height) return;
 
-    perf::draw_overlay(overlay_pixels.data());
+    if (compact)
+        perf::draw_compact_overlay(overlay_pixels.data(), perf::last_second());
+    else
+        perf::draw_overlay(overlay_pixels.data());
     // Free to rewrite: this command buffer's previous use has finished.
     const Staging &staging = overlay_staging[command_index(commands)];
     std::memcpy(staging.mapped, overlay_pixels.data(), overlay_pixels.size() * sizeof(std::uint32_t));
     transition(commands, overlay_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
-    copy.imageExtent = {perf::kOverlayWidth, perf::kOverlayHeight, 1u};
+    copy.imageExtent = {perf::kOverlayWidth, rows, 1u};
     vkCmdCopyBufferToImage(commands, staging.buffer, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy);
     transition(commands, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     // The game frame was blitted into the same image just before; order the
@@ -3632,11 +3652,11 @@ void VulkanRenderer::Impl::record_overlay(VkCommandBuffer commands, VkImage dest
     transition(commands, destination, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     VkImageBlit blit{};
     blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u};
-    blit.srcOffsets[1] = {
-        static_cast<std::int32_t>(perf::kOverlayWidth), static_cast<std::int32_t>(perf::kOverlayHeight), 1};
+    blit.srcOffsets[1] = {static_cast<std::int32_t>(perf::kOverlayWidth), static_cast<std::int32_t>(rows), 1};
     blit.dstSubresource = blit.srcSubresource;
     const std::int32_t left = content_rect.offset.x + static_cast<std::int32_t>(inset);
-    const std::int32_t top = content_rect.offset.y + static_cast<std::int32_t>(inset);
+    const std::int32_t top = content_rect.offset.y +
+        static_cast<std::int32_t>(compact ? content_rect.extent.height - inset - height : inset);
     blit.dstOffsets[0] = {left, top, 0};
     blit.dstOffsets[1] = {left + static_cast<std::int32_t>(width), top + static_cast<std::int32_t>(height), 1};
     vkCmdBlitImage(commands, overlay_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination,
@@ -6428,6 +6448,11 @@ bool VulkanRenderer::pump_events() {
     // lost stays down in SDL's snapshot, which the guest sees as a held
     // direction it can never release.
     const bool focused = (SDL_GetWindowFlags(impl_->window) & SDL_WINDOW_INPUT_FOCUS) != 0u;
+    audio::AudioSink::instance().set_window_focused(focused);
+    if (const bool wanted = settings::current().background_gamepad; wanted != impl_->background_gamepad_events) {
+        impl_->background_gamepad_events = wanted;
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, wanted ? "1" : "0");
+    }
     impl_->update_pointer(focused);
     impl_->sample_pad(focused);
     impl_->sample_host_binds(focused);
@@ -6466,7 +6491,7 @@ void VulkanRenderer::Impl::resolve_bindings(bool focused) {
         now, window);
     log("keys", keys_resolver);
     lead_request = input::lead_requested(input::table(player.controls, false), keys_resolver.targets());
-    if (gamepad == nullptr) {
+    if (!pad_readable(focused)) {
         pad_resolver.reset();
         mapped = {};
         return;
@@ -6544,7 +6569,13 @@ void VulkanRenderer::Impl::sample_lock_on(bool focused) {
     if (lock_on_keys_tap.update(typed_now, false)) lock_on_pressed = true;
     bool pad_now = false;
     bool others = false;
-    if (gamepad != nullptr) {
+    if (!pad_readable(focused)) {
+        // A pad the window stops reading was not released by the player, so
+        // a held bind is forgotten rather than counted as a tap.
+        lock_on_pad_tap = {};
+        return;
+    }
+    {
         const PadTuning tuning = pad_tuning();
         const input::Slots &slots = player.controls.pad[action];
         const auto held = [&](input::Binding binding) { return pad_input_held(gamepad, binding, tuning); };
@@ -6621,7 +6652,7 @@ void VulkanRenderer::Impl::sample_pad(bool focused) {
     }
 
     // The gamepad adds to the same bits and offsets, so both sources are live.
-    if (impl_->gamepad != nullptr) read_gamepad(impl_->gamepad, impl_->mapped, pad, analog_x, analog_y);
+    if (impl_->pad_readable(focused)) read_gamepad(impl_->gamepad, impl_->mapped, pad, analog_x, analog_y);
     // So do the on-screen controls.
     if (impl_->touch_visible) {
         const bool action = Impl::action_layout();
@@ -10505,11 +10536,14 @@ bool VulkanRenderer::capture_frame(const std::filesystem::path &path) {
     // The capture is the game's own target, before the window blit; draw the
     // overlay over it the same way, so captures show what the window shows.
     if (impl.overlay_visible) {
+        const bool compact = perf::options().compact;
+        const std::uint32_t rows = perf::overlay_rows(compact);
         const std::uint32_t scale = perf::overlay_scale(height);
         const std::uint32_t inset = 4u * scale;
-        if (inset + perf::kOverlayWidth * scale <= width && inset + perf::kOverlayHeight * scale <= height) {
-            for (std::uint32_t y = 0; y < perf::kOverlayHeight * scale; ++y) {
-                std::uint8_t *row = pixels.data() + static_cast<std::size_t>(inset + y) * width * 4u;
+        if (inset + perf::kOverlayWidth * scale <= width && inset + rows * scale <= height) {
+            const std::uint32_t top = compact ? height - inset - rows * scale : inset;
+            for (std::uint32_t y = 0; y < rows * scale; ++y) {
+                std::uint8_t *row = pixels.data() + static_cast<std::size_t>(top + y) * width * 4u;
                 for (std::uint32_t x = 0; x < perf::kOverlayWidth * scale; ++x) {
                     const std::uint32_t pixel = impl.overlay_pixels[(y / scale) * perf::kOverlayWidth + x / scale];
                     std::memcpy(row + (inset + x) * 4u, &pixel, 4u);
