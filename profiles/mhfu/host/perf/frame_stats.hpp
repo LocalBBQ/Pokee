@@ -11,10 +11,11 @@ using Clock = std::chrono::steady_clock;
 
 // What the performance setting asks for (MHFU_PERF, or the in-game menu):
 // the log line, the overlay or both. The overlay can also be toggled at run
-// time (F3).
+// time (F3). A compact overlay is its one-line form (perf_overlay.hpp).
 struct Options {
     bool log{};
     bool overlay{};
+    bool compact{};
 };
 [[nodiscard]] Options options();
 

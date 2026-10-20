@@ -117,6 +117,7 @@ struct AudioSink::Impl {
     std::uint64_t seconds{};
 
     float gain{1.0f};
+    bool window_focused{true};
 #if defined(MHFU_HAS_SDL_AUDIO)
     SDL_AudioStream *stream{};
 #endif
@@ -190,6 +191,14 @@ void SDLCALL feed_device(void *user, SDL_AudioStream *stream, int additional, in
 
 } // namespace
 
+float output_gain(float gain, bool background_mute, bool focused) {
+    return !focused && background_mute ? 0.0f : std::clamp(gain, 0.0f, 1.0f);
+}
+
+float settings_gain(std::uint32_t volume, bool mute) {
+    return mute ? 0.0f : static_cast<float>(volume) / 100.0f;
+}
+
 AudioSink::AudioSink() : impl_(std::make_unique<Impl>()) {}
 AudioSink::~AudioSink() {
     shutdown();
@@ -207,7 +216,8 @@ void AudioSink::initialize() {
     impl.trace = std::getenv("MHFU_TRACE_AUDIO") != nullptr;
     impl.enabled = std::getenv("MHFU_NO_AUDIO") == nullptr;
     const settings::Settings &player = settings::current();
-    impl.gain = player.mute ? 0.0f : static_cast<float>(player.volume) / 100.0f;
+    impl.gain = audio::output_gain(settings_gain(player.volume, player.mute), player.background_mute,
+        impl.window_focused);
 
     if (const std::filesystem::path path = environment_path("MHFU_AUDIO_DUMP"); !path.empty()) {
         if (impl.dump.open(path))
@@ -264,13 +274,30 @@ void AudioSink::shutdown() {
 
 void AudioSink::set_volume(float gain) {
     Impl &impl = *impl_;
-    impl.gain = std::clamp(gain, 0.0f, 1.0f);
+    const float effective = audio::output_gain(gain, settings::current().background_mute, impl.window_focused);
+    if (effective == impl.gain) return;
+    impl.gain = effective;
 #if defined(MHFU_HAS_SDL_AUDIO)
     if (impl.stream != nullptr) {
         SDL_SetAudioStreamGain(impl.stream, impl.gain);
         std::cout << "Audio: output gain " << SDL_GetAudioStreamGain(impl.stream) << "\n";
     }
 #endif
+}
+
+void AudioSink::apply_settings() {
+    const settings::Settings &player = settings::current();
+    set_volume(settings_gain(player.volume, player.mute));
+}
+
+void AudioSink::set_window_focused(bool focused) {
+    if (impl_->window_focused == focused) return;
+    impl_->window_focused = focused;
+    apply_settings();
+}
+
+float AudioSink::output_gain() const {
+    return impl_->gain;
 }
 
 bool AudioSink::has_device() const {

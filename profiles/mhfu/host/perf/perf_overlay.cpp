@@ -84,14 +84,14 @@ const Glyph *find_glyph(char character) {
     return nullptr;
 }
 
-void draw_text(std::uint32_t *pixels, std::uint32_t x, std::uint32_t y, const char *text) {
+void draw_text(std::uint32_t *pixels, std::uint32_t x, std::uint32_t y, const char *text, std::uint32_t color = kText) {
     for (; *text != '\0' && x + 5u <= kOverlayWidth; ++text, x += kGlyphAdvance) {
         const Glyph *glyph = find_glyph(*text);
         if (glyph == nullptr) continue;
         for (std::uint32_t row = 0; row < 7u; ++row) {
             for (std::uint32_t column = 0; column < 5u; ++column) {
                 if ((glyph->rows[row] & (0x10u >> column)) != 0u)
-                    pixels[(y + row) * kOverlayWidth + x + column] = kText;
+                    pixels[(y + row) * kOverlayWidth + x + column] = color;
             }
         }
     }
@@ -107,6 +107,24 @@ std::uint32_t graph_row(float ms) {
 
 std::uint32_t overlay_scale(std::uint32_t height) {
     return std::max(1u, height / 360u);
+}
+
+std::uint32_t overlay_rows(bool compact) {
+    return compact ? kCompactOverlayHeight : kOverlayHeight;
+}
+
+void draw_compact_overlay(std::uint32_t *pixels, const Summary &summary) {
+    std::fill(pixels, pixels + kOverlayWidth * kCompactOverlayHeight, kBackground);
+    char line[48];
+    std::uint32_t color = kText;
+    if (summary.valid) {
+        std::snprintf(line, sizeof(line), "FPS %.1f GAME %.1f SPD %.0f%%", summary.fps, summary.game_fps,
+            summary.speed * 100.0);
+        color = summary.speed >= 0.985 ? kGood : summary.speed >= 0.895 ? kSlow : kBad;
+    } else {
+        std::snprintf(line, sizeof(line), "FPS -- GAME -- SPD --%%");
+    }
+    draw_text(pixels, kMargin, kMargin, line, color);
 }
 
 void draw_overlay(std::uint32_t *pixels) {
