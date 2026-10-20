@@ -12,7 +12,7 @@
 namespace mhfu::game::hall_meal {
 namespace {
 
-constexpr std::array<CodeWord, 51> kSignature = {{
+constexpr std::array<CodeWord, 67> kSignature = {{
     {0x09AAAAD0u, 0x0E6AB02Au}, // jal 0x09AAC0A8: the seated frame
     {0x09AAAAD4u, 0x24050010u}, // addiu a1, zero, 16
     {kSeatedUpdate, 0x27BDFFF0u},
@@ -51,19 +51,36 @@ constexpr std::array<CodeWord, 51> kSignature = {{
     {0x09C1B968u, 0x3C02089Du},
     {0x09C1B978u, 0x8C4296F4u}, // lw v0, -0x690C(v0): GameSys + 0x696F4
     {0x08836C10u, 0x0E20E2ADu}, // jal 0x08838AB4: seated?
+    {0x08836C3Cu, 0x00408021u}, // move s0, v0: the ":"
     {0x08836C4Cu, 0x0E69EE24u}, // jal 0x09A7B890: Stand Up, printed
     {0x08836C50u, 0x9445533Au}, // lhu a1, 0x533A(v0)
+    {0x08836C64u, 0x02004021u}, // move t0, s0
     {0x08836C70u, 0x0E22451Du}, // jal 0x08891474
-    {0x08836C84u, 0x0E69EE24u}, // jal 0x09A7B890: Stand Up, for the bar's width
-    {0x08836C88u, 0x9445533Au}, // lhu a1, 0x533A(v0)
     {kTextCore, 0x27BDFFE0u},
     {kText, 0x00A03021u},       // move a2, a1
     {0x09A7B894u, 0x0A69EE08u}, // j 0x09A7B820
     {0x09A7B898u, 0x00002821u}, // move a1, zero: table 0
-    {kPlainPrint, 0x27BDFCA0u},  // addiu sp, sp, -0x360
+    {kPlainPrint, 0x27BDFCA0u}, // addiu sp, sp, -0x360
     {0x08891478u, 0xAFBF000Cu},
-    {kMarkupPrint, 0x27BDFCA0u}, // addiu sp, sp, -0x360
-    {0x088920ACu, 0xAFBF000Cu},
+    // The bar, shared by every prompt.
+    {0x08837534u, 0x8C4432C8u}, // lw a0, the font
+    {0x08837538u, 0x0E224392u}, // jal 0x08890E48: its characters
+    {0x08837540u, 0x24430004u}, // addiu v1, v0, 4
+    {0x08837544u, 0x000310C0u}, // sll v0, v1, 3
+    {0x0883754Cu, 0x24420024u}, // addiu v0, v0, 36
+    {0x08837558u, 0x3C02801Du}, // lui v0, 0x801D
+    {0x0883756Cu, 0x34493905u}, // ori t1, v0, 0x3905: its colour
+    {0x08837570u, 0x0E20E2C2u}, // jal 0x08838B08: the bar
+    {0x08837578u, 0x82880535u}, // lb t0, 0x535(s4): the blink
+    {0x08837588u, 0x24070035u}, // addiu a3, zero, 53: the button
+    {0x0883758Cu, 0x0E20E383u}, // jal 0x08838E0C
+    {0x08837590u, 0x24090014u}, // addiu t1, zero, 20
+    {kBarMeasure, 0x27BDFFE0u},
+    {kBarBox, 0x27BDFFC0u},
+    {kBarButton, 0x27BDFFF0u},
+    {0x08838E10u, 0x0109182Au}, // slt v1, t0, t1: shown while the blink is below
+    {0x08838E1Cu, 0x0E20AA77u}, // jal 0x0882A9DC: the sprite
+    {kPrintFormat, 0x73257325u}, // "%s%s"
 }};
 
 // What runs after a confirmed meal, in the kitchen's order.
@@ -74,17 +91,22 @@ enum class Phase { Idle, Menu, Serving };
 struct State {
     psprecomp::Runtime::RecompiledFunction seated_update{};
     psprecomp::Runtime::RecompiledFunction text{};
-    psprecomp::Runtime::RecompiledFunction plain_print{};
+    psprecomp::Runtime::RecompiledFunction bar_button{};
     GuestCaller caller{};
     psprecomp::GuestMemory *memory{};
     Phase phase{Phase::Idle};
     std::uint32_t hunter{};
     std::uint32_t kitchen{};
     std::size_t served{};
-    // The hint's text call: the lobby's state, and the game's Stand Up.
+    // The second row: due since the bar printed Stand Up this frame, and what
+    // it is drawn with: the lobby's state for the text call, the bar's state,
+    // its blink and ":", and the game's Order Food.
+    bool order_row{};
     std::uint32_t text_state{};
-    std::uint32_t stand_up{};
-    bool printed{}; // the call is the bar's print, not its measure
+    std::uint32_t bar{};
+    std::uint32_t blink{};
+    std::uint32_t colon{};
+    std::uint32_t order_food{};
     // Flips since the seated frame last ran the menu.
     std::uint32_t unseen{};
     bool reported{};
@@ -174,76 +196,85 @@ void seated_update(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx)
     s.seated_update(runtime, ctx);
 }
 
-std::string guest_string(const psprecomp::GuestMemory &memory, std::uint32_t address) {
-    std::string text;
-    for (std::uint32_t i = 0; i < kHintBytes && memory.contains(address + i, 1u); ++i) {
-        const auto c = static_cast<char>(memory.load8(address + i));
-        if (c == '\0') break;
-        text += c;
-    }
-    return text;
-}
-
-void hint_ready(psprecomp::AllegrexContext &ctx, std::uint32_t order_food) {
-    State &s = state();
-    psprecomp::GuestMemory &memory = *s.memory;
-    if (s.stand_up == 0u || order_food == 0u) {
-        ctx.set_gpr(2, s.stand_up);
-        return;
-    }
-    const std::string hint = hint_text(guest_string(memory, s.stand_up), guest_string(memory, order_food), s.printed);
-    const std::uint32_t at = s.printed ? kHint : kHintWidth;
-    for (std::size_t i = 0; i <= hint.size(); ++i)
-        memory.store8(at + static_cast<std::uint32_t>(i), i < hint.size() ? static_cast<std::uint8_t>(hint[i]) : 0u);
-    ctx.set_gpr(2, at);
-}
-
-void stand_up_ready(psprecomp::AllegrexContext &ctx, std::uint32_t stand_up) {
-    State &s = state();
-    s.stand_up = stand_up;
-    s.caller(ctx, kTextCore, {s.text_state, 0u, kOrderFoodText, 0u}, &hint_ready);
-}
-
-// The lobby's text call: the banner's Stand Up gets the hint while a meal can
-// be ordered.
+// The lobby's text call: the bar's Stand Up, while a meal can be ordered,
+// makes the second row due. The text is the game's.
 void text(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     State &s = state();
-    const std::uint32_t back = ctx.gpr[31];
     const auto id = static_cast<std::uint16_t>(ctx.gpr[5] & 0xFFFFu);
-    if (id == kStandUpText && (back == kBannerPrint || back == kBannerWidth) && settings::current().hall_meal &&
-        s.caller != nullptr && s.phase == Phase::Idle && code_matches(runtime.memory()) && can_eat(runtime.memory())) {
+    if (id == kStandUpText && ctx.gpr[31] == kBannerPrint && settings::current().hall_meal && s.caller != nullptr &&
+        s.phase == Phase::Idle && code_matches(runtime.memory()) && can_eat(runtime.memory())) {
         s.memory = &runtime.memory();
+        s.order_row = true;
         s.text_state = ctx.gpr[4];
-        s.printed = back == kBannerPrint;
-        s.caller(ctx, kTextCore, {s.text_state, 0u, kStandUpText, 0u}, &stand_up_ready);
-        return;
     }
     ctx.pc = kText;
     s.text(runtime, ctx);
 }
 
-// The plain print: the bar's, with the hint, draws the game's icon.
-void plain_print(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+std::uint32_t font() {
+    const psprecomp::GuestMemory &memory = *state().memory;
+    return memory.contains(kFontPointer, 4u) ? memory.load32(kFontPointer) : 0u;
+}
+
+// The second row, after the game's: its text, its width, its bar, its button
+// and its words, each call returning to the next.
+void row_words(psprecomp::AllegrexContext &ctx, std::uint32_t) {
     State &s = state();
-    if (ctx.gpr[31] == kBannerPrinted && ctx.gpr[kPromptArgument] == kHint) {
-        ctx.pc = kMarkupPrint;
+    ctx.set_gpr(8, s.colon);
+    ctx.set_gpr(9, s.order_food);
+    s.caller(ctx, kPlainPrint, {font(), kTextX, kBarTop + kRowHeight + kTextDrop, kPrintFormat}, &back_to_caller);
+}
+
+void row_button(psprecomp::AllegrexContext &ctx, std::uint32_t) {
+    State &s = state();
+    ctx.set_gpr(8, s.blink);
+    ctx.set_gpr(9, static_cast<std::uint32_t>(kBlinkShown));
+    ctx.set_gpr(10, 0u);
+    s.caller(ctx, kBarButton, {s.bar, kButtonX, kBarTop + kRowHeight, kTriangleSprite}, &row_words);
+}
+
+void row_bar(psprecomp::AllegrexContext &ctx, std::uint32_t characters) {
+    State &s = state();
+    ctx.set_gpr(8, kRowHeight);
+    ctx.set_gpr(9, kBarColour);
+    ctx.set_gpr(10, 0u);
+    s.caller(ctx, kBarBox, {s.bar, 0u, kBarTop + kRowHeight, bar_width(characters)}, &row_button);
+}
+
+void row_text(psprecomp::AllegrexContext &ctx, std::uint32_t order_food) {
+    State &s = state();
+    if (order_food == 0u) return;
+    s.order_food = order_food;
+    s.caller(ctx, kBarMeasure, {font(), order_food, kBarTop, 0u}, &row_bar);
+}
+
+void row_after_game(psprecomp::AllegrexContext &ctx, std::uint32_t) {
+    State &s = state();
+    s.caller(ctx, kTextCore, {s.text_state, 0u, kOrderFoodText, 0u}, &row_text);
+}
+
+// The bar's button: after the game's, the second row when it is due. Its own
+// calls come back here from the return stub and are the game's.
+void bar_button(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    State &s = state();
+    if (ctx.gpr[31] == kBarButtonDrawn && s.order_row && s.caller != nullptr) {
+        s.order_row = false;
+        s.bar = ctx.gpr[4];
+        s.blink = ctx.gpr[8];
+        s.colon = ctx.gpr[kColonRegister];
+        s.caller(ctx, kBarButton, {ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7]}, &row_after_game);
         return;
     }
-    ctx.pc = kPlainPrint;
-    s.plain_print(runtime, ctx);
+    ctx.pc = kBarButton;
+    s.bar_button(runtime, ctx);
 }
 
 } // namespace
 
-std::string hint_text(const std::string &stand_up, const std::string &order_food, bool printed) {
-    std::string hint = stand_up + (printed ? "  ~B02:" : "    :") + order_food;
-    if (hint.size() < kHintBytes) return hint;
-    hint.resize(kHintBytes - 1u);
-    // Not in the middle of a character.
-    while (!hint.empty() && (static_cast<unsigned char>(hint.back()) & 0xC0u) == 0x80u)
-        hint.pop_back();
-    if (!hint.empty() && (static_cast<unsigned char>(hint.back()) & 0x80u) != 0u) hint.pop_back();
-    return hint;
+std::uint32_t bar_width(std::uint32_t characters) {
+    // As the game: (characters + 4) * 7 + 36, kept to a signed halfword.
+    return static_cast<std::uint32_t>(static_cast<std::int32_t>(
+        static_cast<std::int16_t>(static_cast<std::uint16_t>((characters + 4u) * 7u + 36u))));
 }
 
 std::span<const CodeWord> code_signature() {
@@ -304,15 +335,17 @@ void frame(psprecomp::Runtime &runtime, GuestCaller caller) {
         return;
     }
     if (s.phase == Phase::Menu && ++s.unseen > kLostFrames) close("menu closed: the seated frame stopped");
+    // A row the bar did not draw this frame is not drawn in the next.
+    s.order_row = false;
     if (runtime.function_at(kSeatedUpdate) == nullptr || runtime.function_at(kText) == nullptr ||
-        runtime.function_at(kPlainPrint) == nullptr)
+        runtime.function_at(kBarButton) == nullptr)
         return;
     // lobby_task registers its functions again each time it is installed.
     // Item Sets wraps the text call too (game/hooks.hpp).
     (void)hooks::wrap(runtime, kSeatedUpdate, &seated_update, s.seated_update, "mhfu_hall_meal");
     (void)hooks::wrap(runtime, kText, &text, s.text, "mhfu_hall_meal_text");
     // The executable's, wrapped once and kept; outside the bar it only calls it.
-    (void)hooks::wrap(runtime, kPlainPrint, &plain_print, s.plain_print, "mhfu_hall_meal_print");
+    (void)hooks::wrap(runtime, kBarButton, &bar_button, s.bar_button, "mhfu_hall_meal_button");
     if (!s.reported) {
         s.reported = true;
         std::cout << "[hall meal] seated frame wrapped" << std::endl;

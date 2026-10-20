@@ -103,29 +103,39 @@ void game_seated(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
 }
 
 int text_calls{};
-int plain_prints{};
-int markup_prints{};
-
-void game_plain_print(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-    ++plain_prints;
-    ctx.pc = ctx.gpr[31];
-}
-
-void game_markup_print(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-    ++markup_prints;
-    ctx.pc = ctx.gpr[31];
-}
 
 // The lobby's text call and its core (0x09A7B820(state, table, id)).
 void game_text(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
     ++text_calls;
-    ctx.gpr[2] = kOtherWords;
+    ctx.gpr[2] = ctx.gpr[5] == kStandUpText ? kStandUpWords : kOtherWords;
     ctx.pc = ctx.gpr[31];
 }
 
+std::uint32_t order_food_words = kOrderFoodWords;
+
 void game_text_core(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
     if (ctx.gpr[4] != kLobby || ctx.gpr[5] != 0u) check(false, "the core gets the lobby's state and table 0");
-    ctx.gpr[2] = ctx.gpr[6] == kStandUpText ? kStandUpWords : ctx.gpr[6] == kOrderFoodText ? kOrderFoodWords : 0u;
+    ctx.gpr[2] = ctx.gpr[6] == kOrderFoodText ? order_food_words : 0u;
+    ctx.pc = ctx.gpr[31];
+}
+
+// The bar's calls, each with its arguments: a0 to a3, then t0 to t2.
+struct BarCall {
+    std::uint32_t function;
+    std::array<std::uint32_t, 7> arguments;
+    bool operator==(const BarCall &) const = default;
+};
+std::vector<BarCall> bar_calls;
+constexpr std::uint32_t kFont = 0x09A00000u;
+constexpr std::uint32_t kBarState = 0x090A0000u;
+constexpr std::uint32_t kColon = 0x09900100u;
+constexpr std::uint32_t kOrderFoodCharacters = 10u;
+
+void game_bar(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    bar_calls.push_back({ctx.pc, {ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[8], ctx.gpr[9], ctx.gpr[10]}});
+    ctx.gpr[2] = ctx.pc == kBarMeasure ? kOrderFoodCharacters : 0u;
+    // What a callee leaves in the registers it need not keep.
+    for (std::uint32_t r = 8u; r <= 10u; ++r) ctx.gpr[r] = 0xDEADu;
     ctx.pc = ctx.gpr[31];
 }
 
@@ -147,8 +157,8 @@ void install(psprecomp::Runtime &runtime) {
     runtime.register_function(kSeatedUpdate, &game_seated, "seated");
     runtime.register_function(kText, &game_text, "text");
     runtime.register_function(kTextCore, &game_text_core, "text_core");
-    runtime.register_function(kPlainPrint, &game_plain_print, "plain_print");
-    runtime.register_function(kMarkupPrint, &game_markup_print, "markup_print");
+    for (std::uint32_t function : {kBarMeasure, kBarBox, kBarButton, kPlainPrint})
+        runtime.register_function(function, &game_bar, "bar");
     for (std::uint32_t function : {kMenuOpen, kMenuFrame, kFlavour, kRollSkills, kMealRow, kResults, kSetEaten, kSound})
         runtime.register_function(function, &game_function, "game");
 }
@@ -203,28 +213,43 @@ std::uint32_t call_text(psprecomp::Runtime &runtime, std::uint16_t id, std::uint
     return ctx.gpr[2];
 }
 
-std::string guest_text(const psprecomp::GuestMemory &memory, std::uint32_t address) {
-    std::string text;
-    for (std::uint32_t i = 0; i < 256u && memory.load8(address + i) != 0u; ++i)
-        text += static_cast<char>(memory.load8(address + i));
-    return text;
-}
-
-// One call of the plain print with `prompt` as its second string, made from
-// `back`; it runs to its return.
-void call_print(psprecomp::Runtime &runtime, std::uint32_t prompt, std::uint32_t back) {
+// The bar's button call, as the bar makes it from `back`, through every guest
+// call; the bar's registers it keeps are checked kept.
+void call_button(psprecomp::Runtime &runtime, std::uint32_t back = kBarButtonDrawn, std::uint32_t blink = 7u) {
     psprecomp::AllegrexContext ctx{};
-    ctx.gpr[kPromptArgument] = prompt;
+    ctx.gpr[4] = kBarState;
+    ctx.gpr[5] = kButtonX;
+    ctx.gpr[6] = kBarTop;
+    ctx.gpr[7] = 53u;
+    ctx.gpr[8] = blink;
+    ctx.gpr[9] = static_cast<std::uint32_t>(kBlinkShown);
+    ctx.gpr[10] = 0u;
+    ctx.gpr[kColonRegister] = kColon;
+    ctx.gpr[20] = kBarState;
     ctx.gpr[31] = back;
-    ctx.pc = kPlainPrint;
-    for (int step = 0; step < 4 && ctx.pc != back; ++step) runtime.function_at(ctx.pc)(runtime, ctx);
-    check(ctx.pc == back, "the print returns to its caller");
+    ctx.pc = kBarButton;
+    for (int step = 0; step < 32 && ctx.pc != back; ++step) {
+        if (ctx.pc == kCallReturn) {
+            ctx.gpr[31] = call_return;
+            ctx.pc = call_return;
+            call_then(ctx, ctx.gpr[2]);
+            continue;
+        }
+        runtime.function_at(ctx.pc)(runtime, ctx);
+    }
+    check(ctx.pc == back && ctx.gpr[31] == back, "the button call returns to the bar");
+    check(ctx.gpr[kColonRegister] == kColon && ctx.gpr[20] == kBarState, "with the bar's saved registers kept");
 }
 
-void write_words(psprecomp::GuestMemory &memory, std::uint32_t address, const std::string &text) {
-    for (std::size_t i = 0; i <= text.size(); ++i)
-        memory.store8(
-            address + static_cast<std::uint32_t>(i), i < text.size() ? static_cast<std::uint8_t>(text[i]) : 0u);
+// The bar of a frame at a seat: Stand Up printed, then its button.
+void bar_frame(psprecomp::Runtime &runtime, std::uint32_t blink = 7u) {
+    check(call_text(runtime, kStandUpText, kBannerPrint) == kStandUpWords, "Stand Up is the game's words");
+    bar_calls.clear();
+    call_button(runtime, kBarButtonDrawn, blink);
+}
+
+BarCall game_button() {
+    return {kBarButton, {kBarState, kButtonX, kBarTop, 53u, 7u, static_cast<std::uint32_t>(kBlinkShown), 0u}};
 }
 
 void press_triangle(psprecomp::GuestMemory &memory, bool down) {
@@ -404,17 +429,11 @@ void test_meal() {
     check(!menu_open(), "closed once lobby_task is gone");
 }
 
-void test_hint_text() {
-    check(hint_text("Stand Up", "Order Food", true) == "Stand Up  ~B02:Order Food",
-        "printed, the hint is the game's two words with its △ icon");
-    check(hint_text("Stand Up", "Order Food", false) == "Stand Up    :Order Food",
-        "measured, spaces in the icon's place");
-    const std::string longer(80u, 'x');
-    check(hint_text(longer, "Order Food", true).size() < kHintBytes, "a longer text is cut to the room");
-    // The game's words are UTF-8; a cut in the middle of a character drops all of it.
-    const std::string wide = "\xE3\x81\x82"; // あ
-    const std::string cut = hint_text(std::string(kHintBytes - 9u, 'x'), wide + wide, true);
-    check(cut == std::string(kHintBytes - 9u, 'x') + "  ~B02:", "not in the middle of a character");
+void test_bar_width() {
+    check(bar_width(0u) == 64u, "an empty prompt's bar is 64 pixels, as the game's");
+    check(bar_width(kOrderFoodCharacters) == 134u, "and 7 more a character");
+    check(bar_width(0x2000u) == static_cast<std::uint32_t>(static_cast<std::int16_t>(0xE040u)),
+        "kept to a signed halfword, as the game keeps it");
 }
 
 void test_hint() {
@@ -424,55 +443,84 @@ void test_hint() {
     settings.hall_meal = true;
     write_code(memory);
     seat(memory);
+    memory.store32(kFontPointer, kFont);
     install(runtime);
     frame(runtime, &guest_call);
-    write_words(memory, kStandUpWords, "Stand Up");
-    write_words(memory, kOrderFoodWords, "Order Food");
     check(runtime.function_at(kText) != &game_text, "the text call is wrapped");
+    check(runtime.function_at(kBarButton) != &game_bar, "the bar's button is wrapped");
+
+    constexpr std::uint32_t kRow = kBarTop + kRowHeight;
+    const std::vector<BarCall> with_row = {
+        game_button(),
+        {kBarMeasure, {kFont, kOrderFoodWords, kBarTop, 0u, 0xDEADu, 0xDEADu, 0xDEADu}},
+        {kBarBox, {kBarState, 0u, kRow, bar_width(kOrderFoodCharacters), kRowHeight, kBarColour, 0u}},
+        {kBarButton, {kBarState, kButtonX, kRow, kTriangleSprite, 7u, static_cast<std::uint32_t>(kBlinkShown), 0u}},
+        {kPlainPrint, {kFont, kTextX, kRow + kTextDrop, kPrintFormat, kColon, kOrderFoodWords, 0xDEADu}},
+    };
+    const std::vector<BarCall> game_only = {game_button()};
 
     text_calls = 0;
-    check(call_text(runtime, kStandUpText, kBannerPrint) == kHint, "the bar's Stand Up is the hint");
-    check(guest_text(memory, kHint) == "Stand Up  ~B02:Order Food", "with the game's words and icon");
-    check(call_text(runtime, kStandUpText, kBannerWidth) == kHintWidth, "the one that sizes the bar is measured");
-    check(guest_text(memory, kHintWidth) == "Stand Up    :Order Food", "without the markup");
-    check(text_calls == 0, "neither goes to the game's text call");
+    bar_frame(runtime);
+    check(text_calls == 1, "the bar's Stand Up goes to the game's text call");
+    check(bar_calls == with_row,
+        "after the game's button, a second row: Order Food measured, its bar, △ and the words, one row lower");
 
-    check(runtime.function_at(kPlainPrint) != &game_plain_print, "the plain print is wrapped");
-    plain_prints = markup_prints = 0;
-    call_print(runtime, kHint, kBannerPrinted);
-    check(markup_prints == 1 && plain_prints == 0, "the bar's print of the hint draws the icons");
-    call_print(runtime, kOtherWords, kBannerPrinted);
-    check(markup_prints == 1 && plain_prints == 1, "the bar's print of anything else is plain");
-    call_print(runtime, kHint, 0x08836CE4u);
-    check(markup_prints == 1 && plain_prints == 2, "and so is any other print");
+    bar_calls.clear();
+    call_button(runtime);
+    check(bar_calls == game_only, "a button call without Stand Up printed before it is the game's alone");
 
-    check(call_text(runtime, kStandUpText, 0x09A63830u) == kOtherWords, "Stand Up elsewhere is the game's");
-    check(call_text(runtime, kOrderFoodText, kBannerPrint) == kOtherWords, "another text from the bar is the game's");
+    bar_frame(runtime, 30u);
+    check(bar_calls.size() == with_row.size() && bar_calls[3].arguments[4] == 30u,
+        "the △ takes the bar's blink, so both buttons blink together");
+
+    check(call_text(runtime, kStandUpText, 0x09A63830u) == kStandUpWords, "Stand Up printed elsewhere");
+    bar_calls.clear();
+    call_button(runtime);
+    check(bar_calls == game_only, "makes no row");
+    check(call_text(runtime, kStandUpText, kBannerPrint) == kStandUpWords, "Stand Up printed by the bar");
+    bar_calls.clear();
+    call_button(runtime, 0x08836000u);
+    check(bar_calls == game_only, "and a button drawn elsewhere make none");
+    bar_calls.clear();
+    call_button(runtime);
+    check(bar_calls == with_row, "the bar's next button call draws it");
+
+    check(call_text(runtime, kStandUpText, kBannerPrint) == kStandUpWords, "Stand Up printed by the bar");
+    frame(runtime, &guest_call);
+    bar_calls.clear();
+    call_button(runtime);
+    check(bar_calls == game_only, "but not after the flip");
 
     memory.store8(kSys + kEaten, 1u);
-    check(call_text(runtime, kStandUpText, kBannerPrint) == kOtherWords, "after a meal, no hint");
+    bar_frame(runtime);
+    check(bar_calls == game_only, "after a meal, no row");
     memory.store8(kSys + kEaten, 0u);
     memory.store32(kSys + kKitchenOpen, 0u);
-    check(call_text(runtime, kStandUpText, kBannerPrint) == kOtherWords, "nor before the kitchen opens");
+    bar_frame(runtime);
+    check(bar_calls == game_only, "nor before the kitchen opens");
     memory.store32(kSys + kKitchenOpen, 1u);
 
     press_triangle(memory, true);
     run_seated(runtime);
     check(menu_open(), "the menu is open");
-    check(call_text(runtime, kStandUpText, kBannerPrint) == kOtherWords, "nor while the menu is open");
+    bar_frame(runtime);
+    check(bar_calls == game_only, "nor while the menu is open");
     menu_answer = -1;
     press_triangle(memory, false);
     run_seated(runtime);
     menu_answer = kMenuRunning;
 
     settings.hall_meal = false;
-    check(call_text(runtime, kStandUpText, kBannerPrint) == kOtherWords, "off, the game's");
+    bar_frame(runtime);
+    check(bar_calls == game_only, "off, the game's");
     settings.hall_meal = true;
 
-    write_words(memory, kOrderFoodWords, "");
-    memory.store32(kOrderFoodWords, 0u);
-    check(call_text(runtime, kStandUpText, kBannerPrint) == kHint, "an empty text still makes a hint");
-    check(guest_text(memory, kHint) == "Stand Up  ~B02:", "with nothing after the icon");
+    order_food_words = 0u;
+    bar_frame(runtime);
+    check(bar_calls == game_only, "no Order Food text, no row");
+    order_food_words = kOrderFoodWords;
+    bar_frame(runtime);
+    check(bar_calls == with_row, "with it again, the row");
 }
 
 void test_other_code() {
@@ -497,7 +545,7 @@ int main() {
     test_can_eat();
     test_other_code();
     test_meal();
-    test_hint_text();
+    test_bar_width();
     test_hint();
     if (failures != 0) {
         std::cerr << failures << " hall meal check(s) failed\n";
