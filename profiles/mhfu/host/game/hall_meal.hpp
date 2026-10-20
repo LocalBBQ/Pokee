@@ -57,27 +57,28 @@
 // asks 0x08838AB4 whether the hunter is seated and prints, with the plain
 // 0x08891474(font, 36, 18, "%s%s", ":", prompt), the text of the halfword at
 // 0x09B0533A, 508 (Stand Up), or 0x09B05338, 507 (Sit Down), each from the
-// lobby's text call 0x09A7B890(state, id). It asks for the prompt again
-// (from 0x08836C84) to size the bar: 0x08890E48 counts its characters, two
-// for a wide one, and the bar is 7 pixels a character and 64 more. The plain
-// print knows no markup. 0x088920A8, which Item Sets prints its hints with,
-// takes the same arguments (both keep a 0x360-byte frame) and also draws the
-// game's button icons for ~B, from the game's own texture, which a texture
-// pack replaces. So while a meal can be ordered, the two calls for Stand Up
-// are answered with the game's own words for both (508, and 515 at
-// 0x09B05348, through the text call's core 0x09A7B820(state, 0, id)): the
-// printed one with "Stand Up  ~B02:Order Food" (~B02 is △), the measured one
-// with two spaces in the icon's place. The texts are kept in the window the
-// host reserves below the load image (kernel/kernel.hpp). The plain print is
-// wrapped, and its call from the bar (returning to 0x08836C78) with the hint
-// as the prompt goes to 0x088920A8 instead.
+// lobby's text call 0x09A7B890(state, id); s0 keeps the ":". It asks for the
+// prompt again to size the bar and ends at 0x08837528, shared by every
+// prompt: 0x08890E48(font, prompt) counts its characters, two for a wide one,
+// 0x08838B08(state, 0, 16, width, 16, 0x801D3905, 0) draws the bar, 16 high
+// and 7 pixels a character and 64 more wide, and 0x08838E0C(state, 16, 16,
+// 53, blink, 20, 0) its button, sprite 53 of the HUD's table at 0x089392C8
+// through 0x0882A9DC, only while the blink, the signed byte at state +0x535,
+// is below 20: so the button blinks.
+//
+// While a meal can be ordered, the bar's print of Stand Up (the text call
+// returning to 0x08836C54) marks a second row due, and the bar's button call
+// (returning to 0x08837594) draws it after the game's: the same calls one
+// row lower, with the △ sprite and the same blink, so both buttons blink
+// together, and the game's ":" and its Order Food (515 at 0x09B05348, through
+// the text call's core 0x09A7B820(state, 0, id)). The calls are guest calls in
+// the game's thread, each returning to the bar.
 
 #include "psprecomp/guest_memory.hpp"
 
 #include <array>
 #include <cstdint>
 #include <span>
-#include <string>
 
 namespace psprecomp {
 class Runtime;
@@ -116,23 +117,30 @@ inline constexpr std::uint32_t kSetEaten = 0x09C1B9A0u;
 inline constexpr std::uint32_t kSound = 0x09A7BB50u;
 inline constexpr std::uint32_t kSoundConfirm = 0u;
 inline constexpr std::uint32_t kSoundRefuse = 4u;
-// The lobby's text call, its core, and the banner's two calls for Stand Up.
+// The lobby's text call, its core, and the bar's call for Stand Up to print.
 inline constexpr std::uint32_t kText = 0x09A7B890u;
 inline constexpr std::uint32_t kTextCore = 0x09A7B820u;
 inline constexpr std::uint16_t kStandUpText = 508u;
 inline constexpr std::uint16_t kOrderFoodText = 515u;
 inline constexpr std::uint32_t kBannerPrint = 0x08836C54u; // where the call returns
-inline constexpr std::uint32_t kBannerWidth = 0x08836C8Cu;
-// The plain print, the one that draws ~B icons, and where the bar's print
-// returns.
+// The bar's calls, and where its button call returns.
+inline constexpr std::uint32_t kBarMeasure = 0x08890E48u;
+inline constexpr std::uint32_t kBarBox = 0x08838B08u;
+inline constexpr std::uint32_t kBarButton = 0x08838E0Cu;
+inline constexpr std::uint32_t kBarButtonDrawn = 0x08837594u;
 inline constexpr std::uint32_t kPlainPrint = 0x08891474u;
-inline constexpr std::uint32_t kMarkupPrint = 0x088920A8u;
-inline constexpr std::uint32_t kBannerPrinted = 0x08836C78u;
-inline constexpr std::uint32_t kPromptArgument = 9u; // t1: the "%s%s" format's second string
-// The hint as printed and as measured, in the host's reserved window.
-inline constexpr std::uint32_t kHint = 0x08803F40u;
-inline constexpr std::uint32_t kHintWidth = 0x08803F80u;
-inline constexpr std::uint32_t kHintBytes = 0x40u;
+inline constexpr std::uint32_t kFontPointer = 0x08A632C8u;
+inline constexpr std::uint32_t kPrintFormat = 0x0893B344u; // "%s%s"
+inline constexpr std::uint32_t kColonRegister = 16u;      // s0 at the button call: the ":"
+inline constexpr std::uint32_t kBarColour = 0x801D3905u;
+inline constexpr std::uint32_t kBarTop = 16u;
+inline constexpr std::uint32_t kRowHeight = 16u;
+inline constexpr std::uint32_t kButtonX = 16u;
+inline constexpr std::uint32_t kTextX = 36u;
+inline constexpr std::uint32_t kTextDrop = 2u;
+inline constexpr std::int32_t kBlinkShown = 20; // the button shows while the blink is below this
+// The HUD's △, beside the □ (53) the bar draws for every prompt.
+inline constexpr std::uint32_t kTriangleSprite = 52u;
 // What the menu's frame returns.
 inline constexpr std::int32_t kMenuRunning = 0;
 inline constexpr std::int32_t kMenuPaid = 1;
@@ -170,11 +178,8 @@ using ResultFunction = void (*)(psprecomp::AllegrexContext &ctx, std::uint32_t r
 using GuestCaller = void (*)(psprecomp::AllegrexContext &ctx, std::uint32_t function,
     const std::array<std::uint32_t, 4> &arguments, ResultFunction then);
 
-// The bar's words while a meal can be ordered: the game's Stand Up, then △
-// and its Order Food, cut on a character to fit kHintBytes with the
-// terminator. Printed, △ is the markup for the game's icon; measured, two
-// spaces, about its width.
-[[nodiscard]] std::string hint_text(const std::string &stand_up, const std::string &order_food, bool printed);
+// The bar's width for a prompt of `characters`, as the game sizes it.
+[[nodiscard]] std::uint32_t bar_width(std::uint32_t characters);
 
 // The menu is open (or the meal being served).
 [[nodiscard]] bool menu_open();
