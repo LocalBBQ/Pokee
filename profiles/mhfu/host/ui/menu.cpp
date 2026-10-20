@@ -1805,6 +1805,14 @@ void Menu::mods() {
             s.item_sets = !s.item_sets;
             settings::save();
         }
+        if (toggle_row("Eat in the Guild Hall", s.hall_meal,
+                options_for("game.hall_meal",
+                    "On (default): seated at a table in the Guild Hall, △ orders from your home kitchen's "
+                    "menu, with its chefs, prices and skills, as Order Food in the house does. Off: △ does "
+                    "nothing there, as in the game."))) {
+            s.hall_meal = !s.hall_meal;
+            settings::save();
+        }
     }
     mods_page(back_);
     if (take_mods_restart_request()) {
