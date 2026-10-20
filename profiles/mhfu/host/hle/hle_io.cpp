@@ -1,6 +1,7 @@
 // IoFileMgrForUser and sceUmdUser: UMD access straight from the disc image
 // (including raw "sce_lbn" sector files) and a host directory for ms0:.
 #include "hle_common.hpp"
+#include "game/key_quests.hpp"
 #include "kernel/fast_loading.hpp"
 #include "kernel/load_trace.hpp"
 #include "kernel/iso_image.hpp"
@@ -216,8 +217,13 @@ void write_stat(
 
 // Reads a disc file at `offset` into it.
 std::size_t read_disc(const OpenFile &file, std::uint64_t offset, std::span<std::uint8_t> out) {
-    if (file.archive && mods::serving()) return mods::read_data_bin(file.archive_offset + offset, out);
-    return io().disc->read(file.disc_offset + offset, out);
+    const std::size_t count = file.archive && mods::serving() ? mods::read_data_bin(file.archive_offset + offset, out)
+                                                              : io().disc->read(file.disc_offset + offset, out);
+    // A quest pack read in full: its key quests get their mark once it is in place.
+    if (file.archive)
+        if (const auto entry = mods::entry_completed(file.archive_offset + offset, count))
+            game::key_quests::file_loaded(*entry);
+    return count;
 }
 
 } // namespace
