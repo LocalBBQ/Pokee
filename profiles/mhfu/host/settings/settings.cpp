@@ -577,6 +577,10 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.hall_meal); },
             [](const Settings &s) { return std::string(s.hall_meal ? "1" : "0"); },
             [](Settings &s, const char *t) { s.hall_meal = variable_flag(t); }},
+        {"game.key_quests", "MHFU_KEY_QUESTS",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.key_quests); },
+            [](const Settings &s) { return std::string(s.key_quests ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.key_quests = variable_flag(t); }},
         {"game.gather_icon_size", "MHFU_GATHER_ICON_SIZE",
             [](Settings &s, const std::string &t) {
                 return parse_uint(t, kMinGatherIconSize, kMaxGatherIconSize, s.gather_icon_size);
