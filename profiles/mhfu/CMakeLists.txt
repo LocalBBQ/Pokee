@@ -274,6 +274,7 @@ set(MHFU_HOST_SOURCES
     host/game/give_rarity.cpp
     host/game/hall_equipment.cpp
     host/game/hall_meal.cpp
+    host/game/key_quests.cpp
     host/game/hooks.cpp
     host/game/guest_calls.cpp
     host/game/item_sets.cpp
@@ -707,6 +708,27 @@ target_link_libraries(mhfu_hall_meal_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_hall_meal_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_hall_meal_tests COMMAND mhfu_hall_meal_tests)
+endif()
+
+# Key quests: a quest pack's key names found, a pack found in memory, tagged
+# and put back, and the switch. Built packs only; no game data.
+add_executable(mhfu_key_quests_tests
+    tests/key_quests_tests.cpp
+    host/game/key_quests.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_key_quests_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_key_quests_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_key_quests_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_key_quests_tests COMMAND mhfu_key_quests_tests)
 endif()
 
 # Empty item slot: the scroll with an empty stop, the code and caller checks,
