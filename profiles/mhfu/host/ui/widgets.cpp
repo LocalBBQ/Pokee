@@ -97,29 +97,45 @@ void draw_lattice(ImDrawList *draw, ImVec2 min, ImVec2 max) {
     }
 }
 
-// The game's window frame: a square knob at each corner, orange bars along
-// the top and bottom, and a chain of offset black pixels down the sides.
+// The game's window frame: a square knob at each corner, a crenellated band
+// along the top and bottom (dark teal outside, red teeth rising into teal,
+// dark red inside), and a zig-zag chain of black blocks down the sides.
 void draw_frame(ImDrawList *draw, ImVec2 min, ImVec2 max) {
     const float u = unit();
     const ImU32 ink = colors::kFrameInk;
-    const ImU32 orange = colors::kEmber;
-    for (const float y : {min.y + u, max.y - 5.0f * u}) {
-        draw->AddRectFilled({min.x + 5.0f * u, y}, {max.x - 5.0f * u, y + 4.0f * u}, ink);
-        draw->AddRectFilled({min.x + 5.0f * u, y + u}, {max.x - 5.0f * u, y + 3.0f * u}, orange);
+    const ImU32 knob = colors::kFrameKnob;
+    const float left = min.x + 6.0f * u;
+    const float right = max.x - 6.0f * u;
+    // Teeth two units wide with two-unit gaps, centred between the knobs.
+    const int teeth = std::max(0, static_cast<int>((right - left) / (4.0f * u)));
+    const float first = std::round(left + (right - left - (4.0f * teeth - 2.0f) * u) * 0.5f);
+    for (const bool top : {true, false}) {
+        // Row r of the band's six, counted from the outside edge.
+        auto row = [&](int r, int rows, float x0, float x1, ImU32 color) {
+            const float y0 = top ? min.y + r * u : max.y - (r + rows) * u;
+            draw->AddRectFilled({x0, y0}, {x1, y0 + rows * u}, color);
+        };
+        row(0, 1, left, right, colors::kBandTealDark);
+        row(1, 3, left, right, colors::kBandTeal);
+        row(4, 1, left, right, colors::kBandRed);
+        row(5, 1, left, right, colors::kBandRedDark);
+        for (int i = 0; i < teeth; ++i) {
+            const float x = first + i * 4.0f * u;
+            row(2, 2, x, x + 2.0f * u, colors::kBandRed);
+        }
     }
-    const float side = std::round(1.5f * u);
-    for (const float x : {min.x + side, max.x - side - 3.0f * u}) {
-        draw->AddRectFilled({x + u, min.y + 6.0f * u}, {x + 2.0f * u, max.y - 6.0f * u}, ink);
+    for (const bool left_side : {true, false}) {
         int i = 0;
-        for (float y = min.y + 6.0f * u; y + u <= max.y - 6.0f * u; y += 2.0f * u, ++i) {
-            const float bump = i % 2 == 0 ? x : x + 2.0f * u;
-            draw->AddRectFilled({bump, y}, {bump + u, y + u}, ink);
+        for (float y = min.y + 5.0f * u; y < max.y - 5.0f * u; y += 2.0f * u, ++i) {
+            const float in = i % 2 == 0 ? 1.0f : 2.0f; // units in from the edge
+            const float x = left_side ? min.x + in * u : max.x - (in + 2.0f) * u;
+            draw->AddRectFilled({x, y}, {x + 2.0f * u, std::min(y + 2.0f * u, max.y - u)}, ink);
         }
     }
     for (const ImVec2 corner : {min, ImVec2{max.x - 6.0f * u, min.y}, ImVec2{min.x, max.y - 6.0f * u},
              ImVec2{max.x - 6.0f * u, max.y - 6.0f * u}}) {
         draw->AddRectFilled(corner, {corner.x + 6.0f * u, corner.y + 6.0f * u}, ink);
-        draw->AddRectFilled({corner.x + u, corner.y + u}, {corner.x + 5.0f * u, corner.y + 5.0f * u}, orange);
+        draw->AddRectFilled({corner.x + u, corner.y + u}, {corner.x + 5.0f * u, corner.y + 5.0f * u}, knob);
         draw->AddRectFilled({corner.x + 2.0f * u, corner.y + 2.0f * u}, {corner.x + 4.0f * u, corner.y + 4.0f * u}, ink);
     }
 }

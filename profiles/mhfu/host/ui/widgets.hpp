@@ -38,6 +38,12 @@ inline constexpr ImU32 kTrack = IM_COL32(220, 232, 214, 36);
 // The selection bar, the frame's ink, and the lattice behind the panel.
 inline constexpr ImU32 kSelect = IM_COL32(34, 150, 30, 255);
 inline constexpr ImU32 kFrameInk = IM_COL32(10, 10, 8, 255);
+// The window frame's corner knobs and the crenellated bands between them.
+inline constexpr ImU32 kFrameKnob = IM_COL32(177, 118, 67, 255);
+inline constexpr ImU32 kBandTealDark = IM_COL32(20, 71, 71, 255);
+inline constexpr ImU32 kBandTeal = IM_COL32(27, 93, 95, 255);
+inline constexpr ImU32 kBandRed = IM_COL32(151, 81, 76, 255);
+inline constexpr ImU32 kBandRedDark = IM_COL32(114, 63, 60, 255);
 inline constexpr ImU32 kLatticeDark = IM_COL32(0, 0, 0, 46);
 inline constexpr ImU32 kLatticeLight = IM_COL32(170, 190, 170, 20);
 } // namespace colors
