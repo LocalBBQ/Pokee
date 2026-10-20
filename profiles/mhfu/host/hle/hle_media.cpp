@@ -17,6 +17,7 @@
 #include "game/empty_item_slot.hpp"
 #include "game/give_rarity.hpp"
 #include "game/hall_equipment.hpp"
+#include "game/hall_meal.hpp"
 #include "game/item_sets.hpp"
 #include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
@@ -274,6 +275,12 @@ void call_guest_function(
     kernel().call_guest(ctx, function, {argument, 0u, 0u, 0u}, [then](AllegrexContext &c, std::uint32_t) { then(c); });
 }
 
+void call_guest_with_result(AllegrexContext &ctx, std::uint32_t function, const std::array<std::uint32_t, 4> &arguments,
+    game::hall_meal::ResultFunction then) {
+    kernel().call_guest(
+        ctx, function, arguments, [then](AllegrexContext &c, std::uint32_t result) { then(c, result); });
+}
+
 // From the top of user memory, as thread stacks are, and never given back.
 std::uint32_t allocate_guest_block(std::uint32_t size) {
     const std::int32_t uid = kernel().allocate_block("mhfu_hall_equipment", 1u, size, 0u);
@@ -295,6 +302,7 @@ void present_frame(Runtime &rt) {
     game::give_rarity::frame(rt);
     game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
     game::item_sets::frame(rt);
+    game::hall_meal::frame(rt, &call_guest_with_result);
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
