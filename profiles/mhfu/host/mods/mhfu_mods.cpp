@@ -313,6 +313,28 @@ std::size_t read_data_bin(std::uint64_t offset, std::span<std::uint8_t> out) {
     return count;
 }
 
+std::optional<std::uint32_t> entry_completed(std::uint64_t offset, std::size_t count) {
+    State &s = state();
+    if (!s.directory || count == 0u) return std::nullopt;
+    const Directory &d = s.serving && s.layout ? s.layout->directory : *s.directory;
+    const std::uint64_t end = offset + count;
+    const std::int64_t last = d.entry_at(static_cast<std::uint32_t>((end - 1u) / p3rd::kBlock));
+    if (last < 0 || static_cast<std::size_t>(last) >= d.entries()) return std::nullopt;
+    const auto entry = static_cast<std::uint32_t>(last);
+    const std::uint64_t entry_end = static_cast<std::uint64_t>(d.blocks[entry]) * p3rd::kBlock + d.size(entry);
+    if (end < entry_end) return std::nullopt;
+    return entry;
+}
+
+std::vector<std::uint8_t> entry_bytes(std::uint32_t entry) {
+    State &s = state();
+    if (!s.view || !s.directory || entry >= s.directory->entries()) return {};
+    if (s.serving && s.overlay && s.overlay->touches(entry)) {
+        if (const auto content = s.overlay->content(entry)) return content->bytes;
+    }
+    return s.view->original(entry);
+}
+
 void code_loaded(psprecomp::Runtime &runtime) {
     State &s = state();
     if (s.loaded_code.empty() || !s.overlay) return;

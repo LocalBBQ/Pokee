@@ -214,6 +214,10 @@ struct Settings {
     // kitchen's menu with △ (game/hall_meal.hpp). On by default. Off: △ does
     // nothing there, as in the game.
     bool hall_meal{true};
+    // A key quest's name reads "[Key] " and its name wherever the game shows
+    // it, the quest lists first (game/key_quests.hpp). Off by default: the
+    // game's own names.
+    bool key_quests{};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};

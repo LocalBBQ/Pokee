@@ -46,6 +46,13 @@ struct DiscRange {
 // Reads DATA.BIN as the game sees it, at an offset into the archive.
 std::size_t read_data_bin(std::uint64_t offset, std::span<std::uint8_t> out);
 
+// The entry a read of `count` bytes at `offset` into the archive ends, when
+// the game has all of that entry once the read is done; none otherwise.
+[[nodiscard]] std::optional<std::uint32_t> entry_completed(std::uint64_t offset, std::size_t count);
+// An entry's bytes as the game gets them, decrypted: a mod's when one changes
+// it. Empty without a disc.
+[[nodiscard]] std::vector<std::uint8_t> entry_bytes(std::uint32_t entry);
+
 // The game flushed its instruction cache, which it does right after copying a
 // code overlay into place: the point where a code overlay has finished
 // loading. Writes the patches that go to memory outside a loaded overlay.
