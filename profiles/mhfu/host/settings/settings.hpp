@@ -208,6 +208,9 @@ struct Settings {
     // The Guild Hall's Give hands over items of any rarity, not only Rare 1
     // to 3 (game/give_rarity.hpp). Off by default: the game's limit.
     bool give_any_rarity{};
+    // The equipment screens show a weapon's attack without its class factor
+    // (game/true_attack.hpp). Off by default: the game's numbers.
+    bool true_attack{};
     // The Guild Hall's box offers Change Equipment, as the house box does
     // (game/hall_equipment.hpp). On by default. Off: greyed out, as in the
     // game.
