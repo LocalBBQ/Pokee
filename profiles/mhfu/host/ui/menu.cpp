@@ -1805,7 +1805,7 @@ void Menu::mods() {
             s.give_any_rarity = !s.give_any_rarity;
             settings::save();
         }
-        if (toggle_row("True Attack", s.true_attack,
+        if (toggle_row("True Attack Value", s.true_attack,
                 options_for("game.true_attack",
                     "On: the equipment screens show a weapon's attack as the game counts it, without the "
                     "class factor (a great sword's 672 shows as 140), as FUComplete's True Raw does. Damage is "
