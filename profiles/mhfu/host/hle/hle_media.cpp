@@ -16,6 +16,7 @@
 #include "game/item_atlas.hpp"
 #include "game/empty_item_slot.hpp"
 #include "game/give_rarity.hpp"
+#include "game/true_attack.hpp"
 #include "game/hall_equipment.hpp"
 #include "game/hall_meal.hpp"
 #include "game/item_sets.hpp"
@@ -310,6 +311,7 @@ void present_frame(Runtime &rt) {
     game::item_box::frame(rt);
     game::empty_item_slot::frame(rt);
     game::give_rarity::frame(rt);
+    game::true_attack::frame(rt);
     game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
     game::item_sets::frame(rt);
     game::hall_meal::frame(rt, &call_guest_with_result);
