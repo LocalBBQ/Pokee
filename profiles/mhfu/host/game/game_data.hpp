@@ -39,6 +39,9 @@ inline constexpr std::uint32_t kTextBlock = 0x089CC560u;
 [[nodiscard]] std::string text_entry(const Ram &ram, std::uint32_t block, int index, std::uint32_t entry);
 // How many entries a table has; 0 when it does not look like one.
 [[nodiscard]] std::uint32_t text_count(const Ram &ram, std::uint32_t block, int index);
+// Where that entry's text starts in guest memory, for passing it to the
+// game's own drawing; 0 when the table or the entry is not there.
+[[nodiscard]] std::uint32_t text_entry_address(const Ram &ram, std::uint32_t block, int index, std::uint32_t entry);
 
 // Equipment kinds ------------------------------------------------------------------
 

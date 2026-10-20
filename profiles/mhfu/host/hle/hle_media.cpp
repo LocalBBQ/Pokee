@@ -16,6 +16,7 @@
 #include "game/item_atlas.hpp"
 #include "game/empty_item_slot.hpp"
 #include "game/give_rarity.hpp"
+#include "game/item_sets.hpp"
 #include "game/item_box.hpp"
 #include "game/layered_armor.hpp"
 #include "game/sharpness_gauge.hpp"
@@ -272,6 +273,7 @@ void present_frame(Runtime &rt) {
     game::item_box::frame(rt);
     game::empty_item_slot::frame(rt);
     game::give_rarity::frame(rt);
+    game::item_sets::frame(rt);
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
