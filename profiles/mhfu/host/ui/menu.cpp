@@ -1228,6 +1228,14 @@ void Menu::game() {
         s.empty_item_slot = !s.empty_item_slot;
         settings::save();
     }
+    if (toggle_row("True Attack Value", s.true_attack,
+            options_for("game.true_attack",
+                "On: the equipment screens show a weapon's attack as the game counts it, without the "
+                "class factor (a great sword's 672 shows as 140), as FUComplete's True Raw does. Damage is "
+                "the same either way. Off (default): the game's own numbers."))) {
+        s.true_attack = !s.true_attack;
+        settings::save();
+    }
     section("Lock-on");
     {
         const auto slot = static_cast<std::size_t>(input::Action::LockOn);
@@ -1803,14 +1811,6 @@ void Menu::mods() {
                     "On: in the Guild Hall, Start > Item > Give hands an item of any rarity to another hunter. "
                     "Off (default): the game's own limit, Rare 1 to 3 only."))) {
             s.give_any_rarity = !s.give_any_rarity;
-            settings::save();
-        }
-        if (toggle_row("True Attack Value", s.true_attack,
-                options_for("game.true_attack",
-                    "On: the equipment screens show a weapon's attack as the game counts it, without the "
-                    "class factor (a great sword's 672 shows as 140), as FUComplete's True Raw does. Damage is "
-                    "the same either way. Off (default): the game's own numbers."))) {
-            s.true_attack = !s.true_attack;
             settings::save();
         }
         if (toggle_row("Change Equipment in the Guild Hall", s.hall_equipment,
