@@ -32,8 +32,8 @@ Playable: a new game or a save copied from a PSP, the village and hunts, music, 
 
 | Done | Still open |
 | --- | --- |
-| Boot, menus, character creation, the village and hunts | Curved surfaces (Bézier and spline patches) |
-| PSP-format saves, including saves and downloaded quests copied from a PSP; import, export and backups | Save-data and message dialogs draw nothing and answer as if confirmed ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| Boot, menus, character creation, the village and hunts | Save-data and message dialogs draw nothing and answer as if confirmed ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| PSP-format saves, including saves and downloaded quests copied from a PSP; import, export and backups | |
 | Vulkan graphics, frame interpolation, widescreen, HUD scaling and hiding | |
 | Analog camera and aim, lock-on and its marker, layered armor | |
 | PPSSPP-compatible HD texture packs | |
@@ -80,7 +80,7 @@ Esc, or both sticks pressed together (L3+R3), opens Pokee's own menu. It holds v
 
 ## Roadmap
 
-- Curved surfaces, and save-data dialogs that draw
+- Save-data dialogs that draw
 - Ad hoc play with PPSSPP and on the public servers PSP players use
 - Android on real phones: device testing, graphics drivers and performance ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
 - One consistent visual style across the setup screens, menus and overlays ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33))

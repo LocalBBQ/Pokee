@@ -44,8 +44,8 @@ Jugable: una partida nueva o una copiada de una PSP, la aldea y las cacerías, m
 
 | Hecho | Sigue abierto |
 | --- | --- |
-| Arranque, menús, creación de personaje, la aldea y las cacerías | Superficies curvas (parches de Bézier y splines) |
-| Partidas en formato PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y copias de seguridad | Los diálogos de guardado y de mensaje no dibujan nada y responden como si se confirmaran ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| Arranque, menús, creación de personaje, la aldea y las cacerías | Los diálogos de guardado y de mensaje no dibujan nada y responden como si se confirmaran ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| Partidas en formato PSP, incluidas partidas y misiones descargadas copiadas de una PSP; importar, exportar y copias de seguridad | |
 | Gráficos Vulkan, interpolación de fotogramas, panorámico, escala y ocultación del HUD | |
 | Cámara y apuntado analógicos, fijación y su marcador, armadura por capas | |
 | Paquetes de texturas HD compatibles con PPSSPP | |
@@ -92,7 +92,7 @@ Esc, o los dos sticks pulsados a la vez (L3+R3), abre el menú propio de Pokee. 
 
 ## Hoja de ruta
 
-- Superficies curvas, y diálogos de guardado que dibujen
+- Diálogos de guardado que dibujen
 - Juego ad hoc con PPSSPP y en los servidores públicos que usan los jugadores de PSP
 - Android en teléfonos reales: pruebas en dispositivos, controladores gráficos y rendimiento ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
 - Un estilo visual coherente en las pantallas de configuración, los menús y los overlays ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33))
