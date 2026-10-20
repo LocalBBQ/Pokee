@@ -131,6 +131,13 @@ enum class PadInput : std::uint8_t {
 [[nodiscard]] constexpr int key_position(Binding binding) {
     return binding != kNone && binding < kKeyPositions ? binding : -1;
 }
+// Whether a connected gamepad reaches the game and the port's binds: always
+// while the window has focus, otherwise only with Gamepad in background on.
+// The input script's virtual pads are read either way, as its runs go on
+// behind other windows. Off, an unfocused window sees a released pad.
+[[nodiscard]] constexpr bool gamepad_readable(bool connected, bool focused, bool in_background, bool scripted) {
+    return connected && (focused || in_background || scripted);
+}
 // The mouse button, 1-5, or 0 for anything else.
 [[nodiscard]] constexpr int mouse_button_of(Binding binding) {
     return binding > kMouse && binding <= kMouse + 5u ? binding - kMouse : 0;

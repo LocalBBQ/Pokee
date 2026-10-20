@@ -427,7 +427,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | Lower when behind | `video.frame_rate_auto` | `MHFU_FRAME_RATE_AUTO` | On (default): the frame rate steps down by itself rather than slow the game. Off: the chosen rate stays, and the game may run below full speed |
 | Video | Hide HUD | | `MHFU_HIDE_HUD` | Off (default) or on, for this run: the game's HUD, name tags and prompts are left out of the picture; menus and dialogs stay. Same as the Hide HUD key. See [Hiding the HUD](#hiding-the-hud) |
 | Video | UI Scaling | `video.hud.map`, `video.hud.health`, `video.hud.item_bar`, `video.hud.names` | `MHFU_HUD_MAP`, `MHFU_HUD_HEALTH`, `MHFU_HUD_ITEM_BAR`, `MHFU_HUD_NAMES` | 50–150 each, the game's size as a percent; default 100. UI Scaling opens to Map, Status, Items, and Names, each with its own size. See [UI scaling](#ui-scaling) |
-| Video | Performance | `video.performance` | `MHFU_PERF` | Off, overlay, overlay and log, log only |
+| Video | Performance | `video.performance` | `MHFU_PERF` | Off, overlay, overlay and log, log only, compact, compact and log. Compact is one line in the bottom-left corner: frames shown, the game's frame rate and its speed, green at full speed, yellow from 90%, red below |
 | Video | GPU compatibility | `video.gpu_compat` | `MHFU_GPU_COMPAT` | Auto (default: on only when the start-up self-test fails or a pipeline is refused), on or off; applies from the next start. See [GPU compatibility mode](#gpu-compatibility-mode) |
 | Video | Font | `text.font` | `MHFU_FONT` | Default (a Japanese system font), or an installed font; see [Game text](#game-text) |
 | Video | Weight | `text.weight` | | Regular, bold (default) or heavy: thickens the game's text by 0–2 pixel columns |
@@ -435,9 +435,11 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | UI textures | `video.ui_textures` | `MHFU_UI_TEXTURES` | Off (default), Sharp bilinear or MMPX, for the 2D interface above ×1 |
 | Audio | Volume | `audio.volume` | | 0–100% |
 | Audio | Mute | `audio.mute` | | |
+| Audio | Mute in background | `audio.background_mute` | | Off (default) or on: silent while the window is not the one in front |
 | Controls | Confirm button | `input.confirm` | `MHFU_PAD_FACE` | Right (○, Japanese) or bottom (Western) |
 | Controls | Stick dead zone | `input.dead_zone` | `MHFU_PAD_DEADZONE` | 0–50% |
 | Controls | Trigger point | `input.trigger` | `MHFU_PAD_TRIGGER` | 5–100% |
+| Controls | Gamepad in background | `input.background_gamepad` | | Off (default) or on: the game reads the gamepad while its window is not the one in front, for example beside a second instance. Another game open at the same time may read the same presses. Keyboard and mouse only reach the window in front. Off, a window that loses focus sees the pad released |
 | Controls | Chord window (under *Combinations*) | `input.chord_window` | `MHFU_CHORD_WINDOW` | Off, 10–200 ms (50 by default): how long an input that begins a longer chord waits for the rest; see [Rebinding](#rebinding) |
 | Controls | Preset | `input.preset` | `MHFU_CONTROL_PRESET` | `default`, `modern`, `left_handed`, `classic` or `user:<name>`; see [Control presets](#control-presets). The variable takes a shipped preset's id or the name of one of yours, for the run only |
 | Controls | Camera stick | `input.right_stick` | `MHFU_PAD_RSTICK_DPAD` | Camera, D-pad or off, for the stick that does not move the hunter |
@@ -957,7 +959,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHFU_NO_SPRITE_CLAMP` | off | Let 2D tiles sample outside their own texels, as before; above ×1 this shows faint lines along the tile edges of 2D screens |
 | `MHFU_SCREENSHOT_DIR` | unset | Write BMP frames into this directory |
 | `MHFU_SCREENSHOT_EVERY` | `60` | Frames between screenshots |
-| `MHFU_PERF` | off | `1` shows the performance overlay and logs frame statistics once per second; `log` only logs them (menu: Performance). See [Performance statistics](#performance-statistics) |
+| `MHFU_PERF` | off | `1` shows the performance overlay and logs frame statistics once per second; `log` only logs them; `compact` shows the one-line overlay and `compact+log` logs as well (menu: Performance). See [Performance statistics](#performance-statistics) |
 | `MHFU_NO_CACHED_READBACK` | off | Keep the frame written back to guest memory in the first host-visible memory type, as before, instead of a host-cached one; on a Steam Deck the CPU copy out of it then takes ~3 ms a frame instead of a fraction of one |
 | `MHFU_NO_CACHED_VERTICES` | off | Keep the vertex buffer in the first host-visible memory type, as before, instead of a host-cached one. A rainy area writes about 125 MiB of vertices a frame, and the uncached copy of that took long enough to run the game at half speed |
 | `MHFU_NO_VERTEX_CACHE` | off | Decode every draw's vertices again each frame, as before, instead of reusing a span whose guest bytes and bones have not changed |
@@ -1332,7 +1334,7 @@ With `MHFU_PERF=1` the game draws a small overlay into the top-left corner of th
 [perf] fps 30.0 game 30.0 speed 100% | frame avg 33.4 max 34.7 ms | guest 4.1 render 9.8 wait 19.5 ms | lists 60/s draws 7712/2310 | FIFO 1440x816 90Hz | gpu 7.6 max 10.6 ms | overlay 0.05 ms
 ```
 
-`MHFU_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The menu's *Performance* setting chooses the same modes, plus the overlay without the log. The statistics are collected all the time, so turning them on changes nothing else.
+`MHFU_PERF=log` prints the line without the overlay. F3 shows or hides the overlay at any time, with or without the variable; there is deliberately no gamepad combination for it. The menu's *Performance* setting chooses the same modes, plus the overlay without the log. *Compact* replaces the overlay with one line in the bottom-left corner, `FPS 60.0 GAME 30.0 SPD 100%`, clear of the health bar and the quest clock: green at full speed, yellow from 90% and red below, so a slowdown shows at a glance. The statistics are collected all the time, so turning them on changes nothing else.
 
 A frame runs from one guest flip (`sceDisplaySetFrameBuf`, where the renderer presents) to the next. With a [frame rate](#frame-rate) above 30 the renderer presents between flips instead: `fps`, `frame avg` and `max` and the overlay's graph then follow the presents, while `game`, `guest`, `render`, `wait` and `gpu` stay per game frame and include the in-between frames' work.
 
