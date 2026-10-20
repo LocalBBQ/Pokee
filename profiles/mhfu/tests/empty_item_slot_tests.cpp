@@ -87,28 +87,38 @@ void test_scroll() {
     const Pouch three = pouch_with({0, 1, 2});
     check(scroll(three, 0, Direction::Forward) == 1u && scroll(three, 1, Direction::Forward) == 2u,
         "inside the pouch ○ moves to the next item");
-    check(scroll(three, 2, Direction::Forward) == 23u, "past the last item ○ stops on the last empty slot");
-    check(scroll(three, 23, Direction::Forward) == 0u, "from the empty slot ○ goes to the first item");
-    check(scroll(three, 0, Direction::Backward) == 23u, "before the first item □ stops on the empty slot");
-    check(scroll(three, 23, Direction::Backward) == 2u, "from the empty slot □ goes to the last item");
+    check(scroll(three, 2, Direction::Forward) == kSpare, "past the last item ○ stops on the spare past the pouch");
+    check(scroll(three, kSpare, Direction::Forward) == 0u, "from the empty stop ○ goes to the first item");
+    check(scroll(three, 0, Direction::Backward) == kSpare, "before the first item □ stops on the empty stop");
+    check(scroll(three, kSpare, Direction::Backward) == 2u, "from the empty stop □ goes to the last item");
     check(scroll(three, 2, Direction::Backward) == 1u, "inside the pouch □ moves to the previous item");
+    check(empty_slot(three) == std::optional<std::uint16_t>{kSpare}, "the spare comes before any free slot");
 
+    // Regression: Nothing Selected needed a free slot, so a full pouch lost it.
     Pouch full{};
     for (std::uint16_t i = 0; i < kSlots; ++i) full[i] = Slot{static_cast<std::uint16_t>(100u + i), 1u, true};
-    check(!empty_slot(full), "a full pouch has no empty slot");
+    check(empty_slot(full) == std::optional<std::uint16_t>{kSpare}, "a full pouch keeps the empty stop");
+    check(scroll(full, 23, Direction::Forward) == kSpare && scroll(full, 0, Direction::Backward) == kSpare,
+        "and a full pouch's scroll stops on it");
+    check(scroll(full, kSpare, Direction::Forward) == 0u && scroll(full, kSpare, Direction::Backward) == 23u,
+        "and leaves it for the first or the last item");
+    full[kSpare] = Slot{9u, 1u, false};
+    check(!empty_slot(full), "with the spare in use a full pouch has no empty stop");
     check(scroll(full, 23, Direction::Forward) == 0u && scroll(full, 0, Direction::Backward) == 23u,
-        "a full pouch wraps as the game does");
+        "and wraps as the game does");
 
     const Pouch one = pouch_with({4});
-    check(scroll(one, 4, Direction::Forward) == 23u && scroll(one, 4, Direction::Backward) == 23u,
-        "a single item steps to the empty slot either way");
-    check(scroll(one, 23, Direction::Forward) == 4u && scroll(one, 23, Direction::Backward) == 4u,
+    check(scroll(one, 4, Direction::Forward) == kSpare && scroll(one, 4, Direction::Backward) == kSpare,
+        "a single item steps to the empty stop either way");
+    check(scroll(one, kSpare, Direction::Forward) == 4u && scroll(one, kSpare, Direction::Backward) == 4u,
         "and back to the item either way");
 
     Pouch holes = pouch_with({0, 5});
-    holes[23] = Slot{9u, 3u, false}; // an item the bar does not show
-    holes[22] = Slot{0u, 2u, false}; // no id, but a count: not left empty
-    check(empty_slot(holes) == std::optional<std::uint16_t>{21u}, "the empty slot is the last with no id and no count");
+    holes[kSpare] = Slot{0u, 1u, false}; // the spare in use
+    holes[23] = Slot{9u, 3u, false};     // an item the bar does not show
+    holes[22] = Slot{0u, 2u, false};     // no id, but a count: not left empty
+    check(empty_slot(holes) == std::optional<std::uint16_t>{21u},
+        "with the spare in use the empty stop is the last slot with no id and no count");
     check(scroll(holes, 5, Direction::Forward) == 21u, "a pouch with holes stops on its last empty slot");
     check(scroll(holes, 21, Direction::Forward) == 0u && scroll(holes, 21, Direction::Backward) == 5u,
         "and leaves it for the first or the last item, wherever it is");
@@ -118,7 +128,9 @@ void test_scroll() {
     check(!game_step(none, 3, Direction::Forward), "an empty pouch has no step");
     check(scroll(none, 3, Direction::Forward) == 3u && scroll(none, 3, Direction::Backward) == 3u,
         "with nothing to select the slot stays");
-    check(scroll(three, kSlots, Direction::Forward) == kSlots, "a slot past the pouch stays, as in the game");
+    check(scroll(none, kSpare, Direction::Forward) == kSpare, "nor from the empty stop");
+    check(scroll(three, kSpare + 1u, Direction::Forward) == kSpare + 1u,
+        "a slot past the spare stays, as in the game");
     check(game_step(three, 2, Direction::Forward) == std::optional<std::uint16_t>{0u} &&
             game_step(three, 0, Direction::Backward) == std::optional<std::uint16_t>{2u},
         "the game's own step wraps round");
@@ -137,11 +149,14 @@ void test_strip() {
         "past either end the strip shows the empty stop as nothing");
     check(strip_step(three, kNone, Direction::Forward) == 0u && strip_step(three, kNone, Direction::Backward) == 2u,
         "beyond the empty stop come the first and the last item");
-    check(strip_step(three, 23, Direction::Forward) == 0u && strip_step(three, 23, Direction::Backward) == 2u,
+    check(strip_step(three, kSpare, Direction::Forward) == 0u && strip_step(three, kSpare, Direction::Backward) == 2u,
         "and round the selected empty stop as well");
     Pouch full{};
     for (std::uint16_t i = 0; i < kSlots; ++i) full[i] = Slot{static_cast<std::uint16_t>(100u + i), 1u, true};
-    check(strip_step(full, 23, Direction::Forward) == 0u, "a full pouch's strip wraps as the game's does");
+    check(strip_step(full, 23, Direction::Forward) == kNone && strip_step(full, 0, Direction::Backward) == kNone,
+        "a full pouch's strip shows the empty stop");
+    full[kSpare] = Slot{9u, 1u, false};
+    check(strip_step(full, 23, Direction::Forward) == 0u, "unless the spare is in use: it wraps as the game's does");
     check(strip_step(Pouch{}, 3, Direction::Forward) == kNone, "an empty pouch's strip shows nothing");
 }
 
@@ -170,7 +185,13 @@ void test_read_pouch() {
         check((*pouch)[0].item == 1u && (*pouch)[0].count == 10u && (*pouch)[0].on_bar, "a slot's id and count");
         check(!(*pouch)[1].on_bar, "an item the table leaves off the bar");
         check(!(*pouch)[3].on_bar && (*pouch)[3].item == 0u, "an empty slot");
+        check((*pouch)[kSpare].item == 0u && (*pouch)[kSpare].count == 0u, "the spare past the pouch");
     }
+    write_pouch(memory, kSpare, 1u, 4u, true);
+    const std::optional<Pouch> spare = read_pouch(memory, kHunter);
+    check(spare && (*spare)[kSpare].item == 1u && (*spare)[kSpare].count == 4u && !(*spare)[kSpare].on_bar,
+        "the spare is read, and is never on the bar");
+    write_pouch(memory, kSpare, 0u, 0u, false);
     memory.store16(kHunter + kHunterIndex, 1u);
     check(!read_pouch(memory, kHunter), "another hunter's call is left to the game");
     check(!read_pouch(memory, 0x7FFFFFF0u), "a hunter outside memory is left to the game");
@@ -253,16 +274,16 @@ void test_wrapper() {
     frame(runtime);
 
     game_calls = 0;
-    check(call(runtime, kForwardReturn, 2, 0u).gpr[2] == 23u && game_calls == 0,
-        "○ past the last item stops on the empty slot without the game's step");
-    memory.store16(kHunter + kSelectedSlot, 23u);
+    check(call(runtime, kForwardReturn, 2, 0u).gpr[2] == kSpare && game_calls == 0,
+        "○ past the last item stops on the empty stop without the game's step");
+    memory.store16(kHunter + kSelectedSlot, kSpare);
     frame(runtime);
-    check(call(runtime, kForwardReturn, 23, 0u).gpr[2] == 0u, "and ○ goes on to the first item");
-    check(call(runtime, kBackwardReturn, 0, 1u).gpr[2] == 23u, "□ before the first item stops on the empty slot");
+    check(call(runtime, kForwardReturn, kSpare, 0u).gpr[2] == 0u, "and ○ goes on to the first item");
+    check(call(runtime, kBackwardReturn, 0, 1u).gpr[2] == kSpare, "□ before the first item stops on the empty stop");
     check(call(runtime, kGatherReturn, 2, 0u).gpr[2] == kGameAnswer && game_calls == 1,
         "the gather's step runs the game's code");
-    check(call(runtime, kForwardReturn, kSlots, 0u).gpr[2] == kGameAnswer && game_calls == 2,
-        "a slot past the pouch runs the game's code");
+    check(call(runtime, kForwardReturn, kSpare + 1u, 0u).gpr[2] == kGameAnswer && game_calls == 2,
+        "a slot past the spare runs the game's code");
 
     // The strip around the selection, in both layouts.
     check(call(runtime, kStripFirst, 2, 0u).gpr[2] == kNone && game_calls == 2,
@@ -271,22 +292,38 @@ void test_wrapper() {
     check(call(runtime, kStripSecond, 0, 0x100u).gpr[2] == 2u, "a direction byte of 0 is forward");
 
     // An item leaving the pouch keeps the empty stop the scroll chose.
-    check(call(runtime, kTakeReturn, 23, 0u).gpr[2] == 23u && game_calls == 2,
+    check(call(runtime, kTakeReturn, kSpare, 0u).gpr[2] == kSpare && game_calls == 2,
         "taking an item keeps the empty stop selected");
-    check(call(runtime, kForwardReturn, 2, 0u).gpr[2] == 23u, "the scroll lands on the empty stop again");
-    check(call(runtime, kForwardReturn, 23, 0u).gpr[2] == 0u, "and leaves it");
-    check(call(runtime, kTakeReturn, 23, 0u).gpr[2] == kGameAnswer && game_calls == 3,
+    check(call(runtime, kForwardReturn, 2, 0u).gpr[2] == kSpare, "the scroll lands on the empty stop again");
+    check(call(runtime, kForwardReturn, kSpare, 0u).gpr[2] == 0u, "and leaves it");
+    check(call(runtime, kTakeReturn, kSpare, 0u).gpr[2] == kGameAnswer && game_calls == 3,
         "a slot the scroll did not choose is the game's to step");
+
+    // Regression: a full pouch, or one a gather fills, keeps Nothing Selected.
+    for (std::uint16_t i = 3; i < kSlots; ++i) write_pouch(memory, i, static_cast<std::uint16_t>(10u + i), 1u, true);
+    check(call(runtime, kForwardReturn, 23, 0u).gpr[2] == kSpare, "a full pouch's scroll stops on the empty stop");
+    check(call(runtime, kTakeReturn, kSpare, 0u).gpr[2] == kSpare && game_calls == 3,
+        "which an item leaving the full pouch keeps");
+    check(call(runtime, kStripFirst, 23, 0u).gpr[2] == kNone, "and the strip shows it");
+    check(call(runtime, kForwardReturn, kSpare, 0u).gpr[2] == 0u &&
+            call(runtime, kBackwardReturn, kSpare, 1u).gpr[2] == 23u,
+        "and the scroll leaves it for the first or the last item");
+    memory.store32(kGameSys + kPouch + kSpare * 4u, 0x00010009u);
+    check(call(runtime, kForwardReturn, 23, 0u).gpr[2] == 0u, "with the spare in use a full pouch wraps");
+    memory.store32(kGameSys + kPouch + kSpare * 4u, 0u);
+    for (std::uint16_t i = 3; i < kSlots; ++i) write_pouch(memory, i, 0u, 0u, false);
 
     // The name under the bar.
     has_item_calls = 0;
     name_calls = 0;
-    check(call(runtime, kNameGateReturn, 23, 0u, kHasItem).gpr[2] == 1u && has_item_calls == 0,
+    check(call(runtime, kNameGateReturn, kSpare, 0u, kHasItem).gpr[2] == 1u && has_item_calls == 0,
         "the empty stop has a name under the bar");
     check(call(runtime, kNameGateReturn, 0, 0u, kHasItem).gpr[2] == 0u && has_item_calls == 1,
         "an item is the game's to check");
-    check(call(runtime, kNameGateReturn - 8u, 23, 0u, kHasItem).gpr[2] == 0u && has_item_calls == 2,
+    check(call(runtime, kNameGateReturn - 8u, kSpare, 0u, kHasItem).gpr[2] == 0u && has_item_calls == 2,
         "and so is every other caller");
+    check(call(runtime, kNameGateReturn, kSpare + 1u, 0u, kHasItem).gpr[2] == 0u && has_item_calls == 3,
+        "and a slot past the spare");
     const std::uint32_t width = call(runtime, kNameWidthReturn, 0, 0u, kItemName).gpr[2];
     const std::uint32_t print = call(runtime, kNamePrintReturn, 0, 0u, kItemName).gpr[2];
     check(width == kNothingText && print == kNothingText && name_calls == 0, "item 0 is named by the port");
@@ -307,22 +344,21 @@ void test_wrapper() {
     check(runtime.function_at(kSelectFirst) != &select_first_stand_in, "and wrapped");
     select_first_calls = 0;
     call(runtime, 0x09A65824u, 0, 0u, kSelectFirst);
-    check(select_first_calls == 1 && memory.load16(kHunter + kSelectedSlot) == 23u,
+    check(select_first_calls == 1 && memory.load16(kHunter + kSelectedSlot) == kSpare,
         "the hunter starts on the empty stop");
-    check(call(runtime, kTakeReturn, 23, 0u).gpr[2] == 23u, "which an item leaving the pouch keeps");
+    check(call(runtime, kTakeReturn, kSpare, 0u).gpr[2] == kSpare, "which an item leaving the pouch keeps");
     call(runtime, 0x0881CC5Cu, 1, 0u, kPack);
     check(memory.load16(kHunter + kSelectedSlot) == 0u, "packing the ammo is the game's");
-    memory.store16(kHunter + kSelectedSlot, 23u);
+    memory.store16(kHunter + kSelectedSlot, kSpare);
     call(runtime, 0x0881CC5Cu, 0, 0u, kPack);
-    check(memory.load16(kHunter + kSelectedSlot) == 23u, "packing the items keeps the empty stop");
-    write_pouch(memory, 23, 5u, 1u, true);
-    write_pouch(memory, 22, 0u, 0u, false);
-    memory.store16(kHunter + kSelectedSlot, 23u);
+    check(memory.load16(kHunter + kSelectedSlot) == kSpare, "packing the items keeps the empty stop");
+    memory.store32(kGameSys + kPouch + kSpare * 4u, 0x00010009u);
+    memory.store16(kHunter + kSelectedSlot, kSpare);
     call(runtime, 0x0881CC5Cu, 0, 0u, kPack);
-    check(memory.load16(kHunter + kSelectedSlot) == 0u, "a slot that now holds an item is the game's to move");
-    write_pouch(memory, 23, 0u, 0u, false);
-    check(call(runtime, kForwardReturn, 23, 0u).gpr[2] == 0u, "a scroll onto an item");
-    memory.store16(kHunter + kSelectedSlot, 23u);
+    check(memory.load16(kHunter + kSelectedSlot) == 0u, "a stop that now holds something is the game's to move");
+    memory.store32(kGameSys + kPouch + kSpare * 4u, 0u);
+    check(call(runtime, kForwardReturn, kSpare, 0u).gpr[2] == 0u, "a scroll onto an item");
+    memory.store16(kHunter + kSelectedSlot, kSpare);
     call(runtime, 0x0881CC5Cu, 0, 0u, kPack);
     check(memory.load16(kHunter + kSelectedSlot) == 0u, "leaves an empty slot the bar did not choose to the game");
     call(runtime, 0x09A65824u, 0, 0u, kSelectFirst);
@@ -341,7 +377,7 @@ void test_wrapper() {
     check(call(runtime, kForwardReturn, 2, 0u).gpr[2] == kGameAnswer && game_calls == 4,
         "turned off, the scroll runs the game's code");
     check(call(runtime, kStripFirst, 2, 0u).gpr[2] == kGameAnswer && game_calls == 5, "and the strip");
-    check(call(runtime, kNameGateReturn, 23, 0u, kHasItem).gpr[2] == 0u &&
+    check(call(runtime, kNameGateReturn, kSpare, 0u, kHasItem).gpr[2] == 0u &&
             call(runtime, kNamePrintReturn, 0, 0u, kItemName).gpr[2] == kGameName,
         "and the name");
     check(runtime.function_at(kStep) != &game_step_stand_in, "and the wrapper stays in place");

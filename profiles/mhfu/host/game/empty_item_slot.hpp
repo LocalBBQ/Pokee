@@ -21,10 +21,16 @@
 // empty pouch has: the bar draws no item (0x0882693C wants a count above 0 and
 // an id), and □ (0x09AA7580, through 0x09AA549C) finds a count of 0, plays
 // sound 21 and starts no action. With the switch on, the wrapper answers the
-// two scroll calls itself. A step that would wrap round the end lands on an
-// empty slot instead, the last one. From there ○ goes
-// to the first item and □ to the last. A pouch with all 24 slots taken has no
-// empty slot and wraps as before.
+// two scroll calls itself. A step that would wrap round the end lands on the
+// empty stop instead. From there ○ goes to the first item and □ to the last.
+//
+// The empty stop is slot 24, the word just past the pouch. 0x08856884 bounds
+// a slot by 25 and so still gives its address, while the game's own walk over
+// the pouch stops at 24 (0x088568F8), so no item is put there. A full pouch
+// keeps the stop, and a gather that fills the last free slot does not turn
+// the stop into an item. Only while that word holds nothing: otherwise the
+// stop is the last free slot, and with all 24 slots taken as well the bar
+// wraps as the game's does.
 //
 // The bar shows that stop as a slot of its own. The HUD's item bar (EBOOT
 // 0x08845EA8) lays out the strip around the selection with the same step:
@@ -84,6 +90,8 @@ inline constexpr std::uint32_t kPouch = 0x6AEA6u;
 inline constexpr std::uint32_t kItemTable = 0x0899D2B8u;
 inline constexpr std::uint32_t kItemRecord = 24u;
 inline constexpr std::uint16_t kSlots = 24u;
+// The word past the pouch, the empty stop while it holds nothing.
+inline constexpr std::uint16_t kSpare = kSlots;
 // jal 0x088D81FC, then the direction in its delay slot: addu a2, zr, zr for
 // ○ and addiu a2, zr, 1 for □.
 inline constexpr std::uint32_t kStepCall = 0x0E23607Fu;
@@ -120,7 +128,8 @@ struct Slot {
     std::uint16_t count{};
     bool on_bar{}; // an id the step stops at
 };
-using Pouch = std::array<Slot, kSlots>;
+// The 24 slots and then the spare, never on the bar.
+using Pouch = std::array<Slot, kSlots + 1u>;
 
 struct CodeWord {
     std::uint32_t address;
@@ -150,7 +159,8 @@ struct CodeWord {
 // or `current` when it is the only one. None when no slot is.
 [[nodiscard]] std::optional<std::uint16_t> game_step(const Pouch &pouch, std::uint16_t current, Direction direction);
 
-// The last empty slot (id 0, count 0), or none in a full pouch.
+// The empty stop: the spare when it holds nothing, else the last empty slot
+// (id 0, count 0). None when the spare is in use and the pouch is full.
 [[nodiscard]] std::optional<std::uint16_t> empty_slot(const Pouch &pouch);
 
 // Where a scroll from `current` lands with the empty slot in the round.
@@ -164,7 +174,7 @@ struct CodeWord {
 // when nothing is on the bar.
 [[nodiscard]] std::uint16_t strip_step(const Pouch &pouch, std::uint16_t current, Direction direction);
 
-// True when the slot holds no id and no count: the empty stop.
+// True when the slot, or the spare, holds no id and no count: the empty stop.
 [[nodiscard]] bool slot_empty(const psprecomp::GuestMemory &memory, std::uint32_t slot);
 
 // At the flip: puts the wrapper in place once the executable's code is
