@@ -618,6 +618,14 @@ void test_mouse_turn() {
     check(std::fabs(t.yaw + 0.5f) < 1e-5f && std::fabs(t.pitch - 1.0f) < 1e-5f, "inversion and the aim's share apply");
 }
 
+void test_gamepad_without_focus() {
+    check(!gamepad_readable(false, true, true, true), "no gamepad, nothing to read");
+    check(gamepad_readable(true, true, false, false), "with focus the gamepad is read");
+    check(!gamepad_readable(true, false, false, false), "without focus it is not, by default");
+    check(gamepad_readable(true, false, true, false), "Gamepad in background reads it without focus");
+    check(gamepad_readable(true, false, false, true), "the input script's pads are read without focus");
+}
+
 } // namespace
 
 int main() {
@@ -634,6 +642,7 @@ int main() {
     test_combos_and_conflicts();
     test_lead_in();
     test_mouse_turn();
+    test_gamepad_without_focus();
     std::cout << (failures ? "FAIL" : "PASS") << ": input bindings (" << failures << " failures)\n";
     return failures ? 1 : 0;
 }
