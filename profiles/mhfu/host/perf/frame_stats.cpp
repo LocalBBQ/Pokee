@@ -266,6 +266,12 @@ Options options() {
     case settings::PerfDisplay::Log:
         result.log = true;
         break;
+    case settings::PerfDisplay::Compact:
+        result.overlay = result.compact = true;
+        break;
+    case settings::PerfDisplay::CompactAndLog:
+        result.overlay = result.compact = result.log = true;
+        break;
     }
     return result;
 }

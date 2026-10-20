@@ -344,6 +344,37 @@ void test_crisp_text() {
     check(!from_entries(off).crisp_text, "and off stays off");
 }
 
+// Background muting, the gamepad in the background and the compact
+// performance overlay: off by default, and kept through settings.ini.
+void test_background_and_compact_overlay() {
+    for (const Platform platform : {Platform::Desktop, Platform::Android}) {
+        const Settings d = defaults_for(platform);
+        check(!d.background_mute && !d.background_gamepad, "background muting and the background gamepad start off");
+    }
+    const Settings fresh = from_entries({});
+    check(!fresh.background_mute && !fresh.background_gamepad, "a file without the keys leaves both off");
+    Settings chosen = fresh;
+    chosen.background_mute = true;
+    chosen.background_gamepad = true;
+    chosen.perf = PerfDisplay::Compact;
+    const Entries written = to_entries(chosen);
+    check(written.count("audio.background_mute") == 1u && written.at("audio.background_mute") == "1",
+        "audio.background_mute is written");
+    check(written.count("input.background_gamepad") == 1u && written.at("input.background_gamepad") == "1",
+        "input.background_gamepad is written");
+    check(written.count("video.performance") == 1u && written.at("video.performance") == "compact",
+        "the compact overlay is written as compact");
+    const Settings read = from_entries(written);
+    check(read.background_mute && read.background_gamepad && read.perf == PerfDisplay::Compact,
+        "all three read back as written");
+    Entries both = written;
+    both["video.performance"] = "compact+log";
+    check(from_entries(both).perf == PerfDisplay::CompactAndLog, "compact+log reads as the compact overlay and the log");
+    Entries unknown = written;
+    unknown["video.performance"] = "tiny";
+    check(from_entries(unknown).perf == defaults().perf, "an unknown display falls back to the default");
+}
+
 // Lock-on style and damage numbers. Comparable weapon numbers used to be a
 // setting; a file that still has the key drops it.
 void test_lock_on_and_damage_numbers() {
@@ -2626,6 +2657,7 @@ int main() {
     test_menu_over_the_party_list();
     test_hud_scale_draws();
     test_crisp_text();
+    test_background_and_compact_overlay();
     test_layered_armor();
     test_lock_on_and_damage_numbers();
     test_desktop_is_the_declared_defaults();

@@ -31,7 +31,9 @@ enum class PresentMode { Fifo, Mailbox, Immediate };
 // game the window's shape: its view widens or narrows to match (the vertical
 // field of view stays), and the 2D interface keeps the PSP's proportions.
 enum class Aspect { Original, Stretch, Fill };
-enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
+// Compact is one line of the overlay (frame rate, game rate and speed) in
+// the bottom-left corner instead of the full panel in the top-left one.
+enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log, Compact, CompactAndLog };
 // How the game's 2D textures are drawn at a high internal resolution
 // (gpu/ui_textures.hpp): as they are, sharp bilinear, or doubled with MMPX.
 enum class UiTextures { Off, Sharp, Mmpx };
@@ -104,6 +106,7 @@ struct Settings {
     // Audio
     std::uint32_t volume{100u}; // percent
     bool mute{};
+    bool background_mute{}; // silent while the window does not have focus
 
     // Controls
     bool confirm_south{}; // confirm (circle) on the south face button
@@ -141,6 +144,9 @@ struct Settings {
     float aim_speed{90.0f};
     bool invert_camera_x{};
     bool invert_camera_y{};
+    // Read the gamepad while the window does not have focus. Off, an
+    // unfocused window sees a released pad; keyboard and mouse never reach it.
+    bool background_gamepad{};
     // Keyboard and mouse. With the mouse on, the window captures the pointer
     // while the game runs and the mouse turns the camera; Esc frees it.
     bool mouse{true};
