@@ -2205,6 +2205,66 @@ void test_hud_scale_draws() {
     mhfu::gpu::hud_scale::scale_name_draw(paper_mark, names_half, marked, paper, InterfaceFit{});
     check(paper_mark[0].x == 628.75f && paper_mark[0].y == 301.25f,
         "a quest paper filed with no point is sized toward the label under it");
+
+    // Two hunters side by side. Traced in the hall: a quest paper starts 3
+    // pixels right of its own hunter's point and ends a pixel above it, but
+    // is filed with the next hunter's point. Here the next label's middle is
+    // nearer the paper than its own; taking the nearest label, or the point
+    // it came with, pushed the paper off its name, and walking past swapped
+    // it from frame to frame.
+    Frame side;
+    NameDraw near_badge = badge;
+    near_badge.origin_x = 245.0f;
+    near_badge.origin_y = 66.0f;
+    NameDraw near_letters = near_badge;
+    near_letters.glyph = true;
+    NameDraw own_letters = shadow;
+    const auto draw_side = [&] {
+        std::vector<Vertex> own_b = quad(214.0f, 75.0f, 226.0f, 91.0f);
+        std::vector<Vertex> own_l = quad(229.0f, 78.0f, 253.0f, 92.0f);
+        std::vector<Vertex> near_b = quad(230.0f, 63.0f, 242.0f, 79.0f);
+        std::vector<Vertex> near_l = quad(245.0f, 66.0f, 269.0f, 80.0f);
+        mhfu::gpu::hud_scale::scale_name_draw(own_b, names_half, side, badge, InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(own_l, names_half, side, own_letters, InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(near_b, names_half, side, near_badge, InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(near_l, names_half, side, near_letters, InterfaceFit{});
+    };
+    draw_side();
+    side.begin();
+    draw_side();
+    std::vector<Vertex> side_paper = quad(232.0f, 61.0f, 248.0f, 77.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(side_paper, names_half, side, near_badge, InterfaceFit{});
+    // Its own label's middle is (233.5, 83.5).
+    check(side_paper[0].x == 232.75f && side_paper[0].y == 72.25f,
+        "a quest paper filed with a nearby hunter's point stays on its own name");
+    check(side.hall_piece.mark && side.hall_piece.has_point && side.hall_piece.x == 229.0f &&
+            side.hall_piece.y == 78.0f,
+        "a quest paper glides with its own name between frames");
+    std::vector<Vertex> side_ready = quad(236.0f, 61.0f, 244.0f, 77.0f);
+    NameDraw no_point = paper;
+    mhfu::gpu::hud_scale::scale_name_draw(side_ready, names_half, side, no_point, InterfaceFit{});
+    check(side.hall_piece.x == 229.0f && side_ready[0].x == 234.75f,
+        "a ready mark filed with no point stays on its own name");
+    // Both hunters walk 10 pixels right: the paper follows its label's point
+    // this frame, not where the label was the frame before.
+    side.begin();
+    badge.origin_x += 10.0f;
+    own_letters.origin_x += 10.0f;
+    near_badge.origin_x += 10.0f;
+    near_letters.origin_x += 10.0f;
+    {
+        std::vector<Vertex> own_b = quad(224.0f, 75.0f, 236.0f, 91.0f);
+        std::vector<Vertex> own_l = quad(239.0f, 78.0f, 263.0f, 92.0f);
+        mhfu::gpu::hud_scale::scale_name_draw(own_b, names_half, side, badge, InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(own_l, names_half, side, own_letters, InterfaceFit{});
+    }
+    std::vector<Vertex> walked_paper = quad(242.0f, 61.0f, 258.0f, 77.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(walked_paper, names_half, side, near_badge, InterfaceFit{});
+    check(walked_paper[0].x == 242.75f && walked_paper[0].y == 72.25f, "a quest paper keeps step with its hunter");
+    badge.origin_x -= 10.0f;
+    std::vector<Vertex> lone_paper = quad(400.0f, 30.0f, 416.0f, 46.0f);
+    mhfu::gpu::hud_scale::scale_name_draw(lone_paper, names_half, side, no_point, InterfaceFit{});
+    check(!side.hall_piece.has_point, "a mark over no label this frame does not glide with another name");
     // A turning camera moves a name 60 pixels in a frame; it keeps its middle.
     marked.begin();
     other_badge_draw.origin_x = other_letters_draw.origin_x = 565.0f;

@@ -1405,6 +1405,97 @@ struct Frame {
         return true;
     }
 
+    // The weapon badge, left of its own point: traced at (-15, -3)-(-3, 13)
+    // from it, 12 wide where the marks are 8 or 16. In the game's pixels.
+    [[nodiscard]] static bool is_label_badge(Rect icon, float origin_x, float origin_y) {
+        const Rect r = normalized(icon);
+        const float gap = origin_x - r.x1;
+        const float width = r.x1 - r.x0;
+        return width >= 10.0f && width <= 14.0f && gap >= -2.0f && gap <= 8.0f && r.y0 < origin_y + 16.0f &&
+            r.y1 > origin_y;
+    }
+
+    // Another piece filed with a point no more than 32 pixels from its middle
+    // is taken for part of that label.
+    [[nodiscard]] static bool own_point(Rect icon, float origin_x, float origin_y) {
+        const Rect r = normalized(icon);
+        return std::fabs(0.5f * (r.x0 + r.x1) - origin_x) <= 32.0f &&
+            std::fabs(0.5f * (r.y0 + r.y1) - origin_y) <= 32.0f;
+    }
+
+    // A hall mark's shape: 16 tall, 16 wide (the quest paper) or 8 (the ready
+    // mark). In the game's pixels.
+    [[nodiscard]] static bool is_hall_mark_shape(Rect icon) {
+        const Rect r = normalized(icon);
+        const float width = r.x1 - r.x0;
+        const float height = r.y1 - r.y0;
+        return height >= 15.0f && height <= 17.0f &&
+            ((width >= 7.0f && width <= 9.0f) || (width >= 15.0f && width <= 17.0f));
+    }
+
+    // The point, this frame, of the label a hall mark sits on. Traced with
+    // MHFU_TRACE_HALL_NAMES and four hunters in the hall: the quest paper (16
+    // wide) starts 3 pixels right of its hunter's point and the ready mark (8
+    // wide) 7, both ending a pixel above it. They are filed with no point or
+    // with another hunter's, so the nearest label was taken instead; with two
+    // hunters close together the mark flipped between them. `mark` is in the
+    // pixels the draw landed in, as is the point returned.
+    [[nodiscard]] bool hall_mark_owner(Rect mark, InterfaceFit fit, float &origin_x, float &origin_y) const {
+        const Rect g = fit.to_game(normalized(mark));
+        int best = -1;
+        float best_score = 0.0f;
+        for (int i = 0; i < name_label_count; ++i) {
+            const Rect point = fit.to_game({name_labels[i].origin_x, name_labels[i].origin_y,
+                name_labels[i].origin_x, name_labels[i].origin_y});
+            const float dx = g.x0 - point.x0;
+            const float dy = g.y1 - point.y0;
+            if (dx < -1.0f || dx > 12.0f || dy < -4.0f || dy > 2.0f) continue;
+            const float score = (dx - 5.0f) * (dx - 5.0f) + (dy + 1.0f) * (dy + 1.0f);
+            if (best < 0 || score < best_score) {
+                best = i;
+                best_score = score;
+            }
+        }
+        if (best < 0) return false;
+        origin_x = name_labels[best].origin_x;
+        origin_y = name_labels[best].origin_y;
+        return true;
+    }
+
+    // What a hall draw is to its label, and the point it moves with, in the
+    // pixels the draw landed in. A letter or the badge is filed under its own
+    // point; a mark takes the point of the label it sits on, or none.
+    struct HallPiece {
+        bool mark{};
+        bool has_point{};
+        float x{};
+        float y{};
+    };
+    // The last hall draw filed, for frame interpolation: a mark glides with
+    // its own hunter's name, not the one whose point it was filed with.
+    HallPiece hall_piece{};
+
+    HallPiece file_hall_draw(const hud::NameDraw &named, Rect drawn, InterfaceFit fit) {
+        HallPiece piece;
+        const Rect game = fit.to_game(normalized(drawn));
+        piece.x = named.origin_x;
+        piece.y = named.origin_y;
+        fit.apply(piece.x, piece.y);
+        if (named.tag_only && !is_name_tag(game)) {
+            // A plate larger than a name: neither, and not part of the label.
+            piece.has_point = named.has_origin;
+        } else if (named.glyph || (named.has_origin && is_label_badge(game, named.origin_x, named.origin_y)) ||
+            (named.has_origin && !is_hall_mark_shape(game) && own_point(game, named.origin_x, named.origin_y))) {
+            piece.has_point = named.has_origin;
+            if (piece.has_point) note_name_label(piece.x, piece.y, drawn, named.glyph);
+        } else {
+            piece.mark = true;
+            piece.has_point = hall_mark_owner(drawn, fit, piece.x, piece.y);
+        }
+        hall_piece = piece;
+        return piece;
+    }
+
     // The middle of a label's letters and the badge against them: an icon
     // whose right edge is within a few pixels of the first letter, beside the
     // letters' row. Without letters this frame, the middle the label had.
@@ -1876,6 +1967,10 @@ bool place_party_icons(std::vector<Vertex> &vertices, const Scales &scales, cons
 template <typename Vertex>
 std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame,
     const hud::NameDraw &named, InterfaceFit fit) {
+    // A hall draw is filed first, so frame interpolation has its point
+    // whatever is decided below.
+    const Frame::HallPiece piece =
+        named.hall && !vertices.empty() ? frame.file_hall_draw(named, bounds_of(vertices), fit) : Frame::HallPiece{};
     // A village label can also file a plate larger than the name. That draw
     // stays as the game drew it.
     if (named.tag_only && !vertices.empty() && !is_name_tag(fit.to_game(bounds_of(vertices)))) return std::nullopt;
@@ -1899,30 +1994,35 @@ std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales 
     // mark, are filed by the label after its name is queued. They come with
     // no point, or with the next hunter's, so a mark over one name was sized
     // toward another, across the screen, and jumped as it blinked. Such an
-    // icon is sized about the middle of the label nearest it instead.
-    if (named.hall && !named.glyph && !vertices.empty()) {
+    // icon is sized about the middle of the label it sits on
+    // (Frame::hall_mark_owner), else of the label nearest it.
+    if (piece.mark) {
         const Rect box = bounds_of(drawn);
-        const float x = 0.5f * (box.x0 + box.x1);
-        const float y = 0.5f * (box.y0 + box.y1);
-        const bool own_point =
-            has_origin && std::fabs(x - origin_x) <= 32.0f && std::fabs(y - origin_y) <= 32.0f;
-        if (!own_point) {
-            float middle_x = 0.0f;
-            float middle_y = 0.0f;
-            if (frame.nearest_name_middle(x, y, middle_x, middle_y)) {
-                scale_name(vertices, scales.names, true, middle_x, middle_y);
-                frame.name_pivot_x = middle_x;
-                frame.name_pivot_y = middle_y;
-                frame.name_pivot_kept = true;
-            } else {
-                scale_name(vertices, scales.names, false, 0.0f, 0.0f);
-                frame.name_pivot_x = frame.name_pivot_y = 0.0f;
+        float middle_x = piece.x;
+        float middle_y = piece.y;
+        if (piece.has_point) {
+            // Its label's middle, moved with the label's point this frame. On
+            // the label's first frame, the point itself, as its letters.
+            float centre_x = 0.0f;
+            float centre_y = 0.0f;
+            if (frame.name_label_centre(piece.x, piece.y, centre_x, centre_y)) {
+                middle_x = centre_x;
+                middle_y = centre_y;
             }
-            return scales.names == 1.0f ? std::nullopt : std::optional<Rect>(bounds_of(vertices));
         }
+        if (piece.has_point ||
+            frame.nearest_name_middle(0.5f * (box.x0 + box.x1), 0.5f * (box.y0 + box.y1), middle_x, middle_y)) {
+            scale_name(vertices, scales.names, true, middle_x, middle_y);
+            frame.name_pivot_x = middle_x;
+            frame.name_pivot_y = middle_y;
+            frame.name_pivot_kept = true;
+        } else {
+            scale_name(vertices, scales.names, false, 0.0f, 0.0f);
+            frame.name_pivot_x = frame.name_pivot_y = 0.0f;
+        }
+        return scales.names == 1.0f ? std::nullopt : std::optional<Rect>(bounds_of(vertices));
     }
     if (named.hall && has_origin && !vertices.empty()) {
-        frame.note_name_label(origin_x, origin_y, bounds_of(drawn), named.glyph);
         float centre_x = 0.0f;
         float centre_y = 0.0f;
         if (frame.name_label_centre(origin_x, origin_y, centre_x, centre_y)) {
