@@ -272,6 +272,7 @@ set(MHFU_HOST_SOURCES
     host/game/item_box.cpp
     host/game/empty_item_slot.cpp
     host/game/give_rarity.cpp
+    host/game/true_attack.cpp
     host/game/hall_equipment.cpp
     host/game/hall_meal.cpp
     host/game/key_quests.cpp
@@ -654,6 +655,26 @@ target_link_libraries(mhfu_give_rarity_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_give_rarity_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_give_rarity_tests COMMAND mhfu_give_rarity_tests)
+endif()
+
+# True attack: the code check and the factor table. No game data.
+add_executable(mhfu_true_attack_tests
+    tests/true_attack_tests.cpp
+    host/game/true_attack.cpp
+    host/settings/settings.cpp
+    host/install/user_data.cpp
+    host/app_paths.cpp
+    host/input/bindings.cpp
+    host/input/chords.cpp
+    host/input/presets.cpp
+    host/input/touch_action.cpp
+    host/input/touch_controls.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_true_attack_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_true_attack_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_true_attack_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_true_attack_tests COMMAND mhfu_true_attack_tests)
 endif()
 
 # Wrappers that share a guest function: two in either order run once each,
