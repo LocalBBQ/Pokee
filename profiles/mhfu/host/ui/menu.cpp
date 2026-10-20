@@ -977,14 +977,25 @@ void Menu::controls() {
     {
         RowOptions o = options_for("input.analog_camera",
             "Turn and tilt the quest camera as far as the stick is pushed, instead of the "
-            "game's fixed-speed turn and vertical presets. Release holds the angle; the D-pad "
-            "and recentre return to the game's camera. Off is the game's own camera, untouched.");
+            "game's fixed-speed turn and vertical presets. Release holds the angle; a recentre "
+            "returns to the game's camera. Off is the game's own camera, untouched.");
         if (!camera && !o.disabled) {
             o.disabled = true;
             o.note = "Camera stick is not the camera";
         }
         if (toggle_row("Analog camera", s.analog_camera, o)) {
             s.analog_camera = !s.analog_camera;
+            settings::save();
+        }
+        o = options_for("input.dpad_camera",
+            "Let the D-pad also turn the game's camera left and right and step its height, "
+            "alongside the analog camera. Off, the D-pad leaves the camera to the stick.");
+        if (!s.analog_camera && !o.disabled) {
+            o.disabled = true;
+            o.note = "Analog camera is off";
+        }
+        if (toggle_row("D-pad camera", s.dpad_camera, o)) {
+            s.dpad_camera = !s.dpad_camera;
             settings::save();
         }
         o = options_for("input.camera_speed", "How fast the camera turns at full deflection, in degrees a second.");
@@ -1105,6 +1116,7 @@ void Menu::controls() {
         restore("input.right_stick", s.right_stick, d.right_stick);
         restore("input.right_stick_zone", s.right_stick_zone, d.right_stick_zone);
         restore("input.analog_camera", s.analog_camera, d.analog_camera);
+        restore("input.dpad_camera", s.dpad_camera, d.dpad_camera);
         restore("input.camera_speed", s.camera_speed, d.camera_speed);
         restore("input.aim_speed", s.aim_speed, d.aim_speed);
         restore("input.invert_camera_x", s.invert_camera_x, d.invert_camera_x);
