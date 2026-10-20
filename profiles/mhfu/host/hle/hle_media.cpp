@@ -20,7 +20,9 @@
 #include "game/hall_meal.hpp"
 #include "game/item_sets.hpp"
 #include "game/item_box.hpp"
+#include "game/key_quests.hpp"
 #include "game/layered_armor.hpp"
+#include "mods/mhfu_mods.hpp"
 #include "game/sharpness_gauge.hpp"
 #include "platform/utf8_path.hpp"
 
@@ -289,6 +291,14 @@ std::uint32_t allocate_guest_block(std::uint32_t size) {
     return block != nullptr ? block->address : 0u;
 }
 
+// The key quests' tagged names, from the top of user memory as well.
+std::uint32_t allocate_key_quest_block(std::uint32_t size) {
+    const std::int32_t uid = kernel().allocate_block("mhfu_key_quests", 1u, size, 0u);
+    if (uid < 0) return 0u;
+    const MemoryBlock *block = kernel().find_block(uid);
+    return block != nullptr ? block->address : 0u;
+}
+
 void present_frame(Runtime &rt) {
     load_trace::note_flip();
     // Overlays are swapped between frames; re-check before drawing the next one.
@@ -303,6 +313,7 @@ void present_frame(Runtime &rt) {
     game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
     game::item_sets::frame(rt);
     game::hall_meal::frame(rt, &call_guest_with_result);
+    game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
