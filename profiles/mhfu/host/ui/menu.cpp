@@ -109,10 +109,6 @@ int cycle(int value, int delta, int count) {
     return ((value + delta) % count + count) % count;
 }
 
-float gain(const settings::Settings &s) {
-    return s.mute ? 0.0f : static_cast<float>(s.volume) / 100.0f;
-}
-
 // The menu's pages, in the order of kTabs. settings.ini keeps a page by
 // name, so the order can change between versions.
 enum class Page { Video, Audio, Controls, Game, Network, Mods, System };
@@ -598,13 +594,17 @@ void Menu::video() {
         }
     }
     {
-        static const char *const kPerf[] = {"Off", "Overlay", "Overlay and log", "Log only"};
+        static const char *const kPerf[] = {
+            "Off", "Overlay", "Overlay and log", "Log only", "Compact", "Compact and log"};
+        constexpr int kCount = static_cast<int>(sizeof(kPerf) / sizeof(kPerf[0]));
         const int current = static_cast<int>(s.perf);
         if (const int delta = choice_row("Performance", kPerf[current],
                 options_for("video.performance",
                     "Frame times and speed in the top-left corner, and a [perf] line "
-                    "per second on the console. F3 shows or hides the overlay."))) {
-            s.perf = static_cast<settings::PerfDisplay>(cycle(current, delta, 4));
+                    "per second on the console. Compact is one line in the bottom-left corner: "
+                    "frames shown, the game's frame rate and its speed, green at full speed. "
+                    "F3 shows or hides the overlay."))) {
+            s.perf = static_cast<settings::PerfDisplay>(cycle(current, delta, kCount));
             renderer().set_perf_overlay(perf::options().overlay);
             settings::save();
         }
@@ -680,21 +680,28 @@ void Menu::audio() {
     if (slider_row(
             "Volume", volume, 0, 100, 5, "%d%%", locked("audio.volume", "Loudness of everything the game plays."))) {
         s.volume = static_cast<std::uint32_t>(volume);
-        sink.set_volume(gain(s));
+        sink.apply_settings();
         settings::save();
     }
     if (toggle_row("Mute", s.mute, locked("audio.mute", "Silence the game without losing the volume setting."))) {
         s.mute = !s.mute;
-        sink.set_volume(gain(s));
+        sink.apply_settings();
+        settings::save();
+    }
+    if (toggle_row("Mute in background", s.background_mute,
+            locked("audio.background_mute", "Silence the game while its window is not the one in front."))) {
+        s.background_mute = !s.background_mute;
+        sink.apply_settings();
         settings::save();
     }
     info_row(
         "Device", device ? (paused_ ? "44100 Hz stereo, paused while this menu is open" : "44100 Hz stereo") : "None");
     ImGui::Dummy({0.0f, font_gap()});
-    if (button_row("Restore audio defaults", {!device, {}, "Full volume, not muted."})) {
+    if (button_row("Restore audio defaults", {!device, {}, "Full volume, not muted, heard in the background."})) {
         s.volume = settings::defaults().volume;
         s.mute = settings::defaults().mute;
-        sink.set_volume(gain(s));
+        s.background_mute = settings::defaults().background_mute;
+        sink.apply_settings();
         settings::save();
     }
 }
@@ -943,6 +950,14 @@ void Menu::controls() {
         s.trigger = static_cast<float>(trigger) / 100.0f;
         settings::save();
     }
+    if (toggle_row("Gamepad in background", s.background_gamepad,
+            options_for("input.background_gamepad",
+                "Let the game read the gamepad while its window is not the one in front. Another "
+                "game open at the same time may read the same presses. The keyboard and mouse "
+                "only ever reach the window in front."))) {
+        s.background_gamepad = !s.background_gamepad;
+        settings::save();
+    }
     {
         static const char *const kModes[] = {"Camera", "D-pad", "Off"};
         const int current = static_cast<int>(s.right_stick);
@@ -1086,6 +1101,7 @@ void Menu::controls() {
         restore("input.confirm", s.confirm_south, d.confirm_south);
         restore("input.dead_zone", s.dead_zone, d.dead_zone);
         restore("input.trigger", s.trigger, d.trigger);
+        restore("input.background_gamepad", s.background_gamepad, d.background_gamepad);
         restore("input.right_stick", s.right_stick, d.right_stick);
         restore("input.right_stick_zone", s.right_stick_zone, d.right_stick_zone);
         restore("input.analog_camera", s.analog_camera, d.analog_camera);

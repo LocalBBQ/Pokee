@@ -112,7 +112,8 @@ const Names<PresentMode> kPresentModes{
     {{PresentMode::Fifo, "vsync"}, {PresentMode::Mailbox, "mailbox"}, {PresentMode::Immediate, "immediate"}}};
 const Names<Aspect> kAspects{{{Aspect::Original, "original"}, {Aspect::Stretch, "stretch"}, {Aspect::Fill, "fill"}}};
 const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"}, {PerfDisplay::Overlay, "overlay"},
-    {PerfDisplay::OverlayAndLog, "overlay+log"}, {PerfDisplay::Log, "log"}}};
+    {PerfDisplay::OverlayAndLog, "overlay+log"}, {PerfDisplay::Log, "log"}, {PerfDisplay::Compact, "compact"},
+    {PerfDisplay::CompactAndLog, "compact+log"}}};
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
 const Names<LockOnStyle> kLockOnStyles{{{LockOnStyle::Follow, "follow"}, {LockOnStyle::Focus, "focus"}}};
@@ -288,6 +289,8 @@ const std::vector<Field> &fields() {
                 // `1` has always meant the overlay and the log, `log` the log only.
                 if (std::strcmp(t, "log") == 0)
                     s.perf = PerfDisplay::Log;
+                else if (std::strcmp(t, "compact") == 0 || std::strcmp(t, "compact+log") == 0)
+                    kPerfDisplays.parse(t, s.perf);
                 else
                     s.perf = *t != '\0' && variable_flag(t) ? PerfDisplay::OverlayAndLog : PerfDisplay::Off;
             }},
@@ -356,6 +359,7 @@ const std::vector<Field> &fields() {
         {"audio.volume", nullptr, [](Settings &s, const std::string &t) { return parse_uint(t, 0u, 100u, s.volume); },
             [](const Settings &s) { return std::to_string(s.volume); }, nullptr},
         BOOL_FIELD("audio.mute", mute),
+        BOOL_FIELD("audio.background_mute", background_mute),
         {"input.confirm", "MHFU_PAD_FACE",
             [](Settings &s, const std::string &t) {
                 if (t == "south")
@@ -459,6 +463,7 @@ const std::vector<Field> &fields() {
             [](Settings &s, const char *t) { s.aim_speed = variable_float(t, 90.0f, 10.0f, 360.0f); }},
         BOOL_FIELD("input.invert_camera_x", invert_camera_x),
         BOOL_FIELD("input.invert_camera_y", invert_camera_y),
+        BOOL_FIELD("input.background_gamepad", background_gamepad),
         {"input.mouse", "MHFU_MOUSE", [](Settings &s, const std::string &t) { return parse_bool(t, s.mouse); },
             [](const Settings &s) { return std::string(s.mouse ? "1" : "0"); },
             [](Settings &s, const char *t) { s.mouse = variable_flag(t); }},
