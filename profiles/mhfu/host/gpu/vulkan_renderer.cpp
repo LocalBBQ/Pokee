@@ -8469,6 +8469,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             // draws it at.
             if (sized_name)
                 name_bounds = hud_scale::scale_name_draw(corner_scaled, hud_scales, impl.hud_scale_frame, named, fit);
+            else if (named.hall && !unscaled.empty())
+                impl.hud_scale_frame.file_hall_draw(named, hud_scale::bounds_of(unscaled), fit);
             if (trace_hall_names() && named.hall) {
                 const hud_scale::Frame &f = impl.hud_scale_frame;
                 std::cout << "[hallname] f=" << impl.frames << " name " << (named.glyph ? "letters" : "icon")
@@ -9069,12 +9071,21 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     vk_scissor.extent = {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
     const std::array<std::uint32_t, 3> lighting_offsets{impl.environment_offset, impl.object_offset, impl.raw_offset};
     // A name over a hunter, for the presents between frames: its vertices as
-    // drawn and the point it was placed at, in the same pixels.
+    // drawn and the point it was placed at, in the same pixels. A hall mark
+    // moves with the label it sits on (hud_scale::Frame::file_hall_draw).
     const auto record_name = [&] {
-        if (!glide_names || !named.is_name || !named.has_origin) return;
+        if (!glide_names || !named.is_name) return;
         float origin_x = named.origin_x;
         float origin_y = named.origin_y;
-        fit.apply(origin_x, origin_y);
+        if (named.hall) {
+            const hud_scale::Frame::HallPiece &piece = impl.hud_scale_frame.hall_piece;
+            if (!piece.has_point) return;
+            origin_x = piece.x;
+            origin_y = piece.y;
+        } else {
+            if (!named.has_origin) return;
+            fit.apply(origin_x, origin_y);
+        }
         impl.record_name_for_replay(corner_scaled, origin_x, origin_y, call.texture.address);
     };
     if (merge) {
