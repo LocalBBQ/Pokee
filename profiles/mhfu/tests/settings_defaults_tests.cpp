@@ -2536,6 +2536,113 @@ void test_aim_reticle_is_not_a_map_mark() {
     check(corner[0].x != 312.0f, "an item bar corner of the reticle's size still takes the item bar's size");
 }
 
+// A bowgun's reticle is a cross of four HUD-atlas sprites, 12 by 4 and 4 by
+// 12. Traced with MHFU_TRACE_HUD_SCALE=all: it flies in from off the picture
+// as the aim starts and never crosses the middle, so it was not learned, and
+// its arms shrank toward the map's, Status's and the item bar's corners.
+void test_reticle_arms_stay_as_drawn() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::kHudAtlasTexture;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const auto stays = [](const std::vector<Vertex> &q, float x0, float y0, float x1, float y1) {
+        return q[0].x == x0 && q[0].y == y0 && q[2].x == x1 && q[2].y == y1;
+    };
+    const Scales sizes = Scales::from_percent(55u, 50u, 65u);
+    Frame frame;
+    std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(clock, sizes, frame, kHudAtlasTexture, Owner::QuestHud);
+    std::vector<Vertex> map = quad(316.0f, 32.0f, 468.0f, 184.0f);
+    scale_quads(map, sizes, frame, mhfu::gpu::hud_scale::kAreaMapTexture, Owner::QuestHud);
+    std::vector<Vertex> bar = quad(328.0f, 208.0f, 456.0f, 216.0f);
+    scale_quads(bar, sizes, frame, 0x09163C20u, Owner::QuestHud);
+    std::vector<Vertex> ammo = quad(312.0f, 184.0f, 472.0f, 200.0f);
+    scale_quads(ammo, sizes, frame, 0u, Owner::QuestHud);
+    check(!frame.aiming, "the aim has not been seen");
+
+    // The traced arms over the map, the bars, the item bar and the ammo bar.
+    for (const mhfu::gpu::hud_scale::Rect arm : {mhfu::gpu::hud_scale::Rect{443.0f, 166.0f, 455.0f, 170.0f},
+             mhfu::gpu::hud_scale::Rect{442.0f, 155.0f, 446.0f, 167.0f},
+             mhfu::gpu::hud_scale::Rect{480.0f, 167.0f, 492.0f, 171.0f},
+             mhfu::gpu::hud_scale::Rect{405.0f, 13.0f, 417.0f, 17.0f},
+             mhfu::gpu::hud_scale::Rect{185.0f, 46.0f, 197.0f, 50.0f},
+             mhfu::gpu::hud_scale::Rect{404.0f, 225.0f, 416.0f, 229.0f},
+             mhfu::gpu::hud_scale::Rect{413.0f, 187.0f, 417.0f, 199.0f}}) {
+        std::vector<Vertex> q = quad(arm.x0, arm.y0, arm.x1, arm.y1);
+        std::vector<mhfu::gpu::hud_scale::Decision> decisions;
+        scale_quads(q, sizes, frame, kHudAtlasTexture, Owner::QuestHud, &decisions);
+        check(stays(q, arm.x0, arm.y0, arm.x1, arm.y1), "an arm of the reticle stays as drawn");
+        check(decisions.size() == 1u && decisions[0].reason == mhfu::gpu::hud_scale::Reason::Reticle,
+            "and the trace names the reticle as the reason");
+    }
+
+    // Boundaries: the same size from the map's marks, a 13 by 4 from the
+    // atlas and a health segment still take their pieces' sizes.
+    std::vector<Vertex> mark = quad(443.0f, 166.0f, 455.0f, 170.0f);
+    scale_quads(mark, sizes, frame, mhfu::gpu::hud_scale::kMapIconTexture, Owner::QuestHud);
+    check(!stays(mark, 443.0f, 166.0f, 455.0f, 170.0f), "a mark of that size from the map's atlas is a mark");
+    std::vector<Vertex> wider = quad(443.0f, 166.0f, 456.0f, 170.0f);
+    scale_quads(wider, sizes, frame, kHudAtlasTexture, Owner::QuestHud);
+    check(!stays(wider, 443.0f, 166.0f, 456.0f, 170.0f), "a 13 by 4 sprite from the atlas is not an arm");
+    std::vector<Vertex> segment = quad(200.0f, 13.0f, 260.0f, 17.0f);
+    scale_quads(segment, sizes, frame, kHudAtlasTexture, Owner::QuestHud);
+    check(!stays(segment, 200.0f, 13.0f, 260.0f, 17.0f), "a segment of the health bar still takes Status");
+    check(!mhfu::gpu::hud_scale::is_reticle_arm({0.0f, 0.0f, 12.0f, 4.0f}, 0u), "an untextured strip is no arm");
+    check(mhfu::gpu::hud_scale::is_reticle_arm({4.0f, 0.0f, 0.0f, 12.0f}, kHudAtlasTexture),
+        "an arm's corners may come in either order");
+}
+
+// Stamina run dry, traced with MHFU_TRACE_HUD_SCALE=all: the two-pixel fill
+// is (56, 22)-(57, 24), then (56, 22)-(56, 24), before it refills. It stays
+// on the smaller bar, not at the game's place beside it.
+void test_empty_stamina_fill_takes_status() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Piece;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::piece_of;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const Scales half = Scales::from_percent(100u, 50u, 100u);
+    Frame frame;
+    std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(clock, half, frame, 0u, Owner::QuestHud);
+    std::vector<Vertex> sliver = quad(56.0f, 22.0f, 57.0f, 24.0f);
+    scale_quads(sliver, half, frame, 0u, Owner::QuestHud);
+    check(sliver[0].x == 32.0f && sliver[0].y == 15.0f && sliver[2].x == 32.5f && sliver[2].y == 16.0f,
+        "a one-pixel stamina fill shrinks toward the clock with the bar");
+    std::vector<Vertex> empty = quad(56.0f, 22.0f, 56.0f, 24.0f);
+    scale_quads(empty, half, frame, 0u, Owner::QuestHud);
+    check(empty[0].x == 32.0f && empty[0].y == 15.0f, "an empty stamina fill moves with the bar");
+    std::vector<Vertex> two = quad(56.0f, 22.0f, 58.0f, 24.0f);
+    scale_quads(two, half, frame, 0u, Owner::QuestHud);
+    check(two[0].x == 32.0f && two[2].x == 33.0f, "a two-pixel fill keeps moving with the bar");
+
+    // Boundaries: a narrow sprite taller than a fill, one away from the
+    // bars' left edge, and one under the bars are not a fill.
+    check(piece_of({56.0f, 20.0f, 57.0f, 26.0f}) == Piece::None, "a narrow sprite taller than a fill is not one");
+    check(piece_of({100.0f, 22.0f, 101.0f, 24.0f}) == Piece::None, "a sliver away from the left edge is not a fill");
+    check(piece_of({56.0f, 40.0f, 57.0f, 42.0f}) == Piece::None, "a sliver under the bars is not a fill");
+}
+
 // Quest windows on their first frame, before the frame state knows they are
 // up. Traced with MHFU_TRACE_HUD_SCALE=all in an ad hoc quest.
 void test_quest_windows_keep_their_pieces() {
@@ -2656,6 +2763,8 @@ int main() {
     test_interface_sizes_by_owner();
     test_quest_clock();
     test_aim_reticle_is_not_a_map_mark();
+    test_reticle_arms_stay_as_drawn();
+    test_empty_stamina_fill_takes_status();
     test_paintball_ring_stays_on_map();
     test_quest_windows_keep_their_pieces();
     test_menu_over_the_party_list();

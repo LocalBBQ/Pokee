@@ -114,6 +114,9 @@ inline constexpr std::uint32_t kAreaMapTexture = 0x0419C200u;
 // are a different texture, so a mark of a letter's size is still a mark. It
 // is the item atlas (game/guest_layout.hpp).
 inline constexpr std::uint32_t kMapIconTexture = game::layout::kItemAtlas;
+// The quest HUD's atlas: the clock, the bars' frames and caps, the name
+// plates, the item bar's corners and a bowgun's reticle.
+inline constexpr std::uint32_t kHudAtlasTexture = 0x09156BA0u;
 inline constexpr float kMapLeft = 316.0f;
 inline constexpr float kMapTop = 32.0f;
 inline constexpr float kMapRight = 468.0f;
@@ -596,14 +599,18 @@ inline constexpr float kPlateEndLeft = 96.0f;
 // pixels tall. Other panels share this band while the bars are up, traced
 // with MHFU_TRACE_HUD_SCALE: the item box's top edge, (216, 28)-(456, 36),
 // and a message window at (152, 8)-(328, 32) with 7 by 14 glyphs on it.
-// They are none of these.
+// They are none of these. A fill is as wide as what is left of it: traced
+// with stamina run dry, (56, 22)-(57, 24) and then (56, 22)-(56, 24) for the
+// two thirds of a second before it refills. Turned away as too narrow, that
+// sliver stayed at the game's place, off a smaller bar, until the fill was
+// two pixels wide.
 [[nodiscard]] inline bool is_vital_piece(Rect rect) {
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
-    if (!contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r) || width < 2.0f || height < 2.0f)
-        return false;
+    if (!contains({kVitalLeft, kVitalTop, kRaisedVitalRight, kVitalBottom}, r) || height < 2.0f) return false;
     const bool bar = r.x0 >= 48.0f && r.x0 <= 72.0f && height <= 14.0f;
+    if (width < 2.0f) return bar && height <= 4.0f;
     const bool cap = width >= 20.0f && width <= 28.0f && height >= 10.0f && height <= 14.0f &&
         ((r.y0 >= 6.0f && r.y0 <= 12.0f) || (r.y0 >= 18.0f && r.y0 <= 24.0f));
     const bool segment = height <= 4.0f && r.y0 >= 10.0f && r.y0 <= 28.0f;
@@ -2089,6 +2096,24 @@ struct NamePlace {
     return best;
 }
 
+// One arm of a bowgun's reticle: a cross of four sprites from the HUD atlas,
+// two 12 by 4 and two 4 by 12, each its own draw. Traced with
+// MHFU_TRACE_HUD_SCALE=all and a bowgun aimed in a quest: as an aim starts the
+// cross flies in from off the picture (x 1963 to 480 over ten frames) and
+// follows the aim from there, so it can reach the map, the bars, the item
+// bar or the ammo bar without ever crossing the middle, where an aim's
+// reticle is otherwise learned. Taken for those pieces, its arms shrank
+// toward their corners. Nothing else in the atlas is either size, in quests,
+// menus, the hall and the pouch.
+[[nodiscard]] inline bool is_reticle_arm(Rect rect, std::uint32_t texture) {
+    if (texture != kHudAtlasTexture) return false;
+    const Rect r = normalized(rect);
+    const float width = r.x1 - r.x0;
+    const float height = r.y1 - r.y0;
+    const auto near = [](float a, float b) { return std::fabs(a - b) <= 0.5f; };
+    return (near(width, 12.0f) && near(height, 4.0f)) || (near(width, 4.0f) && near(height, 12.0f));
+}
+
 // The middle of the picture, (240, 136), where an aim's reticle starts. No
 // piece of the HUD is drawn there.
 [[nodiscard]] inline bool in_reticle_area(Rect rect) {
@@ -2166,6 +2191,9 @@ struct Decision {
 // `frame` already holds every quad of this draw. It learns an aim's reticle
 // here, so each quad is decided once and in the order drawn.
 [[nodiscard]] inline Decision decide(Frame &frame, Rect bounds, std::uint32_t texture) {
+    // A bowgun's reticle stays as drawn wherever the aim takes it, the ammo
+    // menu's corner included.
+    if (is_reticle_arm(bounds, texture)) return {Piece::None, Reason::Reticle, piece_of(bounds, texture)};
     // The ammo menu is one panel over the item bar's corner, sized with
     // the item bar. Only this frame's menu counts: the frame after it
     // closes draws the ammo bar in the same place.
