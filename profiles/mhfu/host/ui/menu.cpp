@@ -740,7 +740,7 @@ bool text_row(const char *id, const char *label, std::string &value, std::size_t
     if (field.focused) draw_selection(draw, start, {start.x + width, start.y + row_height}, 235);
     draw->AddText(
         {start.x + std::round(16.0f * Layer::get().scale()), start.y + (row_height - Layer::get().font_size()) * 0.5f},
-        o.disabled         ? colors::kTextDisabled
+        o.disabled          ? colors::kTextDisabled
             : field.focused ? colors::kAccentBright
                             : colors::kText,
         label);

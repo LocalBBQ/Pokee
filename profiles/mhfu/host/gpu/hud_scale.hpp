@@ -1393,8 +1393,8 @@ struct Frame {
     // The kept middle nearest a point, as a point on screen: where an icon
     // the label filed without its own point is sized about. False when no
     // label's middle is within `max_distance`.
-    [[nodiscard]] bool nearest_name_middle(float x, float y, float &middle_x, float &middle_y,
-        float max_distance = 64.0f) const {
+    [[nodiscard]] bool nearest_name_middle(
+        float x, float y, float &middle_x, float &middle_y, float max_distance = 64.0f) const {
         int best = -1;
         float best_distance = max_distance * max_distance;
         for (int i = 0; i < name_centre_count; ++i) {
@@ -1452,8 +1452,8 @@ struct Frame {
         int best = -1;
         float best_score = 0.0f;
         for (int i = 0; i < name_label_count; ++i) {
-            const Rect point = fit.to_game({name_labels[i].origin_x, name_labels[i].origin_y,
-                name_labels[i].origin_x, name_labels[i].origin_y});
+            const Rect point = fit.to_game(
+                {name_labels[i].origin_x, name_labels[i].origin_y, name_labels[i].origin_x, name_labels[i].origin_y});
             const float dx = g.x0 - point.x0;
             const float dy = g.y1 - point.y0;
             if (dx < -1.0f || dx > 12.0f || dy < -4.0f || dy > 2.0f) continue;
@@ -1972,8 +1972,8 @@ bool place_party_icons(std::vector<Vertex> &vertices, const Scales &scales, cons
 // Returns the bounds the name was moved to, for the scissor, when the Names
 // size moved it.
 template <typename Vertex>
-std::optional<Rect> scale_name_draw(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame,
-    const hud::NameDraw &named, InterfaceFit fit) {
+std::optional<Rect> scale_name_draw(
+    std::vector<Vertex> &vertices, const Scales &scales, Frame &frame, const hud::NameDraw &named, InterfaceFit fit) {
     // A hall draw is filed first, so frame interpolation has its point
     // whatever is decided below.
     const Frame::HallPiece piece =

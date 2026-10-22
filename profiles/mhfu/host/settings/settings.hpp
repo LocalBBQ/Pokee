@@ -71,8 +71,8 @@ struct Settings {
     bool texture_pack{true};         // draw an installed HD texture pack's images instead of the game's
     std::string texture_pack_folder; // a pack used where it is instead of textures/<disc id>; empty: none
     PackButtons texture_pack_buttons{PackButtons::Auto}; // the pack's button icons
-    bool unthrottled{};              // let emulated time run ahead of real time
-    bool fast_loading{true};         // ...but only while the game loads (kernel/fast_loading.hpp)
+    bool unthrottled{};                                  // let emulated time run ahead of real time
+    bool fast_loading{true};                             // ...but only while the game loads (kernel/fast_loading.hpp)
     // The fast-forward bind: held, toggled, or doing nothing (kernel/fast_forward.hpp).
     fast_forward::Mode fast_forward{fast_forward::Mode::Hold};
     std::uint32_t fast_forward_speed{fast_forward::kDefaultSpeed}; // times real time while it runs
@@ -241,9 +241,9 @@ struct Settings {
     // number as it shrinks near the camera.
     std::uint32_t damage_number_size{100};
     std::uint32_t damage_number_thickness{1};
-    bool menu_hint_seen{};         // the "Esc / L3+R3 opens the menu" hint was shown
-    std::string last_folder;       // where the setup's file browser was last used
-    std::string menu_tab;          // the menu's page when it last closed ("controls")
+    bool menu_hint_seen{};   // the "Esc / L3+R3 opens the menu" hint was shown
+    std::string last_folder; // where the setup's file browser was last used
+    std::string menu_tab;    // the menu's page when it last closed ("controls")
 
     // Saves
     bool backup_timestamp{true}; // a backup made from the menu goes to a new folder named by its time
