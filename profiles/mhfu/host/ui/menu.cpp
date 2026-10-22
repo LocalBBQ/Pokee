@@ -1242,9 +1242,10 @@ void Menu::game() {
     }
     if (toggle_row("True Attack Value", s.true_attack,
             options_for("game.true_attack",
-                "On: the equipment screens show a weapon's attack as the game counts it, without the "
-                "class factor (a great sword's 672 shows as 140), as FUComplete's True Raw does. Damage is "
-                "the same either way. Off (default): the game's own numbers."))) {
+                "On: the equipment screens show a weapon's attack, element and status as the game counts "
+                "them, as FUComplete's True Raw/Ele/Status does: attack without the class factor (a great "
+                "sword's 672 shows as 140) and element and status without the trailing zero (fire 250 shows "
+                "as 25). Damage is the same either way. Off (default): the game's own numbers."))) {
         s.true_attack = !s.true_attack;
         settings::save();
     }
