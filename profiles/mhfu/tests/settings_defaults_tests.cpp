@@ -369,7 +369,8 @@ void test_background_and_compact_overlay() {
         "all three read back as written");
     Entries both = written;
     both["video.performance"] = "compact+log";
-    check(from_entries(both).perf == PerfDisplay::CompactAndLog, "compact+log reads as the compact overlay and the log");
+    check(
+        from_entries(both).perf == PerfDisplay::CompactAndLog, "compact+log reads as the compact overlay and the log");
     Entries unknown = written;
     unknown["video.performance"] = "tiny";
     check(from_entries(unknown).perf == defaults().perf, "an unknown display falls back to the default");
@@ -1375,8 +1376,7 @@ void test_interface_sizes() {
     std::vector<Vertex> short_line(6, Vertex{26.0f, 110.0f});
     short_line[2] = {40.0f, 112.0f};
     mhfu::gpu::hud_scale::scale_quads(short_line, group_half, health_line);
-    check(short_line[0].x == 17.0f && short_line[0].y == 59.0f && short_line[2].x == 24.0f &&
-            short_line[2].y == 60.0f,
+    check(short_line[0].x == 17.0f && short_line[0].y == 59.0f && short_line[2].x == 24.0f && short_line[2].y == 60.0f,
         "a low health line on the third name shrinks toward the clock with it");
     check(mhfu::gpu::hud_scale::piece_of({26.0f, 90.0f, 98.0f, 92.0f}) == mhfu::gpu::hud_scale::Piece::Vitals,
         "the health line is part of Status");
@@ -1388,17 +1388,24 @@ void test_interface_sizes() {
     // list's own letters start at y 58 and 78.
     using mhfu::gpu::hud_scale::piece_of;
     using mhfu::gpu::hud_scale::Piece;
-    check(piece_of({26.0f, 58.0f, 34.0f, 72.0f}) == Piece::Vitals && piece_of({42.0f, 78.0f, 50.0f, 92.0f}) == Piece::Vitals,
+    check(piece_of({26.0f, 58.0f, 34.0f, 72.0f}) == Piece::Vitals &&
+            piece_of({42.0f, 78.0f, 50.0f, 92.0f}) == Piece::Vitals,
         "the party list's own letters are Status");
-    check(piece_of({55.0f, 77.0f, 63.0f, 91.0f}) == Piece::None && piece_of({26.0f, 99.0f, 34.0f, 113.0f}) == Piece::None &&
-            piece_of({49.0f, 104.0f, 57.0f, 118.0f}) == Piece::None && piece_of({60.0f, 63.0f, 68.0f, 77.0f}) == Piece::None,
+    check(piece_of({55.0f, 77.0f, 63.0f, 91.0f}) == Piece::None &&
+            piece_of({26.0f, 99.0f, 34.0f, 113.0f}) == Piece::None &&
+            piece_of({49.0f, 104.0f, 57.0f, 118.0f}) == Piece::None &&
+            piece_of({60.0f, 63.0f, 68.0f, 77.0f}) == Piece::None,
         "an overhead name's letters off the party rows are not Status");
-    check(piece_of({63.0f, 116.0f, 71.0f, 130.0f}) == Piece::None && piece_of({46.0f, 58.0f, 54.0f, 72.0f}) == Piece::None &&
-            piece_of({140.0f, 72.0f, 148.0f, 86.0f}) == Piece::None && piece_of({21.0f, 110.0f, 29.0f, 124.0f}) == Piece::None,
+    check(piece_of({63.0f, 116.0f, 71.0f, 130.0f}) == Piece::None &&
+            piece_of({46.0f, 58.0f, 54.0f, 72.0f}) == Piece::None &&
+            piece_of({140.0f, 72.0f, 148.0f, 86.0f}) == Piece::None &&
+            piece_of({21.0f, 110.0f, 29.0f, 124.0f}) == Piece::None,
         "nor on a row but off the letters' 8-pixel grid, past the Felyne's row, or at the badge column's edge");
-    check(piece_of({160.0f, 56.0f, 168.0f, 70.0f}) == Piece::Vitals && piece_of({120.0f, 78.0f, 128.0f, 92.0f}) == Piece::Vitals,
+    check(piece_of({160.0f, 56.0f, 168.0f, 70.0f}) == Piece::Vitals &&
+            piece_of({120.0f, 78.0f, 128.0f, 92.0f}) == Piece::Vitals,
         "a cat's name beside its hunter, past the plate, is still the list");
-    check(piece_of({96.0f, 76.0f, 104.0f, 92.0f}) == Piece::Vitals && piece_of({8.0f, 78.0f, 16.0f, 92.0f}) == Piece::Vitals,
+    check(piece_of({96.0f, 76.0f, 104.0f, 92.0f}) == Piece::Vitals &&
+            piece_of({8.0f, 78.0f, 16.0f, 92.0f}) == Piece::Vitals,
         "a plate's 8 by 16 end and the cat's letter-sized cell stay Status");
     Frame overhead;
     overhead.note({8.0f, 8.0f, 60.0f, 56.0f});
@@ -1444,43 +1451,44 @@ void test_interface_sizes() {
     }
 
     {
-    // A window over the area map, traced at (344, 48)-(456, 160): the side,
-    // the body and the corners from the mark atlas all stay as drawn, while
-    // the map itself and its marks still take the Map size without it.
-    const auto map_60 = mhfu::gpu::hud_scale::Scales::from_percent(60u, 100u, 100u);
-    const auto quad = [](float x0, float y0, float x1, float y1) {
-        std::vector<Vertex> q(6, Vertex{x0, y0});
-        q[2] = {x1, y1};
-        return q;
-    };
-    Frame with_panel;
-    with_panel.note({8.0f, 8.0f, 60.0f, 56.0f});
-    std::vector<Vertex> map_window = quad(333.0f, 148.0f, 373.0f, 182.0f);
-    mhfu::gpu::hud_scale::scale_quads(map_window, map_60, with_panel, mhfu::gpu::hud_scale::kAreaMapTexture);
-    check(map_window[0].x != 333.0f, "the map's own window takes the Map size");
-    std::vector<Vertex> mark = quad(345.0f, 162.0f, 361.0f, 177.0f);
-    Frame mark_frame = with_panel;
-    mhfu::gpu::hud_scale::scale_quads(mark, map_60, mark_frame, mhfu::gpu::hud_scale::kMapIconTexture);
-    check(mark[0].x != 345.0f, "a mark on the map takes the Map size while no window is over it");
-    std::vector<Vertex> panel = quad(344.0f, 48.0f, 360.0f, 160.0f);
-    const std::vector<Vertex> body = quad(360.0f, 48.0f, 456.0f, 160.0f);
-    const std::vector<Vertex> corner = quad(344.0f, 47.0f, 357.0f, 61.0f);
-    panel.insert(panel.end(), body.begin(), body.end());
-    mhfu::gpu::hud_scale::scale_quads(panel, map_60, with_panel, 0x09165C20u);
-    check(panel[0].x == 344.0f && panel[0].y == 48.0f && panel[8].x == 456.0f && panel[8].y == 160.0f,
-        "a window over the map keeps its side and body where the game drew them");
-    std::vector<Vertex> panel_corner = corner;
-    mhfu::gpu::hud_scale::scale_quads(panel_corner, map_60, with_panel, mhfu::gpu::hud_scale::kMapIconTexture);
-    check(panel_corner[0].x == 344.0f && panel_corner[0].y == 47.0f, "the window's corner from the mark atlas stays");
-    with_panel.begin();
-    std::vector<Vertex> next_corner = corner;
-    mhfu::gpu::hud_scale::scale_quads(next_corner, map_60, with_panel, mhfu::gpu::hud_scale::kMapIconTexture);
-    check(next_corner[0].x == 344.0f, "and stays in the next frame, drawn before the window's body");
-    std::vector<Vertex> still_map = quad(333.0f, 148.0f, 373.0f, 182.0f);
-    mhfu::gpu::hud_scale::scale_quads(still_map, map_60, with_panel, mhfu::gpu::hud_scale::kAreaMapTexture);
-    check(still_map[0].x != 333.0f, "the map's own window under it still takes the Map size");
-    check(!mhfu::gpu::hud_scale::is_map_panel({312.0f, 128.0f, 472.0f, 264.0f}, 0u),
-        "the ammo menu reaching below the map is not a window over it");
+        // A window over the area map, traced at (344, 48)-(456, 160): the side,
+        // the body and the corners from the mark atlas all stay as drawn, while
+        // the map itself and its marks still take the Map size without it.
+        const auto map_60 = mhfu::gpu::hud_scale::Scales::from_percent(60u, 100u, 100u);
+        const auto quad = [](float x0, float y0, float x1, float y1) {
+            std::vector<Vertex> q(6, Vertex{x0, y0});
+            q[2] = {x1, y1};
+            return q;
+        };
+        Frame with_panel;
+        with_panel.note({8.0f, 8.0f, 60.0f, 56.0f});
+        std::vector<Vertex> map_window = quad(333.0f, 148.0f, 373.0f, 182.0f);
+        mhfu::gpu::hud_scale::scale_quads(map_window, map_60, with_panel, mhfu::gpu::hud_scale::kAreaMapTexture);
+        check(map_window[0].x != 333.0f, "the map's own window takes the Map size");
+        std::vector<Vertex> mark = quad(345.0f, 162.0f, 361.0f, 177.0f);
+        Frame mark_frame = with_panel;
+        mhfu::gpu::hud_scale::scale_quads(mark, map_60, mark_frame, mhfu::gpu::hud_scale::kMapIconTexture);
+        check(mark[0].x != 345.0f, "a mark on the map takes the Map size while no window is over it");
+        std::vector<Vertex> panel = quad(344.0f, 48.0f, 360.0f, 160.0f);
+        const std::vector<Vertex> body = quad(360.0f, 48.0f, 456.0f, 160.0f);
+        const std::vector<Vertex> corner = quad(344.0f, 47.0f, 357.0f, 61.0f);
+        panel.insert(panel.end(), body.begin(), body.end());
+        mhfu::gpu::hud_scale::scale_quads(panel, map_60, with_panel, 0x09165C20u);
+        check(panel[0].x == 344.0f && panel[0].y == 48.0f && panel[8].x == 456.0f && panel[8].y == 160.0f,
+            "a window over the map keeps its side and body where the game drew them");
+        std::vector<Vertex> panel_corner = corner;
+        mhfu::gpu::hud_scale::scale_quads(panel_corner, map_60, with_panel, mhfu::gpu::hud_scale::kMapIconTexture);
+        check(
+            panel_corner[0].x == 344.0f && panel_corner[0].y == 47.0f, "the window's corner from the mark atlas stays");
+        with_panel.begin();
+        std::vector<Vertex> next_corner = corner;
+        mhfu::gpu::hud_scale::scale_quads(next_corner, map_60, with_panel, mhfu::gpu::hud_scale::kMapIconTexture);
+        check(next_corner[0].x == 344.0f, "and stays in the next frame, drawn before the window's body");
+        std::vector<Vertex> still_map = quad(333.0f, 148.0f, 373.0f, 182.0f);
+        mhfu::gpu::hud_scale::scale_quads(still_map, map_60, with_panel, mhfu::gpu::hud_scale::kAreaMapTexture);
+        check(still_map[0].x != 333.0f, "the map's own window under it still takes the Map size");
+        check(!mhfu::gpu::hud_scale::is_map_panel({312.0f, 128.0f, 472.0f, 264.0f}, 0u),
+            "the ammo menu reaching below the map is not a window over it");
     }
     // Quest details letters share a name's size and cross the buff band. They
     // stay where the window drew them.
@@ -2272,8 +2280,8 @@ void test_hud_scale_draws() {
     // Its own label's middle is (233.5, 83.5).
     check(side_paper[0].x == 232.75f && side_paper[0].y == 72.25f,
         "a quest paper filed with a nearby hunter's point stays on its own name");
-    check(side.hall_piece.mark && side.hall_piece.has_point && side.hall_piece.x == 229.0f &&
-            side.hall_piece.y == 78.0f,
+    check(
+        side.hall_piece.mark && side.hall_piece.has_point && side.hall_piece.x == 229.0f && side.hall_piece.y == 78.0f,
         "a quest paper glides with its own name between frames");
     std::vector<Vertex> side_ready = quad(236.0f, 61.0f, 244.0f, 77.0f);
     NameDraw no_point = paper;
@@ -2341,10 +2349,10 @@ void test_hud_scale_draws() {
     using mhfu::gpu::hud_scale::NamePlace;
     const NamePlace o{100.0f, 60.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u};
     std::vector<NamePlace> newer = {
-        {300.0f, 60.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u}, // the same letter of another hunter's name
-        {104.0f, 62.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u}, // this name, moved a little
+        {300.0f, 60.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u},  // the same letter of another hunter's name
+        {104.0f, 62.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u},  // this name, moved a little
         {104.0f, 62.0f, 16.0f, 0.0f, 0.25f, 0.5f, 0x40CC000u, 6u}, // the same letter later in the name
-        {104.0f, 62.0f, 8.0f, 0.0f, 0.50f, 0.5f, 0x40CC000u, 6u}, // another letter in that place
+        {104.0f, 62.0f, 8.0f, 0.0f, 0.50f, 0.5f, 0x40CC000u, 6u},  // another letter in that place
     };
     check(mhfu::gpu::hud_scale::match_name_place(o, newer) == 1,
         "a name's letter pairs with the same letter, place and nearest name");
@@ -2444,8 +2452,7 @@ void test_paintball_ring_stays_on_map() {
         "a large ring centred off the map is not");
     check(!mhfu::gpu::hud_scale::is_map_ring({300.0f, 0.0f, 900.0f, 600.0f}, kRing), "a ring past the picture is not");
     check(!mhfu::gpu::hud_scale::is_map_ring({100.0f, 100.0f, 144.0f, 144.0f}, kRing), "a ring off the map is not");
-    check(!mhfu::gpu::hud_scale::is_map_ring({323.0f, 129.0f, 367.0f, 173.0f},
-              mhfu::gpu::hud_scale::kAreaMapTexture),
+    check(!mhfu::gpu::hud_scale::is_map_ring({323.0f, 129.0f, 367.0f, 173.0f}, mhfu::gpu::hud_scale::kAreaMapTexture),
         "the map's own window is not a ring");
     check(!mhfu::gpu::hud_scale::is_map_ring({344.0f, 48.0f, 360.0f, 160.0f}, 0x09165BA0u),
         "a window's side over the map is not a ring");

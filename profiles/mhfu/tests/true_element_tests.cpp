@@ -44,7 +44,8 @@ void put_string(psprecomp::GuestMemory &memory, std::uint32_t address, const std
 
 std::string read_string(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     std::string text;
-    for (std::uint8_t c = memory.load8(address); c != 0u; c = memory.load8(++address)) text.push_back(static_cast<char>(c));
+    for (std::uint8_t c = memory.load8(address); c != 0u; c = memory.load8(++address))
+        text.push_back(static_cast<char>(c));
     return text;
 }
 
@@ -131,8 +132,7 @@ void test_wrapper() {
     other.gpr[5] = kOther;
     other.gpr[31] = kReturn;
     runtime.function_at(kSprintf)(runtime, other);
-    check(seen_format == "%s~C%02d%2d" && read_string(memory, kOther) == "%s~C%02d%2d",
-        "other formats are the game's");
+    check(seen_format == "%s~C%02d%2d" && read_string(memory, kOther) == "%s~C%02d%2d", "other formats are the game's");
 
     settings.true_attack = false;
     frame(runtime);
