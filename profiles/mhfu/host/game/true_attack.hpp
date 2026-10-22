@@ -2,9 +2,11 @@
 
 // True attack: the equipment screens show a weapon's attack as the game
 // counts it, without the class factor, as FUComplete's True Raw does. A
-// great sword shown as 672 shows 140. Off by default (Mods page,
-// `game.true_attack`; `MHFU_TRUE_ATTACK=1` turns it on). Only the number on
-// screen changes; damage never reads it.
+// great sword shown as 672 shows 140. Off by default (Game tab, True Attack
+// Value, `game.true_attack`; `MHFU_TRUE_ATTACK=1` turns it on). The same
+// switch takes the trailing zero off element and status
+// (game/true_element.hpp). Only the numbers on screen change; damage never
+// reads them.
 //
 // Read from the executable (ULUS-10391). A weapon record keeps its attack as
 // the game counts it (0x0895A0EC + id * 24, s16 at +10, read for damage by
