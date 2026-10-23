@@ -147,6 +147,13 @@ constexpr std::uint32_t kAimHeading = 800u;
 constexpr std::uint32_t kFacing = 500u;
 constexpr std::uint32_t kStickMagnitude = 1182u;
 constexpr std::uint32_t kHunterButtons = 1152u;
+// A drawn bowgun is in 1001 with its aim function running whether it aims or
+// not. Traced with MHFU_TRACE_AIM: bit 0x8000 of this word is set while R is
+// held to aim, and bit 0x1000 while a tapped R's zoom is up, R up or down (the
+// aim function then takes its stick branch, see kStickDirectionMask).
+constexpr std::uint32_t kAimFlags = 1556u;
+constexpr std::uint32_t kHeldAimFlag = 0x8000u;
+constexpr std::uint32_t kZoomFlag = 0x1000u;
 // The stick reader at 0x08868F50 packs a direction into the high half of the
 // button word, from the 16-entry table at 0x089A619C (one entry per 22.5°).
 // Index 0 is right (0x20) and the angle runs counterclockwise: up 0x10, left
@@ -234,6 +241,17 @@ constexpr std::array<PitchField, 1> kPitchFields{{
     {1662u, false, 100, 16, kAimPitchUnitsPerDegree},
 }};
 constexpr std::uint32_t kHunterExtent = 1664u;
+// A bowgun's aim (0x09AA4DD0) turns up and down slower than sideways: from
+// the stick it steps the pitch by 4 units, 136 angle units, against 400 of
+// heading. At Aim speed on both axes the pitch ran about as fast as the turn
+// (MHFU_TRACE_AIM: 84 and 87 degrees a second), so a stick moves the pitch at
+// the game's share of Aim speed. MHFU_AIM_PITCH_SHARE sets another share (1
+// restores the turn's speed). The bow keeps Aim speed on both.
+constexpr float kAimPitchShare = 4.0f * 34.0f / 400.0f;
+// The aim camera keeps its pitch angle at camera +0x30 and moves it a quarter
+// of the way to the pitch byte's angle each update (0x088884A4), so a step the
+// stick made kept settling for frames after the stick was let go.
+constexpr std::uint32_t kAimCameraPitch = 0x30u;
 // Left and right live in the button halfword; up and down live in the next one.
 constexpr std::uint16_t kTurnBits = 0x00A0u;
 constexpr std::uint16_t kVerticalBits = 0x0050u;
@@ -269,7 +287,7 @@ constexpr float kMouseStockTurn = 0.5f;
 // any side. MHFU_CAMERA_WALL_SLIDE=1 leaves the choice to the game.
 constexpr std::uint32_t kPullInChoice = 0x0888FCE4u;
 
-constexpr std::array<CodeWord, 46> kSignature{{
+constexpr std::array<CodeWord, 49> kSignature{{
     {0x08886E50u, 0x27BDFE30u, "addiu sp,sp,-464: the camera update"},
     {0x08886EC8u, 0x26B400A0u, "addiu s4,s5,160: the camera is the parent object plus 0xA0"},
     {0x08887470u, 0x96850084u, "lhu a1,0x84(s4): the turn buttons"},
@@ -300,6 +318,9 @@ constexpr std::array<CodeWord, 46> kSignature{{
     {0x08888448u, 0x8265067Eu, "lb a1,1662(s3): the aim camera reads that pitch"},
     {0x08888460u, 0x00052840u, "sll a1,a1,1: one pitch unit becomes 34 angle units"},
     {0x08888464u, 0x24A5F500u, "addiu a1,a1,-2816: the aim camera's pitch angle"},
+    {0x088884A4u, 0x86450030u, "lh a1,48(s2): the aim camera's eased pitch angle"},
+    {0x088884C4u, 0x00042083u, "sra a0,a0,2: eased a quarter of the way to the pitch's angle"},
+    {0x088884D0u, 0xA6440030u, "sh a0,48(s2): and written back"},
     {0x08887D0Cu, 0xC6820004u, "lwc1 f2,4(s4): the eye height the ease reads"},
     {0x08887D10u, 0x3C023E00u, "lui v0,0x3e00: one eighth, the eye-height ease"},
     {0x08887D24u, 0xE6800004u, "swc1 f0,4(s4): the eased eye height"},
@@ -875,17 +896,27 @@ bool bow_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
         (memory.load32(hunter + kBowAimBlocked) & kBowAimBit) == 0u;
 }
 
+// R held, or a bowgun aim that lasts without it: the held aim's bit or a
+// tapped R's zoom (kAimFlags). The zoom stays up after R is let go, and only
+// the right stick moved it once R alone counted.
+bool aim_button_held(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
+    if ((memory.load32(hunter + kHunterButtons) & kRecenterBit) != 0u) return true;
+    return memory.raw_pointer(hunter, kAimFlags + 4u) != nullptr &&
+        (memory.load32(hunter + kAimFlags) & (kHeldAimFlag | kZoomFlag)) != 0u;
+}
+
 bool hunter_aiming(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
     if (hunter == 0u) return false;
     const auto action = memory.load16(hunter + kAimAction);
     if (action == kAimingAction) {
         // The hunter stays in 1001, and the aim function keeps running, after
         // R is released: the game has dropped the reticle and is gliding the
-        // follow camera back by then. Aiming is R held, as for the bow, so the
-        // stick goes back to the camera with it. MHFU_CAMERA_AIM_AFTER_R=1
-        // counts 1001 as aiming whatever R does, as before.
+        // follow camera back by then. Aiming is R held, as for the bow, or the
+        // zoom, so the stick goes back to the camera with it.
+        // MHFU_CAMERA_AIM_AFTER_R=1 counts 1001 as aiming whatever R does, as
+        // before.
         static const bool after_r = std::getenv("MHFU_CAMERA_AIM_AFTER_R") != nullptr;
-        if (!after_r && (memory.load32(hunter + kHunterButtons) & kRecenterBit) == 0u) return false;
+        if (!after_r && !aim_button_held(memory, hunter)) return false;
         // Without the wrapper nothing sees the aim function run.
         if (!state.aim_wrapped) return true;
         return state.aim_ran_hunter == hunter && state.aim_ran_frame != 0u &&
@@ -916,11 +947,32 @@ void store_pitch(psprecomp::GuestMemory &memory, std::uint32_t hunter, const Pit
         memory.store8(hunter + field.offset, static_cast<std::uint8_t>(static_cast<std::int8_t>(value)));
 }
 
+// A pitch step the port sized is the stick's whole move, so the aim camera's
+// angle goes there at once: the aim stops when the stick does.
+void place_aim_camera_pitch(psprecomp::GuestMemory &memory, int pitch) {
+    if (state.address == 0u || memory.raw_pointer(state.address + kAimCameraPitch, 2u) == nullptr) return;
+    memory.store16(state.address + kAimCameraPitch,
+        static_cast<std::uint16_t>(static_cast<std::int16_t>((pitch + 100) * 34 - 2816)));
+}
+
 void remember_aim(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
     state.aim_hunter = hunter;
     state.aim_heading = memory.load16(hunter + kAimHeading);
     for (std::size_t i = 0; i < kPitchFields.size(); ++i)
         state.aim_pitch[i] = load_pitch(memory, hunter, kPitchFields[i]);
+}
+
+// The share of Aim speed a stick moves the pitch at (kAimPitchShare).
+float pitch_share() {
+    if (state.bow_aiming) return 1.0f;
+    static const float share = [] {
+        const char *value = std::getenv("MHFU_AIM_PITCH_SHARE");
+        if (value == nullptr) return kAimPitchShare;
+        char *end = nullptr;
+        const float parsed = std::strtof(value, &end);
+        return end != value && parsed > 0.0f && parsed <= 4.0f ? parsed : kAimPitchShare;
+    }();
+    return share;
 }
 
 // One aim step from a number of degrees, keeping the fraction for the next.
@@ -1107,18 +1159,19 @@ void drive_aim(psprecomp::GuestMemory &memory, std::uint32_t hunter, std::uint32
         if (state.sized_pitch_frame == state.frame) continue;
         if (!(turn.pitch_held || mouse_shown || left_held)) continue;
         pitch_stepped = true;
-        float degrees = std::fabs(turn.pitch_degrees);
+        float degrees = std::fabs(turn.pitch_degrees) * pitch_share();
         if (!turn.pitch_held && mouse_shown) {
             degrees = std::fabs(state.mouse_pitch);
             pitch_spent = true;
         } else if (!turn.pitch_held) {
             degrees = static_cast<float>(magnitude) / static_cast<float>(kStickFull) * settings::current().aim_speed *
-                advance_seconds();
+                pitch_share() * advance_seconds();
         }
         const int step = take_pitch_units(degrees, field);
         const int next = std::clamp(state.aim_pitch[i] + (game_pitch > 0 ? step : -step), -field.limit, field.limit);
         if (next == field.limit || next == -field.limit) state.aim_pitch_remainder = 0.0f;
         store_pitch(memory, hunter, field, next);
+        place_aim_camera_pitch(memory, next);
     }
     if (!pitch_stepped && state.sized_pitch_frame != state.frame) state.aim_pitch_remainder = 0.0f;
     // Only a step that answered this frame's direction says how the game
@@ -1180,11 +1233,12 @@ void resize_shown_aim(psprecomp::GuestMemory &memory, std::uint32_t hunter, std:
             const int current = load_pitch(memory, hunter, field);
             const int game_pitch = current - pitch_before[i];
             if (game_pitch == 0 || std::abs(game_pitch) > field.largest_step) continue;
-            const float degrees = std::fabs(state.aim_scale_y) * speed * seconds;
+            const float degrees = std::fabs(state.aim_scale_y) * speed * pitch_share() * seconds;
             const int step = take_pitch_units(degrees, field);
             const int next = std::clamp(pitch_before[i] + (game_pitch > 0 ? step : -step), -field.limit, field.limit);
             if (next == field.limit || next == -field.limit) state.aim_pitch_remainder = 0.0f;
             store_pitch(memory, hunter, field, next);
+            place_aim_camera_pitch(memory, next);
             state.sized_pitch_frame = state.frame;
         }
     }
@@ -1195,14 +1249,15 @@ void resize_shown_aim(psprecomp::GuestMemory &memory, std::uint32_t hunter, std:
 void show_aim(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, RotationFunction original) {
     auto &memory = runtime.memory();
     const auto hunter = ctx.gpr[4];
-    // Only while R, the aim button, is held as the game reads it. The game
-    // stays in the aim for as long as the aim function sees a direction, so a
-    // push shown after R was released kept the hunter aiming, and the stick
-    // off the camera, for as long as the stick moved.
+    // Only while R, the aim button, is held as the game reads it, or the zoom
+    // it toggled is up (aim_button_held). The game stays in the aim for as
+    // long as the aim function sees a direction, so a push shown after R was
+    // released kept the hunter aiming, and the stick off the camera, for as
+    // long as the stick moved.
     // MHFU_CAMERA_AIM_AFTER_R=1 shows it whatever R does, as before.
     static const bool after_r = std::getenv("MHFU_CAMERA_AIM_AFTER_R") != nullptr;
     const bool show = (state.aim_x != 0 || state.aim_y != 0) && memory.raw_pointer(hunter, kHunterExtent) != nullptr &&
-        (after_r || (memory.load32(hunter + kHunterButtons) & kRecenterBit) != 0u);
+        (after_r || aim_button_held(memory, hunter));
     std::uint32_t saved_buttons = 0u;
     std::uint16_t saved_magnitude = 0u;
     std::uint16_t heading_before = 0u;
@@ -1230,11 +1285,34 @@ void show_aim(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, Rota
         memory.store32(hunter + kHunterButtons, (saved_buttons & ~clear) | direction);
         memory.store16(hunter + kStickMagnitude, static_cast<std::uint16_t>(kStickFull));
     }
+    // MHFU_TRACE_AIM: the hunter's mode bits on every call, pushed or not, to
+    // tell a tapped R's zoom from a held R's aim and from a bowgun only drawn.
+    std::ofstream *out = aim_trace();
+    if (out != nullptr && memory.raw_pointer(hunter, kHunterExtent) != nullptr)
+        *out << state.frame << ",state,action=" << memory.load16(hunter + kAimAction) << ",shown=" << show
+             << ",timer=" << static_cast<unsigned>(memory.load8(hunter + 1380u))
+             << ",b1523=" << static_cast<unsigned>(memory.load8(hunter + 1523u)) << std::hex << ",flags=0x"
+             << memory.load32(hunter + kAimFlags) << ",buttons=0x" << memory.load32(hunter + kHunterButtons) << std::dec
+             << ",magnitude=" << memory.load16(hunter + kStickMagnitude)
+             << ",heading=" << memory.load16(hunter + kAimHeading) << '\n';
     if (original != nullptr) original(runtime, ctx);
     if (show && memory.raw_pointer(hunter, kHunterExtent) != nullptr) {
         memory.store32(hunter + kHunterButtons, saved_buttons);
         memory.store16(hunter + kStickMagnitude, saved_magnitude);
+        const auto heading_game = memory.load16(hunter + kAimHeading);
+        const int pitch_game = load_pitch(memory, hunter, kPitchFields[0]);
         resize_shown_aim(memory, hunter, heading_before, pitch_before);
+        // Each pushed call: the game's step and the step it was resized to.
+        if (out != nullptr) {
+            const auto delta = [](std::uint16_t to, std::uint16_t from) {
+                return static_cast<int>(static_cast<std::int16_t>(static_cast<std::uint16_t>(to - from)));
+            };
+            *out << state.frame << ",call,scale=" << state.aim_scale_x << ':' << state.aim_scale_y
+                 << ",seconds=" << advance_seconds() << ",game=" << delta(heading_game, heading_before) << ':'
+                 << pitch_game - pitch_before[0]
+                 << ",resized=" << delta(memory.load16(hunter + kAimHeading), heading_before) << ':'
+                 << load_pitch(memory, hunter, kPitchFields[0]) - pitch_before[0] << '\n';
+        }
     }
 }
 
