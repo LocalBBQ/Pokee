@@ -2463,6 +2463,33 @@ void test_paintball_ring_stays_on_map() {
     check(stays(panel, 400.0f, 80.0f), "a square panel filed by other code stays as drawn");
 }
 
+// A letter of an overhead name near the middle was learned as the reticle,
+// and the bowgun slot's ammo digits, the same size in the same font, then kept
+// the game's size while the slot shrank (MHFU_TRACE_HUD_SCALE=all).
+void test_aim_letter_is_not_the_reticle() {
+    using mhfu::gpu::hud::Owner;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::Scales;
+    using mhfu::gpu::hud_scale::scale_quads;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const Scales sizes = Scales::from_percent(60u, 75u, 65u);
+    Frame frame;
+    frame.aiming = true;
+    std::vector<Vertex> clock = quad(8.0f, 8.0f, 60.0f, 56.0f);
+    scale_quads(clock, sizes, frame, mhfu::gpu::hud_scale::kHudAtlasTexture, Owner::QuestHud);
+    std::vector<Vertex> overhead = quad(205.0f, 128.0f, 212.0f, 142.0f);
+    scale_quads(overhead, sizes, frame, mhfu::gpu::hud_scale::kFontTexture, Owner::QuestHud);
+    check(frame.reticles == 0, "a letter of the font is not learned as the reticle");
+}
+
 void test_aim_reticle_is_not_a_map_mark() {
     using mhfu::gpu::hud::Owner;
     using mhfu::gpu::hud_scale::Frame;
@@ -2770,6 +2797,7 @@ int main() {
     test_interface_sizes_by_owner();
     test_quest_clock();
     test_aim_reticle_is_not_a_map_mark();
+    test_aim_letter_is_not_the_reticle();
     test_reticle_arms_stay_as_drawn();
     test_empty_stamina_fill_takes_status();
     test_paintball_ring_stays_on_map();
