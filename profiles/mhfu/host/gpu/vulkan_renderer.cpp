@@ -1491,8 +1491,8 @@ struct VulkanRenderer::Impl {
     // the hunters and monsters.
     static constexpr std::uint32_t kCheckHalf = kCheckVertices / 2u;
     std::uint64_t check_frame{~std::uint64_t{0}}; // the frame the counts below are for
-    std::uint64_t check_unskinned_seen{};          // unskinned raw vertices drawn so far this frame
-    std::uint64_t check_window{};                  // where this frame's unskinned window starts
+    std::uint64_t check_unskinned_seen{};         // unskinned raw vertices drawn so far this frame
+    std::uint64_t check_window{};                 // where this frame's unskinned window starts
     // By kind: 0 unskinned, 1 skinned.
     struct CheckTally {
         std::array<std::uint64_t, 2> draws{};
@@ -2715,8 +2715,7 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
                     std::cout << "[gpu-decode-check] " << (skinned ? "skinned" : "unskinned") << " vertex type 0x"
                               << std::hex << draw.vertex_type << std::dec << " vertex " << v << " of " << draw.count
                               << " differs by " << worst << ": got (" << got[0] << ", " << got[1] << ", " << got[2]
-                              << ") expected (" << expected[0] << ", " << expected[1] << ", " << expected[2]
-                              << ")\n";
+                              << ") expected (" << expected[0] << ", " << expected[1] << ", " << expected[2] << ")\n";
                 tally.max_error[kind] = std::max(tally.max_error[kind], worst);
             }
         }
@@ -7536,8 +7535,7 @@ bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
             reused_expanded = expanded;
             reused_entry = &entry;
             reused_hold_at = entry.hold_at;
-            cache_hit_bytes +=
-                (entry.held_count != 0u ? entry.held_count : entry.vertices.size()) * sizeof(GpuVertex);
+            cache_hit_bytes += (entry.held_count != 0u ? entry.held_count : entry.vertices.size()) * sizeof(GpuVertex);
             return true;
         }
     }
@@ -7698,8 +7696,7 @@ void VulkanRenderer::Impl::remember_span(std::vector<GpuVertex> &vertices, bool 
         if (vertex_cache_bytes > vertex_cache_cap()) {
             std::uint64_t freed = 0u;
             for (auto &item : vertex_spans) {
-                freed +=
-                    release_hold(item.second.hold_at, item.second.hold_reserved, frames + kVertexHoldRetireFrames);
+                freed += release_hold(item.second.hold_at, item.second.hold_reserved, frames + kVertexHoldRetireFrames);
                 spare_spans.give(std::move(item.second.vertices));
             }
             if (freed >= (1ull << 20u)) std::cout << "[render] vertex hold freed " << (freed >> 20u) << " MiB\n";
@@ -8107,8 +8104,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                  << call.call_return;
             first_of_kind = kinds.insert(kind.str()).second;
         }
-        if (first_of_kind &&
-            ((call.through && near_map) || (ortho && (count <= 64u || trace_map_marks_mode == 2)))) {
+        if (first_of_kind && ((call.through && near_map) || (ortho && (count <= 64u || trace_map_marks_mode == 2)))) {
             const hud::Owner owner = hud::owner_of(call.command_address, call.call_return);
             std::cout << "[mapdraw] f=" << impl.frames << " prim=" << static_cast<int>(call.primitive) << " n=" << count
                       << (call.through ? " through" : " ortho") << " owner="
@@ -8508,8 +8504,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                           << " tex=0x" << std::hex << (call.texture.enabled ? call.texture.address : 0u) << std::dec
                           << " n=" << count << " origin=(" << named.origin_x << "," << named.origin_y << ") from "
                           << hall_rect_text(hud_scale::bounds_of(unscaled)) << " to "
-                          << hall_rect_text(hud_scale::bounds_of(corner_scaled)) << " pivot=(" << f.name_pivot_x
-                          << "," << f.name_pivot_y << ")" << (f.name_pivot_kept ? " kept" : " point")
+                          << hall_rect_text(hud_scale::bounds_of(corner_scaled)) << " pivot=(" << f.name_pivot_x << ","
+                          << f.name_pivot_y << ")" << (f.name_pivot_kept ? " kept" : " point")
                           << (name_bounds ? "" : " unsized") << " cmd=0x" << std::hex << call.command_address
                           << " ret=0x" << call.call_return << std::dec << "\n";
             }
@@ -8540,7 +8536,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             for (std::size_t first = 0; trace_map_marks_mode != 0 && first + 6u <= unscaled.size(); first += 6u) {
                 const hud_scale::Rect from = hud_scale::quad_bounds(unscaled, first);
                 if (trace_map_marks_mode == 2 &&
-                    (hud_texture != hud_scale::kMapIconTexture || from.x1 - from.x0 < 28.0f || from.y1 - from.y0 < 28.0f))
+                    (hud_texture != hud_scale::kMapIconTexture || from.x1 - from.x0 < 28.0f ||
+                        from.y1 - from.y0 < 28.0f))
                     continue;
                 if (!hud_scale::overlaps({hud_scale::kMapLeft - 48.0f, hud_scale::kMapTop - 32.0f,
                                              hud_scale::kMapRight + 16.0f, hud_scale::kMapBottom + 48.0f},
@@ -8702,8 +8699,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                     if (glow_colour)
                         for (std::size_t i = 0; i < 6u; ++i) {
                             std::uint32_t &colour_word = corner_scaled[first + i].color;
-                            colour_word = (colour_word & 0x00FFFFFFu) |
-                                (game::sharpness::glow_alpha(colour_word >> 24) << 24);
+                            colour_word =
+                                (colour_word & 0x00FFFFFFu) | (game::sharpness::glow_alpha(colour_word >> 24) << 24);
                         }
                 }
             }
