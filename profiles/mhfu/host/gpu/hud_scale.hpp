@@ -117,6 +117,8 @@ inline constexpr std::uint32_t kMapIconTexture = game::layout::kItemAtlas;
 // The quest HUD's atlas: the clock, the bars' frames and caps, the name
 // plates, the item bar's corners and a bowgun's reticle.
 inline constexpr std::uint32_t kHudAtlasTexture = 0x09156BA0u;
+// The game's font: names, the party list and the bowgun slot's ammo digits.
+inline constexpr std::uint32_t kFontTexture = 0x040CC000u;
 inline constexpr float kMapLeft = 316.0f;
 inline constexpr float kMapTop = 32.0f;
 inline constexpr float kMapRight = 468.0f;
@@ -2248,8 +2250,12 @@ struct Decision {
     // aim ended (traced with MHFU_TRACE_HUD_SCALE=all in a quest). The
     // reticle only needs keeping off the map and the bowgun slot, the pieces
     // a mark-sized sprite crossing the right of the picture is taken for.
+    // A letter of the font is never the reticle: an overhead name's letter
+    // learned near the middle kept the bowgun slot's ammo digits, the same
+    // size in the same font, at the game's size while the slot shrank.
     if (frame.aiming && texture != 0u) {
-        if (piece == Piece::None && in_reticle_area(bounds)) frame.learn_reticle(bounds, texture);
+        if (piece == Piece::None && texture != kFontTexture && in_reticle_area(bounds))
+            frame.learn_reticle(bounds, texture);
         if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.is_reticle(bounds, texture))
             return {Piece::None, Reason::Reticle, candidate};
     }
