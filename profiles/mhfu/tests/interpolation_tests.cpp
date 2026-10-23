@@ -268,6 +268,66 @@ void guards() {
     check(few_room.camera_found && few_room.camera_angle_degrees > 20.0f,
         "with too little scenery the median is taken over every matched draw");
 
+    // The Old Jungle's waterfall area: a monster in the water adds about as
+    // many splash draws as the area has scenery, each its own vertices but
+    // all with one transform, which jumps 2,000 units when the game moves
+    // their origin. They turn with the camera exactly, so the median turn
+    // often fell on one of them and the frame was taken for a cut.
+    std::vector<DrawSummary> splash_before = scene(100u, 0.0f), splash_after = scene(100u, 5.0f);
+    for (std::uint32_t i = 0u; i < 140u; ++i) {
+        splash_before.push_back(draw(500u + i, 0.0f, 0.0f));
+        splash_after.push_back(draw(500u + i, 2000.0f, 5.0f));
+    }
+    mark_eligible(splash_before, kShown);
+    mark_eligible(splash_after, kShown);
+    Matcher splashing;
+    const Matching &splash = splashing.match(splash_before, splash_after, thresholds);
+    check(splash.cut == nullptr && near(splash.camera_angle_degrees, 5.0f, 0.05f) &&
+            near(splash.camera_distance, 34.9f, 0.5f),
+        "a splash whose transform jumps 2000 units is not taken for the camera");
+    check(splash.camera_samples == 240u && splash.camera_kept == 100u && splash.rejected == 140u,
+        "the camera comes from the scenery, and the splash's draws follow it");
+    CutThresholds every_pair = thresholds;
+    every_pair.drop_far_samples = false;
+    Matcher splashing_before;
+    const Matching &splash_old = splashing_before.match(splash_before, splash_after, every_pair);
+    check(splash_old.cut != nullptr && std::strcmp(splash_old.cut, "camera moved") == 0,
+        "with every pair kept, the splash outvotes the scenery and the frame is a cut");
+
+    // The village: most of the level is drawn with one transform, and a few
+    // objects move on their own. The level gives the camera.
+    std::vector<DrawSummary> village_before, village_after;
+    for (std::uint32_t i = 0u; i < 200u; ++i) {
+        village_before.push_back(draw(700u + i, 0.0f, 0.0f));
+        village_after.push_back(draw(700u + i, 0.0f, 5.0f));
+    }
+    for (std::uint32_t i = 0u; i < 10u; ++i) {
+        village_before.push_back(draw(950u + i, static_cast<float>(i) * 40.0f, 0.0f));
+        village_after.push_back(draw(950u + i, static_cast<float>(i) * 40.0f + 90.0f, 5.0f));
+    }
+    mark_eligible(village_before, kShown);
+    mark_eligible(village_after, kShown);
+    Matcher village;
+    const Matching &walk = village.match(village_before, village_after, thresholds);
+    check(walk.cut == nullptr && near(walk.camera_angle_degrees, 5.0f, 0.05f) &&
+            near(walk.camera_distance, 34.9f, 0.5f) && walk.camera_kept == 210u,
+        "a level drawn with one transform outvotes a few objects moving on their own");
+
+    // A cut that moves the camera 3,000 units, with a few draws fixed to
+    // the camera that do not move in eye space: still a cut.
+    std::vector<DrawSummary> cut_before = scene(230u, 0.0f, 0.0f), cut_after = scene(230u, 0.0f, 3000.0f);
+    for (std::uint32_t i = 0u; i < 10u; ++i) {
+        DrawSummary sky = draw(980u + i, 0.0f, 0.0f);
+        cut_before.push_back(sky);
+        cut_after.push_back(sky);
+    }
+    mark_eligible(cut_before, kShown);
+    mark_eligible(cut_after, kShown);
+    Matcher cutting;
+    const Matching &jump = cutting.match(cut_before, cut_after, thresholds);
+    check(jump.cut != nullptr && std::strcmp(jump.cut, "camera moved") == 0 && jump.camera_kept == 240u,
+        "a jump of nearly all the scenery stays a cut, whatever stays with the camera");
+
     // A character walking 20 units a frame while the camera turns keeps its pair.
     std::vector<DrawSummary> before = scene(40u, 0.0f), after = scene(40u, 5.0f);
     DrawSummary walker = draw(91u, 0.0f, 0.0f), walked = draw(91u, 20.0f, 5.0f);
