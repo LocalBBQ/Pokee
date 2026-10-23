@@ -1168,6 +1168,7 @@ The pieces were measured with `MHFU_TRACE_SPRITES` in a quest's base camp and a 
 | `MHFU_DAMAGE_NUMBERS_SMOOTH` | on | `0` draws [damage numbers](#damage-numbers) where each game frame puts them, without following frame interpolation |
 | `MHFU_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
 | `MHFU_AIM_SPEED` | `90` | Degrees a second a bow or bowgun aims at full deflection, 10 to 360 (menu: Aim speed) |
+| `MHFU_AIM_PITCH_SHARE` | `0.34` | The share of Aim speed a bowgun's aim moves up and down at, above 0 and up to 4. The default is the game's own: its stick turns the pitch about a third as fast as the heading. `1` moves both at Aim speed, as before; a bow always does |
 | `MHFU_MOUSE` | on | `0` leaves the pointer alone: no capture, no mouse camera and no mouse buttons (menu: Mouse) |
 | `MHFU_MOUSE_SENSITIVITY` | `0.10` | Degrees of camera turn per count of mouse motion, 0.01 to 0.99 (menu: Mouse sensitivity) |
 | `MHFU_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Camera stick) |
