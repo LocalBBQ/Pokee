@@ -8580,6 +8580,15 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 if (traced.insert(line.str()).second) {
                     std::cout << "[hudscale] f=" << impl.frames << " " << line.str();
                     if (moved) std::cout << " -> (" << to.x0 << "," << to.y0 << ")-(" << to.x1 << "," << to.y1 << ")";
+                    // While aiming: the reticle sprites learned so far, which
+                    // only the map and bowgun pieces leave as drawn.
+                    const hud_scale::Frame &state = impl.hud_scale_frame;
+                    if (state.aiming) {
+                        std::cout << " aiming reticles=" << state.reticles;
+                        for (int i = 0; i < state.reticles; ++i)
+                            std::cout << " 0x" << std::hex << state.reticle[i].texture << std::dec << ":"
+                                      << state.reticle[i].width << "x" << state.reticle[i].height;
+                    }
                     std::cout << "\n";
                 }
             }
