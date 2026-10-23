@@ -2798,6 +2798,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     if (std::getenv("MHFU_INTERPOLATION_NO_MOTION_GUARD") != nullptr) impl.cut_thresholds.max_own_motion = 0.0f;
     if (std::getenv("MHFU_INTERPOLATION_NO_NEAREST_INSTANCES") != nullptr)
         impl.cut_thresholds.nearest_instances = false;
+    if (std::getenv("MHFU_INTERPOLATION_NO_FAR_SAMPLES") != nullptr) impl.cut_thresholds.drop_far_samples = false;
     impl.frame_rate = player.frame_rate;
     impl.governor.set_automatic(player.frame_rate_auto);
     const std::uint32_t window_scale = std::clamp<std::uint32_t>(player.window_scale, 1u, settings::kMaxWindowScale);
@@ -9613,13 +9614,14 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     }
     if (trace_frames || (trace_interpolation && matching.cut != nullptr && matching.eligible_newer != 0u) ||
         (trace_interpolation && matching.rejected >= 50u)) {
-        std::printf("[interp] frame %llu: eligible %u/%u matched %u camera %.2f deg %.2f units, rejected %u (%u "
-                    "shared, up to %.0f units, kept up to %.0f)%s%s%s\n",
+        std::printf("[interp] frame %llu: eligible %u/%u matched %u camera %.2f deg %.2f units from %u of %u "
+                    "samples, rejected %u (%u shared, up to %.0f units, kept up to %.0f)%s%s%s\n",
             static_cast<unsigned long long>(frames), matching.eligible_older, matching.eligible_newer, matching.matched,
             static_cast<double>(matching.camera_angle_degrees), static_cast<double>(matching.camera_distance),
-            matching.rejected, matching.rejected_shared, static_cast<double>(matching.max_rejected_motion),
-            static_cast<double>(matching.max_own_motion), matching.continued ? " (continued)" : "",
-            matching.cut != nullptr ? " cut: " : "", matching.cut != nullptr ? matching.cut : "");
+            matching.camera_kept, matching.camera_samples, matching.rejected, matching.rejected_shared,
+            static_cast<double>(matching.max_rejected_motion), static_cast<double>(matching.max_own_motion),
+            matching.continued ? " (continued)" : "", matching.cut != nullptr ? " cut: " : "",
+            matching.cut != nullptr ? matching.cut : "");
         std::fflush(stdout);
     }
 }

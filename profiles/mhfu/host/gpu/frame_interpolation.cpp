@@ -152,7 +152,13 @@ const Matching &Matcher::match(
     // room around them. The sample is the rigid scenery when enough of it
     // matched, and every matched draw otherwise (a close view of one
     // character, where the old median still applies). Up to 256 pairs,
-    // spread over that sample, are enough.
+    // spread over that sample, are enough. A pair whose eye moved farther
+    // than any camera move that is not a cut is left out of a sample of
+    // scenery while at least a third of it stays (CutThresholds::
+    // drop_far_samples): in the Old Jungle's waterfall area a monster in the
+    // water adds about 6,000 splash draws that share one transform, which
+    // jumps 2,000 units or more when the game moves their origin, and as
+    // half the sample they were often taken for the camera.
     struct Sample {
         float turn;
         Matrix motion;
@@ -179,6 +185,17 @@ const Matching &Matcher::match(
         identity[0] = identity[5] = identity[10] = identity[15] = 1.0f;
         samples.push_back({rotation_angle_degrees(identity, motion), motion});
     }
+    out.camera_samples = static_cast<std::uint32_t>(samples.size());
+    if (thresholds.drop_far_samples && rigid_only) {
+        const float limit = std::max(thresholds.max_camera_distance, thresholds.max_continuous_distance);
+        const auto near_end = std::partition(samples.begin(), samples.end(), [limit](const Sample &sample) {
+            const Matrix &m = sample.motion;
+            return m[12] * m[12] + m[13] * m[13] + m[14] * m[14] <= limit * limit;
+        });
+        const auto near = static_cast<std::size_t>(near_end - samples.begin());
+        if (near * 3u >= samples.size()) samples.erase(near_end, samples.end());
+    }
+    out.camera_kept = static_cast<std::uint32_t>(samples.size());
     if (!samples.empty()) {
         const auto middle = samples.begin() + static_cast<std::ptrdiff_t>(samples.size() / 2u);
         std::nth_element(
