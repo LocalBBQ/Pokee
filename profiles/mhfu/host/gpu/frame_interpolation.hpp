@@ -89,6 +89,9 @@ struct Matching {
     // The angle is its turn; the distance is how far the eye itself moved,
     // not how far distant scenery swings when the camera turns.
     bool camera_found{};
+    // Pairs sampled for it, and how many of them it was taken from.
+    std::uint32_t camera_samples{};
+    std::uint32_t camera_kept{};
     float camera_angle_degrees{};
     float camera_distance{};
     Matrix camera{};
@@ -134,6 +137,15 @@ struct CutThresholds {
     // A mesh with more instances than this in either frame keeps the pairing
     // in drawing order, which costs nothing.
     std::uint32_t max_nearest_instances{64u};
+    // Sampled scenery pairs that moved the eye farther than the larger of
+    // max_camera_distance and max_continuous_distance, a cut in any case,
+    // are not taken for the camera while at least a third of the sample
+    // moved less: a splash's particles that share one transform, which the
+    // game moves thousands of units at once. A real cut moves nearly all
+    // the scenery, so it stays a cut. A sample of every matched draw (too
+    // little scenery) is kept whole. False keeps every pair, as before
+    // (MHFU_INTERPOLATION_NO_FAR_SAMPLES).
+    bool drop_far_samples{true};
 };
 
 class Matcher {
