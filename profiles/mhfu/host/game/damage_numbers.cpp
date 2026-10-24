@@ -14,6 +14,7 @@
 #include <cstring>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <mutex>
 
 namespace mhfu::game {
@@ -187,28 +188,45 @@ void place_numbers(
     }
     for (Number &number : live) {
         if (number.object == 0u) continue;
-        const std::optional<WorldPoint> at = monster_position(*memory, number.object);
+        const std::optional<WorldPoint> at = hit_place(number, *memory, follow_enabled());
         if (!at) {
             number.placed = false;
             report_place(number, "the monster's position cannot be read", &*camera, nullptr, std::nullopt);
             continue;
         }
-        const std::optional<PicturePoint> picture =
-            project_world(*camera, at->x, at->y + kBodyHeight, at->z);
+        // A point of contact is the number's point itself; the feet are below
+        // the body point.
+        const float above = number.contact ? 0.0f : kBodyHeight;
+        const std::optional<PicturePoint> picture = project_world(*camera, at->x, at->y + above, at->z);
         if (!picture) {
             number.placed = false;
             report_place(number, "the point is behind the camera or off the picture", &*camera, &*at,
-                project_point(*camera, at->x, at->y + kBodyHeight, at->z));
+                project_point(*camera, at->x, at->y + above, at->z));
             continue;
         }
         number.x = picture->x;
         number.y = picture->y;
-        // How tall the body is on the picture, feet to the number's point;
-        // the feet may be off the picture when the camera is close.
-        const std::optional<PicturePoint> feet = project_point(*camera, at->x, at->y, at->z);
+        // How tall kBodyHeight is on the picture, below the number's point;
+        // that may be off the picture when the camera is close.
+        const std::optional<PicturePoint> feet =
+            project_point(*camera, at->x, at->y + above - kBodyHeight, at->z);
         number.body = feet ? std::fabs(feet->y - picture->y) : 0.0f;
         number.placed = true;
         report_place(number, "placed", &*camera, &*at, picture);
+        // MHFU_TRACE_HITS: whether the number stayed where it was put while
+        // the monster moved on.
+        if (hit_trace::enabled() && !number.fade_reported && number.age >= kNumberSeconds * kHoldShare) {
+            number.fade_reported = true;
+            const std::optional<WorldPoint> monster = monster_position(*memory, number.object);
+            char line[256];
+            std::snprintf(line, sizeof(line),
+                "[hit] number %d on %08X fades at %g %g %g (%s); picture %g %g; monster now %g %g %g",
+                number.amount, number.object, static_cast<double>(at->x), static_cast<double>(at->y),
+                static_cast<double>(at->z), number.contact ? "contact" : "body", static_cast<double>(picture->x),
+                static_cast<double>(picture->y), monster ? static_cast<double>(monster->x) : 0.0,
+                monster ? static_cast<double>(monster->y) : 0.0, monster ? static_cast<double>(monster->z) : 0.0);
+            std::cout << line << std::endl;
+        }
     }
 }
 
@@ -229,6 +247,9 @@ void pre_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::
     if (!health) return;
     std::lock_guard lock(numbers_mutex());
     watch_hit_enter(open_hits(), target_pc, native_depth, object, *health);
+    // Where it landed is looked for at the return, and only when health fell:
+    // the monster's own update calls the routine every frame.
+    open_hits().back().record = ctx.gpr[5];
 }
 
 void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::uint32_t target_pc,
@@ -290,11 +311,42 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
             break;
         }
     }
+    std::uint32_t record = 0u;
+    for (auto it = open_hits().rbegin(); it != open_hits().rend(); ++it) {
+        if (it->depth != native_depth) continue;
+        record = it->record;
+        break;
+    }
     // The routine also takes health off a hunter the monster hits.
     if (std::optional<Number> number =
             watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size()))) {
         const bool hunter = is_hunter(runtime.memory(), number->object);
-        trace_damage("routine", number->object, number->amount, sample, hunter ? " hunter, not shown" : "");
+        // The caller's frame, and the record in it, are still there.
+        if (!hunter && !number->contact && contact_enabled()) {
+            const char *rule = nullptr;
+            if (const std::optional<WorldPoint> contact = hit_contact(
+                    runtime.memory(), number->object, hit_attacker(runtime.memory(), record), &rule)) {
+                number->at = *contact;
+                number->anchored = true;
+                number->contact = true;
+                number->rule = rule;
+            }
+        }
+        char note[160] = "";
+        if (hunter) {
+            std::snprintf(note, sizeof(note), " hunter, not shown");
+        } else if (hit_trace::enabled()) {
+            const std::optional<WorldPoint> monster = monster_position(runtime.memory(), number->object);
+            if (number->contact && monster)
+                std::snprintf(note, sizeof(note), " %s contact %g %g %g, %g from the monster's position",
+                    number->rule != nullptr ? number->rule : "?", static_cast<double>(number->at.x), static_cast<double>(number->at.y),
+                    static_cast<double>(number->at.z),
+                    static_cast<double>(std::hypot(number->at.x - monster->x, number->at.y - monster->y,
+                        number->at.z - monster->z)));
+            else
+                std::snprintf(note, sizeof(note), " no contact point, on the body");
+        }
+        trace_damage("routine", number->object, number->amount, sample, note);
         if (!hunter) remember_number(live_numbers(), *number);
     }
 }
@@ -422,14 +474,16 @@ Anchor number_anchor(const Number &number) noexcept {
     Anchor anchor;
     if (!number.placed) return anchor;
     const float life = number.age / kNumberSeconds;
+    // 0 while it holds, then 0..1 over the fade.
+    const float exit = std::clamp((life - kHoldShare) / (1.0f - kHoldShare), 0.0f, 1.0f);
+    const float lift = 1.0f - (1.0f - exit) * (1.0f - exit);
     // On the hit's point, never beside it: later hits sit above the earlier
-    // ones, and the whole rises a little. Up close, smaller, so the number
-    // keeps to the point rather than spreading over the body.
+    // ones. Up close, smaller, so the number keeps to the point rather than
+    // spreading over the body.
     anchor.scale = closeness_scale(number.body);
     anchor.x = number.x;
-    anchor.y = number.y - (life * kRise + static_cast<float>(number.lane) * kStack) * anchor.scale;
-    anchor.alpha = life < 0.70f ? 1.0f : (1.0f - life) / 0.30f;
-    if (anchor.alpha < 0.0f) anchor.alpha = 0.0f;
+    anchor.y = number.y - (lift * kRise + static_cast<float>(number.lane) * kStack) * anchor.scale;
+    anchor.alpha = 1.0f - exit;
     return anchor;
 }
 
@@ -536,6 +590,172 @@ std::optional<WorldPoint> monster_position(const psprecomp::GuestMemory &memory,
     return point;
 }
 
+bool parse_follow(const char *text) noexcept {
+    return text != nullptr && std::strcmp(text, "1") == 0;
+}
+
+bool follow_enabled() noexcept {
+    static const bool on = parse_follow(std::getenv("MHFU_DAMAGE_NUMBERS_FOLLOW"));
+    return on;
+}
+
+std::optional<WorldPoint> hit_place(Number &number, const psprecomp::GuestMemory &memory, bool follow) {
+    if (number.anchored && !follow) return number.at;
+    const std::optional<WorldPoint> now = monster_position(memory, number.object);
+    if (!now) return std::nullopt;
+    number.at = *now;
+    number.anchored = true;
+    number.contact = false;
+    return now;
+}
+
+bool parse_contact(const char *text) noexcept {
+    return text == nullptr || std::strcmp(text, "0") != 0;
+}
+
+bool contact_enabled() noexcept {
+    static const bool on = parse_contact(std::getenv("MHFU_DAMAGE_NUMBERS_CONTACT"));
+    return on;
+}
+
+std::vector<WorldPoint> entity_bones(const psprecomp::GuestMemory &memory, std::uint32_t entity) {
+    std::vector<WorldPoint> bones;
+    if (!layout::in_ram(entity) || !memory.contains(entity + kFirstBone, 4u)) return bones;
+    const std::uint32_t first = memory.load32(entity + kFirstBone);
+    if (!layout::in_ram(first) || (first & 3u) != 0u || !memory.contains(first, 4u)) return bones;
+    const std::uint32_t kind = memory.load32(first);
+    for (std::uint32_t node = first; bones.size() < kMaxBones; node += kBoneStride) {
+        if (!layout::in_ram(node) || !memory.contains(node, kBonePlace + 12u) || memory.load32(node) != kind) break;
+        WorldPoint point{std::bit_cast<float>(memory.load32(node + kBonePlace)),
+            std::bit_cast<float>(memory.load32(node + kBonePlace + 4u)),
+            std::bit_cast<float>(memory.load32(node + kBonePlace + 8u))};
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) break;
+        bones.push_back(point);
+    }
+    return bones;
+}
+
+std::uint32_t hit_attacker(const psprecomp::GuestMemory &memory, std::uint32_t record) {
+    if (!layout::in_ram(record) || !memory.contains(record + kAttackerPlace, 12u)) return 0u;
+    const float x = std::bit_cast<float>(memory.load32(record + kAttackerPlace));
+    const float y = std::bit_cast<float>(memory.load32(record + kAttackerPlace + 4u));
+    const float z = std::bit_cast<float>(memory.load32(record + kAttackerPlace + 8u));
+    std::uint32_t attacker = 0u;
+    for (const ListEntry &entry : quest_entries(memory)) {
+        if (attacker != 0u || entry.kind != layout::kPlayerNode) continue;
+        const std::optional<WorldPoint> at = monster_position(memory, entry.entity);
+        if (at && std::fabs(at->x - x) < 1.0f && std::fabs(at->y - y) < 1.0f && std::fabs(at->z - z) < 1.0f)
+            attacker = entry.entity;
+    }
+    return attacker;
+}
+
+std::optional<WorldPoint> struck_by_shot(
+    const psprecomp::GuestMemory &memory, std::uint32_t monster, std::uint32_t attacker) {
+    if (!layout::in_ram(monster) || !memory.contains(monster + kLastStrike, 4u)) return std::nullopt;
+    const std::uint32_t shot = memory.load32(monster + kLastStrike);
+    if (!layout::in_ram(shot) || (shot & 3u) != 0u || !memory.contains(shot, kShotTarget + 4u)) return std::nullopt;
+    if (memory.load32(shot + kShotTarget) != monster) return std::nullopt;
+    const std::uint32_t kind = memory.load32(shot);
+    if (kind != kShotClass && kind != kArrowClass) {
+        // MHFU_TRACE_HITS: something else that struck it, to learn its kind.
+        if (hit_trace::enabled() && layout::in_ram(memory.load32(shot + kShotOwner))) {
+            static std::uint32_t reported = 0u;
+            if (reported != kind) {
+                reported = kind;
+                char line[128];
+                std::snprintf(line, sizeof(line), "[hit] %08X was struck by %08X, class %08X, not a known shot",
+                    monster, shot, kind);
+                std::cout << line << std::endl;
+            }
+        }
+        return std::nullopt;
+    }
+    if (attacker != 0u && memory.load32(shot + kShotOwner) != attacker) return std::nullopt;
+    const WorldPoint point{std::bit_cast<float>(memory.load32(shot + kShotPlace)),
+        std::bit_cast<float>(memory.load32(shot + kShotPlace + 4u)),
+        std::bit_cast<float>(memory.load32(shot + kShotPlace + 8u))};
+    if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) return std::nullopt;
+    return point;
+}
+
+std::vector<WorldPoint> shot_path(const psprecomp::GuestMemory &memory) {
+    std::vector<WorldPoint> path;
+    if (!layout::quest_running(memory)) return path;
+    const std::uint32_t manager = layout::entity_manager(memory);
+    if (manager == 0u || !memory.contains(manager + kShotPath, 4u)) return path;
+    const std::uint32_t first = memory.load32(manager + kShotPath);
+    if (!layout::in_ram(first) || (first & 3u) != 0u || !memory.contains(first, 4u)) return path;
+    const std::uint32_t kind = memory.load32(first);
+    for (std::uint32_t n = 0; n < kMaxPathPoints; ++n) {
+        const std::uint32_t node = first + n * kBoneStride;
+        if (!layout::in_ram(node) || !memory.contains(node, kPathPlace + 12u) || memory.load32(node) != kind) break;
+        const WorldPoint point{std::bit_cast<float>(memory.load32(node + kPathPlace)),
+            std::bit_cast<float>(memory.load32(node + kPathPlace + 4u)),
+            std::bit_cast<float>(memory.load32(node + kPathPlace + 8u))};
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) break;
+        if (point.x == 0.0f && point.y == 0.0f && point.z == 0.0f) continue;
+        path.push_back(point);
+    }
+    return path;
+}
+
+std::optional<WorldPoint> path_contact(const std::vector<WorldPoint> &path, const std::vector<WorldPoint> &bones) {
+    std::optional<WorldPoint> nearest;
+    float best = kPathReach;
+    for (std::size_t i = 0; i + 1u < path.size(); ++i) {
+        const WorldPoint &a = path[i];
+        const WorldPoint &b = path[i + 1u];
+        const float dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const float length = dx * dx + dy * dy + dz * dz;
+        for (const WorldPoint &bone : bones) {
+            float t = length > 0.0f ? ((bone.x - a.x) * dx + (bone.y - a.y) * dy + (bone.z - a.z) * dz) / length : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
+            const WorldPoint on{a.x + dx * t, a.y + dy * t, a.z + dz * t};
+            const float distance = std::hypot(bone.x - on.x, bone.y - on.y, bone.z - on.z);
+            if (distance <= best) {
+                best = distance;
+                nearest = on;
+            }
+        }
+    }
+    return nearest;
+}
+
+std::optional<WorldPoint> hit_contact(const psprecomp::GuestMemory &memory, std::uint32_t monster,
+    std::uint32_t attacker, const char **rule) {
+    if (const std::optional<WorldPoint> shot = struck_by_shot(memory, monster, attacker)) {
+        if (rule != nullptr) *rule = "shot";
+        return shot;
+    }
+    if (attacker == 0u || attacker == monster) return std::nullopt;
+    // A shot from this hunter: its path starts at the bow.
+    if (const std::vector<WorldPoint> path = shot_path(memory); path.size() >= 2u)
+        if (const std::optional<WorldPoint> at = monster_position(memory, attacker);
+            at && std::hypot(path.front().x - at->x, path.front().y - at->y, path.front().z - at->z) <= kPathStart)
+            if (const std::optional<WorldPoint> passed = path_contact(path, entity_bones(memory, monster))) {
+                if (rule != nullptr) *rule = "path";
+                return passed;
+            }
+    const std::vector<WorldPoint> hand_bones = entity_bones(memory, attacker);
+    if (hand_bones.size() <= kHandBone) return std::nullopt;
+    const WorldPoint hand = hand_bones[kHandBone];
+    std::optional<WorldPoint> nearest;
+    float best = std::numeric_limits<float>::infinity();
+    for (const WorldPoint &bone : entity_bones(memory, monster)) {
+        const float distance = std::hypot(bone.x - hand.x, bone.y - hand.y, bone.z - hand.z);
+        if (distance <= best) {
+            best = distance;
+            nearest = bone;
+        }
+    }
+    // Out of reach of every bone, as on a monster whose bones lie far apart
+    // (Lao-Shan Lung's legs): the part facing the attacker still beats the
+    // body point, which on such a monster can be far off or off the picture.
+    if (nearest && rule != nullptr) *rule = best <= kContactReach ? "hand" : "nearest";
+    return nearest;
+}
+
 bool camera_centred(const WorldCamera &camera) noexcept {
     constexpr float kNoTranslation = 1.0e-3f;
     return std::fabs(camera.view[12]) < kNoTranslation && std::fabs(camera.view[13]) < kNoTranslation &&
@@ -572,9 +792,9 @@ void remember_number(std::vector<Number> &live, Number number) {
 }
 
 void watch_hit_enter(std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t depth, std::uint32_t object,
-    int health) {
+    int health, const std::optional<WorldPoint> &contact, const char *rule) {
     if (pc != kHitAdjust) return;
-    open.push_back(OpenHit{depth, object, health});
+    open.push_back(OpenHit{depth, object, health, contact, rule});
 }
 
 std::optional<std::uint32_t> open_object(const std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t depth) {
@@ -591,6 +811,8 @@ std::optional<Number> watch_hit_leave(
         if (it->depth != depth) continue;
         const int before = it->health;
         const std::uint32_t object = it->object;
+        const std::optional<WorldPoint> contact = it->contact;
+        const char *rule = it->rule;
         open.erase(std::next(it).base());
         const std::optional<int> amount = damage_shown(before, health);
         if (!amount) return std::nullopt;
@@ -598,6 +820,12 @@ std::optional<Number> watch_hit_leave(
         // a later read of the part supplies grade_hit.
         Number number = make_number(*amount, Grade{}, lane);
         number.object = object;
+        if (contact) {
+            number.at = *contact;
+            number.anchored = true;
+            number.contact = true;
+            number.rule = rule;
+        }
         return number;
     }
     return std::nullopt;
