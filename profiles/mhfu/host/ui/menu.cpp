@@ -4,6 +4,7 @@
 
 #include "ui/ui.hpp"
 
+#include "camera/field_of_view.hpp"
 #include "camera/hunt_icon.hpp"
 
 #include "ui/bindings_editor.hpp"
@@ -394,6 +395,22 @@ void Menu::video() {
             settings::save();
         }
     }
+    {
+        RowOptions o = options_for("video.field_of_view",
+            "How much of the world the game's 3D view takes in on a hunt, from top to bottom. 50 is the game's own "
+            "view; views the game makes wider or narrower during a quest, such as a bowgun's zoom, change in "
+            "proportion. The village and the Guild Hall keep the game's view.");
+        if (!camera::field_of_view_available()) {
+            o.disabled = true;
+            o.note = "Not with this game's code";
+        }
+        int degrees = static_cast<int>(s.field_of_view);
+        if (slider_row("Field of view", degrees, static_cast<int>(settings::kMinFieldOfView),
+                static_cast<int>(settings::kMaxFieldOfView), 1, "%d deg", o)) {
+            s.field_of_view = static_cast<std::uint32_t>(degrees);
+            settings::save();
+        }
+    }
     if (choice_row("Scaling filter", s.sharp_screen ? "Sharp" : "Smooth",
             options_for("video.sharp_screen",
                 "How the finished picture is scaled to the window: smooth "
@@ -634,6 +651,7 @@ void Menu::video() {
         restore("video.fullscreen", s.fullscreen, d.fullscreen);
         restore("video.window_scale", s.window_scale, d.window_scale);
         restore("video.aspect", s.aspect, d.aspect);
+        restore("video.field_of_view", s.field_of_view, d.field_of_view);
         restore("video.sharp_screen", s.sharp_screen, d.sharp_screen);
         restore("video.sharp_textures", s.sharp_textures, d.sharp_textures);
         restore("video.ui_textures", s.ui_textures, d.ui_textures);

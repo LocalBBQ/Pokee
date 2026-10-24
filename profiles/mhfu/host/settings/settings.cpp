@@ -227,6 +227,15 @@ const std::vector<Field> &fields() {
             [](const Settings &s) { return std::string(s.aspect == Aspect::Stretch ? "0" : "1"); }, nullptr},
         {"video.aspect", nullptr, [](Settings &s, const std::string &t) { return kAspects.parse(t, s.aspect); },
             [](const Settings &s) { return kAspects.format(s.aspect); }, nullptr},
+        {"video.field_of_view", "MHFU_FIELD_OF_VIEW",
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinFieldOfView, kMaxFieldOfView, s.field_of_view);
+            },
+            [](const Settings &s) { return std::to_string(s.field_of_view); },
+            [](Settings &s, const char *t) {
+                std::uint32_t value = s.field_of_view;
+                if (parse_uint(t, kMinFieldOfView, kMaxFieldOfView, value)) s.field_of_view = value;
+            }},
         BOOL_FIELD("video.sharp_screen", sharp_screen),
         BOOL_FIELD("video.sharp_textures", sharp_textures),
         {"video.texture_pack", "MHFU_TEXTURE_PACK",
