@@ -416,6 +416,7 @@ The Android app starts from other defaults where a phone differs, with the same 
 | Video | Display | `video.fullscreen` | | Window or fullscreen |
 | Video | Window size | `video.window_scale` | | ×1–×4 of 480×272; default ×2 |
 | Video | Aspect ratio | `video.aspect` | | `original` (the PSP's shape, black bars; the default), `stretch` (stretched to the window) or `fill` (the game's view takes the window's shape). Older versions wrote `video.keep_aspect`, which is still read and written |
+| Video | Field of view | `video.field_of_view` | `MHFU_FIELD_OF_VIEW` | 30–90 vertical degrees on a hunt; default 50, the game's own. The village and the Guild Hall keep the game's view |
 | Video | Scaling filter | `video.sharp_screen` | | Smooth or sharp scaling of the finished picture to the window |
 | Video | Texture filter | `video.sharp_textures` | | Smooth (bilinear) or sharp (nearest) texture sampling |
 | Video | Texture pack | `video.texture_pack` | `MHFU_TEXTURE_PACK` | On (default) or off: draw an installed [HD texture pack](#hd-texture-packs) instead of the game's textures. The footer shows how many textures the pack has and how many are on the GPU, or where the pack was looked for |
@@ -943,6 +944,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHFU_FAST_LOADING` | on | `0` keeps loads at the PSP's pace (menu: Fast loading). See [Fast loading](#fast-loading) |
 | `MHFU_FAST_FORWARD` | `hold` | `toggle` makes the Fast-forward key a switch; `off` (or `0`) makes it do nothing (menu: Fast-forward). See [Fast-forward](#fast-forward) |
 | `MHFU_FAST_FORWARD_SPEED` | `3` | Times real time while fast-forwarding, 2 to 8 (menu: Fast-forward speed) |
+| `MHFU_FIELD_OF_VIEW` | `50` | Vertical degrees of the 3D view on a hunt, 30 to 90 (menu: Field of view). See [Field of view](#field-of-view) |
 | `MHFU_FRAME_RATE` | `30` | `45`, `60`, `90`, `120` or `display`: present frames in between the game's 30 (menu: Frame rate). See [Frame rate](#frame-rate) |
 | `MHFU_FRAME_RATE_AUTO` | on | `0` keeps the chosen frame rate even when the game falls behind (menu: Lower when behind) |
 | `MHFU_NO_MATERIAL_COLOR` | off | Leave unlit geometry without vertex colours white instead of taking the material colour |
@@ -1024,6 +1026,12 @@ Phones with MediaTek Helio chips and older Mali or PowerVR drivers showed a blac
 **Resolution** Auto draws the game at the window's size in pixels (HiDPI included, at most 1632 lines) and follows the window: resizing it, fullscreen on or off, a move to another display. A new size is taken once the window has held it for a moment, so dragging an edge does not rebuild the picture on every frame. Under Original and Stretch, Auto picks the smallest multiple of 480×272 that covers the picture. ×1–×6 draw 272 lines per step; under Fill the width follows the window's shape.
 
 Every change applies at the next frame; Original with a fixed resolution is exactly the picture of earlier versions.
+
+### Field of view
+
+**Field of view** (Video) sets how much of the world the 3D view takes in on a hunt, in vertical degrees from 30 to 90. 50 is the game's own view and changes nothing. Views the game itself makes wider or narrower during a quest, such as a bowgun's zoom, change in the same proportion, and the game's own easing between them is kept. The village and the Guild Hall always keep the game's view. Under *Fill* the horizontal view widens with the window as before, from this vertical one.
+
+The game decides what to draw from the same field of view, so the edges of a wider view are not left empty. Lock-on's choice of which monster is on screen still assumes the game's 50 degrees.
 
 On a phone with a display cutout (a camera notch or hole), the window covers the whole screen, the cutout's edge included, and the picture is always centred. It takes the whole screen when the game's 2D interface stays clear of the cutout there: under Fill and Original, whose interface keeps the PSP's shape in the middle, that is the case on most phones (at 20:9 the interface leaves a tenth of the width free on each side, more than a cutout takes). Otherwise (Stretch, or a narrower screen) the picture leaves the cutout's depth free on both sides, so it is letterboxed evenly and the interface stays clear. The touch controls and the performance overlay keep clear of the cutout on its own side. Each swapchain the Android app makes logs a `[render] layout` line with the window, surface and swapchain sizes, the transform, the cutout, SDL's safe area and where the picture goes, which is what to look for in a player's log when the picture is out of place.
 
@@ -1302,6 +1310,7 @@ The marker does not project through the view a draw uploaded. That view has no t
 | `MHFU_TRACE_SHARPNESS=1` | One `[sharpness]` line whenever the [modern sharpness gauge](#modern-sharpness-gauge)'s reading changes: the points and the most, the colour as the gauge finds it and the game's own colour byte (+1522), the colour's start and end, and how full it is. Works with the setting off |
 | `MHFU_TRACE_VIEWS=N` | Every N game frames, one line per distinct view and projection the frame's transformed draws used: how many draws and vertices, the eye position, yaw and pitch, the matrices and the render targets |
 | `MHFU_TRACE_CAMERA=1` | One line per frame for the camera the game itself set: the second stick's offset from centre, the yaw and pitch read out of the frame's busiest view matrix, the turn since the previous frame, the view's up axis (a negative second number is an upside-down picture), and the camera's world position. Reads the game's own camera, so it tells a stepped turn from a continuous one |
+| `MHFU_TRACE_FOV=1` | One line whenever the camera's field of view, the one its projection was built with or the one its preset asks for changes, in radians, with the camera's address and the scale *Field of view* applies |
 | `MHFU_TRACE_WHITE_TEXTURES=1` | Each texture the decoder cannot decode, once, with its address, size, format, swizzle and palette: those draws are made with a white texture instead, so this is the first thing to check when something draws white |
 | `MHFU_TRACE_FB_TEXTURES=1` | Each distinct texture that lies in a framebuffer the renderer drew (with both layouts), each large texture, `sceDmacMemcpy` copies into or out of VRAM, GE block transfers, new render targets, and the GE commands the renderer ignores. Add `PSPRECOMP_TRACE_VRAM_READS=1` to log game code reading VRAM with the CPU, per 64 KiB block and at most once a second |
 | `MHFU_TRACE_SPRITES=N` | Every through-mode draw of presented frame N: sprites one by one, other primitives by their bounds, with positions, depth, texture coordinates and texture state, the address of the draw's PRIM command (`at=`), where the list's innermost CALL returns (`ret=`) and where its vertices are. `N/K` traces frame N and every Kth frame after it |
