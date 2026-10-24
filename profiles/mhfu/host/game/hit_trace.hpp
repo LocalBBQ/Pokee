@@ -81,6 +81,36 @@ struct Frame {
 // Empty outside a quest.
 [[nodiscard]] std::string players_line(const psprecomp::GuestMemory &memory);
 
+// Where the hit landed is not in the routine's arguments: a1's record holds
+// the attacking hunter's own position at +0x14 (traced on a first quest, the
+// same three floats as the hunter's +0x200). So every point that could be it
+// is listed: three floats in a row that lie within kCandidateReach of the
+// monster across the ground, between kCandidateLowest and kCandidateReach
+// above its feet, and that are not a hunter's position. They are looked for
+// in the callers' stack frames, in the records the stack and the saved
+// registers point at, and in the monster itself. The one whose place changes
+// with the part struck (the head, then the tail) is the point of contact.
+inline constexpr float kCandidateReach = 1500.0f;
+inline constexpr float kCandidateLowest = 5.0f;
+inline constexpr std::uint32_t kCandidateStack = 0x400u;
+inline constexpr std::uint32_t kCandidateRecord = 0x200u;
+inline constexpr std::uint32_t kCandidateMonster = 0x1000u;
+inline constexpr std::size_t kMaxCandidates = 48u;
+struct Candidate {
+    const char *source{}; // "stack", "record", "saved" or "monster"
+    std::uint32_t base{};
+    std::uint32_t offset{};
+    float x{};
+    float y{};
+    float z{};
+    float across{}; // from the monster's position, over the ground
+    float height{}; // above it
+};
+[[nodiscard]] std::vector<Candidate> contact_candidates(
+    const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx);
+// One "[hit]   near" line, or empty when there are none.
+[[nodiscard]] std::string candidates_line(const std::vector<Candidate> &candidates);
+
 // The registers at the call: the arguments, the saved registers, ra, sp,
 // the float arguments and the monster's health.
 [[nodiscard]] std::string call_line(
