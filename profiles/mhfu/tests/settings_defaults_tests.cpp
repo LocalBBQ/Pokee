@@ -2790,6 +2790,24 @@ void test_menu_over_the_party_list() {
     menu.begin();
     draw(menu, 8.0f, 8.0f, 60.0f, 56.0f, kAtlas);
     check(!draw(menu, 112.0f, 58.0f, 124.0f, 72.0f, 0x09187000u), "after the menu, a buff takes Status again");
+
+    // A quest NPC's dialogue has the same corner at (8, 88), below the
+    // hunter's own row: that row keeps Status, the window's rows do not.
+    Frame talk;
+    draw(talk, 8.0f, 8.0f, 60.0f, 56.0f, kAtlas);
+    check(draw(talk, 8.0f, 88.0f, 24.0f, 96.0f, kAtlas), "the dialogue's corner stays");
+    check(!draw(talk, 116.0f, 56.0f, 128.0f, 72.0f, kAtlas), "a buff on the hunter's row takes Status");
+    check(!draw(talk, 116.0f, 76.0f, 128.0f, 92.0f, kAtlas), "a buff on the cat's row takes Status");
+    check(!draw(talk, 26.0f, 78.0f, 33.0f, 92.0f, kFont), "the cat's name over the dialogue takes Status");
+    check(draw(talk, 16.0f, 96.0f, 23.0f, 110.0f, kFont), "a letter in the dialogue stays");
+    check(draw(talk, 16.0f, 81.0f, 23.0f, 95.0f, kFont), "a letter centred under the corner stays");
+    talk.begin();
+    draw(talk, 8.0f, 8.0f, 60.0f, 56.0f, kAtlas);
+    check(!draw(talk, 116.0f, 56.0f, 128.0f, 72.0f, kAtlas), "before the corner, the hunter's row takes Status");
+    check(!draw(talk, 26.0f, 78.0f, 33.0f, 92.0f, kFont), "before the corner, the cat's name takes Status");
+    // A menu's corner higher up in the same frames covers every row again.
+    draw(talk, 12.0f, 40.0f, 28.0f, 48.0f, kAtlas);
+    check(draw(talk, 116.0f, 56.0f, 128.0f, 72.0f, kAtlas), "with a menu's corner, the hunter's row stays");
 }
 
 int main() {
