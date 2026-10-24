@@ -860,9 +860,20 @@ inline constexpr float kPlateEndLeft = 96.0f;
 // Status in that band: the plates and their tiles, the weapon badges, a
 // teammate's health line and the names' own letters. The clock is above the
 // band. Everything else there is the window's.
-[[nodiscard]] inline bool covered_by_party_window(Rect rect) {
+//
+// `top` is the highest of those corners this frame. A menu's is at y 40, over
+// every row. A quest NPC's dialogue is the same frame at (8, 88)-(184, 264),
+// traced with MHFU_TRACE_HUD_SCALE=all and MHFU_TRACE_CAPTURE while a man in
+// the Jungle talks: its corner is below the hunter's own row, and the buff at
+// (116, 56)-(128, 72) on that row was left at the game's place while the
+// plate it belongs to shrank. The cat's name, (26, 78)-(47, 92) on the second
+// plate, ends four pixels into the corner; its letters are 7 wide, not the
+// name grid's 8, and they were left too. A piece is the window's only when
+// its middle is below that corner.
+[[nodiscard]] inline bool covered_by_party_window(Rect rect, float top = 36.0f) {
     const Rect r = normalized(rect);
     if (contains({kClockLeft, kClockTop, kClockRight, kClockBottom}, r)) return false;
+    if (0.5f * (r.y0 + r.y1) < top) return false;
     if (!overlaps({0.0f, 36.0f, kPartyRight, kPartyBottom + 24.0f}, r)) return false;
     if (is_hunter_badge(r) || is_party_health_bar(r) || is_party_letter(r)) return false;
     // A plate tile stays with its plate; a letter on a plate that is not on
@@ -1227,9 +1238,11 @@ struct Frame {
     bool panel_now{};
     bool panel_live{};
     // A menu's window over the party list (is_party_window_tile), this frame
-    // or the one before.
+    // or the one before, and the highest of its corners (party_window_top).
     bool party_window_now{};
     bool party_window_live{};
+    float party_window_top_now{};
+    float party_window_top_live{};
     // The notice's 8-tall border tiles seen this frame, and whether two of
     // them are the top and bottom of that border (24 pixels apart). A tile
     // at the ammo menu's corner row is that menu only when it has no partner.
@@ -1592,6 +1605,7 @@ struct Frame {
         list_live = list_now;
         panel_live = panel_now;
         party_window_live = party_window_now;
+        party_window_top_live = party_window_top_now;
         map_now = vital_now = bar_now = sharp_now = spirit_now = bowgun_now = list_now = ammo_menu_now =
             travelling_now = obtain_banner_now = panel_now = party_window_now = false;
         map_rect = {};
@@ -1862,7 +1876,18 @@ struct Frame {
         // list's own shape; taken for the list, it held the map as drawn.
         if (is_item_list(rect) && !is_map_ring(rect, texture)) list_now = true;
         if (is_map_panel(rect, texture)) panel_now = true;
-        if (is_party_window_tile(rect)) party_window_now = true;
+        if (is_party_window_tile(rect)) {
+            const float top = normalized(rect).y0;
+            party_window_top_now = party_window_now ? std::min(party_window_top_now, top) : top;
+            party_window_now = true;
+        }
+    }
+
+    // The highest corner of a menu's window over the party list, this frame
+    // or the one before. Only meaningful while one is up.
+    [[nodiscard]] float party_window_top() const {
+        if (party_window_now && party_window_live) return std::min(party_window_top_now, party_window_top_live);
+        return party_window_now ? party_window_top_now : party_window_top_live;
     }
 
     // A window over the map, now or in the frame before.
@@ -1921,7 +1946,8 @@ struct Frame {
                 overlaps(map_now ? map_rect : map_rect_live, rect);
         // A menu over the party list keeps every piece of its own there.
         case Piece::Vitals:
-            return status_up() && !((party_window_now || party_window_live) && covered_by_party_window(rect));
+            return status_up() &&
+                !((party_window_now || party_window_live) && covered_by_party_window(rect, party_window_top()));
         // The item list shares the bar's corner, and its right column shares
         // the bowgun slot. Neither is scaled while that list is on screen.
         // The quest item bar is on screen with the clock. A shop draws panels
