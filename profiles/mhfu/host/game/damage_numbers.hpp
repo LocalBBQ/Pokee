@@ -19,18 +19,60 @@
 // The number is drawn on the monster. Its position is the three floats at
 // +0x200, the same field lock-on reads, a little above the feet. The frame's
 // 3D view and projection, the ones the world was drawn with, put that point
-// on the picture. A hit with no place on screen is not drawn. The hit routine
-// does not carry the point of contact, so this body point is the nearest
-// place known; the number stays on it and does not step aside. Several hits
-// stack upward from it. The closer the camera, the taller the monster on the
-// picture and the smaller the number is drawn, so it keeps to that point
-// rather than spreading over the body.
+// on the picture. A hit with no place on screen is not drawn.
+//
+// Where the hit landed: the game keeps no point of contact. The routine runs
+// in the monster's own update, after the collision, and its a1 record holds
+// the attacking hunter's position at +0x14 (MHFU_TRACE_HITS). What it does
+// keep is every entity's skeleton in world space: +0x190 points at the first
+// of a row of bone nodes kBoneStride apart, each with its world position at
+// kBonePlace, and they continue while a node starts with the first one's
+// class word. Traced on a first quest (MHFU_TRACE_HITS_RAM, eight hits, head
+// then tail): the monster's bone nearest the attacker's bone kHandBone, the
+// weapon hand, was on the head's chain for each head hit and on the tail's
+// for each tail hit, 40 to 115 apart. So the number is drawn on that bone.
+// The attacker is the hunter standing where the record says.
+//
+// A bowgun's shot or a bow's arrow is an object of its own (class word
+// kShotClass or kArrowClass; an arrow on Tigrex, eleven hits) with its
+// world position at +kShotPlace and what it struck at +kShotTarget, and the
+// monster keeps the object that last struck it at +kLastStrike. Traced with
+// a bowgun (nine hits): on every hit that field named a shot whose target was
+// the monster and whose position was 23 to 122 from one of its bones, also
+// when two shots had struck. So that shot, when the monster names one, is
+// where the number goes; this is asked first. The shooter is at +kShotOwner,
+// and a shot stays named after it is spent, so when the hit's attacker is
+// known the shot must be theirs: an earlier shot from a teammate's bowgun is
+// not where a sword just struck.
+//
+// A bow's arrow strikes far from the hand. Its flight path is a row of the
+// same bone nodes, from the entity manager at +kShotPath, each node's world
+// point at +kPathPlace; the first points that are not the origin start at
+// the bow. Traced with the bow on Daimyo Hermitaur (twelve hits, shell,
+// claws, legs): the path passed within 25 to 118 of a monster bone on every
+// hit. So a path that starts within kPathStart of the attacker and passes
+// within kPathReach of a bone puts the number where it passes that bone,
+// before the hand is asked. A hit with no such hunter, skeleton or path, and
+// a hit written from the network, uses the body point.
+// MHFU_DAMAGE_NUMBERS_CONTACT=0 always uses the body point.
+//
+// The point is read once, when the hit lands or the number is first placed,
+// and the number stays at that place in the world: the monster walks on
+// without it, and only the camera moves it on the picture.
+// MHFU_DAMAGE_NUMBERS_FOLLOW=1 reads the body point every frame again, so the
+// number rides the monster as before. Several hits stack upward from the
+// point and do not step aside. The closer the camera, the taller the monster
+// on the picture and the smaller the number is drawn, so it keeps to that
+// point rather than spreading over the body.
+//
+// A number holds still for the first kHoldShare of its time, then fades out
+// as it rises kRise, quickly at first and slowing at the end.
 //
 // With frame interpolation the interface is built once per game frame, over
 // the newer of the two frames a present blends. Each number keeps its place
 // and age from the game frame before, and the interface moves it from there
 // towards this frame's place by each present's weight (gpu/ui_motion.hpp),
-// so it rides the monster and rises smoothly instead of stepping 30 times a
+// so it follows the camera and rises smoothly instead of stepping 30 times a
 // second. MHFU_DAMAGE_NUMBERS_SMOOTH=0 draws it where each game frame puts it.
 //
 // In ad hoc play the hit routine runs only on the console that applies the
@@ -62,12 +104,36 @@ inline constexpr std::uint32_t kMonsterHealth = layout::kHealth;
 inline constexpr std::uint32_t kMonsterPosition = layout::kPosition;
 // Above the feet, where a number sits on the body.
 inline constexpr float kBodyHeight = 100.0f;
+// The skeleton (see above), the attacker's position in the hit's record, and
+// how far from the hand the struck bone may be.
+inline constexpr std::uint32_t kFirstBone = 0x190u;
+inline constexpr std::uint32_t kBoneStride = 0x250u;
+inline constexpr std::uint32_t kBonePlace = 0x100u;
+inline constexpr std::size_t kMaxBones = 128u;
+inline constexpr std::size_t kHandBone = 14u;
+inline constexpr std::uint32_t kAttackerPlace = 0x14u;
+inline constexpr float kContactReach = 400.0f;
+// The shot that last struck a monster (see above).
+inline constexpr std::uint32_t kLastStrike = 0x2F0u;
+inline constexpr std::uint32_t kShotClass = 0x089BD4C0u;
+inline constexpr std::uint32_t kArrowClass = 0x089BD84Cu;
+inline constexpr std::uint32_t kShotOwner = 0x10u;
+inline constexpr std::uint32_t kShotPlace = 0x40u;
+inline constexpr std::uint32_t kShotTarget = 0x68u;
+// A bow's flight path (see above).
+inline constexpr std::uint32_t kShotPath = 0x19430u;
+inline constexpr std::uint32_t kPathPlace = 0x80u;
+inline constexpr std::size_t kMaxPathPoints = 32u;
+inline constexpr float kPathStart = 300.0f;
+inline constexpr float kPathReach = 150.0f;
 inline constexpr int kWeakPointHitzone = 45;
 inline constexpr float kNumberSeconds = 1.60f;
 inline constexpr std::size_t kMaxOnScreen = 8u;
-// How far a number rises over its life, and how far each later hit sits
+// The share of a number's time it holds still before it fades out.
+inline constexpr float kHoldShare = 0.55f;
+// How far a number rises while it fades out, and how far each later hit sits
 // above the one before, as fractions of the picture's height.
-inline constexpr float kRise = 0.025f;
+inline constexpr float kRise = 0.06f;
 inline constexpr float kStack = 0.018f;
 // The number shrinks as the monster grows on the picture: full size while
 // kBodyHeight covers up to kShrinkFrom of the picture's height, down to
@@ -100,12 +166,23 @@ struct Ink {
 // was already at zero.
 [[nodiscard]] std::optional<int> damage_shown(int health_before, int health_after) noexcept;
 
+struct WorldPoint {
+    float x{};
+    float y{};
+    float z{};
+};
+
 struct Number {
     int amount{};
     Grade grade{};
     float age{};
     int lane{};
     std::uint32_t object{}; // the monster the hit landed on
+    WorldPoint at{};        // the monster's position when it was hit, once read
+    bool anchored{};
+    bool contact{};         // `at` is where the hit landed, not the monster's feet
+    const char *rule{};     // MHFU_TRACE_HITS: the rule that found it
+    bool fade_reported{};   // MHFU_TRACE_HITS: its place when it starts to fade
     float x{};              // its place on the picture, once known
     float y{};
     float body{};           // kBodyHeight on the picture, 0..1 of its height
@@ -130,12 +207,6 @@ struct WorldCamera {
     float y_offset{};
     float origin_x{};
     float origin_y{};
-};
-
-struct WorldPoint {
-    float x{};
-    float y{};
-    float z{};
 };
 
 // The camera's eye and the point it looks at, in world space, from the game's
@@ -216,6 +287,42 @@ void keep_older_place(Number &number) noexcept;
 [[nodiscard]] std::optional<PicturePoint> project_point(const WorldCamera &camera, float x, float y, float z) noexcept;
 // The monster's position, when those three floats are mapped.
 [[nodiscard]] std::optional<WorldPoint> monster_position(const psprecomp::GuestMemory &memory, std::uint32_t object);
+// MHFU_DAMAGE_NUMBERS_FOLLOW: "1" rides the monster; anything else stays put.
+[[nodiscard]] bool parse_follow(const char *text) noexcept;
+[[nodiscard]] bool follow_enabled() noexcept;
+// Where the number sits in the world: the monster's position the first time
+// it can be read, kept from then on, or read again every time with `follow`.
+// Nothing while it has never been read. A number that follows leaves the
+// point of contact for the body point.
+[[nodiscard]] std::optional<WorldPoint> hit_place(
+    Number &number, const psprecomp::GuestMemory &memory, bool follow);
+// MHFU_DAMAGE_NUMBERS_CONTACT: unset or anything but "0" is on.
+[[nodiscard]] bool parse_contact(const char *text) noexcept;
+[[nodiscard]] bool contact_enabled() noexcept;
+// An entity's bones in world space, in order. Empty without a skeleton.
+[[nodiscard]] std::vector<WorldPoint> entity_bones(const psprecomp::GuestMemory &memory, std::uint32_t entity);
+// The hunter on the quest list standing where the hit's record at `record`
+// says the attacker stood; 0 when none is.
+[[nodiscard]] std::uint32_t hit_attacker(const psprecomp::GuestMemory &memory, std::uint32_t record);
+// The shot `monster` names as the last to strike it, when it is a shot whose
+// target is that monster and, with `attacker` not 0, that attacker fired it:
+// its position.
+[[nodiscard]] std::optional<WorldPoint> struck_by_shot(
+    const psprecomp::GuestMemory &memory, std::uint32_t monster, std::uint32_t attacker = 0u);
+// The latest shot's flight path, in order, without the nodes left at the
+// origin. Empty outside a quest or without one.
+[[nodiscard]] std::vector<WorldPoint> shot_path(const psprecomp::GuestMemory &memory);
+// Where `path` passes closest to one of `bones`, when that is within
+// kPathReach: the nearest point on the path to the nearest bone.
+[[nodiscard]] std::optional<WorldPoint> path_contact(
+    const std::vector<WorldPoint> &path, const std::vector<WorldPoint> &bones);
+// Where the hit landed on `monster`: the shot that struck it (struck_by_shot),
+// or where the attacker's arrow passed it (shot_path, path_contact), or else
+// its bone nearest `attacker`'s hand when both skeletons are there. `rule`,
+// when given, names the one that found it: "shot", "path", "hand" for a bone
+// within kContactReach of the hand, or "nearest" for one farther off.
+[[nodiscard]] std::optional<WorldPoint> hit_contact(const psprecomp::GuestMemory &memory, std::uint32_t monster,
+    std::uint32_t attacker, const char **rule = nullptr);
 
 // The renderer reports each transformed draw. Draws with the same view and
 // projection are counted together, and the view with the most vertices is
@@ -236,10 +343,13 @@ struct OpenHit {
     std::uint32_t depth{};
     std::uint32_t object{};
     int health{};
+    std::optional<WorldPoint> contact{}; // where it landed, when known
+    const char *rule{};                  // which rule found it (hit_contact)
+    std::uint32_t record{};              // the call's a1, read at its return
 };
 
 void watch_hit_enter(std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t depth, std::uint32_t object,
-    int health);
+    int health, const std::optional<WorldPoint> &contact = std::nullopt, const char *rule = nullptr);
 [[nodiscard]] std::optional<std::uint32_t> open_object(
     const std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t depth);
 // `lane` is how many numbers are already showing, so a second hit steps aside.
