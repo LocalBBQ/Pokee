@@ -1166,6 +1166,8 @@ The pieces were measured with `MHFU_TRACE_SPRITES` in a quest's base camp and a 
 | `MHFU_HUD_OVER_MARKS` | on | `0` draws the [gather icon](#gather-icon), damage numbers, the lock-on marker and hunt portraits over the game's HUD, as before. On, the frame is copied just before the game's first HUD draw, and wherever the finished frame differs from that copy the HUD is drawn again over the marks, so they pass under the health bar, the map and the item bar. Pokee's own windows and notes stay on top |
 | `MHFU_GATHER_ICON_SMOOTH` | on | `0` draws the [gather icon](#gather-icon) where each game frame puts it: no fade, no glide between targets, and it does not follow frame interpolation |
 | `MHFU_DAMAGE_NUMBERS_SMOOTH` | on | `0` draws [damage numbers](#damage-numbers) where each game frame puts them, without following frame interpolation |
+| `MHFU_DAMAGE_NUMBERS_FOLLOW` | off | `1` makes [damage numbers](#damage-numbers) ride the monster as it moves, as earlier versions did, instead of staying where the hit landed |
+| `MHFU_DAMAGE_NUMBERS_CONTACT` | on | `0` draws [damage numbers](#damage-numbers) a little above the monster's feet instead of on the bone nearest the attacker's weapon hand or where a shot struck or a bow's arrow passed |
 | `MHFU_CAMERA_SPEED` | `190` | Degrees a second at full deflection, 20 to 720 (menu: Camera speed) |
 | `MHFU_AIM_SPEED` | `90` | Degrees a second a bow or bowgun aims at full deflection, 10 to 360 (menu: Aim speed) |
 | `MHFU_AIM_PITCH_SHARE` | `0.34` | The share of Aim speed a bowgun's aim moves up and down at, above 0 and up to 4. The default is the game's own: its stick turns the pitch about a third as fast as the heading. `1` moves both at Aim speed, as before; a bow always does |
@@ -1174,8 +1176,6 @@ The pieces were measured with `MHFU_TRACE_SPRITES` in a quest's base camp and a 
 | `MHFU_PAD_RSTICK_DPAD` | off | Press D-pad bits from the right stick instead of feeding the HD release's second stick; enabling both would turn the camera twice (menu: Camera stick) |
 | `MHFU_PAD_RSTICK_ZONE` | `0.5` | Right-stick threshold for that (menu: Camera stick D-pad point) |
 | `MHFU_OSK_TEXT` | `Hunter` | Fixed name given when the game asks for one, at once and without the on-screen keyboard unless `MHFU_OSK_MODE=keyboard` (menu: Hunter name) |
-| `MHFU_DAMAGE_NUMBERS_FOLLOW` | off | `1` makes [damage numbers](#damage-numbers) ride the monster as it moves, as earlier versions did, instead of staying where the hit landed |
-| `MHFU_DAMAGE_NUMBERS_CONTACT` | on | `0` draws [damage numbers](#damage-numbers) a little above the monster's feet instead of on the bone nearest the attacker's weapon hand or where a shot struck or a bow's arrow passed |
 | `MHFU_OSK_MODE` | `keyboard` | `keyboard` opens the on-screen keyboard; `fixed` gives the fixed name at once (menu: When the game asks for a name) |
 | `MHFU_AUTO_CONFIRM` | off | Press ○ every N frames, to walk through menus unattended |
 
