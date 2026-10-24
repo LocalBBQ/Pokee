@@ -18,6 +18,7 @@
 #include "install/user_data.hpp"
 #include "kernel/kernel.hpp"
 #include "camera/game_aspect.hpp"
+#include "camera/field_of_view.hpp"
 #include "camera/game_camera.hpp"
 
 #include "psprecomp/common.hpp"
@@ -500,6 +501,8 @@ int main(int argc, char **argv) {
         // prepare_game_aspect refuses it if those instructions differ.
         if (sha256 == mhfu::install::kFreedomUniteUsa.executable_sha256)
             (void)mhfu::camera::prepare_game_aspect(runtime);
+        if (sha256 == mhfu::install::kFreedomUniteUsa.executable_sha256)
+            (void)mhfu::camera::prepare_field_of_view(runtime);
 #if defined(MHFU_CAMERA_HELPER_UNIT)
         // CMake names the generated unit that holds the camera update, so a
         // new partition of the code cannot hand the camera the wrong one.
