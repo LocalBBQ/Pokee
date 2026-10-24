@@ -6,11 +6,13 @@
 
 #include "psprecomp/runtime.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <string>
 
 namespace {
 using namespace mhfu::game;
@@ -99,9 +101,25 @@ void test_text_and_place() {
     check(stacked.x == first.x && number_anchor(third).x == first.x,
         "the next hits stay on the hit's point and never step aside");
     check(stacked.y < first.y && number_anchor(third).y < stacked.y, "they stack upward from it");
-    Number risen = on;
-    risen.age = kNumberSeconds * 0.5f;
-    check(number_anchor(risen).y < first.y && number_anchor(risen).alpha == 1.0f, "a number rises and holds its ink");
+    Number held = on;
+    held.age = kNumberSeconds * kHoldShare;
+    check(number_anchor(held).y == first.y && number_anchor(held).alpha == 1.0f,
+        "a number holds still and keeps its ink at first");
+    Number early = on;
+    early.age = kNumberSeconds * (kHoldShare + (1.0f - kHoldShare) * 0.25f);
+    Number late = on;
+    late.age = kNumberSeconds * (kHoldShare + (1.0f - kHoldShare) * 0.75f);
+    const Anchor early_exit = number_anchor(early);
+    const Anchor late_exit = number_anchor(late);
+    check(early_exit.y < first.y && late_exit.y < early_exit.y && early_exit.alpha < 1.0f &&
+            late_exit.alpha < early_exit.alpha && late_exit.alpha > 0.0f,
+        "then it rises as it fades out");
+    Number halfway = on;
+    halfway.age = kNumberSeconds * (kHoldShare + (1.0f - kHoldShare) * 0.5f);
+    check(first.y - early_exit.y > early_exit.y - number_anchor(halfway).y, "rising quickly at first and slowing");
+    Number gone = on;
+    gone.age = kNumberSeconds;
+    check(std::fabs(first.y - number_anchor(gone).y - kRise) < 1e-5f, "it ends kRise above the hit's point");
 
     check(closeness_scale(0.0f) == 1.0f && closeness_scale(kShrinkFrom) == 1.0f,
         "a monster far away gets the number at full size");
@@ -156,11 +174,12 @@ void test_the_older_frame() {
     check(older && newer.x > older->x && newer.y < older->y, "and the number moves from there to its new place");
 
     Number same = fresh;
+    same.age = kNumberSeconds * kHoldShare;
     keep_older_place(same);
     same = age_numbers({same}, 0.1f).front();
     const std::optional<Anchor> rising = older_anchor(same);
     check(rising && rising->x == number_anchor(same).x && rising->y > number_anchor(same).y,
-        "a number on a monster standing still still rises between the two frames");
+        "a number fading out where it was hit still rises between the two frames");
 
     Number lost = moving;
     lost.placed = false;
@@ -188,6 +207,12 @@ void test_the_hit_watch() {
     check(!watch_hit_leave(open, kHitAdjust, 2u, 100, 1), "a return with no matching call shows nothing");
     const std::optional<Number> outer = watch_hit_leave(open, kHitAdjust, 1u, 250, 1);
     check(outer && outer->amount == 150 && outer->lane == 1 && open.empty(), "the outer hit shows what it removed");
+
+    check(outer && !outer->contact && !outer->anchored, "a hit with no point of contact waits for the body point");
+    watch_hit_enter(open, kHitAdjust, 0u, 0x09000000u, 80, WorldPoint{1.0f, 2.0f, 3.0f});
+    const std::optional<Number> landed = watch_hit_leave(open, kHitAdjust, 0u, 60, 0);
+    check(landed && landed->contact && landed->anchored && landed->at.y == 2.0f,
+        "a hit with a point of contact is drawn there");
 
     watch_hit_enter(open, kHitAdjust, 0u, 0x09000000u, 80);
     check(
@@ -243,8 +268,37 @@ void test_on_the_monster() {
         "the monster's position is the three floats at +0x200");
     check(!monster_position(memory, 0u) && !monster_position(memory, object + 1u),
         "a null or an odd address has no position");
+    Number hit = make_number(30, Grade{}, 0);
+    hit.object = object;
+    const std::optional<WorldPoint> struck = hit_place(hit, memory, false);
+    check(struck && struck->x == 12.0f && struck->z == -40.0f && hit.anchored,
+        "a number takes the monster's place when it is first placed");
+    Number riding = hit;
+    memory.store32(object + kMonsterPosition, std::bit_cast<std::uint32_t>(80.0f));
+    const std::optional<WorldPoint> stays = hit_place(hit, memory, false);
+    check(stays && stays->x == 12.0f, "and stays there as the monster walks on");
+    const std::optional<WorldPoint> follows = hit_place(riding, memory, true);
+    check(follows && follows->x == 80.0f && riding.at.x == 80.0f, "MHFU_DAMAGE_NUMBERS_FOLLOW=1 rides the monster");
+    check(parse_follow("1") && !parse_follow(nullptr) && !parse_follow("") && !parse_follow("0"),
+        "the numbers stay where the hit landed unless MHFU_DAMAGE_NUMBERS_FOLLOW=1");
+
+    Number struck_there = make_number(30, Grade{}, 0);
+    struck_there.object = object;
+    struck_there.at = {300.0f, 450.0f, 100.0f};
+    struck_there.anchored = true;
+    struck_there.contact = true;
+    const std::optional<WorldPoint> kept = hit_place(struck_there, memory, false);
+    check(kept && kept->y == 450.0f && struck_there.contact, "a number on the point of contact stays on it");
+    check(hit_place(struck_there, memory, true) && !struck_there.contact && struck_there.at.x == 80.0f,
+        "one that follows rides the monster's body point instead");
+
     memory.store32(object + kMonsterPosition, 0x7fc00000u);
     check(!monster_position(memory, object), "a position that is not a number is ignored");
+    Number unread = make_number(30, Grade{}, 0);
+    unread.object = object;
+    check(!hit_place(unread, memory, false) && !unread.anchored, "a number never placed has no place in the world");
+    check(hit_place(hit, memory, false) && !hit_place(riding, memory, true),
+        "a placed number keeps its place when the monster can no longer be read, unless it follows");
 
     WorldCamera hud = camera;
     hud.projection[11] = 0.0f;
@@ -366,6 +420,12 @@ void test_the_setting_does_not_slow_direct_chains() {
 // health pool, and a second node for the large monster.
 constexpr std::uint32_t kLarge = 0x09830000u;
 constexpr std::uint32_t kSmall = 0x09840000u;
+
+void store_point(psprecomp::GuestMemory &memory, std::uint32_t at, float x, float y, float z) {
+    memory.store32(at, std::bit_cast<std::uint32_t>(x));
+    memory.store32(at + 4u, std::bit_cast<std::uint32_t>(y));
+    memory.store32(at + 8u, std::bit_cast<std::uint32_t>(z));
+}
 
 void stand_in_quest(psprecomp::GuestMemory &memory) {
     namespace layout = mhfu::game::layout;
@@ -495,25 +555,38 @@ void test_every_hit_once() {
     call(kHitAdjust, kLarge, 100u);
     damage_numbers_frame(true, &memory);
     check(damage_numbers().size() == 1u && shown_total() == 100, "a hit through the routine shows once");
+    check(!damage_numbers().front().contact, "a hit with nothing to say where it landed waits for the body point");
+
+    // A shot named by the monster: the number is on it, found at the return.
+    constexpr std::uint32_t bullet = 0x09930000u;
+    memory.store32(kLarge + kLastStrike, bullet);
+    memory.store32(bullet, kShotClass);
+    memory.store32(bullet + kShotTarget, kLarge);
+    store_point(memory, bullet + kShotPlace, 40.0f, 220.0f, -15.0f);
+    call(kHitAdjust, kLarge, 20u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 2u && damage_numbers().back().contact && damage_numbers().back().at.y == 220.0f,
+        "a shot's hit through the routine is drawn where the shot struck");
+    memory.store32(kLarge + kLastStrike, 0u);
 
     memory.store16(kLarge + kMonsterHealth, 1850u);
     call(kHitAdjust, kLarge, 0u);
     damage_numbers_frame(true, &memory);
-    check(damage_numbers().size() == 2u && shown_total() == 150,
+    check(damage_numbers().size() == 3u && shown_total() == 150,
         "a drop from the network shows, past the monster's own update");
 
     memory.store16(kSmall + kMonsterHealth, 90u);
     damage_numbers_frame(true, &memory);
-    check(damage_numbers().size() == 3u && shown_total() == 180, "another player's hit on a small monster shows");
+    check(damage_numbers().size() == 4u && shown_total() == 180, "another player's hit on a small monster shows");
 
     call(kStatusTick, kLarge, 10u);
     damage_numbers_frame(true, &memory);
-    check(damage_numbers().size() == 3u, "a status tick on this console is not a hit");
+    check(damage_numbers().size() == 4u, "a status tick on this console is not a hit");
 
     // The monster hits this console's hunter through the same routine.
     call(kHitAdjust, 0x09820000u, 40u);
     damage_numbers_frame(true, &memory);
-    check(damage_numbers().size() == 3u, "damage to the hunter is not a number");
+    check(damage_numbers().size() == 4u, "damage to the hunter is not a number");
 
     damage_numbers_frame(false, &memory);
     memory.store16(kLarge + kMonsterHealth, 1000u);
@@ -666,6 +739,161 @@ void test_the_hit_trace() {
 
 } // namespace
 
+// MHFU_TRACE_HITS: the points near the monster that could be where a hit
+// landed, found in the callers' frames, the records they point at and the
+// monster.
+void test_the_contact_candidates() {
+    namespace tr = mhfu::game::hit_trace;
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    constexpr std::uint32_t monster = 0x09000000u, sp = 0x09F00000u, record = 0x09010000u;
+    auto store_point = [&memory](std::uint32_t at, float x, float y, float z) {
+        memory.store32(at, std::bit_cast<std::uint32_t>(x));
+        memory.store32(at + 4u, std::bit_cast<std::uint32_t>(y));
+        memory.store32(at + 8u, std::bit_cast<std::uint32_t>(z));
+    };
+    store_point(monster + kMonsterPosition, 1000.0f, 0.0f, 2000.0f);
+    psprecomp::AllegrexContext ctx{};
+    ctx.gpr[4] = monster;
+    ctx.gpr[29] = sp;
+    check(tr::contact_candidates(memory, ctx).empty() && tr::candidates_line({}).empty(),
+        "nothing above the ground near the monster is nothing to list");
+    store_point(sp + 0x40u, 1100.0f, 250.0f, 2100.0f);       // in a caller's frame
+    memory.store32(sp + 0x80u, record);                       // a record on the stack
+    store_point(record + 0x30u, 900.0f, 400.0f, 1900.0f);    // in it
+    store_point(sp + 0x100u, 1000.0f + tr::kCandidateReach + 10.0f, 250.0f, 2000.0f); // too far
+    store_point(sp + 0x140u, 1050.0f, 0.0f, 2050.0f);        // on the ground: a foot
+    const std::vector<tr::Candidate> found = tr::contact_candidates(memory, ctx);
+    const auto has = [&found](const char *source, std::uint32_t base, std::uint32_t offset) {
+        return std::any_of(found.begin(), found.end(), [&](const tr::Candidate &c) {
+            return std::string(c.source) == source && c.base == base && c.offset == offset;
+        });
+    };
+    check(has("stack", sp, 0x40u) && has("record", record, 0x30u),
+        "a point above the monster is found in a caller's frame and in a record the stack points at");
+    check(!has("stack", sp, 0x100u) && !has("stack", sp, 0x140u), "one too far away or on the ground is not");
+    check(tr::candidates_line(found).find("stack 09F00000+0x40: 1100 250 2100 (141.421 across, 250 up);") !=
+            std::string::npos,
+        "each is printed with where it was found, how far across and how high");
+}
+
+// Where a hit landed: the monster's bone nearest the attacker's weapon hand,
+// both skeletons in world space as the game keeps them.
+// `count` bone nodes from `first`, the n-th at `place(n)`.
+template <typename Place>
+void store_skeleton(psprecomp::GuestMemory &memory, std::uint32_t entity, std::uint32_t first, std::uint32_t count,
+    Place place) {
+    memory.store32(entity + kFirstBone, first);
+    for (std::uint32_t n = 0; n < count; ++n) {
+        const std::uint32_t node = first + n * kBoneStride;
+        memory.store32(node, 0x089BAC28u);
+        const WorldPoint at = place(n);
+        store_point(memory, node + kBonePlace, at.x, at.y, at.z);
+    }
+}
+
+void test_where_the_hit_landed() {
+    check(parse_contact(nullptr) && parse_contact("1") && !parse_contact("0"),
+        "MHFU_DAMAGE_NUMBERS_CONTACT=0 always uses the body point");
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    stand_in_quest(memory);
+    constexpr std::uint32_t hunter = 0x09820000u, record = 0x09F00010u;
+    store_point(memory, hunter + kMonsterPosition, 1000.0f, 0.0f, 0.0f);
+    store_point(memory, kLarge + kMonsterPosition, 0.0f, 0.0f, 0.0f);
+    check(entity_bones(memory, kLarge).empty() && !hit_contact(memory, kLarge, hunter),
+        "a monster without a skeleton has no point of contact");
+
+    // The hunter's hand at 700, 130, 0; the monster's bones in a row from its
+    // middle out to 600 along x, the last one high on the tail.
+    store_skeleton(memory, hunter, 0x09900000u, 21u,
+        [](std::uint32_t n) { return n == kHandBone ? WorldPoint{700.0f, 130.0f, 0.0f} : WorldPoint{1000.0f, 50.0f, 0.0f}; });
+    store_skeleton(memory, kLarge, 0x09910000u, 7u,
+        [](std::uint32_t n) { return WorldPoint{static_cast<float>(n) * 100.0f, 200.0f, 0.0f}; });
+    memory.store32(0x09910000u + 7u * kBoneStride, 0u); // the row ends
+    const std::vector<WorldPoint> bones = entity_bones(memory, kLarge);
+    check(bones.size() == 7u && bones[3].x == 300.0f && bones[3].y == 200.0f,
+        "the bones run while the nodes share the first one's class word");
+    const std::optional<WorldPoint> landed = hit_contact(memory, kLarge, hunter);
+    check(landed && landed->x == 600.0f && landed->y == 200.0f, "the hit lands on the bone nearest the hand");
+
+    store_point(memory, record + kAttackerPlace, 1000.0f, 0.0f, 0.0f);
+    check(hit_attacker(memory, record) == hunter, "the attacker is the hunter standing where the record says");
+    store_point(memory, record + kAttackerPlace, 400.0f, 0.0f, 0.0f);
+    check(hit_attacker(memory, record) == 0u && hit_attacker(memory, 0u) == 0u,
+        "no hunter stands there, or there is no record: no attacker");
+    check(!hit_contact(memory, kLarge, 0u) && !hit_contact(memory, kLarge, kLarge), "and no point of contact");
+
+    store_skeleton(memory, hunter, 0x09900000u, 21u,
+        [](std::uint32_t n) { return n == kHandBone ? WorldPoint{5000.0f, 130.0f, 0.0f} : WorldPoint{}; });
+    const char *far_rule = nullptr;
+    const std::optional<WorldPoint> far = hit_contact(memory, kLarge, hunter, &far_rule);
+    check(far && far->x == 600.0f && far_rule != nullptr && std::string(far_rule) == "nearest",
+        "a hand out of reach of every bone still finds the part facing it");
+    store_skeleton(memory, hunter, 0x09900000u, static_cast<std::uint32_t>(kHandBone), [](std::uint32_t) {
+        return WorldPoint{};
+    });
+    memory.store32(0x09900000u + kHandBone * kBoneStride, 0u);
+    check(!hit_contact(memory, kLarge, hunter), "a skeleton without the hand has no point of contact");
+
+    // A bow's shot: its path from the entity manager, two nodes left at the
+    // origin, then points from the bow at 1000, 150, 0 out along -x past the
+    // monster's bones (0..600 along x, 200 up).
+    constexpr std::uint32_t manager = 0x09800000u, path_nodes = 0x09920000u;
+    check(shot_path(memory).empty(), "no path without one in the manager");
+    memory.store32(manager + kShotPath, path_nodes);
+    for (std::uint32_t n = 0; n < 8u; ++n) {
+        const std::uint32_t node = path_nodes + n * kBoneStride;
+        memory.store32(node, 0x089BAC28u);
+        const float x = n < 2u ? 0.0f : 1000.0f - static_cast<float>(n - 2u) * 300.0f;
+        const float y = n < 2u ? 0.0f : 150.0f + static_cast<float>(n - 2u) * 10.0f;
+        store_point(memory, node + kPathPlace, x, y, n < 2u ? 0.0f : 40.0f);
+    }
+    const std::vector<WorldPoint> path = shot_path(memory);
+    check(path.size() == 6u && path.front().x == 1000.0f && path.back().x == -500.0f,
+        "the path skips the nodes at the origin and ends with the row");
+    check(!path_contact(path, {{0.0f, 2000.0f, 0.0f}}) && !path_contact({path.front()}, bones),
+        "a path that passes no bone, or a single point, has struck nothing");
+    const std::optional<WorldPoint> passed = path_contact(path, bones);
+    check(passed && std::fabs(passed->z - 40.0f) < 1e-3f && passed->x > -50.0f && passed->x < 650.0f,
+        "the shot struck where its path passes nearest a bone");
+
+    // The hand is out of reach; the shot from this hunter's bow is not.
+    store_skeleton(memory, hunter, 0x09900000u, 21u,
+        [](std::uint32_t n) { return n == kHandBone ? WorldPoint{5000.0f, 130.0f, 0.0f} : WorldPoint{}; });
+    const std::optional<WorldPoint> shot = hit_contact(memory, kLarge, hunter);
+    check(shot && std::fabs(shot->z - 40.0f) < 1e-3f, "a shot lands where its path crossed the monster");
+    store_point(memory, hunter + kMonsterPosition, 3000.0f, 0.0f, 0.0f);
+    const char *other_rule = nullptr;
+    check(hit_contact(memory, kLarge, hunter, &other_rule) && std::string(other_rule) != "path",
+        "a path that does not start at the attacker is someone else's");
+
+    // A bowgun's bullet, named by the monster as the last to strike it.
+    constexpr std::uint32_t bullet = 0x09930000u;
+    check(!struck_by_shot(memory, kLarge), "a monster that names no bullet was not struck by one");
+    memory.store32(kLarge + kLastStrike, bullet);
+    memory.store32(bullet, kShotClass);
+    memory.store32(bullet + kShotTarget, kLarge);
+    store_point(memory, bullet + kShotPlace, 250.0f, 260.0f, 30.0f);
+    const char *rule = nullptr;
+    const std::optional<WorldPoint> fired = hit_contact(memory, kLarge, 0u, &rule);
+    check(fired && fired->x == 250.0f && fired->y == 260.0f && rule != nullptr && std::string(rule) == "shot",
+        "a shot lands where it struck, whoever fired it, before any other rule");
+    memory.store32(bullet, kArrowClass);
+    check(struck_by_shot(memory, kLarge).has_value(), "a bow's arrow is a shot too");
+    memory.store32(bullet, kShotClass);
+    memory.store32(bullet + kShotOwner, hunter);
+    check(struck_by_shot(memory, kLarge, hunter).has_value(), "a shot the attacker fired is theirs");
+    memory.store32(bullet + kShotOwner, 0x09860000u);
+    check(!struck_by_shot(memory, kLarge, hunter), "a teammate's spent shot is not where this attacker struck");
+    memory.store32(bullet + kShotTarget, kSmall);
+    check(!struck_by_shot(memory, kLarge), "a shot that struck another monster is not this hit");
+    memory.store32(bullet + kShotTarget, kLarge);
+    memory.store32(bullet, 0x089BD35Cu);
+    check(!struck_by_shot(memory, kLarge), "nor is something that is not a shot");
+    memory.store32(bullet, kShotClass);
+    memory.store32(bullet + kShotPlace, 0x7fc00000u);
+    check(!struck_by_shot(memory, kLarge), "nor a shot with no place");
+}
+
 int main() {
     test_sharpness_and_colour();
     test_the_drop();
@@ -681,6 +909,8 @@ int main() {
     test_every_hit_once();
     test_the_hit_records();
     test_the_hit_trace();
+    test_the_contact_candidates();
+    test_where_the_hit_landed();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;
