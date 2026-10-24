@@ -1,9 +1,15 @@
 #include "game/hit_trace.hpp"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -28,7 +34,26 @@ struct Pending {
     psprecomp::AllegrexContext ctx;
     std::optional<int> health;
     std::vector<std::string> lines; // all but the first, which gets the hit's number
+    std::vector<std::uint8_t> ram;  // MHFU_TRACE_HITS_RAM: user RAM at the call
 };
+
+// MHFU_TRACE_HITS_RAM=directory: user RAM as the call begins, written as
+// hit_NN.bin for each of the first kRamDumps hits printed. For finding,
+// between a hit on one part and a hit on another, what the game kept of
+// where each landed, and for reading the code of the callers.
+constexpr std::uint32_t kRamDumps = 12u;
+
+const std::filesystem::path &ram_directory() {
+    static const std::filesystem::path directory = [] {
+        // Each run in its own folder, so a second run keeps the first's.
+        const char *text = std::getenv("MHFU_TRACE_HITS_RAM");
+        if (text == nullptr) return std::filesystem::path{};
+        const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        return std::filesystem::path(text) / ("run_" + std::to_string(seconds));
+    }();
+    return directory;
+}
 
 struct State {
     std::mutex mutex;
@@ -175,6 +200,68 @@ std::string players_line(const psprecomp::GuestMemory &memory) {
     return line.empty() ? std::string{} : "[hit]   players" + line;
 }
 
+std::vector<Candidate> contact_candidates(
+    const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx) {
+    std::vector<Candidate> found;
+    const std::uint32_t monster = ctx.gpr[4];
+    if (!in_ram(monster) || !memory.contains(monster + layout::kPosition, 12u)) return found;
+    const auto load = [&memory](std::uint32_t address) { return std::bit_cast<float>(memory.load32(address)); };
+    const float mx = load(monster + layout::kPosition);
+    const float my = load(monster + layout::kPosition + 4u);
+    const float mz = load(monster + layout::kPosition + 8u);
+    std::vector<std::array<float, 3>> players;
+    layout::for_each_entity(memory, [&](const layout::EntityNode &node) {
+        if (node.type == layout::kPlayerNode && in_ram(node.entity) &&
+            memory.contains(node.entity + layout::kPosition, 12u))
+            players.push_back({load(node.entity + layout::kPosition), load(node.entity + layout::kPosition + 4u),
+                load(node.entity + layout::kPosition + 8u)});
+    });
+    std::set<std::uint32_t> seen;
+    const auto scan = [&](const char *source, std::uint32_t base, std::uint32_t bytes) {
+        if (!in_ram(base) || (base & 3u) != 0u || !memory.contains(base, bytes + 8u)) return;
+        for (std::uint32_t offset = 0; offset < bytes && found.size() < kMaxCandidates; offset += 4u) {
+            const std::uint32_t at = base + offset;
+            const float x = load(at), y = load(at + 4u), z = load(at + 8u);
+            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) continue;
+            const float across = std::hypot(x - mx, z - mz);
+            const float height = y - my;
+            if (!(across <= kCandidateReach) || !(height >= kCandidateLowest) || !(height <= kCandidateReach))
+                continue;
+            const bool hunter = std::any_of(players.begin(), players.end(), [&](const std::array<float, 3> &p) {
+                return std::fabs(p[0] - x) < 1.0f && std::fabs(p[1] - y) < 1.0f && std::fabs(p[2] - z) < 1.0f;
+            });
+            if (hunter || !seen.insert(at).second) continue;
+            found.push_back({source, base, offset, x, y, z, across, height});
+        }
+    };
+    // The callers' frames, then the first part of every record on the stack.
+    const std::uint32_t sp = ctx.gpr[29];
+    scan("stack", sp, kCandidateStack);
+    for (std::uint32_t offset = 0; offset < kCandidateStack && in_ram(sp) && memory.contains(sp + offset, 4u);
+        offset += 4u) {
+        const std::uint32_t word = memory.load32(sp + offset);
+        if (word == monster || word == sp || looks_like_code(word) || !in_ram(word)) continue;
+        scan("record", word, kCandidateRecord);
+    }
+    for (std::uint32_t i = 16u; i < 24u; ++i)
+        if (ctx.gpr[i] != monster && !looks_like_code(ctx.gpr[i])) scan("saved", ctx.gpr[i], kCandidateRecord);
+    scan("monster", monster, kCandidateMonster);
+    return found;
+}
+
+std::string candidates_line(const std::vector<Candidate> &candidates) {
+    if (candidates.empty()) return {};
+    std::string line = "[hit]   near";
+    for (const Candidate &c : candidates) {
+        char text[128];
+        std::snprintf(text, sizeof(text), " %s %s+0x%X: %g %g %g (%g across, %g up);", c.source, hex(c.base).c_str(),
+            c.offset, static_cast<double>(c.x), static_cast<double>(c.y), static_cast<double>(c.z),
+            static_cast<double>(c.across), static_cast<double>(c.height));
+        line += text;
+    }
+    return line;
+}
+
 std::string call_line(
     const psprecomp::AllegrexContext &ctx, std::uint32_t hit, std::uint32_t depth, std::optional<int> health) {
     std::string line = "[hit] call #" + std::to_string(hit) + " depth=" + std::to_string(depth);
@@ -228,6 +315,8 @@ std::vector<std::string> describe_call(const psprecomp::GuestMemory &memory, con
         if (std::string floats = floats_line(memory, "[hit]   a1[+0x20] floats", pointer, 24u); !floats.empty())
             lines.push_back(std::move(floats));
     }
+    if (std::string near = candidates_line(contact_candidates(memory, ctx)); !near.empty())
+        lines.push_back(std::move(near));
     if (std::string players = players_line(memory); !players.empty()) lines.push_back(std::move(players));
     lines.push_back("[hit]   monster" + floats_line(memory, "", ctx.gpr[4] + 0x200u, 3u));
     return lines;
@@ -236,8 +325,12 @@ std::vector<std::string> describe_call(const psprecomp::GuestMemory &memory, con
 void note_call(const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::uint32_t depth,
     std::optional<int> health) {
     if (count().load(std::memory_order_relaxed) >= limit()) return;
-    Pending pending{ctx, health, describe_call(memory, ctx, 0u, depth, health)};
+    Pending pending{ctx, health, describe_call(memory, ctx, 0u, depth, health), {}};
     pending.lines.erase(pending.lines.begin());
+    constexpr std::uint32_t ram_bytes = layout::kRamEnd - layout::kRamStart;
+    if (!ram_directory().empty() && count().load(std::memory_order_relaxed) < kRamDumps)
+        if (const std::uint8_t *ram = memory.raw_pointer(layout::kRamStart, ram_bytes))
+            pending.ram.assign(ram, ram + ram_bytes);
     std::lock_guard lock(state().mutex);
     state().pending[depth] = std::move(pending);
     state().last_health.try_emplace(ctx.gpr[4], health.value_or(0));
@@ -266,6 +359,17 @@ std::uint32_t log_return(const psprecomp::AllegrexContext &ctx, std::uint32_t de
     std::cout << call_line(pending.ctx, hit, depth, pending.health) << '\n';
     for (const std::string &line : pending.lines) std::cout << line << '\n';
     std::cout << return_line(ctx, hit, depth, before, after) << std::endl;
+    if (!pending.ram.empty()) {
+        char name[32];
+        std::snprintf(name, sizeof(name), "hit_%02u.bin", hit);
+        std::error_code error;
+        std::filesystem::create_directories(ram_directory(), error);
+        const std::filesystem::path path = ram_directory() / name;
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(pending.ram.data()), static_cast<std::streamsize>(pending.ram.size()));
+        std::cout << "[hit]   ram " << hex(layout::kRamStart) << " written to " << path.string()
+                  << (out ? "" : " (failed)") << std::endl;
+    }
     s.changed_by_call.insert(pending.ctx.gpr[4]);
     s.last_health[pending.ctx.gpr[4]] = after;
     return hit;
