@@ -37,6 +37,7 @@
 #include "camera_probe.hpp"
 #include "camera/camera_input.hpp"
 #include "camera/game_aspect.hpp"
+#include "camera/field_of_view.hpp"
 #include "camera/game_camera.hpp"
 #include "camera/hunt_icon.hpp"
 #include "camera/lock_on.hpp"
@@ -439,6 +440,8 @@ void present_frame(Runtime &rt) {
         // The view's shape follows the picture's: the game builds its next
         // projection with the aspect ratio of the target it will draw into.
         camera::game_aspect_frame(rt, renderer.game_aspect());
+        // The setting's field of view, for the camera's next update.
+        camera::field_of_view_frame(rt, settings::current().field_of_view);
         camera::advance(seconds, camera::game_camera_degrees_per_second());
     }
     perf::add_render_time(perf::Clock::now() - present_start);
