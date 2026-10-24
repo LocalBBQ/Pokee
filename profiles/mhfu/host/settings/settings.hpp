@@ -59,6 +59,12 @@ enum class FrameRate { Fps30, Fps45, Fps60, Fps90, Fps120, Display };
 // those drivers only; it applies from the next start.
 enum class GpuCompat { Auto, On, Off };
 
+// The vertical field of view a quest's camera has in the game, in whole
+// degrees (0.872222 radians), and how far the setting can move it.
+inline constexpr std::uint32_t kGameFieldOfView = 50u;
+inline constexpr std::uint32_t kMinFieldOfView = 30u;
+inline constexpr std::uint32_t kMaxFieldOfView = 90u;
+
 struct Settings {
     // Video
     std::uint32_t internal_scale{2u}; // render resolution, multiples of 480x272 (272 lines each); 0: the window's
@@ -66,6 +72,9 @@ struct Settings {
     bool fullscreen{};
     PresentMode present_mode{PresentMode::Fifo};
     Aspect aspect{Aspect::Original};
+    // The game's own 3D view, vertical degrees (camera/field_of_view.hpp);
+    // other views (the village, zoom) are scaled in proportion.
+    std::uint32_t field_of_view{kGameFieldOfView};
     bool sharp_screen{};             // nearest instead of linear scaling to the window
     bool sharp_textures{};           // nearest instead of linear texture sampling
     bool texture_pack{true};         // draw an installed HD texture pack's images instead of the game's

@@ -194,6 +194,7 @@ set(MHFU_HOST_SOURCES
     host/camera_probe.cpp
     host/camera/camera_input.cpp
     host/camera/game_aspect.cpp
+    host/camera/field_of_view.cpp
     host/camera/game_camera.cpp
     host/camera/lock_on.cpp
     host/camera/hunt_icon.cpp
@@ -477,6 +478,18 @@ target_link_libraries(mhfu_aspect_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_aspect_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_aspect_tests COMMAND mhfu_aspect_tests)
+endif()
+
+# The field of view: what its wrappers show the camera's updates, and what
+# they leave the game.
+add_executable(mhfu_field_of_view_tests
+    tests/field_of_view_tests.cpp
+    host/camera/field_of_view.cpp)
+target_include_directories(mhfu_field_of_view_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_field_of_view_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_field_of_view_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_field_of_view_tests COMMAND mhfu_field_of_view_tests)
 endif()
 
 # Hiding the HUD: the resident words it requires, and the overlay functions
