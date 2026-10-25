@@ -163,6 +163,9 @@ constexpr const char *kRetiredSharpnessGlowKey = "game.sharpness_glow";
 // Written by earlier versions: how bold the gather mark was. It is always a
 // one-pixel ring and the font's own ? now, scaled with its size.
 constexpr const char *kRetiredGatherIconThicknessKey = "game.gather_icon_thickness";
+// Written by development builds: whether a damage number's
+// outline took the attacking player's colour. Numbers keep the dark outline.
+constexpr const char *kRetiredDamagePlayerTintKey = "game.damage_player_tint";
 // settings.ini's format. Every save writes every key, defaults included, so
 // once a default changes, a file must say which version wrote it for the
 // player's choices to be told from the old defaults:
@@ -586,10 +589,6 @@ const std::vector<Field> &fields() {
                 DamageBreakdown breakdown = s.damage_breakdown;
                 if (kDamageBreakdowns.parse(t, breakdown)) s.damage_breakdown = breakdown;
             }},
-        {"game.damage_player_tint", "MHFU_DAMAGE_PLAYER_TINT",
-            [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_player_tint); },
-            [](const Settings &s) { return std::string(s.damage_player_tint ? "1" : "0"); },
-            [](Settings &s, const char *t) { s.damage_player_tint = variable_flag(t); }},
         {"game.sharpness_gauge", "MHFU_SHARPNESS_GAUGE",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.sharpness_gauge); },
             [](const Settings &s) { return std::string(s.sharpness_gauge ? "1" : "0"); },
@@ -981,6 +980,7 @@ void write_entries(const Settings &values, Entries &entries) {
     entries.erase(kRetiredSharpnessColoursKey);
     entries.erase(kRetiredSharpnessGlowKey);
     entries.erase(kRetiredGatherIconThicknessKey);
+    entries.erase(kRetiredDamagePlayerTintKey);
 }
 
 // Drops what a file an earlier version wrote holds only because that

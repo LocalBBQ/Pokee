@@ -3328,19 +3328,17 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         using settings::DamageBreakdown;
         const auto numbers = settings::current().damage_numbers;
         const DamageBreakdown breakdown = settings::current().damage_breakdown;
-        const bool tint = settings::current().damage_player_tint;
         const std::uint32_t size = settings::current().damage_number_size;
         const std::uint32_t thickness = settings::current().damage_number_thickness;
         settings::current().damage_numbers = settings::DamageNumbers::Off;
         settings::current().damage_breakdown = DamageBreakdown::Total;
         change_video("Damage breakdown", ImGuiKey_RightArrow);
-        change_video("Damage player colours", ImGuiKey_Space);
         change_video("Damage number size", ImGuiKey_RightArrow);
         change_video("Damage number thickness", ImGuiKey_RightArrow);
         expect(settings::current().damage_breakdown == DamageBreakdown::Total &&
-                settings::current().damage_player_tint == tint && settings::current().damage_number_size == size &&
+                settings::current().damage_number_size == size &&
                 settings::current().damage_number_thickness == thickness,
-            "the breakdown, player colours, size and thickness are locked while the numbers are off");
+            "the breakdown, size and thickness are locked while the numbers are off");
         settings::current().damage_numbers = settings::DamageNumbers::Mine;
         change_video("Damage breakdown", ImGuiKey_RightArrow);
         expect(settings::current().damage_breakdown == DamageBreakdown::Split, "the breakdown steps to Split");
@@ -3348,10 +3346,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         expect(settings::current().damage_breakdown == DamageBreakdown::TotalAndElement, "then to Total + element");
         change_video("Damage breakdown", ImGuiKey_RightArrow);
         expect(settings::current().damage_breakdown == DamageBreakdown::Total, "and wraps round to Total");
-        change_video("Damage player colours", ImGuiKey_Space);
-        expect(settings::current().damage_player_tint == !tint, "player colours toggle while the numbers are on");
         settings::current().damage_breakdown = breakdown;
-        settings::current().damage_player_tint = tint;
         settings::current().damage_numbers = numbers;
     }
     {
@@ -3396,7 +3391,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         changed.lock_on = !shipped.lock_on;
         changed.damage_numbers = settings::DamageNumbers::Mine;
         changed.damage_breakdown = settings::DamageBreakdown::Split;
-        changed.damage_player_tint = !shipped.damage_player_tint;
         changed.gather_icon_size = shipped.gather_icon_size + 10u;
         changed.unthrottled = !shipped.unthrottled;
         changed.fast_forward_speed = shipped.fast_forward_speed + 1u;
@@ -3408,7 +3402,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         const auto &reset_game = settings::current();
         expect(reset_game.lock_on == shipped.lock_on && reset_game.damage_numbers == shipped.damage_numbers &&
                 reset_game.damage_breakdown == shipped.damage_breakdown &&
-                reset_game.damage_player_tint == shipped.damage_player_tint &&
                 reset_game.gather_icon_size == shipped.gather_icon_size &&
                 reset_game.unthrottled == shipped.unthrottled &&
                 reset_game.fast_forward_speed == shipped.fast_forward_speed &&
@@ -3630,9 +3623,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         "a damage number is drawn over the game from the health a hit removed");
     {
         const auto breakdown = settings::current().damage_breakdown;
-        const bool tint = settings::current().damage_player_tint;
         settings::current().damage_breakdown = settings::DamageBreakdown::Split;
-        settings::current().damage_player_tint = true;
         game::Number split = placed;
         split.grade.affinity = game::Affinity::Positive;
         split.element = 9;
@@ -3643,7 +3634,6 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         expect(ImGui::GetBackgroundDrawList()->VtxBuffer.Size > plain_number,
             "a split critical hit draws its element share and its dot as well");
         settings::current().damage_breakdown = breakdown;
-        settings::current().damage_player_tint = tint;
     }
     game::set_shown_damage_numbers({});
     ui::set_lock_on_marker(std::nullopt);

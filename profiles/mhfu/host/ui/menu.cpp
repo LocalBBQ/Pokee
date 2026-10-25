@@ -1372,17 +1372,6 @@ void Menu::game() {
         }
     }
     {
-        RowOptions o = options_for("game.damage_player_tint",
-            "On: a number's outline takes the colour of the hunter who hit, the colour of their name plate: "
-            "red, blue, yellow or green, the same on every player's screen. A hit whose attacker is not "
-            "known keeps the dark outline. Off: every outline is dark.");
-        o.disabled = o.disabled || !damage_numbers_on;
-        if (toggle_row("Damage player colours", s.damage_player_tint, o)) {
-            s.damage_player_tint = !s.damage_player_tint;
-            settings::save();
-        }
-    }
-    {
         RowOptions o = options_for("game.damage_number_size",
             "How large damage numbers are drawn, in percent of the interface text. They still shrink when "
             "the camera is close to the monster.");
@@ -1550,7 +1539,6 @@ void Menu::game() {
         restore("video.hunt_portrait", s.hunt_portrait_size, d.hunt_portrait_size);
         restore("game.damage_numbers", s.damage_numbers, d.damage_numbers);
         restore("game.damage_breakdown", s.damage_breakdown, d.damage_breakdown);
-        restore("game.damage_player_tint", s.damage_player_tint, d.damage_player_tint);
         restore("game.damage_number_size", s.damage_number_size, d.damage_number_size);
         restore("game.damage_number_thickness", s.damage_number_thickness, d.damage_number_thickness);
         restore("game.sharpness_gauge", s.sharpness_gauge, d.sharpness_gauge);
@@ -2614,11 +2602,7 @@ void draw_damage_numbers() {
             (picture[1] + anchor.y * picture[3]) * io.DisplaySize.y - extent.y * 0.5f - lift};
         const int alpha = static_cast<int>(anchor.alpha * 230.0f);
         if (alpha <= 0) continue;
-        // The outline is dark, or a dark shade of the attacker's colour.
-        ImU32 outline = IM_COL32(0, 0, 0, alpha);
-        if (s.damage_player_tint)
-            if (const std::optional<game::Ink> tint = game::number_tint(number))
-                outline = IM_COL32(tint->red * 3 / 5, tint->green * 3 / 5, tint->blue * 3 / 5, alpha);
+        const ImU32 outline = IM_COL32(0, 0, 0, alpha);
         const auto text_at = [&](const ImVec2 &origin, float text_size, const game::Ink &ink, const std::string &t) {
             const game::Stroke line = game::number_stroke(s.damage_number_thickness, text_size, base_size);
             for (const game::Offset &o : game::stroke_offsets(line.outline + line.weight, 3))

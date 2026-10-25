@@ -67,9 +67,7 @@
 // Whose hit it was is the attacker: this console's hunter (the one the camera
 // follows; in ad hoc play every hunter is on a player node of the quest list,
 // on every console), another hunter, or nothing known (a drop, a Felyne). Mine
-// shows only the first. The player tint is the outline's colour: one for this
-// console's hunter, then one for each other hunter in the order of their
-// entities in memory, so it can differ from one console to another.
+// shows only the first.
 //
 // The number is drawn on the monster. Its position is the three floats at
 // +0x200, the same field lock-on reads, a little above the feet. The frame's
@@ -281,9 +279,6 @@ enum class Element { None, Fire, Water, Thunder, Ice, Dragon };
 // The colour of the sparkle above a critical hit's number: pink, or a
 // blue-gray drawn faded for a negative one. Nothing for an ordinary hit.
 [[nodiscard]] std::optional<Ink> affinity_dot(Affinity affinity) noexcept;
-// The colour of player slot 0 to 3, as the game's name plates have it: red,
-// blue, yellow, green. Nothing for another.
-[[nodiscard]] std::optional<Ink> player_tint(int slot) noexcept;
 
 // How much current health fell. Nothing for a heal, a miss, or a monster that
 // was already at zero.
@@ -301,7 +296,6 @@ struct Number {
     int element{};          // the element share of amount, 0 when none is known
     Element kind{};         // that element
     int player{-1};         // whose hit: 0 this console's hunter (player_of); -1 when not known
-    int slot{-1};           // the attacker's player slot (slot_of); -1 when not known
     std::uint32_t attacker{}; // the attacking entity, the same on every console; 0 when not known
     bool poison{};          // a poison tick, not a hit: light purple, riding the monster's body
     float age{};
@@ -565,19 +559,6 @@ struct HitAmount {
 // hunter alone on the list; with neither (the first seconds of a quest)
 // none is 0.
 [[nodiscard]] int player_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker);
-// The attacker's player slot in the game's table (layout::kPlayerSlots), 0 to
-// 3, the same on every console; -1 when it is in none, or the table holds a
-// word that is no hunter, or one twice.
-// MHFU_DAMAGE_NUMBERS_SLOT_COLOURS=0 always gives -1.
-[[nodiscard]] int slot_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker);
-// MHFU_DAMAGE_NUMBERS_SLOT_COLOURS: unset or anything but "0" is on.
-[[nodiscard]] bool parse_slot_colours(const char *text) noexcept;
-[[nodiscard]] bool slot_colours_enabled() noexcept;
-// A number's outline with Damage player colours: its attacker's slot colour,
-// so a hunter's hits are its name plate's colour on every console. With no
-// slot known, player_of's numbering stands in: red is this console's hunter.
-// Nothing for a hit whose attacker is not known.
-[[nodiscard]] std::optional<Ink> number_tint(const Number &number) noexcept;
 // The number for the hit: its amount, element, grade and player.
 [[nodiscard]] Number number_for(const ComputedHit &hit, int player);
 // MHFU_DAMAGE_NUMBERS_GAME_CONTACT: unset or anything but "0" is on.
@@ -678,15 +659,6 @@ void note_change(std::vector<HealthSeen> &seen, std::uint32_t object, int before
 // "[dmg]   hunters 0 09820000 at x y z (camera); 1 ...". Empty outside a
 // quest.
 [[nodiscard]] std::string hunters_line(const psprecomp::GuestMemory &memory);
-// MHFU_TRACE_HITS, to find the player slot the game gives each hunter (the
-// colour of its name plate): every aligned word in user RAM that holds a
-// hunter's address, outside the first kOwnSpan bytes of a hunter's own
-// entity, as "[slots]   XXXXXXXX -> YYYYYYYY", at most kMaxSlotLines. A table
-// of the players in slot order is at the same place, with the same hunters
-// in the same order, on every console.
-inline constexpr std::uint32_t kOwnSpan = 0x1000u;
-inline constexpr std::size_t kMaxSlotLines = 400u;
-[[nodiscard]] std::vector<std::string> hunter_pointer_lines(const psprecomp::GuestMemory &memory);
 
 // Once a flip, before the interface draws. Installs the hit watch while
 // `enabled` (or while MHFU_TRACE_HITS is set; game/hit_trace.hpp) and drops
