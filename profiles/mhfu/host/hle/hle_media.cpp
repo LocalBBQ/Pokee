@@ -9,8 +9,11 @@
 
 #include "overlays.hpp"
 #include "game/body_trace.hpp"
+#include "adhoc/client.hpp"
 #include "game/damage_numbers.hpp"
+#include "game/damage_sync.hpp"
 #include "game/gather_icon.hpp"
+#include "game/guest_layout.hpp"
 #include "game/guest_ram.hpp"
 #include "game/hit_trace.hpp"
 #include "game/item_atlas.hpp"
@@ -255,6 +258,42 @@ std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
     return game::EyePose{
         {pose->eye[0], pose->eye[1], pose->eye[2]}, {pose->look_at[0], pose->look_at[1], pose->look_at[2]}};
 }
+
+// Damage numbers in ad hoc play (game/damage_sync.hpp): while this console
+// plays a quest in an ad hoc group, the hits it applies go to the other
+// players and theirs come in, on a socket of the port's own. Before
+// damage_numbers_frame, so a hit received now explains this frame's drop.
+void share_damage_numbers(Runtime &rt) {
+    constexpr std::size_t kSyncBuffer = 16u * 1024u;
+    constexpr int kMaxDatagrams = 64; // a frame's worth from three players, and more
+    static int socket = 0;
+    const bool active = game::sync_enabled() && settings::current().adhoc && game::layout::quest_running(rt.memory()) &&
+        adhoc::Client::get().in_group();
+    if (active && socket == 0) {
+        socket = adhoc::Client::get().pdp_open(game::kSyncPort, kSyncBuffer);
+        if (game::hit_trace::enabled())
+            std::cout << "[dmg] sharing hits on ad hoc port " << game::kSyncPort
+                      << (socket != 0 ? "" : ": the port is taken") << std::endl;
+    } else if (!active && socket != 0) {
+        adhoc::Client::get().pdp_close(socket);
+        socket = 0;
+        if (game::hit_trace::enabled()) std::cout << "[dmg] sharing hits stops" << std::endl;
+    }
+    game::set_sharing(socket != 0);
+    if (socket == 0) return;
+    adhoc::Client &client = adhoc::Client::get();
+    for (const std::string &datagram : game::encode_hits(game::take_shared_hits()))
+        if (!client.pdp_send(socket, adhoc::kBroadcastMac, game::kSyncPort, datagram.data(), datagram.size())) {
+            socket = 0; // the client closed every socket; open it again next frame
+            return;
+        }
+    for (int i = 0; i < kMaxDatagrams; ++i) {
+        const std::optional<adhoc::Datagram> datagram = client.pdp_receive(socket);
+        if (!datagram) break;
+        if (const std::optional<std::vector<game::SharedHit>> hits = game::decode_hits(datagram->data))
+            game::receive_shared_hits(rt.memory(), *hits);
+    }
+}
 #endif
 
 // The emulated time of the vblank the frame being flipped started from. The
@@ -345,6 +384,7 @@ void present_frame(Runtime &rt) {
     }
     const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
     game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
+    share_damage_numbers(rt);
     const settings::DamageNumbers numbers = settings::current().damage_numbers;
     game::damage_numbers_frame(numbers != settings::DamageNumbers::Off, &rt.memory(), pose,
         numbers == settings::DamageNumbers::Mine ? game::Whose::Mine : game::Whose::Everyone);

@@ -267,6 +267,7 @@ set(MHFU_HOST_SOURCES
     host/game/layered_armor.cpp
     host/game/layered_armor_hook.cpp
     host/game/damage_numbers.cpp
+    host/game/damage_sync.cpp
     host/game/gather_art.cpp
     host/game/gather_icon.cpp
     host/game/item_atlas.cpp
@@ -550,6 +551,7 @@ endif()
 add_executable(mhfu_damage_numbers_tests
     tests/damage_numbers_tests.cpp
     host/game/damage_numbers.cpp
+    host/game/damage_sync.cpp
     host/game/hit_trace.cpp)
 
 # The MHFU_TRACE_BODIES trace: which fields of a dead monster count, and when
