@@ -181,6 +181,9 @@ void trace_roster(const psprecomp::GuestMemory &memory) {
 void remember_applied(const psprecomp::GuestMemory &memory, const Number &number) {
     remember_number(live_numbers(), number);
     if (!sharing_on().load(std::memory_order_relaxed) || number.amount <= 0) return;
+    // A monster's hit on another is worked out on every console, each on its
+    // own copy of a small monster, so only a hunter's is shared.
+    if (!number.poison && !is_hunter(memory, number.attacker)) return;
     SharedHit hit;
     hit.monster = number.object;
     hit.attacker = number.attacker;
@@ -1756,6 +1759,10 @@ void receive_shared_hits(const psprecomp::GuestMemory &memory, const std::vector
             memory.load8(hit.monster + layout::kMonsterId) == hit.species;
         if (!same) {
             trace_damage(&memory, "not ours", hit.monster, hit.amount, 0, ": no such monster here");
+            continue;
+        }
+        if (!hit.poison && !is_hunter(memory, hit.attacker)) {
+            trace_damage(&memory, "not ours", hit.monster, hit.amount, monster->health, ": not a hunter's hit");
             continue;
         }
         Number number = make_number(hit.amount, Grade{hit.fill, hit.affinity}, 0);
