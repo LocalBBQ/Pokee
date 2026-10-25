@@ -3,6 +3,7 @@
 #include "imgui.h"
 
 #include <initializer_list>
+#include <optional>
 #include <string>
 
 // The look of the interface and the controls its screens are built from.
@@ -100,9 +101,10 @@ bool disclosure_row(const char *label, bool &open, const RowOptions &options = {
 // An on/off setting. Returns true when toggled.
 bool toggle_row(const char *label, bool value, const RowOptions &options = {});
 // A number between minimum and maximum, changed in steps with left/right or
-// dragged with the mouse. Returns true when `value` changed.
+// dragged with the mouse. `mark`, when given, is drawn as a tick across the
+// bar, such as the setting's default. Returns true when `value` changed.
 bool slider_row(const char *label, int &value, int minimum, int maximum, int step, const char *format,
-    const RowOptions &options = {});
+    const RowOptions &options = {}, std::optional<int> mark = std::nullopt);
 // An action. Returns true when activated.
 bool button_row(const char *label, const RowOptions &options = {}, ImU32 color = colors::kText);
 // A setting chosen on a screen of its own: its value, and a chevron that
