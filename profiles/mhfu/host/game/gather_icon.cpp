@@ -575,25 +575,32 @@ GatherGlyph gather_glyph(std::uint16_t kind) noexcept {
     return GatherGlyph::Plant;
 }
 
-std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory) {
-    // The circle handler tries the gather list first and carves only when it
-    // misses, so a node in range takes the mark. Fishing is the item action,
-    // so a fishing spot is marked only when ○ has nothing to do there.
-    if (const std::optional<GatherNode> node = gather_node(memory))
-        {
+std::vector<GatherTarget> gather_targets(const psprecomp::GuestMemory &memory) {
+    std::vector<GatherTarget> targets;
+    const std::optional<GatherNode> node = gather_node(memory);
+    if (node) {
         GatherArt art;
         if (gather_art_code_matches(memory)) art = gather_art_for(memory, node->kind, node->id);
         trace_art(memory, *node, art);
-        return GatherTarget{node->address, node->x, node->y, node->z, gather_glyph(node->kind), art};
+        targets.push_back(GatherTarget{node->address, node->x, node->y, node->z, gather_glyph(node->kind), art});
     }
-    if (const std::optional<CarveBody> body = carve_body(memory))
-        return GatherTarget{body->address, body->x, body->y, body->z, GatherGlyph::Carve};
+    // 0x09AA6F1C: a plant is gathered, and the carve search is not asked.
+    if (!node || node->kind != 0u) {
+        if (const std::optional<CarveBody> body = carve_body(memory))
+            targets.push_back(GatherTarget{body->address, body->x, body->y, body->z, GatherGlyph::Carve});
+    }
     if (const std::optional<FishingSpot> spot = fishing_spot(memory)) {
         GatherArt art;
         if (gather_art_code_matches(memory)) art = GatherArt::of_item(kBaitItem);
-        return GatherTarget{spot->address, spot->x, spot->y, spot->z, GatherGlyph::Fishing, art};
+        targets.push_back(GatherTarget{spot->address, spot->x, spot->y, spot->z, GatherGlyph::Fishing, art});
     }
-    return std::nullopt;
+    return targets;
+}
+
+GatherRole gather_role(GatherGlyph glyph) noexcept {
+    if (glyph == GatherGlyph::Carve) return GatherRole::Carve;
+    if (glyph == GatherGlyph::Fishing) return GatherRole::Fishing;
+    return GatherRole::Node;
 }
 
 void GatherMotion::step(const std::optional<GatherTarget> &target) {
@@ -631,41 +638,22 @@ std::optional<GatherMotion::Shown> GatherMotion::shown() const {
     return Shown{x_, y_, z_, alpha_, glyph_, art_};
 }
 
-std::optional<GatherMark> gather_mark(
-    const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose, GatherMotion *motion) {
+std::vector<GatherMark> gather_marks(
+    const psprecomp::GuestMemory &memory, const std::optional<GatherPose> &pose, GatherMotions *motions) {
     Noted &slot = noted();
     const GatherPicture picture = slot.picture;
     const std::uint32_t vertices = std::exchange(slot.vertices, 0u);
     slot.picture = {};
     if (!settings::current().gather_icon || vertices == 0u || !pose) {
-        if (motion != nullptr) motion->reset();
-        return std::nullopt;
+        if (motions != nullptr)
+            for (GatherMotion &motion : *motions) motion.reset();
+        return {};
     }
-    const std::optional<GatherTarget> target = gather_target(memory);
-    std::optional<std::array<float, 3>> point;
-    GatherMark mark;
-    if (motion != nullptr) {
-        motion->step(target);
-        const std::optional<GatherMotion::Shown> shown = motion->shown();
-        if (!shown) {
-            motion->set_last_at(std::nullopt);
-            return std::nullopt;
-        }
-        point = std::array<float, 3>{shown->x, shown->y, shown->z};
-        mark.alpha = shown->alpha;
-        mark.glyph = shown->glyph;
-        mark.art = shown->art;
-    } else if (target) {
-        point = std::array<float, 3>{target->x, target->y, target->z};
-        mark.glyph = target->glyph;
-        mark.art = target->art;
-    }
-    if (!point) return std::nullopt;
-    mark.world = *point;
-    const auto project = [&]() -> std::optional<std::array<float, 2>> {
-        const WorldPoint eye{pose->eye_x, pose->eye_y, pose->eye_z};
-        const WorldPoint look{pose->look_x, pose->look_y, pose->look_z};
-        const std::optional<std::array<float, 16>> view = look_at_view(eye, look);
+    const std::vector<GatherTarget> targets = gather_targets(memory);
+    const WorldPoint eye{pose->eye_x, pose->eye_y, pose->eye_z};
+    const WorldPoint look{pose->look_x, pose->look_y, pose->look_z};
+    const std::optional<std::array<float, 16>> view = look_at_view(eye, look);
+    const auto project = [&](const std::array<float, 3> &point) -> std::optional<std::array<float, 2>> {
         if (!view || picture.x_scale == 0.0f || picture.y_scale == 0.0f) return std::nullopt;
         WorldCamera camera;
         camera.view = *view;
@@ -676,19 +664,101 @@ std::optional<GatherMark> gather_mark(
         camera.y_offset = picture.y_offset;
         camera.origin_x = picture.origin_x;
         camera.origin_y = picture.origin_y;
-        const std::optional<PicturePoint> at =
-            project_world(camera, (*point)[0], (*point)[1] + kGatherLift, (*point)[2]);
+        const std::optional<PicturePoint> at = project_world(camera, point[0], point[1] + kGatherLift, point[2]);
         if (!at) return std::nullopt;
         return std::array<float, 2>{at->x, at->y};
     };
-    const std::optional<std::array<float, 2>> at = project();
-    if (motion != nullptr) {
-        mark.older = motion->last_at();
-        motion->set_last_at(at);
+    std::vector<GatherMark> marks;
+    if (motions == nullptr) {
+        for (const GatherTarget &target : targets) {
+            GatherMark mark;
+            mark.glyph = target.glyph;
+            mark.art = target.art;
+            mark.world = {target.x, target.y, target.z};
+            const std::optional<std::array<float, 2>> at = project(mark.world);
+            if (!at) continue;
+            mark.at = *at;
+            marks.push_back(mark);
+        }
+        return marks;
     }
-    if (!at) return std::nullopt;
-    mark.at = *at;
-    return mark;
+    for (std::size_t role = 0; role < kGatherRoles; ++role) {
+        std::optional<GatherTarget> target;
+        for (const GatherTarget &each : targets)
+            if (static_cast<std::size_t>(gather_role(each.glyph)) == role) target = each;
+        GatherMotion &motion = (*motions)[role];
+        motion.step(target);
+        const std::optional<GatherMotion::Shown> shown = motion.shown();
+        if (!shown) {
+            motion.set_last_at(std::nullopt);
+            continue;
+        }
+        GatherMark mark;
+        mark.alpha = shown->alpha;
+        mark.glyph = shown->glyph;
+        mark.art = shown->art;
+        mark.world = {shown->x, shown->y, shown->z};
+        const std::optional<std::array<float, 2>> at = project(mark.world);
+        mark.older = motion.last_at();
+        motion.set_last_at(at);
+        if (!at) continue;
+        mark.at = *at;
+        marks.push_back(mark);
+    }
+    return marks;
+}
+
+void spread_gather_marks(std::span<GatherMark> marks, std::array<float, 2> apart) {
+    if (marks.size() < 2u || !(apart[0] > 0.0f) || !(apart[1] > 0.0f)) return;
+    // Closer than this, measured in `apart`, two discs overlap. A row laid out
+    // below is exactly 1 apart, and the margin keeps rounding from regrouping it.
+    constexpr float kTouch = 1.0f - 1.0e-3f;
+    const auto overlap = [&](const GatherMark &a, const GatherMark &b) {
+        const float dx = (a.at[0] - b.at[0]) / apart[0];
+        const float dy = (a.at[1] - b.at[1]) / apart[1];
+        return dx * dx + dy * dy < kTouch * kTouch;
+    };
+    // A row can reach a mark beside it, so groups that overlap are joined and
+    // laid out again until none does. A group stays joined, so its row is not
+    // split again, and each pass joins at least two.
+    std::vector<std::size_t> group(marks.size());
+    for (std::size_t i = 0; i < group.size(); ++i) group[i] = i;
+    for (std::size_t pass = 0; pass < marks.size(); ++pass) {
+        bool any = false;
+        for (std::size_t i = 0; i < marks.size(); ++i)
+            for (std::size_t j = i + 1u; j < marks.size(); ++j) {
+                if (!overlap(marks[i], marks[j]) || group[i] == group[j]) continue;
+                any = true;
+                const std::size_t from = group[j];
+                for (std::size_t &each : group)
+                    if (each == from) each = group[i];
+            }
+        if (!any) return;
+        for (std::size_t first = 0; first < marks.size(); ++first) {
+            std::vector<std::size_t> members;
+            for (std::size_t i = 0; i < marks.size(); ++i)
+                if (group[i] == first) members.push_back(i);
+            if (members.size() < 2u) continue;
+            float x = 0.0f;
+            float y = 0.0f;
+            for (const std::size_t i : members) {
+                x += marks[i].at[0];
+                y += marks[i].at[1];
+            }
+            const float count = static_cast<float>(members.size());
+            x /= count;
+            y /= count;
+            std::stable_sort(members.begin(), members.end(),
+                [&](std::size_t a, std::size_t b) { return marks[a].at[0] < marks[b].at[0]; });
+            for (std::size_t n = 0; n < members.size(); ++n) {
+                GatherMark &mark = marks[members[n]];
+                const std::array<float, 2> to{x + (static_cast<float>(n) - (count - 1.0f) * 0.5f) * apart[0], y};
+                if (mark.older)
+                    *mark.older = {(*mark.older)[0] + to[0] - mark.at[0], (*mark.older)[1] + to[1] - mark.at[1]};
+                mark.at = to;
+            }
+        }
+    }
 }
 
 std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::uint32_t button) {
