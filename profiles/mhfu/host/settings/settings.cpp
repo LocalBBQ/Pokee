@@ -119,8 +119,8 @@ const Names<RightStick> kRightSticks{
 const Names<LockOnStyle> kLockOnStyles{{{LockOnStyle::Follow, "follow"}, {LockOnStyle::Focus, "focus"}}};
 const Names<DamageNumbers> kDamageNumbers{
     {{DamageNumbers::Off, "off"}, {DamageNumbers::Mine, "mine"}, {DamageNumbers::Everyone, "everyone"}}};
-const Names<DamageBreakdown> kDamageBreakdowns{{{DamageBreakdown::Total, "total"},
-    {DamageBreakdown::Split, "split"}, {DamageBreakdown::TotalAndElement, "total+element"}}};
+const Names<DamageBreakdown> kDamageBreakdowns{{{DamageBreakdown::Total, "total"}, {DamageBreakdown::Split, "split"},
+    {DamageBreakdown::TotalAndElement, "total+element"}}};
 
 // Damage numbers were on or off before Mine: a saved 1 is every hit.
 bool parse_damage_numbers(const std::string &text, DamageNumbers &out) {
@@ -334,8 +334,7 @@ const std::vector<Field> &fields() {
                 return true;
             },
             [](const Settings &s) { return s.font; }, [](Settings &s, const char *t) { s.font = t; }},
-        {"text.crisp", "MHFU_CRISP_TEXT",
-            [](Settings &s, const std::string &t) { return parse_bool(t, s.crisp_text); },
+        {"text.crisp", "MHFU_CRISP_TEXT", [](Settings &s, const std::string &t) { return parse_bool(t, s.crisp_text); },
             [](const Settings &s) { return std::string(s.crisp_text ? "1" : "0"); },
             [](Settings &s, const char *t) { s.crisp_text = variable_flag(t); }},
         {"video.ui_textures", "MHFU_UI_TEXTURES",
@@ -345,7 +344,9 @@ const std::vector<Field> &fields() {
                 if (!kUiTextures.parse(t, s.ui_textures)) s.ui_textures = UiTextures::Off;
             }},
         {"video.hud.map", "MHFU_HUD_MAP",
-            [](Settings &s, const std::string &t) { return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.hud.map); },
+            [](Settings &s, const std::string &t) {
+                return parse_uint(t, kMinMapItemScale, kMaxMapItemScale, s.hud.map);
+            },
             [](const Settings &s) { return std::to_string(s.hud.map); },
             [](Settings &s, const char *t) {
                 std::uint32_t value = s.hud.map;
