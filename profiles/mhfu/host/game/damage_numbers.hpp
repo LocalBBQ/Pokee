@@ -64,8 +64,9 @@
 // the same sparkle in a faded blue-gray. A drop with no computed hit behind it
 // is white with no sparkle.
 //
-// Whose hit it was is the attacker: this console's hunter (the player node on
-// the quest list), another hunter, or nothing known (a drop, a Felyne). Mine
+// Whose hit it was is the attacker: this console's hunter (the one the camera
+// follows; in ad hoc play every hunter is on a player node of the quest list,
+// on every console), another hunter, or nothing known (a drop, a Felyne). Mine
 // shows only the first. The player tint is the outline's colour: one for this
 // console's hunter, then one for each other hunter in the order of their
 // entities in memory, so it can differ from one console to another.
@@ -553,7 +554,10 @@ struct HitAmount {
 [[nodiscard]] HitAmount hit_amount(const ComputedHit &hit) noexcept;
 // Whose hit: 0 for this console's hunter, 1 to 3 for each other hunter on
 // the quest list by the order of their entities, -1 when `attacker` is no
-// hunter there.
+// hunter there. In ad hoc play every hunter is on a player node, so this
+// console's is the one the camera follows (layout::followed_hunter), or a
+// hunter alone on the list; with neither (the first seconds of a quest)
+// none is 0.
 [[nodiscard]] int player_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker);
 // The number for the hit: its amount, element, grade and player.
 [[nodiscard]] Number number_for(const ComputedHit &hit, int player);
