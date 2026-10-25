@@ -125,6 +125,68 @@ void test_draws_reach_the_slow_frame_line() {
     check(next.find(" | draws 0 | ") != std::string::npos, "draws do not carry over to the next frame: " + next);
 }
 
+void test_charged_time_reaches_the_slow_frame_line() {
+    (void)slow_frame_line(300'303u);
+    const std::string none = slow_frame_line(333'670u);
+    check(none.find(" | charged 0.0 ms | ") != std::string::npos, "a frame without charges says 0: " + none);
+    add_charged_time(1000u);
+    add_charged_time(1000u);
+    add_charged_time(500u);
+    const std::string line = slow_frame_line(367'037u);
+    check(line.find(" | charged 2.5 ms | ") != std::string::npos,
+        "the emulated time charged in the frame is on its slow-frame line: " + line);
+    const std::string next = slow_frame_line(400'404u);
+    check(next.find(" | charged 0.0 ms | ") != std::string::npos, "charges do not carry over to the next frame: " + next);
+}
+
+void test_slowest_call_reaches_the_slow_frame_line() {
+    check(stall_trace_enabled(), "MHFU_TRACE_STALLS turns the call timing on");
+    (void)slow_frame_line(433'771u);
+    const std::string none = slow_frame_line(467'138u);
+    check(none.find(" | slowest call none 0.0 ms | thread cpu ") != std::string::npos,
+        "a frame without calls names none: " + none);
+    note_hle_call("sceAudio::sceAudioOutputPannedBlocking", std::chrono::microseconds(2'000));
+    note_hle_call("sceDisplay::sceDisplaySetFrameBuf", std::chrono::microseconds(7'500));
+    note_hle_call("sceCtrl::sceCtrlReadBufferPositive", std::chrono::microseconds(500));
+    const std::string line = slow_frame_line(500'505u);
+    check(line.find(" | slowest call sceDisplay::sceDisplaySetFrameBuf 7.5 ms | thread cpu ") != std::string::npos,
+        "the frame's longest call is on its slow-frame line: " + line);
+    const std::string next = slow_frame_line(533'872u);
+    check(next.find(" | slowest call none 0.0 ms | ") != std::string::npos,
+        "the slowest call does not carry over to the next frame: " + next);
+}
+
+#if defined(__linux__)
+// "thread cpu 12.3 ms" as a number.
+double thread_cpu_ms(const std::string &line) {
+    const std::size_t at = line.find(" thread cpu ");
+    return at == std::string::npos ? -1.0 : std::strtod(line.c_str() + at + 12u, nullptr);
+}
+
+void test_thread_usage_tells_work_from_a_stop() {
+    (void)slow_frame_line(600'606u);
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    const std::string asleep = slow_frame_line(633'973u);
+    check(thread_cpu_ms(asleep) >= 0.0 && thread_cpu_ms(asleep) < 15.0,
+        "a frame the thread slept through takes little of its CPU: " + asleep);
+    const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(30);
+    volatile std::uint64_t spin = 0;
+    while (std::chrono::steady_clock::now() < until) spin = spin + 1;
+    const std::string busy = slow_frame_line(667'340u);
+    check(thread_cpu_ms(busy) >= 15.0, "a frame it worked through takes most of it: " + busy);
+}
+#endif
+
+void test_accounted_time_covers_render_and_pacing() {
+    const Clock::duration before = accounted_time();
+    add_render_time(std::chrono::microseconds(300));
+    add_pacing_time(std::chrono::microseconds(200));
+    check(accounted_time() - before == std::chrono::microseconds(500),
+        "render and pacing time are what a call's own time leaves out");
+    (void)slow_frame_line(567'239u);
+    check(accounted_time() - before == std::chrono::microseconds(500), "and the total is not reset with the frame");
+}
+
 void test_performance_setting_options() {
     using mhfu::settings::PerfDisplay;
     mhfu::settings::Settings &s = mhfu::settings::current();
@@ -254,6 +316,12 @@ int main() {
     test_scopes_reach_the_slow_frame_line();
     test_split_reaches_the_slow_frame_line();
     test_draws_reach_the_slow_frame_line();
+    test_charged_time_reaches_the_slow_frame_line();
+    test_slowest_call_reaches_the_slow_frame_line();
+    test_accounted_time_covers_render_and_pacing();
+#if defined(__linux__)
+    test_thread_usage_tells_work_from_a_stop();
+#endif
     test_performance_setting_options();
     test_compact_overlay();
     test_background_mute_gain();
