@@ -1339,20 +1339,54 @@ void Menu::game() {
         }
     }
     section("Overlays");
-    if (toggle_row("Damage numbers", s.damage_numbers,
-            options_for("game.damage_numbers",
-                "On: a number shows how much health a hit takes off a monster, drawn on the monster. A weak point "
-                "(hitzone 45 or more, after sharpness for a blade) is orange and any other part "
-                "is gray. The number stays white until that part is known, and a critical hit "
-                "keeps its own mark. Off: nothing is added."))) {
-        s.damage_numbers = !s.damage_numbers;
-        settings::save();
+    const bool damage_numbers_on = s.damage_numbers != settings::DamageNumbers::Off;
+    {
+        const char *const whose[] = {"Off", "Mine", "Everyone"};
+        const int current = static_cast<int>(s.damage_numbers);
+        if (const int delta = choice_row("Damage numbers", whose[current],
+                options_for("game.damage_numbers",
+                    "A number shows how much health a hit takes off a monster, drawn where it landed. A weak point "
+                    "(hitzone 45 or more, after sharpness for a blade) is yellow and any other part white. A "
+                    "critical hit has a glowing pink sparkle above it and a negative critical a faded blue-gray one. A "
+                    "killing blow shows "
+                    "the whole hit. Poison ticks are light purple and ride the monster. Mine: only your hunter's "
+                    "hits, and poison. Everyone: every hit, also those whose attacker is not known, such as a hit "
+                    "another player's console applied. Off: nothing is added."))) {
+            s.damage_numbers = static_cast<settings::DamageNumbers>(cycle(current, delta, 3));
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("game.damage_breakdown",
+            "Total: the hit as one number. Split: the raw part in the hitzone's colour, with the element "
+            "part beside it, smaller, in the element's colour after its glyph: a curled flame, a drop, a "
+            "bolt, ice crystals or dragon spikes. Total + "
+            "element: the whole hit, with the element part beside it. A hit without an element is one number "
+            "in every mode.");
+        o.disabled = o.disabled || !damage_numbers_on;
+        const char *const modes[] = {"Total", "Split", "Total + element"};
+        const int current = static_cast<int>(s.damage_breakdown);
+        if (const int delta = choice_row("Damage breakdown", modes[current], o)) {
+            s.damage_breakdown = static_cast<settings::DamageBreakdown>(cycle(current, delta, 3));
+            settings::save();
+        }
+    }
+    {
+        RowOptions o = options_for("game.damage_player_tint",
+            "On: a number's outline takes the colour of the hunter who hit, red for yours and blue, green "
+            "and pink for the others, so you can tell whose hit was whose. A hit whose attacker is not known "
+            "keeps the dark outline. Off: every outline is dark.");
+        o.disabled = o.disabled || !damage_numbers_on;
+        if (toggle_row("Damage player colours", s.damage_player_tint, o)) {
+            s.damage_player_tint = !s.damage_player_tint;
+            settings::save();
+        }
     }
     {
         RowOptions o = options_for("game.damage_number_size",
             "How large damage numbers are drawn, in percent of the interface text. They still shrink when "
             "the camera is close to the monster.");
-        o.disabled = o.disabled || !s.damage_numbers;
+        o.disabled = o.disabled || !damage_numbers_on;
         int size = static_cast<int>(s.damage_number_size);
         if (slider_row("Damage number size", size, static_cast<int>(settings::kMinDamageNumberSize),
                 static_cast<int>(settings::kMaxDamageNumberSize), 10, "%d%%", o)) {
@@ -1362,9 +1396,9 @@ void Menu::game() {
     }
     {
         RowOptions o = options_for("game.damage_number_thickness",
-            "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and each "
-            "step thickens both the digits and the outline. 3 is the thickest that stays readable.");
-        o.disabled = o.disabled || !s.damage_numbers;
+            "How bold damage numbers are: 1 is the font's own strokes with a thin dark outline, and 2 "
+            "thickens both the digits and the outline.");
+        o.disabled = o.disabled || !damage_numbers_on;
         int thickness = static_cast<int>(s.damage_number_thickness);
         if (slider_row("Damage number thickness", thickness, 1, static_cast<int>(settings::kMaxDamageNumberThickness),
                 1, "%d", o)) {
@@ -1515,6 +1549,8 @@ void Menu::game() {
         restore("input.lock_on_marker", s.lock_on_marker, d.lock_on_marker);
         restore("video.hunt_portrait", s.hunt_portrait_size, d.hunt_portrait_size);
         restore("game.damage_numbers", s.damage_numbers, d.damage_numbers);
+        restore("game.damage_breakdown", s.damage_breakdown, d.damage_breakdown);
+        restore("game.damage_player_tint", s.damage_player_tint, d.damage_player_tint);
         restore("game.damage_number_size", s.damage_number_size, d.damage_number_size);
         restore("game.damage_number_thickness", s.damage_number_thickness, d.damage_number_thickness);
         restore("game.sharpness_gauge", s.sharpness_gauge, d.sharpness_gauge);
@@ -2538,11 +2574,15 @@ void draw_damage_numbers() {
     const float base_size = Layer::get().font_size() * 0.85f;
     const float full_size = base_size * static_cast<float>(s.damage_number_size) / 100.0f;
     ImFont *font = ImGui::GetFont();
+    const game::Breakdown breakdown = s.damage_breakdown == settings::DamageBreakdown::Split ? game::Breakdown::Split
+        : s.damage_breakdown == settings::DamageBreakdown::TotalAndElement ? game::Breakdown::TotalAndElement
+                                                                           : game::Breakdown::Total;
     for (const game::Number &number : game::damage_numbers()) {
         const game::Anchor anchor = game::number_anchor(number);
         // Smaller when the camera is close, so it stays on the hit's point.
         const float size = full_size * anchor.scale;
-        const std::string text = game::damage_number_text(number);
+        const game::NumberText parts = game::number_text(number, breakdown);
+        const std::string &text = parts.main;
         const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
         // A pixel of stroke for every interface-sized number's worth of height.
         const game::Stroke stroke = game::number_stroke(s.damage_number_thickness, size, base_size);
@@ -2558,13 +2598,110 @@ void draw_damage_numbers() {
             (picture[1] + anchor.y * picture[3]) * io.DisplaySize.y - extent.y * 0.5f - lift};
         const int alpha = static_cast<int>(anchor.alpha * 230.0f);
         if (alpha <= 0) continue;
-        const game::Ink ink = game::damage_number_ink(number.grade.fill);
+        // The outline is dark, or a dark shade of the attacker's colour.
+        ImU32 outline = IM_COL32(0, 0, 0, alpha);
+        if (s.damage_player_tint)
+            if (const std::optional<game::Ink> tint = game::player_tint(number.player))
+                outline = IM_COL32(tint->red * 3 / 5, tint->green * 3 / 5, tint->blue * 3 / 5, alpha);
+        const auto text_at = [&](const ImVec2 &origin, float text_size, const game::Ink &ink, const std::string &t) {
+            const game::Stroke line = game::number_stroke(s.damage_number_thickness, text_size, base_size);
+            for (const game::Offset &o : game::stroke_offsets(line.outline + line.weight, 3))
+                draw->AddText(font, text_size, {origin.x + o.x, origin.y + o.y}, outline, t.c_str());
+            for (const game::Offset &o : game::stroke_offsets(line.weight, 2))
+                draw->AddText(font, text_size, {origin.x + o.x, origin.y + o.y},
+                    IM_COL32(ink.red, ink.green, ink.blue, alpha), t.c_str());
+        };
+        // An element's glyph, in a box as tall as the digits of text `text_size`
+        // tall whose line starts at `line_y`, from `x`; outlined like the text.
+        // Returns its width.
+        const auto glyph_at = [&](float x, float line_y, float text_size, game::Element element, const game::Ink &ink) {
+            const game::Glyph glyph = game::element_glyph(element);
+            if (glyph.fills.empty()) return 0.0f;
+            const float line = font->CalcTextSizeA(text_size, FLT_MAX, 0.0f, "0").y;
+            const float box = line * 0.62f;
+            const ImVec2 origin{x, line_y + line * 0.55f - box * 0.5f};
+            const float edge =
+                std::max(1.0f, game::number_stroke(s.damage_number_thickness, text_size, base_size).outline);
+            std::vector<ImVec2> points;
+            const auto place = [&](const std::vector<game::Offset> &shape, const game::Offset &o) {
+                points.clear();
+                for (const game::Offset &p : shape)
+                    points.push_back({origin.x + p.x * box + o.x, origin.y + p.y * box + o.y});
+            };
+            const auto fill = [&](const std::vector<game::Offset> &shape, const game::Offset &o, ImU32 colour) {
+                place(shape, o);
+                draw->AddConcavePolyFilled(points.data(), static_cast<int>(points.size()), colour);
+            };
+            for (const game::Offset &o : game::stroke_offsets(edge, 2))
+                for (const std::vector<game::Offset> &shape : glyph.fills) fill(shape, o, outline);
+            for (const std::vector<game::Offset> &shape : glyph.fills)
+                fill(shape, {}, IM_COL32(ink.red, ink.green, ink.blue, alpha));
+            // The light faces, a little under halfway to white.
+            const auto lighter = [](std::uint8_t c) { return c + (255 - c) * 9 / 20; };
+            for (const std::vector<game::Offset> &shape : glyph.highlights)
+                fill(shape, {}, IM_COL32(lighter(ink.red), lighter(ink.green), lighter(ink.blue), alpha));
+            for (const std::vector<game::Offset> &groove : glyph.grooves) {
+                place(groove, {});
+                draw->AddPolyline(points.data(), static_cast<int>(points.size()), outline, ImDrawFlags_None,
+                    std::max(1.0f, glyph.groove_width * box));
+            }
+            return box;
+        };
         const int first_vertex = draw->VtxBuffer.Size;
-        for (const game::Offset &o : game::stroke_offsets(stroke.outline + stroke.weight, 3))
-            draw->AddText(font, size, {at.x + o.x, at.y + o.y}, IM_COL32(0, 0, 0, alpha), text.c_str());
-        for (const game::Offset &o : game::stroke_offsets(stroke.weight, 2))
-            draw->AddText(
-                font, size, {at.x + o.x, at.y + o.y}, IM_COL32(ink.red, ink.green, ink.blue, alpha), text.c_str());
+        const float gap = std::max(1.0f, size * 0.12f) + stroke.outline;
+        text_at(at, size, parts.main_ink, text);
+        // A hit of element alone: its glyph before the number.
+        if (parts.main_glyph != game::Element::None) {
+            const float box = font->CalcTextSizeA(size, FLT_MAX, 0.0f, "0").y * 0.62f;
+            glyph_at(at.x - gap - box, at.y, size, parts.main_glyph, parts.main_ink);
+        }
+        // The element share beside it, smaller, on the same baseline, after
+        // its glyph.
+        if (!parts.side.empty()) {
+            const float side_size = size * 0.7f;
+            const ImVec2 side_extent = font->CalcTextSizeA(side_size, FLT_MAX, 0.0f, parts.side.c_str());
+            float x = at.x + extent.x + gap;
+            const float side_y = at.y + extent.y - side_extent.y;
+            if (const float box = glyph_at(x, side_y, side_size, parts.side_glyph, parts.side_ink); box > 0.0f)
+                x += box + std::max(1.0f, box * 0.15f) + stroke.outline;
+            text_at({x, side_y}, side_size, parts.side_ink, parts.side);
+        }
+        // A critical hit's mark: a glowing sparkle above the number, pink, or
+        // for a negative critical a faded blue-gray.
+        if (const std::optional<game::Ink> mark = game::affinity_dot(number.grade.affinity)) {
+            const bool negative = number.grade.affinity == game::Affinity::Negative;
+            // Across, about the number's width; up and down, a third of the
+            // digits' height; just above their tops.
+            const float half_across = std::max(extent.x * 0.52f, size * 0.42f);
+            const float half_up = size * 0.17f;
+            const ImVec2 centre{at.x + extent.x * 0.5f, at.y + extent.y * 0.16f - half_up};
+            const std::vector<game::Offset> shape = game::sparkle_shape();
+            std::vector<ImVec2> points(shape.size());
+            const auto sparkle = [&](float across, float up, ImU32 colour) {
+                for (std::size_t i = 0; i < shape.size(); ++i)
+                    points[i] = {centre.x + shape[i].x * across, centre.y + shape[i].y * up};
+                draw->AddConcavePolyFilled(points.data(), static_cast<int>(points.size()), colour);
+            };
+            const float faded = negative ? 0.6f : 1.0f;
+            const auto tone = [&](float share) {
+                return IM_COL32(
+                    mark->red, mark->green, mark->blue, static_cast<int>(static_cast<float>(alpha) * share * faded));
+            };
+            // The core is the colour taken most of the way to white: near white
+            // for a critical, a pale blue for a negative one.
+            const float whiten = negative ? 0.55f : 0.85f;
+            const auto core = [&](std::uint8_t c) {
+                return static_cast<int>(static_cast<float>(c) + static_cast<float>(255 - c) * whiten);
+            };
+            // A soft glow, the sparkle, and its core.
+            const float glow = std::max(1.0f, half_up * 0.5f);
+            sparkle(half_across + glow * 3.0f, half_up + glow * 2.0f, tone(0.25f));
+            sparkle(half_across + glow * 1.5f, half_up + glow, tone(0.45f));
+            sparkle(half_across, half_up, tone(1.0f));
+            sparkle(half_across * 0.72f, half_up * 0.62f,
+                IM_COL32(core(mark->red), core(mark->green), core(mark->blue),
+                    static_cast<int>(static_cast<float>(alpha) * faded)));
+        }
         if (!game::smooth_enabled()) continue;
         if (const std::optional<game::Anchor> older = game::older_anchor(number))
             gpu::ui_motion::add(draw, first_vertex, draw->VtxBuffer.Size,
