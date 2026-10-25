@@ -1,5 +1,6 @@
 #include "game/damage_numbers.hpp"
 
+#include "game/damage_sync.hpp"
 #include "game/guest_layout.hpp"
 #include "game/hit_trace.hpp"
 #include "psprecomp/runtime.hpp"
@@ -16,6 +17,7 @@
 #include <iterator>
 #include <limits>
 #include <mutex>
+#include <utility>
 
 namespace mhfu::game {
 namespace {
@@ -60,6 +62,31 @@ std::vector<OpenHit> &open_ticks() {
 std::vector<PendingHit> &pending_hits() {
     static std::vector<PendingHit> pending;
     return pending;
+}
+
+// Ad hoc play (game/damage_sync.hpp) ----------------------------------------
+
+std::atomic<bool> &sharing_on() {
+    static std::atomic<bool> on{false};
+    return on;
+}
+
+// Hits this console applied, for take_shared_hits.
+constexpr std::size_t kMaxShared = 256u;
+std::vector<SharedHit> &shared_out() {
+    static std::vector<SharedHit> out;
+    return out;
+}
+
+constexpr std::size_t kMaxCredits = 256u;
+std::vector<Credit> &credits() {
+    static std::vector<Credit> owed;
+    return owed;
+}
+
+std::vector<HeldDrop> &held_drops() {
+    static std::vector<HeldDrop> held;
+    return held;
 }
 
 struct ListEntry {
@@ -147,6 +174,30 @@ void trace_roster(const psprecomp::GuestMemory &memory) {
     std::cout << head << '\n';
     for (const std::string &line : lines) std::cout << line << '\n';
     std::cout.flush();
+}
+
+// A number this console's health routine made: kept, and while sharing,
+// sent to the other players. The lock is held.
+void remember_applied(const psprecomp::GuestMemory &memory, const Number &number) {
+    remember_number(live_numbers(), number);
+    if (!sharing_on().load(std::memory_order_relaxed) || number.amount <= 0) return;
+    SharedHit hit;
+    hit.monster = number.object;
+    hit.attacker = number.attacker;
+    hit.amount = number.amount;
+    hit.element = std::min(number.element, number.amount);
+    hit.kind = number.kind;
+    hit.fill = number.grade.fill;
+    hit.affinity = number.grade.affinity;
+    hit.poison = number.poison;
+    if (number.contact && !number.poison) hit.at = number.at;
+    if (memory.contains(number.object + kMonsterMostHealth, 2u))
+        hit.most = static_cast<std::int16_t>(memory.load16(number.object + kMonsterMostHealth));
+    if (memory.contains(number.object + layout::kMonsterId, 1u))
+        hit.species = memory.load8(number.object + layout::kMonsterId);
+    if (hit.most <= 0 || shared_out().size() >= kMaxShared) return;
+    shared_out().push_back(hit);
+    if (hit_trace::enabled()) std::cout << "[dmg]   shared" << (hit.at ? ", with its point" : "") << std::endl;
 }
 
 bool &hook_installed() {
@@ -423,7 +474,7 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
             if (const std::optional<Number> number = poison_number(
                     ticked->object, ticked->health, *health, static_cast<int>(live_numbers().size()))) {
                 trace_damage(&runtime.memory(), "poison", number->object, number->amount, *health, "");
-                remember_number(live_numbers(), *number);
+                remember_applied(runtime.memory(), *number);
             }
         }
         return;
@@ -482,7 +533,7 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
             for (const Number &hit :
                 numbers_for_drop(pending_hits(), object, number, static_cast<int>(live_numbers().size()))) {
                 trace_damage(&runtime.memory(), "routine", hit.object, hit.amount, sample, " computed");
-                remember_number(live_numbers(), hit);
+                remember_applied(runtime.memory(), hit);
             }
             return;
         }
@@ -512,7 +563,7 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
                 std::snprintf(note, sizeof(note), " no contact point, on the body");
         }
         trace_damage(&runtime.memory(), "routine", number->object, number->amount, sample, note);
-        if (!hunter) remember_number(live_numbers(), *number);
+        if (!hunter) remember_applied(runtime.memory(), *number);
     }
 }
 
@@ -1304,6 +1355,7 @@ Number number_for(const ComputedHit &hit, int player) {
     number.element = shown.element;
     number.kind = shown.element > 0 ? hit.kind : Element::None;
     number.player = player;
+    number.attacker = hit.attacker;
     number.object = hit.monster;
     return number;
 }
@@ -1552,8 +1604,10 @@ void damage_numbers_frame(
     if (seconds > 1.0f) seconds = 1.0f;
     frame_count().fetch_add(1u, std::memory_order_relaxed);
 
-    // The trace watches the same routine, with the numbers themselves off.
-    const bool watch = enabled || hit_trace::enabled();
+    // The trace watches the same routine, with the numbers themselves off, and
+    // so does sharing them in ad hoc play.
+    const bool sharing = sharing_on().load(std::memory_order_relaxed);
+    const bool watch = enabled || hit_trace::enabled() || sharing;
     if (!watch) {
         // Off, and never turned on: the present path does not take the lock.
         if (!hook_installed()) return;
@@ -1565,6 +1619,8 @@ void damage_numbers_frame(
         pending_hits().clear();
         live_numbers().clear();
         shown_numbers().clear();
+        credits().clear();
+        held_drops().clear();
         pending_camera().vertices = 0u;
         pending_camera().views.clear();
         return;
@@ -1581,6 +1637,8 @@ void damage_numbers_frame(
     for (Number &number : live_numbers()) keep_older_place(number);
     live_numbers() = age_numbers(std::move(live_numbers()), seconds);
     age_pending(pending_hits(), seconds);
+    for (Credit &credit : credits()) credit.age += seconds;
+    std::erase_if(credits(), [](const Credit &credit) { return credit.age >= kCreditSeconds; });
     if (read_health) {
         if (hit_trace::enabled())
             for (const HealthSeen &reading : readings)
@@ -1596,21 +1654,34 @@ void damage_numbers_frame(
                         reading.health, reading.most);
                     std::cout << line << std::endl;
                 }
+        std::vector<HeldDrop> &held = held_drops();
         for (const Number &drop : watch_health(health_seen(), readings, static_cast<int>(live_numbers().size()))) {
             const auto reading = std::find_if(readings.begin(), readings.end(),
                 [&drop](const HealthSeen &r) { return r.object == drop.object; });
+            held.push_back({drop, reading != readings.end() ? reading->health : 0, 0.0f});
+        }
+        // A drop the hits received from the player who applied them explain
+        // is shown already; what they do not explain is shown, after
+        // kDropHold while sharing, so a hit that arrives just after its drop
+        // still explains it.
+        std::vector<HeldDrop> absorbed;
+        const std::vector<HeldDrop> due =
+            settle_drops(held, credits(), seconds, sharing, hit_trace::enabled() ? &absorbed : nullptr);
+        for (const HeldDrop &drop : absorbed)
+            trace_damage(memory, "absorbed", drop.number.object, drop.number.amount, drop.health, "");
+        for (const HeldDrop &drop : due) {
             // A hit this console computed on a monster another one applies.
             const bool computed = std::any_of(pending_hits().begin(), pending_hits().end(),
-                [&drop](const PendingHit &hit) { return hit.number.object == drop.object; });
-            for (const Number &number :
-                numbers_for_drop(pending_hits(), drop.object, drop, static_cast<int>(live_numbers().size()))) {
-                trace_damage(memory, "health", number.object, number.amount,
-                    reading != readings.end() ? reading->health : 0, computed ? " computed" : "");
+                [&drop](const PendingHit &hit) { return hit.number.object == drop.number.object; });
+            for (const Number &number : numbers_for_drop(
+                     pending_hits(), drop.number.object, drop.number, static_cast<int>(live_numbers().size()))) {
+                trace_damage(memory, "health", number.object, number.amount, drop.health, computed ? " computed" : "");
                 remember_number(live_numbers(), number);
             }
         }
     } else {
         health_seen().clear();
+        held_drops().clear();
     }
     place_numbers(live_numbers(), memory, pose);
     if (enabled) shown_numbers() = numbers_shown(live_numbers(), whose);
@@ -1624,6 +1695,92 @@ const std::vector<Number> &damage_numbers() {
 void set_shown_damage_numbers(std::vector<Number> numbers) {
     std::lock_guard lock(numbers_mutex());
     shown_numbers() = std::move(numbers);
+}
+
+std::vector<HeldDrop> settle_drops(std::vector<HeldDrop> &held, std::vector<Credit> &credits, float seconds,
+    bool sharing, std::vector<HeldDrop> *absorbed) {
+    for (HeldDrop &drop : held) {
+        int left = drop.number.amount;
+        for (Credit &credit : credits) {
+            if (credit.object != drop.number.object || left <= 0) continue;
+            const int taken = std::min(credit.amount, left);
+            credit.amount -= taken;
+            left -= taken;
+        }
+        std::erase_if(credits, [](const Credit &credit) { return credit.amount <= 0; });
+        if (absorbed != nullptr && left < drop.number.amount) {
+            HeldDrop taken = drop;
+            taken.number.amount = drop.number.amount - left;
+            absorbed->push_back(taken);
+        }
+        drop.number.amount = left;
+        if (drop.health <= 0) // a monster down owes nothing more
+            std::erase_if(credits, [&drop](const Credit &credit) { return credit.object == drop.number.object; });
+        drop.age += seconds;
+    }
+    const auto settled = [sharing](const HeldDrop &drop) {
+        return drop.number.amount <= 0 || !sharing || drop.age >= kDropHold;
+    };
+    std::vector<HeldDrop> due;
+    for (const HeldDrop &drop : held)
+        if (settled(drop) && drop.number.amount > 0) due.push_back(drop);
+    std::erase_if(held, settled);
+    return due;
+}
+
+void set_sharing(bool on) noexcept {
+    if (sharing_on().exchange(on, std::memory_order_relaxed) == on || on) return;
+    std::lock_guard lock(numbers_mutex());
+    shared_out().clear();
+    credits().clear();
+}
+
+bool sharing() noexcept {
+    return sharing_on().load(std::memory_order_relaxed);
+}
+
+std::vector<SharedHit> take_shared_hits() {
+    std::lock_guard lock(numbers_mutex());
+    return std::exchange(shared_out(), {});
+}
+
+void receive_shared_hits(const psprecomp::GuestMemory &memory, const std::vector<SharedHit> &hits) {
+    if (hits.empty()) return;
+    const std::vector<HealthSeen> monsters = quest_health(memory);
+    std::vector<Number> numbers;
+    for (const SharedHit &hit : hits) {
+        const auto monster = std::find_if(monsters.begin(), monsters.end(),
+            [&hit](const HealthSeen &seen) { return seen.object == hit.monster; });
+        const bool same = monster != monsters.end() && monster->most == hit.most &&
+            memory.contains(hit.monster + layout::kMonsterId, 1u) &&
+            memory.load8(hit.monster + layout::kMonsterId) == hit.species;
+        if (!same) {
+            trace_damage(&memory, "not ours", hit.monster, hit.amount, 0, ": no such monster here");
+            continue;
+        }
+        Number number = make_number(hit.amount, Grade{hit.fill, hit.affinity}, 0);
+        number.element = hit.element;
+        number.kind = hit.element > 0 ? hit.kind : Element::None;
+        number.poison = hit.poison;
+        number.object = hit.monster;
+        number.attacker = hit.attacker;
+        number.player = hit.poison ? -1 : player_of(memory, hit.attacker);
+        if (hit.at) {
+            number.at = *hit.at;
+            number.anchored = true;
+            number.contact = true;
+            number.rule = "shared";
+        }
+        char note[64];
+        std::snprintf(note, sizeof(note), " by %08X (player %d)", number.attacker, number.player);
+        trace_damage(&memory, "received", number.object, number.amount, monster->health, note);
+        numbers.push_back(number);
+    }
+    std::lock_guard lock(numbers_mutex());
+    for (const Number &number : numbers) {
+        remember_number(live_numbers(), number);
+        if (credits().size() < kMaxCredits) credits().push_back({number.object, number.amount, 0.0f});
+    }
 }
 
 } // namespace mhfu::game
