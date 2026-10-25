@@ -287,10 +287,16 @@ void guards() {
         "a splash whose transform jumps 2000 units is not taken for the camera");
     check(splash.camera_samples == 240u && splash.camera_kept == 100u && splash.rejected == 140u,
         "the camera comes from the scenery, and the splash's draws follow it");
+    // Above, every pair turns 5 degrees, and which of the tied turns is the
+    // median is up to the standard library. With the scenery's turn a little
+    // smaller, the splash holds the median in any.
     CutThresholds every_pair = thresholds;
     every_pair.drop_far_samples = false;
+    std::vector<DrawSummary> outvoted_after = scene(100u, 4.9f);
+    for (std::uint32_t i = 0u; i < 140u; ++i) outvoted_after.push_back(draw(500u + i, 2000.0f, 5.0f));
+    mark_eligible(outvoted_after, kShown);
     Matcher splashing_before;
-    const Matching &splash_old = splashing_before.match(splash_before, splash_after, every_pair);
+    const Matching &splash_old = splashing_before.match(splash_before, outvoted_after, every_pair);
     check(splash_old.cut != nullptr && std::strcmp(splash_old.cut, "camera moved") == 0,
         "with every pair kept, the splash outvotes the scenery and the frame is a cut");
 
