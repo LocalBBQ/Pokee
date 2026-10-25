@@ -579,31 +579,6 @@ void test_the_roster() {
     memory.store32(camera + layout::kFollowedHunter, remote);
     check(hunters_line(memory) == "[dmg]   hunters 1 09820000 at 1 2 3; 0 09860000 at -4 0 8.5 (camera)",
         "the camera's hunter is player 0 on any node");
-
-    memory.store32(0x09890000u, hunter);
-    memory.store32(0x09890004u, remote);
-    memory.store32(hunter + 0x10u, hunter);
-    const std::vector<std::string> slots = hunter_pointer_lines(memory);
-    const auto listed = [&slots](
-                            const char *line) { return std::find(slots.begin(), slots.end(), line) != slots.end(); };
-    check(listed("[slots]   09890000 -> 09820000") && listed("[slots]   09890004 -> 09860000") &&
-            !listed("[slots]   09820010 -> 09820000"),
-        "every word that points at a hunter is listed, but not one inside the hunter itself");
-    for (const std::uint32_t at : {0x09890000u, 0x09890004u, hunter + 0x10u}) memory.store32(at, 0u);
-
-    // The game's players by slot: the other player first, as on a console
-    // that joined someone else's quest.
-    check(slot_of(memory, hunter) == -1, "no table, no slot");
-    memory.store32(layout::kPlayerSlots, remote);
-    memory.store32(layout::kPlayerSlots + 4u, hunter);
-    check(slot_of(memory, remote) == 0 && slot_of(memory, hunter) == 1 && slot_of(memory, kLarge) == -1 &&
-            slot_of(memory, 0u) == -1,
-        "each hunter's slot is its place in the table");
-    memory.store32(layout::kPlayerSlots + 8u, kLarge);
-    check(slot_of(memory, hunter) == -1, "a table holding something that is no hunter is not trusted");
-    memory.store32(layout::kPlayerSlots + 8u, hunter);
-    check(slot_of(memory, hunter) == -1, "nor one with a hunter in two slots");
-    for (std::uint32_t i = 0; i < layout::kPlayerSlotCount; ++i) memory.store32(layout::kPlayerSlots + 4u * i, 0u);
 }
 
 int shown_total() {
@@ -1022,30 +997,6 @@ void test_breakdown_and_marks() {
     }
     check(star && sparkle[0].x == -1.0f && sparkle[4].x == 1.0f && sparkle[2].y == -1.0f && sparkle[6].y == 1.0f,
         "the sparkle is a four-pointed star, its tips on the axes and a narrow waist");
-    check(player_tint(0) && player_tint(3) && !player_tint(-1) && !player_tint(4),
-        "four players have a colour and an unknown attacker none");
-    const auto red = [](const std::optional<Ink> &ink) { return ink && ink->red > ink->blue && ink->red > ink->green; };
-    const auto blue = [](const std::optional<Ink> &ink) {
-        return ink && ink->blue > ink->red && ink->blue > ink->green;
-    };
-    const auto yellow = [](const std::optional<Ink> &ink) {
-        return ink && ink->red > ink->blue && ink->green > ink->blue && ink->red > 150u && ink->green > 150u;
-    };
-    const auto green = [](const std::optional<Ink> &ink) {
-        return ink && ink->green > ink->red && ink->green > ink->blue;
-    };
-    check(red(player_tint(0)) && blue(player_tint(1)) && yellow(player_tint(2)) && green(player_tint(3)),
-        "the slots are the name plates' red, blue, yellow and green");
-    Number tinted;
-    tinted.player = 0;
-    tinted.slot = 1;
-    check(blue(number_tint(tinted)), "a hit takes its attacker's slot colour, even this console's own");
-    tinted.slot = -1;
-    check(red(number_tint(tinted)), "with no slot known, this console's own hunter is red");
-    tinted.player = -1;
-    check(!number_tint(tinted), "and an unknown attacker has none");
-    check(parse_slot_colours(nullptr) && parse_slot_colours("1") && !parse_slot_colours("0"),
-        "MHFU_DAMAGE_NUMBERS_SLOT_COLOURS=0 turns the slot colours off");
 
     Number hit = make_number(150, grade_share(0.6f, Affinity::Positive), 0);
     hit.element = 30;
@@ -1551,8 +1502,6 @@ void test_sharing_hits() {
     memory.store32(camera + layout::kFollowedHunter, hunter);
     memory.store8(kLarge + layout::kMonsterId, 7u);
     memory.store32(kLarge + kHealthScale, std::bit_cast<std::uint32_t>(1.0f));
-    memory.store32(layout::kPlayerSlots, remote); // the other player's quest
-    memory.store32(layout::kPlayerSlots + 4u, hunter);
     const auto on_large = [](int amount) {
         return std::find_if(damage_numbers().begin(), damage_numbers().end(),
             [amount](const Number &n) { return n.object == kLarge && n.amount == amount; });
@@ -1577,7 +1526,7 @@ void test_sharing_hits() {
     receive_shared_hits(memory, {ice});
     damage_numbers_frame(true, &memory);
     const auto shown = on_large(87);
-    check(shown != damage_numbers().end() && shown->player == 1 && shown->slot == 0 && shown->element == 21 &&
+    check(shown != damage_numbers().end() && shown->player == 1 && shown->element == 21 &&
             shown->kind == Element::Ice && shown->grade.fill == Fill::WeakPoint &&
             shown->grade.affinity == Affinity::Positive && shown->contact && shown->at.x == 1.5f,
         "a hit another console applied shows at once, as the other player's, where it landed");
@@ -1618,7 +1567,7 @@ void test_sharing_hits() {
     yours.element = 0;
     receive_shared_hits(memory, {yours});
     damage_numbers_frame(true, &memory, std::nullopt, Whose::Mine);
-    check(on_large(40) != damage_numbers().end() && on_large(40)->player == 0 && on_large(40)->slot == 1 &&
+    check(on_large(40) != damage_numbers().end() && on_large(40)->player == 0 &&
             on_large(40)->kind == Element::None && on_large(87) == damage_numbers().end(),
         "Mine shows this hunter's hit another console applied, and not the other player's");
 
@@ -1672,8 +1621,6 @@ void test_sharing_hits() {
     damage_numbers_frame(false, &memory);
     memory.store8(0x09810500u + layout::kNodeType, 0u);
     memory.store32(layout::kCameraObject, 0u);
-    memory.store32(layout::kPlayerSlots, 0u);
-    memory.store32(layout::kPlayerSlots + 4u, 0u);
     memory.store32(0x09810400u + layout::kNodeOlder, 0u);
 }
 

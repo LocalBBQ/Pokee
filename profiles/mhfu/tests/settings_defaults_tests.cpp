@@ -458,14 +458,14 @@ void test_lock_on_and_damage_numbers() {
         "Mine survives a round trip");
     hits["game.damage_numbers"] = "some";
     check(from_entries(hits).damage_numbers == DamageNumbers::Off, "an unknown value keeps the default");
-    check(fresh.damage_breakdown == DamageBreakdown::Total && !fresh.damage_player_tint,
-        "the breakdown starts as the total, without player colours");
+    check(fresh.damage_breakdown == DamageBreakdown::Total, "the breakdown starts as the total");
     Entries breakdown = to_entries(fresh);
     breakdown["game.damage_breakdown"] = "split";
     breakdown["game.damage_player_tint"] = "1";
     const Settings split = from_entries(to_entries(from_entries(breakdown)));
-    check(split.damage_breakdown == DamageBreakdown::Split && split.damage_player_tint,
-        "the split and the player colours survive a round trip");
+    check(split.damage_breakdown == DamageBreakdown::Split, "the split survives a round trip");
+    check(to_entries(from_entries(breakdown)).count("game.damage_player_tint") == 0u,
+        "the player colours a development build saved are dropped");
     breakdown["game.damage_breakdown"] = "total+element";
     check(from_entries(breakdown).damage_breakdown == DamageBreakdown::TotalAndElement, "total+element is read");
     breakdown["game.damage_breakdown"] = "raw";
