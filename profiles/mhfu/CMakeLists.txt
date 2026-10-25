@@ -211,6 +211,7 @@ set(MHFU_HOST_SOURCES
     host/gpu/texture_pack_import.cpp
     host/gpu/screenshot.cpp
     host/perf/frame_stats.cpp
+    host/perf/stall_stacks.cpp
     host/perf/perf_overlay.cpp
     host/platform/utf8_path.cpp
     host/overlays.cpp
