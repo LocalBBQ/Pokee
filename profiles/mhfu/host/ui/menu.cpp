@@ -1373,9 +1373,9 @@ void Menu::game() {
     }
     {
         RowOptions o = options_for("game.damage_player_tint",
-            "On: a number's outline takes the colour of the hunter who hit, red for yours and blue, green "
-            "and pink for the others, so you can tell whose hit was whose. A hit whose attacker is not known "
-            "keeps the dark outline. Off: every outline is dark.");
+            "On: a number's outline takes the colour of the hunter who hit, the colour of their name plate: "
+            "red, blue, yellow or green, the same on every player's screen. A hit whose attacker is not "
+            "known keeps the dark outline. Off: every outline is dark.");
         o.disabled = o.disabled || !damage_numbers_on;
         if (toggle_row("Damage player colours", s.damage_player_tint, o)) {
             s.damage_player_tint = !s.damage_player_tint;
@@ -2617,7 +2617,7 @@ void draw_damage_numbers() {
         // The outline is dark, or a dark shade of the attacker's colour.
         ImU32 outline = IM_COL32(0, 0, 0, alpha);
         if (s.damage_player_tint)
-            if (const std::optional<game::Ink> tint = game::player_tint(number.player))
+            if (const std::optional<game::Ink> tint = game::number_tint(number))
                 outline = IM_COL32(tint->red * 3 / 5, tint->green * 3 / 5, tint->blue * 3 / 5, alpha);
         const auto text_at = [&](const ImVec2 &origin, float text_size, const game::Ink &ink, const std::string &t) {
             const game::Stroke line = game::number_stroke(s.damage_number_thickness, text_size, base_size);

@@ -281,9 +281,9 @@ enum class Element { None, Fire, Water, Thunder, Ice, Dragon };
 // The colour of the sparkle above a critical hit's number: pink, or a
 // blue-gray drawn faded for a negative one. Nothing for an ordinary hit.
 [[nodiscard]] std::optional<Ink> affinity_dot(Affinity affinity) noexcept;
-// The outline of a number by player: 0 this console's hunter, 1 to 3 the
-// others. Nothing for a hit whose attacker is not known.
-[[nodiscard]] std::optional<Ink> player_tint(int player) noexcept;
+// The colour of player slot 0 to 3, as the game's name plates have it: red,
+// blue, yellow, green. Nothing for another.
+[[nodiscard]] std::optional<Ink> player_tint(int slot) noexcept;
 
 // How much current health fell. Nothing for a heal, a miss, or a monster that
 // was already at zero.
@@ -300,7 +300,8 @@ struct Number {
     Grade grade{};
     int element{};          // the element share of amount, 0 when none is known
     Element kind{};         // that element
-    int player{-1};         // whose hit (player_tint); -1 when not known
+    int player{-1};         // whose hit: 0 this console's hunter (player_of); -1 when not known
+    int slot{-1};           // the attacker's player slot (slot_of); -1 when not known
     std::uint32_t attacker{}; // the attacking entity, the same on every console; 0 when not known
     bool poison{};          // a poison tick, not a hit: light purple, riding the monster's body
     float age{};
@@ -564,6 +565,19 @@ struct HitAmount {
 // hunter alone on the list; with neither (the first seconds of a quest)
 // none is 0.
 [[nodiscard]] int player_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker);
+// The attacker's player slot in the game's table (layout::kPlayerSlots), 0 to
+// 3, the same on every console; -1 when it is in none, or the table holds a
+// word that is no hunter, or one twice.
+// MHFU_DAMAGE_NUMBERS_SLOT_COLOURS=0 always gives -1.
+[[nodiscard]] int slot_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker);
+// MHFU_DAMAGE_NUMBERS_SLOT_COLOURS: unset or anything but "0" is on.
+[[nodiscard]] bool parse_slot_colours(const char *text) noexcept;
+[[nodiscard]] bool slot_colours_enabled() noexcept;
+// A number's outline with Damage player colours: its attacker's slot colour,
+// so a hunter's hits are its name plate's colour on every console. With no
+// slot known, player_of's numbering stands in: red is this console's hunter.
+// Nothing for a hit whose attacker is not known.
+[[nodiscard]] std::optional<Ink> number_tint(const Number &number) noexcept;
 // The number for the hit: its amount, element, grade and player.
 [[nodiscard]] Number number_for(const ComputedHit &hit, int player);
 // MHFU_DAMAGE_NUMBERS_GAME_CONTACT: unset or anything but "0" is on.
