@@ -29,6 +29,7 @@
 #include "platform/utf8_path.hpp"
 
 #include "audio/audio_sink.hpp"
+#include "audio/channel_queue.hpp"
 #include "audio/guest_pcm.hpp"
 #include "audio/sas_core.hpp"
 
@@ -110,7 +111,7 @@ struct AudioChannel {
     std::uint32_t format{};
     // Virtual time at which everything handed to this channel has finished
     // playing, and the host ring position its next frames are mixed at.
-    std::uint64_t queued_until_us{};
+    audio::ChannelQueue queue{};
     std::uint64_t cursor{};
 };
 
@@ -713,6 +714,20 @@ void register_ge(HleRegistrar &hle) {
     hle.add("sceGe_user", "sceGeContinue", [](Runtime &, AllegrexContext &ctx) { kernel().finish(ctx, 0u); });
 }
 
+// MHFU_TRACE_AUDIO_CALLS: a line for each channel reserved, released or
+// changed, and for each output that waits longer than its own buffer lasts:
+// one draining what the channel had queued rather than pacing a stream.
+bool trace_audio_calls() {
+    static const bool enabled = std::getenv("MHFU_TRACE_AUDIO_CALLS") != nullptr;
+    return enabled;
+}
+
+void log_audio_call(std::uint32_t channel, const std::string &what) {
+    const Thread *thread = kernel().current_thread();
+    std::cout << "[audio-call] ch=" << channel << ' ' << what << " thread=" << (thread ? thread->name : "?")
+              << " at=" << static_cast<double>(kernel().now_us()) / 1000.0 << "ms\n";
+}
+
 // sceAudioOutput*Blocking returns once the previously submitted buffer has
 // drained, which is what paces the guest's audio thread: the channel's queue
 // is tracked in virtual time and the thread waits on the kernel clock, never
@@ -757,12 +772,19 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
         }
     }
 
+    // MHFU_OLD_AUDIO_DRAIN: a short buffer that drains the channel waits for
+    // the longer ones queued before it too, as before (audio/channel_queue.hpp).
+    static const bool wait_for_drain = std::getenv("MHFU_OLD_AUDIO_DRAIN") != nullptr;
     const std::uint64_t now = kernel().now_us();
-    if (state.queued_until_us < now) state.queued_until_us = now;
-    const std::uint64_t previous_end = state.queued_until_us;
-    state.queued_until_us += static_cast<std::uint64_t>(frames) * 1'000'000u / kAudioSampleRate;
-    if (previous_end > now)
-        kernel().delay_current(ctx, previous_end - now, frames);
+    const std::uint64_t queued = state.queue.queued_until_us > now ? state.queue.queued_until_us - now : 0u;
+    const std::uint64_t buffer_us = static_cast<std::uint64_t>(frames) * 1'000'000u / kAudioSampleRate;
+    const std::uint64_t wait_us = audio::queue_output(state.queue, now, frames, kAudioSampleRate, wait_for_drain);
+    if (trace_audio_calls() && queued > buffer_us)
+        log_audio_call(channel, "output frames=" + std::to_string(frames) + (buffer == 0u ? " (no buffer)" : "") +
+                                    " behind " + std::to_string(static_cast<double>(queued) / 1000.0) + "ms waits " +
+                                    std::to_string(static_cast<double>(wait_us) / 1000.0) + "ms");
+    if (wait_us != 0u)
+        kernel().delay_current(ctx, wait_us, frames);
     else
         kernel().finish(ctx, frames);
 }
@@ -818,19 +840,25 @@ void register_audio(HleRegistrar &hle) {
             kernel().finish(ctx, 0x80260002u);
             return;
         }
-        channels[static_cast<std::size_t>(channel)] = AudioChannel{true, arg(ctx, 1), arg(ctx, 2), 0u, 0u};
+        channels[static_cast<std::size_t>(channel)] = AudioChannel{true, arg(ctx, 1), arg(ctx, 2), {}, 0u};
+        if (trace_audio_calls())
+            log_audio_call(static_cast<std::uint32_t>(channel),
+                "reserve frames=" + std::to_string(arg(ctx, 1)) + " format=" + std::to_string(arg(ctx, 2)));
         kernel().finish(ctx, static_cast<std::uint32_t>(channel));
     });
     hle.add("sceAudio", "sceAudioChRelease", [](Runtime &, AllegrexContext &ctx) {
         if (arg(ctx, 0) < media().audio.size()) media().audio[arg(ctx, 0)].reserved = false;
+        if (trace_audio_calls()) log_audio_call(arg(ctx, 0), "release");
         kernel().finish(ctx, 0u);
     });
     hle.add("sceAudio", "sceAudioSetChannelDataLen", [](Runtime &, AllegrexContext &ctx) {
         if (arg(ctx, 0) < media().audio.size()) media().audio[arg(ctx, 0)].samples = arg(ctx, 1);
+        if (trace_audio_calls()) log_audio_call(arg(ctx, 0), "length frames=" + std::to_string(arg(ctx, 1)));
         kernel().finish(ctx, 0u);
     });
     hle.add("sceAudio", "sceAudioChangeChannelConfig", [](Runtime &, AllegrexContext &ctx) {
         if (arg(ctx, 0) < media().audio.size()) media().audio[arg(ctx, 0)].format = arg(ctx, 1);
+        if (trace_audio_calls()) log_audio_call(arg(ctx, 0), "format " + std::to_string(arg(ctx, 1)));
         kernel().finish(ctx, 0u);
     });
     hle.add(
@@ -844,7 +872,8 @@ void register_audio(HleRegistrar &hle) {
         }
         const std::uint64_t now = kernel().now_us();
         const AudioChannel &state = media().audio[channel];
-        const std::uint64_t remaining = state.queued_until_us > now ? state.queued_until_us - now : 0u;
+        const std::uint64_t queued_until = state.queue.queued_until_us;
+        const std::uint64_t remaining = queued_until > now ? queued_until - now : 0u;
         kernel().finish(ctx, static_cast<std::uint32_t>(remaining * kAudioSampleRate / 1'000'000u));
     });
     hle.add("sceAudio", "sceAudioOutputPannedBlocking", audio_output);
