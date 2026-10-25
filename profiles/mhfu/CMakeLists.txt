@@ -229,6 +229,7 @@ set(MHFU_HOST_SOURCES
     host/hle/hle_io.cpp
     host/hle/hle_system.cpp
     host/hle/hle_media.cpp
+    host/audio/channel_queue.cpp
     host/audio/guest_pcm.cpp
     host/hle/hle_atrac.cpp
     host/hle/hle_mpeg.cpp
@@ -1257,6 +1258,16 @@ target_link_libraries(mhfu_guest_pcm_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_guest_pcm_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_guest_pcm_tests COMMAND mhfu_guest_pcm_tests)
+endif()
+
+# How long a blocking audio output waits, draining a channel included.
+add_executable(mhfu_audio_channel_queue_tests
+    tests/audio_channel_queue_tests.cpp
+    host/audio/channel_queue.cpp)
+target_include_directories(mhfu_audio_channel_queue_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+set_target_properties(mhfu_audio_channel_queue_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_audio_channel_queue_tests COMMAND mhfu_audio_channel_queue_tests)
 endif()
 
 # PNG size bounds, stride handling and allocation failure recovery.
