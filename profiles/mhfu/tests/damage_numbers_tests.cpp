@@ -1558,6 +1558,8 @@ void test_sharing_hits() {
             [amount](const Number &n) { return n.object == kLarge && n.amount == amount; });
     };
 
+    // The host names the large monsters (camera::hunt_monsters); kSmall is not.
+    set_large_monsters([](const psprecomp::GuestMemory &) { return std::vector<std::uint32_t>{kLarge}; });
     set_sharing(true);
     check(sharing(), "sharing is on while the host says so");
     damage_numbers_frame(true, &memory);
@@ -1600,6 +1602,15 @@ void test_sharing_hits() {
     receive_shared_hits(memory, {stranger});
     damage_numbers_frame(true, &memory);
     check(damage_numbers().size() == count, "and so is a monster's hit, which this console works out itself");
+    stranger = ice;
+    stranger.monster = kSmall;
+    stranger.most = 150;
+    stranger.species = 0u;
+    receive_shared_hits(memory, {stranger});
+    damage_numbers_frame(true, &memory);
+    check(std::none_of(damage_numbers().begin(), damage_numbers().end(),
+              [](const Number &n) { return n.object == kSmall && n.amount == 87; }),
+        "and a hit on a small monster, which is not the same on the other console");
 
     SharedHit yours = ice;
     yours.attacker = hunter;
@@ -1640,6 +1651,16 @@ void test_sharing_hits() {
     (void)runtime.invoke_chained_call(runtime.cpu());
     damage_numbers_frame(false, &memory);
     check(take_shared_hits().empty(), "a monster's hit applied here is not shared");
+    computed_registers(runtime.cpu(), kSmall, remote, 15, 0.0f, 0.3f);
+    runtime.cpu().pc = kAttackFlagCheck;
+    (void)runtime.invoke_chained_call(runtime.cpu());
+    runtime.cpu().gpr[4] = kSmall;
+    runtime.cpu().gpr[5] = 15u;
+    runtime.cpu().gpr[31] = 0u;
+    runtime.cpu().pc = kHitAdjust;
+    (void)runtime.invoke_chained_call(runtime.cpu());
+    damage_numbers_frame(false, &memory);
+    check(take_shared_hits().empty(), "nor a hunter's hit on a small monster");
     memory.store16(kLarge + kMonsterHealth, static_cast<std::uint16_t>(memory.load16(kLarge + kMonsterHealth) - 10u));
     damage_numbers_frame(true, &memory);
     damage_numbers_frame(true, &memory);
@@ -1647,6 +1668,7 @@ void test_sharing_hits() {
 
     set_sharing(false);
     check(!sharing(), "and sharing stops");
+    set_large_monsters(nullptr);
     damage_numbers_frame(false, &memory);
     memory.store8(0x09810500u + layout::kNodeType, 0u);
     memory.store32(layout::kCameraObject, 0u);
