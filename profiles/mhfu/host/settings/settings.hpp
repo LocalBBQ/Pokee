@@ -44,6 +44,12 @@ enum class RightStick { Camera, DPad, Off };
 // Follow keeps the quest camera on the monster Lock on selected. Focus keeps
 // that selection, and a tap of L centers the camera on the monster.
 enum class LockOnStyle { Follow, Focus };
+// Damage numbers (game/damage_numbers.hpp): none, this console's hunter's
+// hits only, or every hit.
+enum class DamageNumbers { Off, Mine, Everyone };
+// What a damage number shows: the total, the raw share with the element
+// share beside it, or the total with the element share beside it.
+enum class DamageBreakdown { Total, Split, TotalAndElement };
 // The on-screen controls' layout: the PSP's buttons (touch_controls.hpp), or
 // the action-style one (touch_action.hpp).
 enum class TouchLayout { Psp, Action };
@@ -199,9 +205,13 @@ struct Settings {
     bool menu_pause{true};         // opening the menu pauses the game
     bool menu_pause_multiplayer{}; // ...also during ad hoc play, where a paused game stops answering its peers
     // Damage numbers (game/damage_numbers.hpp): off, a hit is only what the
-    // game already shows. On, the health that hit removed is drawn over the
-    // picture.
-    bool damage_numbers{};
+    // game already shows. Mine or Everyone, the health a hit removes is drawn
+    // over the picture, for this console's hunter's hits or for all of them.
+    DamageNumbers damage_numbers{DamageNumbers::Off};
+    // How a number splits its raw and element shares, and whether its outline
+    // takes the attacking player's colour. Total and off by default.
+    DamageBreakdown damage_breakdown{DamageBreakdown::Total};
+    bool damage_player_tint{};
     // Sharpness gauge (game/sharpness_gauge.hpp). On by default. Off, the
     // game's full drawing.
     // On, the colour on the blade shortens as it is spent, never dims below a
@@ -284,7 +294,7 @@ inline constexpr std::uint32_t kMaxHuntPortraitSize = 200u;
 inline constexpr std::uint32_t kMinDamageNumberSize = 50u;
 inline constexpr std::uint32_t kMaxDamageNumberSize = 300u;
 // Past 3 the outline copies fill the digits in, so 3 is as thick as stays readable.
-inline constexpr std::uint32_t kMaxDamageNumberThickness = 3u;
+inline constexpr std::uint32_t kMaxDamageNumberThickness = 2u;
 inline constexpr std::uint32_t kMinGatherIconSize = 50u;
 inline constexpr std::uint32_t kMaxGatherIconSize = 300u;
 inline constexpr float kMinMouseSensitivity = 0.01f;

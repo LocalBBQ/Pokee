@@ -59,12 +59,19 @@ void test_sharpness_and_colour() {
     const Grade large = grade_hit(80, Sharpness::Yellow, false, Affinity::None);
     check(small.fill == large.fill, "the same part is the same colour whatever the two drops were");
 
-    const Ink orange = damage_number_ink(Fill::WeakPoint);
-    const Ink gray = damage_number_ink(Fill::Ordinary);
+    const Ink weak = damage_number_ink(Fill::WeakPoint);
+    const Ink ordinary = damage_number_ink(Fill::Ordinary);
     const Ink white = damage_number_ink(Fill::Unknown);
-    check(orange.red == 255 && orange.green < 200 && orange.blue < 80, "a weak point is orange");
-    check(gray.red == gray.green && gray.green == gray.blue && gray.red < 200, "any other known part is gray");
-    check(white.red == 255 && white.green == 255 && white.blue == 255, "an unknown part stays white");
+    check(weak.red == 255 && weak.green > 180 && weak.blue < 80, "a weak point is yellow");
+    check(ordinary.red == 255 && ordinary.green == 255 && ordinary.blue == 255, "any other part is white");
+    check(white.red == 255 && white.green == 255 && white.blue == 255, "an unknown part is white too");
+
+    check(grade_share(0.45f, Affinity::None).fill == Fill::WeakPoint &&
+            grade_share(0.449f, Affinity::None).fill == Fill::Ordinary,
+        "the game's effective hitzone: 0.45 is a weak point and just under it is not");
+    check(grade_share(1.3f, Affinity::Negative).affinity == Affinity::Negative &&
+            grade_share(std::numeric_limits<float>::quiet_NaN(), Affinity::None).fill == Fill::Ordinary,
+        "the mark is kept, and a hitzone that is not a number is no weak point");
 }
 
 void test_the_drop() {
@@ -82,8 +89,9 @@ void test_text_and_place() {
     crit.affinity = Affinity::Positive;
     Grade negative;
     negative.affinity = Affinity::Negative;
-    check(damage_number_text(make_number(27, crit, 0)) == "27!", "a critical hit adds its mark");
-    check(damage_number_text(make_number(27, negative, 0)) == "27~", "a negative critical adds its own mark");
+    check(damage_number_text(make_number(27, crit, 0)) == "27" &&
+            damage_number_text(make_number(27, negative, 0)) == "27",
+        "a critical hit's mark is a dot, not text");
 
     check(number_anchor(plain).alpha == 0.0f, "a number with no place on the monster is not drawn");
     Number on = plain;
@@ -345,9 +353,11 @@ void test_the_stroke() {
         "no stroke without a thickness or a unit");
 
     check(stack_gap_px(10.0f, 3.0f, 60.0f, 7.0f, false) == 10.0f, "the default size and thickness keep the tuned gap");
-    check(stack_gap_px(10.0f, 3.0f, 60.0f, 3.0f, true) == 66.0f, "a larger number is lifted by its whole height");
-    check(stack_gap_px(10.0f, 1.0f, 20.0f, 7.0f, true) == 34.0f, "a thicker number clears the stroke on both sides");
-    check(stack_gap_px(10.0f, 0.5f, 4.0f, 1.0f, true) == 6.0f,
+    check(std::fabs(stack_gap_px(10.0f, 3.0f, 100.0f, 3.0f, true) - 106.0f * kStackOverlap) < 1e-4f,
+        "a larger number is lifted by a share of its height, overlapping a little");
+    check(std::fabs(stack_gap_px(10.0f, 1.0f, 20.0f, 7.0f, true) - 34.0f * kStackOverlap) < 1e-4f,
+        "a thicker number by that share of its height with the stroke");
+    check(stack_gap_px(10.0f, 0.5f, 4.0f, 1.0f, true) == 5.0f,
         "a smaller number keeps the scaled gap when that is taller");
     check(stack_gap_px(-1.0f, 0.0f, -5.0f, -2.0f, true) == 0.0f, "a gap with no size is nothing");
 
@@ -581,12 +591,21 @@ void test_every_hit_once() {
 
     call(kStatusTick, kLarge, 10u);
     damage_numbers_frame(true, &memory);
-    check(damage_numbers().size() == 4u, "a status tick on this console is not a hit");
+    check(damage_numbers().size() == 5u && damage_numbers().back().poison && damage_numbers().back().amount == 10 &&
+            shown_total() == 190,
+        "a status tick on this console is poison: its own number, once, not counted again from the health");
+    check(number_text(damage_numbers().back(), Breakdown::Split).main_ink.blue == poison_ink().blue &&
+            !damage_numbers().back().contact,
+        "in light purple, on the monster's body");
+    damage_numbers_frame(true, &memory, std::nullopt, Whose::Mine);
+    check(std::any_of(damage_numbers().begin(), damage_numbers().end(), [](const Number &n) { return n.poison; }),
+        "poison shows with Mine too");
 
     // The monster hits this console's hunter through the same routine.
     call(kHitAdjust, 0x09820000u, 40u);
+    call(kStatusTick, 0x09820000u, 5u);
     damage_numbers_frame(true, &memory);
-    check(damage_numbers().size() == 4u, "damage to the hunter is not a number");
+    check(damage_numbers().size() == 5u, "damage to the hunter, and its poison, are not numbers");
 
     damage_numbers_frame(false, &memory);
     memory.store16(kLarge + kMonsterHealth, 1000u);
@@ -894,6 +913,481 @@ void test_where_the_hit_landed() {
     check(!struck_by_shot(memory, kLarge), "nor a shot with no place");
 }
 
+// The breakdown, the element colours, the critical dots and the player tints.
+void test_breakdown_and_marks() {
+    check(element_of(kFireBit) == Element::Fire && element_of(kWaterBit) == Element::Water &&
+            element_of(kThunderBit) == Element::Thunder && element_of(kIceBit) == Element::Ice &&
+            element_of(kDragonBit) == Element::Dragon,
+        "each element bit names its element");
+    check(element_of(0x0080u) == Element::Ice && element_of(0x0040u) == Element::Thunder &&
+            element_of(0x0010u) == Element::Fire && element_of(0x0020u) == Element::Water &&
+            element_of(0x0100u) == Element::Dragon,
+        "an ice weapon's 0x80 is ice and 0x40 thunder, as seen in play");
+    check(element_of(0u) == Element::None && element_of(0x000Fu) == Element::None,
+        "no element bit, or only status bits, is no element");
+    check(element_of(kDragonBit | kWaterBit) == Element::Water, "two bits name the first in the hitzone's order");
+    const Element elements[] = {Element::Fire, Element::Water, Element::Thunder, Element::Ice, Element::Dragon};
+    bool distinct = true;
+    for (const Element a : elements)
+        for (const Element b : elements) {
+            const Ink x = element_ink(a), y = element_ink(b);
+            if (a != b && x.red == y.red && x.green == y.green && x.blue == y.blue) distinct = false;
+        }
+    const Ink fire = element_ink(Element::Fire), water = element_ink(Element::Water);
+    check(distinct && fire.red > fire.blue && water.blue > water.red, "each element has its own colour");
+
+    check(!affinity_dot(Affinity::None), "an ordinary hit has no mark");
+    const std::optional<Ink> pink = affinity_dot(Affinity::Positive);
+    const std::optional<Ink> gray_blue = affinity_dot(Affinity::Negative);
+    check(pink && pink->red == 255 && pink->blue > pink->green && pink->green > 80 && gray_blue &&
+            gray_blue->blue > gray_blue->green && gray_blue->green > gray_blue->red &&
+            gray_blue->blue - gray_blue->red < 80,
+        "a critical hit's sparkle is pink and a negative one's a muted blue-gray");
+    const std::vector<Offset> sparkle = sparkle_shape();
+    bool star = sparkle.size() == 8u;
+    for (std::size_t i = 0; star && i < sparkle.size(); ++i) {
+        const Offset p = sparkle[i];
+        // The tips on the axes, the waist between them close to the middle.
+        if (i % 2u == 0u)
+            star = std::fabs(p.x) + std::fabs(p.y) == 1.0f && (p.x == 0.0f || p.y == 0.0f);
+        else
+            star = std::fabs(p.x) < 0.3f && std::fabs(p.y) < 0.5f && p.x != 0.0f && p.y != 0.0f;
+    }
+    check(star && sparkle[0].x == -1.0f && sparkle[4].x == 1.0f && sparkle[2].y == -1.0f && sparkle[6].y == 1.0f,
+        "the sparkle is a four-pointed star, its tips on the axes and a narrow waist");
+    check(player_tint(0) && player_tint(3) && !player_tint(-1) && !player_tint(4),
+        "four players have a colour and an unknown attacker none");
+    check(player_tint(0)->red != player_tint(1)->red, "two players' colours differ");
+
+    Number hit = make_number(150, grade_share(0.6f, Affinity::Positive), 0);
+    hit.element = 30;
+    hit.kind = Element::Thunder;
+    const NumberText total = number_text(hit, Breakdown::Total);
+    check(total.main == "150" && total.side.empty() && total.main_ink.green == damage_number_ink(Fill::WeakPoint).green,
+        "Total is the whole hit in the hitzone's colour");
+    const NumberText split = number_text(hit, Breakdown::Split);
+    check(split.main == "120" && split.side == "30" && split.side_ink.red == element_ink(Element::Thunder).red &&
+            split.side_ink.blue == element_ink(Element::Thunder).blue,
+        "Split is the raw share with the element's beside it in its colour");
+    const NumberText both = number_text(hit, Breakdown::TotalAndElement);
+    check(both.main == "150" && both.side == "30", "Total + element is the whole hit with the element's share");
+    Number pure = hit;
+    pure.element = 150;
+    const NumberText element_only = number_text(pure, Breakdown::Split);
+    check(element_only.main == "150" && element_only.side.empty() &&
+            element_only.main_ink.blue == element_ink(Element::Thunder).blue,
+        "a hit of element alone is that share in its colour");
+    const Number drop = make_number(42, Grade{}, 0);
+    check(number_text(drop, Breakdown::Split).main == "42" && number_text(drop, Breakdown::Split).side.empty() &&
+            number_text(drop, Breakdown::TotalAndElement).side.empty(),
+        "a drop with no element share is one number in every mode");
+    Number odd = hit;
+    odd.element = 400;
+    check(number_text(odd, Breakdown::TotalAndElement).side == "150", "a share is never more than the hit");
+
+    check(split.side_glyph == Element::Thunder && split.main_glyph == Element::None &&
+            both.side_glyph == Element::Thunder && total.side_glyph == Element::None &&
+            total.main_glyph == Element::None,
+        "the element share's glyph goes before the share, and Total shows none");
+    check(element_only.main_glyph == Element::Thunder && element_only.side_glyph == Element::None,
+        "a hit of element alone has its glyph before the number");
+    check(number_text(drop, Breakdown::Split).side_glyph == Element::None &&
+            number_text(drop, Breakdown::Split).main_glyph == Element::None,
+        "a drop has no glyph");
+
+    const Glyph none = element_glyph(Element::None);
+    check(none.fills.empty() && none.highlights.empty() && none.grooves.empty(), "no element has no glyph");
+    bool inside = true;
+    for (const Element element : elements) {
+        const Glyph glyph = element_glyph(element);
+        if (glyph.fills.empty() || (!glyph.grooves.empty() && !(glyph.groove_width > 0.0f))) inside = false;
+        const auto within = [&inside](const std::vector<Offset> &shape, std::size_t least) {
+            if (shape.size() < least) inside = false;
+            for (const Offset &p : shape)
+                if (!(p.x >= 0.0f && p.x <= 1.0f && p.y >= 0.0f && p.y <= 1.0f)) inside = false;
+        };
+        for (const std::vector<Offset> &shape : glyph.fills) within(shape, 3u);
+        for (const std::vector<Offset> &shape : glyph.highlights) within(shape, 3u);
+        for (const std::vector<Offset> &groove : glyph.grooves) within(groove, 2u);
+    }
+    check(inside, "each element has a glyph, and every point of it lies in its box");
+    const Glyph flame = element_glyph(Element::Fire);
+    const Glyph drop_glyph = element_glyph(Element::Water);
+    const Glyph bolt = element_glyph(Element::Thunder);
+    const Glyph ice = element_glyph(Element::Ice);
+    const Glyph dragon = element_glyph(Element::Dragon);
+    check(flame.fills.size() == 1u && flame.grooves.size() == 1u && flame.grooves[0].size() > 20u,
+        "fire is one flame with a spiral groove");
+    check(drop_glyph.fills.size() == 1u && drop_glyph.highlights.size() == 1u && drop_glyph.grooves.empty(),
+        "water is a drop with a light streak");
+    check(bolt.fills.size() == 8u && bolt.fills.back().size() == 3u && bolt.fills.back()[1].x > 0.9f &&
+            bolt.fills.back()[1].y > 0.9f,
+        "thunder is a zigzag of four strokes and three corners, ending in an arrowhead at the lower right");
+    check(
+        ice.fills.size() == 2u && ice.fills[0].size() == 6u && ice.fills[1].size() == 6u && ice.highlights.size() == 1u,
+        "ice is two hexagonal crystals, the long one with a light face");
+    check(dragon.fills.size() == 1u && dragon.fills[0].size() == 13u && dragon.grooves.size() == 3u,
+        "dragon is a cluster of crystal spikes with grooves between them");
+}
+
+// The registers at the call from kAfterDamage, as the damage routine leaves
+// them.
+constexpr std::uint32_t kAttack = 0x09940000u;
+constexpr std::uint32_t kHitbox = 0x09950000u;
+
+void computed_registers(psprecomp::AllegrexContext &ctx, std::uint32_t monster, std::uint32_t attacker, int total,
+    float element, float hitzone) {
+    ctx.gpr[31] = kAfterDamage;
+    ctx.gpr[17] = static_cast<std::uint32_t>(total);
+    ctx.gpr[18] = kHitbox;
+    ctx.gpr[19] = monster;
+    ctx.gpr[20] = attacker;
+    ctx.gpr[21] = kAttack;
+    ctx.fpr[26] = element;
+    ctx.fpr[29] = hitzone;
+}
+
+void test_the_computed_hit() {
+    check(parse_computed(nullptr) && parse_computed("1") && !parse_computed("0"),
+        "computed hits are read unless MHFU_DAMAGE_NUMBERS_COMPUTED=0");
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    stand_in_quest(memory);
+    constexpr std::uint32_t hunter = 0x09820000u;
+    memory.store32(kLarge + kHealthScale, std::bit_cast<std::uint32_t>(1.0f));
+    memory.store16(kHitbox + kHitboxPart, 0x000Bu);
+    memory.store16(kAttack + kAttackElements, kFireBit);
+    memory.store8(kAttack + kAttackMarks, kCriticalMark | 0x23u);
+    psprecomp::AllegrexContext ctx;
+    computed_registers(ctx, kLarge, hunter, 87, 21.9f, 0.62f);
+
+    std::optional<ComputedHit> hit = computed_hit(memory, ctx, kAttackFlagCheck);
+    check(hit && hit->monster == kLarge && hit->attacker == hunter && hit->attack == kAttack && hit->part == 3,
+        "the hit is on the routine's monster and part, by its attacker");
+    check(
+        hit && hit->total == 87 && hit->element == 21 && hit->kind == Element::Fire, "the element share is trunc(f26)");
+    check(hit && hit->affinity == Affinity::Positive && std::fabs(hit->hitzone - 0.62f) < 1e-6f,
+        "the critical mark and the effective hitzone are the attack's and f29");
+    check(!computed_hit(memory, ctx, kHitAdjust), "another call is no computed hit");
+    ctx.gpr[31] = 0x09C44000u;
+    check(!computed_hit(memory, ctx, kAttackFlagCheck), "the same function called from elsewhere is no hit");
+
+    memory.store8(kAttack + kAttackMarks, kNegativeMark | 0x23u);
+    computed_registers(ctx, kLarge, hunter, 40, 0.0f, 0.3f);
+    hit = computed_hit(memory, ctx, kAttackFlagCheck);
+    check(hit && hit->affinity == Affinity::Negative && hit->element == 0 && hit->kind == Element::None,
+        "a negative critical without element");
+    computed_registers(ctx, kLarge, hunter, 40, 0.6f, 0.3f);
+    check(computed_hit(memory, ctx, kAttackFlagCheck)->element == 0 &&
+            std::fabs(computed_hit(memory, ctx, kAttackFlagCheck)->element_exact - 0.6f) < 1e-6f,
+        "under one point of element is none, as the game adds it, and the value before truncation is kept");
+    computed_registers(ctx, kLarge, hunter, 40, 90.0f, 0.3f);
+    check(computed_hit(memory, ctx, kAttackFlagCheck)->element == 40, "the element share is never more than the total");
+    computed_registers(ctx, kLarge, hunter, 40, std::numeric_limits<float>::quiet_NaN(), 0.3f);
+    check(computed_hit(memory, ctx, kAttackFlagCheck)->element == 0, "an element that is not a number is none");
+    computed_registers(ctx, kLarge, hunter, 0x10000 + 25, 0.0f, 0.3f);
+    check(computed_hit(memory, ctx, kAttackFlagCheck)->total == 25, "the total is the halfword the part got");
+    computed_registers(ctx, kLarge, hunter, 0, 0.0f, 0.3f);
+    check(!computed_hit(memory, ctx, kAttackFlagCheck), "nothing added is no hit");
+    computed_registers(ctx, kLarge, hunter, 0xFFF0, 0.0f, 0.3f);
+    check(!computed_hit(memory, ctx, kAttackFlagCheck), "a heal is no hit");
+    computed_registers(ctx, 0x00001000u, hunter, 40, 0.0f, 0.3f);
+    check(!computed_hit(memory, ctx, kAttackFlagCheck), "a monster outside RAM is no hit");
+    memory.store32(kLarge + kHealthScale, std::bit_cast<std::uint32_t>(std::numeric_limits<float>::infinity()));
+    computed_registers(ctx, kLarge, hunter, 40, 0.0f, 0.3f);
+    check(!computed_hit(memory, ctx, kAttackFlagCheck), "nor one whose scale is not a number");
+    memory.store32(kLarge + kHealthScale, std::bit_cast<std::uint32_t>(1.0f));
+
+    ComputedHit scaled;
+    scaled.total = 87;
+    scaled.element = 21;
+    scaled.scale = 1.0f;
+    check(hit_amount(scaled).amount == 87 && hit_amount(scaled).element == 21, "a scale of 1 shows the hit as it is");
+    scaled.scale = 0.7f;
+    check(hit_amount(scaled).amount == 60 && hit_amount(scaled).element == 14,
+        "a scale takes the health routine's truncated share");
+    scaled.total = 1;
+    scaled.element = 0;
+    scaled.scale = 0.2f;
+    check(hit_amount(scaled).amount == 1, "a part that was hit loses at least 1");
+
+    check(player_of(memory, hunter) == 0, "this console's hunter is player 0");
+    check(player_of(memory, 0u) == -1 && player_of(memory, kLarge) == -1, "no attacker, or a monster, is not known");
+    namespace layout = mhfu::game::layout;
+    constexpr std::uint32_t second = 0x09870000u, first = 0x09860000u;
+    for (const std::uint32_t remote : {second, first}) memory.store32(remote + layout::kVtable, 0x09A60000u);
+    memory.store32(0x09810500u + layout::kNodeEntity, second);
+    memory.store32(0x09810600u + layout::kNodeEntity, first);
+    memory.store32(0x09810400u + layout::kNodeOlder, 0x09810500u);
+    memory.store32(0x09810500u + layout::kNodeOlder, 0x09810600u);
+    check(player_of(memory, first) == 1 && player_of(memory, second) == 2,
+        "the other hunters by the order of their entities, whatever the list's");
+    memory.store32(0x09810400u + layout::kNodeOlder, 0u);
+
+    ComputedHit weak;
+    weak.monster = kLarge;
+    weak.total = 150;
+    weak.element = 30;
+    weak.kind = Element::Ice;
+    weak.affinity = Affinity::Positive;
+    weak.hitzone = 0.45f;
+    const Number number = number_for(weak, 2);
+    check(number.amount == 150 && number.element == 30 && number.kind == Element::Ice && number.player == 2 &&
+            number.object == kLarge && number.grade.fill == Fill::WeakPoint &&
+            number.grade.affinity == Affinity::Positive,
+        "the number carries the hit's amount, element, grade and player");
+    weak.hitzone = 0.44f;
+    weak.element = 0;
+    check(number_for(weak, -1).grade.fill == Fill::Ordinary && number_for(weak, -1).kind == Element::None,
+        "an ordinary part, and no element without a share");
+
+    // A shot is its own place; a blade's hit uses the hand's bone, or none.
+    memory.store32(kAttack, kShotClass);
+    store_point(memory, kAttack + kShotPlace, 12.0f, 130.0f, -4.0f);
+    weak.attack = kAttack;
+    weak.attacker = hunter;
+    const char *rule = nullptr;
+    const std::optional<WorldPoint> shot = computed_contact(memory, weak, &rule);
+    check(shot && shot->y == 130.0f && rule != nullptr && std::string(rule) == "shot",
+        "a shot's hit is where the shot is, before the monster names it");
+    weak.attacker = 0u;
+    check(computed_contact(memory, weak) && computed_contact(memory, weak)->x == 12.0f, "also with no attacker known");
+    memory.store32(kAttack, 0x09A70000u);
+    check(!computed_contact(memory, weak), "another attack with no attacker has no contact point");
+}
+
+void test_pending_hits() {
+    std::vector<PendingHit> pending;
+    Number a = make_number(10, Grade{}, 0);
+    a.object = kLarge;
+    Number b = make_number(20, Grade{}, 0);
+    b.object = kSmall;
+    Number c = make_number(30, Grade{}, 0);
+    c.object = kLarge;
+    pending = {{a, 0.0f}, {b, 0.0f}, {c, 0.0f}};
+    check(numbers_for_drop(pending, kLarge, std::nullopt, 0).empty() && pending.size() == 3u,
+        "no drop shows nothing and keeps the hits for one");
+    const std::vector<Number> taken = numbers_for_drop(pending, kLarge, make_number(25, Grade{}, 0), 4);
+    check(taken.size() == 2u && taken[0].amount == 10 && taken[0].lane == 4 && taken[1].amount == 30 &&
+            taken[1].lane == 5 && pending.size() == 1u && pending[0].number.object == kSmall,
+        "a drop shows the monster's computed hits, each in a lane, and not the drop");
+    Number drop = make_number(25, Grade{}, 0);
+    drop.object = kLarge;
+    const std::vector<Number> plain = numbers_for_drop(pending, kLarge, drop, 2);
+    check(plain.size() == 1u && plain[0].amount == 25 && plain[0].lane == 2, "without them the drop is the number");
+
+    age_pending(pending, kPendingSeconds * 0.5f);
+    check(pending.size() == 1u, "a hit waits a while for its drop");
+    age_pending(pending, -5.0f);
+    check(pending.size() == 1u && pending[0].age == kPendingSeconds * 0.5f, "time does not run backwards");
+    age_pending(pending, kPendingSeconds * 0.5f);
+    check(pending.empty(), "and is dropped once kPendingSeconds have passed");
+
+    Number mine = make_number(1, Grade{}, 0);
+    mine.player = 0;
+    Number theirs = make_number(2, Grade{}, 1);
+    theirs.player = 1;
+    Number unknown = make_number(3, Grade{}, 2);
+    const std::vector<Number> all{mine, theirs, unknown};
+    check(numbers_shown(all, Whose::Everyone).size() == 3u, "Everyone shows every hit");
+    const std::vector<Number> only = numbers_shown(all, Whose::Mine);
+    check(only.size() == 1u && only[0].amount == 1, "Mine shows only this console's hunter's");
+
+    check(parse_poison(nullptr) && parse_poison("1") && !parse_poison("0"),
+        "poison shows unless MHFU_DAMAGE_NUMBERS_POISON=0");
+    const std::optional<Number> tick = poison_number(kLarge, 500, 488, 3);
+    check(tick && tick->amount == 12 && tick->poison && tick->object == kLarge && tick->lane == 3 &&
+            tick->player == -1 && tick->grade.affinity == Affinity::None && tick->element == 0,
+        "a poison tick is its own number, with no mark and no element");
+    check(!poison_number(kLarge, 500, 500, 0) && !poison_number(kLarge, 0, -12, 0),
+        "a tick that takes nothing, or one on a monster already down, shows nothing");
+    const NumberText purple = number_text(*tick, Breakdown::TotalAndElement);
+    const Ink light = poison_ink();
+    check(purple.main == "12" && purple.side.empty() && purple.main_ink.red == light.red &&
+            purple.main_ink.blue == light.blue && light.blue > light.green && light.red > light.green &&
+            light.green > 120,
+        "it is light purple, and one number in every mode");
+    check(numbers_shown({*tick, theirs}, Whose::Mine).size() == 1u, "Mine keeps poison and hides another's hit");
+
+    // Lanes: only numbers on the same spot of the same monster stack.
+    const auto at = [](std::uint32_t object, float x, bool anchored = true) {
+        Number n = make_number(5, Grade{}, 7);
+        n.object = object;
+        n.at = {x, 100.0f, 0.0f};
+        n.anchored = anchored;
+        return n;
+    };
+    std::vector<Number> spots;
+    remember_number(spots, at(kLarge, 0.0f));
+    remember_number(spots, at(kLarge, 30.0f));
+    remember_number(spots, at(kLarge, 400.0f));
+    remember_number(spots, at(kSmall, 0.0f));
+    remember_number(spots, at(kLarge, 10.0f));
+    check(spots[0].lane == 0 && spots[1].lane == 1 && spots[4].lane == 2,
+        "hits on the same spot stack, whatever lane they came with");
+    check(spots[2].lane == 0 && spots[3].lane == 0, "a hit on another part or another monster starts its own stack");
+    remember_number(spots, at(kLarge, 400.0f, false));
+    check(spots.back().lane == 3, "a number without its point yet shares the monster's stack");
+}
+
+void stand_in_flag_check(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    ctx.gpr[2] = 0u;
+}
+
+// Through the watched calls: the hit the game computed is the number when the
+// health falls, also past the health that was left.
+void test_computed_hits_are_the_numbers() {
+    psprecomp::Runtime runtime;
+    psprecomp::GuestMemory &memory = runtime.memory();
+    stand_in_quest(memory);
+    constexpr std::uint32_t hunter = 0x09820000u;
+    memory.store32(kLarge + kHealthScale, std::bit_cast<std::uint32_t>(1.0f));
+    memory.store32(kSmall + kHealthScale, std::bit_cast<std::uint32_t>(1.0f));
+    memory.store16(kAttack + kAttackElements, kWaterBit);
+    memory.store8(kAttack + kAttackMarks, kCriticalMark | 0x23u);
+    runtime.register_function(kHitAdjust, &routine_takes_a1, "recomp_unit_stand_in_hit");
+    runtime.register_function(kAttackFlagCheck, &stand_in_flag_check, "recomp_unit_stand_in_flag_check");
+    auto hit_routine = [&runtime](std::uint32_t object, std::uint32_t amount) {
+        runtime.cpu().gpr[4] = object;
+        runtime.cpu().gpr[5] = amount;
+        runtime.cpu().gpr[31] = 0u;
+        runtime.cpu().pc = kHitAdjust;
+        (void)runtime.invoke_chained_call(runtime.cpu());
+    };
+    auto computed = [&runtime](std::uint32_t monster, std::uint32_t attacker, int total, float element) {
+        computed_registers(runtime.cpu(), monster, attacker, total, element, 0.7f);
+        runtime.cpu().pc = kAttackFlagCheck;
+        (void)runtime.invoke_chained_call(runtime.cpu());
+    };
+
+    damage_numbers_frame(true, &memory);
+    computed(kLarge, hunter, 90, 25.5f);
+    computed(kLarge, hunter, 60, 0.0f);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().empty(), "a computed hit waits for the health to fall");
+    hit_routine(kLarge, 150u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 2u && damage_numbers()[0].amount == 90 && damage_numbers()[0].element == 25 &&
+            damage_numbers()[0].kind == Element::Water && damage_numbers()[0].player == 0 &&
+            damage_numbers()[0].grade.fill == Fill::WeakPoint &&
+            damage_numbers()[0].grade.affinity == Affinity::Positive && damage_numbers()[1].amount == 60 &&
+            damage_numbers()[1].lane == damage_numbers()[0].lane + 1,
+        "each computed hit is its own number when the health falls, with its share, grade and player");
+
+    // A killing blow: 2000 computed, 1850 left.
+    computed(kLarge, hunter, 2000, 0.0f);
+    hit_routine(kLarge, 0u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 2u, "the monster's own update, with nothing taken off, shows nothing yet");
+    hit_routine(kLarge, 1850u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 3u && damage_numbers().back().amount == 2000,
+        "a killing blow shows the whole hit, not the health that was left");
+    computed(kLarge, hunter, 30, 0.0f);
+    hit_routine(kLarge, 0u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == 3u, "a monster already down shows nothing");
+
+    // Another hunter's hit, with Mine and Everyone.
+    namespace layout = mhfu::game::layout;
+    constexpr std::uint32_t remote = 0x09860000u;
+    memory.store32(remote + layout::kVtable, 0x09A60000u);
+    memory.store32(0x09810500u + layout::kNodeEntity, remote);
+    memory.store32(0x09810400u + layout::kNodeOlder, 0x09810500u);
+    memory.store16(kSmall + kMonsterHealth, 120u);
+    damage_numbers_frame(true, &memory);
+    computed(kSmall, remote, 15, 0.0f);
+    hit_routine(kSmall, 15u);
+    damage_numbers_frame(true, &memory, std::nullopt, Whose::Mine);
+    check(std::none_of(
+              damage_numbers().begin(), damage_numbers().end(), [](const Number &n) { return n.object == kSmall; }) &&
+            !damage_numbers().empty(),
+        "Mine hides another hunter's hit and keeps this hunter's");
+    damage_numbers_frame(true, &memory, std::nullopt, Whose::Everyone);
+    check(std::any_of(damage_numbers().begin(), damage_numbers().end(),
+              [](const Number &n) { return n.object == kSmall && n.player == 1 && n.amount == 15; }),
+        "Everyone shows it as player 1's");
+
+    // A hit computed here and applied by another console arrives as a drop.
+    computed(kSmall, hunter, 40, 0.0f);
+    memory.store16(kSmall + kMonsterHealth, 70u);
+    damage_numbers_frame(true, &memory);
+    check(std::any_of(damage_numbers().begin(), damage_numbers().end(),
+              [](const Number &n) { return n.object == kSmall && n.player == 0 && n.amount == 40; }),
+        "a drop from the network shows the hit this console computed");
+
+    // A hunter struck through the same routine is not a number.
+    const std::size_t before = damage_numbers().size();
+    computed(hunter, remote, 25, 0.0f);
+    hit_routine(hunter, 25u);
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == before, "a hunter's damage is not a number");
+
+    damage_numbers_frame(false, &memory);
+    memory.store32(0x09810400u + layout::kNodeOlder, 0u);
+}
+
+// The game's own point of contact: the collision pass's buffer, read from the
+// damage routine's call, and used when it is on the monster.
+void test_the_game_contact() {
+    check(parse_game_contact(nullptr) && parse_game_contact("1") && !parse_game_contact("0"),
+        "the game's point is used unless MHFU_DAMAGE_NUMBERS_GAME_CONTACT=0");
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    stand_in_quest(memory);
+    constexpr std::uint32_t hunter = 0x09820000u, sp = 0x09F80000u;
+    memory.store32(kLarge + kHealthScale, std::bit_cast<std::uint32_t>(1.0f));
+    store_point(memory, kLarge + kMonsterPosition, 0.0f, 0.0f, 0.0f);
+    psprecomp::AllegrexContext ctx;
+    computed_registers(ctx, kLarge, hunter, 50, 0.0f, 0.5f);
+    ctx.gpr[29] = sp;
+    check(kDamageFrame + kContactBuffer == 0x200u, "the point is 0x200 above the damage routine's stack pointer");
+    store_point(memory, sp + kDamageFrame + kContactBuffer, 310.0f, 240.0f, 15.0f);
+    const std::optional<WorldPoint> read = game_contact(memory, ctx);
+    check(read && read->x == 310.0f && read->y == 240.0f && read->z == 15.0f, "the collision pass's point is read");
+    std::optional<ComputedHit> hit = computed_hit(memory, ctx, kAttackFlagCheck);
+    check(hit && hit->landed && hit->landed->x == 310.0f, "the computed hit carries it");
+    memory.store32(sp + kDamageFrame + kContactBuffer + 4u, 0x7FC00000u);
+    check(!game_contact(memory, ctx), "a point that is not a number is not read");
+    ctx.gpr[29] = 0x00000100u;
+    check(!game_contact(memory, ctx), "nor one outside RAM");
+    ctx.gpr[29] = sp;
+    store_point(memory, sp + kDamageFrame + kContactBuffer, 310.0f, 240.0f, 15.0f);
+
+    // Without a skeleton the monster's position decides.
+    float nearest = 0.0f;
+    check(on_the_monster(memory, kLarge, {310.0f, 240.0f, 15.0f}, &nearest) && nearest == -1.0f,
+        "without a skeleton, a point near the monster is on it");
+    check(
+        !on_the_monster(memory, kLarge, {kGameContactAcross + 10.0f, 0.0f, 0.0f}), "and one far across from it is not");
+    store_skeleton(memory, kLarge, 0x09910000u, 7u,
+        [](std::uint32_t n) { return WorldPoint{static_cast<float>(n) * 100.0f, 200.0f, 0.0f}; });
+    memory.store32(0x09910000u + 7u * kBoneStride, 0u);
+    check(on_the_monster(memory, kLarge, {310.0f, 240.0f, 15.0f}, &nearest) && nearest > 40.0f && nearest < 45.0f,
+        "with a skeleton, a point near a bone is on it, its distance to the nearest given");
+    check(!on_the_monster(memory, kLarge, {600.0f + kGameContactReach + 10.0f, 200.0f, 0.0f}),
+        "and one beyond kGameContactReach of every bone is not");
+
+    hit = computed_hit(memory, ctx, kAttackFlagCheck);
+    const char *rule = nullptr;
+    std::optional<WorldPoint> at = computed_contact(memory, *hit, &rule);
+    check(at && at->x == 310.0f && rule != nullptr && std::string(rule) == "game",
+        "the game's point comes first, where it put the spark");
+    // A shot whose own place differs: still the game's point first.
+    memory.store32(kAttack, kShotClass);
+    store_point(memory, kAttack + kShotPlace, 12.0f, 130.0f, -4.0f);
+    at = computed_contact(memory, *hit, &rule);
+    check(at && at->x == 310.0f && std::string(rule) == "game", "also for a shot");
+    at = computed_contact(memory, *hit, &rule, false);
+    check(at && at->x == 12.0f && std::string(rule) == "shot", "turned off, the shot's own place again");
+    ComputedHit off = *hit;
+    off.landed = WorldPoint{5000.0f, 200.0f, 0.0f};
+    at = computed_contact(memory, off, &rule);
+    check(at && at->x == 12.0f && std::string(rule) == "shot", "a point off the monster falls back to the rules");
+    off.landed.reset();
+    at = computed_contact(memory, off, &rule);
+    check(at && at->x == 12.0f && std::string(rule) == "shot", "and so does no point at all");
+    memory.store32(kAttack, 0u);
+}
+
 int main() {
     test_sharpness_and_colour();
     test_the_drop();
@@ -911,6 +1405,11 @@ int main() {
     test_the_hit_trace();
     test_the_contact_candidates();
     test_where_the_hit_landed();
+    test_breakdown_and_marks();
+    test_the_computed_hit();
+    test_pending_hits();
+    test_computed_hits_are_the_numbers();
+    test_the_game_contact();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;

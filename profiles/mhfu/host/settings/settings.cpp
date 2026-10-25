@@ -117,6 +117,19 @@ const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"}, {PerfDisplay:
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
 const Names<LockOnStyle> kLockOnStyles{{{LockOnStyle::Follow, "follow"}, {LockOnStyle::Focus, "focus"}}};
+const Names<DamageNumbers> kDamageNumbers{
+    {{DamageNumbers::Off, "off"}, {DamageNumbers::Mine, "mine"}, {DamageNumbers::Everyone, "everyone"}}};
+const Names<DamageBreakdown> kDamageBreakdowns{{{DamageBreakdown::Total, "total"},
+    {DamageBreakdown::Split, "split"}, {DamageBreakdown::TotalAndElement, "total+element"}}};
+
+// Damage numbers were on or off before Mine: a saved 1 is every hit.
+bool parse_damage_numbers(const std::string &text, DamageNumbers &out) {
+    if (kDamageNumbers.parse(text, out)) return true;
+    bool on = false;
+    if (!parse_bool(text, on)) return false;
+    out = on ? DamageNumbers::Everyone : DamageNumbers::Off;
+    return true;
+}
 const Names<TouchLayout> kTouchLayouts{{{TouchLayout::Psp, "psp"}, {TouchLayout::Action, "action"}}};
 const Names<fast_forward::Mode> kFastForwardModes{
     {{fast_forward::Mode::Hold, "hold"}, {fast_forward::Mode::Toggle, "toggle"}, {fast_forward::Mode::Off, "off"}}};
@@ -560,9 +573,23 @@ const std::vector<Field> &fields() {
             [](const Settings &s) { return std::string(s.menu_pause_multiplayer ? "1" : "0"); },
             [](Settings &s, const char *t) { s.menu_pause_multiplayer = variable_flag(t); }},
         {"game.damage_numbers", "MHFU_DAMAGE_NUMBERS",
-            [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_numbers); },
-            [](const Settings &s) { return std::string(s.damage_numbers ? "1" : "0"); },
-            [](Settings &s, const char *t) { s.damage_numbers = variable_flag(t); }},
+            [](Settings &s, const std::string &t) { return parse_damage_numbers(t, s.damage_numbers); },
+            [](const Settings &s) { return kDamageNumbers.format(s.damage_numbers); },
+            [](Settings &s, const char *t) {
+                if (!kDamageNumbers.parse(t, s.damage_numbers))
+                    s.damage_numbers = variable_flag(t) ? DamageNumbers::Everyone : DamageNumbers::Off;
+            }},
+        {"game.damage_breakdown", "MHFU_DAMAGE_BREAKDOWN",
+            [](Settings &s, const std::string &t) { return kDamageBreakdowns.parse(t, s.damage_breakdown); },
+            [](const Settings &s) { return kDamageBreakdowns.format(s.damage_breakdown); },
+            [](Settings &s, const char *t) {
+                DamageBreakdown breakdown = s.damage_breakdown;
+                if (kDamageBreakdowns.parse(t, breakdown)) s.damage_breakdown = breakdown;
+            }},
+        {"game.damage_player_tint", "MHFU_DAMAGE_PLAYER_TINT",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.damage_player_tint); },
+            [](const Settings &s) { return std::string(s.damage_player_tint ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.damage_player_tint = variable_flag(t); }},
         {"game.sharpness_gauge", "MHFU_SHARPNESS_GAUGE",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.sharpness_gauge); },
             [](const Settings &s) { return std::string(s.sharpness_gauge ? "1" : "0"); },
