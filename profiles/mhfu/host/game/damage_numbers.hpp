@@ -642,6 +642,18 @@ void note_change(std::vector<HealthSeen> &seen, std::uint32_t object, int before
 [[nodiscard]] std::vector<Number> watch_health(
     std::vector<HealthSeen> &seen, const std::vector<HealthSeen> &now, int lane);
 
+// MHFU_TRACE_HITS, to match one console's log to another's in ad hoc play.
+// Every entity on the quest entity list, one "[roster]" line each, in the
+// list's order (newest first): its place on the list and from the list's end
+// (the order the entities arrived in), its node type and vtable, what it is
+// ("me" for this console's hunter, "hunter" for another, "monster" for one
+// quest_health watches, "other"), its species byte, health and most health,
+// and its position at +0x200. Empty outside a quest.
+[[nodiscard]] std::vector<std::string> roster_lines(const psprecomp::GuestMemory &memory);
+// Every hunter on the quest list as player_of counts it, with its position:
+// "[dmg]   hunters 0 09820000 at x y z; 1 ...". Empty outside a quest.
+[[nodiscard]] std::string hunters_line(const psprecomp::GuestMemory &memory);
+
 // Once a flip, before the interface draws. Installs the hit watch while
 // `enabled` (or while MHFU_TRACE_HITS is set; game/hit_trace.hpp) and drops
 // it otherwise. Direct chained calls stay on their fast path either way.
