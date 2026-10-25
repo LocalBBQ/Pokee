@@ -737,8 +737,8 @@ bool toggle_row(const char *label, bool value, const RowOptions &options) {
     return toggled;
 }
 
-bool slider_row(
-    const char *label, int &value, int minimum, int maximum, int step, const char *format, const RowOptions &options) {
+bool slider_row(const char *label, int &value, int minimum, int maximum, int step, const char *format,
+    const RowOptions &options, std::optional<int> mark) {
     const Row r = row(label, options);
     const int before = value;
     ImDrawList *draw = ImGui::GetWindowDrawList();
@@ -772,6 +772,19 @@ bool slider_row(
     draw->AddRectFilled(bar_min, {bar_min.x + bar_width * t, bar_max.y},
         options.disabled ? colors::kTextDisabled : colors::kAccent);
     draw->AddRect(bar_min, bar_max, colors::kFrameInk, 0.0f, 0, unit() * 0.75f);
+    // The mark stands above and below the bar, outlined in black so it reads
+    // on the filled part too, and its ends still show past the knob.
+    if (mark && *mark >= minimum && *mark <= maximum) {
+        const float mark_t = static_cast<float>(*mark - minimum) / static_cast<float>(std::max(1, maximum - minimum));
+        const float x = std::round(bar_min.x + bar_width * mark_t);
+        const float half = std::round(unit() * 0.5f);
+        const float reach = font() * 0.5f;
+        const float ink = std::round(unit() * 0.5f);
+        draw->AddRectFilled(
+            {x - half - ink, mid_y - reach - ink}, {x + half + ink, mid_y + reach + ink}, colors::kFrameInk);
+        draw->AddRectFilled({x - half, mid_y - reach}, {x + half, mid_y + reach},
+            options.disabled ? colors::kTextDisabled : colors::kTextDim);
+    }
     draw->AddCircleFilled({bar_min.x + bar_width * t, mid_y}, font() * (live ? 0.42f : 0.34f),
         options.disabled ? colors::kTextDisabled
             : live       ? colors::kAccentBright
