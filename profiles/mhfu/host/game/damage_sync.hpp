@@ -15,6 +15,11 @@
 //   monster and an attacker are named by their address. They change from one
 //   quest to the next.
 //
+// - A monster's hit on a small monster is worked out on every console, each
+//   on its own copy of it (whose health was 54 on one and 33 on the other),
+//   so sharing it showed it twice. Only a hunter's hit, and a poison tick,
+//   is shared and taken in; another monster's reaches the others as before.
+//
 // So the console that applies a hit sends it, as a SharedHit, once a game
 // frame in one datagram broadcast on kSyncPort through the ad hoc relay. A
 // console that receives it shows the number at once (receive_shared_hits)
