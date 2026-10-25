@@ -1157,6 +1157,7 @@ The pieces were measured with `MHFU_TRACE_SPRITES` in a quest's base camp and a 
 | --- | --- | --- |
 | `MHFU_NO_AUDIO` | off | Do not open a playback device; the game's audio timing is unchanged |
 | `MHFU_AUDIO_DUMP` | unset | Write the mixed output to a 44100 Hz stereo WAV file |
+| `MHFU_OLD_AUDIO_DRAIN` | off | A short buffer output behind longer ones still queued waits for them, as before. The game's main thread drains the music channel this way at each change of music segment, a few times a fight, and the wait of up to 46 ms made it miss a vblank. Otherwise such buffers wait only for each other and the next longer buffer waits for everything; the queue, and what is played when, stay the same |
 
 ### Input
 
@@ -1338,6 +1339,7 @@ The marker does not project through the view a draw uploaded. That view has no t
 | `MHFU_NO_CULL=1`, `MHFU_NO_DEPTH=1` | Disable face culling or the depth test, to bisect missing geometry |
 | `MHFU_NO_THROUGH_DEPTH=1` | Leave 2D draws out of the depth buffer. Otherwise a 2D image that writes depth, such as a weapon icon in the shop, stays in front of a model drawn over it |
 | `MHFU_TRACE_AUDIO=1` | One line per second of output: frames, peak, RMS, silence and drops |
+| `MHFU_TRACE_AUDIO_CALLS=1` | An `[audio-call]` line for each audio channel reserved, released or given a new length or format, and for each output that waits longer than its own buffer lasts (one draining what the channel had queued, not pacing a stream), with the guest thread and the emulated time |
 | `MHFU_TRACE_ATRAC=1` | Every `sceAtrac3plus` call with its arguments, result and decode position |
 | `MHFU_TRACE_UI=1` | Each [sharper copy](#sharper-text-and-2d-textures) of a glyph atlas page or a 2D texture as it is made: its address, sizes and milliseconds, and how many of a page's cells were drawn again |
 | `MHFU_TRACE_FONT=1` | Every `sceLibFont` call with its arguments: the font the game asks for, the font info and character metrics returned, and each glyph image's buffer and 26.6 position, with the caller's return address |
