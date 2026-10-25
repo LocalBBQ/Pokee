@@ -1547,6 +1547,11 @@ void test_sharing_hits() {
     receive_shared_hits(memory, {stranger});
     damage_numbers_frame(true, &memory);
     check(damage_numbers().size() == count, "a hit on a monster this console does not have is left out");
+    stranger = ice;
+    stranger.attacker = kSmall;
+    receive_shared_hits(memory, {stranger});
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == count, "and so is a monster's hit, which this console works out itself");
 
     SharedHit yours = ice;
     yours.attacker = hunter;
@@ -1577,6 +1582,16 @@ void test_sharing_hits() {
             sent[0].most == 3000 && sent[0].species == 7u && sent[0].fill == Fill::Ordinary,
         "a hit applied here is shared with its monster and attacker, the numbers off");
     check(damage_numbers().empty(), "and nothing is drawn");
+    computed_registers(runtime.cpu(), kLarge, kSmall, 5, 0.0f, 0.3f);
+    runtime.cpu().pc = kAttackFlagCheck;
+    (void)runtime.invoke_chained_call(runtime.cpu());
+    runtime.cpu().gpr[4] = kLarge;
+    runtime.cpu().gpr[5] = 5u;
+    runtime.cpu().gpr[31] = 0u;
+    runtime.cpu().pc = kHitAdjust;
+    (void)runtime.invoke_chained_call(runtime.cpu());
+    damage_numbers_frame(false, &memory);
+    check(take_shared_hits().empty(), "a monster's hit applied here is not shared");
     memory.store16(kLarge + kMonsterHealth, static_cast<std::uint16_t>(memory.load16(kLarge + kMonsterHealth) - 10u));
     damage_numbers_frame(true, &memory);
     damage_numbers_frame(true, &memory);
