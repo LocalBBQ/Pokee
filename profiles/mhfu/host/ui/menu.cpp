@@ -397,8 +397,8 @@ void Menu::video() {
     }
     {
         RowOptions o = options_for("video.field_of_view",
-            "How much of the world the game's 3D view takes in on a hunt, from top to bottom. 50 is the game's own "
-            "view; views the game makes wider or narrower during a quest, such as a bowgun's zoom, change in "
+            "How much of the world the game's 3D view takes in on a hunt, from top to bottom. 50, marked on the "
+            "bar, is the game's own view; views the game makes wider or narrower during a quest, such as a bowgun's zoom, change in "
             "proportion. The village and the Guild Hall keep the game's view.");
         if (!camera::field_of_view_available()) {
             o.disabled = true;
@@ -406,7 +406,8 @@ void Menu::video() {
         }
         int degrees = static_cast<int>(s.field_of_view);
         if (slider_row("Field of view", degrees, static_cast<int>(settings::kMinFieldOfView),
-                static_cast<int>(settings::kMaxFieldOfView), 1, "%d deg", o)) {
+                static_cast<int>(settings::kMaxFieldOfView), 1, "%d deg", o,
+                static_cast<int>(settings::kGameFieldOfView))) {
             s.field_of_view = static_cast<std::uint32_t>(degrees);
             settings::save();
         }
