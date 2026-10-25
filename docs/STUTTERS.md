@@ -14,7 +14,7 @@ None of these has been measured on the affected hardware yet. Windows with an NV
 | --- | --- | --- |
 | Area entry | One `vkAllocateMemory` (and one `vkFreeMemory` on eviction) per game texture; slow on Windows | `create_image`, `destroy_texture` in `vulkan_renderer.cpp` |
 | Area entry, with an HD pack | Per pack image: two allocations, a command buffer, a fence and its own `vkQueueSubmit`; up to 32 MB a frame copied on the game thread | `ReplacementTextures::upload` |
-| Fights | A pipeline compiled inline the first time a state is drawn; the background prewarm only covers earlier runs | `pipeline_for` |
+| Fights | Measured: the main thread draining the music channel at each change of music segment (see below). Also possible: a pipeline compiled inline the first time a state is drawn | `audio_output`, `pipeline_for` |
 | A few seconds after new pipelines | `pipeline_cache.bin` serialized and written on the game thread | `report_pipelines` |
 | Quiet moments in a quest | Fast loading taking silence plus a disc read for a load | `load_detector.cpp` |
 | First use of a code path | Overlay code paged in from disk (265 MB of libraries) | `overlays.cpp` |
@@ -80,6 +80,23 @@ A few seconds into stage075 the same run had five frames of 40 to 52 ms with 5 m
 The stutter seen loading into the first area of a quest, at 240 Hz, was frame interpolation, not a slow frame. For the first second or two, about half the presents showed the older game frame again instead of a blend (123 of 218 in the first second, 76 of 237 in the next, against about 30 in play) and the delay from a frame's moment to its present was 51 ms instead of 36. `MHFU_TRACE_INTERPOLATION=frames` showed why: the game flips 17 to 27 ms after a frame's moment in the town and 6 ms in a quest, and the delay allows for the ninth longest of the last 60 frames, so it kept the town's for about 52 quest frames. Presents that late fall before the older of the two frames they blend and show it as it is. A run that waited on a screen with early flips before the quest had no such second.
 
 Changed: the code time the delay allows for is also no more than the longest of the last 15 frames, so it follows a scene with earlier flips within half a second; a later scene lengthens it after nine frames, as before. `MHFU_INTERPOLATION_SLOW_DELAY=1` restores the old estimate. Not measured in the game yet.
+
+## Fights: the music channel drain
+
+Measured on Linux (Radeon RX 6700S, Mesa RADV, 120 Hz, frame interpolation to 90), one quest fought several times with `MHFU_PERF=log`, `MHFU_TRACE_STALLS`, `MHFU_TRACE_RENDER` and `MHFU_TRACE_KERNEL=user_main`.
+
+- **Not the CPU.** The game thread, which runs the guest and the renderer, took 38% of a core in a quiet spot and 46% in the fight: 11.1 and 14.0 ms of each 33.3 ms frame. Other threads stayed near zero. All the extra was render work: CPU skinning in `decode` (+1.1 ms), frame interpolation's `replay` (+0.9) and vertex hashing (+0.9). Guest time did not grow.
+- **Not the starvation charge.** The `charged` field of the stall trace (emulated time charged for guest code without import calls) was 0 to 1 ms in the hitch frames and a steady 0.2 ms a frame otherwise.
+- **The hitch.** A few times a fight, at each change of music segment, a frame of 57 to 77 ms with about 15 ms of work and the rest `pacing`: the game took three vblanks for a frame. `MHFU_TRACE_AUDIO_CALLS` and the `ra=` of the kernel trace put it in `user_main` draining the music channel (ch2): it sets the channel to 64 frames and outputs a short buffer, and `sceAudioOutputPannedBlocking` made it wait for the music still queued, 22 to 43 ms (up to two 1024-frame buffers).
+
+Changed (`audio/channel_queue.cpp`): a shorter buffer behind longer ones waits only for the short ones before it; the music thread's next buffer waits for everything. The queue and what reaches the sink are unchanged, so the music change sounds the same (checked by ear). `MHFU_OLD_AUDIO_DRAIN=1` restores the old wait. In an A/B run each of five drains with the old wait missed a vblank and none with the new one.
+
+The large-`guest` frames that remained were two things. Each `[slow-frame]` line now names the frame's slowest HLE call and gives the game thread's CPU time, page faults and context switches, and `MHFU_TRACE_STALL_STACKS` prints the stack of a call that runs past 45 ms.
+
+- **Quest start, every run:** about 50 ms of `guest` with 8,203 page faults on the game thread. Key quests copied all 32 MiB of guest RAM into a new vector each time the game read a quest pack, before searching it. It now searches RAM in place (`key_quests.cpp`); the frame is gone. Turning Key quests on still searches RAM once per pack, about 90 ms in a flip at boot on the black screen.
+- **Rare stalls of 45 to 100 ms with little CPU:** the game thread polled, waking every 2.1 ms, inside a call, outside the timed render and pacing. One run in four minutes of fighting had a single one, of 43 ms, under the stack threshold, so the code behind it is not named yet.
+
+Other stacks the sampler caught were outside play: the in-game menu (paused, kept out of the statistics), GTK window decorations loading their icons through the Wayland event pump (94 ms, once), SDL scanning udev for gamepads (48 ms), save data decryption on loading a save, and an 88 ms disc read. One run with `MHFU_OLD_AUDIO_DRAIN=1` stayed on the black screen after the first logo overlay for 14 minutes; the same command booted normally the next time, and the setting leaves the old code path unchanged. Not on Windows or NVIDIA yet.
 
 ## Next step: measure on the affected hardware
 
