@@ -92,6 +92,14 @@ inline constexpr std::uint32_t kItemAtlas = 0x091874A0u;
 inline constexpr std::uint32_t kGameSysPointer = 0x089CC558u;
 inline constexpr std::uint32_t kGameSysStage = 0x6AF0Eu;
 
+// The players by slot: kPlayerSlotCount words from kPlayerSlots, each the
+// hunter in that slot or 0. The slots are the name plates' order and colours
+// (red, blue, yellow, green). Traced with MHFU_TRACE_HITS on two consoles in
+// two quests: the same hunters in the same slots on both, and a slot cleared
+// when its player left. Trust it only while every word is 0 or a hunter.
+inline constexpr std::uint32_t kPlayerSlots = 0x09A4F1C8u;
+inline constexpr std::uint32_t kPlayerSlotCount = 4u;
+
 // The quest entity list --------------------------------------------------------
 
 // The word at kEntityList is the entity manager. Its list head is the newest
