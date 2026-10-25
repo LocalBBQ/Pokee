@@ -579,6 +579,17 @@ void test_the_roster() {
     memory.store32(camera + layout::kFollowedHunter, remote);
     check(hunters_line(memory) == "[dmg]   hunters 1 09820000 at 1 2 3; 0 09860000 at -4 0 8.5 (camera)",
         "the camera's hunter is player 0 on any node");
+
+    memory.store32(0x09890000u, hunter);
+    memory.store32(0x09890004u, remote);
+    memory.store32(hunter + 0x10u, hunter);
+    const std::vector<std::string> slots = hunter_pointer_lines(memory);
+    const auto listed = [&slots](
+                            const char *line) { return std::find(slots.begin(), slots.end(), line) != slots.end(); };
+    check(listed("[slots]   09890000 -> 09820000") && listed("[slots]   09890004 -> 09860000") &&
+            !listed("[slots]   09820010 -> 09820000"),
+        "every word that points at a hunter is listed, but not one inside the hunter itself");
+    for (const std::uint32_t at : {0x09890000u, 0x09890004u, hunter + 0x10u}) memory.store32(at, 0u);
 }
 
 int shown_total() {
