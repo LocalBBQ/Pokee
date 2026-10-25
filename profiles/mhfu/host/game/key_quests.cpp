@@ -50,11 +50,21 @@ std::string hex(std::uint32_t value) {
     return text;
 }
 
-// Looks for each pack read since the last frame; one copy of RAM serves all.
+// Looks for each pack read since the last frame, in RAM where it lies. A copy
+// was 32 MiB of fresh memory each time, about 8,200 page faults: 50 ms of the
+// flip on the first frames of a quest. The copy remains for a memory that is
+// not one mapped range.
 void look(psprecomp::GuestMemory &memory, EntryBytes bytes) {
     State &s = state();
-    std::vector<std::uint8_t> ram(memory.size());
-    memory.copy_out(psprecomp::GuestMemory::kPhysicalBase, ram);
+    std::vector<std::uint8_t> copy;
+    std::span<const std::uint8_t> ram;
+    if (const std::uint8_t *raw = memory.raw_pointer(psprecomp::GuestMemory::kPhysicalBase, memory.size())) {
+        ram = {raw, memory.size()};
+    } else {
+        copy.resize(memory.size());
+        memory.copy_out(psprecomp::GuestMemory::kPhysicalBase, copy);
+        ram = copy;
+    }
     for (auto it = s.pending.begin(); it != s.pending.end();) {
         const std::uint32_t entry = it->first;
         auto cached = s.bytes.find(entry);
