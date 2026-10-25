@@ -11,6 +11,7 @@
 #include <cmath>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace mhfu::settings {
 Settings &current() {
@@ -173,6 +174,14 @@ GatherPicture picture() {
     return out;
 }
 
+// The first of a frame's marks: the only one while one thing is in reach.
+std::optional<GatherMark> first_mark(
+    const psprecomp::GuestMemory &memory, const GatherPose &pose, GatherMotions *motions = nullptr) {
+    const std::vector<GatherMark> marks = gather_marks(memory, pose, motions);
+    if (marks.empty()) return std::nullopt;
+    return marks.front();
+}
+
 void test_on_the_picture() {
     psprecomp::GuestMemory memory(32u * 1024u * 1024u);
     plant_words(memory);
@@ -202,23 +211,23 @@ void test_on_the_picture() {
 
     mhfu::settings::current().gather_icon = false;
     gather_note_draw(picture(), 100u);
-    check(!gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}), "off, nothing is drawn");
+    check(!first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}), "off, nothing is drawn");
 
     mhfu::settings::current().gather_icon = true;
-    check(!gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}),
+    check(!first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}),
         "a frame with no world draw draws none");
     gather_note_draw(picture(), 10u);
     GatherPicture flat = picture();
     flat.projection[11] = 0.0f;
     gather_note_draw(flat, 1000u);
-    const std::optional<GatherMark> at = gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f});
+    const std::optional<GatherMark> at = first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f});
     check(at && std::fabs(at->at[0] - 0.5f) < 0.05f && std::fabs(at->at[1] - 0.5f) < 0.05f,
         "the mark sits above the node, and an orthographic draw is not the world");
 
     plant_node(memory, nodes, 0.0f, 0.0f, 10.0f, 5.0f, 1u, 0u);
     write_float(memory, hunter + 0x208u, 10.0f);
     gather_note_draw(picture(), 100u);
-    check(!gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}),
+    check(!first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}),
         "a node behind the camera is not marked");
 }
 
@@ -704,34 +713,45 @@ void test_mark_over_a_carve() {
     mhfu::settings::current().gather_icon = true;
     gather_note_draw(picture(), 100u);
     const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
-    const std::optional<GatherMark> at = gather_mark(memory, pose);
+    const std::optional<GatherMark> at = first_mark(memory, pose);
     check(at && std::fabs(at->at[0] - 0.5f) < 0.05f && std::fabs(at->at[1] - 0.5f) < 0.05f,
         "with no gather point in range, the mark stands over the body that can be carved");
 
-    // A gather point in range comes first, as in the game's circle handler.
+    // A plant in range is gathered by ○, and the circle handler never asks
+    // the carve search, so the body under it has no mark.
     plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 0u);
     gather_note_draw(picture(), 100u);
-    const std::optional<GatherMark> gather_first = gather_mark(memory, pose);
-    check(gather_first && gather_first->at[0] > 0.55f, "a gather point in range takes the mark before the body");
+    const std::vector<GatherMark> plant = gather_marks(memory, pose);
+    check(plant.size() == 1u && plant[0].at[0] > 0.55f && plant[0].glyph == GatherGlyph::Plant,
+        "a plant in range takes the only mark, and the body under it gets none");
     check(at && at->glyph == GatherGlyph::Carve, "a carve is shown as one");
-    check(gather_first && gather_first->glyph == GatherGlyph::Plant, "a kind 0 point is a plant");
+    // Mining is □ with a pickaxe; ○ there goes on to the carve search, so the
+    // body keeps its own mark beside the point's.
     plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 3u);
     gather_note_draw(picture(), 100u);
-    const std::optional<GatherMark> mining = gather_mark(memory, pose);
-    check(mining && mining->glyph == GatherGlyph::Mining, "a mining point is shown as mining");
+    const std::vector<GatherMark> mining = gather_marks(memory, pose);
+    check(mining.size() == 2u && mining[0].glyph == GatherGlyph::Mining && mining[1].glyph == GatherGlyph::Carve,
+        "a body over a mining point is marked beside it");
+    check(mining.size() == 2u && mining[0].world[0] == 5.0f && mining[1].world[0] == 0.0f, "each over its own place");
+    plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 4u);
+    gather_note_draw(picture(), 100u);
+    check(gather_marks(memory, pose).size() == 2u, "and over a bug net point");
+    plant_node(memory, nodes, 5.0f, 0.0f, -10.0f, 30.0f, 1u, 7u);
+    gather_note_draw(picture(), 100u);
+    check(gather_marks(memory, pose).size() == 2u, "and over any kind but a plant");
     write_float(memory, nodes, -1.0f);
 
     memory.store16(table + 4u + 20u, 0xFFFFu);
     gather_note_draw(picture(), 100u);
-    check(!carve_body(memory) && !gather_mark(memory, pose), "a body with nothing left to carve is not marked");
+    check(!carve_body(memory) && !first_mark(memory, pose), "a body with nothing left to carve is not marked");
     memory.store16(table + 4u + 20u, 9u);
     memory.store32(hunter + 1164u, 0x100u);
     gather_note_draw(picture(), 100u);
-    check(!gather_mark(memory, pose), "nor one the hunter cannot carve now");
+    check(!first_mark(memory, pose), "nor one the hunter cannot carve now");
     memory.store32(hunter + 1164u, 0u);
     write_float(memory, hunter + 0x200u, 40.0f);
     gather_note_draw(picture(), 100u);
-    check(!gather_mark(memory, pose), "nor one out of reach");
+    check(!first_mark(memory, pose), "nor one out of reach");
 }
 
 // One 24-byte spot: +2 the type, +4 x, +8 y, +12 z, +16 the radius.
@@ -860,7 +880,7 @@ void test_fishing_spots() {
     plant_spot(memory, kSpots + 24u, kFishingSpotType, 0.0f, 0.0f, -10.0f, 100.0f);
     const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
     gather_note_draw(picture(), 100u);
-    const std::optional<GatherMark> mark = gather_mark(memory, pose);
+    const std::optional<GatherMark> mark = first_mark(memory, pose);
     check(mark && mark->glyph == GatherGlyph::Fishing && mark->art == GatherArt::of_item(kBaitItem),
         "a fishing spot is marked with the bait");
     check(mark && std::fabs(mark->at[0] - 0.5f) < 0.05f && std::fabs(mark->at[1] - 0.5f) < 0.05f &&
@@ -868,8 +888,12 @@ void test_fishing_spots() {
         "over the spot");
     plant_node(memory, nodes, 0.0f, 0.0f, -10.0f, 30.0f, 1u, 0u);
     gather_note_draw(picture(), 100u);
-    const std::optional<GatherMark> gather_first = gather_mark(memory, pose);
-    check(gather_first && gather_first->glyph == GatherGlyph::Plant, "a gather point in range takes the mark first");
+    // The bait is the item action and its search does not read the gather
+    // list, so both marks are shown, the point's first.
+    const std::vector<GatherMark> both = gather_marks(memory, pose);
+    check(both.size() == 2u && both[0].glyph == GatherGlyph::Plant && both[1].glyph == GatherGlyph::Fishing &&
+            both[1].art == GatherArt::of_item(kBaitItem),
+        "a gather point at the water is marked beside the fishing spot");
     write_float(memory, nodes, -1.0f);
 }
 
@@ -953,16 +977,16 @@ void test_motion_on_the_picture() {
     memory.store16(hunter + 0x29Au, 1u);
     mhfu::settings::current().gather_icon = true;
 
-    GatherMotion motion;
+    GatherMotions motions;
     const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
     gather_note_draw(picture(), 100u);
-    const std::optional<GatherMark> first = gather_mark(memory, pose, &motion);
+    const std::optional<GatherMark> first = first_mark(memory, pose, &motions);
     check(first && !first->older && near(first->alpha, GatherMotion::kFadeStep) && first->glyph == GatherGlyph::BugNet,
         "the first frame fades the mark in, with no older place to blend from");
     // The camera turns a little: the next frame blends from the first one's place.
     const GatherPose turned{0.0f, 100.0f, 0.0f, 1.0f, 100.0f, -10.0f};
     gather_note_draw(picture(), 100u);
-    const std::optional<GatherMark> second = gather_mark(memory, turned, &motion);
+    const std::optional<GatherMark> second = first_mark(memory, turned, &motions);
     check(first && second && second->older && near((*second->older)[0], first->at[0]) &&
             near((*second->older)[1], first->at[1]) && second->at[0] != first->at[0],
         "the next frame keeps where the last one drew the mark");
@@ -970,15 +994,120 @@ void test_motion_on_the_picture() {
     // The hunter walks off: the mark fades out where it was.
     write_float(memory, hunter + 0x200u, 40.0f);
     gather_note_draw(picture(), 100u);
-    const std::optional<GatherMark> leaving = gather_mark(memory, turned, &motion);
+    const std::optional<GatherMark> leaving = first_mark(memory, turned, &motions);
     check(leaving && second && near(leaving->alpha, second->alpha - GatherMotion::kFadeStep) &&
             near(leaving->at[0], second->at[0]),
         "out of reach, the mark fades in place");
 
     // A frame with no world draw (a menu, a load) ends the mark.
-    check(!gather_mark(memory, turned, &motion) && !motion.shown(), "a frame without the world resets the motion");
+    check(!first_mark(memory, turned, &motions) && !motions[0].shown(), "a frame without the world resets the motion");
     gather_note_draw(picture(), 100u);
-    check(!gather_mark(memory, turned, &motion), "and nothing is left to fade");
+    check(!first_mark(memory, turned, &motions), "and nothing is left to fade");
+}
+
+// A body that falls on a mining point: each has its own motion, so the
+// carve's mark fades in while the point's stays.
+void test_motions_by_role() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    plant_words(memory);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    constexpr std::uint32_t table = 0x09800000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 4u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    plant_node(memory, nodes, 0.0f, 0.0f, -10.0f, 30.0f, 1u, 3u);
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x208u, -10.0f);
+    memory.store16(hunter + 0x29Au, 4u);
+    memory.store32(0x09A4F1A0u, table);
+    for (std::uint32_t n = 0; n < 20u; ++n) memory.store16(table + 4u + n * 32u + 16u, 0xFFFFu);
+    mhfu::settings::current().gather_icon = true;
+
+    GatherMotions motions;
+    const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
+    for (int i = 0; i < 4; ++i) {
+        gather_note_draw(picture(), 100u);
+        (void)gather_marks(memory, pose, &motions);
+    }
+    plant_body(memory, table + 4u, 0.0f, 0.0f, -10.0f, 30.0f, 9u, 4u);
+    gather_note_draw(picture(), 100u);
+    const std::vector<GatherMark> marks = gather_marks(memory, pose, &motions);
+    check(marks.size() == 2u && marks[0].glyph == GatherGlyph::Mining && near(marks[0].alpha, 1.0f) &&
+            marks[1].glyph == GatherGlyph::Carve && near(marks[1].alpha, GatherMotion::kFadeStep),
+        "a carve that comes into reach fades in beside the point, which stays");
+    check(marks.size() == 2u && marks[0].older && !marks[1].older, "only the mark already shown blends from before");
+    check(motions[static_cast<std::size_t>(GatherRole::Carve)].shown().has_value() &&
+            !motions[static_cast<std::size_t>(GatherRole::Fishing)].shown(),
+        "each role keeps its own motion");
+    check(gather_role(GatherGlyph::BugNet) == GatherRole::Node && gather_role(GatherGlyph::Plant) == GatherRole::Node &&
+            gather_role(GatherGlyph::Fishing) == GatherRole::Fishing,
+        "every node kind is the node's role");
+
+    // Without motions, every target is a mark at full opacity.
+    gather_note_draw(picture(), 100u);
+    const std::vector<GatherMark> plain = gather_marks(memory, pose);
+    check(plain.size() == 2u && plain[0].alpha == 1.0f && plain[1].alpha == 1.0f && !plain[1].older,
+        "unsmoothed, both are drawn at once");
+}
+
+GatherMark mark_at(float x, float y) {
+    GatherMark mark;
+    mark.at = {x, y};
+    return mark;
+}
+
+void test_spreading_marks() {
+    const std::array<float, 2> apart{0.1f, 0.2f};
+    std::vector<GatherMark> one{mark_at(0.5f, 0.5f)};
+    spread_gather_marks(one, apart);
+    check(one[0].at[0] == 0.5f && one[0].at[1] == 0.5f, "a lone mark stays where it is");
+
+    std::vector<GatherMark> apart_already{mark_at(0.3f, 0.5f), mark_at(0.5f, 0.5f), mark_at(0.5f, 0.75f)};
+    spread_gather_marks(apart_already, apart);
+    check(apart_already[0].at[0] == 0.3f && apart_already[1].at[0] == 0.5f && apart_already[1].at[1] == 0.5f &&
+            apart_already[2].at[1] == 0.75f,
+        "marks that do not overlap stay where they are");
+
+    // Two at one place: side by side around it, in the order they came, and
+    // the older place goes with its mark.
+    std::vector<GatherMark> same{mark_at(0.5f, 0.5f), mark_at(0.5f, 0.5f)};
+    same[1].older = std::array<float, 2>{0.48f, 0.5f};
+    spread_gather_marks(same, apart);
+    check(near(same[0].at[0], 0.45f) && near(same[1].at[0], 0.55f) && near(same[0].at[1], 0.5f) &&
+            near(same[1].at[1], 0.5f),
+        "two marks at one place are set side by side around it");
+    check(!same[0].older && same[1].older && near((*same[1].older)[0], 0.53f) && near((*same[1].older)[1], 0.5f),
+        "the older place moves with its mark");
+
+    // Close but not on top: the row keeps their order left to right, at the middle.
+    std::vector<GatherMark> close{mark_at(0.52f, 0.5f), mark_at(0.5f, 0.54f)};
+    spread_gather_marks(close, apart);
+    check(near(close[1].at[0], 0.46f) && near(close[0].at[0], 0.56f) && near(close[0].at[1], 0.52f) &&
+            near(close[1].at[1], 0.52f),
+        "overlapping marks keep their left-to-right order around their middle");
+
+    // A row that reaches a third mark takes it in, and no pair overlaps after.
+    std::vector<GatherMark> chain{mark_at(0.5f, 0.5f), mark_at(0.5f, 0.5f), mark_at(0.62f, 0.5f)};
+    spread_gather_marks(chain, apart);
+    check(near(chain[0].at[0], 0.44f) && near(chain[1].at[0], 0.54f) && near(chain[2].at[0], 0.64f),
+        "a row that reaches the next mark is laid out again with it");
+
+    std::vector<GatherMark> untouched{mark_at(0.5f, 0.5f), mark_at(0.5f, 0.5f)};
+    spread_gather_marks(untouched, {0.0f, 0.2f});
+    check(untouched[0].at[0] == 0.5f && untouched[1].at[0] == 0.5f, "no picture to measure leaves the marks alone");
 }
 
 void test_ui_shift() {
@@ -1126,9 +1255,9 @@ void test_mark_shows_art() {
     mhfu::settings::current().gather_icon = true;
 
     gather_note_draw(picture(), 100u);
-    GatherMotion motion;
+    GatherMotions motions;
     const std::optional<GatherMark> mark =
-        gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motion);
+        first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motions);
     check(mark && mark->art == GatherArt::of_item(41u), "the mark carries the item the point gives");
     check(mark && mark->world[0] == 0.0f && mark->world[2] == -10.0f, "and the point it stands over");
 
@@ -1136,7 +1265,7 @@ void test_mark_shows_art() {
     memory.store16(nodes + 20u, 3u);
     gather_note_draw(picture(), 100u);
     const std::optional<GatherMark> mining =
-        gather_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motion);
+        first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motions);
     check(mining && mining->art == GatherArt::of_item(kPickaxeItem), "a mining point's mark is the pickaxe");
 }
 
@@ -1149,6 +1278,8 @@ int main() {
     test_glyphs();
     test_motion();
     test_motion_on_the_picture();
+    test_motions_by_role();
+    test_spreading_marks();
     test_ui_shift();
     test_the_radius();
     test_the_area_list();

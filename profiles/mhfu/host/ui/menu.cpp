@@ -2425,9 +2425,9 @@ void draw_hunt_portraits(const std::vector<camera::HuntPortrait> &portraits) {
     }
 }
 
-std::optional<game::GatherMark> &gather_mark_at() {
-    static std::optional<game::GatherMark> mark;
-    return mark;
+std::vector<game::GatherMark> &gather_marks_at() {
+    static std::vector<game::GatherMark> marks;
+    return marks;
 }
 
 // Lock-on's marker (camera/lock_on.hpp): a red ring, a cross through it, and
@@ -2547,6 +2547,22 @@ void draw_gather_mark(const game::GatherMark &mark) {
         gpu::ui_motion::add(draw, first_vertex, draw->VtxBuffer.Size, {older.x - centre.x, older.y - centre.y});
     }
 }
+
+// Every mark of this game frame. Two things at one place (a mining point and
+// the body over it, or a node by the water) are set side by side, a disc and
+// the spacing apart in the game's pixels, so neither covers the other.
+void draw_gather_marks(std::vector<game::GatherMark> marks) {
+    const ImGuiIO &io = ImGui::GetIO();
+    const std::array<float, 4> picture = Layer::get().renderer().game_picture();
+    const float width = picture[2] * io.DisplaySize.x;
+    const float height = picture[3] * io.DisplaySize.y;
+    if (width > 0.0f && height > 0.0f) {
+        const game::GatherShape shape = game::gather_mark_shape(settings::current().gather_icon_size);
+        const float apart = (2.0f * (shape.radius + shape.ring) + game::kGatherSpacing) * height / 272.0f;
+        game::spread_gather_marks(marks, {apart / width, apart / height});
+    }
+    for (const game::GatherMark &mark : marks) draw_gather_mark(mark);
+}
 } // namespace
 
 void set_lock_on_marker(std::optional<std::array<float, 2>> at) {
@@ -2557,8 +2573,8 @@ void set_hunt_portraits(std::vector<camera::HuntPortrait> portraits) {
     hunt_portraits_at() = std::move(portraits);
 }
 
-void set_gather_mark(std::optional<game::GatherMark> mark) {
-    gather_mark_at() = mark;
+void set_gather_marks(std::vector<game::GatherMark> marks) {
+    gather_marks_at() = std::move(marks);
 }
 
 namespace {
@@ -2764,19 +2780,19 @@ void draw_over_game() {
     const std::optional<std::array<float, 2>> marker = menu ? std::nullopt : lock_on_marker_at();
     const std::vector<camera::HuntPortrait> portraits =
         menu ? std::vector<camera::HuntPortrait>{} : hunt_portraits_at();
-    const std::optional<game::GatherMark> gather = menu ? std::nullopt : gather_mark_at();
+    const std::vector<game::GatherMark> gather = menu ? std::vector<game::GatherMark>{} : gather_marks_at();
     const bool numbers = !menu && !layer.renderer().window_capture_pending() && !game::damage_numbers().empty();
     if (hint_left <= 0.0 && !overlay && !menu && !touch && gpu_problem.empty() && !fast && !noted && hud_note <= 0.0 &&
-        !marker && portraits.empty() && !gather && !numbers)
+        !marker && portraits.empty() && gather.empty() && !numbers)
         return;
     layer.begin_frame();
     if (numbers) draw_damage_numbers();
     if (!portraits.empty()) draw_hunt_portraits(portraits);
     if (marker) draw_lock_on_marker(*marker);
-    if (gather) draw_gather_mark(*gather);
+    if (!gather.empty()) draw_gather_marks(gather);
     // The marks are on the background list, under every window of the
     // interface; the game's HUD is drawn again over them there.
-    if (numbers || !portraits.empty() || marker || gather) {
+    if (numbers || !portraits.empty() || marker || !gather.empty()) {
         ImDrawList *under = ImGui::GetBackgroundDrawList();
         under->AddCallback(&gpu::VulkanRenderer::draw_hud_cover, nullptr);
         under->AddCallback(ImGui::GetPlatformIO().DrawCallback_ResetRenderState, nullptr);

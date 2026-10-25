@@ -384,35 +384,35 @@ void present_frame(Runtime &rt) {
         const char *value = std::getenv("MHFU_GATHER_ICON_SMOOTH");
         return value == nullptr || std::string_view(value) != "0";
     }();
-    static game::GatherMotion gather_motion;
-    std::optional<game::GatherMark> gather =
-        game::gather_mark(rt.memory(), gather_pose, gather_smooth ? &gather_motion : nullptr);
-    // The mark shows the item a point gives, or the monster being carved
+    static game::GatherMotions gather_motions;
+    std::vector<game::GatherMark> gather =
+        game::gather_marks(rt.memory(), gather_pose, gather_smooth ? &gather_motions : nullptr);
+    // A mark shows the item a point gives, or the monster being carved
     // (game/gather_art.hpp); the sheets they come from are decoded here.
-    if (gather && gather->glyph == game::GatherGlyph::Carve) {
-        const camera::Vec3 body{gather->world[0], gather->world[1], gather->world[2]};
-        if (const std::optional<std::uint8_t> species = camera::carved_monster(rt.memory(), body)) {
-            gather->art = game::GatherArt::of_monster(*species);
-            camera::refresh_hunt_icons(rt.memory());
-            // MHFU_TRACE_GATHER: whether the icon sheet could be read, once a change.
-            static const bool trace = std::getenv("MHFU_TRACE_GATHER") != nullptr;
-            static int told = -1;
-            const int ready = camera::hunt_icon_sheet().ready ? 1 : 0;
-            if (trace && ready != told) {
-                told = ready;
-                std::cout << "[gather] carving species " << static_cast<unsigned>(*species) << ", icon sheet "
-                          << (ready ? "ready" : "not decoded") << std::endl;
+    for (game::GatherMark &mark : gather) {
+        if (mark.glyph == game::GatherGlyph::Carve) {
+            const camera::Vec3 body{mark.world[0], mark.world[1], mark.world[2]};
+            if (const std::optional<std::uint8_t> species = camera::carved_monster(rt.memory(), body)) {
+                mark.art = game::GatherArt::of_monster(*species);
+                camera::refresh_hunt_icons(rt.memory());
+                // MHFU_TRACE_GATHER: whether the icon sheet could be read, once a change.
+                static const bool trace = std::getenv("MHFU_TRACE_GATHER") != nullptr;
+                static int told = -1;
+                const int ready = camera::hunt_icon_sheet().ready ? 1 : 0;
+                if (trace && ready != told) {
+                    told = ready;
+                    std::cout << "[gather] carving species " << static_cast<unsigned>(*species) << ", icon sheet "
+                              << (ready ? "ready" : "not decoded") << std::endl;
+                }
             }
+        } else if (mark.art.kind == game::GatherArt::Kind::Item) {
+            mark.icon = game::item_art(rt.memory(), mark.art.item);
         }
-    } else if (gather && gather->art.kind == game::GatherArt::Kind::Item) {
-        gather->icon = game::item_art(rt.memory(), gather->art.item);
+        // Anything without a picture shows the game's red ?.
+        mark.unknown = game::icon_art(rt.memory(), game::kUnknownIcon, game::kUnknownTint);
     }
-    // Anything without a picture shows the game's red ?.
-    if (gather) {
-        gather->unknown = game::icon_art(rt.memory(), game::kUnknownIcon, game::kUnknownTint);
-        game::refresh_item_atlas(rt.memory());
-    }
-    ui::set_gather_mark(gather);
+    if (!gather.empty()) game::refresh_item_atlas(rt.memory());
+    ui::set_gather_marks(std::move(gather));
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more

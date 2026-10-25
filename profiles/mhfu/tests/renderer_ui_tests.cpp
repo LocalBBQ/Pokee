@@ -3651,19 +3651,26 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     const int bare = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
     const std::uint32_t saved_gather_size = settings::current().gather_icon_size;
     settings::current().gather_icon_size = 100u;
-    {
-        game::GatherMark mark;
-        mark.at = {0.5f, 0.5f};
-        ui::set_gather_mark(mark);
-    }
+    game::GatherMark gather_mark;
+    gather_mark.at = {0.5f, 0.5f};
+    ui::set_gather_marks({gather_mark});
     frame();
     const int usual = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
+    {
+        game::GatherMark carve = gather_mark;
+        carve.glyph = game::GatherGlyph::Carve;
+        ui::set_gather_marks({gather_mark, carve});
+    }
+    frame();
+    const int two = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
+    expect(two - usual == usual - bare, "two marks at one place are both drawn");
+    ui::set_gather_marks({gather_mark});
     settings::current().gather_icon_size = settings::kMaxGatherIconSize;
     frame();
     const int large = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
     expect(usual > bare && large > usual, "the gather mark is drawn, and a larger one is drawn smoother");
     settings::current().gather_icon_size = saved_gather_size;
-    ui::set_gather_mark(std::nullopt);
+    ui::set_gather_marks({});
     auto &layer = ui::Layer::get();
     layer.set_interactive(true);
     ui::open_touch_editor();
