@@ -74,8 +74,8 @@ bool plausible(const psprecomp::GuestMemory &memory, std::uint32_t camera) {
 // True when this update should see the setting's field of view.
 bool scaling(const psprecomp::GuestMemory &memory, std::uint32_t camera) {
     if (state.scale == 1.0f || !plausible(memory, camera)) return false;
-    const float widest = std::max(load_float(memory, camera + kFieldOfView),
-        load_float(memory, camera + kTargetFieldOfView));
+    const float widest =
+        std::max(load_float(memory, camera + kFieldOfView), load_float(memory, camera + kTargetFieldOfView));
     return widest * state.scale < kMaxRadians;
 }
 
@@ -168,10 +168,10 @@ bool prepare_field_of_view(psprecomp::Runtime &runtime) {
     for (const CodeWord &expected : kSignature) {
         const std::uint32_t found = memory.load32(expected.address);
         if (found == expected.word) continue;
-        std::cerr << "[fov] game code differs at 0x" << std::hex << std::uppercase << std::setfill('0')
-                  << std::setw(8) << expected.address << ": 0x" << std::setw(8) << found << ", expected 0x"
-                  << std::setw(8) << expected.word << std::dec << std::nouppercase << std::setfill(' ') << " ("
-                  << expected.what << "); the field of view stays the game's\n";
+        std::cerr << "[fov] game code differs at 0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
+                  << expected.address << ": 0x" << std::setw(8) << found << ", expected 0x" << std::setw(8)
+                  << expected.word << std::dec << std::nouppercase << std::setfill(' ') << " (" << expected.what
+                  << "); the field of view stays the game's\n";
         return false;
     }
     state.prepared = true;

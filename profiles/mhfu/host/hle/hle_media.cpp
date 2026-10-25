@@ -250,9 +250,8 @@ void feed_mouse(gpu::VulkanRenderer &renderer) {
 // The quest camera's eye for damage numbers and the gather mark, asking for
 // the camera hook when either of those, or MHFU_TRACE_HITS, is on.
 std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
-    camera::game_camera_want_pose(
-        settings::current().damage_numbers != settings::DamageNumbers::Off || settings::current().gather_icon ||
-        game::hit_trace::enabled());
+    camera::game_camera_want_pose(settings::current().damage_numbers != settings::DamageNumbers::Off ||
+        settings::current().gather_icon || game::hit_trace::enabled());
     const std::optional<camera::CameraPose> pose = camera::game_camera_pose(rt.memory());
     if (!pose) return std::nullopt;
     return game::EyePose{
@@ -830,9 +829,10 @@ void audio_output(Runtime &rt, AllegrexContext &ctx) {
     const std::uint64_t buffer_us = static_cast<std::uint64_t>(frames) * 1'000'000u / kAudioSampleRate;
     const std::uint64_t wait_us = audio::queue_output(state.queue, now, frames, kAudioSampleRate, wait_for_drain);
     if (trace_audio_calls() && queued > buffer_us)
-        log_audio_call(channel, "output frames=" + std::to_string(frames) + (buffer == 0u ? " (no buffer)" : "") +
-                                    " behind " + std::to_string(static_cast<double>(queued) / 1000.0) + "ms waits " +
-                                    std::to_string(static_cast<double>(wait_us) / 1000.0) + "ms");
+        log_audio_call(channel,
+            "output frames=" + std::to_string(frames) + (buffer == 0u ? " (no buffer)" : "") + " behind " +
+                std::to_string(static_cast<double>(queued) / 1000.0) + "ms waits " +
+                std::to_string(static_cast<double>(wait_us) / 1000.0) + "ms");
     if (wait_us != 0u)
         kernel().delay_current(ctx, wait_us, frames);
     else

@@ -136,7 +136,8 @@ void test_charged_time_reaches_the_slow_frame_line() {
     check(line.find(" | charged 2.5 ms | ") != std::string::npos,
         "the emulated time charged in the frame is on its slow-frame line: " + line);
     const std::string next = slow_frame_line(400'404u);
-    check(next.find(" | charged 0.0 ms | ") != std::string::npos, "charges do not carry over to the next frame: " + next);
+    check(
+        next.find(" | charged 0.0 ms | ") != std::string::npos, "charges do not carry over to the next frame: " + next);
 }
 
 void test_slowest_call_reaches_the_slow_frame_line() {

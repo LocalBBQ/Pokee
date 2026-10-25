@@ -2,8 +2,8 @@
 
 namespace mhfu::audio {
 
-std::uint64_t queue_output(ChannelQueue &queue, std::uint64_t now_us, std::uint32_t frames,
-    std::uint32_t sample_rate, bool wait_for_drain) {
+std::uint64_t queue_output(
+    ChannelQueue &queue, std::uint64_t now_us, std::uint32_t frames, std::uint32_t sample_rate, bool wait_for_drain) {
     const std::uint64_t buffer_us = static_cast<std::uint64_t>(frames) * 1'000'000u / sample_rate;
     if (queue.queued_until_us < now_us) queue.queued_until_us = now_us;
     const std::uint64_t previous_end = queue.queued_until_us;
