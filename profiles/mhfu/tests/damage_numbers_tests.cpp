@@ -539,6 +539,41 @@ void routine_takes_a1(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &c
     runtime.memory().store16(at, static_cast<std::uint16_t>(runtime.memory().load16(at) - ctx.gpr[5]));
 }
 
+// MHFU_TRACE_HITS: the quest list and the hunters as one console sees them,
+// to match its log to another console's in ad hoc play.
+void test_the_roster() {
+    namespace layout = mhfu::game::layout;
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    check(roster_lines(memory).empty() && hunters_line(memory).empty(), "outside a quest there is no roster");
+    stand_in_quest(memory);
+    constexpr std::uint32_t hunter = 0x09820000u;
+    store_point(memory, hunter + layout::kPosition, 1.0f, 2.0f, 3.0f);
+    memory.store8(kLarge + layout::kMonsterId, 7u);
+    std::vector<std::string> lines = roster_lines(memory);
+    const auto has = [&lines](std::size_t i, const char *text) {
+        return i < lines.size() && lines[i].find(text) != std::string::npos;
+    };
+    check(lines.size() == 5u, "one line per entry on the list, a repeated entity included");
+    check(has(0u, "#0 (4 from the end) 09820000 node") && has(0u, " me ") && has(0u, " at 1 2 3"),
+        "this console's hunter is the newest, with its place from both ends and its position");
+    check(
+        has(1u, "09830000") && has(1u, " monster species 7 health 2000/3000"), "a monster has its species and health");
+    check(has(3u, "09850000") && has(3u, " other ") && has(4u, "#4 (0 from the end) 09830000"),
+        "a companion without a health pool is other, and the oldest entry is last");
+
+    constexpr std::uint32_t remote = 0x09860000u, remote_node = 0x09810500u;
+    memory.store32(remote + layout::kVtable, 0x09A60000u);
+    store_point(memory, remote + layout::kPosition, -4.0f, 0.0f, 8.5f);
+    memory.store32(remote_node + layout::kNodeEntity, remote);
+    memory.store8(remote_node + layout::kNodeType, 0u);
+    memory.store32(0x09810400u + layout::kNodeOlder, remote_node);
+    lines = roster_lines(memory);
+    check(lines.size() == 6u && has(5u, "#5 (0 from the end) 09860000") && has(5u, " hunter "),
+        "another player's hunter, on an unmarked node, is a hunter");
+    check(hunters_line(memory) == "[dmg]   hunters 0 09820000 at 1 2 3; 1 09860000 at -4 0 8.5",
+        "the hunters line numbers the hunters as player_of does, with their positions");
+}
+
 int shown_total() {
     int total = 0;
     for (const Number &number : damage_numbers()) total += number.amount;
@@ -1400,6 +1435,7 @@ int main() {
     test_the_game_camera_view();
     test_the_setting_does_not_slow_direct_chains();
     test_the_health_watch();
+    test_the_roster();
     test_every_hit_once();
     test_the_hit_records();
     test_the_hit_trace();
