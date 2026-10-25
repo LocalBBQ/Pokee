@@ -29,9 +29,11 @@
 #include "psprecomp/guest_memory.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace mhfu::game {
 
@@ -127,8 +129,7 @@ enum class GatherGlyph : std::uint8_t { Plant, Mining, BugNet, Carve, Fishing };
 // as a plant.
 [[nodiscard]] GatherGlyph gather_glyph(std::uint16_t kind) noexcept;
 
-// The thing ○ or □ would gather or carve now: the node, or with none in range
-// the body (carve_body), or with neither the fishing spot (fishing_spot).
+// A thing ○, □ or a bait would gather, carve or fish at now (gather_targets).
 // `address` is its record, so a new target is told from the same one.
 struct GatherTarget {
     std::uint32_t address{};
@@ -140,7 +141,19 @@ struct GatherTarget {
     // caller knows the monsters.
     GatherArt art{};
 };
-[[nodiscard]] std::optional<GatherTarget> gather_target(const psprecomp::GuestMemory &memory);
+
+// Everything that can be done where the hunter stands, at most one of each, in
+// this order: the node (gather_node), the body ○ would carve (carve_body), and
+// the fishing spot a bait would fish at (fishing_spot). The circle handler
+// (game_task 0x09AA6E70) asks the gather search once and switches on the
+// kind. A plant (kind 0) starts its gather there, and the carve search is
+// never reached. Mining and a bug net start only from □, with the pickaxe or
+// the net selected; on ○ the handler goes on to the carve search (0x09AA73AC),
+// as it does with no node and with every other kind. So a body over a plant is
+// no target, and one over a mining point is. □ asks the circle handler and then the item handler
+// (0x09AA5C04), and the bait's spot search does not read the gather list, so
+// a fishing spot is a target beside either.
+[[nodiscard]] std::vector<GatherTarget> gather_targets(const psprecomp::GuestMemory &memory);
 
 // The mark as it moves, one step per game frame. A new target fades the mark
 // in, and losing it fades the mark out at the place it was. Moving from one
@@ -187,7 +200,14 @@ private:
     std::optional<std::array<float, 2>> last_at_;
 };
 
-// The mark for one game frame.
+// What a mark stands for. Each has its own GatherMotion, so a node and the body
+// beside it fade and glide apart.
+enum class GatherRole : std::uint8_t { Node, Carve, Fishing };
+inline constexpr std::size_t kGatherRoles = 3u;
+[[nodiscard]] GatherRole gather_role(GatherGlyph glyph) noexcept;
+using GatherMotions = std::array<GatherMotion, kGatherRoles>;
+
+// The mark for one target and one game frame.
 struct GatherMark {
     std::array<float, 2> at{}; // on the picture, 0..1 from the top left
     // Where the previous game frame drew it, when it was drawn; an
@@ -208,17 +228,30 @@ struct GatherMark {
     std::optional<ItemArt> unknown;
 };
 
-// Where the mark goes on the picture while Gather icon is on: over the node
-// ○ or □ would gather, or, with no node in range, over the monster body or
-// the cut tail ○ would carve (carve_body), or else over the fishing spot a
-// bait would fish at (fishing_spot). Nothing when it is off, the code
-// differs, there is nothing to gather or carve, or that point is behind the
-// camera or off the picture. Takes the draw noted since the last call.
-// Without `motion` the mark is where the target is, at full opacity. With
-// it, `motion` steps once and the mark is where it shows; a frame without a
-// world draw, or the setting off, resets it.
-[[nodiscard]] std::optional<GatherMark> gather_mark(const psprecomp::GuestMemory &memory,
-    const std::optional<GatherPose> &pose, GatherMotion *motion = nullptr);
+// Where the marks go on the picture while Gather icon is on: one over each of
+// gather_targets, in that order: the node ○ or □ would gather, the monster
+// body or cut tail ○ would carve, and the fishing spot a bait would fish at.
+// None when it is off, the code differs, there is nothing to gather, carve or
+// fish, and none for a point behind the camera or off the picture. Takes the
+// draw noted since the last call. Without `motions` each mark is where its
+// target is, at full opacity. With them, each role's motion steps once and
+// its mark is where it shows; a frame without a world draw, or the setting
+// off, resets them all. Marks over the same place are not moved apart here
+// (spread_gather_marks).
+[[nodiscard]] std::vector<GatherMark> gather_marks(const psprecomp::GuestMemory &memory,
+    const std::optional<GatherPose> &pose, GatherMotions *motions = nullptr);
+
+// The gap between two marks set side by side, in the picture's pixels (the
+// 272-tall frame).
+inline constexpr float kGatherSpacing = 3.0f;
+
+// Marks whose discs would overlap, set side by side. `apart` is the distance
+// between the centres of two marks that just touch, plus the spacing, as a
+// part of the picture's width and of its height. Each group of marks closer
+// than that becomes a row at the group's middle, in the order of their x.
+// `older` moves with its mark, so a mark set aside still blends with the
+// world. Marks apart already stay where they are.
+void spread_gather_marks(std::span<GatherMark> marks, std::array<float, 2> apart);
 
 // The pulse a hold sends, in pad reads the game takes: the gather button down
 // for kGatherPulseDown reads, then up for kGatherPulseUp. Each part is long
