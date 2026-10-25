@@ -27,7 +27,7 @@ struct ChannelQueue {
 // Queues an output of `frames` at `now_us` and returns how long it blocks, in
 // microseconds. `wait_for_drain` (MHFU_OLD_AUDIO_DRAIN) makes every output
 // wait for everything queued before it, short buffers included.
-[[nodiscard]] std::uint64_t queue_output(ChannelQueue &queue, std::uint64_t now_us, std::uint32_t frames,
-    std::uint32_t sample_rate, bool wait_for_drain);
+[[nodiscard]] std::uint64_t queue_output(
+    ChannelQueue &queue, std::uint64_t now_us, std::uint32_t frames, std::uint32_t sample_rate, bool wait_for_drain);
 
 } // namespace mhfu::audio
