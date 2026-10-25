@@ -650,8 +650,10 @@ void note_change(std::vector<HealthSeen> &seen, std::uint32_t object, int before
 // quest_health watches, "other"), its species byte, health and most health,
 // and its position at +0x200. Empty outside a quest.
 [[nodiscard]] std::vector<std::string> roster_lines(const psprecomp::GuestMemory &memory);
-// Every hunter on the quest list as player_of counts it, with its position:
-// "[dmg]   hunters 0 09820000 at x y z; 1 ...". Empty outside a quest.
+// Every hunter on the quest list as player_of counts it, with its position,
+// and "(camera)" after the one the camera follows (layout::followed_hunter):
+// "[dmg]   hunters 0 09820000 at x y z (camera); 1 ...". Empty outside a
+// quest.
 [[nodiscard]] std::string hunters_line(const psprecomp::GuestMemory &memory);
 
 // Once a flip, before the interface draws. Installs the hit watch while
