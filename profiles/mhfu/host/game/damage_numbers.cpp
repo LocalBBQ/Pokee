@@ -71,6 +71,19 @@ std::atomic<bool> &sharing_on() {
     return on;
 }
 
+std::atomic<LargeMonsters> &large_monsters() {
+    static std::atomic<LargeMonsters> large{nullptr};
+    return large;
+}
+
+// Whether hits on `monster` are shared: a large monster of the quest.
+bool shared_monster(const psprecomp::GuestMemory &memory, std::uint32_t monster) {
+    const LargeMonsters large = large_monsters().load(std::memory_order_relaxed);
+    if (large == nullptr) return false;
+    const std::vector<std::uint32_t> monsters = large(memory);
+    return std::find(monsters.begin(), monsters.end(), monster) != monsters.end();
+}
+
 // Hits this console applied, for take_shared_hits.
 constexpr std::size_t kMaxShared = 256u;
 std::vector<SharedHit> &shared_out() {
@@ -205,8 +218,10 @@ void remember_applied(const psprecomp::GuestMemory &memory, const Number &number
     remember_number(live_numbers(), number);
     if (!sharing_on().load(std::memory_order_relaxed) || number.amount <= 0) return;
     // A monster's hit on another is worked out on every console, each on its
-    // own copy of a small monster, so only a hunter's is shared.
+    // own copy of a small monster, so only a hunter's is shared, and only on
+    // a large monster: a small one is not the same on the other consoles.
     if (!number.poison && !is_hunter(memory, number.attacker)) return;
+    if (!shared_monster(memory, number.object)) return;
     SharedHit hit;
     hit.monster = number.object;
     hit.attacker = number.attacker;
@@ -1812,6 +1827,10 @@ std::vector<HeldDrop> settle_drops(std::vector<HeldDrop> &held, std::vector<Cred
     return due;
 }
 
+void set_large_monsters(LargeMonsters large) noexcept {
+    large_monsters().store(large, std::memory_order_relaxed);
+}
+
 void set_sharing(bool on) noexcept {
     if (sharing_on().exchange(on, std::memory_order_relaxed) == on || on) return;
     std::lock_guard lock(numbers_mutex());
@@ -1844,6 +1863,10 @@ void receive_shared_hits(const psprecomp::GuestMemory &memory, const std::vector
         }
         if (!hit.poison && !is_hunter(memory, hit.attacker)) {
             trace_damage(&memory, "not ours", hit.monster, hit.amount, monster->health, ": not a hunter's hit");
+            continue;
+        }
+        if (!shared_monster(memory, hit.monster)) {
+            trace_damage(&memory, "not ours", hit.monster, hit.amount, monster->health, ": not a large monster");
             continue;
         }
         Number number = make_number(hit.amount, Grade{hit.fill, hit.affinity}, 0);

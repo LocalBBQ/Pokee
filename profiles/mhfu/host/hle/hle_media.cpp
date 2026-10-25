@@ -267,6 +267,16 @@ void share_damage_numbers(Runtime &rt) {
     constexpr std::size_t kSyncBuffer = 16u * 1024u;
     constexpr int kMaxDatagrams = 64; // a frame's worth from three players, and more
     static int socket = 0;
+    // Only a large monster is the same on every console.
+    static const bool large_set = [] {
+        game::set_large_monsters([](const psprecomp::GuestMemory &memory) {
+            std::vector<std::uint32_t> large;
+            for (const camera::HuntMonster &monster : camera::hunt_monsters(memory)) large.push_back(monster.address);
+            return large;
+        });
+        return true;
+    }();
+    (void)large_set;
     const bool active = game::sync_enabled() && settings::current().adhoc && game::layout::quest_running(rt.memory()) &&
         adhoc::Client::get().in_group();
     if (active && socket == 0) {
