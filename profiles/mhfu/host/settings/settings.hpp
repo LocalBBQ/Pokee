@@ -208,10 +208,8 @@ struct Settings {
     // game already shows. Mine or Everyone, the health a hit removes is drawn
     // over the picture, for this console's hunter's hits or for all of them.
     DamageNumbers damage_numbers{DamageNumbers::Off};
-    // How a number splits its raw and element shares, and whether its outline
-    // takes the attacking player's colour. Total and off by default.
+    // How a number splits its raw and element shares. The total by default.
     DamageBreakdown damage_breakdown{DamageBreakdown::Total};
-    bool damage_player_tint{};
     // Sharpness gauge (game/sharpness_gauge.hpp). On by default. Off, the
     // game's full drawing.
     // On, the colour on the blade shortens as it is spent, never dims below a
