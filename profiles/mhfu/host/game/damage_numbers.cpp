@@ -92,18 +92,57 @@ std::atomic<std::uint64_t> &frame_count() {
     return count;
 }
 
+// The host's wall clock in milliseconds, for MHFU_TRACE_HITS. Two instances
+// on one machine share it, where each has its own emulated clock (t=).
+unsigned long long wall_ms() {
+    return static_cast<unsigned long long>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count());
+}
+
 // MHFU_TRACE_HITS: one [dmg] line per drop a number is made from, whichever
-// way it was found, on the ad hoc trace's clock. `how` is "routine" (the hit
-// was applied on this console) or "health" (the drop was written elsewhere,
-// from the network: several hits in one update arrive as one drop).
-void trace_damage(const char *how, std::uint32_t object, int amount, int health, const char *note) {
+// way it was found, on the ad hoc trace's clock, then where the hunters are.
+// `how` is "routine" (the hit was applied on this console) or "health" (the
+// drop was written elsewhere, from the network: several hits in one update
+// arrive as one drop).
+void trace_damage(
+    const psprecomp::GuestMemory *memory, const char *how, std::uint32_t object, int amount, int health, const char *note) {
     if (!hit_trace::enabled()) return;
-    char line[160];
-    std::snprintf(line, sizeof(line), "[dmg] t=%llums frame=%llu %s %08X -%d -> %d%s",
-        static_cast<unsigned long long>(hit_trace::now_ms()),
+    char line[192];
+    std::snprintf(line, sizeof(line), "[dmg] t=%llums wall=%llu frame=%llu %s %08X -%d -> %d%s",
+        static_cast<unsigned long long>(hit_trace::now_ms()), wall_ms(),
         static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), how, object, amount, health,
         note);
     std::cout << line << std::endl;
+    if (memory != nullptr)
+        if (const std::string hunters = hunters_line(*memory); !hunters.empty()) std::cout << hunters << std::endl;
+}
+
+// MHFU_TRACE_HITS: the quest list (roster_lines) whenever its hunters or its
+// monsters change, so a monster on one console can be found on another.
+// Effects and shots come and go on the list too; they alone print nothing.
+void trace_roster(const psprecomp::GuestMemory &memory) {
+    static std::vector<std::uint32_t> last;
+    std::vector<std::uint32_t> now;
+    for (const HealthSeen &monster : quest_health(memory)) now.push_back(monster.object);
+    const std::vector<ListEntry> entries = quest_entries(memory);
+    const std::vector<std::uint32_t> classes = hunter_classes(memory, entries);
+    for (const ListEntry &entry : entries)
+        if (entry.kind == layout::kPlayerNode ||
+            (layout::in_ram(entry.entity) && (entry.entity & 3u) == 0u && memory.contains(entry.entity, 4u) &&
+                std::find(classes.begin(), classes.end(), memory.load32(entry.entity + layout::kVtable)) !=
+                    classes.end()))
+            now.push_back(entry.entity);
+    if (now == last) return;
+    last = now;
+    const std::vector<std::string> lines = roster_lines(memory);
+    char head[128];
+    std::snprintf(head, sizeof(head), "[roster] t=%llums wall=%llu frame=%llu %zu entities",
+        static_cast<unsigned long long>(hit_trace::now_ms()), wall_ms(),
+        static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), lines.size());
+    std::cout << head << '\n';
+    for (const std::string &line : lines) std::cout << line << '\n';
+    std::cout.flush();
 }
 
 bool &hook_installed() {
@@ -262,15 +301,16 @@ void trace_computed(const psprecomp::GuestMemory &memory, const ComputedHit &hit
         : 0u;
     char line[320];
     std::snprintf(line, sizeof(line),
-        "[dmg] t=%llums frame=%llu computed %08X part %d by %08X (player %d) attack %08X: total %d element %d "
+        "[dmg] t=%llums wall=%llu frame=%llu computed %08X part %d by %08X (player %d) attack %08X: total %d element %d "
         "(%.2f before truncation; bits %04X, %s) marks %02X hitzone %.3f scale %.3f -> %d (element %d)%s%s",
-        static_cast<unsigned long long>(hit_trace::now_ms()),
+        static_cast<unsigned long long>(hit_trace::now_ms()), wall_ms(),
         static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), hit.monster, hit.part,
         hit.attacker, number.player, hit.attack, hit.total, hit.element, static_cast<double>(hit.element_exact), bits,
         element_name(element_of(bits)), marks,
         static_cast<double>(hit.hitzone), static_cast<double>(hit.scale), number.amount, number.element,
         number.contact ? "; at " : "; no contact point", number.contact && number.rule != nullptr ? number.rule : "");
     std::cout << line << std::endl;
+    if (const std::string hunters = hunters_line(memory); !hunters.empty()) std::cout << hunters << std::endl;
 }
 
 // MHFU_TRACE_HITS: the game's point of contact beside the point the earlier
@@ -378,7 +418,7 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
             if (!shown) return;
             if (const std::optional<Number> number = poison_number(
                     ticked->object, ticked->health, *health, static_cast<int>(live_numbers().size()))) {
-                trace_damage("poison", number->object, number->amount, *health, "");
+                trace_damage(&runtime.memory(), "poison", number->object, number->amount, *health, "");
                 remember_number(live_numbers(), *number);
             }
         }
@@ -437,7 +477,7 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
                            [object](const PendingHit &hit) { return hit.number.object == object; })) {
             for (const Number &hit :
                 numbers_for_drop(pending_hits(), object, number, static_cast<int>(live_numbers().size()))) {
-                trace_damage("routine", hit.object, hit.amount, sample, " computed");
+                trace_damage(&runtime.memory(), "routine", hit.object, hit.amount, sample, " computed");
                 remember_number(live_numbers(), hit);
             }
             return;
@@ -467,7 +507,7 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
             else
                 std::snprintf(note, sizeof(note), " no contact point, on the body");
         }
-        trace_damage("routine", number->object, number->amount, sample, note);
+        trace_damage(&runtime.memory(), "routine", number->object, number->amount, sample, note);
         if (!hunter) remember_number(live_numbers(), *number);
     }
 }
@@ -1411,6 +1451,61 @@ bool is_hunter(const psprecomp::GuestMemory &memory, std::uint32_t object) {
     return std::find(hunters.begin(), hunters.end(), memory.load32(object + layout::kVtable)) != hunters.end();
 }
 
+std::vector<std::string> roster_lines(const psprecomp::GuestMemory &memory) {
+    std::vector<std::string> lines;
+    const std::vector<ListEntry> entries = quest_entries(memory);
+    const std::vector<std::uint32_t> hunters = hunter_classes(memory, entries);
+    const auto load_float = [&memory](std::uint32_t at) { return std::bit_cast<float>(memory.load32(at)); };
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const std::uint32_t entity = entries[i].entity;
+        const bool readable = layout::in_ram(entity) && (entity & 3u) == 0u && memory.contains(entity, 4u);
+        const std::uint32_t vtable = readable ? memory.load32(entity + layout::kVtable) : 0u;
+        const bool pooled = readable && memory.contains(entity + kMonsterHealth, 2u) &&
+            memory.contains(entity + kMonsterMostHealth, 2u);
+        const int health = pooled ? static_cast<std::int16_t>(memory.load16(entity + kMonsterHealth)) : 0;
+        const int most = pooled ? static_cast<std::int16_t>(memory.load16(entity + kMonsterMostHealth)) : 0;
+        const char *what = "other";
+        if (entries[i].kind == layout::kPlayerNode) what = "me";
+        else if (readable && std::find(hunters.begin(), hunters.end(), vtable) != hunters.end()) what = "hunter";
+        else if (most > 0) what = "monster";
+        char line[224];
+        int used = std::snprintf(line, sizeof(line), "[roster]   #%zu (%zu from the end) %08X node %u vtable %08X %s",
+            i, entries.size() - 1u - i, entity, static_cast<unsigned>(entries[i].kind), vtable, what);
+        if (used > 0 && used < static_cast<int>(sizeof(line)) && readable &&
+            memory.contains(entity + layout::kMonsterId, 1u))
+            used += std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used),
+                " species %u health %d/%d", static_cast<unsigned>(memory.load8(entity + layout::kMonsterId)), health,
+                most);
+        if (used > 0 && used < static_cast<int>(sizeof(line)) && readable &&
+            memory.contains(entity + layout::kPosition, 12u))
+            std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used), " at %g %g %g",
+                static_cast<double>(load_float(entity + layout::kPosition)),
+                static_cast<double>(load_float(entity + layout::kPosition + 4u)),
+                static_cast<double>(load_float(entity + layout::kPosition + 8u)));
+        lines.emplace_back(line);
+    }
+    return lines;
+}
+
+std::string hunters_line(const psprecomp::GuestMemory &memory) {
+    std::string line;
+    std::vector<std::uint32_t> seen;
+    for (const ListEntry &entry : quest_entries(memory)) {
+        const std::uint32_t entity = entry.entity;
+        if (std::find(seen.begin(), seen.end(), entity) != seen.end()) continue;
+        seen.push_back(entity);
+        const int player = player_of(memory, entity);
+        if (player < 0 || !memory.contains(entity + layout::kPosition, 12u)) continue;
+        char text[96];
+        std::snprintf(text, sizeof(text), "%s %d %08X at %g %g %g", line.empty() ? "" : ";", player, entity,
+            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition))),
+            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 4u))),
+            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 8u))));
+        line += text;
+    }
+    return line.empty() ? std::string{} : "[dmg]   hunters" + line;
+}
+
 void note_change(std::vector<HealthSeen> &seen, std::uint32_t object, int before, int after) {
     for (HealthSeen &entry : seen)
         if (entry.object == object) entry.health += after - before;
@@ -1461,7 +1556,10 @@ void damage_numbers_frame(
         return;
     }
     install_watch();
-    if (hit_trace::enabled() && memory != nullptr) hit_trace::frame(*memory, &monster_health);
+    if (hit_trace::enabled() && memory != nullptr) {
+        hit_trace::frame(*memory, &monster_health);
+        trace_roster(*memory);
+    }
     std::vector<HealthSeen> readings;
     const bool read_health = enabled && memory != nullptr && health_watch_enabled();
     if (read_health) readings = quest_health(*memory);
@@ -1492,8 +1590,8 @@ void damage_numbers_frame(
                 [&drop](const PendingHit &hit) { return hit.number.object == drop.object; });
             for (const Number &number :
                 numbers_for_drop(pending_hits(), drop.object, drop, static_cast<int>(live_numbers().size()))) {
-                trace_damage("health", number.object, number.amount, reading != readings.end() ? reading->health : 0,
-                    computed ? " computed" : "");
+                trace_damage(memory, "health", number.object, number.amount,
+                    reading != readings.end() ? reading->health : 0, computed ? " computed" : "");
                 remember_number(live_numbers(), number);
             }
         }
