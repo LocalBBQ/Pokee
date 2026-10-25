@@ -76,8 +76,9 @@ std::vector<ListEntry> quest_entries(const psprecomp::GuestMemory &memory) {
     return entries;
 }
 
-// Hunters share a class. Only this console's own hunter is sure to carry the
-// player node type, so an entity with a player's vtable is a hunter too.
+// Hunters share a class. A hunter's entity is on nodes of several types, and
+// not every console marks every hunter's with the player node type, so an
+// entity with a player's vtable is a hunter too.
 std::vector<std::uint32_t> hunter_classes(const psprecomp::GuestMemory &memory, const std::vector<ListEntry> &entries) {
     std::vector<std::uint32_t> classes;
     for (const ListEntry &entry : entries)
@@ -1272,17 +1273,25 @@ HitAmount hit_amount(const ComputedHit &hit) noexcept {
 int player_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker) {
     if (attacker == 0u) return -1;
     const std::vector<ListEntry> entries = quest_entries(memory);
-    for (const ListEntry &entry : entries)
-        if (entry.entity == attacker && entry.kind == layout::kPlayerNode) return 0;
     const std::vector<std::uint32_t> classes = hunter_classes(memory, entries);
-    std::vector<std::uint32_t> others;
+    std::vector<std::uint32_t> hunters;
     for (const ListEntry &entry : entries) {
-        if (entry.kind == layout::kPlayerNode || !layout::in_ram(entry.entity) || !memory.contains(entry.entity, 4u))
+        if (!layout::in_ram(entry.entity) || !memory.contains(entry.entity, 4u)) continue;
+        if (entry.kind != layout::kPlayerNode &&
+            std::find(classes.begin(), classes.end(), memory.load32(entry.entity + layout::kVtable)) == classes.end())
             continue;
-        if (std::find(classes.begin(), classes.end(), memory.load32(entry.entity + layout::kVtable)) == classes.end())
-            continue;
-        if (std::find(others.begin(), others.end(), entry.entity) == others.end()) others.push_back(entry.entity);
+        if (std::find(hunters.begin(), hunters.end(), entry.entity) == hunters.end()) hunters.push_back(entry.entity);
     }
+    // In ad hoc play every hunter is on a player node, on every console; the
+    // camera follows this console's own. For about 2 s after a quest loads it
+    // still holds the village's hunter, which is no hunter on the list, or
+    // another player's address: then only a hunter alone is known.
+    std::uint32_t mine = layout::followed_hunter(memory, 4u);
+    if (std::find(hunters.begin(), hunters.end(), mine) == hunters.end()) mine = hunters.size() == 1u ? hunters[0] : 0u;
+    if (attacker == mine) return 0;
+    std::vector<std::uint32_t> others;
+    for (const std::uint32_t hunter : hunters)
+        if (hunter != mine) others.push_back(hunter);
     std::sort(others.begin(), others.end());
     const auto found = std::find(others.begin(), others.end(), attacker);
     if (found == others.end()) return -1;

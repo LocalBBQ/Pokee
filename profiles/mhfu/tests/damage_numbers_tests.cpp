@@ -570,13 +570,14 @@ void test_the_roster() {
     lines = roster_lines(memory);
     check(lines.size() == 6u && has(5u, "#5 (0 from the end) 09860000") && has(5u, " hunter "),
         "another player's hunter, on an unmarked node, is a hunter");
-    check(hunters_line(memory) == "[dmg]   hunters 0 09820000 at 1 2 3; 1 09860000 at -4 0 8.5",
-        "the hunters line numbers the hunters as player_of does, with their positions");
     constexpr std::uint32_t camera = 0x09880000u;
     memory.store32(layout::kCameraObject, camera);
+    memory.store32(camera + layout::kFollowedHunter, hunter);
+    check(hunters_line(memory) == "[dmg]   hunters 0 09820000 at 1 2 3 (camera); 1 09860000 at -4 0 8.5",
+        "the hunters line numbers the hunters as player_of does, with their positions and the camera's");
     memory.store32(camera + layout::kFollowedHunter, remote);
-    check(hunters_line(memory) == "[dmg]   hunters 0 09820000 at 1 2 3; 1 09860000 at -4 0 8.5 (camera)",
-        "the hunter the camera follows is marked");
+    check(hunters_line(memory) == "[dmg]   hunters 1 09820000 at 1 2 3; 0 09860000 at -4 0 8.5 (camera)",
+        "the camera's hunter is player 0 on any node");
 }
 
 int shown_total() {
@@ -1150,17 +1151,31 @@ void test_the_computed_hit() {
     scaled.scale = 0.2f;
     check(hit_amount(scaled).amount == 1, "a part that was hit loses at least 1");
 
-    check(player_of(memory, hunter) == 0, "this console's hunter is player 0");
+    check(player_of(memory, hunter) == 0, "a hunter alone is this console's hunter, player 0");
     check(player_of(memory, 0u) == -1 && player_of(memory, kLarge) == -1, "no attacker, or a monster, is not known");
     namespace layout = mhfu::game::layout;
-    constexpr std::uint32_t second = 0x09870000u, first = 0x09860000u;
+    constexpr std::uint32_t second = 0x09870000u, first = 0x09860000u, camera = 0x09880000u;
     for (const std::uint32_t remote : {second, first}) memory.store32(remote + layout::kVtable, 0x09A60000u);
     memory.store32(0x09810500u + layout::kNodeEntity, second);
     memory.store32(0x09810600u + layout::kNodeEntity, first);
     memory.store32(0x09810400u + layout::kNodeOlder, 0x09810500u);
     memory.store32(0x09810500u + layout::kNodeOlder, 0x09810600u);
-    check(player_of(memory, first) == 1 && player_of(memory, second) == 2,
-        "the other hunters by the order of their entities, whatever the list's");
+    check(player_of(memory, hunter) == 1 && player_of(memory, first) == 2 && player_of(memory, second) == 3,
+        "with several hunters and no camera, none is this console's");
+    memory.store32(layout::kCameraObject, camera);
+    memory.store32(camera + layout::kFollowedHunter, hunter);
+    check(player_of(memory, hunter) == 0 && player_of(memory, first) == 1 && player_of(memory, second) == 2,
+        "the hunter the camera follows is this console's, the others by the order of their entities");
+    // Ad hoc play: every console puts every hunter on a player node.
+    memory.store8(0x09810500u + layout::kNodeType, layout::kPlayerNode);
+    memory.store32(camera + layout::kFollowedHunter, second);
+    check(player_of(memory, second) == 0 && player_of(memory, hunter) == 1 && player_of(memory, first) == 2,
+        "another player's hunter on a player node is not this console's");
+    memory.store32(camera + layout::kFollowedHunter, 0x09900000u);
+    check(player_of(memory, hunter) != 0 && player_of(memory, first) != 0 && player_of(memory, second) != 0,
+        "nor is any while the camera still holds the village's hunter");
+    memory.store8(0x09810500u + layout::kNodeType, 0u);
+    memory.store32(layout::kCameraObject, 0u);
     memory.store32(0x09810400u + layout::kNodeOlder, 0u);
 
     ComputedHit weak;
@@ -1333,6 +1348,9 @@ void test_computed_hits_are_the_numbers() {
     memory.store32(remote + layout::kVtable, 0x09A60000u);
     memory.store32(0x09810500u + layout::kNodeEntity, remote);
     memory.store32(0x09810400u + layout::kNodeOlder, 0x09810500u);
+    constexpr std::uint32_t camera = 0x09880000u;
+    memory.store32(layout::kCameraObject, camera);
+    memory.store32(camera + layout::kFollowedHunter, hunter);
     memory.store16(kSmall + kMonsterHealth, 120u);
     damage_numbers_frame(true, &memory);
     computed(kSmall, remote, 15, 0.0f);
@@ -1363,6 +1381,7 @@ void test_computed_hits_are_the_numbers() {
     check(damage_numbers().size() == before, "a hunter's damage is not a number");
 
     damage_numbers_frame(false, &memory);
+    memory.store32(layout::kCameraObject, 0u);
     memory.store32(0x09810400u + layout::kNodeOlder, 0u);
 }
 
