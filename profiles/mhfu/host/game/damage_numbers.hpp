@@ -664,6 +664,15 @@ void note_change(std::vector<HealthSeen> &seen, std::uint32_t object, int before
 // "[dmg]   hunters 0 09820000 at x y z (camera); 1 ...". Empty outside a
 // quest.
 [[nodiscard]] std::string hunters_line(const psprecomp::GuestMemory &memory);
+// MHFU_TRACE_HITS, to find the player slot the game gives each hunter (the
+// colour of its name plate): every aligned word in user RAM that holds a
+// hunter's address, outside the first kOwnSpan bytes of a hunter's own
+// entity, as "[slots]   XXXXXXXX -> YYYYYYYY", at most kMaxSlotLines. A table
+// of the players in slot order is at the same place, with the same hunters
+// in the same order, on every console.
+inline constexpr std::uint32_t kOwnSpan = 0x1000u;
+inline constexpr std::size_t kMaxSlotLines = 400u;
+[[nodiscard]] std::vector<std::string> hunter_pointer_lines(const psprecomp::GuestMemory &memory);
 
 // Once a flip, before the interface draws. Installs the hit watch while
 // `enabled` (or while MHFU_TRACE_HITS is set; game/hit_trace.hpp) and drops
