@@ -818,11 +818,11 @@ void test_the_contact_candidates() {
     ctx.gpr[29] = sp;
     check(tr::contact_candidates(memory, ctx).empty() && tr::candidates_line({}).empty(),
         "nothing above the ground near the monster is nothing to list");
-    store_point(sp + 0x40u, 1100.0f, 250.0f, 2100.0f);       // in a caller's frame
-    memory.store32(sp + 0x80u, record);                       // a record on the stack
-    store_point(record + 0x30u, 900.0f, 400.0f, 1900.0f);    // in it
+    store_point(sp + 0x40u, 1100.0f, 250.0f, 2100.0f);                                // in a caller's frame
+    memory.store32(sp + 0x80u, record);                                               // a record on the stack
+    store_point(record + 0x30u, 900.0f, 400.0f, 1900.0f);                             // in it
     store_point(sp + 0x100u, 1000.0f + tr::kCandidateReach + 10.0f, 250.0f, 2000.0f); // too far
-    store_point(sp + 0x140u, 1050.0f, 0.0f, 2050.0f);        // on the ground: a foot
+    store_point(sp + 0x140u, 1050.0f, 0.0f, 2050.0f);                                 // on the ground: a foot
     const std::vector<tr::Candidate> found = tr::contact_candidates(memory, ctx);
     const auto has = [&found](const char *source, std::uint32_t base, std::uint32_t offset) {
         return std::any_of(found.begin(), found.end(), [&](const tr::Candidate &c) {
@@ -841,8 +841,8 @@ void test_the_contact_candidates() {
 // both skeletons in world space as the game keeps them.
 // `count` bone nodes from `first`, the n-th at `place(n)`.
 template <typename Place>
-void store_skeleton(psprecomp::GuestMemory &memory, std::uint32_t entity, std::uint32_t first, std::uint32_t count,
-    Place place) {
+void store_skeleton(
+    psprecomp::GuestMemory &memory, std::uint32_t entity, std::uint32_t first, std::uint32_t count, Place place) {
     memory.store32(entity + kFirstBone, first);
     for (std::uint32_t n = 0; n < count; ++n) {
         const std::uint32_t node = first + n * kBoneStride;
@@ -865,8 +865,9 @@ void test_where_the_hit_landed() {
 
     // The hunter's hand at 700, 130, 0; the monster's bones in a row from its
     // middle out to 600 along x, the last one high on the tail.
-    store_skeleton(memory, hunter, 0x09900000u, 21u,
-        [](std::uint32_t n) { return n == kHandBone ? WorldPoint{700.0f, 130.0f, 0.0f} : WorldPoint{1000.0f, 50.0f, 0.0f}; });
+    store_skeleton(memory, hunter, 0x09900000u, 21u, [](std::uint32_t n) {
+        return n == kHandBone ? WorldPoint{700.0f, 130.0f, 0.0f} : WorldPoint{1000.0f, 50.0f, 0.0f};
+    });
     store_skeleton(memory, kLarge, 0x09910000u, 7u,
         [](std::uint32_t n) { return WorldPoint{static_cast<float>(n) * 100.0f, 200.0f, 0.0f}; });
     memory.store32(0x09910000u + 7u * kBoneStride, 0u); // the row ends
@@ -889,9 +890,8 @@ void test_where_the_hit_landed() {
     const std::optional<WorldPoint> far = hit_contact(memory, kLarge, hunter, &far_rule);
     check(far && far->x == 600.0f && far_rule != nullptr && std::string(far_rule) == "nearest",
         "a hand out of reach of every bone still finds the part facing it");
-    store_skeleton(memory, hunter, 0x09900000u, static_cast<std::uint32_t>(kHandBone), [](std::uint32_t) {
-        return WorldPoint{};
-    });
+    store_skeleton(
+        memory, hunter, 0x09900000u, static_cast<std::uint32_t>(kHandBone), [](std::uint32_t) { return WorldPoint{}; });
     memory.store32(0x09900000u + kHandBone * kBoneStride, 0u);
     check(!hit_contact(memory, kLarge, hunter), "a skeleton without the hand has no point of contact");
 
@@ -1567,8 +1567,8 @@ void test_sharing_hits() {
     yours.element = 0;
     receive_shared_hits(memory, {yours});
     damage_numbers_frame(true, &memory, std::nullopt, Whose::Mine);
-    check(on_large(40) != damage_numbers().end() && on_large(40)->player == 0 &&
-            on_large(40)->kind == Element::None && on_large(87) == damage_numbers().end(),
+    check(on_large(40) != damage_numbers().end() && on_large(40)->player == 0 && on_large(40)->kind == Element::None &&
+            on_large(87) == damage_numbers().end(),
         "Mine shows this hunter's hit another console applied, and not the other player's");
 
     // The hits this console applies, with Damage numbers off.
