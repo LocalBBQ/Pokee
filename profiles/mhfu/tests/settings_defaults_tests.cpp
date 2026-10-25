@@ -443,11 +443,33 @@ void test_lock_on_and_damage_numbers() {
     mark["game.gather_icon_thickness"] = "3";
     check(from_entries(mark).gather_icon_size == kMinGatherIconSize,
         "a gather icon thickness an earlier version saved is ignored");
-    check(!fresh.damage_numbers, "damage numbers start off");
+    check(fresh.damage_numbers == DamageNumbers::Off, "damage numbers start off");
     Entries hits = to_entries(fresh);
     hits["game.damage_numbers"] = "1";
-    check(from_entries(hits).damage_numbers, "the file turns damage numbers on");
-    check(from_entries(to_entries(from_entries(hits))).damage_numbers, "and they survive a round trip");
+    check(from_entries(hits).damage_numbers == DamageNumbers::Everyone,
+        "a 1 an earlier version saved turns every hit on");
+    check(to_entries(from_entries(hits))["game.damage_numbers"] == "everyone" &&
+            from_entries(to_entries(from_entries(hits))).damage_numbers == DamageNumbers::Everyone,
+        "and it is saved by name and survives a round trip");
+    hits["game.damage_numbers"] = "0";
+    check(from_entries(hits).damage_numbers == DamageNumbers::Off, "a saved 0 is off");
+    hits["game.damage_numbers"] = "mine";
+    check(from_entries(to_entries(from_entries(hits))).damage_numbers == DamageNumbers::Mine,
+        "Mine survives a round trip");
+    hits["game.damage_numbers"] = "some";
+    check(from_entries(hits).damage_numbers == DamageNumbers::Off, "an unknown value keeps the default");
+    check(fresh.damage_breakdown == DamageBreakdown::Total && !fresh.damage_player_tint,
+        "the breakdown starts as the total, without player colours");
+    Entries breakdown = to_entries(fresh);
+    breakdown["game.damage_breakdown"] = "split";
+    breakdown["game.damage_player_tint"] = "1";
+    const Settings split = from_entries(to_entries(from_entries(breakdown)));
+    check(split.damage_breakdown == DamageBreakdown::Split && split.damage_player_tint,
+        "the split and the player colours survive a round trip");
+    breakdown["game.damage_breakdown"] = "total+element";
+    check(from_entries(breakdown).damage_breakdown == DamageBreakdown::TotalAndElement, "total+element is read");
+    breakdown["game.damage_breakdown"] = "raw";
+    check(from_entries(breakdown).damage_breakdown == DamageBreakdown::Total, "an unknown breakdown is the total");
     check(fresh.sharpness_gauge, "the sharpness gauge starts on");
     Entries gauge = to_entries(fresh);
     gauge["game.sharpness_gauge"] = "0";
@@ -468,9 +490,12 @@ void test_lock_on_and_damage_numbers() {
     const Settings bigger = from_entries(to_entries(from_entries(look)));
     check(bigger.damage_number_size == 250u && bigger.damage_number_thickness == 2u,
         "their size and thickness come from the file and survive a round trip");
+    check(kMaxDamageNumberThickness == 2u, "there are two thicknesses");
+    look["game.damage_number_thickness"] = "3";
+    check(from_entries(look).damage_number_thickness == 2u, "a 3 an earlier version saved becomes 2");
     look["game.damage_number_thickness"] = "5";
     check(from_entries(look).damage_number_thickness == kMaxDamageNumberThickness,
-        "a thickness past the readable limit clamps to it");
+        "a thickness past the limit clamps to it");
     look["game.damage_number_size"] = std::to_string(kMaxDamageNumberSize + 1u);
     look["game.damage_number_thickness"] = "0";
     const Settings outside = from_entries(look);

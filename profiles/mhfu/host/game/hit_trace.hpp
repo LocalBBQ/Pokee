@@ -9,7 +9,10 @@
 // trace is how that caller is found: at each call of the health routine it
 // prints the registers, the chain of return addresses and the functions they
 // lie in, the words on the stack, and the words behind every argument that
-// points into RAM; at the return, the health before and after.
+// points into RAM; at the return, the health before and after. The routine
+// that computes each hit was found in game_sub.ovl (0x09C43558, read in
+// game/damage_numbers.hpp); it runs in the collision pass, not in this
+// routine's callers, which only apply what it left on the monster.
 //
 // Reading the output: `ra@start` names the caller and where its function
 // begins; the stack words marked `*` look like code addresses and are the

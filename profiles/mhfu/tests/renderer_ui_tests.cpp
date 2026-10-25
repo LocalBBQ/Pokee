@@ -3310,18 +3310,55 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
             "lock-on style and marker are locked while lock-on is off");
         settings::current().lock_on = lock_on;
     }
-    toggle_setting("Damage numbers", &settings::Settings::damage_numbers);
     {
-        const bool numbers = settings::current().damage_numbers;
+        using settings::DamageNumbers;
+        const DamageNumbers numbers = settings::current().damage_numbers;
+        settings::current().damage_numbers = DamageNumbers::Off;
+        change_video("Damage numbers", ImGuiKey_RightArrow);
+        expect(settings::current().damage_numbers == DamageNumbers::Mine, "damage numbers step from Off to Mine");
+        change_video("Damage numbers", ImGuiKey_RightArrow);
+        expect(settings::current().damage_numbers == DamageNumbers::Everyone, "then to Everyone");
+        change_video("Damage numbers", ImGuiKey_RightArrow);
+        expect(settings::current().damage_numbers == DamageNumbers::Off, "and wrap round to Off");
+        change_video("Damage numbers", ImGuiKey_LeftArrow);
+        expect(settings::current().damage_numbers == DamageNumbers::Everyone, "a step back from Off is Everyone");
+        settings::current().damage_numbers = numbers;
+    }
+    {
+        using settings::DamageBreakdown;
+        const auto numbers = settings::current().damage_numbers;
+        const DamageBreakdown breakdown = settings::current().damage_breakdown;
+        const bool tint = settings::current().damage_player_tint;
         const std::uint32_t size = settings::current().damage_number_size;
         const std::uint32_t thickness = settings::current().damage_number_thickness;
-        settings::current().damage_numbers = false;
+        settings::current().damage_numbers = settings::DamageNumbers::Off;
+        settings::current().damage_breakdown = DamageBreakdown::Total;
+        change_video("Damage breakdown", ImGuiKey_RightArrow);
+        change_video("Damage player colours", ImGuiKey_Space);
         change_video("Damage number size", ImGuiKey_RightArrow);
         change_video("Damage number thickness", ImGuiKey_RightArrow);
-        expect(
-            settings::current().damage_number_size == size && settings::current().damage_number_thickness == thickness,
-            "damage number size and thickness are locked while the numbers are off");
-        settings::current().damage_numbers = true;
+        expect(settings::current().damage_breakdown == DamageBreakdown::Total &&
+                settings::current().damage_player_tint == tint && settings::current().damage_number_size == size &&
+                settings::current().damage_number_thickness == thickness,
+            "the breakdown, player colours, size and thickness are locked while the numbers are off");
+        settings::current().damage_numbers = settings::DamageNumbers::Mine;
+        change_video("Damage breakdown", ImGuiKey_RightArrow);
+        expect(settings::current().damage_breakdown == DamageBreakdown::Split, "the breakdown steps to Split");
+        change_video("Damage breakdown", ImGuiKey_RightArrow);
+        expect(settings::current().damage_breakdown == DamageBreakdown::TotalAndElement, "then to Total + element");
+        change_video("Damage breakdown", ImGuiKey_RightArrow);
+        expect(settings::current().damage_breakdown == DamageBreakdown::Total, "and wraps round to Total");
+        change_video("Damage player colours", ImGuiKey_Space);
+        expect(settings::current().damage_player_tint == !tint, "player colours toggle while the numbers are on");
+        settings::current().damage_breakdown = breakdown;
+        settings::current().damage_player_tint = tint;
+        settings::current().damage_numbers = numbers;
+    }
+    {
+        const auto numbers = settings::current().damage_numbers;
+        const std::uint32_t size = settings::current().damage_number_size;
+        const std::uint32_t thickness = settings::current().damage_number_thickness;
+        settings::current().damage_numbers = settings::DamageNumbers::Everyone;
         change_video("Damage number size", ImGuiKey_RightArrow);
         change_video("Damage number thickness", ImGuiKey_RightArrow);
         expect(settings::current().damage_number_size == size + 10u &&
@@ -3357,7 +3394,9 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         const auto &shipped = settings::defaults();
         auto &changed = settings::current();
         changed.lock_on = !shipped.lock_on;
-        changed.damage_numbers = !shipped.damage_numbers;
+        changed.damage_numbers = settings::DamageNumbers::Mine;
+        changed.damage_breakdown = settings::DamageBreakdown::Split;
+        changed.damage_player_tint = !shipped.damage_player_tint;
         changed.gather_icon_size = shipped.gather_icon_size + 10u;
         changed.unthrottled = !shipped.unthrottled;
         changed.fast_forward_speed = shipped.fast_forward_speed + 1u;
@@ -3368,6 +3407,8 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         change_video("Restore game defaults", ImGuiKey_Space);
         const auto &reset_game = settings::current();
         expect(reset_game.lock_on == shipped.lock_on && reset_game.damage_numbers == shipped.damage_numbers &&
+                reset_game.damage_breakdown == shipped.damage_breakdown &&
+                reset_game.damage_player_tint == shipped.damage_player_tint &&
                 reset_game.gather_icon_size == shipped.gather_icon_size &&
                 reset_game.unthrottled == shipped.unthrottled &&
                 reset_game.fast_forward_speed == shipped.fast_forward_speed &&
@@ -3576,11 +3617,34 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     frame();
     ui::set_lock_on_marker(std::array<float, 2>{0.5f, 0.5f});
     ui::show_note("Synthetic status note");
-    game::set_shown_damage_numbers(
-        {game::make_number(27, game::grade_hit(50, game::Sharpness::Yellow, false, game::Affinity::Positive), 0)});
+    game::Number placed =
+        game::make_number(27, game::grade_hit(50, game::Sharpness::Yellow, false, game::Affinity::None), 0);
+    placed.placed = true;
+    placed.x = 0.5f;
+    placed.y = 0.4f;
+    game::set_shown_damage_numbers({placed});
     frame();
-    expect(!game::damage_numbers().empty() && game::damage_number_text(game::damage_numbers().front()) == "27!",
+    const int plain_number = ImGui::GetBackgroundDrawList()->VtxBuffer.Size;
+    expect(!game::damage_numbers().empty() && game::damage_number_text(game::damage_numbers().front()) == "27" &&
+            plain_number > 0,
         "a damage number is drawn over the game from the health a hit removed");
+    {
+        const auto breakdown = settings::current().damage_breakdown;
+        const bool tint = settings::current().damage_player_tint;
+        settings::current().damage_breakdown = settings::DamageBreakdown::Split;
+        settings::current().damage_player_tint = true;
+        game::Number split = placed;
+        split.grade.affinity = game::Affinity::Positive;
+        split.element = 9;
+        split.kind = game::Element::Fire;
+        split.player = 0;
+        game::set_shown_damage_numbers({split});
+        frame();
+        expect(ImGui::GetBackgroundDrawList()->VtxBuffer.Size > plain_number,
+            "a split critical hit draws its element share and its dot as well");
+        settings::current().damage_breakdown = breakdown;
+        settings::current().damage_player_tint = tint;
+    }
     game::set_shown_damage_numbers({});
     ui::set_lock_on_marker(std::nullopt);
     frame();
