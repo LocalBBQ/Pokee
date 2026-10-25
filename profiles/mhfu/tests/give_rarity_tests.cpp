@@ -27,7 +27,11 @@ void set_environment(const char *name, const std::string &value) {
 #if defined(_WIN32)
     _putenv_s(name, value.c_str());
 #else
-    setenv(name, value.c_str(), 1);
+    // _putenv_s removes a variable set to "", so do the same here.
+    if (value.empty())
+        unsetenv(name);
+    else
+        setenv(name, value.c_str(), 1);
 #endif
 }
 
