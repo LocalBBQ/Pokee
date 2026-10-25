@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <thread>
@@ -399,10 +400,18 @@ void Kernel::block(AllegrexContext &ctx, const WaitState &wait, std::uint32_t re
     saved.set_gpr(2, result);
     saved.pc = ctx.gpr[31];
     save_current(saved, ThreadStatus::Waiting);
-    if (trace_thread(thread->name))
+    if (trace_thread(thread->name)) {
+        // Where the wait returns to in the game's code, and how long a timed
+        // wait asked for: what tells a delay the game chose from one it got.
+        char ra[16];
+        std::snprintf(ra, sizeof(ra), "0x%08X", saved.pc);
         std::cerr << "[kernel] block uid=" << thread->uid << " name=" << thread->name
                   << " wait=" << wait_name(wait.type) << " object=" << wait.object
-                  << " at=" << static_cast<double>(now_us_) / 1000.0 << "ms\n";
+                  << " at=" << static_cast<double>(now_us_) / 1000.0 << "ms ra=" << ra;
+        if (thread->wait.deadline_us)
+            std::cerr << " for=" << static_cast<double>(*thread->wait.deadline_us - now_us_) / 1000.0 << "ms";
+        std::cerr << "\n";
+    }
     current_uid_ = 0;
     schedule(ctx);
 }
@@ -684,6 +693,7 @@ std::string Kernel::describe_threads() const {
 void Kernel::on_starvation(AllegrexContext &ctx) {
     if (interrupt_active_ || current_thread() == nullptr) return;
     advance_clock(now_us_ + kStarvationQuantumUs);
+    perf::add_charged_time(kStarvationQuantumUs);
     process_timers();
     if (interrupts_enabled_ && !pending_interrupts_.empty()) {
         interrupted_context_ = ctx;

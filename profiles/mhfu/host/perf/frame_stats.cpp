@@ -13,6 +13,10 @@
 #include <cstring>
 #include <iostream>
 
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/resource.h>
+#endif
+
 #if defined(_MSC_VER) && defined(_M_X64)
 #include <intrin.h>
 #endif
@@ -85,6 +89,14 @@ const StallTrace &stall_trace() {
     return value;
 }
 
+struct ThreadUsage {
+    double cpu_ms{};
+    long minor_faults{};
+    long major_faults{};
+    long voluntary{};   // context switches the thread asked for
+    long involuntary{}; // and the ones it was made to
+};
+
 struct State {
     // Frame in progress.
     Clock::time_point frame_start{Clock::now()};
@@ -93,6 +105,10 @@ struct State {
     Clock::duration wait{};
     Clock::duration pacing{};
     Clock::duration overlay{};
+    std::uint64_t charged_us{}; // emulated
+    std::uint32_t charges{};
+    const char *slowest_call{};
+    Clock::duration slowest_call_time{};
     std::uint32_t lists{};
     std::uint32_t draws{};
     Clock::time_point last_present{Clock::now()};
@@ -116,6 +132,9 @@ struct State {
     Clock::duration wait_sum{};
     Clock::duration pacing_sum{};
     Clock::duration overlay_sum{};
+    std::uint64_t charged_sum_us{};
+    std::uint64_t charged_max_us{}; // the most of one frame
+    std::uint32_t charge_sum{};
     std::uint32_t list_sum{};
     std::uint64_t draw_sum{};
     std::uint64_t recorded_draw_sum{};
@@ -130,6 +149,8 @@ struct State {
     std::uint32_t gpu_frames{};
     bool gpu_unavailable{};
     std::uint64_t frame_number{};
+    Clock::duration accounted{}; // render and pacing, never reset
+    ThreadUsage usage{};         // at the start of the frame in progress
 
     Summary summary;
     std::string present_mode{"none"};
@@ -282,6 +303,10 @@ void restart_measurement() {
     s.frame_start = now;
     s.last_present = now;
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
+    s.charged_us = 0u;
+    s.charges = 0u;
+    s.slowest_call = nullptr;
+    s.slowest_call_time = Clock::duration{};
     s.lists = 0u;
     s.draws = s.recorded_draws = 0u;
     s.stalls = StallTallies{};
@@ -295,6 +320,8 @@ void restart_measurement() {
     s.present_sum_ms = 0.0;
     s.present_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
+    s.charged_sum_us = s.charged_max_us = 0u;
+    s.charge_sum = 0u;
     s.list_sum = 0u;
     s.draw_sum = s.recorded_draw_sum = 0u;
     s.pass_sum = s.copy_sum = s.cleared_pass_sum = 0u;
@@ -305,7 +332,9 @@ void restart_measurement() {
 }
 
 void add_render_time(Clock::duration duration) {
-    state().render += duration;
+    State &s = state();
+    s.render += duration;
+    s.accounted += duration;
 }
 
 namespace {
@@ -325,6 +354,29 @@ struct RenderSplit {
 RenderSplit &render_split() {
     static RenderSplit value;
     return value;
+}
+
+// What the game thread has used so far (the whole process where the system
+// cannot tell one thread: macOS); zeros where unknown (Windows).
+ThreadUsage thread_usage() {
+    ThreadUsage usage;
+#if defined(__unix__) || defined(__APPLE__)
+#if defined(RUSAGE_THREAD)
+    const int who = RUSAGE_THREAD;
+#else
+    const int who = RUSAGE_SELF;
+#endif
+    rusage r{};
+    if (getrusage(who, &r) == 0) {
+        usage.cpu_ms = (static_cast<double>(r.ru_utime.tv_sec + r.ru_stime.tv_sec) * 1000.0) +
+                       (static_cast<double>(r.ru_utime.tv_usec + r.ru_stime.tv_usec) / 1000.0);
+        usage.minor_faults = r.ru_minflt;
+        usage.major_faults = r.ru_majflt;
+        usage.voluntary = r.ru_nvcsw;
+        usage.involuntary = r.ru_nivcsw;
+    }
+#endif
+    return usage;
 }
 
 // MHFU_TRACE_RENDER: the [render-split] line once a second.
@@ -434,7 +486,25 @@ void set_gpu_time_unavailable() {
 void add_pacing_time(Clock::duration duration) {
     State &s = state();
     s.pacing += duration;
+    s.accounted += duration;
     s.stalls[static_cast<std::size_t>(Stall::Pacing)].add(duration);
+}
+void add_charged_time(std::uint64_t emulated_us) {
+    State &s = state();
+    s.charged_us += emulated_us;
+    ++s.charges;
+}
+bool stall_trace_enabled() {
+    return stall_trace().enabled;
+}
+Clock::duration accounted_time() {
+    return state().accounted;
+}
+void note_hle_call(const char *name, Clock::duration own) {
+    State &s = state();
+    if (own <= s.slowest_call_time) return;
+    s.slowest_call = name;
+    s.slowest_call_time = own;
 }
 void add_overlay_time(Clock::duration duration) {
     state().overlay += duration;
@@ -508,6 +578,9 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     s.wait_sum += s.wait;
     s.pacing_sum += s.pacing;
     s.overlay_sum += s.overlay;
+    s.charged_sum_us += s.charged_us;
+    s.charged_max_us = std::max(s.charged_max_us, s.charged_us);
+    s.charge_sum += s.charges;
     s.list_sum += s.lists;
     s.draw_sum += s.draws;
     s.recorded_draw_sum += s.recorded_draws;
@@ -526,6 +599,7 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     const StallTrace &trace = stall_trace();
     RenderSplit &split = render_split();
     if (split_enabled()) calibrate(split);
+    const ThreadUsage usage = trace.enabled ? thread_usage() : ThreadUsage{};
     if (trace.enabled && frame_ms > trace.slow_frame_ms) {
         // The GPU time is the previous frame's: that is the work a fence wait
         // at the start of this frame was waiting for.
@@ -533,12 +607,16 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
         const double wait_ms = to_ms(s.wait) + to_ms(s.pacing);
         // The frame's draws tell a black fade or loading screen (a handful)
         // from a frame of the area (thousands). The emulated time it ended
-        // at lines it up with MHFU_TRACE_KERNEL's at= times.
-        char head[256];
+        // at lines it up with MHFU_TRACE_KERNEL's at= times. The emulated
+        // time charged to the game's own CPU work tells a frame the game ran
+        // long in (mostly pacing, the host idle) from one the host held up.
+        char head[288];
         std::snprintf(head, sizeof(head),
-            "[slow-frame] %llu %.1f ms at %.1fms | guest %.1f render %.1f wait %.1f ms | draws %u | gpu(prev) ",
+            "[slow-frame] %llu %.1f ms at %.1fms | guest %.1f render %.1f wait %.1f ms | draws %u | charged %.1f ms "
+            "| gpu(prev) ",
             static_cast<unsigned long long>(s.frame_number), frame_ms, static_cast<double>(virtual_us) / 1000.0,
-            std::max(0.0, frame_ms - render_ms - wait_ms), render_ms, wait_ms, s.draws);
+            std::max(0.0, frame_ms - render_ms - wait_ms), render_ms, wait_ms, s.draws,
+            static_cast<double>(s.charged_us) / 1000.0);
         std::string line = head;
         if (s.gpu_samples != 0u) {
             char gpu[32];
@@ -548,10 +626,28 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
             line += "n/a";
         }
         line += " |" + format_stalls(s.stalls, 1.0, false) + format_frame_split(split);
+        // The longest HLE call is host code the guest time includes (the
+        // hooks run inside the flip). The thread's CPU time against the
+        // frame's length tells work from a stop, and its context switches
+        // a wait it chose (voluntary: a lock, a sleep) from the system taking
+        // the core away (involuntary).
+        char rest[224];
+        std::snprintf(rest, sizeof(rest),
+            " | slowest call %s %.1f ms | thread cpu %.1f ms faults %ld/%ld switches %ld/%ld",
+            s.slowest_call != nullptr ? s.slowest_call : "none", to_ms(s.slowest_call_time),
+            usage.cpu_ms - s.usage.cpu_ms, usage.minor_faults - s.usage.minor_faults,
+            usage.major_faults - s.usage.major_faults, usage.voluntary - s.usage.voluntary,
+            usage.involuntary - s.usage.involuntary);
+        line += rest;
         std::cout << line << std::endl;
     }
+    s.usage = usage;
     split.frame_ticks = {};
     s.render = s.wait = s.pacing = s.overlay = Clock::duration{};
+    s.charged_us = 0u;
+    s.charges = 0u;
+    s.slowest_call = nullptr;
+    s.slowest_call_time = Clock::duration{};
     s.lists = 0u;
     s.draws = s.recorded_draws = 0u;
     s.stalls = StallTallies{};
@@ -611,9 +707,14 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
 #else
     const bool stalls_line = trace.enabled;
 #endif
-    if (stalls_line)
+    if (stalls_line) {
+        char charged[96];
+        std::snprintf(charged, sizeof(charged), " | charged %.2f max %.2f x%u",
+            static_cast<double>(s.charged_sum_us) / 1000.0 / frames, static_cast<double>(s.charged_max_us) / 1000.0,
+            s.charge_sum);
         std::cout << "[stalls] ms per frame over " << s.frames << " frames:" << format_stalls(s.stall_sum, frames, true)
-                  << std::endl;
+                  << charged << std::endl;
+    }
 
     s.window_start = now;
     if (alternate().paths != 0u) alternate().off = !alternate().off;
@@ -624,6 +725,8 @@ void end_frame(std::uint64_t virtual_us, bool presented) {
     s.present_sum_ms = 0.0;
     s.present_max_ms = 0.0;
     s.render_sum = s.wait_sum = s.pacing_sum = s.overlay_sum = Clock::duration{};
+    s.charged_sum_us = s.charged_max_us = 0u;
+    s.charge_sum = 0u;
     s.list_sum = 0u;
     s.draw_sum = s.recorded_draw_sum = 0u;
     s.pass_sum = s.copy_sum = s.cleared_pass_sum = 0u;
