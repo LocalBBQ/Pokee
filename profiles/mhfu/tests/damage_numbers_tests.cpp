@@ -2,6 +2,7 @@
 // No game data. Guest memory is a stand-in.
 #include "game/guest_layout.hpp"
 #include "game/damage_numbers.hpp"
+#include "game/damage_sync.hpp"
 #include "game/hit_trace.hpp"
 
 #include "psprecomp/runtime.hpp"
@@ -1385,6 +1386,210 @@ void test_computed_hits_are_the_numbers() {
     memory.store32(0x09810400u + layout::kNodeOlder, 0u);
 }
 
+// Ad hoc play (game/damage_sync.hpp): the datagram a console's hits go out in.
+void test_the_shared_hit_format() {
+    SharedHit ice;
+    ice.monster = kLarge;
+    ice.attacker = 0x09860000u;
+    ice.amount = 87;
+    ice.element = 21;
+    ice.most = 3000;
+    ice.species = 7u;
+    ice.kind = Element::Ice;
+    ice.fill = Fill::WeakPoint;
+    ice.affinity = Affinity::Positive;
+    ice.at = WorldPoint{1.5f, -2.0f, 300.0f};
+    SharedHit tick;
+    tick.monster = kSmall;
+    tick.amount = 4;
+    tick.most = 150;
+    tick.poison = true;
+    const auto same = [](const SharedHit &a, const SharedHit &b) {
+        return a.monster == b.monster && a.attacker == b.attacker && a.amount == b.amount && a.element == b.element &&
+            a.most == b.most && a.species == b.species && a.kind == b.kind && a.fill == b.fill &&
+            a.affinity == b.affinity && a.poison == b.poison && a.at.has_value() == b.at.has_value() &&
+            (!a.at || (a.at->x == b.at->x && a.at->y == b.at->y && a.at->z == b.at->z));
+    };
+    check(encode_hits({}).empty(), "no hits, no datagram");
+    const std::vector<std::string> one = encode_hits({ice, tick});
+    check(
+        one.size() == 1u && one[0].size() == kSyncHeaderSize + 2u * kSharedHitSize && one[0].compare(0, 4, "PKDN") == 0,
+        "two hits go in one datagram, after its header");
+    const std::optional<std::vector<SharedHit>> back = decode_hits(one[0]);
+    check(back && back->size() == 2u && same((*back)[0], ice) && same((*back)[1], tick),
+        "a hit survives the trip, with its point or without one");
+    const std::vector<std::string> split = encode_hits(std::vector<SharedHit>(kMaxSharedPerDatagram + 8u, tick));
+    check(split.size() == 2u && decode_hits(split[0])->size() == kMaxSharedPerDatagram &&
+            decode_hits(split[1])->size() == 8u,
+        "more than a datagram holds go in a second one");
+
+    const auto refused = [&one](std::size_t at, int value) {
+        std::string copy = one[0];
+        copy[at] = static_cast<char>(value);
+        return !decode_hits(copy).has_value();
+    };
+    check(!decode_hits("") && !decode_hits(one[0].substr(0, one[0].size() - 1u)) && !decode_hits(one[0] + "x"),
+        "a datagram of another size is not ours");
+    check(refused(0u, 'X') && refused(4u, 2) && refused(5u, 0) && refused(5u, 3),
+        "nor one with another magic, version or count");
+    constexpr std::size_t first = kSyncHeaderSize;
+    check(refused(first + 15u, 6) && refused(first + 16u, 3) && refused(first + 17u, 3) && refused(first + 18u, 4) &&
+            refused(first + 19u, 1),
+        "an element, fill, affinity or flag no hit has is refused");
+    SharedHit bad = ice;
+    bad.element = 90;
+    check(!decode_hits(encode_hits({bad})[0]), "an element share above the amount is refused");
+    bad = ice;
+    bad.amount = 0;
+    bad.element = 0;
+    check(!decode_hits(encode_hits({bad})[0]), "so is a hit of nothing");
+    bad = ice;
+    bad.at = WorldPoint{std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f};
+    check(!decode_hits(encode_hits({bad})[0]), "and a point that is not a number");
+    check(parse_sync(nullptr) && parse_sync("") && parse_sync("1") && !parse_sync("0"),
+        "MHFU_DAMAGE_NUMBERS_SYNC=0 turns sharing off");
+}
+
+// A drop from the network against the hits received for it.
+void test_settling_drops() {
+    const auto drop = [](std::uint32_t object, int amount, int health) {
+        HeldDrop held;
+        held.number = make_number(amount, Grade{}, 0);
+        held.number.object = object;
+        held.health = health;
+        return held;
+    };
+    std::vector<Credit> credits{{kLarge, 87, 0.0f}};
+    std::vector<HeldDrop> held{drop(kLarge, 100, 1900)};
+    std::vector<HeldDrop> absorbed;
+    check(settle_drops(held, credits, 0.1f, true, &absorbed).empty() && held.size() == 1u &&
+            held[0].number.amount == 13 && credits.empty() && absorbed.size() == 1u && absorbed[0].number.amount == 87,
+        "a received hit explains its share of a drop at once, and the rest waits");
+    const std::vector<HeldDrop> due = settle_drops(held, credits, kDropHold, true);
+    check(due.size() == 1u && due[0].number.amount == 13 && held.empty(),
+        "the rest is shown once the drop has waited kDropHold");
+
+    held = {drop(kLarge, 50, 1850)};
+    check(settle_drops(held, credits, 0.1f, true).empty() && held.size() == 1u, "a drop nothing explains yet waits");
+    credits.push_back({kLarge, 50, 0.0f});
+    check(settle_drops(held, credits, 0.1f, true).empty() && held.empty() && credits.empty(),
+        "a hit that arrives just after its drop still explains it");
+
+    held = {drop(kSmall, 30, 0)};
+    credits = {{kSmall, 20, 0.0f}, {kSmall, 40, 0.0f}, {kLarge, 5, 0.0f}};
+    (void)settle_drops(held, credits, 0.1f, true);
+    check(credits.size() == 1u && credits[0].object == kLarge,
+        "a monster down owes nothing more; the others keep theirs");
+
+    held = {drop(kLarge, 9, 1800)};
+    credits.clear();
+    const std::vector<HeldDrop> plain = settle_drops(held, credits, 0.0f, false);
+    check(plain.size() == 1u && plain[0].number.amount == 9 && held.empty(),
+        "without sharing a drop is shown at once, as before");
+}
+
+// Through the frame: hits another console applied are shown, their drops
+// absorbed, and the hits this console applies are shared, numbers off or on.
+void test_sharing_hits() {
+    namespace layout = mhfu::game::layout;
+    psprecomp::Runtime runtime;
+    psprecomp::GuestMemory &memory = runtime.memory();
+    stand_in_quest(memory);
+    constexpr std::uint32_t hunter = 0x09820000u, remote = 0x09860000u, camera = 0x09880000u;
+    // The other player's hunter, on a player node as every console has it.
+    memory.store32(remote + layout::kVtable, 0x09A60000u);
+    memory.store32(0x09810500u + layout::kNodeEntity, remote);
+    memory.store8(0x09810500u + layout::kNodeType, layout::kPlayerNode);
+    memory.store32(0x09810400u + layout::kNodeOlder, 0x09810500u);
+    memory.store32(layout::kCameraObject, camera);
+    memory.store32(camera + layout::kFollowedHunter, hunter);
+    memory.store8(kLarge + layout::kMonsterId, 7u);
+    memory.store32(kLarge + kHealthScale, std::bit_cast<std::uint32_t>(1.0f));
+    const auto on_large = [](int amount) {
+        return std::find_if(damage_numbers().begin(), damage_numbers().end(),
+            [amount](const Number &n) { return n.object == kLarge && n.amount == amount; });
+    };
+
+    set_sharing(true);
+    check(sharing(), "sharing is on while the host says so");
+    damage_numbers_frame(true, &memory);
+    SharedHit ice;
+    ice.monster = kLarge;
+    ice.attacker = remote;
+    ice.amount = 87;
+    ice.element = 21;
+    ice.most = 3000;
+    ice.species = 7u;
+    ice.kind = Element::Ice;
+    ice.fill = Fill::WeakPoint;
+    ice.affinity = Affinity::Positive;
+    ice.at = WorldPoint{1.5f, -2.0f, 300.0f};
+    receive_shared_hits(memory, {ice});
+    damage_numbers_frame(true, &memory);
+    const auto shown = on_large(87);
+    check(shown != damage_numbers().end() && shown->player == 1 && shown->element == 21 &&
+            shown->kind == Element::Ice && shown->grade.fill == Fill::WeakPoint &&
+            shown->grade.affinity == Affinity::Positive && shown->contact && shown->at.x == 1.5f,
+        "a hit another console applied shows at once, as the other player's, where it landed");
+    const std::size_t count = damage_numbers().size();
+    memory.store16(kLarge + kMonsterHealth, static_cast<std::uint16_t>(2000 - 87));
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == count, "the health drop it explains shows nothing more");
+
+    SharedHit stranger = ice;
+    stranger.most = 2999;
+    receive_shared_hits(memory, {stranger});
+    stranger = ice;
+    stranger.species = 8u;
+    receive_shared_hits(memory, {stranger});
+    stranger = ice;
+    stranger.monster = 0x09900000u;
+    receive_shared_hits(memory, {stranger});
+    damage_numbers_frame(true, &memory);
+    check(damage_numbers().size() == count, "a hit on a monster this console does not have is left out");
+
+    SharedHit yours = ice;
+    yours.attacker = hunter;
+    yours.amount = 40;
+    yours.element = 0;
+    receive_shared_hits(memory, {yours});
+    damage_numbers_frame(true, &memory, std::nullopt, Whose::Mine);
+    check(on_large(40) != damage_numbers().end() && on_large(40)->player == 0 && on_large(40)->kind == Element::None &&
+            on_large(87) == damage_numbers().end(),
+        "Mine shows this hunter's hit another console applied, and not the other player's");
+
+    // The hits this console applies, with Damage numbers off.
+    (void)take_shared_hits();
+    runtime.register_function(kHitAdjust, &routine_takes_a1, "recomp_unit_stand_in_hit");
+    runtime.register_function(kAttackFlagCheck, &stand_in_flag_check, "recomp_unit_stand_in_flag_check");
+    damage_numbers_frame(false, &memory);
+    computed_registers(runtime.cpu(), kLarge, remote, 60, 0.0f, 0.3f);
+    runtime.cpu().pc = kAttackFlagCheck;
+    (void)runtime.invoke_chained_call(runtime.cpu());
+    runtime.cpu().gpr[4] = kLarge;
+    runtime.cpu().gpr[5] = 60u;
+    runtime.cpu().gpr[31] = 0u;
+    runtime.cpu().pc = kHitAdjust;
+    (void)runtime.invoke_chained_call(runtime.cpu());
+    damage_numbers_frame(false, &memory);
+    const std::vector<SharedHit> sent = take_shared_hits();
+    check(sent.size() == 1u && sent[0].monster == kLarge && sent[0].attacker == remote && sent[0].amount == 60 &&
+            sent[0].most == 3000 && sent[0].species == 7u && sent[0].fill == Fill::Ordinary,
+        "a hit applied here is shared with its monster and attacker, the numbers off");
+    check(damage_numbers().empty(), "and nothing is drawn");
+    memory.store16(kLarge + kMonsterHealth, static_cast<std::uint16_t>(memory.load16(kLarge + kMonsterHealth) - 10u));
+    damage_numbers_frame(true, &memory);
+    damage_numbers_frame(true, &memory);
+    check(take_shared_hits().empty(), "a drop from the network is not shared again");
+
+    set_sharing(false);
+    check(!sharing(), "and sharing stops");
+    damage_numbers_frame(false, &memory);
+    memory.store8(0x09810500u + layout::kNodeType, 0u);
+    memory.store32(layout::kCameraObject, 0u);
+    memory.store32(0x09810400u + layout::kNodeOlder, 0u);
+}
+
 // The game's own point of contact: the collision pass's buffer, read from the
 // damage routine's call, and used when it is on the monster.
 void test_the_game_contact() {
@@ -1469,6 +1674,9 @@ int main() {
     test_the_computed_hit();
     test_pending_hits();
     test_computed_hits_are_the_numbers();
+    test_the_shared_hit_format();
+    test_settling_drops();
+    test_sharing_hits();
     test_the_game_contact();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
