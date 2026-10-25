@@ -84,6 +84,20 @@ void add_gpu_time(double milliseconds);
 void set_gpu_time_unavailable();
 // Time spent holding the game to real time, outside any render call.
 void add_pacing_time(Clock::duration duration);
+// Emulated time the kernel charged a game thread for running without an
+// import call (MHFU_STARVATION_INTERVAL): the game's own CPU time as its clock
+// sees it, which can make a frame miss its vblank while the host sits idle.
+// Only traced, on the [slow-frame] and [stalls] lines.
+void add_charged_time(std::uint64_t emulated_us);
+// MHFU_TRACE_STALLS also times each HLE call, without the render and pacing
+// time inside it, and a [slow-frame] line names the frame's slowest one, with
+// the page faults the frame took: what the guest time of a slow frame was.
+[[nodiscard]] bool stall_trace_enabled();
+// Render and pacing time so far, never reset: what an HLE call's own time
+// leaves out.
+[[nodiscard]] Clock::duration accounted_time();
+// `name` must outlive the program.
+void note_hle_call(const char *name, Clock::duration own);
 void add_overlay_time(Clock::duration duration);
 void count_display_list();
 // A draw the GE made, and a draw call the renderer recorded: fewer when

@@ -1,9 +1,13 @@
 #include "hle_common.hpp"
 
+#include "perf/frame_stats.hpp"
+#include "perf/stall_stacks.hpp"
 #include "psprecomp/common.hpp"
 
 #include <cstdlib>
 #include <iostream>
+#include <set>
+#include <string>
 #include <unordered_set>
 
 namespace mhfu {
@@ -39,6 +43,22 @@ HleRegistrar::HleRegistrar(Runtime &runtime) : runtime_(runtime) {
 bool HleRegistrar::try_add(std::string_view library, std::string_view name, HleFunction function) {
     const auto found = nids_by_name_.find({std::string(library), std::string(name)});
     if (found == nids_by_name_.end()) return false;
+    if (perf::stall_trace_enabled() || perf::stall_stacks_enabled()) {
+        // The call's own host time, for the [slow-frame] line's slowest call,
+        // and where it is when it runs long (MHFU_TRACE_STALL_STACKS).
+        // A set keeps each name at one address for the whole run.
+        static std::set<std::string> names;
+        const char *label = names.insert(std::string(library) + "::" + std::string(name)).first->c_str();
+        function = [inner = std::move(function), label](Runtime &rt, AllegrexContext &ctx) {
+            static const bool stacks = perf::stall_stacks_enabled();
+            if (stacks) perf::stall_call_begin(label);
+            const perf::Clock::time_point start = perf::Clock::now();
+            const perf::Clock::duration accounted = perf::accounted_time();
+            inner(rt, ctx);
+            perf::note_hle_call(label, perf::Clock::now() - start - (perf::accounted_time() - accounted));
+            if (stacks) perf::stall_call_end();
+        };
+    }
     runtime_.register_hle(std::string(library), found->second, std::move(function));
     bound_.insert({std::string(library), found->second});
     return true;
