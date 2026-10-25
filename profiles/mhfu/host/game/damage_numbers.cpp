@@ -56,6 +56,12 @@ std::vector<OpenHit> &open_ticks() {
     return open;
 }
 
+// Hits the game computed, until their monster's health falls.
+std::vector<PendingHit> &pending_hits() {
+    static std::vector<PendingHit> pending;
+    return pending;
+}
+
 struct ListEntry {
     std::uint32_t entity{};
     std::uint8_t kind{}; // the node's type byte
@@ -188,7 +194,8 @@ void place_numbers(
     }
     for (Number &number : live) {
         if (number.object == 0u) continue;
-        const std::optional<WorldPoint> at = hit_place(number, *memory, follow_enabled());
+        // Poison is on the monster, not where a hit landed: it rides it.
+        const std::optional<WorldPoint> at = hit_place(number, *memory, follow_enabled() || number.poison);
         if (!at) {
             number.placed = false;
             report_place(number, "the monster's position cannot be read", &*camera, nullptr, std::nullopt);
@@ -230,9 +237,105 @@ void place_numbers(
     }
 }
 
+const char *element_name(Element element) {
+    switch (element) {
+    case Element::Fire: return "fire";
+    case Element::Water: return "water";
+    case Element::Thunder: return "thunder";
+    case Element::Ice: return "ice";
+    case Element::Dragon: return "dragon";
+    case Element::None: return "none";
+    }
+    return "none";
+}
+
+// MHFU_TRACE_HITS: one [dmg] line per hit the game computed, with what the
+// number is made of.
+void trace_computed(const psprecomp::GuestMemory &memory, const ComputedHit &hit, const Number &number) {
+    if (!hit_trace::enabled()) return;
+    const std::uint16_t bits =
+        layout::in_ram(hit.attack) && memory.contains(hit.attack + kAttackElements, 2u)
+        ? memory.load16(hit.attack + kAttackElements)
+        : 0u;
+    const unsigned marks = layout::in_ram(hit.attack) && memory.contains(hit.attack + kAttackMarks, 1u)
+        ? memory.load8(hit.attack + kAttackMarks)
+        : 0u;
+    char line[320];
+    std::snprintf(line, sizeof(line),
+        "[dmg] t=%llums frame=%llu computed %08X part %d by %08X (player %d) attack %08X: total %d element %d "
+        "(%.2f before truncation; bits %04X, %s) marks %02X hitzone %.3f scale %.3f -> %d (element %d)%s%s",
+        static_cast<unsigned long long>(hit_trace::now_ms()),
+        static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), hit.monster, hit.part,
+        hit.attacker, number.player, hit.attack, hit.total, hit.element, static_cast<double>(hit.element_exact), bits,
+        element_name(element_of(bits)), marks,
+        static_cast<double>(hit.hitzone), static_cast<double>(hit.scale), number.amount, number.element,
+        number.contact ? "; at " : "; no contact point", number.contact && number.rule != nullptr ? number.rule : "");
+    std::cout << line << std::endl;
+}
+
+// MHFU_TRACE_HITS: the game's point of contact beside the point the earlier
+// rules give, and how far each is from the monster's nearest bone.
+void trace_landing(const psprecomp::GuestMemory &memory, const ComputedHit &hit) {
+    if (!hit_trace::enabled()) return;
+    char line[320];
+    int used = std::snprintf(line, sizeof(line), "[dmg]   landing on %08X:", hit.monster);
+    const auto append = [&](const char *label, const std::optional<WorldPoint> &point, const char *rule) {
+        if (used <= 0 || used >= static_cast<int>(sizeof(line))) return;
+        const std::size_t room = sizeof(line) - static_cast<std::size_t>(used);
+        if (!point) {
+            used += std::snprintf(line + used, room, " %s none;", label);
+            return;
+        }
+        float nearest = -1.0f;
+        const bool on = on_the_monster(memory, hit.monster, *point, &nearest);
+        used += std::snprintf(line + used, room, " %s %g %g %g (%s, nearest bone %g%s);", label,
+            static_cast<double>(point->x), static_cast<double>(point->y), static_cast<double>(point->z),
+            rule != nullptr ? rule : "-", static_cast<double>(nearest), on ? "" : ", off the monster");
+    };
+    append("game", hit.landed, "game");
+    const char *rule = nullptr;
+    const std::optional<WorldPoint> earlier = computed_contact(memory, hit, &rule, false);
+    append("rules", earlier, rule);
+    if (hit.landed && earlier && used > 0 && used < static_cast<int>(sizeof(line)))
+        std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used), " apart %g",
+            static_cast<double>(std::hypot(
+                hit.landed->x - earlier->x, hit.landed->y - earlier->y, hit.landed->z - earlier->z)));
+    std::cout << line << std::endl;
+}
+
+// The call after the game added a hit to a monster's part.
+void note_computed(const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx) {
+    if (!computed_enabled()) return;
+    const std::optional<ComputedHit> hit = computed_hit(memory, ctx, kAttackFlagCheck);
+    if (!hit) return;
+    // Health is taken off later; a monster already down, or a hunter struck
+    // by another, shows nothing.
+    const std::optional<int> health = monster_health(memory, hit->monster);
+    if (!health || *health <= 0 || is_hunter(memory, hit->monster)) return;
+    Number number = number_for(*hit, player_of(memory, hit->attacker));
+    if (contact_enabled()) {
+        const char *rule = nullptr;
+        if (const std::optional<WorldPoint> contact =
+                computed_contact(memory, *hit, &rule, game_contact_enabled())) {
+            number.at = *contact;
+            number.anchored = true;
+            number.contact = true;
+            number.rule = rule;
+        }
+    }
+    trace_computed(memory, *hit, number);
+    trace_landing(memory, *hit);
+    std::lock_guard lock(numbers_mutex());
+    pending_hits().push_back({number, 0.0f});
+}
+
 void pre_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::uint32_t target_pc,
     std::uint32_t native_depth) {
     if (!watch_armed().load(std::memory_order_relaxed)) return;
+    if (target_pc == kAttackFlagCheck) {
+        if (ctx.gpr[31] == kAfterDamage) note_computed(runtime.memory(), ctx);
+        return;
+    }
     if (target_pc == kStatusTick) {
         const std::optional<int> health = monster_health(runtime.memory(), ctx.gpr[4]);
         if (!health) return;
@@ -269,8 +372,15 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
         }
         if (!ticked) return;
         if (const std::optional<int> health = monster_health(runtime.memory(), ticked->object)) {
+            const bool shown = poison_enabled() && !is_hunter(runtime.memory(), ticked->object);
             std::lock_guard lock(numbers_mutex());
             note_change(health_seen(), ticked->object, ticked->health, *health);
+            if (!shown) return;
+            if (const std::optional<Number> number = poison_number(
+                    ticked->object, ticked->health, *health, static_cast<int>(live_numbers().size()))) {
+                trace_damage("poison", number->object, number->amount, *health, "");
+                remember_number(live_numbers(), *number);
+            }
         }
         return;
     }
@@ -321,6 +431,17 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
     if (std::optional<Number> number =
             watch_hit_leave(open_hits(), target_pc, native_depth, sample, static_cast<int>(live_numbers().size()))) {
         const bool hunter = is_hunter(runtime.memory(), number->object);
+        // The hits the game computed on it are the numbers, at their own
+        // amounts; the drop is one only without them.
+        if (!hunter && std::any_of(pending_hits().begin(), pending_hits().end(),
+                           [object](const PendingHit &hit) { return hit.number.object == object; })) {
+            for (const Number &hit :
+                numbers_for_drop(pending_hits(), object, number, static_cast<int>(live_numbers().size()))) {
+                trace_damage("routine", hit.object, hit.amount, sample, " computed");
+                remember_number(live_numbers(), hit);
+            }
+            return;
+        }
         // The caller's frame, and the record in it, are still there.
         if (!hunter && !number->contact && contact_enabled()) {
             const char *rule = nullptr;
@@ -399,13 +520,72 @@ Grade grade_hit(int hitzone, Sharpness sharpness, bool gunner, Affinity affinity
     return grade;
 }
 
+Grade grade_share(float effective, Affinity affinity) noexcept {
+    Grade grade;
+    grade.fill = effective >= kWeakPointShare ? Fill::WeakPoint : Fill::Ordinary;
+    grade.affinity = affinity;
+    return grade;
+}
+
 Ink damage_number_ink(Fill fill) noexcept {
     switch (fill) {
-    case Fill::WeakPoint: return Ink{255, 148, 32};
-    case Fill::Ordinary: return Ink{168, 168, 168};
+    case Fill::WeakPoint: return Ink{255, 240, 0};
+    case Fill::Ordinary: return Ink{255, 255, 255};
     case Fill::Unknown: return Ink{255, 255, 255};
     }
     return Ink{255, 255, 255};
+}
+
+Ink poison_ink() noexcept {
+    return Ink{204, 156, 255};
+}
+
+Element element_of(std::uint16_t bits) noexcept {
+    if ((bits & kFireBit) != 0u) return Element::Fire;
+    if ((bits & kWaterBit) != 0u) return Element::Water;
+    if ((bits & kThunderBit) != 0u) return Element::Thunder;
+    if ((bits & kIceBit) != 0u) return Element::Ice;
+    if ((bits & kDragonBit) != 0u) return Element::Dragon;
+    return Element::None;
+}
+
+Ink element_ink(Element element) noexcept {
+    switch (element) {
+    case Element::Fire: return Ink{232, 64, 72};
+    case Element::Water: return Ink{72, 152, 240};
+    case Element::Thunder: return Ink{232, 220, 80};
+    case Element::Ice: return Ink{96, 208, 200};
+    case Element::Dragon: return Ink{132, 108, 212};
+    case Element::None: return Ink{200, 200, 200};
+    }
+    return Ink{200, 200, 200};
+}
+
+std::optional<Ink> affinity_dot(Affinity affinity) noexcept {
+    switch (affinity) {
+    case Affinity::Positive: return Ink{255, 112, 208};
+    case Affinity::Negative: return Ink{120, 144, 176};
+    case Affinity::None: return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+std::vector<Offset> sparkle_shape() {
+    // The waist is narrow across and wider up and down, so the streak tapers
+    // to a hair at either end.
+    constexpr float kWaistAcross = 0.20f, kWaistUp = 0.40f;
+    return {{-1.0f, 0.0f}, {-kWaistAcross, -kWaistUp}, {0.0f, -1.0f}, {kWaistAcross, -kWaistUp}, {1.0f, 0.0f},
+        {kWaistAcross, kWaistUp}, {0.0f, 1.0f}, {-kWaistAcross, kWaistUp}};
+}
+
+std::optional<Ink> player_tint(int player) noexcept {
+    switch (player) {
+    case 0: return Ink{232, 72, 64};
+    case 1: return Ink{64, 132, 240};
+    case 2: return Ink{72, 196, 96};
+    case 3: return Ink{224, 104, 208};
+    default: return std::nullopt;
+    }
 }
 
 std::optional<int> damage_shown(int health_before, int health_after) noexcept {
@@ -441,7 +621,7 @@ float stack_gap_px(float tuned_px, float size_scale, float glyph_px, float strok
     if (!(glyph_px > 0.0f)) glyph_px = 0.0f;
     if (!(stroke_px > 0.0f)) stroke_px = 0.0f;
     if (!clear) return tuned_px;
-    return std::max(tuned_px * size_scale, glyph_px + 2.0f * stroke_px);
+    return std::max(tuned_px * size_scale, (glyph_px + 2.0f * stroke_px) * kStackOverlap);
 }
 
 Number make_number(int amount, Grade grade, int lane) noexcept {
@@ -453,10 +633,158 @@ Number make_number(int amount, Grade grade, int lane) noexcept {
 }
 
 std::string damage_number_text(const Number &number) {
-    std::string text = std::to_string(number.amount);
-    if (number.grade.affinity == Affinity::Positive) text += '!';
-    else if (number.grade.affinity == Affinity::Negative) text += '~';
+    return std::to_string(number.amount);
+}
+
+NumberText number_text(const Number &number, Breakdown breakdown) {
+    NumberText text;
+    text.main = std::to_string(number.amount);
+    text.main_ink = number.poison ? poison_ink() : damage_number_ink(number.grade.fill);
+    text.side_ink = element_ink(number.kind);
+    const int element = std::clamp(number.element, 0, std::max(number.amount, 0));
+    if (element == 0 || breakdown == Breakdown::Total) return text;
+    if (breakdown == Breakdown::Split) {
+        const int raw = number.amount - element;
+        if (raw <= 0) {
+            text.main = std::to_string(element);
+            text.main_ink = text.side_ink;
+            text.main_glyph = number.kind;
+            return text;
+        }
+        text.main = std::to_string(raw);
+    }
+    text.side = std::to_string(element);
+    text.side_glyph = number.kind;
     return text;
+}
+
+namespace {
+constexpr float kDegree = 3.14159265f / 180.0f;
+
+// Points on a circle about (cx, cy), from angle `from` to `to` in degrees
+// (0 to the right, 90 down), `steps` segments.
+void arc(std::vector<Offset> &points, float cx, float cy, float r, float from, float to, int steps) {
+    for (int i = 0; i <= steps; ++i) {
+        const float a = (from + (to - from) * static_cast<float>(i) / static_cast<float>(steps)) * kDegree;
+        points.push_back({cx + r * std::cos(a), cy + r * std::sin(a)});
+    }
+}
+
+// A quadratic curve from `a` towards `control` to `b`, without `b`.
+void curve(std::vector<Offset> &points, Offset a, Offset control, Offset b, int steps) {
+    for (int i = 0; i < steps; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(steps);
+        const float u = 1.0f - t;
+        points.push_back({u * u * a.x + 2.0f * u * t * control.x + t * t * b.x,
+            u * u * a.y + 2.0f * u * t * control.y + t * t * b.y});
+    }
+}
+
+// A spiral about (cx, cy) from angle `from` at radius `r_from` to `to` at
+// `r_to`.
+std::vector<Offset> spiral(float cx, float cy, float from, float to, float r_from, float r_to, int steps) {
+    std::vector<Offset> points;
+    for (int i = 0; i <= steps; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(steps);
+        const float a = (from + (to - from) * t) * kDegree;
+        const float r = r_from + (r_to - r_from) * t;
+        points.push_back({cx + r * std::cos(a), cy + r * std::sin(a)});
+    }
+    return points;
+}
+
+// A crystal: a hexagon `length` long and `width` wide about (cx, cy), its
+// long axis turned `angle` degrees.
+std::vector<Offset> crystal(float cx, float cy, float length, float width, float angle) {
+    const float l = length * 0.5f, w = width * 0.5f, c = std::cos(angle * kDegree), s = std::sin(angle * kDegree);
+    const Offset corners[] = {{-l, 0.0f}, {-l + w * 0.6f, -w}, {l - w * 0.6f, -w}, {l, 0.0f}, {l - w * 0.6f, w},
+        {-l + w * 0.6f, w}};
+    std::vector<Offset> points;
+    for (const Offset &p : corners) points.push_back({cx + p.x * c - p.y * s, cy + p.x * s + p.y * c});
+    return points;
+}
+
+// A line `width` wide through `points`: a quad for each segment and a square
+// at each inner corner, which overlap.
+void thick_path(std::vector<std::vector<Offset>> &fills, const std::vector<Offset> &points, float width) {
+    const float h = width * 0.5f;
+    for (std::size_t i = 0; i + 1u < points.size(); ++i) {
+        const Offset a = points[i], b = points[i + 1u];
+        const float length = std::hypot(b.x - a.x, b.y - a.y);
+        const float nx = -(b.y - a.y) / length * h, ny = (b.x - a.x) / length * h;
+        fills.push_back({{a.x + nx, a.y + ny}, {b.x + nx, b.y + ny}, {b.x - nx, b.y - ny}, {a.x - nx, a.y - ny}});
+    }
+    for (std::size_t i = 1; i + 1u < points.size(); ++i) {
+        const Offset p = points[i];
+        fills.push_back({{p.x - h, p.y - h}, {p.x + h, p.y - h}, {p.x + h, p.y + h}, {p.x - h, p.y + h}});
+    }
+}
+} // namespace
+
+Glyph element_glyph(Element element) {
+    Glyph glyph;
+    switch (element) {
+    case Element::Fire: {
+        // A round base under a tip that leans right, with a spiral groove
+        // from under the tip into the middle.
+        constexpr Offset tip{0.70f, 0.02f};
+        std::vector<Offset> flame;
+        curve(flame, tip, {0.16f, 0.14f}, {0.14f, 0.62f}, 8);
+        arc(flame, 0.5f, 0.62f, 0.36f, 180.0f, 0.0f, 16);
+        flame.pop_back();
+        curve(flame, {0.86f, 0.62f}, {0.90f, 0.26f}, tip, 8);
+        glyph.fills.push_back(std::move(flame));
+        glyph.grooves.push_back(spiral(0.50f, 0.60f, -55.0f, -390.0f, 0.30f, 0.06f, 36));
+        glyph.groove_width = 0.065f;
+        break;
+    }
+    case Element::Water: {
+        // A drop, with a light streak on its left.
+        std::vector<Offset> drop;
+        curve(drop, {0.5f, 0.02f}, {0.30f, 0.32f}, {0.17f, 0.64f}, 8);
+        arc(drop, 0.5f, 0.64f, 0.33f, 180.0f, 0.0f, 16);
+        drop.pop_back();
+        curve(drop, {0.83f, 0.64f}, {0.70f, 0.32f}, {0.5f, 0.02f}, 8);
+        glyph.fills.push_back(std::move(drop));
+        std::vector<Offset> streak;
+        for (int a = 0; a < 360; a += 30)
+            streak.push_back({0.34f + 0.055f * std::cos(static_cast<float>(a) * kDegree),
+                0.66f + 0.13f * std::sin(static_cast<float>(a) * kDegree)});
+        glyph.highlights.push_back(std::move(streak));
+        break;
+    }
+    case Element::Thunder: {
+        // A zigzag from the top left, ending in an arrowhead to the lower
+        // right.
+        thick_path(glyph.fills, {{0.08f, 0.12f}, {0.56f, 0.12f}, {0.32f, 0.46f}, {0.62f, 0.46f}, {0.70f, 0.62f}},
+            0.17f);
+        constexpr Offset base{0.70f, 0.62f}, tip{0.94f, 0.94f};
+        const float length = std::hypot(tip.x - base.x, tip.y - base.y);
+        const float nx = -(tip.y - base.y) / length * 0.24f, ny = (tip.x - base.x) / length * 0.24f;
+        glyph.fills.push_back({{base.x + nx, base.y + ny}, tip, {base.x - nx, base.y - ny}});
+        break;
+    }
+    case Element::Ice:
+        // A long crystal with a light face, and a short one at its foot.
+        glyph.fills.push_back(crystal(0.38f, 0.40f, 0.74f, 0.40f, -62.0f));
+        glyph.fills.push_back(crystal(0.76f, 0.78f, 0.36f, 0.30f, -62.0f));
+        glyph.highlights.push_back(crystal(0.36f, 0.40f, 0.40f, 0.16f, -62.0f));
+        break;
+    case Element::Dragon:
+        // Crystal spikes, the middle one tallest, a light edge on it and
+        // grooves between them.
+        glyph.fills.push_back({{0.50f, 0.02f}, {0.60f, 0.30f}, {0.72f, 0.14f}, {0.74f, 0.44f}, {0.88f, 0.36f},
+            {0.80f, 0.70f}, {0.62f, 0.96f}, {0.38f, 0.96f}, {0.20f, 0.70f}, {0.12f, 0.36f}, {0.26f, 0.44f},
+            {0.28f, 0.14f}, {0.40f, 0.30f}});
+        glyph.highlights.push_back({{0.44f, 0.40f}, {0.50f, 0.16f}, {0.47f, 0.70f}});
+        glyph.grooves.push_back({{0.50f, 0.34f}, {0.50f, 0.84f}});
+        glyph.grooves.push_back({{0.31f, 0.52f}, {0.42f, 0.80f}});
+        glyph.grooves.push_back({{0.69f, 0.52f}, {0.58f, 0.80f}});
+        glyph.groove_width = 0.035f;
+        break;
+    case Element::None: break;
+    }
+    return glyph;
 }
 
 std::vector<Number> age_numbers(std::vector<Number> numbers, float seconds) {
@@ -483,7 +811,9 @@ Anchor number_anchor(const Number &number) noexcept {
     anchor.scale = closeness_scale(number.body);
     anchor.x = number.x;
     anchor.y = number.y - (lift * kRise + static_cast<float>(number.lane) * kStack) * anchor.scale;
-    anchor.alpha = 1.0f - exit;
+    // Its ink goes faster than it rises, so it is mostly gone before it has
+    // risen far.
+    anchor.alpha = (1.0f - exit) * (1.0f - exit);
     return anchor;
 }
 
@@ -786,6 +1116,16 @@ bool damage_numbers_watching() noexcept {
 }
 
 void remember_number(std::vector<Number> &live, Number number) {
+    int lane = 0;
+    for (const Number &other : live) {
+        if (other.object != number.object) continue;
+        // Points not read yet are the same body point.
+        if (other.anchored && number.anchored &&
+            std::hypot(other.at.x - number.at.x, other.at.y - number.at.y, other.at.z - number.at.z) > kStackReach)
+            continue;
+        lane = std::max(lane, other.lane + 1);
+    }
+    number.lane = lane;
     live.push_back(number);
     if (live.size() > kMaxOnScreen)
         live.erase(live.begin(), live.begin() + static_cast<std::ptrdiff_t>(live.size() - kMaxOnScreen));
@@ -829,6 +1169,198 @@ std::optional<Number> watch_hit_leave(
         return number;
     }
     return std::nullopt;
+}
+
+bool parse_computed(const char *text) noexcept {
+    return text == nullptr || std::strcmp(text, "0") != 0;
+}
+
+bool computed_enabled() noexcept {
+    static const bool on = parse_computed(std::getenv("MHFU_DAMAGE_NUMBERS_COMPUTED"));
+    return on;
+}
+
+std::optional<ComputedHit> computed_hit(
+    const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::uint32_t target_pc) {
+    if (target_pc != kAttackFlagCheck || ctx.gpr[31] != kAfterDamage) return std::nullopt;
+    ComputedHit hit;
+    hit.monster = ctx.gpr[19];
+    hit.attacker = ctx.gpr[20];
+    hit.attack = ctx.gpr[21];
+    // seh s1: the halfword the part got.
+    hit.total = static_cast<std::int16_t>(ctx.gpr[17] & 0xFFFFu);
+    if (hit.total <= 0 || !layout::in_ram(hit.monster) || !memory.contains(hit.monster + kHealthScale, 4u))
+        return std::nullopt;
+    hit.scale = std::bit_cast<float>(memory.load32(hit.monster + kHealthScale));
+    if (!std::isfinite(hit.scale) || hit.scale < 0.0f) return std::nullopt;
+    // trunc.w.s f26
+    const float element = ctx.fpr[26];
+    hit.element_exact = element;
+    if (std::isfinite(element) && element >= 1.0f)
+        hit.element = std::min(static_cast<int>(std::min(element, 32767.0f)), hit.total);
+    hit.hitzone = ctx.fpr[29];
+    hit.landed = game_contact(memory, ctx);
+    const std::uint32_t hitbox = ctx.gpr[18];
+    if (layout::in_ram(hitbox) && memory.contains(hitbox + kHitboxPart, 2u))
+        hit.part = static_cast<int>(memory.load16(hitbox + kHitboxPart) & 7u);
+    if (layout::in_ram(hit.attack) && memory.contains(hit.attack + kAttackElements, 4u)) {
+        if (hit.element > 0) hit.kind = element_of(memory.load16(hit.attack + kAttackElements));
+        const std::uint8_t marks = memory.load8(hit.attack + kAttackMarks);
+        hit.affinity = (marks & kCriticalMark) != 0u ? Affinity::Positive
+            : (marks & kNegativeMark) != 0u          ? Affinity::Negative
+                                                     : Affinity::None;
+    }
+    return hit;
+}
+
+HitAmount hit_amount(const ComputedHit &hit) noexcept {
+    // As the health routine counts a part: (float)sum * scale, truncated, and
+    // at least 1 for a part that was hit.
+    const auto scaled = [&hit](int value) {
+        const float product = static_cast<float>(value) * hit.scale;
+        return std::isfinite(product) ? static_cast<int>(std::clamp(product, 0.0f, 1.0e9f)) : 0;
+    };
+    HitAmount shown;
+    shown.amount = std::max(1, scaled(hit.total));
+    shown.element = std::min(scaled(hit.element), shown.amount);
+    return shown;
+}
+
+int player_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker) {
+    if (attacker == 0u) return -1;
+    const std::vector<ListEntry> entries = quest_entries(memory);
+    for (const ListEntry &entry : entries)
+        if (entry.entity == attacker && entry.kind == layout::kPlayerNode) return 0;
+    const std::vector<std::uint32_t> classes = hunter_classes(memory, entries);
+    std::vector<std::uint32_t> others;
+    for (const ListEntry &entry : entries) {
+        if (entry.kind == layout::kPlayerNode || !layout::in_ram(entry.entity) || !memory.contains(entry.entity, 4u))
+            continue;
+        if (std::find(classes.begin(), classes.end(), memory.load32(entry.entity + layout::kVtable)) == classes.end())
+            continue;
+        if (std::find(others.begin(), others.end(), entry.entity) == others.end()) others.push_back(entry.entity);
+    }
+    std::sort(others.begin(), others.end());
+    const auto found = std::find(others.begin(), others.end(), attacker);
+    if (found == others.end()) return -1;
+    return std::min(1 + static_cast<int>(found - others.begin()), 3);
+}
+
+Number number_for(const ComputedHit &hit, int player) {
+    const HitAmount shown = hit_amount(hit);
+    Number number = make_number(shown.amount, grade_share(hit.hitzone, hit.affinity), 0);
+    number.element = shown.element;
+    number.kind = shown.element > 0 ? hit.kind : Element::None;
+    number.player = player;
+    number.object = hit.monster;
+    return number;
+}
+
+bool parse_game_contact(const char *text) noexcept {
+    return text == nullptr || std::strcmp(text, "0") != 0;
+}
+
+bool game_contact_enabled() noexcept {
+    static const bool on = parse_game_contact(std::getenv("MHFU_DAMAGE_NUMBERS_GAME_CONTACT"));
+    return on;
+}
+
+std::optional<WorldPoint> game_contact(const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx) {
+    const std::uint32_t at = ctx.gpr[29] + kDamageFrame + kContactBuffer;
+    if (!layout::in_ram(at) || (at & 3u) != 0u || !memory.contains(at, 12u)) return std::nullopt;
+    const WorldPoint point{std::bit_cast<float>(memory.load32(at)), std::bit_cast<float>(memory.load32(at + 4u)),
+        std::bit_cast<float>(memory.load32(at + 8u))};
+    if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) return std::nullopt;
+    return point;
+}
+
+bool on_the_monster(
+    const psprecomp::GuestMemory &memory, std::uint32_t monster, const WorldPoint &point, float *nearest) {
+    if (nearest != nullptr) *nearest = -1.0f;
+    const std::vector<WorldPoint> bones = entity_bones(memory, monster);
+    if (bones.empty()) {
+        const std::optional<WorldPoint> at = monster_position(memory, monster);
+        return at && std::hypot(point.x - at->x, point.z - at->z) <= kGameContactAcross &&
+            std::fabs(point.y - at->y) <= kGameContactAcross;
+    }
+    float best = std::numeric_limits<float>::infinity();
+    for (const WorldPoint &bone : bones)
+        best = std::min(best, std::hypot(bone.x - point.x, bone.y - point.y, bone.z - point.z));
+    if (nearest != nullptr) *nearest = best;
+    return best <= kGameContactReach;
+}
+
+std::optional<WorldPoint> computed_contact(
+    const psprecomp::GuestMemory &memory, const ComputedHit &hit, const char **rule, bool use_game) {
+    // The game's own point, where it puts the hit's spark.
+    if (use_game && hit.landed && on_the_monster(memory, hit.monster, *hit.landed)) {
+        if (rule != nullptr) *rule = "game";
+        return hit.landed;
+    }
+    // A shot is the attack itself: the monster names it as the last to strike
+    // only after this call.
+    if (layout::in_ram(hit.attack) && (hit.attack & 3u) == 0u && memory.contains(hit.attack, kShotPlace + 12u)) {
+        const std::uint32_t kind = memory.load32(hit.attack);
+        if (kind == kShotClass || kind == kArrowClass) {
+            const WorldPoint point{std::bit_cast<float>(memory.load32(hit.attack + kShotPlace)),
+                std::bit_cast<float>(memory.load32(hit.attack + kShotPlace + 4u)),
+                std::bit_cast<float>(memory.load32(hit.attack + kShotPlace + 8u))};
+            if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
+                if (rule != nullptr) *rule = "shot";
+                return point;
+            }
+        }
+    }
+    return hit_contact(memory, hit.monster, hit.attacker, rule);
+}
+
+std::vector<Number> take_pending(std::vector<PendingHit> &pending, std::uint32_t object) {
+    std::vector<Number> taken;
+    for (const PendingHit &hit : pending)
+        if (hit.number.object == object) taken.push_back(hit.number);
+    std::erase_if(pending, [object](const PendingHit &hit) { return hit.number.object == object; });
+    return taken;
+}
+
+void age_pending(std::vector<PendingHit> &pending, float seconds) {
+    if (!(seconds > 0.0f)) seconds = 0.0f;
+    for (PendingHit &hit : pending) hit.age += seconds;
+    std::erase_if(pending, [](const PendingHit &hit) { return hit.age >= kPendingSeconds; });
+}
+
+std::vector<Number> numbers_for_drop(
+    std::vector<PendingHit> &pending, std::uint32_t object, const std::optional<Number> &drop, int lane) {
+    if (!drop) return {};
+    std::vector<Number> numbers = take_pending(pending, object);
+    if (numbers.empty()) numbers.push_back(*drop);
+    for (Number &number : numbers) number.lane = lane++;
+    return numbers;
+}
+
+std::vector<Number> numbers_shown(const std::vector<Number> &live, Whose whose) {
+    if (whose == Whose::Everyone) return live;
+    std::vector<Number> mine;
+    for (const Number &number : live)
+        if (number.player == 0 || number.poison) mine.push_back(number);
+    return mine;
+}
+
+bool parse_poison(const char *text) noexcept {
+    return text == nullptr || std::strcmp(text, "0") != 0;
+}
+
+bool poison_enabled() noexcept {
+    static const bool on = parse_poison(std::getenv("MHFU_DAMAGE_NUMBERS_POISON"));
+    return on;
+}
+
+std::optional<Number> poison_number(std::uint32_t object, int before, int after, int lane) {
+    const std::optional<int> amount = damage_shown(before, after);
+    if (!amount) return std::nullopt;
+    Number number = make_number(*amount, Grade{}, lane);
+    number.object = object;
+    number.poison = true;
+    return number;
 }
 
 std::optional<int> monster_health(const psprecomp::GuestMemory &memory, std::uint32_t object) {
@@ -900,7 +1432,8 @@ std::vector<Number> watch_health(std::vector<HealthSeen> &seen, const std::vecto
     return numbers;
 }
 
-void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, const std::optional<EyePose> &pose) {
+void damage_numbers_frame(
+    bool enabled, const psprecomp::GuestMemory *memory, const std::optional<EyePose> &pose, Whose whose) {
     using Clock = std::chrono::steady_clock;
     static Clock::time_point previous = Clock::now();
     const Clock::time_point now = Clock::now();
@@ -920,6 +1453,7 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
         open_hits().clear();
         open_ticks().clear();
         health_seen().clear();
+        pending_hits().clear();
         live_numbers().clear();
         shown_numbers().clear();
         pending_camera().vertices = 0u;
@@ -934,6 +1468,7 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
     std::lock_guard lock(numbers_mutex());
     for (Number &number : live_numbers()) keep_older_place(number);
     live_numbers() = age_numbers(std::move(live_numbers()), seconds);
+    age_pending(pending_hits(), seconds);
     if (read_health) {
         if (hit_trace::enabled())
             for (const HealthSeen &reading : readings)
@@ -949,18 +1484,24 @@ void damage_numbers_frame(bool enabled, const psprecomp::GuestMemory *memory, co
                         reading.health, reading.most);
                     std::cout << line << std::endl;
                 }
-        for (const Number &number :
-            watch_health(health_seen(), readings, static_cast<int>(live_numbers().size()))) {
+        for (const Number &drop : watch_health(health_seen(), readings, static_cast<int>(live_numbers().size()))) {
             const auto reading = std::find_if(readings.begin(), readings.end(),
-                [&number](const HealthSeen &r) { return r.object == number.object; });
-            trace_damage("health", number.object, number.amount, reading != readings.end() ? reading->health : 0, "");
-            remember_number(live_numbers(), number);
+                [&drop](const HealthSeen &r) { return r.object == drop.object; });
+            // A hit this console computed on a monster another one applies.
+            const bool computed = std::any_of(pending_hits().begin(), pending_hits().end(),
+                [&drop](const PendingHit &hit) { return hit.number.object == drop.object; });
+            for (const Number &number :
+                numbers_for_drop(pending_hits(), drop.object, drop, static_cast<int>(live_numbers().size()))) {
+                trace_damage("health", number.object, number.amount, reading != readings.end() ? reading->health : 0,
+                    computed ? " computed" : "");
+                remember_number(live_numbers(), number);
+            }
         }
     } else {
         health_seen().clear();
     }
     place_numbers(live_numbers(), memory, pose);
-    if (enabled) shown_numbers() = live_numbers();
+    if (enabled) shown_numbers() = numbers_shown(live_numbers(), whose);
     else shown_numbers().clear();
 }
 
