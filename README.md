@@ -1,8 +1,156 @@
-# Pokee
+<p align="center"><b>English</b> · <a href="README.ru.md">Русский</a> · <a href="README.es.md">Español</a></p>
 
-Pokee runs **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, version 1.01) on Windows, Linux, macOS and Android.
+<p align="center">
+  <a href="https://github.com/LocalBBQ/Pokee"><img src="https://img.shields.io/badge/source-LocalBBQ%2FPokee-b98335?style=flat-square&amp;labelColor=2a1a22" alt="Source: LocalBBQ/Pokee"></a>
+  <a href="https://github.com/LocalBBQ/Pokee/actions/workflows/tests.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/LocalBBQ/Pokee/tests.yml?branch=main&amp;event=push&amp;style=flat-square&amp;label=tests&amp;labelColor=2a1a22" alt="Unit tests on main"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-b98335?style=flat-square&amp;labelColor=2a1a22" alt="License: MIT"></a>
+  <a href="docs/BUILDING.md"><img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS%20%C2%B7%20Android-b98335?style=flat-square&amp;labelColor=2a1a22" alt="Build targets: Windows, Linux, macOS and Android"></a>
+  <a href="https://github.com/LocalBBQ/Pokee/stargazers"><img src="https://img.shields.io/github/stars/LocalBBQ/Pokee?style=flat-square&amp;label=stars&amp;labelColor=2a1a22&amp;color=b98335" alt="GitHub stars"></a>
+</p>
 
-> **This project does not include the game.** To install or build Pokee, use the files from your own legally obtained copy of that release.
+<p align="center"><img src="docs/images/emblem.svg" width="120" alt="Pokee emblem"></p>
+
+<h1 align="center">Pokee</h1>
+
+<p align="center"><b>Monster Hunter Freedom Unite, running natively on your PC.</b><br>
+Widescreen, high resolution, smooth frame rates, HD textures, a real mouse and gamepad, and hunting with friends.</p>
+
+<p align="center">
+  <a href="https://github.com/LocalBBQ/Pokee/releases/latest"><b>Download for Windows</b></a> ·
+  <a href="docs/LINUX.md">Linux and Steam Deck</a> ·
+  <a href="docs/MACOS.md">macOS</a> ·
+  <a href="docs/BUILDING.md">Build from source</a>
+</p>
+
+<p align="center"><img src="docs/images/readme/village.jpg" alt="Pokke Village in widescreen at high resolution"></p>
+
+> **Pokee does not include the game.** You need the disc image from your own copy of *Monster Hunter Freedom Unite* (USA, `ULUS-10391`, version 1.01). See the [legal disclaimer](#legal-disclaimer).
+
+## Get it running on Windows
+
+1. **Download** the latest zip from the [releases page](https://github.com/LocalBBQ/Pokee/releases/latest).
+   - `pokee-…-windows-x86_64.zip` keeps settings and saves in `%APPDATA%\Pokee\MHFU`.
+   - `pokee-…-windows-x86_64-portable.zip` keeps everything in a `data` folder next to `Pokee.exe`, so it can live on a USB drive.
+2. **Extract the whole folder** somewhere you can write to, such as `C:\Games\Pokee`. Not `Program Files`.
+3. **Add a Windows Defender exclusion for that folder.** Pokee loads its 290 recompiled code libraries (`overlays\*.dll`) every time it starts, and Defender scans each one before letting it load. Without an exclusion, startup can take minutes instead of seconds.
+   - **Windows Security** → **Virus & threat protection** → **Manage settings** → **Exclusions: Add or remove exclusions** → **Add an exclusion** → **Folder** → choose the Pokee folder.
+   - Or, in PowerShell run as administrator:
+
+     ```powershell
+     Add-MpPreference -ExclusionPath "C:\Games\Pokee"
+     ```
+
+   Only exclude a folder you extracted from this repository's releases page.
+4. **Run `Pokee.exe`** and pick your disc image (`.iso`) when asked. Pokee checks it, then either copies it (about 1.3 GB, so you can move the original later) or uses it where it is. A gamepad alone is enough for the whole setup.
+5. **Play.** Later starts go straight to the game. Press **Esc**, or **L3 + R3** on a gamepad, to open Pokee's menu.
+
+You need 64-bit Windows and a graphics driver with Vulkan support. SDL3, FFmpeg and the Visual C++ runtime come in the zip.
+
+Already have a save on a PSP? [Import it](profiles/mhfu/README.md#importing-a-save-from-a-psp) and carry on where you left off.
+
+## Sharper, wider, smoother
+
+<table>
+  <tr>
+    <td><img src="docs/images/readme/forest.jpg" alt="A mountain view through the trees in widescreen"></td>
+    <td><img src="docs/images/readme/coast.jpg" alt="A Hermitaur on the coast in widescreen"></td>
+  </tr>
+</table>
+
+Render up to six times the PSP's resolution, fill a widescreen display, widen the field of view, and let frame interpolation carry the game's 30 fps up to your monitor's refresh rate. PPSSPP-compatible [HD texture packs](profiles/mhfu/README.md#hd-texture-packs) drop straight in; the screenshots on this page use one.
+
+## Hunt together
+
+<table>
+  <tr>
+    <td><img src="docs/images/readme/guild-hall.jpg" alt="Four hunters in the Guild Hall"></td>
+    <td><img src="docs/images/readme/hunt-together.jpg" alt="Three hunters on a quest in the desert"></td>
+  </tr>
+</table>
+
+The Guild Hall works the way it did on the PSP: ad hoc play between Pokee players on the same network, or across the internet through an ad hoc server. Host or join from the Network section of the menu. [Setting it up](profiles/mhfu/README.md#multiplayer-ad-hoc)
+
+## Less menu, more hunting
+
+<table>
+  <tr>
+    <td><img src="docs/images/readme/item-sets.jpg" alt="Item Sets in the item box"></td>
+    <td><img src="docs/images/readme/hall-equipment.jpg" alt="Change Equipment from the Guild Hall item box"></td>
+  </tr>
+</table>
+
+Optional additions that keep to the game's own look:
+
+- **[Item sets](profiles/mhfu/README.md#item-sets)**: save your pouch and load it back in one press.
+- **Change equipment in the Guild Hall**, and **[order food from a seat](profiles/mhfu/README.md#eating-in-the-guild-hall)** there.
+- **[Damage numbers](profiles/mhfu/README.md#damage-numbers)** where each hit lands, shared with the other Pokee players in your hunt.
+- **True Attack Value** for weapons, element and status on the equipment screens.
+- **[Gather icons](profiles/mhfu/README.md#gather-icon)** that show what a point gives, and **hold to gather**.
+- **[Key quests](profiles/mhfu/README.md#key-quests)** marked in the quest lists, and a **[modern sharpness gauge](profiles/mhfu/README.md#modern-sharpness-gauge)**.
+- **[Layered armor](profiles/mhfu/README.md#layered-armor)**: wear the look of one set with the stats of another.
+
+## One menu for everything
+
+<table>
+  <tr>
+    <td><img src="docs/images/readme/menu-video.jpg" alt="Pokee menu, Video section"></td>
+    <td><img src="docs/images/readme/menu-mods.jpg" alt="Pokee menu, Mods section"></td>
+  </tr>
+</table>
+
+Video, audio, controls, game options, multiplayer and mods all live in one menu over the game, and every change applies at once. It works with a gamepad, keyboard or mouse. [Every setting](profiles/mhfu/README.md#in-game-menu)
+
+**Controls.** On a gamepad, the right stick turns the camera and aims, and the buttons match the game's prompts. Choose a preset (Default, Modern with attacks on the triggers, Left-handed, Classic keyboard) or rebind anything, including button combinations such as L1 + ○. Keyboard and mouse are fully supported: WASD to move, the mouse for the camera, its buttons to attack. [Control tables](profiles/mhfu/README.md#running)
+
+## Status
+
+The game is playable from a new character or an imported PSP save through the village, the Guild Hall and hunts, with music, movies and PSP-format saves.
+
+| Works | Still open |
+| --- | --- |
+| The whole game: village, Guild Hall, hunts, music and movies | Save-data and message dialogs draw nothing and answer as if confirmed ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| PSP-format saves and downloaded quests; import, export and backups | Download mode (`sceHttp`, `sceNetInet`) |
+| Ad hoc play between Pokee instances, on a LAN or through an ad hoc server | Play with PPSSPP and on public servers |
+| File-replacement [mods](profiles/mhfu/README.md#mods) and HD texture packs | Code mods |
+
+Windows builds are on the releases page. Linux, Steam Deck, macOS and Android can be built from source; see [LINUX.md](docs/LINUX.md), [MACOS.md](docs/MACOS.md) and [BUILDING.md](docs/BUILDING.md). Found a problem? [Open an issue](https://github.com/LocalBBQ/Pokee/issues) with your platform and what you were doing.
+
+## Building from source
+
+You need your own copy of the game, CMake 3.20+, Ninja, a C++20 compiler, Python 3, SDL3, Vulkan and `glslangValidator`, plus a few gigabytes of free memory. In short:
+
+1. Build `Pokee` once and run `Pokee --install /path/to/image.iso` to prepare the game's executable from your image.
+2. Generate the recompiled code with `profiles/mhfu/scripts/generate.sh` and build `Pokee`.
+3. Recompile the code overlays with `profiles/mhfu/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
+4. Run `out/mhfu/bin/Pokee`.
+
+[docs/BUILDING.md](docs/BUILDING.md) covers every platform and how to avoid full rebuilds. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to contribute.
+
+## How it works
+
+Pokee does not emulate the PSP's processor while you play. The game's MIPS code is translated to C++ ahead of time and compiled into the program, along with 290 code overlays the game swaps in as it runs. An interpreter covers anything the recompiled code misses. Around that code sits a reimplementation of the PSP system: kernel, disc I/O, a Vulkan renderer for the graphics engine, audio mixing, input, save data and ad hoc networking.
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the execution model. Pokee is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a game-neutral static recompilation framework; [docs/PROFILE_GUIDE.md](docs/PROFILE_GUIDE.md) explains how to target another title.
+
+## Authors
+
+[Pokee](https://github.com/LocalBBQ/Pokee) is built from [Yakumo](https://github.com/TeamGDB/Yakumo), the Portable 3rd port. That project and its contributors keep the credit for the host this tree starts from:
+
+- [@MHunterG](https://github.com/MHunterG)
+- [@mojitosunrise](https://github.com/mojitosunrise)
+
+## Credits
+
+- [Yakumo](https://github.com/TeamGDB/Yakumo): the original port, by its contributors
+- [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp): the recompilation framework this project builds on
+- [SDL3](https://www.libsdl.org/): windowing, input and audio output
+- [FFmpeg](https://ffmpeg.org/): music and movie decoding
+- [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK): rendering
+- [Dear ImGui](https://github.com/ocornut/imgui): Pokee's menus and setup screens
+- [tiny-AES-c](https://github.com/kokke/tiny-AES-c): the installer and PSP save-data support
+- [stb_truetype](https://github.com/nothings/stb): font rasterization
+- [svanheulen/mhef](https://github.com/svanheulen/mhef): community documentation of the game's archive format
+- [Cinzel](https://github.com/NDISCOVER/Cinzel) and [Shippori Mincho](https://github.com/fontdasu/ShipporiMincho): the logo's lettering, under the SIL Open Font License
 
 ## Legal disclaimer
 
@@ -25,120 +173,6 @@ Screenshots and other depictions of the original game may be used solely to docu
 The license covering **Pokee** applies only to the project's own original code and materials and does not grant any rights to third-party intellectual property.
 
 **Pokee** provides the software, not the game. You must provide your own legally obtained copy.
-
-## Status
-
-Playable: a new game or a save copied from a PSP, the village and hunts, music, movies, and saves in the PSP's own format. The game runs at the PSP's 30 frames per second; frame interpolation can present it at up to the display's refresh rate. The executable (3095 functions) and all 290 code overlays are recompiled ahead of time; an interpreter covers anything they miss.
-
-| Done | Still open |
-| --- | --- |
-| Boot, menus, character creation, the village and hunts | Save-data and message dialogs draw nothing and answer as if confirmed ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
-| PSP-format saves, including saves and downloaded quests copied from a PSP; import, export and backups | |
-| Vulkan graphics, frame interpolation, widescreen, HUD scaling and hiding | |
-| Analog camera and aim, lock-on and its marker, layered armor | |
-| PPSSPP-compatible HD texture packs | |
-| File-replacement mods ([profile README](profiles/mhfu/README.md#mods)) | Code mods |
-| Sound effects, music and cutscene movies | Download mode (`sceHttp`, `sceNetInet`) |
-| Rebindable keyboard, mouse and gamepad controls | |
-| Ad hoc between Pokee instances, on a LAN or through an ad hoc server | Play with PPSSPP and on public servers |
-
-The results in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) are from Portable 3rd, before this tree was retargeted; Freedom Unite still needs its own pass on each platform.
-
-## Play
-
-Windows downloads are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). Building from source stays fully supported; the steps are in [Getting started](#getting-started). The first-run setup checks the image, prepares the game from it and keeps settings and saves in a per-user directory (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable).
-
-When a finished build exists, [`docs/LINUX.md`](docs/LINUX.md) and [`docs/MACOS.md`](docs/MACOS.md) cover installing, the first start and where saves live. Android targets 64-bit Android 10 or newer with Vulkan 1.1; touch controls are drawn over the game, and gamepads work too.
-
-## Requirements
-
-Building from source is a fully supported way to play. It needs:
-
-- Your own copy of the game (see above)
-- CMake 3.20 or newer, Ninja and a C++20 compiler
-- Python 3
-- SDL3, Vulkan and `glslangValidator`
-- `make` and a C compiler on macOS and Linux: the build makes its own FFmpeg for the music and the movies. Nothing to install for it on Windows
-- A few gigabytes of free memory for the build; the recompiled code is large
-
-## Getting started
-
-In short:
-
-1. Prepare the game's executable from your disc image: build `Pokee` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhfu/scripts/prepare_game.sh`.
-2. Configure, generate the recompiled code with `profiles/mhfu/scripts/generate.sh`, and build `Pokee`.
-3. Recompile the code overlays with `profiles/mhfu/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
-4. Run `out/mhfu/bin/Pokee`.
-
-The full instructions, including every setting, are in [`profiles/mhfu/README.md`](profiles/mhfu/README.md). Building on every platform, Windows included, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md).
-
-## Controls
-
-On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Control presets (Default, Modern with attacks on the triggers, Left-handed, Classic keyboard, and your own) cover every control, and any of them can be bound to a single button or a combination such as L1 + ○. Keyboard and mouse play is complete; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhfu/README.md#running).
-
-Esc, or both sticks pressed together (L3+R3), opens Pokee's own menu. It holds video, audio, control, network and save settings, including aspect ratio, frame rate, internal resolution and HD texture pack import. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
-
-## Roadmap
-
-- Save-data dialogs that draw
-- Ad hoc play with PPSSPP and on the public servers PSP players use
-- Android on real phones: device testing, graphics drivers and performance ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
-- One consistent visual style across the setup screens, menus and overlays ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33))
-
-## How it works
-
-The executable is analyzed and every instruction of its code is emitted as C++, which is compiled into the program. The game also loads 290 code overlays at run time into a handful of shared memory slots; each is recompiled into its own library, and when the game loads one, the matching library is installed between frames. An interpreter covers any code the recompiled set does not reach, so nothing stops the game — it only runs slower there.
-
-Around that code sits a reimplementation of the PSP system: a kernel with threads, semaphores, event flags and timers; disc I/O read straight from the image; a Vulkan renderer for the PSP's graphics engine; software voice mixing for audio; and input from SDL3.
-
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the execution model and [`docs/DATA_BIN.md`](docs/DATA_BIN.md) the game's archive format. [`docs/TESTING.md`](docs/TESTING.md) has the smoke test and how to report results.
-
-## Repository layout
-
-```text
-include/psprecomp/   Framework interfaces: runtime, memory, Allegrex state
-src/                 Framework: ELF loading, decoder, runtime, interpreter
-tools/               Framework: analyzer and C++ code generator
-tests/               Framework regression tests
-configs/             PSP NID data and generic examples
-profiles/mhfu/     Everything specific to this game: host, kernel, renderer,
-                     audio, input, configuration and build scripts
-docs/                Architecture, archive format, profile guide, source rules
-```
-
-The recompiled code itself is generated locally from your copy of the game and is never committed.
-
-## Built on PSPRecomp
-
-**Pokee** is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
-
-```bash
-cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
-cmake --build out/framework --config Release
-ctest --test-dir out/framework -C Release --output-on-failure
-```
-
-To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) sets out the rules for independently written code and third-party source.
-
-## Authors
-
-[Pokee](https://github.com/LocalBBQ/Pokee) is built from [Yakumo](https://github.com/TeamGDB/Yakumo), the Portable 3rd port. That project and its contributors keep the credit for the host this tree starts from:
-
-- [@MHunterG](https://github.com/MHunterG)
-- [@mojitosunrise](https://github.com/mojitosunrise)
-
-## Credits
-
-- [Yakumo](https://github.com/TeamGDB/Yakumo) — the original port, by its contributors
-- [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — the recompilation framework this project builds on
-- [SDL3](https://www.libsdl.org/) — windowing, input and audio output
-- [FFmpeg](https://ffmpeg.org/) — music and movie decoding
-- [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — rendering
-- [Dear ImGui](https://github.com/ocornut/imgui) — Pokee's menus and setup screens
-- [tiny-AES-c](https://github.com/kokke/tiny-AES-c) — the installer and PSP save-data support
-- [stb_truetype](https://github.com/nothings/stb) — font rasterization
-- [svanheulen/mhef](https://github.com/svanheulen/mhef) — community documentation of the game's archive format
-- [Cinzel](https://github.com/NDISCOVER/Cinzel) and [Shippori Mincho](https://github.com/fontdasu/ShipporiMincho) — the logo's lettering, under the SIL Open Font License
 
 ## License
 
