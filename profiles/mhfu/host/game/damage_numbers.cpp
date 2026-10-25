@@ -119,7 +119,8 @@ void trace_damage(
 }
 
 // MHFU_TRACE_HITS: the quest list (roster_lines) whenever its hunters or its
-// monsters change, so a monster on one console can be found on another.
+// monsters change, or the hunter the camera follows, so a monster on one
+// console can be found on another and each console's own hunter is known.
 // Effects and shots come and go on the list too; they alone print nothing.
 void trace_roster(const psprecomp::GuestMemory &memory) {
     static std::vector<std::uint32_t> last;
@@ -133,13 +134,15 @@ void trace_roster(const psprecomp::GuestMemory &memory) {
                 std::find(classes.begin(), classes.end(), memory.load32(entry.entity + layout::kVtable)) !=
                     classes.end()))
             now.push_back(entry.entity);
+    now.push_back(layout::followed_hunter(memory, 4u)); // and whenever the camera takes another hunter
     if (now == last) return;
     last = now;
     const std::vector<std::string> lines = roster_lines(memory);
-    char head[128];
-    std::snprintf(head, sizeof(head), "[roster] t=%llums wall=%llu frame=%llu %zu entities",
+    char head[160];
+    std::snprintf(head, sizeof(head), "[roster] t=%llums wall=%llu frame=%llu %zu entities, the camera follows %08X",
         static_cast<unsigned long long>(hit_trace::now_ms()), wall_ms(),
-        static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), lines.size());
+        static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), lines.size(),
+        layout::followed_hunter(memory, 4u));
     std::cout << head << '\n';
     for (const std::string &line : lines) std::cout << line << '\n';
     std::cout.flush();
@@ -1490,17 +1493,19 @@ std::vector<std::string> roster_lines(const psprecomp::GuestMemory &memory) {
 std::string hunters_line(const psprecomp::GuestMemory &memory) {
     std::string line;
     std::vector<std::uint32_t> seen;
+    const std::uint32_t followed = layout::followed_hunter(memory, 4u);
     for (const ListEntry &entry : quest_entries(memory)) {
         const std::uint32_t entity = entry.entity;
         if (std::find(seen.begin(), seen.end(), entity) != seen.end()) continue;
         seen.push_back(entity);
         const int player = player_of(memory, entity);
         if (player < 0 || !memory.contains(entity + layout::kPosition, 12u)) continue;
-        char text[96];
-        std::snprintf(text, sizeof(text), "%s %d %08X at %g %g %g", line.empty() ? "" : ";", player, entity,
+        char text[112];
+        std::snprintf(text, sizeof(text), "%s %d %08X at %g %g %g%s", line.empty() ? "" : ";", player, entity,
             static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition))),
             static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 4u))),
-            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 8u))));
+            static_cast<double>(std::bit_cast<float>(memory.load32(entity + layout::kPosition + 8u))),
+            entity == followed ? " (camera)" : "");
         line += text;
     }
     return line.empty() ? std::string{} : "[dmg]   hunters" + line;

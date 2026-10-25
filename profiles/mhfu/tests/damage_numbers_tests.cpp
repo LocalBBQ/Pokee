@@ -572,6 +572,11 @@ void test_the_roster() {
         "another player's hunter, on an unmarked node, is a hunter");
     check(hunters_line(memory) == "[dmg]   hunters 0 09820000 at 1 2 3; 1 09860000 at -4 0 8.5",
         "the hunters line numbers the hunters as player_of does, with their positions");
+    constexpr std::uint32_t camera = 0x09880000u;
+    memory.store32(layout::kCameraObject, camera);
+    memory.store32(camera + layout::kFollowedHunter, remote);
+    check(hunters_line(memory) == "[dmg]   hunters 0 09820000 at 1 2 3; 1 09860000 at -4 0 8.5 (camera)",
+        "the hunter the camera follows is marked");
 }
 
 int shown_total() {
