@@ -151,6 +151,29 @@ void trace_damage(
 // console can be found on another and each console's own hunter is known.
 // Effects and shots come and go on the list too; they alone print nothing.
 void trace_roster(const psprecomp::GuestMemory &memory) {
+    // The words that point at a hunter (hunter_pointer_lines), when the
+    // hunters change and again kSlotsAgain frames later, once the game has
+    // filled in what it keeps about them.
+    constexpr int kSlotsAgain = 300;
+    static std::vector<std::uint32_t> last_hunters;
+    static int slots_again = 0;
+    std::vector<std::uint32_t> hunters_now;
+    for (const ListEntry &entry : quest_entries(memory))
+        if (is_hunter(memory, entry.entity)) hunters_now.push_back(entry.entity);
+    std::sort(hunters_now.begin(), hunters_now.end());
+    hunters_now.erase(std::unique(hunters_now.begin(), hunters_now.end()), hunters_now.end());
+    const bool changed = hunters_now != last_hunters;
+    if (changed) {
+        last_hunters = hunters_now;
+        slots_again = hunters_now.empty() ? 0 : kSlotsAgain;
+    }
+    if (!hunters_now.empty() && (changed || (slots_again > 0 && --slots_again == 0))) {
+        const std::vector<std::string> slots = hunter_pointer_lines(memory);
+        std::cout << "[slots] t=" << hit_trace::now_ms() << "ms wall=" << wall_ms() << ' ' << slots.size()
+                  << " words point at a hunter\n";
+        for (const std::string &line : slots) std::cout << line << '\n';
+        std::cout.flush();
+    }
     static std::vector<std::uint32_t> last;
     std::vector<std::uint32_t> now;
     for (const HealthSeen &monster : quest_health(memory)) now.push_back(monster.object);
@@ -1549,6 +1572,33 @@ std::vector<std::string> roster_lines(const psprecomp::GuestMemory &memory) {
                 static_cast<double>(load_float(entity + layout::kPosition)),
                 static_cast<double>(load_float(entity + layout::kPosition + 4u)),
                 static_cast<double>(load_float(entity + layout::kPosition + 8u)));
+        lines.emplace_back(line);
+    }
+    return lines;
+}
+
+std::vector<std::string> hunter_pointer_lines(const psprecomp::GuestMemory &memory) {
+    std::vector<std::string> lines;
+    const std::vector<ListEntry> entries = quest_entries(memory);
+    const std::vector<std::uint32_t> classes = hunter_classes(memory, entries);
+    std::vector<std::uint32_t> hunters;
+    for (const ListEntry &entry : entries)
+        if (layout::in_ram(entry.entity) && memory.contains(entry.entity, 4u) &&
+            (entry.kind == layout::kPlayerNode ||
+                std::find(classes.begin(), classes.end(), memory.load32(entry.entity + layout::kVtable)) !=
+                    classes.end()) &&
+            std::find(hunters.begin(), hunters.end(), entry.entity) == hunters.end())
+            hunters.push_back(entry.entity);
+    if (hunters.empty()) return lines;
+    for (std::uint32_t at = layout::kRamStart; at < layout::kRamEnd && lines.size() < kMaxSlotLines; at += 4u) {
+        if (!memory.contains(at, 4u)) continue;
+        const std::uint32_t word = memory.load32(at);
+        if (std::find(hunters.begin(), hunters.end(), word) == hunters.end()) continue;
+        if (std::any_of(hunters.begin(), hunters.end(),
+                [at](std::uint32_t hunter) { return at >= hunter && at - hunter < kOwnSpan; }))
+            continue;
+        char line[64];
+        std::snprintf(line, sizeof(line), "[slots]   %08X -> %08X", at, word);
         lines.emplace_back(line);
     }
     return lines;
