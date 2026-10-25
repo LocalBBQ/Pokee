@@ -20,6 +20,11 @@
 //   so sharing it showed it twice. Only a hunter's hit, and a poison tick,
 //   is shared and taken in; another monster's reaches the others as before.
 //
+// - A small monster is not kept the same on every console: a hit landed on
+//   one console's copy did not move the other's health (55 before and after)
+//   and showed on the other screen where that copy was not. Only the hits on
+//   a large monster (camera::hunt_monsters, the hunt icon's) are shared.
+//
 // So the console that applies a hit sends it, as a SharedHit, once a game
 // frame in one datagram broadcast on kSyncPort through the ad hoc relay. A
 // console that receives it shows the number at once (receive_shared_hits)
@@ -90,6 +95,11 @@ struct SharedHit {
 [[nodiscard]] bool sync_enabled() noexcept;
 
 // The rest is kept with the numbers (damage_numbers.cpp).
+
+// The large monsters of the quest, whose hits are shared: the host passes
+// the hunt icon's (camera::hunt_monsters). Until it does, nothing is.
+using LargeMonsters = std::vector<std::uint32_t> (*)(const psprecomp::GuestMemory &memory);
+void set_large_monsters(LargeMonsters large) noexcept;
 
 // What received hits took off a monster that its health has not shown yet.
 struct Credit {
