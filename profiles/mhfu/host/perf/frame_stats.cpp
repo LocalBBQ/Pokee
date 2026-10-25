@@ -369,7 +369,7 @@ ThreadUsage thread_usage() {
     rusage r{};
     if (getrusage(who, &r) == 0) {
         usage.cpu_ms = (static_cast<double>(r.ru_utime.tv_sec + r.ru_stime.tv_sec) * 1000.0) +
-                       (static_cast<double>(r.ru_utime.tv_usec + r.ru_stime.tv_usec) / 1000.0);
+            (static_cast<double>(r.ru_utime.tv_usec + r.ru_stime.tv_usec) / 1000.0);
         usage.minor_faults = r.ru_minflt;
         usage.major_faults = r.ru_majflt;
         usage.voluntary = r.ru_nvcsw;
