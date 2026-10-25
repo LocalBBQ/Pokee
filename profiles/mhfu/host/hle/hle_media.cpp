@@ -247,7 +247,8 @@ void feed_mouse(gpu::VulkanRenderer &renderer) {
 // the camera hook when either of those, or MHFU_TRACE_HITS, is on.
 std::optional<game::EyePose> damage_numbers_pose(Runtime &rt) {
     camera::game_camera_want_pose(
-        settings::current().damage_numbers || settings::current().gather_icon || game::hit_trace::enabled());
+        settings::current().damage_numbers != settings::DamageNumbers::Off || settings::current().gather_icon ||
+        game::hit_trace::enabled());
     const std::optional<camera::CameraPose> pose = camera::game_camera_pose(rt.memory());
     if (!pose) return std::nullopt;
     return game::EyePose{
@@ -343,7 +344,9 @@ void present_frame(Runtime &rt) {
     }
     const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
     game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
-    game::damage_numbers_frame(settings::current().damage_numbers, &rt.memory(), pose);
+    const settings::DamageNumbers numbers = settings::current().damage_numbers;
+    game::damage_numbers_frame(numbers != settings::DamageNumbers::Off, &rt.memory(), pose,
+        numbers == settings::DamageNumbers::Mine ? game::Whose::Mine : game::Whose::Everyone);
     if (game::body_trace::enabled()) {
         static game::body_trace::Tracker bodies{game::body_trace::watch_offset()};
         bodies.frame(rt.memory(), std::cout);
