@@ -164,29 +164,6 @@ void trace_damage(
 // console can be found on another and each console's own hunter is known.
 // Effects and shots come and go on the list too; they alone print nothing.
 void trace_roster(const psprecomp::GuestMemory &memory) {
-    // The words that point at a hunter (hunter_pointer_lines), when the
-    // hunters change and again kSlotsAgain frames later, once the game has
-    // filled in what it keeps about them.
-    constexpr int kSlotsAgain = 300;
-    static std::vector<std::uint32_t> last_hunters;
-    static int slots_again = 0;
-    std::vector<std::uint32_t> hunters_now;
-    for (const ListEntry &entry : quest_entries(memory))
-        if (is_hunter(memory, entry.entity)) hunters_now.push_back(entry.entity);
-    std::sort(hunters_now.begin(), hunters_now.end());
-    hunters_now.erase(std::unique(hunters_now.begin(), hunters_now.end()), hunters_now.end());
-    const bool changed = hunters_now != last_hunters;
-    if (changed) {
-        last_hunters = hunters_now;
-        slots_again = hunters_now.empty() ? 0 : kSlotsAgain;
-    }
-    if (!hunters_now.empty() && (changed || (slots_again > 0 && --slots_again == 0))) {
-        const std::vector<std::string> slots = hunter_pointer_lines(memory);
-        std::cout << "[slots] t=" << hit_trace::now_ms() << "ms wall=" << wall_ms() << ' ' << slots.size()
-                  << " words point at a hunter\n";
-        for (const std::string &line : slots) std::cout << line << '\n';
-        std::cout.flush();
-    }
     static std::vector<std::uint32_t> last;
     std::vector<std::uint32_t> now;
     for (const HealthSeen &monster : quest_health(memory)) now.push_back(monster.object);
@@ -397,11 +374,11 @@ void trace_computed(const psprecomp::GuestMemory &memory, const ComputedHit &hit
         : 0u;
     char line[320];
     std::snprintf(line, sizeof(line),
-        "[dmg] t=%llums wall=%llu frame=%llu computed %08X part %d by %08X (player %d, slot %d) attack %08X: total %d element %d "
+        "[dmg] t=%llums wall=%llu frame=%llu computed %08X part %d by %08X (player %d) attack %08X: total %d element %d "
         "(%.2f before truncation; bits %04X, %s) marks %02X hitzone %.3f scale %.3f -> %d (element %d)%s%s",
         static_cast<unsigned long long>(hit_trace::now_ms()), wall_ms(),
         static_cast<unsigned long long>(frame_count().load(std::memory_order_relaxed)), hit.monster, hit.part,
-        hit.attacker, number.player, number.slot, hit.attack, hit.total, hit.element, static_cast<double>(hit.element_exact), bits,
+        hit.attacker, number.player, hit.attack, hit.total, hit.element, static_cast<double>(hit.element_exact), bits,
         element_name(element_of(bits)), marks,
         static_cast<double>(hit.hitzone), static_cast<double>(hit.scale), number.amount, number.element,
         number.contact ? "; at " : "; no contact point", number.contact && number.rule != nullptr ? number.rule : "");
@@ -449,7 +426,6 @@ void note_computed(const psprecomp::GuestMemory &memory, const psprecomp::Allegr
     const std::optional<int> health = monster_health(memory, hit->monster);
     if (!health || *health <= 0 || is_hunter(memory, hit->monster)) return;
     Number number = number_for(*hit, player_of(memory, hit->attacker));
-    number.slot = slot_of(memory, hit->attacker);
     if (contact_enabled()) {
         const char *rule = nullptr;
         if (const std::optional<WorldPoint> contact =
@@ -713,20 +689,6 @@ std::vector<Offset> sparkle_shape() {
     constexpr float kWaistAcross = 0.20f, kWaistUp = 0.40f;
     return {{-1.0f, 0.0f}, {-kWaistAcross, -kWaistUp}, {0.0f, -1.0f}, {kWaistAcross, -kWaistUp}, {1.0f, 0.0f},
         {kWaistAcross, kWaistUp}, {0.0f, 1.0f}, {-kWaistAcross, kWaistUp}};
-}
-
-std::optional<Ink> player_tint(int slot) noexcept {
-    switch (slot) {
-    case 0: return Ink{232, 72, 64};
-    case 1: return Ink{64, 132, 240};
-    case 2: return Ink{236, 200, 48};
-    case 3: return Ink{72, 196, 96};
-    default: return std::nullopt;
-    }
-}
-
-std::optional<Ink> number_tint(const Number &number) noexcept {
-    return player_tint(number.slot >= 0 ? number.slot : number.player);
 }
 
 std::optional<int> damage_shown(int health_before, int health_after) noexcept {
@@ -1395,32 +1357,6 @@ int player_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker) {
     return std::min(1 + static_cast<int>(found - others.begin()), 3);
 }
 
-bool parse_slot_colours(const char *text) noexcept {
-    return text == nullptr || std::strcmp(text, "0") != 0;
-}
-
-bool slot_colours_enabled() noexcept {
-    static const bool enabled = parse_slot_colours(std::getenv("MHFU_DAMAGE_NUMBERS_SLOT_COLOURS"));
-    return enabled;
-}
-
-int slot_of(const psprecomp::GuestMemory &memory, std::uint32_t attacker) {
-    if (attacker == 0u || !slot_colours_enabled() ||
-        !memory.contains(layout::kPlayerSlots, 4u * layout::kPlayerSlotCount))
-        return -1;
-    std::array<std::uint32_t, layout::kPlayerSlotCount> slots{};
-    int found = -1;
-    for (std::uint32_t i = 0; i < layout::kPlayerSlotCount; ++i) {
-        const std::uint32_t hunter = memory.load32(layout::kPlayerSlots + 4u * i);
-        slots[i] = hunter;
-        if (hunter == 0u) continue;
-        if (!is_hunter(memory, hunter) || std::find(slots.begin(), slots.begin() + i, hunter) != slots.begin() + i)
-            return -1;
-        if (hunter == attacker) found = static_cast<int>(i);
-    }
-    return found;
-}
-
 Number number_for(const ComputedHit &hit, int player) {
     const HitAmount shown = hit_amount(hit);
     Number number = make_number(shown.amount, grade_share(hit.hitzone, hit.affinity), 0);
@@ -1618,33 +1554,6 @@ std::vector<std::string> roster_lines(const psprecomp::GuestMemory &memory) {
                 static_cast<double>(load_float(entity + layout::kPosition)),
                 static_cast<double>(load_float(entity + layout::kPosition + 4u)),
                 static_cast<double>(load_float(entity + layout::kPosition + 8u)));
-        lines.emplace_back(line);
-    }
-    return lines;
-}
-
-std::vector<std::string> hunter_pointer_lines(const psprecomp::GuestMemory &memory) {
-    std::vector<std::string> lines;
-    const std::vector<ListEntry> entries = quest_entries(memory);
-    const std::vector<std::uint32_t> classes = hunter_classes(memory, entries);
-    std::vector<std::uint32_t> hunters;
-    for (const ListEntry &entry : entries)
-        if (layout::in_ram(entry.entity) && memory.contains(entry.entity, 4u) &&
-            (entry.kind == layout::kPlayerNode ||
-                std::find(classes.begin(), classes.end(), memory.load32(entry.entity + layout::kVtable)) !=
-                    classes.end()) &&
-            std::find(hunters.begin(), hunters.end(), entry.entity) == hunters.end())
-            hunters.push_back(entry.entity);
-    if (hunters.empty()) return lines;
-    for (std::uint32_t at = layout::kRamStart; at < layout::kRamEnd && lines.size() < kMaxSlotLines; at += 4u) {
-        if (!memory.contains(at, 4u)) continue;
-        const std::uint32_t word = memory.load32(at);
-        if (std::find(hunters.begin(), hunters.end(), word) == hunters.end()) continue;
-        if (std::any_of(hunters.begin(), hunters.end(),
-                [at](std::uint32_t hunter) { return at >= hunter && at - hunter < kOwnSpan; }))
-            continue;
-        char line[64];
-        std::snprintf(line, sizeof(line), "[slots]   %08X -> %08X", at, word);
         lines.emplace_back(line);
     }
     return lines;
@@ -1876,7 +1785,6 @@ void receive_shared_hits(const psprecomp::GuestMemory &memory, const std::vector
         number.object = hit.monster;
         number.attacker = hit.attacker;
         number.player = hit.poison ? -1 : player_of(memory, hit.attacker);
-        number.slot = hit.poison ? -1 : slot_of(memory, hit.attacker);
         if (hit.at) {
             number.at = *hit.at;
             number.anchored = true;
@@ -1884,8 +1792,7 @@ void receive_shared_hits(const psprecomp::GuestMemory &memory, const std::vector
             number.rule = "shared";
         }
         char note[64];
-        std::snprintf(note, sizeof(note), " by %08X (player %d, slot %d)", number.attacker, number.player,
-            number.slot);
+        std::snprintf(note, sizeof(note), " by %08X (player %d)", number.attacker, number.player);
         trace_damage(&memory, "received", number.object, number.amount, monster->health, note);
         numbers.push_back(number);
     }
