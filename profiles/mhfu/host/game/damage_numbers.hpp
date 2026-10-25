@@ -145,6 +145,10 @@
 // the frame compares against, so a poison tick on this console stays hidden;
 // one received from another console cannot be told from a hit.
 // MHFU_DAMAGE_NUMBERS_HEALTH_WATCH=0 turns that reading off, for comparing.
+// With the hits shared (game/damage_sync.hpp), each hit another console
+// applied arrives from it as it lands and is shown then; a drop from the
+// network waits kDropHold and shows only what the hits received do not
+// explain.
 
 #include "game/guest_layout.hpp"
 #include "psprecomp/allegrex_context.hpp"
@@ -297,6 +301,7 @@ struct Number {
     int element{};          // the element share of amount, 0 when none is known
     Element kind{};         // that element
     int player{-1};         // whose hit (player_tint); -1 when not known
+    std::uint32_t attacker{}; // the attacking entity, the same on every console; 0 when not known
     bool poison{};          // a poison tick, not a hit: light purple, riding the monster's body
     float age{};
     int lane{};
