@@ -723,6 +723,28 @@ void test_interface_sizes() {
             long_all[18].y == 46.0f && long_all[24].y == 95.0f && long_all[30].x == 376.0f &&
             long_all[36].x == 344.0f && long_all[36].y == 168.0f && long_all[42].x == 447.5f && long_all[42].y == 91.5f,
         "a long notice stays put inside the area map, and the player's arrow still follows the map");
+    // The gathering notice ("There is nothing else here.") ends in caps at x
+    // 334. The arrow turned diagonally is 15 by 15, the size of the border's
+    // 16-tall piece, and in Jungle area 4 it sat just above the top cap.
+    Frame gather_notice;
+    std::vector<Vertex> gather_map(6, Vertex{316.0f, 32.0f});
+    gather_map[2] = {468.0f, 184.0f};
+    mhfu::gpu::hud_scale::scale_quads(gather_map, map_half, gather_notice);
+    std::vector<Vertex> gather_border(6, Vertex{334.0f, 121.0f});
+    gather_border[2] = {350.0f, 129.0f};
+    std::vector<Vertex> gather_mid(6, Vertex{334.0f, 129.0f});
+    gather_mid[2] = {350.0f, 145.0f};
+    std::vector<Vertex> gather_bottom(6, Vertex{334.0f, 145.0f});
+    gather_bottom[2] = {350.0f, 153.0f};
+    gather_border.insert(gather_border.end(), gather_mid.begin(), gather_mid.end());
+    gather_border.insert(gather_border.end(), gather_bottom.begin(), gather_bottom.end());
+    mhfu::gpu::hud_scale::scale_quads(gather_border, map_half, gather_notice, 0x091644A0u);
+    std::vector<Vertex> gather_arrow(6, Vertex{336.0f, 103.0f});
+    gather_arrow[2] = {351.0f, 118.0f};
+    mhfu::gpu::hud_scale::scale_quads(gather_arrow, map_half, gather_notice, mhfu::gpu::hud_scale::kMapIconTexture);
+    check(gather_border[6].x == 334.0f && gather_border[6].y == 129.0f && gather_arrow[0].x == 402.0f &&
+            gather_arrow[0].y == 67.5f && gather_arrow[2].x == 409.5f && gather_arrow[2].y == 75.0f,
+        "the gathering notice's border stays put, and the arrow just above its cap still follows the map");
     const Scales bar_notice{1.0f, 1.0f, 0.5f, 1.0f, 1.0f, 0.5f};
     Frame notice_center;
     std::vector<Vertex> edge_top(6, Vertex{312.0f, 120.0f});
