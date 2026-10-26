@@ -127,7 +127,7 @@ Add a screen whenever a menu, banner or window inside a quest was resized by mis
 3. `MHFU_UPDATE_HUD_SCALE_FIXTURES=1 out/mhfu/bin/mhfu_hud_scale_replay_tests` writes `<screen>.expected`. Read it. It records what happens now, bug included, so the fix shows as changed lines.
 4. Fix the rule, write the files again, and review the diff of every `.expected`: each changed line is a quad now drawn somewhere else. Only the screen you meant should change.
 
-The trace has no clock hands or turned map arrow (those are strips, not sprites) and no aim, and its `owner=` and `name=` fields are what the build that took it knew. After the owner or name tracking changes, take the screen again.
+A trace taken since the quest HUD's parts were told apart by the function that drew them has a `site=` field on each sprite, and its quest HUD quads replay through that table; an older trace without it replays through the rectangles. The trace has no clock hands or turned map arrow (those are strips, not sprites) and no aim, and its `owner=`, `site=` and `name=` fields are what the build that took it knew. After the owner, site or name tracking changes, take the screen again.
 
 ## Smoke test
 

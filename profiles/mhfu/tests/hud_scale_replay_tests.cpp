@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -56,8 +57,18 @@ struct Sprite {
     float u0{}, v0{}, u1{}, v1{};
     std::uint32_t texture{};
     hud::Owner owner{hud::Owner::Unknown};
+    // The part of the quest HUD that drew it; None in a trace from before
+    // sites were traced, which the rectangles decide.
+    hud::Site site{hud::Site::None};
     hud::NameDraw name;
 };
+
+hud::Site site_named(const std::string &text) {
+    for (const hud::Site site : {hud::Site::Unlisted, hud::Site::Window, hud::Site::Names, hud::Site::Status,
+             hud::Site::Weapon, hud::Site::Map, hud::Site::ItemBar, hud::Site::AmmoBar})
+        if (text == hud::site_name(site)) return site;
+    return hud::Site::None;
+}
 
 // The value after `key` up to the next space, or empty.
 std::string field(const std::string &line, const std::string &key) {
@@ -87,6 +98,7 @@ bool parse(const std::string &line, Sprite &sprite) {
         sprite.texture = static_cast<std::uint32_t>(std::strtoul(line.c_str() + tex + 7, nullptr, 16));
     const std::string owner = field(line, " owner=");
     sprite.owner = owner == "quest" ? hud::Owner::QuestHud : owner == "other" ? hud::Owner::Other : hud::Owner::Unknown;
+    sprite.site = site_named(field(line, " site="));
     if (field(line, " name=") == "1") {
         sprite.name.is_name = true;
         sprite.name.glyph = line.find(" name=1 letter") != std::string::npos;
@@ -136,7 +148,7 @@ void draw(Replay &replay, hs::Frame &frame, const std::vector<Sprite> &sprites) 
     if (head.name.is_name) {
         hs::scale_name_draw(scaled, kScales, frame, head.name, hs::InterfaceFit{});
     } else {
-        hs::scale_quads(scaled, kScales, frame, head.texture, head.owner, &decisions);
+        hs::scale_quads(scaled, kScales, frame, head.texture, head.owner, &decisions, head.site);
     }
     for (std::size_t first = 0; first + 6u <= drawn.size(); first += 6u) {
         const bool moved = hs::quad_moved(drawn, scaled, first);
@@ -261,6 +273,43 @@ void test_parse_and_owner() {
     draw(other, fresh, {menu});
     check(other.other_moved == 0 && other.lines[0].find("none not-owner was map") != std::string::npos,
         "the same rectangle filed by other code stays, and says what it would have been");
+
+    // With a site, the part that drew a quad is its piece, whatever its shape.
+    Sprite window;
+    check(parse("[sprite] f=10 at=0x5 ret=0x0 vtx=0x2 fb=0x4000000 z=0 pos=(316,32)-(468,184) uv=(0,0)-(152,152) "
+                "tex=1 0x419c200 256x256 owner=quest site=window name=0",
+              window),
+        "a sprite with a site parses");
+    check(window.site == hud::Site::Window, "its site is read");
+    Replay left;
+    hs::Frame left_frame;
+    draw(left, left_frame, {window});
+    check(left.lines[0].find("none site") != std::string::npos,
+        "a window's quad stays, though it has the map tile's rectangle and texture");
+    // The weapon's gauge drawn over the item bar's corner still goes with
+    // the stack under stamina, and moves as Status does.
+    Sprite gauge = map;
+    gauge.site = hud::Site::Weapon;
+    gauge.x0 = 320.0f, gauge.y0 = 210.0f, gauge.x1 = 330.0f, gauge.y1 = 220.0f;
+    Replay weapon;
+    hs::Frame weapon_frame;
+    draw(weapon, weapon_frame, {gauge});
+    Sprite vitals = gauge;
+    vitals.site = hud::Site::Status;
+    Replay status;
+    hs::Frame status_frame;
+    draw(status, status_frame, {vitals});
+    // A moved quad's line ends with where it went.
+    const auto went = [](const std::string &line) { return line.substr(line.rfind(" (") + 1u); };
+    check(weapon.lines[0].find("weapon site") != std::string::npos, "a weapon site is sized as the weapon");
+    check(went(weapon.lines[0]) != "(320,210)-(330,220)" && went(weapon.lines[0]) == went(status.lines[0]),
+        "and lands where Status puts the same quad: the stack follows stamina");
+    Sprite unlisted = map;
+    unlisted.site = hud::Site::Unlisted;
+    Replay kept;
+    hs::Frame kept_frame;
+    draw(kept, kept_frame, {unlisted});
+    check(kept.lines[0].find("none site") != std::string::npos, "a part not in the table stays as drawn");
 }
 
 } // namespace
