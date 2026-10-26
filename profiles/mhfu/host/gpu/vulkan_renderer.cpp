@@ -2139,9 +2139,9 @@ struct VulkanRenderer::Impl {
         std::uint32_t vertex_count, bool joined, bool raw = false, VkBuffer vertices = VK_NULL_HANDLE);
     // The group just recorded is a name over a hunter placed at (origin_x,
     // origin_y), drawn with `drawn` from the guest texture at `texture`, for
-    // the hall hunter `hunter` (0 when not known).
+    // the hall label numbered `number` (0 when not known).
     void record_name_for_replay(const std::vector<GpuVertex> &drawn, float origin_x, float origin_y,
-        std::uint32_t texture, std::uint32_t hunter) {
+        std::uint32_t texture, std::uint32_t number) {
         FrameRecord &frame = recording_frame;
         if (!interpolating || !frame.recorded || frame.groups.empty() || drawn.empty()) return;
         ReplayGroup &group = frame.groups.back();
@@ -2155,7 +2155,7 @@ struct VulkanRenderer::Impl {
         name.place.v = drawn.front().v;
         name.place.texture = texture;
         name.place.vertices = static_cast<std::uint32_t>(drawn.size());
-        name.place.hunter = hunter;
+        name.place.number = number;
         name.first = static_cast<std::uint32_t>(frame.name_vertices.size());
         frame.name_vertices.insert(frame.name_vertices.end(), drawn.begin(), drawn.end());
         group.name = static_cast<std::uint32_t>(frame.names.size());
@@ -8475,9 +8475,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // A gathering-hall name at the size the game draws is only moved, so
     // without interpolation it is drawn as any other 2D draw.
     // MHFU_HUD_SCALE_SITES=0 tells a hall label's pieces apart by their
-    // places again, as before their hunter was read, to compare both.
+    // places again, as before their order was read, to compare both.
     if (!hud::sites_on()) {
-        named.hunter = 0u;
+        named.label = 0u;
         named.part = hud::LabelPart::Unknown;
     }
     const bool sized_name = hud_scale::sizes_name(named, hud_scales, hall_names_sized());
@@ -9176,7 +9176,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             fit.apply(origin_x, origin_y);
         }
         impl.record_name_for_replay(
-            corner_scaled, origin_x, origin_y, call.texture.address, named.hall ? named.hunter : 0u);
+            corner_scaled, origin_x, origin_y, call.texture.address, named.hall ? named.label : 0u);
     };
     if (merge) {
         const Impl::DrawState state{
