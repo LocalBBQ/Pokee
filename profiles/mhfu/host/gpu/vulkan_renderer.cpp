@@ -8127,6 +8127,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         // watched, so "other" before that means not known yet.
         const hud::NameDraw traced_name = hud::name_at(call.command_address, call.call_return);
         const hud::Owner traced_owner = hud::owner_of(call.command_address, call.call_return);
+        const hud::SiteDraw traced_site = hud::site_draw_of(call.command_address, call.call_return);
         const char *const owner_text = traced_owner == hud::Owner::QuestHud ? "quest"
             : traced_owner == hud::Owner::Other                             ? "other"
                                                                             : "unknown";
@@ -8153,8 +8154,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                       << " blend=" << (call.blend.enabled ? 1 : 0) << " color=0x" << std::hex << b.color << std::dec
                       << " scissor=(" << call.viewport.scissor_x1 << "," << call.viewport.scissor_y1 << ")-("
                       << call.viewport.scissor_x2 << "," << call.viewport.scissor_y2 << ") owner=" << owner_text
-                      << " site=" << hud::site_name(hud::site_of(call.command_address, call.call_return))
-                      << name_text.str() << "\n";
+                      << " site=" << hud::site_name(traced_site.site) << " call=0x" << std::hex << traced_site.call
+                      << std::dec << name_text.str() << "\n";
         }
     }
 
@@ -8446,9 +8447,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // takes its part's size whatever its shape, and anything else the quest
     // HUD draws stays as drawn. MHFU_HUD_SCALE_SITES=0 goes back to telling
     // the parts apart by their rectangles, to compare both (hud::sites_on).
-    const hud::Site hud_site = hud::sites_on() && hud_owner == hud::Owner::QuestHud
-        ? hud::site_of(call.command_address, call.call_return)
-        : hud::Site::None;
+    const hud::SiteDraw hud_drawn = hud::sites_on() && hud_owner == hud::Owner::QuestHud
+        ? hud::site_draw_of(call.command_address, call.call_return)
+        : hud::SiteDraw{};
+    const hud::Site hud_site = hud_drawn.site;
     // The clock's hands and the player's arrow on the map turn, so they are
     // drawn as one quad each: a four-vertex strip, six vertices expanded.
     const bool turned_quad = call.primitive == PrimitiveType::TriangleStrip && count == 4u;
@@ -8505,7 +8507,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             // The cat's face drawn outside the through-mode HUD: its part
             // decides, as for any other quest HUD draw.
             hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame,
-                call.texture.enabled ? call.texture.address : 0u, hud_owner, nullptr, hud_site);
+                call.texture.enabled ? call.texture.address : 0u, hud_owner, nullptr, hud_drawn);
             scale_corners = false;
             for (std::size_t first = 0; !scale_corners && first + 6u <= corner_scaled.size(); first += 6u)
                 scale_corners = hud_scale::quad_moved(unscaled, corner_scaled, first);
@@ -8546,8 +8548,11 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             }();
             std::vector<hud_scale::Decision> decisions;
             hud_scale::scale_quads(corner_scaled, hud_scales, impl.hud_scale_frame, hud_texture, hud_owner,
-                trace_hud_scale != 0 || trace_map_marks_mode != 0 ? &decisions : nullptr, hud_site);
-            map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture);
+                trace_hud_scale != 0 || trace_map_marks_mode != 0 ? &decisions : nullptr, hud_drawn);
+            map_bounds = hud_scale::moved_map_bounds(unscaled, corner_scaled, hud_texture,
+                hud_scale::by_site(hud_owner, hud_site)
+                    ? std::optional<bool>(hud_site == hud::Site::Map && hud_scale::is_map_picture_call(hud_drawn.call))
+                    : std::nullopt);
             // MHFU_TRACE_MAP_MARKS: every quad near the map, every frame, with
             // the piece it was given and the frame state that let it move or
             // held it: map up, a window over the map, the item list.
