@@ -344,40 +344,73 @@ void test_trace_lines() {
         "the name over a teammate is listed as queued by that call");
 }
 
-// A hall label's pieces carry the hunter they are for: 0x088351F0 keeps the
-// hunter's object in s0 and the label function 0x08835470 saves it at 40(sp).
-// The call in the label names the piece (LabelPart).
-void test_hall_label_hunter() {
+// The hall labels are all drawn in one call of 0x08835470: each a badge, that
+// name's text and its marks before the next badge, traced with
+// MHFU_TRACE_CAPTURE. The labels are numbered in that order, every piece takes
+// the number of the label it follows, and the call in the label names the
+// piece.
+void test_hall_label_order() {
     psprecomp::Runtime runtime;
     auto &memory = runtime.memory();
     const HudFunction &lobby = hud_functions()[1];
     memory.store32(lobby.address, lobby.first);
     memory.store32(lobby.address + 4u, lobby.saved_ra);
-    const StackFrame drawer{0x0882A9DCu, 0x27BDFFE0u, 0xAFBF001Cu}; // files the badge's packet
+    const StackFrame drawer{0x0882A9DCu, 0x27BDFFE0u, 0xAFBF001Cu}; // files a piece's packet
     const StackFrame label{0x08835470u, 0x27BDFF50u, 0xAFBF004Cu};
-    const StackFrame per_hunter{0x088351F0u, 0x27BDFFE0u, 0xAFBF001Cu};
+    const StackFrame per_frame{0x088351F0u, 0x27BDFFE0u, 0xAFBF001Cu};
     const StackFrame root{lobby.address, lobby.first, lobby.saved_ra};
+    constexpr std::uint32_t kContext = 0x09100000u;
+    constexpr std::uint32_t kEntries = 0x09110000u;
+    constexpr std::uint32_t kGlyphStack = 0x09F10000u;
+    memory.store32(0x08A632C8u, kContext);
+    memory.store32(kContext + 320u, kEntries);
+    memory.store8(kContext + 308u, 0u);
+    memory.store16(kEntries, 225u);
+    memory.store16(kEntries + 2u, 123u);
+    memory.store16(kEntries + 12u, 58u);
+    memory.store16(kEntries + 14u, 121u);
     watch_for_tests();
 
-    const auto file = [&](std::uint32_t hunter, std::uint32_t call_in_label, std::uint32_t packet) {
-        psprecomp::AllegrexContext ctx = filed_through(memory, {drawer, label, per_hunter, root}, packet, 16u);
-        // The drawer returns to `call_in_label`, and the label's frame holds the hunter.
+    // A piece filed from `call_in_label`, the call in the label function.
+    const auto file = [&](std::uint32_t call_in_label, std::uint32_t packet) {
+        psprecomp::AllegrexContext ctx = filed_through(memory, {drawer, label, per_frame, root}, packet, 16u);
         memory.store32(kStack + (drawer.saved_ra & 0xFFFFu), call_in_label);
-        const std::uint32_t label_sp = kStack + (0x10000u - (drawer.first & 0xFFFFu));
-        memory.store32(label_sp + 40u, hunter);
         packet_filed(runtime, ctx);
     };
-    file(0x09A10000u, 0x088357D0u, 0x0900B000u);
-    file(0x09A20000u, 0x08835C50u, 0x0900B100u);
-    file(0x09A20000u, 0x08835D0Cu, 0x0900B200u);
-    const NameDraw badge = name_at(0x0900B010u, 0u);
-    const NameDraw paper = name_at(0x0900B110u, 0u);
-    const NameDraw ready = name_at(0x0900B210u, 0u);
-    check(badge.is_name && badge.hall && badge.hunter == 0x09A10000u && badge.part == LabelPart::Badge,
-        "a badge is its hunter's, and a badge");
-    check(paper.hunter == 0x09A20000u && paper.part == LabelPart::QuestPaper, "a quest paper is its own hunter's");
-    check(ready.hunter == 0x09A20000u && ready.part == LabelPart::Ready, "so is a ready mark");
-    check(label_part_of_call(0x0883553Cu) == LabelPart::Unknown, "the label's other draws are no piece");
+    const auto glyph = [&](std::uint32_t index, std::uint32_t packet) {
+        memory.store32(kGlyphStack + 44u, 0x0889384Cu);
+        memory.store32(kGlyphStack + 20u, kEntries + index * 12u);
+        psprecomp::AllegrexContext ctx{};
+        ctx.gpr[29] = kGlyphStack;
+        ctx.gpr[31] = 0x08893C2Cu;
+        ctx.gpr[5] = packet;
+        ctx.gpr[6] = 16u;
+        packet_filed(runtime, ctx);
+    };
+    file(0x088357D0u, 0x0900B000u); // the player's badge, in two packets
+    file(0x088357D0u, 0x0900B040u);
+    memory.store8(kContext + 308u, 1u); // the player's name
+    file(0x088357D0u, 0x0900B100u);     // the other hunter's badge
+    file(0x088357D0u, 0x0900B140u);
+    memory.store8(kContext + 308u, 2u); // the other hunter's name
+    file(0x08835C50u, 0x0900B200u);     // a quest paper, after that name
+    glyph(0u, 0x0900B300u);
+    glyph(1u, 0x0900B400u);
+    check(name_at(0x0900B010u, 0u).label == 1u && name_at(0x0900B050u, 0u).label == 1u &&
+            name_at(0x0900B010u, 0u).part == LabelPart::Badge,
+        "the first badge, both its packets, is the first label");
+    check(name_at(0x0900B110u, 0u).label == 2u, "the next badge starts the second label");
+    check(name_at(0x0900B210u, 0u).label == 2u && name_at(0x0900B210u, 0u).part == LabelPart::QuestPaper,
+        "a quest paper after the second name is the second label's");
+    check(name_at(0x0900B310u, 0u).label == 1u && name_at(0x0900B410u, 0u).label == 2u,
+        "each name's letters are the label they were queued after");
+    check(name_at(0x0900B010u, 0u).has_origin && name_at(0x0900B010u, 0u).origin_x == 225.0f,
+        "a badge takes the point of its own name");
+    frame(runtime, 1u);
+    file(0x088357D0u, 0x0900C000u);
+    check(name_at(0x0900C010u, 0u).label == 1u, "the numbers start again each frame");
+    check(label_part_of_call(0x0883553Cu) == LabelPart::Unknown && label_part_of_call(0x08835D0Cu) == LabelPart::Ready,
+        "the label's other draws are no piece; 0x08835D0C is the ready mark");
 }
 
 // The names over other hunters in an ad hoc quest come from resident
@@ -602,7 +635,7 @@ int main() {
     test_names_over_characters();
     test_overhead_name();
     test_hall_names();
-    test_hall_label_hunter();
+    test_hall_label_order();
     test_capture_schedule();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
