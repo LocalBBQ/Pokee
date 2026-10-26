@@ -155,6 +155,58 @@ struct NameDraw {
 enum class Owner { Unknown, QuestHud, Other };
 [[nodiscard]] Owner owner_of(std::uint32_t command_address, std::uint32_t call_return);
 
+// Which part of the quest HUD drew a QuestHud draw, read from the same call
+// stack. Traced with MHFU_TRACE_CAPTURE in two ad hoc instances, across the
+// bowgun, bow, horn, gunlance and long sword, the camp, the area map with and
+// without the Map item, the ammo menu, the item box, the quest menu, Combine,
+// the obtain banner and a teammate leaving: every quest HUD packet is filed
+// under the dispatcher 0x0883F270, and each piece of the HUD is its own
+// function below it. The menus, banners and the item box the game draws in
+// the same corners are other functions below it, so they never share a site
+// with a piece. The innermost function on the stack that is in the table
+// (site_functions()) decides, so a name drawn from the party list's code is
+// still a name.
+// - None: not a QuestHud draw, or not watched.
+// - Unlisted: the quest HUD, from no function in the table. Left as drawn.
+// - Window: a menu, banner, prompt or the item box over the HUD. Left as drawn.
+// - Names: a name over a hunter, which NameDraw sizes. No other size.
+// - Status, Weapon, Map, ItemBar, AmmoBar: the pieces the interface sizes move.
+enum class Site : std::uint8_t { None, Unlisted, Window, Names, Status, Weapon, Map, ItemBar, AmmoBar };
+[[nodiscard]] inline const char *site_name(Site site) {
+    switch (site) {
+    case Site::None:
+        return "none";
+    case Site::Unlisted:
+        return "unlisted";
+    case Site::Window:
+        return "window";
+    case Site::Names:
+        return "names";
+    case Site::Status:
+        return "status";
+    case Site::Weapon:
+        return "weapon";
+    case Site::Map:
+        return "map";
+    case Site::ItemBar:
+        return "items";
+    case Site::AmmoBar:
+        return "ammo-bar";
+    }
+    return "none";
+}
+[[nodiscard]] Site site_of(std::uint32_t command_address, std::uint32_t call_return);
+
+// One function of the site table, and its first word (addiu sp, sp, -N),
+// which must still be there when the stack is walked.
+struct SiteFunction {
+    std::uint32_t address;
+    std::uint32_t first;
+    Site site;
+};
+// Exposed for tests.
+[[nodiscard]] std::span<const SiteFunction> site_functions();
+
 // MHFU_TRACE_CAPTURE=1: each screenshot also traces the frames around it, so
 // one run can catch a moment that cannot be given as a frame number in
 // advance (another player's name in view, a menu over the HUD). The 2D
@@ -207,5 +259,8 @@ void overhead_name_end(psprecomp::Runtime &runtime);
 // Has owner_of() answer as it does once the wrappers are in place, and
 // forgets every packet seen. For tests.
 void watch_for_tests();
+// Has the next packets and text be traced as MHFU_TRACE_HUD traces them. For
+// tests.
+void trace_for_tests();
 
 } // namespace mhfu::gpu::hud

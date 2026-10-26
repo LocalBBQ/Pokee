@@ -145,6 +145,41 @@ constexpr std::uint32_t kQuestLoaded = 0x09A60298u;
 // The lobby callback whose words show that lobby_task is loaded.
 constexpr std::uint32_t kLobbyLoaded = 0x09A6C248u;
 
+// The quest HUD's parts by the resident function that draws them (Site in
+// game_hud.hpp), traced with MHFU_TRACE_CAPTURE. The quest HUD (0x09A60298)
+// reaches the dispatcher 0x0883F270 through 0x09A62740 and 0x09A627B8; the
+// dispatcher calls the left column, the right column and the pouch's panels.
+// Each function's first word is its addiu sp, sp, -N.
+constexpr std::array<SiteFunction, 18> kSiteFunctions = {{
+    // The left column: the clock, health and stamina, the party list and the
+    // weapon's gauges. Whatever else it draws stays with them.
+    {0x0883F9F8u, 0x27BDFFF0u, Site::Status},
+    {0x08840338u, 0x27BDFFE0u, Site::Status}, // the clock
+    {0x088405E4u, 0x27BDFFD0u, Site::Status}, // health and stamina, their caps and fills
+    {0x08841908u, 0x27BDFFD0u, Site::Status}, // the party list: plates, names, badges, buffs
+    {0x08832B98u, 0x27BDFFE0u, Site::Names},  // a name over a hunter, from the party list's code
+    // Sharpness, the spirit gauge, a horn's notes, loaded rounds, a bow's
+    // coatings and a gunlance's shells.
+    {0x08841100u, 0x27BDFFD0u, Site::Weapon},
+    // The right column. Its quest menu, hint bar and description box, and the
+    // Combine windows, are its own functions, so the column itself is not
+    // listed.
+    {0x08842EE8u, 0x27BDFFF0u, Site::Map}, // the area map, its window and its marks
+    // The item bar and the item's name, with the bowgun's ammo menu that
+    // opens over it (0x08845EA8).
+    {0x08845A34u, 0x27BDFFE0u, Site::ItemBar},
+    {0x088474DCu, 0x27BDFFC0u, Site::AmmoBar}, // a bowgun's ammo bar: the shot and its count
+    {0x088471D8u, 0x27BDFFB0u, Site::AmmoBar}, // the ammo bar's frame
+    {0x08846FACu, 0x27BDFFF0u, Site::ItemBar}, // the ammo menu's arrow and highlight
+    {0x088172D8u, 0x27BDFF50u, Site::Window},  // Combine's windows
+    {0x08818C94u, 0x27BDFF90u, Site::Window},  // the quest menu
+    {0x08818F74u, 0x27BDFFF0u, Site::Window},  // its hint bar ("Beacon", "Map Zoom In")
+    {0x08819128u, 0x27BDFFE0u, Site::Window},  // its description box
+    {0x08847CB0u, 0x27BDFF70u, Site::Window},  // the item box ("Please select an item.")
+    {0x08823A50u, 0x27BDFFF0u, Site::Window},  // a banner: an item obtained, a teammate leaving
+    {0x088DB068u, 0x27BDFFF0u, Site::Window},  // a bow's or a bowgun's reticle
+}};
+
 // The text context, and in it each queue's length (u8 at +308 + queue) and
 // entries (a pointer at +320 + 4 * queue, entries of 12 bytes). The flush
 // loads it from 0x08A632C8.
@@ -247,6 +282,7 @@ struct State {
     struct Packet {
         std::uint32_t end{};
         bool quest{};
+        Site site{};
     };
     std::map<std::uint32_t, Packet> packets;
     // A text queue entry or a button icon the HUD asked for, and whether the
@@ -254,6 +290,7 @@ struct State {
     struct HudEntry {
         std::uint32_t address{};
         bool quest{};
+        Site site{};
     };
     // Text queue entries the HUD asked for, and the queues' lengths at the
     // last watched call.
@@ -295,6 +332,7 @@ struct State {
     std::uint64_t icon_frame{~0ull};
     bool last_call_hud{};
     bool last_call_quest{};
+    Site last_call_site{};
     bool last_call_name{};
     bool last_call_tag_only{};
     bool last_call_hall{};
@@ -389,11 +427,20 @@ const NameFunction *name_function_here(const psprecomp::GuestMemory &memory, std
     return nullptr;
 }
 
+// The site table's part for a frame of the stack, or Site::None when its
+// function is not listed or no longer begins with the word it was read from.
+Site site_here(const Frame &frame) {
+    for (const SiteFunction &fn : kSiteFunctions)
+        if (fn.address == frame.start) return fn.first == frame.start_word ? fn.site : Site::None;
+    return Site::None;
+}
+
 // Whether a HUD function is on the guest's call stack; the chain of return
 // addresses and function starts goes to `line` when one is given. `quest` is
-// whether the innermost HUD function on the stack is the quest HUD's.
+// whether the innermost HUD function on the stack is the quest HUD's, and
+// `site` which part of it drew (Site::None when it is not the quest HUD's).
 bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::string *line,
-    bool *name, bool *tag_only, bool *quest, bool *hall = nullptr) {
+    bool *name, bool *tag_only, bool *quest, bool *hall = nullptr, Site *site = nullptr) {
     std::uint32_t ra = ctx.gpr[31];
     std::uint32_t sp = ctx.gpr[29];
     bool hud = false;
@@ -401,6 +448,7 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     bool found_name = false;
     bool limit = false;
     bool in_hall = false;
+    Site found_site = Site::None;
     for (int depth = 0; depth < 12; ++depth) {
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
@@ -418,6 +466,9 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
                 limit = named->tag_only;
                 in_hall = named->hall;
             }
+        // The innermost listed function: the site table's functions are all
+        // below the quest HUD's, so they are met before it.
+        if (found_site == Site::None && !hud) found_site = site_here(*frame);
         if (!hud)
             if (const HudFunction *fn = hud_function_here(s, memory, frame->start)) {
                 hud = true;
@@ -432,6 +483,8 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     if (tag_only != nullptr) *tag_only = limit;
     if (quest != nullptr) *quest = from_quest;
     if (hall != nullptr) *hall = in_hall;
+    if (site != nullptr)
+        *site = !hud || !from_quest ? Site::None : found_site == Site::None ? Site::Unlisted : found_site;
     return hud;
 }
 
@@ -447,6 +500,36 @@ bool entry_origin(const psprecomp::GuestMemory &memory, std::uint32_t entry, flo
     x = static_cast<float>(static_cast<std::int16_t>(memory.load16(entry)));
     y = static_cast<float>(static_cast<std::int16_t>(memory.load16(entry + 2u)));
     return true;
+}
+
+// MHFU_TRACE_HUD: the entries [from, to) of a queue, with the point each is
+// drawn at, credited to the call traced on the line above, whatever it was.
+// A glyph's packet names its entry, so this ties the glyph to that call.
+void trace_entries(const psprecomp::GuestMemory &memory, std::uint64_t frame, std::uint32_t queue,
+    std::uint32_t entries, std::uint32_t from, std::uint32_t to, const char *by) {
+    std::cout << "[hud] f=" << frame << " queued q=" << queue << " by=" << by << " |";
+    for (std::uint32_t i = from; i < to; ++i) {
+        const std::uint32_t at = entries + i * kEntryBytes;
+        float x = 0.0f;
+        float y = 0.0f;
+        char text[40];
+        if (entry_origin(memory, at, x, y))
+            std::snprintf(text, sizeof(text), " %08X(%g,%g)", at, x, y);
+        else
+            std::snprintf(text, sizeof(text), " %08X", at);
+        std::cout << text;
+    }
+    std::cout << "\n";
+}
+
+// MHFU_TRACE_HUD: the argument and saved registers at a watched call, for
+// telling apart draws that share a call chain (a widget, a row, an id).
+std::string registers_text(const psprecomp::AllegrexContext &ctx) {
+    char text[160];
+    std::snprintf(text, sizeof(text), " a=%08X,%08X,%08X,%08X s=%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X", ctx.gpr[4],
+        ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[16], ctx.gpr[17], ctx.gpr[18], ctx.gpr[19], ctx.gpr[20],
+        ctx.gpr[21], ctx.gpr[22], ctx.gpr[23]);
+    return text;
 }
 
 // The queue entries added since the last watched call belong to the code
@@ -467,10 +550,11 @@ void settle_text(State &s, const psprecomp::GuestMemory &memory) {
             std::erase_if(s.name_entries, [&](const State::NameEntry &e) { return gone(e.address); });
             known = 0u;
         }
+        if (length > known && tracing(s)) trace_entries(memory, s.frame, queue, entries, known, length, "above");
         if (s.last_call_hud || s.last_call_name)
             for (std::uint32_t i = known; i < length; ++i) {
                 const std::uint32_t at = entries + i * kEntryBytes;
-                if (s.last_call_hud) s.text_entries.push_back(State::HudEntry{at, s.last_call_quest});
+                if (s.last_call_hud) s.text_entries.push_back(State::HudEntry{at, s.last_call_quest, s.last_call_site});
                 if (s.last_call_name)
                     s.name_entries.push_back(State::NameEntry{at, s.last_call_tag_only, s.last_call_hall});
             }
@@ -498,13 +582,13 @@ const State::HudEntry *find_entry(const std::vector<State::HudEntry> &entries, s
     return nullptr;
 }
 
-void note_packet(State &s, std::uint32_t packet, std::uint32_t words, bool hud, bool quest) {
+void note_packet(State &s, std::uint32_t packet, std::uint32_t words, bool hud, bool quest, Site site) {
     const std::uint32_t end = packet + words * 4u;
     // Whatever was filed where this packet now lies is gone.
     auto it = s.packets.lower_bound(packet);
     if (it != s.packets.begin() && std::prev(it)->second.end > packet) --it;
     while (it != s.packets.end() && it->first < end) it = s.packets.erase(it);
-    if (hud) s.packets.emplace(packet, State::Packet{end, quest});
+    if (hud) s.packets.emplace(packet, State::Packet{end, quest, site});
     if (s.packets.size() > 65536u) s.packets.clear(); // never expected; bounds a runaway
 }
 
@@ -530,12 +614,14 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     bool tag_only = false;
     bool quest = false;
     bool hall = false;
-    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &quest, &hall);
+    Site site = Site::None;
+    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &quest, &hall, &site);
     // Text a HUD function queues after drawing a packet of its own, as the
     // name plate does, is the HUD's too. The stack here is the filer, so a
     // name is the label function on that stack, or text it queued earlier.
     s.last_call_hud = hud;
     s.last_call_quest = quest;
+    s.last_call_site = site;
     s.last_call_name = name;
     s.last_call_tag_only = tag_only;
     s.last_call_hall = hall;
@@ -552,9 +638,12 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     if (ctx.gpr[31] == kGlyphFiled && memory.contains(sp + kGlyphSavedRa, 4u) &&
         memory.load32(sp + kGlyphSavedRa) == kGlyphFromQueue) {
         entry = memory.load32(sp + kGlyphSavedEntry);
+        // A glyph is drawn at the end of the frame, far from the code that
+        // queued its text: it is the part that queued it.
         if (const State::HudEntry *queued = hud ? nullptr : find_entry(s.text_entries, entry)) {
             hud = true;
             quest = queued->quest;
+            site = queued->site;
         }
         if (const State::NameEntry *named = find_name(s, entry)) {
             name = true;
@@ -570,6 +659,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
         if (const State::HudEntry *icon = hud ? nullptr : find_entry(s.icons, entry)) {
             hud = true;
             quest = icon->quest;
+            site = icon->site;
         }
         if (const auto placed = s.icon_origin.find(entry); placed != s.icon_origin.end()) {
             name = true;
@@ -580,16 +670,16 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
             origin_y = placed->second.y;
         }
     }
-    note_packet(s, ctx.gpr[5], ctx.gpr[6], hud, quest);
+    note_packet(s, ctx.gpr[5], ctx.gpr[6], hud, quest, site);
     note_name_packet(s, ctx.gpr[5], ctx.gpr[6], name, has_origin, tag_only, glyph, origin_x, origin_y, hall);
     if (label_icon && !has_origin) s.unplaced_packets.push_back(ctx.gpr[5]);
     if (s.unplaced_packets.size() > 64u) s.unplaced_packets.clear(); // never expected; bounds a runaway
     if (trace) {
         char head[160];
-        std::snprintf(head, sizeof(head), "[hud] f=%llu packet=%08X words=%u bucket=%u list=%08X %s |",
+        std::snprintf(head, sizeof(head), "[hud] f=%llu packet=%08X words=%u bucket=%u list=%08X %s site=%s |",
             static_cast<unsigned long long>(s.frame), ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[4],
-            hud ? (quest ? "HUD quest" : "HUD") : "-");
-        std::cout << head << chain;
+            hud ? (quest ? "HUD quest" : "HUD") : "-", site_name(site));
+        std::cout << head << chain << " |" << registers_text(ctx);
         if (entry != 0u) {
             char text[40];
             std::snprintf(text, sizeof(text), " | queued text %08X", entry);
@@ -621,11 +711,12 @@ void overhead_name_end(psprecomp::Runtime &runtime) {
         std::uint8_t &known = s.lengths[queue];
         if (length <= known) continue;
         const std::uint32_t entries = memory.load32(context + kQueueEntries + queue * 4u);
+        if (tracing(s)) trace_entries(memory, s.frame, queue, entries, known, length, "overhead-name");
         // The quest HUD's text, and a name: its letters take the Names size
         // about the point it was placed at, and no other piece's rule.
         for (std::uint32_t i = known; i < length; ++i) {
             const std::uint32_t at = entries + i * kEntryBytes;
-            s.text_entries.push_back(State::HudEntry{at, true});
+            s.text_entries.push_back(State::HudEntry{at, true, Site::Names});
             s.name_entries.push_back(State::NameEntry{at, false});
         }
         known = length;
@@ -663,6 +754,11 @@ void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexCo
             std::erase_if(s.icon_origin, [&](const auto &placed) { return in_list(placed.first); });
             known = 0u;
         }
+        if (count > known && tracing(s)) {
+            std::cout << "[hud] f=" << s.frame << " icons of text " << std::hex << std::uppercase << entry << " |";
+            for (std::uint32_t i = known; i < count; ++i) std::cout << ' ' << list + i * kIconBytes;
+            std::cout << std::dec << std::nouppercase << "\n";
+        }
         const State::HudEntry *hud_text = find_entry(s.text_entries, entry);
         const State::NameEntry *named = find_name(s, entry);
         if (hud_text != nullptr || named != nullptr) {
@@ -671,10 +767,9 @@ void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexCo
             const bool has_origin = named != nullptr && entry_origin(memory, entry, origin_x, origin_y);
             for (std::uint32_t i = known; i < count; ++i) {
                 const std::uint32_t icon = list + i * kIconBytes;
-                if (hud_text != nullptr) s.icons.push_back(State::HudEntry{icon, hud_text->quest});
+                if (hud_text != nullptr) s.icons.push_back(State::HudEntry{icon, hud_text->quest, hud_text->site});
                 if (has_origin)
-                    s.icon_origin.emplace(
-                        icon, State::IconOrigin{origin_x, origin_y, named->tag_only, named->hall});
+                    s.icon_origin.emplace(icon, State::IconOrigin{origin_x, origin_y, named->tag_only, named->hall});
             }
         }
         known = count;
@@ -691,14 +786,14 @@ void on_text_call(std::size_t which, psprecomp::Runtime &runtime, const psprecom
     bool name = false;
     bool tag_only = false;
     bool hall = false;
-    s.last_call_hud =
-        from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &s.last_call_quest, &hall);
+    s.last_call_hud = from_hud(
+        s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &s.last_call_quest, &hall, &s.last_call_site);
     s.last_call_name = name;
     s.last_call_tag_only = tag_only;
     s.last_call_hall = hall;
     if (trace)
         std::cout << "[hud] f=" << s.frame << " text 0x" << std::hex << wrapped_address(which) << std::dec
-                  << (s.last_call_hud ? " HUD" : " -") << " |" << chain << "\n";
+                  << (s.last_call_hud ? " HUD" : " -") << " |" << chain << " |" << registers_text(ctx) << "\n";
 }
 
 template <std::size_t I> void wrapper(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
@@ -826,6 +921,10 @@ std::span<const CodeWord> code_signature() {
 
 std::span<const HudFunction> hud_functions() {
     return kHudFunctions;
+}
+
+std::span<const SiteFunction> site_functions() {
+    return kSiteFunctions;
 }
 
 bool code_matches(const psprecomp::Runtime &runtime) {
@@ -1029,6 +1128,29 @@ void watch_for_tests() {
     s.icons.clear();
     s.frames.clear();
     s.last_call_hud = s.last_call_quest = s.last_call_name = s.last_call_tag_only = s.last_call_hall = false;
+    s.last_call_site = Site::None;
+    s.trace_first = ~0ull;
+}
+
+void trace_for_tests() {
+    State &s = state();
+    s.trace_first = s.frame;
+    s.trace_every = 0u;
+}
+
+Site site_of(std::uint32_t command_address, std::uint32_t call_return) {
+    const State &s = state();
+    if (!s.installed || !s.available) return Site::None;
+    // The draw's own command first, as owner_of.
+    const auto packet = [&](std::uint32_t address) -> const State::Packet * {
+        if (address == 0u) return nullptr;
+        auto it = s.packets.upper_bound(address);
+        if (it == s.packets.begin() || address >= std::prev(it)->second.end) return nullptr;
+        return &std::prev(it)->second;
+    };
+    const State::Packet *found = packet(command_address);
+    if (found == nullptr) found = packet(call_return);
+    return found != nullptr && found->quest ? found->site : Site::None;
 }
 
 NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return) {
