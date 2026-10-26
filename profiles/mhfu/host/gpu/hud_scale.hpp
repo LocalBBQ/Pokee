@@ -2155,19 +2155,23 @@ struct NamePlace {
     float v{};
     std::uint64_t texture{};
     std::uint32_t vertices{};
+    // A hall name's hunter (hud::NameDraw::hunter), 0 when not known.
+    std::uint32_t hunter{};
 };
 
 // The same letter of the same name in the newer frame: the same texture,
 // texel and place within its name, on the nearest point no further than
 // `max_move` pixels. -1 when there is none: a name that appeared, left, or
-// jumped (a cut) stays where its frame drew it.
+// jumped (a cut) stays where its frame drew it. A hall name's letter only
+// pairs with the same hunter's, so two hunters standing together keep their
+// own names; `max_move` then only keeps a cut from gliding.
 [[nodiscard]] inline int match_name_place(
     const NamePlace &older, const std::vector<NamePlace> &newer, float max_move = 64.0f) {
     int best = -1;
     float best_distance = max_move * max_move;
     for (std::size_t i = 0; i < newer.size(); ++i) {
         const NamePlace &n = newer[i];
-        if (n.texture != older.texture || n.vertices != older.vertices) continue;
+        if (n.texture != older.texture || n.vertices != older.vertices || n.hunter != older.hunter) continue;
         if (std::fabs(n.u - older.u) > 0.01f || std::fabs(n.v - older.v) > 0.01f) continue;
         if (std::fabs(n.dx - older.dx) > 0.5f || std::fabs(n.dy - older.dy) > 0.5f) continue;
         const float mx = n.origin_x - older.origin_x;
