@@ -1153,7 +1153,7 @@ Within the quest HUD, the function that drew each part says which part it is. Tr
 | `0x0883F9F8`, and below it `0x08840338` (the clock), `0x088405E4` (health and stamina) and `0x08841908` (the party list) | The left column | Status |
 | `0x08841100` | Sharpness, the spirit gauge, a horn's notes, loaded rounds, a bow's coatings, a gunlance's shells | Status, under stamina |
 | `0x08832B98`, called from the party list | A name over a hunter | Names |
-| `0x08842EE8`, and below it `0x08842F70` | The area map, its window and its marks. The call in `0x08842F70` tells the map's picture (the tile at `0x088432E8`, the window at `0x08843610`) from the marks on it (the camp icon at `0x088437B4`, the hunters' arrows at `0x0884398C` and `0x08843A2C`) | Map |
+| `0x08842EE8`, and below it `0x08842F70` | The area map, its window and its marks. The call in `0x08842F70` tells the map's picture (the tile at `0x088432E8`, the window at `0x08843610`) from the marks on it (the camp icon at `0x088437B4`, the hunters' arrows at `0x0884398C` and `0x08843A2C`). The quest menu's Map Zoom In is drawn by `0x08842EE8` itself, at `0x08842F60`, and is sized from the same corner | Map |
 | `0x08845A34`, with `0x088474DC` and `0x088471D8` (the ammo bar) and `0x08846FAC` (the ammo menu's arrow and highlight) | The item bar, the item's name, the ammo bar and the ammo menu | Items |
 | `0x088172D8`, `0x08818C94`, `0x08818F74`, `0x08819128`, `0x08847CB0`, `0x08823A50`, `0x088DB068` | Combine's windows, the quest menu, its hint bar and description box, the item box, the banners (an item obtained, a teammate leaving) and the aim's reticle | As drawn |
 
