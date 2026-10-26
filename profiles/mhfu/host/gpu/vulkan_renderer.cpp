@@ -7516,7 +7516,8 @@ bool VulkanRenderer::Impl::reuse_span(const VertexReuseLookup &lookup) {
     static const bool off = std::getenv("MHFU_NO_VERTEX_CACHE") != nullptr ||
         std::getenv("MHFU_CHECK_DIRECT_VERTICES") != nullptr || std::getenv("MHFU_TRACE_GE") != nullptr ||
         std::getenv("MHFU_TRACE_3D") != nullptr || std::getenv("MHFU_TRACE_SPRITES") != nullptr;
-    if (off || lookup.source == nullptr || lookup.count == 0u || lookup.stride == 0u || lookup.count > 65536u)
+    if (!vertex_cache_serves(off, hud::capture_sprites(frames)) || lookup.source == nullptr || lookup.count == 0u ||
+        lookup.stride == 0u || lookup.count > 65536u)
         return false;
     const bool expanded = !direct_vertex_layout(lookup.primitive, false);
     const std::uint64_t source_hash = hash_bytes(lookup.source, static_cast<std::size_t>(lookup.count) * lookup.stride);
