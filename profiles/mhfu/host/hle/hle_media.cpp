@@ -16,6 +16,7 @@
 #include "game/guest_layout.hpp"
 #include "game/guest_ram.hpp"
 #include "game/hit_trace.hpp"
+#include "game/button_glyphs.hpp"
 #include "game/item_atlas.hpp"
 #include "game/empty_item_slot.hpp"
 #include "game/give_rarity.hpp"
@@ -362,6 +363,7 @@ void present_frame(Runtime &rt) {
     game::layered::frame(rt);
     game::item_box::frame(rt);
     game::empty_item_slot::frame(rt);
+    game::gather_frame(rt);
     game::give_rarity::frame(rt);
     game::true_attack::frame(rt);
     game::true_element::frame(rt);
@@ -461,7 +463,10 @@ void present_frame(Runtime &rt) {
         // Anything without a picture shows the game's red ?.
         mark.unknown = game::icon_art(rt.memory(), game::kUnknownIcon, game::kUnknownTint);
     }
-    if (!gather.empty()) game::refresh_item_atlas(rt.memory());
+    if (!gather.empty()) {
+        game::refresh_item_atlas(rt.memory());
+        game::refresh_button_glyphs(rt.memory());
+    }
     ui::set_gather_marks(std::move(gather));
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
@@ -674,7 +679,11 @@ void register_display_ctrl(HleRegistrar &hle) {
             }
         }
 #endif
+        // The hold repeats ○ on every point ○ gathers, mining and bug points
+        // included; then ○ on a mining or bug point with the tool in the
+        // pouch is the □ the game mines with, the tool selected.
         buttons = game::gather_hold(buttons, rt.memory());
+        buttons = game::gather_circle(buttons, rt.memory());
         // A stick push during the hold walks the hunter off the point, or
         // out of the carve, and the game drops the animation.
         if (game::gather_hold_centres_stick()) {

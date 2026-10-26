@@ -1,5 +1,6 @@
 #include "game/empty_item_slot.hpp"
 
+#include "game/hooks.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -363,9 +364,12 @@ void frame(psprecomp::Runtime &runtime) {
         s.item_name = runtime.function_at(kItemName);
         s.pack = runtime.function_at(kPack);
         runtime.register_function(kPack, &pack, "mhfu_empty_item_slot_pack");
-        runtime.register_function(kStep, &step, "mhfu_empty_item_slot");
-        runtime.register_function(kHasItem, &has_item, "mhfu_empty_item_slot_has_item");
-        runtime.register_function(kItemName, &item_name, "mhfu_empty_item_slot_name");
+        // The HUD's item bar calls these three, and Gather with ○ wraps the
+        // bar (game/gather_icon.hpp): chained, the bar finishes inside that
+        // wrapper. They switch no thread.
+        hooks::register_chained(runtime, kStep, &step, "mhfu_empty_item_slot");
+        hooks::register_chained(runtime, kHasItem, &has_item, "mhfu_empty_item_slot_has_item");
+        hooks::register_chained(runtime, kItemName, &item_name, "mhfu_empty_item_slot_name");
         s.installed = true;
         std::cout << "[item bar] empty item slot in place" << std::endl;
     }

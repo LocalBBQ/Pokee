@@ -4,6 +4,7 @@
 #include "frame_pacing.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/gather_icon.hpp"
+#include "game/button_glyphs.hpp"
 #include "game/item_atlas.hpp"
 #include "game/sharpness_gauge.hpp"
 #include "game_hud.hpp"
@@ -5107,6 +5108,10 @@ VulkanRenderer::Impl::Texture &VulkanRenderer::Impl::texture_for(const GuestMemo
         const perf::StallScope timed(perf::Stall::Pack);
         texture.replacement = pack->find(memory, state, max_seen_v);
     }
+    // The gather mark's button glyphs come from the quest bar's sheet, drawn
+    // as the pack draws it (game/button_glyphs.hpp).
+    if (state.address == mhfu::game::kQuestBarAddress)
+        mhfu::game::note_quest_bar_image(texture.replacement ? texture.replacement->file : std::filesystem::path{});
     Texture &cached = textures.emplace(key, std::move(texture)).first->second;
     memo->texture = &cached;
     memo->erased = textures_erased;
@@ -7809,6 +7814,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // with the palette the HUD last drew it with.
     if (call.through && call.texture.address == mhfu::game::kItemAtlasAddress && settings::current().gather_icon)
         mhfu::game::note_item_atlas(call.texture);
+    if (call.through && call.texture.address == mhfu::game::kQuestBarAddress && settings::current().gather_icon)
+        mhfu::game::note_quest_bar(call.texture);
     const perf::SplitScope split(perf::Split::Draw);
     if (!impl.recording) begin_frame();
     // Presents between flips fall due while the game draws, too: a busy

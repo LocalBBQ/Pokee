@@ -162,4 +162,9 @@ struct Hint {
 };
 void hints(std::initializer_list<Hint> list);
 
+// A face button by its place on the pad, drawn as the pad in use labels it (a
+// PlayStation shape or a letter) in `ink` on a disc of `fill`.
+enum class Face { South, East, West, North };
+void draw_face_badge(ImDrawList *draw, ImVec2 center, float radius, Face face, ImU32 fill, ImU32 ink);
+
 } // namespace mhfu::ui
