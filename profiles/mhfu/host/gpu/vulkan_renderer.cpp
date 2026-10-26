@@ -7013,7 +7013,9 @@ float VulkanRenderer::game_aspect() const noexcept {
 }
 
 bool VulkanRenderer::quest_hud_up() const noexcept {
-    return impl_ && impl_->quest_clock.up();
+    // The left column's packets when the parts are read from the draws; the
+    // clock's rectangle without them.
+    return impl_ && (hud::sites_on() ? hud::quest_hud_filed() : impl_->quest_clock.up());
 }
 
 std::array<float, 4> VulkanRenderer::game_picture() const noexcept {
@@ -8084,7 +8086,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     }();
     static const bool trace_map_marks = trace_map_marks_mode == 1;
     if (trace_map_marks_mode != 0 && !raw && !call.clear_mode && !call.vertices.empty() && count != 0u &&
-        impl.shows(call.target.color_address) && impl.quest_clock.up()) {
+        impl.shows(call.target.color_address) && (hud::sites_on() ? hud::quest_hud_filed() : impl.quest_clock.up())) {
         const bool ortho = !call.through && std::fabs(call.projection[11]) < 1e-6f;
         hud_scale::Rect drawn{1e9f, 1e9f, -1e9f, -1e9f};
         for (std::size_t i = 0; i < count; ++i) {
@@ -8443,12 +8445,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // Which part of the quest HUD drew it (hud::Site). A quest HUD draw then
     // takes its part's size whatever its shape, and anything else the quest
     // HUD draws stays as drawn. MHFU_HUD_SCALE_SITES=0 goes back to telling
-    // the parts apart by their rectangles, to compare both.
-    static const bool hud_scale_sites = [] {
-        const char *value = std::getenv("MHFU_HUD_SCALE_SITES");
-        return value == nullptr || *value != '0';
-    }();
-    const hud::Site hud_site = hud_scale_sites && hud_owner == hud::Owner::QuestHud
+    // the parts apart by their rectangles, to compare both (hud::sites_on).
+    const hud::Site hud_site = hud::sites_on() && hud_owner == hud::Owner::QuestHud
         ? hud::site_of(call.command_address, call.call_return)
         : hud::Site::None;
     // The clock's hands and the player's arrow on the map turn, so they are
@@ -8619,8 +8617,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // that is left, and its cap moves with the cut. The red spirit fill inside
     // that bar keeps its share of what is left, so it does not run past the
     // cut end. On, the colour also glows above a full beat. Off, the game's
-    // drawing is left alone. The draw is the executable's, not a quest-HUD
-    // packet, so the rectangles tell it apart from a menu.
+    // drawing is left alone. Each piece is its own call in the weapon gauges'
+    // function (game::sharpness::piece_of_call); without sites, the
+    // rectangles tell the pieces apart from each other and from a menu.
     const float sharpness_left = game::sharpness::bar_remaining();
     const float colour_left = game::sharpness::colour_remaining();
     const bool cut_bar = sharpness_left >= 0.0f && sharpness_left < 1.0f;
@@ -8632,8 +8631,26 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     if ((cut_bar || cut_colour || glow_colour) && through_quads && !named.is_name &&
         framebuffer_source.target == nullptr && impl.shows(call.target.color_address)) {
         const std::vector<GpuVertex> &unscaled = reused_expanded ? *reused : impl.scratch;
+        // With sites, the call that filed this draw names its piece, and all
+        // of the draw's quads are that piece.
+        const bool by_call = hud::sites_on();
+        const hud::SiteDraw drawn_by =
+            by_call ? hud::site_draw_of(call.command_address, call.call_return) : hud::SiteDraw{};
+        const game::sharpness::Piece piece = drawn_by.site == hud::Site::Weapon
+            ? game::sharpness::piece_of_call(drawn_by.call)
+            : game::sharpness::Piece::None;
+        const auto is_bar = [&](const hud_scale::Rect &game) {
+            return by_call ? piece == game::sharpness::Piece::Bar : hud_scale::is_sharpness_bar(game);
+        };
+        const auto is_fill = [&](const hud_scale::Rect &game) {
+            return by_call ? piece == game::sharpness::Piece::SpiritFill : hud_scale::is_spirit_fill(game);
+        };
+        const auto is_colour = [&](const hud_scale::Rect &game) {
+            return by_call ? piece == game::sharpness::Piece::Colour : hud_scale::is_sharpness_colour(game);
+        };
         // The left cap sits on x 62. The right one sits on the bar's end.
-        const auto at_bar_end = [](const hud_scale::Rect &game) {
+        const auto at_bar_end = [&](const hud_scale::Rect &game) {
+            if (by_call) return piece == game::sharpness::Piece::RightCap;
             return hud_scale::is_sharpness_cap(game) &&
                 game.x0 >= game::sharpness::kBarLeft + game::sharpness::kBarWidth * 0.5f;
         };
@@ -8671,13 +8688,13 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         bool colour = false;
         for (std::size_t first = 0; first + 6u <= unscaled.size(); first += 6u) {
             const hud_scale::Rect game = fit.to_game(hud_scale::quad_bounds(unscaled, first));
-            if (hud_scale::is_sharpness_bar(game))
+            if (is_bar(game))
                 bar = true;
             else if (at_bar_end(game))
                 right_cap = true;
-            else if (hud_scale::is_spirit_fill(game))
+            else if (is_fill(game))
                 spirit_fill = true;
-            else if (hud_scale::is_sharpness_colour(game))
+            else if (is_colour(game))
                 colour = true;
         }
         if ((cut_bar && (bar || right_cap || spirit_fill)) || ((cut_colour || glow_colour) && colour)) {
@@ -8690,7 +8707,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             float bar_width = 0.0f;
             if (cut_bar) {
                 for (std::size_t first = 0; bar && first + 6u <= corner_scaled.size(); first += 6u) {
-                    if (!hud_scale::is_sharpness_bar(fit.to_game(hud_scale::quad_bounds(unscaled, first)))) continue;
+                    if (!is_bar(fit.to_game(hud_scale::quad_bounds(unscaled, first)))) continue;
                     const hud_scale::Rect placed = hud_scale::quad_bounds(corner_scaled, first);
                     bar_width = std::max(bar_width, placed.x1 - placed.x0);
                 }
@@ -8709,14 +8726,14 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             for (std::size_t first = 0; first + 6u <= unscaled.size() && first + 6u <= corner_scaled.size();
                 first += 6u) {
                 const hud_scale::Rect game = fit.to_game(hud_scale::quad_bounds(unscaled, first));
-                if (cut_bar && hud_scale::is_sharpness_bar(game))
+                if (cut_bar && is_bar(game))
                     cut_quad(corner_scaled, first, sharpness_left);
                 else if (cut_bar && right_cap && at_bar_end(game)) {
                     const float dx = game::sharpness::cap_shift(bar_width, sharpness_left);
                     for (std::size_t i = 0; i < 6u; ++i) corner_scaled[first + i].x += dx;
-                } else if (cut_bar && hud_scale::is_spirit_fill(game)) {
+                } else if (cut_bar && is_fill(game)) {
                     cut_quad(corner_scaled, first, game::sharpness::fill_remaining(game.x0, game.x1, sharpness_left));
-                } else if (hud_scale::is_sharpness_colour(game)) {
+                } else if (is_colour(game)) {
                     if (cut_colour) cut_quad(corner_scaled, first, colour_left, true);
                     if (glow_colour)
                         for (std::size_t i = 0; i < 6u; ++i) {

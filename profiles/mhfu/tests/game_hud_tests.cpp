@@ -209,6 +209,9 @@ void test_draw_site() {
     check(owner_of(0x09000010u, 0u) == Owner::QuestHud, "and the quest HUD's");
     check(site_of(0u, 0x09000020u) == Site::Weapon, "a draw called from that packet has its site");
     check(site_of(0x09000040u, 0u) == Site::None, "a draw past the packet has none");
+    check(site_draw_of(0x09000010u, 0u).call == weapon.start + 24u,
+        "the call in the weapon's function that led to the packet is kept: it names a sharpness piece");
+    check(sites_on(), "sites are read once the draws are watched");
 
     packet_filed(runtime, filed_through(memory, {party, root}, 0x09001000u, 16u));
     check(site_of(0x09001010u, 0u) == Site::Status, "the party list is Status");
@@ -225,6 +228,18 @@ void test_draw_site() {
     const StackFrame moved{weapon.start, 0x27BDFFC0u, weapon.saved_ra};
     packet_filed(runtime, filed_through(memory, {moved, root}, 0x09005000u, 16u));
     check(site_of(0x09005010u, 0u) == Site::Unlisted, "other code at a listed address is not that part");
+
+    // The quest HUD is on screen while its left column is filed: this frame
+    // or the one before, and no longer once two frames pass without it.
+    check(quest_hud_filed(), "the party list was filed this frame");
+    frame(runtime, 1u);
+    check(quest_hud_filed(), "the frame after still counts");
+    frame(runtime, 2u);
+    check(!quest_hud_filed(), "two frames without the left column, and the quest HUD is gone");
+    packet_filed(runtime, filed_through(memory, {quest_menu, root}, 0x09003000u, 16u));
+    check(!quest_hud_filed(), "a menu over the quest is not the left column");
+    packet_filed(runtime, filed_through(memory, {party, root}, 0x09001000u, 16u));
+    check(quest_hud_filed(), "the left column again");
 
     // The weapon's code outside the quest HUD is no part of it.
     packet_filed(runtime, filed_through(memory, {weapon}, 0x09006000u, 16u));
