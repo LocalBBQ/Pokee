@@ -184,7 +184,7 @@ void test_rates_and_release() {
     for (int i = 0; i < 100; ++i) f.frame(0.0f, 1.0f);
     check(std::fabs(f.pitch() - 70.0f) < 0.001f, "upper pitch limit is bounded");
     for (int i = 0; i < 100; ++i) f.frame(0.0f, -1.0f);
-    check(std::fabs(f.pitch() + 30.0f) < 0.001f, "lower pitch limit is the game's own 30 degrees below");
+    check(std::fabs(f.pitch() + 20.0f) < 0.001f, "lower pitch limit is 20 degrees below");
 }
 
 void test_ownership() {
@@ -372,6 +372,59 @@ void test_wall_pulls_in_behind_the_hunter() {
     check(choice.gpr[2] == 0u, "with the option off the choice is the game's");
 }
 
+// The game's collision sweep: it records where it was started and reports a
+// hit when told to.
+std::uint32_t sweep_start{};
+bool sweep_hits{};
+void sweep(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    sweep_start = ctx.gpr[5];
+    ctx.gpr[2] = sweep_hits ? 1u : 0u;
+    ctx.pc = ctx.gpr[31];
+}
+
+// The update's first sweep starts at the eye, and only a hit there lets it
+// use the view line's sweep. An eye already under the floor or through a wall
+// met nothing and stayed there. While the analog camera drives, that sweep
+// starts at camera +0x50, where the second one does; others are the game's.
+void test_eye_sweeps_from_the_view_line() {
+    Fixture f;
+    auto &memory = f.runtime.memory();
+    constexpr std::uint32_t kSweep = 0x09C3ABA8u;
+    f.runtime.register_function(kSweep, &sweep, "recomp_sweep_test");
+    for (const CodeWord &word : sweep_code_signature()) memory.store32(word.address, word.word);
+    const auto call = [&](std::uint32_t start, std::uint32_t from) {
+        psprecomp::AllegrexContext ctx{};
+        ctx.gpr[5] = start;
+        ctx.gpr[6] = camera_address + 0x40u;
+        ctx.gpr[31] = from;
+        sweep_start = 0u;
+        check(f.runtime.invoke_isolated_aot(kSweep, ctx), "the sweep dispatches");
+        return ctx;
+    };
+    f.frame(0.0f, 0.0f);
+    call(camera_address, 0x08887C90u);
+    check(sweep_start == camera_address, "with the option off the sweep starts at the eye");
+
+    f.enable();
+    f.frame(0.0f, 0.0f);
+    sweep_hits = true;
+    const auto hit = call(camera_address, 0x08887C90u);
+    check(sweep_start == camera_address + 0x50u, "the follow update's first sweep starts on the view line");
+    check(hit.gpr[2] == 1u, "and its hit is handed back to the update");
+    sweep_hits = false;
+    call(camera_address + 0x50u, 0x08887CB8u);
+    check(sweep_start == camera_address + 0x50u, "the second sweep is left as it is");
+    call(camera_address, 0x09C00000u);
+    check(sweep_start == camera_address, "a sweep from elsewhere in the game is left as it is");
+    call(0x08904000u, 0x08887C90u);
+    check(sweep_start == 0x08904000u, "and so is one that does not start at this camera's eye");
+
+    mhfu::settings::current().analog_camera = false;
+    f.frame(0.0f, 0.0f);
+    call(camera_address, 0x08887C90u);
+    check(sweep_start == camera_address, "turning the option off sweeps from the eye again");
+}
+
 void test_dispatch_and_write_extent() {
     Fixture f;
     f.enable();
@@ -539,6 +592,77 @@ void aim_original(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) 
     seen_buttons = memory.load32(ctx.gpr[4] + 1152u);
     seen_magnitude = memory.load16(ctx.gpr[4] + kMagnitude);
     ctx.pc = ctx.gpr[31];
+}
+
+// The preset's height is from the hunter's feet. A tilt that would put the eye
+// lower than 80 above them keeps it there and brings it in along the same
+// view line, so the view still turns up and the eye stays above the floor.
+void test_eye_stays_above_the_floor() {
+    Fixture f;
+    f.enable();
+    auto &memory = f.runtime.memory();
+    plant_hunter(memory, 0u);
+    memory.store32(kHunter + 1152u, 0u);
+    constexpr float feet = 30.0f;
+    constexpr float look = 170.0f;
+    write_float(memory, kHunter + 0x200u + 4u, feet);
+    write_float(memory, camera_address + 0x14u, feet + look);
+    const float radius = std::hypot(kStockHeight, kStockDistance);
+    const auto eye = [&] {
+        return std::array{read_float(memory, camera_address + 4u), read_float(memory, camera_address + 8u)};
+    };
+    const auto view_up = [&] {
+        const auto [height, distance] = eye();
+        return std::atan2(look - height, distance) * 180.0f / 3.14159265358979323846f;
+    };
+
+    for (int i = 0; i < 100; ++i) f.frame(0.0f, 1.0f);
+    const float high = 70.0f * 3.14159265358979323846f / 180.0f;
+    check(
+        std::fabs(eye()[0] - radius * std::sin(high)) < 0.01f && std::fabs(eye()[1] - radius * std::cos(high)) < 0.01f,
+        "an eye well above the feet is placed as before");
+
+    float previous = view_up();
+    bool rising = true;
+    for (int i = 0; i < 100; ++i) {
+        f.frame(0.0f, -1.0f);
+        if (view_up() < previous - 0.001f) rising = false;
+        previous = view_up();
+    }
+    check(rising, "tilting down keeps turning the view up");
+    check(std::fabs(eye()[0] - 80.0f) < 0.01f, "the eye stops 80 above the hunter's feet");
+    const float low = -20.0f * 3.14159265358979323846f / 180.0f;
+    const float along = (look - 80.0f) / (look - radius * std::sin(low));
+    check(std::fabs(eye()[1] - radius * std::cos(low) * along) < 0.01f, "and comes in along the view line");
+    check(std::fabs(view_up() -
+              std::atan2(look - radius * std::sin(low), radius * std::cos(low)) * 180.0f / 3.14159265358979323846f) <
+            0.01f,
+        "so the view looks up as far as the lowest tilt would have");
+    check(view_up() > 35.0f && view_up() < 37.0f, "which is about 36 degrees");
+    check(f.stock_preset(), "the shared preset is put back after the update");
+    memory.store32(kListWord, 0u);
+}
+
+// An update that comes back at a call it could not chain into is finished
+// later by the dispatcher. What is meant for after it waits until then.
+void unfinished_update(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    original(runtime, ctx);
+    ctx.pc = 0x09C3ABA8u;
+}
+
+void test_unfinished_update_waits() {
+    Fixture f;
+    check(prepare_game_camera(f.runtime, &unfinished_update), "the stand-in that stops early is accepted");
+    f.enable();
+    f.flip(0.0f, 1.0f);
+    f.reset_offset();
+    check(f.runtime.invoke_isolated_aot(helper, f.ctx), "the camera update dispatches");
+    check(!f.stock_preset(), "the preset is not put back while the update is unfinished");
+    f.flip(0.0f, 0.0f);
+    check(f.stock_preset(), "it is put back at the next flip");
+    f.reset_offset();
+    f.ctx.pc = 0u;
+    check(prepare_game_camera(f.runtime, &original), "the ordinary stand-in is accepted again");
 }
 
 void test_aim_stick_is_not_movement() {
@@ -952,6 +1076,9 @@ int main() {
     test_soft_follow_keeps_the_stick();
     test_wall_eases_back_out();
     test_wall_pulls_in_behind_the_hunter();
+    test_eye_sweeps_from_the_view_line();
+    test_eye_stays_above_the_floor();
+    test_unfinished_update_waits();
     test_dispatch_and_write_extent();
     test_pitch_is_handed_whole();
     test_pitch_is_not_left_for_the_eye_ease();
