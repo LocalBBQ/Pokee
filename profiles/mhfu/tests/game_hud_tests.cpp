@@ -221,6 +221,15 @@ void test_draw_site() {
     packet_filed(runtime, filed_through(memory, {quest_menu, root}, 0x09003000u, 16u));
     check(site_of(0x09003010u, 0u) == Site::Window, "the quest menu is a window, left as drawn");
 
+    // The map's drawing is listed under the map itself, so the call kept is
+    // the one in 0x08842F70 that names the piece (the tile, the window, a mark).
+    const StackFrame map_drawing{0x08842F70u, 0x27BDFF80u, 0xAFBF005Cu};
+    const StackFrame map{0x08842EE8u, 0x27BDFFF0u, 0xAFBF000Cu};
+    packet_filed(runtime, filed_through(memory, {map_drawing, map, root}, 0x0900A000u, 16u));
+    check(site_draw_of(0x0900A010u, 0u).site == Site::Map &&
+            site_draw_of(0x0900A010u, 0u).call == map_drawing.start + 24u,
+        "a map draw keeps the call inside the map's drawing");
+
     packet_filed(runtime, filed_through(memory, {root}, 0x09004000u, 16u));
     check(site_of(0x09004010u, 0u) == Site::Unlisted, "the quest HUD's own draw is no listed part");
 
