@@ -8472,6 +8472,12 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         : hud::NameDraw{};
     // A gathering-hall name at the size the game draws is only moved, so
     // without interpolation it is drawn as any other 2D draw.
+    // MHFU_HUD_SCALE_SITES=0 tells a hall label's pieces apart by their
+    // places again, as before their hunter was read, to compare both.
+    if (!hud::sites_on()) {
+        named.hunter = 0u;
+        named.part = hud::LabelPart::Unknown;
+    }
     const bool sized_name = hud_scale::sizes_name(named, hud_scales, hall_names_sized());
     if (named.hall && !glide_names && !sized_name) named = hud::NameDraw{};
     if (named.is_name) scale_corners = true;
