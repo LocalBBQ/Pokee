@@ -798,9 +798,10 @@ void test_interface_sizes() {
         "the map window shown once a monster is found shrinks toward the slot's top-right");
     check(found_map[6].x == 426.5f && found_map[6].y == 53.0f && found_map[8].x == 433.5f && found_map[8].y == 59.0f,
         "the mark on that window stays on the map");
-    // For a few frames as the monster is found, those texels are 60 by 60
-    // from (276, 70), left of the slot. A mark on that window follows it.
-    // The 176 by 120 panel at (280, 16) starts just as far left and stays put.
+    // A window of the area-map texture left of the slot, 60 by 60 from
+    // (276, 70), still shrinks from the slot's corner, and a mark on it with
+    // it. The 176 by 120 panel at (280, 16) starts just as far left and stays
+    // put.
     Frame zoomed;
     std::vector<Vertex> zoom(6, Vertex{276.0f, 70.0f});
     zoom[2] = {336.0f, 130.0f};
@@ -812,16 +813,16 @@ void test_interface_sizes() {
     zoom.insert(zoom.end(), zoom_clock.begin(), zoom_clock.end());
     mhfu::gpu::hud_scale::scale_quads(zoom, map_half, zoomed, mhfu::gpu::hud_scale::kAreaMapTexture);
     check(zoom[0].x == 372.0f && zoom[0].y == 51.0f && zoom[2].x == 402.0f && zoom[2].y == 81.0f,
-        "the 60 by 60 window as a monster is found shrinks toward the slot's top-right");
+        "a map window left of the slot shrinks toward the slot's top-right");
     check(zoom[6].x == 379.0f && zoom[6].y == 56.0f && zoom[8].x == 386.0f && zoom[8].y == 63.0f,
         "the mark on that window stays on it");
     std::vector<Vertex> beside(6, Vertex{280.0f, 16.0f});
     beside[2] = {456.0f, 136.0f};
     mhfu::gpu::hud_scale::scale_quads(beside, map_half, zoomed, 0x09164420u);
     check(beside[0].x == 280.0f && beside[0].y == 16.0f && beside[2].x == 456.0f && beside[2].y == 136.0f,
-        "the panel just left of the slot is not the found-monster window");
+        "the panel just left of the slot is not that map window");
     // "Herb obtained." sits in the middle of the picture. Its right end and
-    // the item icon overlap the enlarged map and were pulled onto it.
+    // the item icon overlap that map window and were pulled onto it.
     std::vector<Vertex> obtain_top(6, Vertex{176.0f, 122.0f});
     obtain_top[2] = {286.0f, 126.0f};
     std::vector<Vertex> obtain_bottom(6, Vertex{176.0f, 148.0f});
@@ -837,7 +838,7 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(obtain, map_half, zoomed, 0x040CC000u);
     check(obtain[0].x == 176.0f && obtain[0].y == 122.0f && obtain[6].x == 176.0f && obtain[6].y == 148.0f &&
             obtain[12].x == 286.0f && obtain[12].y == 122.0f && obtain[18].x == 248.0f && obtain[18].y == 128.0f,
-        "the obtain window stays whole while its right end overlaps the enlarged map");
+        "the obtain window stays whole while its right end overlaps the map window");
     // The item's name is the size of a hunter's name, and the quest clock is
     // up. Status must not pull that name off the banner.
     Frame obtained;
@@ -857,7 +858,7 @@ void test_interface_sizes() {
     check(got[0].x == 176.0f && got[0].y == 122.0f && got[6].x == 188.0f && got[6].y == 128.0f && got[12].x == 188.0f &&
             got[12].y == 128.0f && got[20].x == 34.0f && got[20].y == 32.0f,
         "the item banner's name stays on the banner while status shrinks the clock");
-    // The same window on the way down, still crossing that enlarged map.
+    // The same window on the way down, still crossing that map window.
     // Its edges are above the settled row, and the body is the taller panel
     // it starts as.
     Frame descending;
@@ -885,7 +886,7 @@ void test_interface_sizes() {
     mhfu::gpu::hud_scale::scale_quads(slide_arrow, map_half, descending, mhfu::gpu::hud_scale::kMapIconTexture);
     check(slide[0].y == 64.0f && slide[6].y == 90.0f && slide[12].x == 286.0f && slide[12].y == 64.0f &&
             slide[18].x == 248.0f && slide[18].y == 70.0f && slide_arrow[0].x == 379.0f && slide_arrow[0].y == 56.0f,
-        "the obtain window stays whole while it slides across the enlarged map");
+        "the obtain window stays whole while it slides across the map window");
     Frame slide_start;
     std::vector<Vertex> start_map(6, Vertex{316.0f, 32.0f});
     start_map[2] = {468.0f, 184.0f};
@@ -948,49 +949,14 @@ void test_interface_sizes() {
     check(foreign_zoom[0].x == 240.0f && foreign_zoom[0].y == 48.0f && foreign_zoom[2].x == 320.0f &&
             foreign_zoom[2].y == 128.0f,
         "a window of that size from another texture is not the map");
-    // Without the Map item the same 40 texels are drawn at 60 by 60. They go
-    // back to the slot's placement, (316, 32) plus the texel, and the Map size
-    // is applied there. The arrow's vertices are in that enlargement. The camp
-    // icon is drawn at its own pixel size, so only its centre comes back.
     struct Marked {
         float x;
         float y;
         float u;
         float v;
     };
-    Frame stretched;
-    std::vector<Marked> wide_tex(6);
-    wide_tex[0] = {276.0f, 70.0f, 99.0f, 47.0f};
-    wide_tex[1] = {336.0f, 70.0f, 139.0f, 47.0f};
-    wide_tex[2] = {336.0f, 130.0f, 139.0f, 87.0f};
-    wide_tex[3] = {276.0f, 70.0f, 99.0f, 47.0f};
-    wide_tex[4] = {336.0f, 130.0f, 139.0f, 87.0f};
-    wide_tex[5] = {276.0f, 130.0f, 99.0f, 87.0f};
-    std::vector<Marked> stretch_clock(6, Marked{8.0f, 8.0f, 0.0f, 0.0f});
-    stretch_clock[2] = {60.0f, 56.0f, 0.0f, 0.0f};
-    wide_tex.insert(wide_tex.end(), stretch_clock.begin(), stretch_clock.end());
-    mhfu::gpu::hud_scale::scale_quads(wide_tex, map_half, stretched, mhfu::gpu::hud_scale::kAreaMapTexture);
-    check(wide_tex[0].x == 441.5f && wide_tex[0].y == 55.5f && wide_tex[2].x == 461.5f && wide_tex[2].y == 75.5f,
-        "a window drawn without the map item returns to the slot, then takes the map size");
-    // The enlargement of the arrow that was (430, 94)-(444, 106) on the slot.
-    std::vector<Vertex> stretch_arrow(6, Vertex{298.5f, 92.5f});
-    stretch_arrow[2] = {319.5f, 110.5f};
-    mhfu::gpu::hud_scale::scale_quads(stretch_arrow, map_half, stretched);
-    check(stretch_arrow[0].x == 449.0f && stretch_arrow[0].y == 63.0f && stretch_arrow[2].x == 456.0f &&
-            stretch_arrow[2].y == 69.0f,
-        "the player's arrow on the enlarged map returns to the slot with the window");
-    std::vector<Marked> camp_zoom(6);
-    camp_zoom[0] = {313.5f, 97.0f, 48.0f, 244.0f};
-    camp_zoom[1] = {325.5f, 97.0f, 60.0f, 244.0f};
-    camp_zoom[2] = {325.5f, 109.0f, 60.0f, 256.0f};
-    camp_zoom[3] = {313.5f, 97.0f, 48.0f, 244.0f};
-    camp_zoom[4] = {325.5f, 109.0f, 60.0f, 256.0f};
-    camp_zoom[5] = {313.5f, 109.0f, 48.0f, 256.0f};
-    mhfu::gpu::hud_scale::scale_quads(camp_zoom, map_half, stretched, 0x091874a0u);
-    check(camp_zoom[0].x == 453.0f && camp_zoom[0].y == 63.5f && camp_zoom[2].x == 459.0f && camp_zoom[2].y == 69.5f,
-        "the camp icon keeps its pixel size and returns to the slot with the enlarged map");
-    // With the Map item the same texels are already on the slot, one pixel per
-    // texel. Recognising the enlargement must leave that window where it is.
+    // With the Map item the same texels are on the slot, one pixel per texel,
+    // and the window shrinks from the slot's top-right like any other.
     Frame with_map;
     std::vector<Marked> fitted(6);
     fitted[0] = {425.0f, 78.0f, 109.0f, 46.0f};
