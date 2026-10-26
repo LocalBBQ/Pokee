@@ -4,7 +4,10 @@
 #include "psprecomp/allegrex_context.hpp"
 #include "psprecomp/runtime.hpp"
 
+#include <initializer_list>
 #include <iostream>
+#include <sstream>
+#include <string>
 
 namespace {
 using namespace mhfu::gpu::hud;
@@ -147,6 +150,162 @@ void test_draw_owner() {
     ctx = filed_from(memory, quest.address, village.first, 0xAFBF0010u, 0x09003000u, 16u);
     packet_filed(runtime, ctx);
     check(owner_of(0x09003010u, 0u) == Owner::Other, "other words at the quest HUD's address do not count");
+}
+
+// A function on a stand-in stack: where it starts, its addiu sp and its sw ra.
+struct StackFrame {
+    std::uint32_t start;
+    std::uint32_t first;
+    std::uint32_t saved_ra;
+};
+
+// A packet filed from the first of `frames`, called by the next and so on;
+// the last one's caller is absent, so the walk ends there.
+psprecomp::AllegrexContext filed_through(psprecomp::GuestMemory &memory, std::initializer_list<StackFrame> frames,
+    std::uint32_t packet, std::uint32_t words) {
+    std::uint32_t sp = kStack;
+    const StackFrame *previous = nullptr;
+    for (const StackFrame &frame : frames) {
+        memory.store32(frame.start, frame.first);
+        memory.store32(frame.start + 4u, frame.saved_ra);
+        for (std::uint32_t at = frame.start + 8u; at < frame.start + 32u; at += 4u) memory.store32(at, 0u);
+        if (previous != nullptr) {
+            // The previous function saved a return address into this one.
+            memory.store32(sp + (previous->saved_ra & 0xFFFFu), frame.start + 24u);
+            sp += 0x10000u - (previous->first & 0xFFFFu);
+        }
+        previous = &frame;
+    }
+    memory.store32(sp + (previous->saved_ra & 0xFFFFu), 0u);
+    psprecomp::AllegrexContext ctx{};
+    ctx.gpr[29] = kStack;
+    ctx.gpr[31] = frames.begin()->start + 24u;
+    ctx.gpr[5] = packet;
+    ctx.gpr[6] = words;
+    return ctx;
+}
+
+// Which part of the quest HUD drew a packet: the innermost function on the
+// stack in the site table, while the quest HUD is on it. Traced with
+// MHFU_TRACE_CAPTURE across the weapons, the map, the item bar and the menus.
+void test_draw_site() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    const HudFunction &quest = hud_functions()[2];
+    const StackFrame root{quest.address, quest.first, quest.saved_ra};
+    const StackFrame weapon{0x08841100u, 0x27BDFFD0u, 0xAFBF001Cu};
+    const StackFrame party{0x08841908u, 0x27BDFFD0u, 0xAFBF001Cu};
+    const StackFrame overhead{0x08832B98u, 0x27BDFFE0u, 0xAFBF001Cu};
+    const StackFrame item_bar{0x08845A34u, 0x27BDFFE0u, 0xAFBF001Cu};
+    const StackFrame quest_menu{0x08818C94u, 0x27BDFF90u, 0xAFBF001Cu};
+
+    for (const SiteFunction &fn : site_functions())
+        check((fn.first >> 16u) == 0x27BDu && (fn.first & 0x8000u) != 0u, "each site begins with its addiu sp, -N");
+
+    check(site_of(0x09000010u, 0u) == Site::None, "nothing has a site before the 2D draws are watched");
+    watch_for_tests();
+    packet_filed(runtime, filed_through(memory, {weapon, root}, 0x09000000u, 16u));
+    check(site_of(0x09000010u, 0u) == Site::Weapon, "the weapon's gauges are the weapon");
+    check(owner_of(0x09000010u, 0u) == Owner::QuestHud, "and the quest HUD's");
+    check(site_of(0u, 0x09000020u) == Site::Weapon, "a draw called from that packet has its site");
+    check(site_of(0x09000040u, 0u) == Site::None, "a draw past the packet has none");
+
+    packet_filed(runtime, filed_through(memory, {party, root}, 0x09001000u, 16u));
+    check(site_of(0x09001010u, 0u) == Site::Status, "the party list is Status");
+    packet_filed(runtime, filed_through(memory, {overhead, party, root}, 0x09002000u, 16u));
+    check(site_of(0x09002010u, 0u) == Site::Names, "a name over a hunter from the party list's code is a name");
+
+    packet_filed(runtime, filed_through(memory, {quest_menu, root}, 0x09003000u, 16u));
+    check(site_of(0x09003010u, 0u) == Site::Window, "the quest menu is a window, left as drawn");
+
+    packet_filed(runtime, filed_through(memory, {root}, 0x09004000u, 16u));
+    check(site_of(0x09004010u, 0u) == Site::Unlisted, "the quest HUD's own draw is no listed part");
+
+    // A listed address that no longer holds the function it was read from.
+    const StackFrame moved{weapon.start, 0x27BDFFC0u, weapon.saved_ra};
+    packet_filed(runtime, filed_through(memory, {moved, root}, 0x09005000u, 16u));
+    check(site_of(0x09005010u, 0u) == Site::Unlisted, "other code at a listed address is not that part");
+
+    // The weapon's code outside the quest HUD is no part of it.
+    packet_filed(runtime, filed_through(memory, {weapon}, 0x09006000u, 16u));
+    check(site_of(0x09006010u, 0u) == Site::None, "outside the quest HUD there is no site");
+    check(owner_of(0x09006010u, 0u) == Owner::Other, "and the draw is not the quest HUD's");
+
+    // Text is drawn at the end of the frame. Its glyph has the site of the
+    // part that queued it: the item's name under the item bar.
+    constexpr std::uint32_t kContext = 0x09100000u;
+    constexpr std::uint32_t kEntries = 0x09110000u;
+    constexpr std::uint32_t kGlyphStack = 0x09F10000u;
+    memory.store32(0x08A632C8u, kContext);
+    memory.store32(kContext + 320u, kEntries);
+    memory.store8(kContext + 308u, 0u);
+    watch_for_tests();
+    packet_filed(runtime, filed_through(memory, {item_bar, root}, 0x09007000u, 16u));
+    memory.store8(kContext + 308u, 1u);
+    memory.store32(kGlyphStack + 44u, 0x0889384Cu);
+    memory.store32(kGlyphStack + 20u, kEntries);
+    psprecomp::AllegrexContext glyph{};
+    glyph.gpr[29] = kGlyphStack;
+    glyph.gpr[31] = 0x08893C2Cu;
+    glyph.gpr[5] = 0x09007100u;
+    glyph.gpr[6] = 16u;
+    packet_filed(runtime, glyph);
+    check(site_of(0x09007110u, 0u) == Site::ItemBar, "the item's name takes the item bar's site");
+}
+
+// MHFU_TRACE_HUD and MHFU_TRACE_CAPTURE: each packet names its site and the
+// registers at the filing call, and the entries a call queued are listed under
+// it, so a glyph can be followed back to the code that queued its text.
+void test_trace_lines() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    const HudFunction &quest = hud_functions()[2];
+    const StackFrame root{quest.address, quest.first, quest.saved_ra};
+    const StackFrame item_bar{0x08845A34u, 0x27BDFFE0u, 0xAFBF001Cu};
+    constexpr std::uint32_t kContext = 0x09100000u;
+    constexpr std::uint32_t kEntries = 0x09110000u;
+    constexpr std::uint32_t kGlyphStack = 0x09F10000u;
+    memory.store32(0x08A632C8u, kContext);
+    memory.store32(kContext + 320u, kEntries);
+    memory.store8(kContext + 308u, 0u);
+    memory.store16(kEntries, 336u);
+    memory.store16(kEntries + 2u, 244u);
+    memory.store16(kEntries + 12u, 186u);
+    memory.store16(kEntries + 14u, 122u);
+    watch_for_tests();
+    trace_for_tests();
+
+    std::ostringstream out;
+    std::streambuf *const kept = std::cout.rdbuf(out.rdbuf());
+    psprecomp::AllegrexContext filed = filed_through(memory, {item_bar, root}, 0x09008000u, 16u);
+    filed.gpr[16] = 0x1234u;
+    packet_filed(runtime, filed);
+    memory.store8(kContext + 308u, 1u);
+    memory.store32(kGlyphStack + 44u, 0x0889384Cu);
+    memory.store32(kGlyphStack + 20u, kEntries);
+    psprecomp::AllegrexContext glyph{};
+    glyph.gpr[29] = kGlyphStack;
+    glyph.gpr[31] = 0x08893C2Cu;
+    glyph.gpr[5] = 0x09008100u;
+    glyph.gpr[6] = 16u;
+    packet_filed(runtime, glyph);
+    overhead_name_begin(runtime, filed_through(memory, {root}, 0u, 0u));
+    memory.store8(kContext + 308u, 2u);
+    overhead_name_end(runtime);
+    std::cout.rdbuf(kept);
+    watch_for_tests();
+
+    const std::string text = out.str();
+    check(text.find("packet=09008000 words=16 bucket=0 list=00000000 HUD quest site=items |") != std::string::npos,
+        "a packet's line names its site");
+    check(text.find(" s=00001234,") != std::string::npos, "and the saved registers at the call");
+    check(text.find("queued q=0 by=above | 09110000(336,244)") != std::string::npos,
+        "the entry the item bar queued is listed with its point");
+    check(text.find("packet=09008100 words=16 bucket=0 list=00000000 HUD quest site=items |") != std::string::npos &&
+            text.find(" | queued text 09110000") != std::string::npos,
+        "its glyph's packet has the item bar's site and names the entry");
+    check(text.find("queued q=0 by=overhead-name | 0911000C(186,122)") != std::string::npos,
+        "the name over a teammate is listed as queued by that call");
 }
 
 // The names over other hunters in an ad hoc quest come from resident
@@ -366,6 +525,8 @@ int main() {
     test_signature_refuses_a_different_word();
     test_hud_functions();
     test_draw_owner();
+    test_draw_site();
+    test_trace_lines();
     test_names_over_characters();
     test_overhead_name();
     test_hall_names();
