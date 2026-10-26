@@ -35,6 +35,10 @@
 #include <span>
 #include <vector>
 
+namespace psprecomp {
+class Runtime;
+}
+
 namespace mhfu::game {
 
 struct GatherNode {
@@ -140,6 +144,12 @@ struct GatherTarget {
     // What the mark shows (game/gather_art.hpp). A carve leaves it empty; the
     // caller knows the monsters.
     GatherArt art{};
+    // The PSP button that does it now (gather_button): ○ (0x2000), □
+    // (0x8000), or 0 when neither would.
+    std::uint32_t button{};
+    // At a mining or bug point whose mark is the tool from the pouch, how many
+    // of that tool the pouch holds (gather_tool_count); 0 otherwise.
+    std::uint16_t carried{};
 };
 
 // Everything that can be done where the hunter stands, at most one of each, in
@@ -178,6 +188,8 @@ public:
         float alpha{};
         GatherGlyph glyph{};
         GatherArt art{};
+        std::uint32_t button{};
+        std::uint16_t carried{};
     };
 
     // One game frame with this target, or none.
@@ -197,6 +209,8 @@ private:
     float alpha_{};
     GatherGlyph glyph_{};
     GatherArt art_{};
+    std::uint32_t button_{};
+    std::uint16_t carried_{};
     std::optional<std::array<float, 2>> last_at_;
 };
 
@@ -216,6 +230,11 @@ struct GatherMark {
     float alpha{1.0f};
     GatherGlyph glyph{};
     GatherArt art{};
+    // The button that does it now, shown beside the disc; 0 for none.
+    std::uint32_t button{};
+    // How many of the tool the mark shows the pouch holds, shown as xn at the
+    // disc's upper right; 0 for none.
+    std::uint16_t carried{};
     // The world point it stands over, before the lift: the node, or the body
     // being carved.
     std::array<float, 3> world{};
@@ -425,5 +444,72 @@ inline constexpr std::uint16_t kFarmBugs = 16u;
 // centred, so a push does not walk the gather or the carve off.
 [[nodiscard]] std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory);
 [[nodiscard]] bool gather_hold_centres_stick();
+
+// A menu open over a quest: the HUD object's byte at +1325 is not 0
+// (MHFU_TRACE_GATHER: 0 -> 1 as the menu opened, back as it closed). The HUD
+// object is a0 of the HUD's update (0x0883F270), noted by its wrapper
+// (gather_frame) with gather_note_hud. While one is open, gather_hold and
+// gather_circle leave the pad as it is, so ○ closes the menu: turned into □ it
+// reached the map and changed its size. A ○ still held after the menu closes
+// is not a gather until it is let go. False outside a quest.
+void gather_note_hud(std::uint32_t hud);
+[[nodiscard]] bool gather_menu_open(const psprecomp::GuestMemory &memory);
+
+// Tools. The circle handler's mining path (game_task 0x09AA6FB0) reads the
+// item in the selected pouch slot and goes on only for these: pickaxes for
+// mining (kind 3) and bug nets for a bug point (kind 4).
+inline constexpr std::array<std::uint16_t, 4> kPickaxes{144u, 145u, 146u, 1225u};
+inline constexpr std::array<std::uint16_t, 4> kBugNets{148u, 149u, 150u, 1226u};
+
+// The pouch slot (0 to 23) holding a tool for this node kind, with a count
+// above 0: the selected slot when it holds one, else the first that does.
+// Nothing for other kinds, with no local hunter, or with no such tool. The
+// selection is the halfword at hunter +1608; the pouch is 24 slots of an id
+// and a count at GameSys + 0x6AEA6 (game/empty_item_slot.hpp).
+[[nodiscard]] std::optional<std::uint16_t> gather_tool_slot(
+    const psprecomp::GuestMemory &memory, std::uint16_t kind);
+// The item in that slot: the pickaxe or the net a gather there would use, so
+// the mark shows that one in its own tint (gather_targets).
+[[nodiscard]] std::optional<std::uint16_t> gather_tool_item(
+    const psprecomp::GuestMemory &memory, std::uint16_t kind);
+// How many of `item` the pouch holds, over every slot it is in.
+[[nodiscard]] std::uint16_t gather_tool_count(const psprecomp::GuestMemory &memory, std::uint16_t item);
+// True when the selected slot holds a tool for this kind.
+[[nodiscard]] bool gather_tool_selected(const psprecomp::GuestMemory &memory, std::uint16_t kind);
+
+// The button that gathers, carves or fishes at a target now: ○ for a plant
+// and a carve, □ for a fishing spot (a bait), and for mining or a bug point
+// ○ while Gather with ○ would take it (gather_circle), □ when the tool is
+// selected, and 0 when neither would do anything. `carve` is a body ○ would
+// carve in reach, which keeps ○ a carve.
+[[nodiscard]] std::uint32_t gather_button(
+    const psprecomp::GuestMemory &memory, GatherGlyph glyph, std::uint16_t kind, bool carve);
+
+// Pad reads after ○ is let go before the selection gather_circle changed is
+// put back: half a second at the game's 30 reads a second.
+inline constexpr unsigned kGatherRestoreReads = 15u;
+
+// ○ for every gather the pouch has the tool for (`game.gather_circle`, on by
+// default). The game mines and catches bugs only on □ with a pickaxe or a
+// bug net selected; ○ on such a point goes on to the carve search
+// (gather_targets). With the setting on, ○ on a mining point or a bug point
+// with that tool in the pouch (gather_tool_slot) selects the tool's slot and
+// the game is shown □ in place of ○, for gather_hold to repeat as it repeats
+// □. The mining path reads the selection only as the gather starts and keeps
+// the tool's id at hunter +1684 (game_task 0x09AA7248), and the pouch is taken
+// from by that id, never by the selection. So kGatherRestoreReads pad reads
+// after ○ is let go the selection goes back to the item it was on, unless the
+// player has moved it since. A body ○ would carve keeps ○ a carve. At a Pokke
+// Farm outcrop or thicket (farm_point), which takes no tool, ○ is □. Without
+// the tool ○ is left as it is, so it never uses another item. L+○ is the
+// item bar, and a chord (kGatherChord) is an attack: both are left alone.
+[[nodiscard]] std::uint32_t gather_circle(std::uint32_t buttons, psprecomp::GuestMemory &memory);
+
+// The tool gather_circle selects is the game's alone: the HUD's item bar
+// (EBOOT 0x08845A34) is shown the item the selection was on while it draws,
+// and the tool goes back as the bar returns, so the bar never shows the tool.
+// Puts that wrapper in place once Gather with ○ is first on, after a check of
+// the bar's code; at the flip, when no generated code is running.
+void gather_frame(psprecomp::Runtime &runtime);
 
 } // namespace mhfu::game

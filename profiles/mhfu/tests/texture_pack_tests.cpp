@@ -11,10 +11,17 @@
 //
 // It also checks the decoding of the PSP's DXT blocks, whose layout is not
 // the PC's (issue #144).
+#include "game/button_glyphs.hpp"
 #include "gpu/texture_decode.hpp"
 #include "gpu/texture_pack.hpp"
 #include "gpu/texture_pack_import.hpp"
 #include "perf/frame_stats.hpp"
+#include "psprecomp/guest_memory.hpp"
+
+#define STBI_WRITE_NO_STDIO
+#define STB_IMAGE_WRITE_STATIC
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 #include <chrono>
 #include <cstdio>
@@ -306,8 +313,7 @@ int check_folder(const char *folder) {
     std::printf("pack     %s\n", c.found() ? c.folder.string().c_str() : "(none)");
     std::printf("layout   %s\n", c.layout.c_str());
     if (!c.made_for.empty()) std::printf("made for %s\n", c.made_for.c_str());
-    std::printf("hash     %s%s\n", texture_pack_hash_name(c.hash),
-        c.ignore_address ? ", ignoreAddress" : "");
+    std::printf("hash     %s%s\n", texture_pack_hash_name(c.hash), c.ignore_address ? ", ignoreAddress" : "");
     std::printf("keys     %zu\n", c.keys);
     std::printf("images   %zu\n", c.images);
     std::printf("files    %zu, %llu bytes\n", c.files, static_cast<unsigned long long>(c.bytes));
@@ -398,8 +404,7 @@ void test_dxt_decode() {
 void test_quick_keys() {
     psprecomp::GuestMemory memory;
     constexpr std::uint32_t kAddress = 0x08800000u;
-    for (std::uint32_t i = 0; i < 4096u; ++i)
-        memory.store8(kAddress + i, static_cast<std::uint8_t>(i * 37u + 11u));
+    for (std::uint32_t i = 0; i < 4096u; ++i) memory.store8(kAddress + i, static_cast<std::uint8_t>(i * 37u + 11u));
     TexturePackOptions options;
     options.hash = TexturePackHash::Quick;
     TextureState texture;
@@ -476,8 +481,8 @@ void test_button_icons(const fs::path &root) {
             image(*pack, kBarFre) == "Layouts/Fre/QuestBar_fre(Xbox).png" && image(*pack, kLogo) == "UI/Logo.png",
         "Xbox: each image with an Xbox variant draws it, the others as named");
     pack = TexturePack::open(folder, kGame, error, ButtonIcons::PlayStation);
-    check(pack && image(*pack, kBar) == "Layouts/Eng/QuestBar_(PS).png" &&
-            image(*pack, kBarFre) == "UI/QuestBar_fre.png",
+    check(
+        pack && image(*pack, kBar) == "Layouts/Eng/QuestBar_(PS).png" && image(*pack, kBarFre) == "UI/QuestBar_fre.png",
         "PlayStation: an image without a PlayStation variant keeps the pack's");
     pack = TexturePack::open(folder, kGame, error, ButtonIcons::Nintendo);
     check(pack && pack->button_icons() == ButtonIcons::Pack && image(*pack, kBar) == "UI/QuestBar.png",
@@ -503,6 +508,78 @@ void test_button_icons(const fs::path &root) {
         "each set has its menu name");
 }
 
+// The gather mark's button glyphs come from the quest bar's sheet: the pack's
+// image for it when it has one, at whatever size, or the game's texture.
+void write_sheet_png(const fs::path &file, std::uint32_t side, std::uint32_t square_colour) {
+    std::vector<std::uint32_t> pixels(static_cast<std::size_t>(side) * side, 0xFF000000u);
+    const std::uint32_t scale = side / mhfu::game::kQuestBarSide;
+    // □'s cell, the fourth along the top row, filled.
+    for (std::uint32_t y = 0; y < 16u * scale; ++y)
+        for (std::uint32_t x = 48u * scale; x < 64u * scale; ++x) pixels[y * side + x] = square_colour;
+    int length = 0;
+    unsigned char *png = stbi_write_png_to_mem(reinterpret_cast<const unsigned char *>(pixels.data()),
+        static_cast<int>(side * 4u), static_cast<int>(side), static_cast<int>(side), 4, &length);
+    std::ofstream out(file, std::ios::binary);
+    out.write(reinterpret_cast<const char *>(png), length);
+    STBIW_FREE(png);
+}
+
+void test_button_glyphs(const fs::path &root) {
+    using namespace mhfu::game;
+    check(button_glyph_for(0x2000u) == ButtonGlyph::Circle && button_glyph_for(0x8000u) == ButtonGlyph::Square &&
+            button_glyph_for(0x1000u) == ButtonGlyph::Triangle && button_glyph_for(0x4000u) == ButtonGlyph::Cross,
+        "each face button has its glyph");
+    check(!button_glyph_for(0u) && !button_glyph_for(0x0100u), "other buttons have none");
+    const GlyphCell square = button_glyph_cell(ButtonGlyph::Square);
+    check(
+        square.u0 == 48.0f / 256.0f && square.u1 == 64.0f / 256.0f && square.v0 == 0.0f && square.v1 == 16.0f / 256.0f,
+        "□ is the fourth 16-texel cell along the sheet's top");
+
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    refresh_button_glyphs(memory);
+    check(!button_glyph_sheet().ready, "nothing until the sheet has been drawn");
+    TextureState other{};
+    other.enabled = true;
+    other.address = 0x09100000u;
+    other.width = 256u;
+    other.height = 256u;
+    note_quest_bar(other);
+    refresh_button_glyphs(memory);
+    check(!button_glyph_sheet().ready, "another texture is not the sheet");
+
+    const auto settle = [&] {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        const std::uint64_t before = button_glyph_sheet().generation;
+        while (std::chrono::steady_clock::now() < until) {
+            refresh_button_glyphs(memory);
+            if (button_glyph_sheet().generation != before) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return false;
+    };
+    const fs::path folder = root / "button_glyphs";
+    fs::create_directories(folder);
+    write_sheet_png(folder / "QuestBar_(Xbox).png", 512u, 0xFF0000FFu);
+    write_sheet_png(folder / "QuestBar_(PS).png", 1024u, 0xFFFF0000u);
+    note_quest_bar_image(folder / "QuestBar_(Xbox).png");
+    check(settle(), "the pack's image for the sheet is decoded");
+    ButtonGlyphSheet sheet = button_glyph_sheet();
+    check(sheet.ready && sheet.width == 512u && sheet.height == 512u, "at the pack's size");
+    check(sheet.pixels != nullptr && sheet.pixels[5u * 512u + 100u] == 0xFF0000FFu, "with the pack's □ in its cell");
+    note_quest_bar_image(folder / "QuestBar_(PS).png");
+    check(settle(), "another set's image is decoded when the pack's choice changes");
+    sheet = button_glyph_sheet();
+    check(sheet.width == 1024u && sheet.pixels[20u * 1024u + 200u] == 0xFFFF0000u, "and drawn in its place");
+    const std::uint64_t kept = sheet.generation;
+    note_quest_bar_image(folder / "missing.png");
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < until) {
+        refresh_button_glyphs(memory);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    check(button_glyph_sheet().generation == kept, "an image that cannot be read leaves the last sheet");
+}
+
 int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--check") return check_folder(argv[2]);
     const Scratch scratch;
@@ -514,6 +591,7 @@ int main(int argc, char **argv) {
     test_dxt_decode();
     test_quick_keys();
     test_button_icons(scratch.root);
+    test_button_glyphs(scratch.root);
     test_resource_scaling();
     std::printf("%s\n", failures == 0 ? "all texture pack checks passed" : "texture pack checks FAILED");
     return failures == 0 ? 0 : 1;
