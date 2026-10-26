@@ -91,8 +91,8 @@ void draw_lattice(ImDrawList *draw, ImVec2 min, ImVec2 max) {
         draw->AddRectFilled({min.x, y - band}, {max.x, y + band}, colors::kLatticeLight);
         for (float x = min.x; x < max.x + h; x += cell) {
             draw->AddQuadFilled({x, y - h}, {x + h, y}, {x, y + h}, {x - h, y}, colors::kLatticeDark);
-            draw->AddQuad({x, y - inner}, {x + inner, y}, {x, y + inner}, {x - inner, y}, colors::kLatticeLight,
-                px(1.5f));
+            draw->AddQuad(
+                {x, y - inner}, {x + inner, y}, {x, y + inner}, {x - inner, y}, colors::kLatticeLight, px(1.5f));
         }
     }
 }
@@ -136,7 +136,8 @@ void draw_frame(ImDrawList *draw, ImVec2 min, ImVec2 max) {
              ImVec2{max.x - 6.0f * u, max.y - 6.0f * u}}) {
         draw->AddRectFilled(corner, {corner.x + 6.0f * u, corner.y + 6.0f * u}, ink);
         draw->AddRectFilled({corner.x + u, corner.y + u}, {corner.x + 5.0f * u, corner.y + 5.0f * u}, knob);
-        draw->AddRectFilled({corner.x + 2.0f * u, corner.y + 2.0f * u}, {corner.x + 4.0f * u, corner.y + 4.0f * u}, ink);
+        draw->AddRectFilled(
+            {corner.x + 2.0f * u, corner.y + 2.0f * u}, {corner.x + 4.0f * u, corner.y + 4.0f * u}, ink);
     }
 }
 
@@ -399,8 +400,8 @@ void begin_panel(const char *id, const std::string &title, const std::string &su
     const ImVec2 line = ImGui::GetCursorScreenPos();
     const float line_width = ImGui::GetContentRegionAvail().x;
     const ImU32 fade = colors::with_alpha(colors::kEmber, 0);
-    draw->AddRectFilledMultiColor(line, {line.x + line_width, line.y + px(2.0f)}, colors::kEmber, fade, fade,
-        colors::kEmber);
+    draw->AddRectFilledMultiColor(
+        line, {line.x + line_width, line.y + px(2.0f)}, colors::kEmber, fade, fade, colors::kEmber);
     ImGui::Dummy({0.0f, px(10.0f)});
 }
 
@@ -496,8 +497,7 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
         const ImVec2 size = ImGui::CalcTextSize(labels[i]);
         draw->AddText({min.x + (tab_width - size.x) * 0.5f, min.y + (height - size.y) * 0.5f},
             active ? colors::kAccentBright : colors::kTextDim, labels[i]);
-        if (active)
-            draw->AddRectFilled({min.x, max.y - unit()}, {max.x, max.y}, colors::kEmber);
+        if (active) draw->AddRectFilled({min.x, max.y - unit()}, {max.x, max.y}, colors::kEmber);
     }
     ImGui::PopItemFlag();
     ImGui::SetCursorScreenPos({start.x, start.y + height + px(8.0f)});
@@ -507,6 +507,26 @@ bool tab_bar(const char *const *labels, int count, int &selected) {
 
 void focus_next_row() {
     focus_next = true;
+}
+
+void clear_focus() {
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    focus_next = false;
+    g.NavId = 0;
+    g.NavCursorVisible = false;
+    g.NavInitRequest = g.NavInitRequestFromMove = false;
+    g.NavInitResult.ID = 0;
+    for (ImGuiWindow *window = ImGui::GetCurrentWindow(); window != nullptr; window = window->ParentWindow)
+        window->NavLastIds[0] = 0;
+}
+
+bool take_move_without_focus() {
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    if (g.NavId != 0u || !g.NavInitRequestFromMove) return false;
+    ImGui::NavMoveRequestCancel();
+    g.NavInitRequest = g.NavInitRequestFromMove = false;
+    g.NavInitResult.ID = 0;
+    return true;
 }
 
 namespace {
@@ -538,8 +558,8 @@ bool dropdown_swallowed_back() {
     return dropdown_swallowed;
 }
 
-bool dropdown_row(const char *label, const char *const *items, int count, int &selected, const RowOptions &options,
-    bool back) {
+bool dropdown_row(
+    const char *label, const char *const *items, int count, int &selected, const RowOptions &options, bool back) {
     const Row r = row(label, options);
     selected = count > 0 ? std::clamp(selected, 0, count - 1) : 0;
     const char *value = count > 0 ? items[selected] : "";
@@ -769,8 +789,8 @@ bool slider_row(const char *label, int &value, int minimum, int maximum, int ste
     const float t = static_cast<float>(value - minimum) / static_cast<float>(std::max(1, maximum - minimum));
     const bool live = (r.focused || r.hovered) && !options.disabled;
     draw->AddRectFilled(bar_min, bar_max, colors::with_alpha(colors::kFrameInk, 150));
-    draw->AddRectFilled(bar_min, {bar_min.x + bar_width * t, bar_max.y},
-        options.disabled ? colors::kTextDisabled : colors::kAccent);
+    draw->AddRectFilled(
+        bar_min, {bar_min.x + bar_width * t, bar_max.y}, options.disabled ? colors::kTextDisabled : colors::kAccent);
     draw->AddRect(bar_min, bar_max, colors::kFrameInk, 0.0f, 0, unit() * 0.75f);
     // The mark stands above and below the bar, outlined in black so it reads
     // on the filled part too, and its ends still show past the knob.
@@ -885,8 +905,8 @@ void info_row(const char *label, const std::string &value) {
     const ImVec2 max{min.x + width + px(32.0f), min.y + height};
     if (focused) draw_selection(draw, min, max, 235);
     ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.8f);
-    draw->AddText({min.x + px(16.0f), min.y + px(5.0f)}, focused ? colors::kText : colors::kTextDim, label,
-        shown_end(label));
+    draw->AddText(
+        {min.x + px(16.0f), min.y + px(5.0f)}, focused ? colors::kText : colors::kTextDim, label, shown_end(label));
     ImGui::PopFont();
     draw->AddText(nullptr, 0.0f, {min.x + px(16.0f), min.y + font() * 0.95f},
         focused ? colors::kAccentBright : colors::kText, value.c_str(), nullptr, width);
