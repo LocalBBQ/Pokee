@@ -217,11 +217,18 @@ float draw_cap(ImDrawList *draw, ImVec2 at, const char *text, bool filled) {
     return width;
 }
 
-// A face button as the pad in use labels it: a PlayStation shape or a letter.
+// A face button as the pad in use labels it: a PlayStation shape or a letter,
+// in `ink` on a disc of `fill`.
+void draw_face_at(ImDrawList *draw, ImVec2 center, float radius, SDL_GamepadButton button, ImU32 fill, ImU32 ink);
+
 float draw_face(ImDrawList *draw, ImVec2 at, SDL_GamepadButton button) {
     const float radius = font() * 0.62f;
-    const ImVec2 center{at.x + radius, at.y + font() * 0.5f};
-    draw->AddCircleFilled(center, radius, colors::kAccent);
+    draw_face_at(draw, {at.x + radius, at.y + font() * 0.5f}, radius, button, colors::kAccent, colors::kPanel);
+    return radius * 2.0f;
+}
+
+void draw_face_at(ImDrawList *draw, ImVec2 center, float radius, SDL_GamepadButton button, ImU32 fill, ImU32 ink) {
+    draw->AddCircleFilled(center, radius, fill);
     SDL_Gamepad *pad = Layer::get().attached() ? Layer::get().renderer().gamepad() : nullptr;
     SDL_GamepadButtonLabel label =
         pad != nullptr ? SDL_GetGamepadButtonLabel(pad, button) : SDL_GAMEPAD_BUTTON_LABEL_UNKNOWN;
@@ -242,7 +249,6 @@ float draw_face(ImDrawList *draw, ImVec2 at, SDL_GamepadButton button) {
             break;
         }
     }
-    const ImU32 ink = colors::kPanel;
     const float s = radius * 0.45f;
     const float thickness = std::max(1.5f, radius * 0.16f);
     switch (label) {
@@ -265,13 +271,27 @@ float draw_face(ImDrawList *draw, ImVec2 at, SDL_GamepadButton button) {
             : label == SDL_GAMEPAD_BUTTON_LABEL_B                ? "B"
             : label == SDL_GAMEPAD_BUTTON_LABEL_X                ? "X"
                                                                  : "Y";
-        const ImVec2 size = ImGui::CalcTextSize(letter);
-        draw->AddText({center.x - size.x * 0.5f, center.y - size.y * 0.5f}, ink, letter);
+        // The text size the disc was made for (draw_face).
+        const float text = radius / 0.62f;
+        ImFont *face_font = ImGui::GetFont();
+        const ImVec2 size = face_font->CalcTextSizeA(text, FLT_MAX, 0.0f, letter);
+        draw->AddText(face_font, text, {center.x - size.x * 0.5f, center.y - size.y * 0.5f}, ink, letter);
         break;
     }
     }
-    return radius * 2.0f;
 }
+
+} // namespace
+
+void draw_face_badge(ImDrawList *draw, ImVec2 center, float radius, Face face, ImU32 fill, ImU32 ink) {
+    const SDL_GamepadButton button = face == Face::South ? SDL_GAMEPAD_BUTTON_SOUTH
+        : face == Face::East                             ? SDL_GAMEPAD_BUTTON_EAST
+        : face == Face::West                             ? SDL_GAMEPAD_BUTTON_WEST
+                                                         : SDL_GAMEPAD_BUTTON_NORTH;
+    draw_face_at(draw, center, radius, button, fill, ink);
+}
+
+namespace {
 
 const char *shoulder_name(bool right) {
     SDL_Gamepad *pad = Layer::get().attached() ? Layer::get().renderer().gamepad() : nullptr;

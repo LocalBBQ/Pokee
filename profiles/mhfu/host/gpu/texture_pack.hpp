@@ -160,6 +160,15 @@ enum class ButtonIcons : std::uint8_t { Pack, Xbox, PlayStation, Nintendo };
 [[nodiscard]] std::uint64_t texture_pack_budget_bytes(
     std::uint64_t device_local_bytes, bool discrete, const char *setting);
 
+// One of a pack's images, read and decoded as the loaders do, for the port's
+// own interface: RGBA8, red in the low byte, rows packed. False when it is
+// missing, unreadable or larger than a pack image may be.
+bool decode_texture_pack_image(
+    const std::filesystem::path &file, std::vector<std::uint32_t> &pixels, std::uint32_t &width, std::uint32_t &height);
+// The other way, for traces: RGBA8 pixels, red in the low byte, as a PNG.
+bool write_texture_pack_png(
+    const std::filesystem::path &file, const std::uint32_t *pixels, std::uint32_t width, std::uint32_t height);
+
 class TexturePack {
 public:
     // Reads textures.ini (and the hash-named images in the folder itself) from
@@ -224,7 +233,7 @@ private:
 
     std::filesystem::path directory_;
     TexturePackOptions options_;
-    std::vector<std::string> games_; // [games]
+    std::vector<std::string> games_;  // [games]
     std::uint8_t button_icon_sets_{}; // bit n: ButtonIcons n is in the pack
     ButtonIcons button_icons_{ButtonIcons::Pack};
     // Key -> file name relative to the pack; an empty name means "keep the

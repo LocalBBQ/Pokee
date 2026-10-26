@@ -270,6 +270,7 @@ set(MHFU_HOST_SOURCES
     host/game/damage_sync.cpp
     host/game/gather_art.cpp
     host/game/gather_icon.cpp
+    host/game/button_glyphs.cpp
     host/game/item_atlas.cpp
     host/game/hit_trace.cpp
     host/game/body_trace.cpp
@@ -583,6 +584,7 @@ endif()
 # moves between game frames.
 add_executable(mhfu_gather_icon_tests
     tests/gather_icon_tests.cpp
+    host/game/hooks.cpp
     host/game/gather_art.cpp
     host/game/gather_icon.cpp
     host/game/damage_numbers.cpp
@@ -637,6 +639,7 @@ endif()
 # around a stand-in transfer menu. No game data.
 add_executable(mhfu_item_box_tests
     tests/item_box_tests.cpp
+    host/game/hooks.cpp
     host/game/item_box.cpp
     host/settings/settings.cpp
     host/install/user_data.cpp
@@ -916,6 +919,7 @@ endif()
 # block layout. No game data.
 add_executable(mhfu_texture_pack_tests
     tests/texture_pack_tests.cpp
+    host/game/button_glyphs.cpp
     host/gpu/texture_decode.cpp
     host/gpu/texture_pack.cpp
     host/gpu/texture_pack_import.cpp

@@ -1,5 +1,6 @@
 #include "game/item_box.hpp"
 
+#include "game/hooks.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <array>
@@ -94,11 +95,12 @@ void frame(psprecomp::Runtime &runtime) {
     }();
     s.trace = trace;
     ++s.frame;
-    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(kHudUpdate);
-    if (current == &hud_update) return;
-    if (current == nullptr || !code_matches(runtime.memory())) return;
-    s.original = current;
-    runtime.register_function(kHudUpdate, &hud_update, "mhfu_fast_item_box");
+    if (runtime.function_at(kHudUpdate) == &hud_update) return;
+    if (!code_matches(runtime.memory())) return;
+    // Gather with ○ wraps the same update (game/gather_icon.hpp): through
+    // hooks::wrap each keeps the other in its chain instead of taking it for
+    // the game's function, which called the two round each other.
+    if (!hooks::wrap(runtime, kHudUpdate, &hud_update, s.original, "mhfu_fast_item_box")) return;
     if (!s.reported) {
         s.reported = true;
         std::cout << "[item box] fast withdrawals in place" << std::endl;

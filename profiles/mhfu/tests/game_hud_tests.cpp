@@ -1,5 +1,6 @@
 // No game code or game data is needed: the words hiding the HUD checks are
 // written into guest memory as stand-ins.
+#include "game/hooks.hpp"
 #include "gpu/game_hud.hpp"
 #include "psprecomp/allegrex_context.hpp"
 #include "psprecomp/runtime.hpp"
@@ -147,6 +148,47 @@ void test_draw_owner() {
     ctx = filed_from(memory, quest.address, village.first, 0xAFBF0010u, 0x09003000u, 16u);
     packet_filed(runtime, ctx);
     check(owner_of(0x09003010u, 0u) == Owner::Other, "other words at the quest HUD's address do not count");
+}
+
+// Gather with ○ wraps a function the quest HUD calls and has it return to a
+// stop of the wrapper's own, where no game code lies. The walk goes on from
+// the caller the wrapper recorded; cut off at the stop, every HUD draw under
+// that function lost its interface sizes.
+void test_draw_owner_through_a_wrapper_stop() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    const HudFunction &quest = hud_functions()[2];
+    constexpr std::uint32_t kStop = 0x08800110u;
+    constexpr std::uint32_t kInner = 0x09A70000u;
+    watch_for_tests();
+
+    // The quest HUD, which called the wrapped function: its caller's ra, past
+    // the wrapped function's 16-byte frame, is nowhere guest code lies.
+    memory.store32(quest.address, quest.first);
+    memory.store32(quest.address + 4u, quest.saved_ra);
+    for (std::uint32_t at = quest.address + 8u; at < quest.address + 32u; at += 4u) memory.store32(at, 0u);
+    memory.store32(kStack + 16u + (quest.saved_ra & 0xFFFFu), 0u);
+    // The wrapped function files the packet. It saved the stop as its ra.
+    psprecomp::AllegrexContext ctx = filed_from(memory, kInner, 0x27BDFFF0u, 0xAFBF000Cu, 0x09004000u, 16u);
+    memory.store32(kStack + 12u, kStop);
+
+    packet_filed(runtime, ctx);
+    check(owner_of(0x09004010u, 0u) == Owner::Other, "without the caller, the walk ends at the stop");
+
+    mhfu::game::hooks::enter_stop(kStop, quest.address + 24u);
+    packet_filed(runtime, ctx);
+    check(owner_of(0x09004010u, 0u) == Owner::QuestHud, "the walk goes on from the stop's caller to the quest HUD");
+    mhfu::game::hooks::leave_stop(kStop);
+    check(mhfu::game::hooks::caller_of(kStop) == kStop, "a finished call leaves no caller behind");
+
+    // Nested calls to the same stop: the innermost one's caller counts.
+    mhfu::game::hooks::enter_stop(kStop, 0x09A60000u);
+    mhfu::game::hooks::enter_stop(kStop, 0x09A61000u);
+    check(mhfu::game::hooks::caller_of(kStop) == 0x09A61000u, "the innermost call's caller");
+    mhfu::game::hooks::leave_stop(kStop);
+    check(mhfu::game::hooks::caller_of(kStop) == 0x09A60000u, "then the outer one's");
+    mhfu::game::hooks::leave_stop(kStop);
+    check(mhfu::game::hooks::caller_of(0x09A60000u) == 0x09A60000u, "an address that is no stop is itself");
 }
 
 // The names over other hunters in an ad hoc quest come from resident
@@ -366,6 +408,7 @@ int main() {
     test_signature_refuses_a_different_word();
     test_hud_functions();
     test_draw_owner();
+    test_draw_owner_through_a_wrapper_stop();
     test_names_over_characters();
     test_overhead_name();
     test_hall_names();

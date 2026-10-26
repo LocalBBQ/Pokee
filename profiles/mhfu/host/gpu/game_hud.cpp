@@ -1,5 +1,6 @@
 #include "gpu/game_hud.hpp"
 
+#include "game/hooks.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/runtime.hpp"
@@ -402,6 +403,9 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     bool limit = false;
     bool in_hall = false;
     for (int depth = 0; depth < 12; ++depth) {
+        // A wrapped HUD function returns to the wrapper's stop; its caller
+        // is where the game's stack goes on.
+        ra = game::hooks::caller_of(ra);
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
         if (line != nullptr) {
@@ -673,8 +677,7 @@ void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexCo
                 const std::uint32_t icon = list + i * kIconBytes;
                 if (hud_text != nullptr) s.icons.push_back(State::HudEntry{icon, hud_text->quest});
                 if (has_origin)
-                    s.icon_origin.emplace(
-                        icon, State::IconOrigin{origin_x, origin_y, named->tag_only, named->hall});
+                    s.icon_origin.emplace(icon, State::IconOrigin{origin_x, origin_y, named->tag_only, named->hall});
             }
         }
         known = count;
@@ -691,8 +694,7 @@ void on_text_call(std::size_t which, psprecomp::Runtime &runtime, const psprecom
     bool name = false;
     bool tag_only = false;
     bool hall = false;
-    s.last_call_hud =
-        from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &s.last_call_quest, &hall);
+    s.last_call_hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &s.last_call_quest, &hall);
     s.last_call_name = name;
     s.last_call_tag_only = tag_only;
     s.last_call_hall = hall;
