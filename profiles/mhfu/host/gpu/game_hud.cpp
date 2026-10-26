@@ -133,18 +133,13 @@ struct NameFunction {
     bool quest_only;
     bool lobby_only;
     bool hall;
-    // Where in its frame the function saved its caller's s0, which holds the
-    // hunter the label is for (NameDraw::hunter); 0 for none.
-    std::uint32_t hunter_slot;
 };
 constexpr NameFunction kNameFunctions[] = {
-    {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu, false, false, false, false,
-        0u}, // game_task labels: addiu sp,-96; sw ra,28(sp)
-    {0x088392F4u, 0x27BDFF60u, 0xAFBF002Cu, false, true, false, false,
-        0u}, // names over characters: addiu sp,-160; sw ra,44(sp)
-    // The hall label: addiu sp,-176; sw ra,76(sp); then sw s0,40(sp). Its
-    // caller 0x088351F0 keeps the hunter in s0 (addu s0, a0, zero).
-    {0x08835470u, 0x27BDFF50u, 0xAFBF004Cu, true, false, true, true, 40u},
+    {0x09B62488u, 0x27BDFFA0u, 0xAFBF001Cu, false, false, false, false}, // game_task labels: addiu sp,-96; sw ra,28(sp)
+    {0x088392F4u, 0x27BDFF60u, 0xAFBF002Cu, false, true, false,
+        false}, // names over characters: addiu sp,-160; sw ra,44(sp)
+    // The hall labels, all of them in one call: addiu sp,-176; sw ra,76(sp).
+    {0x08835470u, 0x27BDFF50u, 0xAFBF004Cu, true, false, true, true},
 };
 // More frames than any call stack the game files a packet from; it only stops
 // a walk that has gone off the end of a broken stack.
@@ -319,7 +314,7 @@ struct State {
         std::uint32_t address{};
         bool tag_only{};
         bool hall{};
-        std::uint32_t hunter{};
+        std::uint32_t label{};
     };
     std::vector<NameEntry> name_entries;
     struct NamePacket {
@@ -330,7 +325,7 @@ struct State {
         float x{};
         float y{};
         bool hall{};
-        std::uint32_t hunter{};
+        std::uint32_t label{};
         LabelPart part{};
     };
     std::map<std::uint32_t, NamePacket> name_packets;
@@ -342,7 +337,7 @@ struct State {
         float y{};
         bool tag_only{};
         bool hall{};
-        std::uint32_t hunter{};
+        std::uint32_t label{};
     };
     std::unordered_map<std::uint32_t, IconOrigin> icon_origin;
     // Icons in HUD text, and each queue's icon count when last looked at.
@@ -356,7 +351,11 @@ struct State {
     bool status_now{};
     bool status_live{};
     bool last_call_name{};
-    std::uint32_t last_call_hunter{};
+    std::uint32_t last_call_label{};
+    // The hall labels started this frame (NameDraw::label), and the piece of
+    // one filed last: a badge after any other piece starts the next label.
+    std::uint32_t labels{};
+    LabelPart label_part{};
     bool last_call_tag_only{};
     bool last_call_hall{};
     std::array<bool, kHudFunctions.size()> hud_word_logged{};
@@ -462,17 +461,15 @@ Site site_here(const Frame &frame) {
 // addresses and function starts goes to `line` when one is given. `quest` is
 // whether the innermost HUD function on the stack is the quest HUD's, and
 // `site` which part of it drew (Site::None when it is not the quest HUD's).
-// For a name label, `hunter` is the hunter its frame saved (NameFunction::
-// hunter_slot) and `name_call` the call in it that led here.
+// For a name label, `name_call` is the call in it that led here.
 bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::string *line,
     bool *name, bool *tag_only, bool *quest, bool *hall = nullptr, Site *site = nullptr, std::uint32_t *call = nullptr,
-    std::uint32_t *hunter = nullptr, std::uint32_t *name_call = nullptr) {
+    std::uint32_t *name_call = nullptr) {
     std::uint32_t ra = ctx.gpr[31];
     std::uint32_t sp = ctx.gpr[29];
     bool hud = false;
     bool from_quest = false;
     bool found_name = false;
-    std::uint32_t label_hunter = 0u;
     std::uint32_t label_call = 0u;
     bool limit = false;
     bool in_hall = false;
@@ -499,10 +496,8 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
                 found_name = true;
                 limit = named->tag_only;
                 in_hall = named->hall;
-                // `sp` is this function's frame, `ra` the call in it.
+                // `ra` is the call in it.
                 label_call = ra;
-                if (named->hunter_slot != 0u && memory.contains(sp + named->hunter_slot, 4u))
-                    label_hunter = memory.load32(sp + named->hunter_slot);
             }
         // The innermost listed function: the site table's functions are all
         // below the quest HUD's, so they are met before it.
@@ -524,7 +519,6 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     if (tag_only != nullptr) *tag_only = limit;
     if (quest != nullptr) *quest = from_quest;
     if (hall != nullptr) *hall = in_hall;
-    if (hunter != nullptr) *hunter = label_hunter;
     if (name_call != nullptr) *name_call = label_call;
     if (site != nullptr)
         *site = !hud || !from_quest ? Site::None : found_site == Site::None ? Site::Unlisted : found_site;
@@ -595,13 +589,16 @@ void settle_text(State &s, const psprecomp::GuestMemory &memory) {
             known = 0u;
         }
         if (length > known && tracing(s)) trace_entries(memory, s.frame, queue, entries, known, length, "above");
+        // A hall name's text ends its label's badge: the next badge starts
+        // the next label (NameDraw::label).
+        if (s.last_call_name && s.last_call_hall && length > known) s.label_part = LabelPart::Unknown;
         if (s.last_call_hud || s.last_call_name)
             for (std::uint32_t i = known; i < length; ++i) {
                 const std::uint32_t at = entries + i * kEntryBytes;
                 if (s.last_call_hud) s.text_entries.push_back(State::HudEntry{at, s.last_call_quest, s.last_call_site});
                 if (s.last_call_name)
                     s.name_entries.push_back(
-                        State::NameEntry{at, s.last_call_tag_only, s.last_call_hall, s.last_call_hunter});
+                        State::NameEntry{at, s.last_call_tag_only, s.last_call_hall, s.last_call_label});
             }
         // A hall name's icon was filed before its text: it moves with the
         // point the text was placed at.
@@ -639,13 +636,13 @@ void note_packet(
 }
 
 void note_name_packet(State &s, std::uint32_t packet, std::uint32_t words, bool name, bool has_origin, bool tag_only,
-    bool glyph, float x, float y, bool hall, std::uint32_t hunter, LabelPart part) {
+    bool glyph, float x, float y, bool hall, std::uint32_t label, LabelPart part) {
     const std::uint32_t end = packet + words * 4u;
     auto it = s.name_packets.lower_bound(packet);
     if (it != s.name_packets.begin() && std::prev(it)->second.end > packet) --it;
     while (it != s.name_packets.end() && it->first < end) it = s.name_packets.erase(it);
     if (name)
-        s.name_packets.emplace(packet, State::NamePacket{end, has_origin, tag_only, glyph, x, y, hall, hunter, part});
+        s.name_packets.emplace(packet, State::NamePacket{end, has_origin, tag_only, glyph, x, y, hall, label, part});
     if (s.name_packets.size() > 65536u) s.name_packets.clear();
 }
 
@@ -663,12 +660,22 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     bool hall = false;
     Site site = Site::None;
     std::uint32_t call = 0u;
-    std::uint32_t hunter = 0u;
     std::uint32_t name_call = 0u;
-    bool hud = from_hud(
-        s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &quest, &hall, &site, &call, &hunter, &name_call);
-    // A hall label's own piece, by the call in the label function that filed it.
+    bool hud =
+        from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &quest, &hall, &site, &call, &name_call);
+    // A hall label's own piece, by the call in the label function that filed
+    // it. The function draws every hunter's label in one call, each starting
+    // with its badge: traced with MHFU_TRACE_CAPTURE, every frame files a
+    // badge, that name's text and its marks, then the next badge. So a badge
+    // after any other piece starts the next label, and the pieces after it
+    // are that label's.
     LabelPart part = hall ? label_part_of_call(name_call) : LabelPart::Unknown;
+    std::uint32_t label = 0u;
+    if (hall && name_call != 0u) {
+        if (part == LabelPart::Badge && s.label_part != LabelPart::Badge) ++s.labels;
+        s.label_part = part;
+        label = s.labels;
+    }
     if (quest && site == Site::Status) s.status_now = true;
     // Text a HUD function queues after drawing a packet of its own, as the
     // name plate does, is the HUD's too. The stack here is the filer, so a
@@ -679,7 +686,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     s.last_call_name = name;
     s.last_call_tag_only = tag_only;
     s.last_call_hall = hall;
-    s.last_call_hunter = hunter;
+    s.last_call_label = label;
     // A hall label's icon waits for its name's point; anything else filed
     // first means the label queued no name.
     const bool label_icon = name && hall;
@@ -704,7 +711,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
             name = true;
             tag_only = named->tag_only;
             hall = named->hall;
-            hunter = named->hunter;
+            label = named->label;
             part = LabelPart::Unknown;
             glyph = true;
             has_origin = entry_origin(memory, entry, origin_x, origin_y);
@@ -722,7 +729,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
             name = true;
             tag_only = placed->second.tag_only;
             hall = placed->second.hall;
-            hunter = placed->second.hunter;
+            label = placed->second.label;
             part = LabelPart::Unknown;
             has_origin = true;
             origin_x = placed->second.x;
@@ -731,7 +738,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     }
     note_packet(s, ctx.gpr[5], ctx.gpr[6], hud, quest, site, call);
     note_name_packet(
-        s, ctx.gpr[5], ctx.gpr[6], name, has_origin, tag_only, glyph, origin_x, origin_y, hall, hunter, part);
+        s, ctx.gpr[5], ctx.gpr[6], name, has_origin, tag_only, glyph, origin_x, origin_y, hall, label, part);
     if (label_icon && !has_origin) s.unplaced_packets.push_back(ctx.gpr[5]);
     if (s.unplaced_packets.size() > 64u) s.unplaced_packets.clear(); // never expected; bounds a runaway
     if (trace) {
@@ -745,9 +752,9 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
             std::snprintf(text, sizeof(text), " | queued text %08X", entry);
             std::cout << text;
         }
-        if (hunter != 0u) {
-            char text[48];
-            std::snprintf(text, sizeof(text), " | hunter %08X part %u", hunter, static_cast<unsigned>(part));
+        if (label != 0u) {
+            char text[40];
+            std::snprintf(text, sizeof(text), " | label %u part %u", label, static_cast<unsigned>(part));
             std::cout << text;
         }
         std::cout << "\n";
@@ -835,7 +842,7 @@ void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexCo
                 if (hud_text != nullptr) s.icons.push_back(State::HudEntry{icon, hud_text->quest, hud_text->site});
                 if (has_origin)
                     s.icon_origin.emplace(
-                        icon, State::IconOrigin{origin_x, origin_y, named->tag_only, named->hall, named->hunter});
+                        icon, State::IconOrigin{origin_x, origin_y, named->tag_only, named->hall, named->label});
             }
         }
         known = count;
@@ -852,8 +859,9 @@ void on_text_call(std::size_t which, psprecomp::Runtime &runtime, const psprecom
     bool name = false;
     bool tag_only = false;
     bool hall = false;
-    s.last_call_hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &s.last_call_quest, &hall,
-        &s.last_call_site, nullptr, &s.last_call_hunter);
+    s.last_call_hud = from_hud(
+        s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &s.last_call_quest, &hall, &s.last_call_site);
+    s.last_call_label = 0u;
     s.last_call_name = name;
     s.last_call_tag_only = tag_only;
     s.last_call_hall = hall;
@@ -1030,6 +1038,8 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
     s.frame = presented_frames;
     s.status_live = s.status_now;
     s.status_now = false;
+    s.labels = 0u;
+    s.label_part = LabelPart::Unknown;
     if (!s.checked) {
         s.checked = true;
         if (const char *text = std::getenv("MHFU_TRACE_HUD"); text != nullptr && *text != '\0') {
@@ -1200,7 +1210,9 @@ void watch_for_tests() {
     s.frames.clear();
     s.last_call_hud = s.last_call_quest = s.last_call_name = s.last_call_tag_only = s.last_call_hall = false;
     s.last_call_site = Site::None;
-    s.last_call_hunter = 0u;
+    s.last_call_label = 0u;
+    s.labels = 0u;
+    s.label_part = LabelPart::Unknown;
     s.status_now = s.status_live = false;
     s.trace_first = ~0ull;
 }
@@ -1252,7 +1264,7 @@ NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return) {
         auto it = s.name_packets.upper_bound(address);
         if (it == s.name_packets.begin() || address >= std::prev(it)->second.end) return {};
         const State::NamePacket &packet = std::prev(it)->second;
-        return {true, packet.has_origin, packet.tag_only, packet.glyph, packet.x, packet.y, packet.hall, packet.hunter,
+        return {true, packet.has_origin, packet.tag_only, packet.glyph, packet.x, packet.y, packet.hall, packet.label,
             packet.part};
     };
     const NameDraw command = found(command_address);
