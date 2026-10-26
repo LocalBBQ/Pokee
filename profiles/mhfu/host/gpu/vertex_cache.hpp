@@ -64,6 +64,19 @@ struct HoldMiss {
         !weighted && miss.count != 0u;
 }
 
+// Whether a draw may be served from, or stored in, the vertex cache.
+// `switched_off` is a run that never uses it (MHFU_NO_VERTEX_CACHE, or a
+// trace that prints every draw). `trace_frame` is a frame such a trace covers
+// in a run that otherwise uses it, as MHFU_TRACE_CAPTURE does after each
+// screenshot. That trace reads each draw's decoded vertices and keeps the
+// direct path off. With the cache on, a span stored in that frame was the
+// expanded triangle list under the direct layout's label, and every frame
+// after drew the level from it as torn triangles; a hit there had no decoded
+// vertices to read.
+[[nodiscard]] constexpr bool vertex_cache_serves(bool switched_off, bool trace_frame) {
+    return !switched_off && !trace_frame;
+}
+
 // The vectors of spans the cache dropped, kept with their memory for the
 // spans that miss next. Fresh memory is what makes a miss slow: on Windows the
 // 55 MiB of new spans an area brings took 12 to 15 ms in allocations alone,

@@ -12,6 +12,7 @@ namespace {
 using mhfu::gpu::HoldMiss;
 using mhfu::gpu::miss_goes_to_hold;
 using mhfu::gpu::SpareVectors;
+using mhfu::gpu::vertex_cache_serves;
 using mhfu::gpu::vertex_spans_to_drop;
 
 int failures = 0;
@@ -166,6 +167,16 @@ void a_weighted_miss_keeps_its_copy() {
     check(miss_goes_to_hold(neighbours), "the bits beside the weight field do not count as weights");
 }
 
+// A capture frame (MHFU_TRACE_CAPTURE) expands every draw. A span stored or
+// reused there was drawn in the wrong layout from then on, and the level
+// came apart in torn triangles after each screenshot.
+void a_trace_frame_keeps_out_of_the_cache() {
+    check(vertex_cache_serves(false, false), "an ordinary frame uses the cache");
+    check(!vertex_cache_serves(false, true), "a capture frame neither reads nor stores spans");
+    check(!vertex_cache_serves(true, false), "a run with the cache off never uses it");
+    check(!vertex_cache_serves(true, true), "a capture frame of such a run does not use it either");
+}
+
 } // namespace
 
 int main() {
@@ -180,6 +191,7 @@ int main() {
     a_scenery_miss_goes_to_the_hold();
     what_keeps_a_miss_out_of_the_hold();
     a_weighted_miss_keeps_its_copy();
+    a_trace_frame_keeps_out_of_the_cache();
     if (failures != 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;
