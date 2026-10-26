@@ -59,19 +59,19 @@ These change nothing about the game's balance; each one has an off switch.
 - **Gather icon.** A mark over each gather point shows what it gives and which button gathers it.
 - **Empty item slot.** The item bar starts each quest on an empty slot, so pressing □ by accident uses nothing.
 - **Item Sets.** Save the pouch's contents as a set and take it out of the box in one go, as *Equipment Set* does for armor.
-- **Damage numbers** (off by default). The health each hit removes, drawn where it landed, split into raw and element if you like. In multiplayer, Pokee players see each other's hits.
+- **Damage numbers** (off by default). The health each hit removes, drawn where it landed, split into raw and element if you like. In multiplayer, Pokee players can toggle to see each other's hits.
 - **Modern sharpness gauge.** The sharpness colour visibly shortens as it is used.
 - **True Attack Value** (off by default). Equipment screens show a weapon's real attack, element and status values, without the class multiplier.
 - **Show Key Quests** (off by default). Quests that unlock the next Urgent Quest are marked *[Key]*.
 - **Guild Hall comforts.** Eat from your Felyne Kitchen at the hall's tables and change equipment from the hall's item box. Giving items of any rarity to other hunters is there too, off by default.
 - **Layered armor.** Wear one armor's looks over another's stats, part by part. Only your screen shows it; stats, skills, the save and what other players see keep the real armor.
-- **Item box taking** in a quest no longer waits for the icon to fly to the pouch.
+- **Fast Item box taking** in a quest no longer waits for the icon to fly to the pouch.
 
 ### Saves, mods and multiplayer
 
 - **PSP saves.** Saves are in the PSP's own format: copy your save from a PSP and carry on, or take one back. The menu imports, exports and backs up saves, and reminds you to back up after an update.
 - **Downloadable content.** The download servers are long gone, but a `ULUS10391QST` folder you already have can be imported and is read by the game's download menu.
-- **Mods.** File-replacement mods in the format the community's mod loader and mod manager already use work unchanged, with a Mods page to turn them on and off and set their priority.
+- **Mods.** Untested yet for importing and using mods, however in this section I've included some game changing features.
 - **Multiplayer.** The game's ad hoc mode works between Pokee players on a home network, over a VPN such as Tailscale or ZeroTier, or through a PSP ad hoc server. See [Multiplayer](profiles/mhfu/README.md#multiplayer-ad-hoc).
 - **Portable copy.** Keep the game, settings and saves in one folder next to the executable, on a USB stick if you like.
 
@@ -87,33 +87,6 @@ To install it:
 4. Pokee checks the pack and shows what it found. Choose **Copy into Pokee's data folder**, or **Use it where it is** to read it from where you extracted it and save the space (the folder must then stay where it is).
 
 The textures change within a frame or two, without a restart. **Video → Texture pack** turns the pack off and on to compare; **Button icons** under it chooses the prompts (Auto follows your controller). Other PPSSPP packs for this release work the same way, and a pack made for Portable 3rd works if its `textures.ini` lists `ULUS10391`. Details: [HD texture packs](profiles/mhfu/README.md#hd-texture-packs).
-
-## What works and what doesn't
-
-The whole game is playable from a new character or a save copied from a PSP: the village, the Guild Hall, every kind of hunt, cutscenes, music and saving. The executable (3095 functions) and all 290 code overlays are recompiled; an interpreter covers anything they miss, so an unusual piece of code makes the game slower there rather than stopping it.
-
-| Works | Doesn't work yet |
-| --- | --- |
-| Boot, character creation, the village, the Guild Hall and hunts | **Save and message dialogs are invisible.** They work, but draw nothing and answer *Yes* at once: saving happens without the confirmation screen ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
-| Saving and loading in the PSP's format, PSP saves and DLC imported | **Download mode** (`sceHttp`, `sceNetInet`): the game's online download menu. Import DLC you already have instead |
-| Sound effects, music and cutscene movies | **Play with PPSSPP users and on public ad hoc servers**: not tested yet |
-| Vulkan graphics, lighting and fog, widescreen, up to ×6 resolution, frame interpolation | **Code mods** (cheats and patches to the game's code); file-replacement mods work |
-| HD texture packs made for PPSSPP | **Android phones**: tested on the emulator only, not yet on real devices ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127)) |
-| Keyboard, mouse, gamepad and touch controls, all rebindable | **Stutters on some PCs** when entering an area or in big fights; under investigation ([STUTTERS.md](docs/STUTTERS.md)) |
-| Ad hoc multiplayer between Pokee players: gathering hall and full quests | |
-| File-replacement mods, layered armor | |
-
-### By platform
-
-| Platform | State |
-| --- | --- |
-| Windows | Plays; tested on AMD GPUs. NVIDIA GPUs have had the least testing, and are where the stutters above are reported. Slow starts come from Microsoft Defender: [exclude Pokee's folder](#windows-slow-starts-and-microsoft-defender) |
-| Steam Deck | Plays in Game Mode with the built-in controls, multiplayer included. In Desktop Mode, Steam's desktop layout sends mouse and Esc |
-| Linux desktop | Same builds as the Deck; not yet checked by hand on a desktop distribution |
-| macOS (Apple Silicon) | Plays, through MoltenVK; checked most thoroughly |
-| Android | 64-bit Android 10 or newer with Vulkan 1.1; emulator only so far |
-
-[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) has the detailed results, each with the commit that was tested. To report a result, open a **Test report** issue.
 
 ## Play
 
@@ -208,25 +181,7 @@ ctest --test-dir out/framework -C Release --output-on-failure
 
 To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) sets out the rules for independently written code and third-party source.
 
-## Authors
-
-[Pokee](https://github.com/LocalBBQ/Pokee) is built from [Yakumo](https://github.com/TeamGDB/Yakumo), the Portable 3rd port. That project and its contributors keep the credit for the host this tree starts from:
-
-- [@MHunterG](https://github.com/MHunterG)
-- [@mojitosunrise](https://github.com/mojitosunrise)
-
-## Credits
-
-- [Yakumo](https://github.com/TeamGDB/Yakumo) — the original port, by its contributors
-- [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — the recompilation framework this project builds on
-- [SDL3](https://www.libsdl.org/) — windowing, input and audio output
-- [FFmpeg](https://ffmpeg.org/) — music and movie decoding
-- [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — rendering
-- [Dear ImGui](https://github.com/ocornut/imgui) — Pokee's menus and setup screens
-- [tiny-AES-c](https://github.com/kokke/tiny-AES-c) — the installer and PSP save-data support
-- [stb_truetype](https://github.com/nothings/stb) — font rasterization
-- [svanheulen/mhef](https://github.com/svanheulen/mhef) — community documentation of the game's archive format
-- [Cinzel](https://github.com/NDISCOVER/Cinzel) and [Shippori Mincho](https://github.com/fontdasu/ShipporiMincho) — the logo's lettering, under the SIL Open Font License
+[Pokee](https://github.com/LocalBBQ/Pokee) is built from [Yakumo](https://github.com/TeamGDB/Yakumo), the Portable 3rd port. That project and its contributors keep the credit for the host this tree starts from.
 
 ## License
 
