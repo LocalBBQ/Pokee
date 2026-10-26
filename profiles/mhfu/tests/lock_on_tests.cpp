@@ -103,8 +103,19 @@ void recenter_stand_in(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &
     ctx.pc = ctx.gpr[31];
 }
 
+// The eye offset the update was handed: height above the hunter's feet and
+// distance behind. The view's tilt is how far that eye looks up at the point
+// looked at, 190 above the feet here.
+float seen_height{};
+float seen_distance{1.0f};
+float view_up() {
+    return std::atan2(190.0f - seen_height, seen_distance) * 180.0f / 3.14159265358979323846f;
+}
+
 void original(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     auto &memory = runtime.memory();
+    seen_height = std::bit_cast<float>(memory.load32(preset_address + 4u));
+    seen_distance = std::bit_cast<float>(memory.load32(preset_address + 8u));
     const auto behind = static_cast<std::uint16_t>(memory.load32(hunter + 500u) + 0x8000u);
     if (std::exchange(game_recenters, false)) {
         memory.store16(camera_address + 0x80u, behind);
@@ -1174,12 +1185,15 @@ void test_focus_tilts_toward_a_monster_above() {
     write_float(memory, monster_b + game::kPosition + 4u, 1822.0f);
     lock_on_tap();
     f.frame();
-    const float eye = read_float(memory, camera_address + 4u);
+    const float before = view_up();
     memory.store8(camera_address + 0x8Eu, 1u);
     f.frame();
-    for (int i = 0; i < 20; ++i) f.frame();
-    check(read_float(memory, camera_address + 4u) < eye - 100.0f,
-        "a monster above the hunter pulls the camera up past the old ten-degree cap");
+    float highest = view_up();
+    for (int i = 0; i < 20; ++i) {
+        f.frame();
+        highest = std::max(highest, view_up());
+    }
+    check(highest > before + 10.0f, "a monster above the hunter pulls the camera up past the old ten-degree cap");
     check(!game_camera_driving(), "the tap still ends");
     check(lock_on_status().locked, "and the monster stays selected");
     mhfu::settings::current().lock_on_style = mhfu::settings::LockOnStyle::Follow;
