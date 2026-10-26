@@ -2515,6 +2515,82 @@ void test_aim_letter_is_not_the_reticle() {
     check(frame.reticles == 0, "a letter of the font is not learned as the reticle");
 }
 
+// A hall label whose hunter is known (hud::NameDraw::hunter): its letters and
+// badge are that hunter's, its marks too, whatever point they were filed
+// with, and its middle is kept by whose it is. Traced with MHFU_TRACE_CAPTURE:
+// two hunters standing together put their labels' points a pixel or two
+// apart, and the quest paper is filed with the next hunter's point.
+void test_hall_labels_by_hunter() {
+    using mhfu::gpu::hud::LabelPart;
+    using mhfu::gpu::hud::NameDraw;
+    using mhfu::gpu::hud_scale::Frame;
+    using mhfu::gpu::hud_scale::InterfaceFit;
+    using mhfu::gpu::hud_scale::Scales;
+    struct Vertex {
+        float x;
+        float y;
+    };
+    const auto quad = [](float x0, float y0, float x1, float y1) {
+        std::vector<Vertex> q(6, Vertex{x0, y0});
+        q[2] = {x1, y1};
+        return q;
+    };
+    const Scales names_half{1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f};
+    const auto piece = [](std::uint32_t hunter, float x, float y, bool glyph, LabelPart part) {
+        NameDraw draw;
+        draw.is_name = draw.has_origin = draw.tag_only = draw.hall = true;
+        draw.origin_x = x;
+        draw.origin_y = y;
+        draw.glyph = glyph;
+        draw.hunter = hunter;
+        draw.part = part;
+        return draw;
+    };
+    constexpr std::uint32_t kFirst = 0x09A10000u;
+    constexpr std::uint32_t kSecond = 0x09A20000u;
+    Frame frame;
+    std::vector<Vertex> first_badge;
+    std::vector<Vertex> paper;
+    std::vector<Vertex> second_badge;
+    // Two labels whose points are two pixels apart, which a label matched by
+    // place takes for one. The second hunter's quest paper sits over its own
+    // name but was filed with a point across the picture.
+    const auto draw = [&](float second_shift) {
+        first_badge = quad(214.0f, 75.0f, 226.0f, 91.0f);
+        std::vector<Vertex> first_letters = quad(229.0f, 78.0f, 253.0f, 92.0f);
+        second_badge = quad(216.0f + second_shift, 76.0f, 228.0f + second_shift, 92.0f);
+        std::vector<Vertex> second_letters = quad(231.0f + second_shift, 79.0f, 255.0f + second_shift, 93.0f);
+        paper = quad(236.0f + second_shift, 60.0f, 252.0f + second_shift, 76.0f);
+        const float x = 231.0f + second_shift;
+        mhfu::gpu::hud_scale::scale_name_draw(
+            first_badge, names_half, frame, piece(kFirst, 229.0f, 78.0f, false, LabelPart::Badge), InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(
+            first_letters, names_half, frame, piece(kFirst, 229.0f, 78.0f, true, LabelPart::Unknown), InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(
+            second_badge, names_half, frame, piece(kSecond, x, 79.0f, false, LabelPart::Badge), InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(
+            second_letters, names_half, frame, piece(kSecond, x, 79.0f, true, LabelPart::Unknown), InterfaceFit{});
+        mhfu::gpu::hud_scale::scale_name_draw(
+            paper, names_half, frame, piece(kSecond, 625.0f, 307.0f, false, LabelPart::QuestPaper), InterfaceFit{});
+    };
+    draw(0.0f);
+    frame.begin();
+    draw(0.0f);
+    // The first label's box is (214, 75)-(253, 92), its middle (233.5, 83.5);
+    // the second's (216, 76)-(255, 93), its middle (235.5, 84.5).
+    check(first_badge[0].x == 223.75f && first_badge[0].y == 79.25f,
+        "a label two pixels from another is its own hunter's, with its own middle");
+    check(second_badge[0].x == 225.75f && second_badge[0].y == 80.25f, "and so is the other");
+    check(paper[0].x == 235.75f && paper[0].y == 72.25f,
+        "a quest paper filed with another point goes to its own hunter's middle");
+    // A turning camera moves the second label 200 pixels in a frame: it keeps
+    // its middle, as it is still the same hunter's.
+    frame.begin();
+    draw(200.0f);
+    check(second_badge[0].x == 425.75f && second_badge[0].y == 80.25f, "a label keeps its middle however far it moves");
+    check(paper[0].x == 435.75f, "and its mark goes with it");
+}
+
 void test_aim_reticle_is_not_a_map_mark() {
     using mhfu::gpu::hud::Owner;
     using mhfu::gpu::hud_scale::Frame;
@@ -2847,6 +2923,7 @@ int main() {
     test_quest_windows_keep_their_pieces();
     test_menu_over_the_party_list();
     test_hud_scale_draws();
+    test_hall_labels_by_hunter();
     test_crisp_text();
     test_background_and_compact_overlay();
     test_layered_armor();

@@ -332,6 +332,42 @@ void test_trace_lines() {
         "the name over a teammate is listed as queued by that call");
 }
 
+// A hall label's pieces carry the hunter they are for: 0x088351F0 keeps the
+// hunter's object in s0 and the label function 0x08835470 saves it at 40(sp).
+// The call in the label names the piece (LabelPart).
+void test_hall_label_hunter() {
+    psprecomp::Runtime runtime;
+    auto &memory = runtime.memory();
+    const HudFunction &lobby = hud_functions()[1];
+    memory.store32(lobby.address, lobby.first);
+    memory.store32(lobby.address + 4u, lobby.saved_ra);
+    const StackFrame drawer{0x0882A9DCu, 0x27BDFFE0u, 0xAFBF001Cu}; // files the badge's packet
+    const StackFrame label{0x08835470u, 0x27BDFF50u, 0xAFBF004Cu};
+    const StackFrame per_hunter{0x088351F0u, 0x27BDFFE0u, 0xAFBF001Cu};
+    const StackFrame root{lobby.address, lobby.first, lobby.saved_ra};
+    watch_for_tests();
+
+    const auto file = [&](std::uint32_t hunter, std::uint32_t call_in_label, std::uint32_t packet) {
+        psprecomp::AllegrexContext ctx = filed_through(memory, {drawer, label, per_hunter, root}, packet, 16u);
+        // The drawer returns to `call_in_label`, and the label's frame holds the hunter.
+        memory.store32(kStack + (drawer.saved_ra & 0xFFFFu), call_in_label);
+        const std::uint32_t label_sp = kStack + (0x10000u - (drawer.first & 0xFFFFu));
+        memory.store32(label_sp + 40u, hunter);
+        packet_filed(runtime, ctx);
+    };
+    file(0x09A10000u, 0x088357D0u, 0x0900B000u);
+    file(0x09A20000u, 0x08835C50u, 0x0900B100u);
+    file(0x09A20000u, 0x08835D0Cu, 0x0900B200u);
+    const NameDraw badge = name_at(0x0900B010u, 0u);
+    const NameDraw paper = name_at(0x0900B110u, 0u);
+    const NameDraw ready = name_at(0x0900B210u, 0u);
+    check(badge.is_name && badge.hall && badge.hunter == 0x09A10000u && badge.part == LabelPart::Badge,
+        "a badge is its hunter's, and a badge");
+    check(paper.hunter == 0x09A20000u && paper.part == LabelPart::QuestPaper, "a quest paper is its own hunter's");
+    check(ready.hunter == 0x09A20000u && ready.part == LabelPart::Ready, "so is a ready mark");
+    check(label_part_of_call(0x0883553Cu) == LabelPart::Unknown, "the label's other draws are no piece");
+}
+
 // The names over other hunters in an ad hoc quest come from resident
 // 0x088392F4. It counts while game_task's quest HUD is loaded, and in the
 // village, where the lobby overlay has that slot, it does not.
@@ -554,6 +590,7 @@ int main() {
     test_names_over_characters();
     test_overhead_name();
     test_hall_names();
+    test_hall_label_hunter();
     test_capture_schedule();
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
