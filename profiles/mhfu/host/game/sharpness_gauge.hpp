@@ -97,6 +97,28 @@ struct Reading {
 inline constexpr float kBarLeft = 66.0f;
 inline constexpr float kBarWidth = 96.0f;
 
+// The pieces of the sharpness display the gauge changes. The weapon's gauges
+// are drawn by 0x08841100 (gpu::hud::Site::Weapon), and each piece is its own
+// call in it: the return address into it (gpu::hud::SiteDraw::call) names the
+// piece. Traced with MHFU_TRACE_CAPTURE across the bowgun, bow, horn, gunlance,
+// long sword and other blades. Every other call there draws another weapon's
+// gauge, or the blade and the left cap the gauge leaves alone.
+enum class Piece { None, Bar, RightCap, SpiritFill, Colour };
+[[nodiscard]] constexpr Piece piece_of_call(std::uint32_t call) noexcept {
+    switch (call) {
+    case 0x08841204u:
+        return Piece::Bar; // the colour bar, (66, 44)-(162, 50)
+    case 0x088411E8u:
+        return Piece::RightCap; // the cap on the bar's end, (162, 44)-(166, 50)
+    case 0x08841348u:
+        return Piece::SpiritFill; // a long sword's red spirit fill, from (66, 46)
+    case 0x08841508u:
+        return Piece::Colour; // the colour painted on the knife, (60, 29)-(104, 41)
+    default:
+        return Piece::None;
+    }
+}
+
 // The right edge of a bar from `x0` to `x1`, and the texel that sits on it,
 // once `remaining` (0..1) of that bar is still sharp. The left edge stays, so
 // the colours the game drew keep their widths.

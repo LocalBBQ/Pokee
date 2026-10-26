@@ -255,7 +255,23 @@ void test_remaining() {
 
 } // namespace
 
+// Each piece the gauge changes is its own call in 0x08841100, traced with
+// MHFU_TRACE_CAPTURE; the other calls there are other weapons' gauges.
+void test_pieces() {
+    using mhfu::game::sharpness::Piece;
+    using mhfu::game::sharpness::piece_of_call;
+    check(piece_of_call(0x08841204u) == Piece::Bar, "the colour bar");
+    check(piece_of_call(0x088411E8u) == Piece::RightCap, "the cap on its end");
+    check(piece_of_call(0x08841348u) == Piece::SpiritFill, "a long sword's spirit fill");
+    check(piece_of_call(0x08841508u) == Piece::Colour, "the colour on the knife");
+    check(piece_of_call(0x088411B0u) == Piece::None, "the left cap stays as drawn");
+    check(piece_of_call(0x088413F0u) == Piece::None, "so does the blade under the colour");
+    check(piece_of_call(0x08841198u) == Piece::None, "a bowgun's loaded rounds are no sharpness");
+    check(piece_of_call(0u) == Piece::None, "text has no call");
+}
+
 int main() {
+    test_pieces();
     test_colour_index();
     test_gauge_reading();
     test_tables();
