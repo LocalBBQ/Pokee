@@ -2318,6 +2318,16 @@ struct Decision {
     return Piece::None;
 }
 
+// Whether a map draw is the map's picture, by the call in 0x08842F70 that
+// drew it (hud::SiteDraw::call): the full tile at 0x088432E8, 152 by 152, or
+// the window into it at 0x08843610 that the hunter's zone shows without the
+// Map item. Traced with MHFU_TRACE_CAPTURE. Every other call there draws a
+// mark on it: the camp icon at 0x088437B4, the hunters' arrows at 0x0884398C
+// and 0x08843A2C (turned quads), a monster's dot.
+[[nodiscard]] constexpr bool is_map_picture_call(std::uint32_t call) {
+    return call == 0x088432E8u || call == 0x08843610u;
+}
+
 // Whether a quest HUD draw is decided by its site rather than its shape: the
 // site is known because the draws are watched and the code is the code it was
 // read from. The renderer passes Site::None under MHFU_HUD_SCALE_SITES=0,
@@ -2336,17 +2346,21 @@ struct Decision {
 // With a site (by_site), the part of the quest HUD that drew the draw is its
 // piece, every quad of it, whatever its shape or what else is on screen. The
 // rectangles then only place it: each piece keeps its corner, and the map's
-// enlarged window is put back on the slot.
+// enlarged window is put back on the slot. Which map quads are the map's
+// picture, and so measure the enlargement, is the call that drew them
+// (is_map_picture_call).
 template <typename Vertex>
 void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame, std::uint32_t texture = 0,
-    hud::Owner owner = hud::Owner::Unknown, std::vector<Decision> *decisions = nullptr,
-    hud::Site site = hud::Site::None) {
+    hud::Owner owner = hud::Owner::Unknown, std::vector<Decision> *decisions = nullptr, hud::SiteDraw drawn = {}) {
     if (decisions != nullptr) decisions->clear();
     if (!scales.any() || vertices.size() < 6u) return;
+    const bool sited = by_site(owner, drawn.site);
+    const bool picture = sited && drawn.site == hud::Site::Map && is_map_picture_call(drawn.call);
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = quad_bounds(vertices, first);
         frame.note(bounds, texture);
-        if (texture == kAreaMapTexture && is_drawn_map(bounds, texture)) frame.note_map_zoom(vertices, first);
+        if (sited ? picture : texture == kAreaMapTexture && is_drawn_map(bounds, texture))
+            frame.note_map_zoom(vertices, first);
     }
     frame.dismiss_false_menu();
     frame.adopt_travelling_map();
@@ -2358,11 +2372,11 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
     }
     if (!frame.aiming) frame.reticles = 0;
     frame.quest_owned = owner == hud::Owner::QuestHud;
-    const bool sited = by_site(owner, site);
+    const Piece site_piece = piece_of_site(drawn.site);
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = quad_bounds(vertices, first);
         const Decision decision =
-            sited ? Decision{piece_of_site(site), Reason::Site, piece_of_site(site)} : decide(frame, bounds, texture);
+            sited ? Decision{site_piece, Reason::Site, site_piece} : decide(frame, bounds, texture);
         if (decisions != nullptr) decisions->push_back(decision);
         const Piece piece = decision.piece;
         if (piece == Piece::None) continue;
@@ -2370,7 +2384,8 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         // slot's placement first, then apply the Map size. At 100% the
         // placement is the whole change.
         if (piece == Piece::Map && frame.map_zoomed)
-            frame.unzoom_quad(vertices, first, texture == kAreaMapTexture && is_drawn_map(bounds, texture));
+            frame.unzoom_quad(
+                vertices, first, sited ? picture : texture == kAreaMapTexture && is_drawn_map(bounds, texture));
         const float scale = scales.of(piece);
         const Placement place = piece == Piece::Map
             ? Placement{frame.map_corner.x, frame.map_corner.y, frame.map_corner.x, frame.map_corner.y}
@@ -2393,12 +2408,15 @@ template <typename Vertex>
 // game's scissor is often the rectangle it drew the map in, so a larger map
 // is clipped back to that size unless the scissor takes these bounds, and the
 // renderer redraws a moved map over the one already in the frame.
+// With a site, the draw is the map's picture or it is not (`picture`, from
+// is_map_picture_call); without one, its rectangles say.
 template <typename Vertex>
-[[nodiscard]] std::optional<Rect> moved_map_bounds(
-    const std::vector<Vertex> &drawn, const std::vector<Vertex> &scaled, std::uint32_t texture) {
+[[nodiscard]] std::optional<Rect> moved_map_bounds(const std::vector<Vertex> &drawn, const std::vector<Vertex> &scaled,
+    std::uint32_t texture, std::optional<bool> picture = std::nullopt) {
     std::optional<Rect> bounds;
     for (std::size_t first = 0; first + 6u <= drawn.size(); first += 6u) {
-        if (!quad_moved(drawn, scaled, first) || !is_drawn_map(quad_bounds(drawn, first), texture)) continue;
+        const bool map = picture ? *picture : is_drawn_map(quad_bounds(drawn, first), texture);
+        if (!quad_moved(drawn, scaled, first) || !map) continue;
         const Rect moved = quad_bounds(scaled, first);
         bounds = bounds ? united(*bounds, moved) : moved;
     }
