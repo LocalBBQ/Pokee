@@ -283,6 +283,7 @@ struct State {
         std::uint32_t end{};
         bool quest{};
         Site site{};
+        std::uint32_t call{};
     };
     std::map<std::uint32_t, Packet> packets;
     // A text queue entry or a button icon the HUD asked for, and whether the
@@ -333,6 +334,9 @@ struct State {
     bool last_call_hud{};
     bool last_call_quest{};
     Site last_call_site{};
+    // A Status packet filed this frame, and in the frame before (quest_hud_filed).
+    bool status_now{};
+    bool status_live{};
     bool last_call_name{};
     bool last_call_tag_only{};
     bool last_call_hall{};
@@ -440,7 +444,8 @@ Site site_here(const Frame &frame) {
 // whether the innermost HUD function on the stack is the quest HUD's, and
 // `site` which part of it drew (Site::None when it is not the quest HUD's).
 bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::string *line,
-    bool *name, bool *tag_only, bool *quest, bool *hall = nullptr, Site *site = nullptr) {
+    bool *name, bool *tag_only, bool *quest, bool *hall = nullptr, Site *site = nullptr,
+    std::uint32_t *call = nullptr) {
     std::uint32_t ra = ctx.gpr[31];
     std::uint32_t sp = ctx.gpr[29];
     bool hud = false;
@@ -449,6 +454,7 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     bool limit = false;
     bool in_hall = false;
     Site found_site = Site::None;
+    std::uint32_t found_call = 0u;
     for (int depth = 0; depth < 12; ++depth) {
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
@@ -468,7 +474,10 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
             }
         // The innermost listed function: the site table's functions are all
         // below the quest HUD's, so they are met before it.
-        if (found_site == Site::None && !hud) found_site = site_here(*frame);
+        if (found_site == Site::None && !hud) {
+            found_site = site_here(*frame);
+            if (found_site != Site::None) found_call = ra;
+        }
         if (!hud)
             if (const HudFunction *fn = hud_function_here(s, memory, frame->start)) {
                 hud = true;
@@ -485,6 +494,7 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     if (hall != nullptr) *hall = in_hall;
     if (site != nullptr)
         *site = !hud || !from_quest ? Site::None : found_site == Site::None ? Site::Unlisted : found_site;
+    if (call != nullptr) *call = hud && from_quest ? found_call : 0u;
     return hud;
 }
 
@@ -582,13 +592,14 @@ const State::HudEntry *find_entry(const std::vector<State::HudEntry> &entries, s
     return nullptr;
 }
 
-void note_packet(State &s, std::uint32_t packet, std::uint32_t words, bool hud, bool quest, Site site) {
+void note_packet(
+    State &s, std::uint32_t packet, std::uint32_t words, bool hud, bool quest, Site site, std::uint32_t call) {
     const std::uint32_t end = packet + words * 4u;
     // Whatever was filed where this packet now lies is gone.
     auto it = s.packets.lower_bound(packet);
     if (it != s.packets.begin() && std::prev(it)->second.end > packet) --it;
     while (it != s.packets.end() && it->first < end) it = s.packets.erase(it);
-    if (hud) s.packets.emplace(packet, State::Packet{end, quest, site});
+    if (hud) s.packets.emplace(packet, State::Packet{end, quest, site, call});
     if (s.packets.size() > 65536u) s.packets.clear(); // never expected; bounds a runaway
 }
 
@@ -615,7 +626,9 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     bool quest = false;
     bool hall = false;
     Site site = Site::None;
-    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &quest, &hall, &site);
+    std::uint32_t call = 0u;
+    bool hud = from_hud(s, memory, ctx, trace ? &chain : nullptr, &name, &tag_only, &quest, &hall, &site, &call);
+    if (quest && site == Site::Status) s.status_now = true;
     // Text a HUD function queues after drawing a packet of its own, as the
     // name plate does, is the HUD's too. The stack here is the filer, so a
     // name is the label function on that stack, or text it queued earlier.
@@ -670,7 +683,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
             origin_y = placed->second.y;
         }
     }
-    note_packet(s, ctx.gpr[5], ctx.gpr[6], hud, quest, site);
+    note_packet(s, ctx.gpr[5], ctx.gpr[6], hud, quest, site, call);
     note_name_packet(s, ctx.gpr[5], ctx.gpr[6], name, has_origin, tag_only, glyph, origin_x, origin_y, hall);
     if (label_icon && !has_origin) s.unplaced_packets.push_back(ctx.gpr[5]);
     if (s.unplaced_packets.size() > 64u) s.unplaced_packets.clear(); // never expected; bounds a runaway
@@ -962,6 +975,8 @@ bool name_tag_only(std::uint32_t address) {
 void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
     State &s = state();
     s.frame = presented_frames;
+    s.status_live = s.status_now;
+    s.status_now = false;
     if (!s.checked) {
         s.checked = true;
         if (const char *text = std::getenv("MHFU_TRACE_HUD"); text != nullptr && *text != '\0') {
@@ -992,8 +1007,11 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
                   << s.capture.first + CaptureSchedule::kFrames - 1u << " and the sprites of frames "
                   << s.capture.first + 1u << "-" << s.capture.first + CaptureSchedule::kFrames << std::endl;
     }
+    // The hunt icons and the sharpness gauge read the parts from the draws
+    // too (sites_on), so either one on has them watched as well.
+    const bool parts = settings::current().lock_on || settings::current().sharpness_gauge;
     const bool wanted =
-        s.hidden || s.trace_first != ~0ull || s.capture.pending() || sized || s.names_wanted || s.cover_wanted;
+        s.hidden || s.trace_first != ~0ull || s.capture.pending() || sized || parts || s.names_wanted || s.cover_wanted;
     if (!s.installed && wanted && s.available) {
         s.installed = true;
         if (!install_all(runtime, std::make_index_sequence<kWrapped>{})) {
@@ -1129,6 +1147,7 @@ void watch_for_tests() {
     s.frames.clear();
     s.last_call_hud = s.last_call_quest = s.last_call_name = s.last_call_tag_only = s.last_call_hall = false;
     s.last_call_site = Site::None;
+    s.status_now = s.status_live = false;
     s.trace_first = ~0ull;
 }
 
@@ -1138,9 +1157,9 @@ void trace_for_tests() {
     s.trace_every = 0u;
 }
 
-Site site_of(std::uint32_t command_address, std::uint32_t call_return) {
+SiteDraw site_draw_of(std::uint32_t command_address, std::uint32_t call_return) {
     const State &s = state();
-    if (!s.installed || !s.available) return Site::None;
+    if (!s.installed || !s.available) return {};
     // The draw's own command first, as owner_of.
     const auto packet = [&](std::uint32_t address) -> const State::Packet * {
         if (address == 0u) return nullptr;
@@ -1150,7 +1169,25 @@ Site site_of(std::uint32_t command_address, std::uint32_t call_return) {
     };
     const State::Packet *found = packet(command_address);
     if (found == nullptr) found = packet(call_return);
-    return found != nullptr && found->quest ? found->site : Site::None;
+    return found != nullptr && found->quest ? SiteDraw{found->site, found->call} : SiteDraw{};
+}
+
+Site site_of(std::uint32_t command_address, std::uint32_t call_return) {
+    return site_draw_of(command_address, call_return).site;
+}
+
+bool sites_on() {
+    static const bool switched_on = [] {
+        const char *value = std::getenv("MHFU_HUD_SCALE_SITES");
+        return value == nullptr || *value != '0';
+    }();
+    const State &s = state();
+    return switched_on && s.installed && s.available;
+}
+
+bool quest_hud_filed() {
+    const State &s = state();
+    return s.status_now || s.status_live;
 }
 
 NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return) {
