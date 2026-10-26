@@ -60,6 +60,7 @@ struct Sprite {
     // The part of the quest HUD that drew it; None in a trace from before
     // sites were traced, which the rectangles decide.
     hud::Site site{hud::Site::None};
+    std::uint32_t call{};
     hud::NameDraw name;
 };
 
@@ -99,6 +100,7 @@ bool parse(const std::string &line, Sprite &sprite) {
     const std::string owner = field(line, " owner=");
     sprite.owner = owner == "quest" ? hud::Owner::QuestHud : owner == "other" ? hud::Owner::Other : hud::Owner::Unknown;
     sprite.site = site_named(field(line, " site="));
+    sprite.call = static_cast<std::uint32_t>(std::strtoul(field(line, " call=").c_str(), nullptr, 16));
     if (field(line, " name=") == "1") {
         sprite.name.is_name = true;
         sprite.name.glyph = line.find(" name=1 letter") != std::string::npos;
@@ -148,7 +150,7 @@ void draw(Replay &replay, hs::Frame &frame, const std::vector<Sprite> &sprites) 
     if (head.name.is_name) {
         hs::scale_name_draw(scaled, kScales, frame, head.name, hs::InterfaceFit{});
     } else {
-        hs::scale_quads(scaled, kScales, frame, head.texture, head.owner, &decisions, head.site);
+        hs::scale_quads(scaled, kScales, frame, head.texture, head.owner, &decisions, {head.site, head.call});
     }
     for (std::size_t first = 0; first + 6u <= drawn.size(); first += 6u) {
         const bool moved = hs::quad_moved(drawn, scaled, first);
@@ -310,6 +312,33 @@ void test_parse_and_owner() {
     hs::Frame kept_frame;
     draw(kept, kept_frame, {unlisted});
     check(kept.lines[0].find("none site") != std::string::npos, "a part not in the table stays as drawn");
+
+    // The call says which map draw is the map's picture. A window drawn by
+    // the picture's call, outside every rectangle the shapes know, still
+    // fixes the scissor; a mark of the map's own texture does not.
+    Sprite window_far;
+    check(parse("[sprite] f=11 at=0x7 ret=0x0 vtx=0x2 fb=0x4000000 z=0 pos=(100,200)-(140,240) uv=(0,0)-(40,40) "
+                "tex=1 0x419c200 256x256 owner=quest site=map call=0x8843610 name=0",
+              window_far),
+        "a sprite with a call parses");
+    check(window_far.call == 0x08843610u, "its call is read");
+    check(hs::is_map_picture_call(0x08843610u) && hs::is_map_picture_call(0x088432E8u),
+        "the window and the tile are the map's picture");
+    check(!hs::is_map_picture_call(0x088437B4u) && !hs::is_map_picture_call(0u), "the camp icon and text are not");
+    std::vector<Vertex> drawn;
+    expand(window_far, drawn);
+    std::vector<Vertex> moved = drawn;
+    for (Vertex &v : moved) v.x += 10.0f;
+    check(!hs::moved_map_bounds(drawn, moved, hs::kAreaMapTexture).has_value(),
+        "by its rectangle alone it is not the map");
+    check(hs::moved_map_bounds(drawn, moved, hs::kAreaMapTexture, true).has_value(),
+        "by its call it is, and the scissor takes it");
+    std::vector<Vertex> tile;
+    expand(map, tile);
+    std::vector<Vertex> tile_moved = tile;
+    for (Vertex &v : tile_moved) v.x -= 10.0f;
+    check(!hs::moved_map_bounds(tile, tile_moved, hs::kAreaMapTexture, false).has_value(),
+        "a mark's call keeps a quad the map's size out of the scissor");
 }
 
 } // namespace

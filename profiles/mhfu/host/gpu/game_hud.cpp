@@ -150,7 +150,7 @@ constexpr std::uint32_t kLobbyLoaded = 0x09A6C248u;
 // reaches the dispatcher 0x0883F270 through 0x09A62740 and 0x09A627B8; the
 // dispatcher calls the left column, the right column and the pouch's panels.
 // Each function's first word is its addiu sp, sp, -N.
-constexpr std::array<SiteFunction, 18> kSiteFunctions = {{
+constexpr std::array<SiteFunction, 19> kSiteFunctions = {{
     // The left column: the clock, health and stamina, the party list and the
     // weapon's gauges. Whatever else it draws stays with them.
     {0x0883F9F8u, 0x27BDFFF0u, Site::Status},
@@ -165,6 +165,10 @@ constexpr std::array<SiteFunction, 18> kSiteFunctions = {{
     // Combine windows, are its own functions, so the column itself is not
     // listed.
     {0x08842EE8u, 0x27BDFFF0u, Site::Map}, // the area map, its window and its marks
+    // The map's drawing, under 0x08842EE8. Listed so that the call recorded
+    // with a map draw is the one in here that names the piece: the tile at
+    // 0x088432E8, the window at 0x08843610 (hud_scale::is_map_picture_call).
+    {0x08842F70u, 0x27BDFF80u, Site::Map},
     // The item bar and the item's name, with the bowgun's ammo menu that
     // opens over it (0x08845EA8).
     {0x08845A34u, 0x27BDFFE0u, Site::ItemBar},
