@@ -222,6 +222,10 @@ struct Settings {
     // Holding ○ gathers again each time the hunter is free on a node
     // (game/gather_icon.hpp). On by default. Off, ○ is one press.
     bool gather_hold{true};
+    // ○ mines and catches bugs with a pickaxe or a bug net in the pouch,
+    // selecting it for that gather (game/gather_icon.hpp, gather_circle). On
+    // by default. Off: only □ with the tool selected, as the game has it.
+    bool gather_circle{true};
     // The item bar gets an empty slot, Nothing Selected, before the first
     // item, and a quest starts on it, so □ uses no item
     // (game/empty_item_slot.hpp). On by default. Off: the game's own bar.

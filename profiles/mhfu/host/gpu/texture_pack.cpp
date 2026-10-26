@@ -579,7 +579,7 @@ std::size_t TexturePack::use_button_icons(ButtonIcons icons) {
     std::error_code ec;
     for (auto it = std::filesystem::recursive_directory_iterator(
              directory_, std::filesystem::directory_options::skip_permission_denied, ec);
-         !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+        !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
         const std::filesystem::path &path = it->path();
         if (lower(path_to_utf8(path.extension())) != ".png") continue;
@@ -880,6 +880,37 @@ void TextureDumper::writer_main() {
         out.write(reinterpret_cast<const char *>(png), length);
         STBIW_FREE(png);
     }
+}
+
+bool decode_texture_pack_image(const std::filesystem::path &file, std::vector<std::uint32_t> &pixels,
+    std::uint32_t &width, std::uint32_t &height) {
+    const std::vector<std::uint8_t> bytes = read_file(file);
+    if (bytes.empty()) return false;
+    int w = 0, h = 0, channels = 0;
+    stbi_uc *image = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &w, &h, &channels, 4);
+    if (image == nullptr) return false;
+    const bool fits = w > 0 && h > 0 && w <= kMaxImageSide && h <= kMaxImageSide;
+    if (fits) {
+        width = static_cast<std::uint32_t>(w);
+        height = static_cast<std::uint32_t>(h);
+        pixels.resize(static_cast<std::size_t>(width) * height);
+        std::memcpy(pixels.data(), image, pixels.size() * 4u);
+    }
+    stbi_image_free(image);
+    return fits;
+}
+
+bool write_texture_pack_png(
+    const std::filesystem::path &file, const std::uint32_t *pixels, std::uint32_t width, std::uint32_t height) {
+    if (pixels == nullptr || width == 0u || height == 0u) return false;
+    int length = 0;
+    unsigned char *png = stbi_write_png_to_mem(reinterpret_cast<const unsigned char *>(pixels),
+        static_cast<int>(width * 4u), static_cast<int>(width), static_cast<int>(height), 4, &length);
+    if (png == nullptr) return false;
+    std::ofstream out(file, std::ios::binary);
+    out.write(reinterpret_cast<const char *>(png), length);
+    STBIW_FREE(png);
+    return static_cast<bool>(out);
 }
 
 } // namespace mhfu::gpu

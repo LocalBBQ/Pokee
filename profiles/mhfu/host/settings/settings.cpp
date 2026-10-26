@@ -111,9 +111,9 @@ template <typename Enum> struct Names {
 const Names<PresentMode> kPresentModes{
     {{PresentMode::Fifo, "vsync"}, {PresentMode::Mailbox, "mailbox"}, {PresentMode::Immediate, "immediate"}}};
 const Names<Aspect> kAspects{{{Aspect::Original, "original"}, {Aspect::Stretch, "stretch"}, {Aspect::Fill, "fill"}}};
-const Names<PerfDisplay> kPerfDisplays{{{PerfDisplay::Off, "off"}, {PerfDisplay::Overlay, "overlay"},
-    {PerfDisplay::OverlayAndLog, "overlay+log"}, {PerfDisplay::Log, "log"}, {PerfDisplay::Compact, "compact"},
-    {PerfDisplay::CompactAndLog, "compact+log"}}};
+const Names<PerfDisplay> kPerfDisplays{
+    {{PerfDisplay::Off, "off"}, {PerfDisplay::Overlay, "overlay"}, {PerfDisplay::OverlayAndLog, "overlay+log"},
+        {PerfDisplay::Log, "log"}, {PerfDisplay::Compact, "compact"}, {PerfDisplay::CompactAndLog, "compact+log"}}};
 const Names<RightStick> kRightSticks{
     {{RightStick::Camera, "camera"}, {RightStick::DPad, "dpad"}, {RightStick::Off, "off"}}};
 const Names<LockOnStyle> kLockOnStyles{{{LockOnStyle::Follow, "follow"}, {LockOnStyle::Focus, "focus"}}};
@@ -536,8 +536,7 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return kNameEntries.parse(t, s.name_entry); },
             [](const Settings &s) { return kNameEntries.format(s.name_entry); },
             [](Settings &s, const char *t) {
-                if (!kNameEntries.parse(t, s.name_entry))
-                    std::cerr << "[settings] MHFU_OSK_MODE: keyboard or fixed\n";
+                if (!kNameEntries.parse(t, s.name_entry)) std::cerr << "[settings] MHFU_OSK_MODE: keyboard or fixed\n";
             }},
         {"input.name", "MHFU_OSK_TEXT",
             [](Settings &s, const std::string &t) {
@@ -602,6 +601,10 @@ const std::vector<Field> &fields() {
             [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_hold); },
             [](const Settings &s) { return std::string(s.gather_hold ? "1" : "0"); },
             [](Settings &s, const char *t) { s.gather_hold = variable_flag(t); }},
+        {"game.gather_circle", "MHFU_GATHER_CIRCLE",
+            [](Settings &s, const std::string &t) { return parse_bool(t, s.gather_circle); },
+            [](const Settings &s) { return std::string(s.gather_circle ? "1" : "0"); },
+            [](Settings &s, const char *t) { s.gather_circle = variable_flag(t); }},
         {"game.empty_item_slot", "MHFU_EMPTY_ITEM_SLOT",
             [](Settings &s, const std::string &t) { return parse_bool(t, s.empty_item_slot); },
             [](const Settings &s) { return std::string(s.empty_item_slot ? "1" : "0"); },

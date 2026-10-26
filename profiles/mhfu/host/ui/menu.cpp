@@ -25,6 +25,7 @@
 #include "adhoc/discovery.hpp"
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
+#include "game/button_glyphs.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/gather_icon.hpp"
 #include "game/item_atlas.hpp"
@@ -1265,6 +1266,16 @@ void Menu::game() {
         s.gather_hold = !s.gather_hold;
         settings::save();
     }
+    if (toggle_row("Gather with ○", s.gather_circle,
+            options_for("game.gather_circle",
+                "On: ○ also mines and catches bugs when a pickaxe or a bug net is in your pouch. The tool is "
+                "selected for the gather and your item goes back to the bar after you let go. Without the tool "
+                "○ does nothing there, so it never uses another item. A monster you can carve on the point "
+                "keeps ○ a carve. At the Pokke Farm ○ mines and catches bugs too. "
+                "Off: mining and bug nets need the tool selected and □, as in the original game."))) {
+        s.gather_circle = !s.gather_circle;
+        settings::save();
+    }
     if (toggle_row("Empty item slot", s.empty_item_slot,
             options_for("game.empty_item_slot",
                 "On: the item bar has an empty slot, Nothing Selected, before the first item, and each quest "
@@ -1547,6 +1558,7 @@ void Menu::game() {
             if (settings::overridden_by(key) == nullptr) value = fallback;
         };
         restore("game.gather_hold", s.gather_hold, d.gather_hold);
+        restore("game.gather_circle", s.gather_circle, d.gather_circle);
         restore("game.empty_item_slot", s.empty_item_slot, d.empty_item_slot);
         restore("input.lock_on", s.lock_on, d.lock_on);
         restore("input.lock_on_style", s.lock_on_style, d.lock_on_style);
@@ -2507,6 +2519,80 @@ bool draw_gather_art(ImDrawList *draw, const game::GatherMark &mark, ImVec2 cent
     return unknown();
 }
 
+// The first chord of an action that is one input on that device.
+std::optional<input::Binding> single_binding(input::Action action, bool pad) {
+    const settings::Settings &s = settings::current();
+    const input::Slots &slots = (pad ? s.controls.pad : s.controls.keys)[static_cast<std::size_t>(action)];
+    for (const input::Chord &chord : slots)
+        if (!chord.empty() && !chord.combined()) return chord.held()[0];
+    return std::nullopt;
+}
+
+// One per size: the pack's image of the sheet is larger than the game's own,
+// and upload_sheet keeps the size a texture was made with, so turning the
+// pack off copied the game's sheet into the pack's texture, row by row in the
+// wrong places.
+SheetTexture &button_glyph_texture(std::uint32_t width, std::uint32_t height) {
+    static std::map<std::pair<std::uint32_t, std::uint32_t>, SheetTexture> sheets;
+    return sheets[{width, height}];
+}
+
+// The button that does what the mark shows (GatherMark::button), at the
+// disc's lower left. It is the game's own glyph from the quest bar's sheet
+// (game/button_glyphs.hpp), as the game's prompts draw it and as a texture
+// pack replaces it, in the pack's chosen button icons. Until the sheet has
+// been drawn: the pad button bound to the game's ○ or □, as the pad labels
+// it, or with no pad the key, in a small cap.
+void draw_gather_button(ImDrawList *draw, std::uint32_t button, ImVec2 disc, float radius, float alpha) {
+    const input::Action action = button == 0x8000u ? input::Action::Square : input::Action::Circle;
+    const float badge = radius * 0.5f;
+    const ImVec2 centre{disc.x - radius * 0.72f, disc.y + radius * 0.72f};
+    if (const std::optional<game::ButtonGlyph> glyph = game::button_glyph_for(button)) {
+        const game::ButtonGlyphSheet sheet = game::button_glyph_sheet();
+        SheetTexture &texture = button_glyph_texture(sheet.width, sheet.height);
+        upload_sheet(texture, sheet.ready, sheet.pixels, sheet.width, sheet.height, sheet.generation);
+        if (sheet.ready && texture.texture != nullptr && texture.generation == sheet.generation) {
+            const game::GlyphCell cell = game::button_glyph_cell(*glyph);
+            const float half = badge * 1.15f; // the glyph's art sits inside its cell
+            draw->AddImage(texture.texture->GetTexRef(), {centre.x - half, centre.y - half},
+                {centre.x + half, centre.y + half}, {cell.u0, cell.v0}, {cell.u1, cell.v1},
+                IM_COL32(255, 255, 255, static_cast<int>(255.0f * alpha)));
+            return;
+        }
+    }
+    const ImU32 fill = IM_COL32(236, 228, 208, static_cast<int>(235.0f * alpha));
+    const ImU32 ink = IM_COL32(20, 16, 12, static_cast<int>(255.0f * alpha));
+    const ImU32 edge = IM_COL32(0, 0, 0, static_cast<int>(180.0f * alpha));
+    const bool pad = Layer::get().attached() && Layer::get().renderer().gamepad() != nullptr;
+    if (pad) {
+        if (const std::optional<input::Binding> bound = single_binding(action, true); bound && input::is_pad(*bound)) {
+            const int at = input::pad_input_of(*bound);
+            const std::optional<Face> face = at == static_cast<int>(input::PadInput::South) ? std::optional{Face::South}
+                : at == static_cast<int>(input::PadInput::East)                             ? std::optional{Face::East}
+                : at == static_cast<int>(input::PadInput::West)                             ? std::optional{Face::West}
+                : at == static_cast<int>(input::PadInput::North)                            ? std::optional{Face::North}
+                                                                                            : std::nullopt;
+            if (face) {
+                draw_face_badge(draw, centre, badge, *face, fill, ink);
+                draw->AddCircle(centre, badge, edge, 0, std::max(1.0f, badge * 0.12f));
+                return;
+            }
+        }
+    }
+    const std::optional<input::Binding> key = single_binding(action, pad);
+    if (!key) return;
+    const std::string text = input::label(*key, input::PadStyle::Generic);
+    ImFont *font = ImGui::GetFont();
+    const float size = badge * 1.3f;
+    const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
+    const float half_w = std::max(badge, extent.x * 0.5f + badge * 0.4f);
+    const ImVec2 min{centre.x - half_w, centre.y - badge};
+    const ImVec2 max{centre.x + half_w, centre.y + badge};
+    draw->AddRectFilled(min, max, fill, badge * 0.5f);
+    draw->AddRect(min, max, edge, badge * 0.5f, 0, std::max(1.0f, badge * 0.12f));
+    draw->AddText(font, size, {centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f}, ink, text.c_str());
+}
+
 // The gather mark (game/gather_icon.hpp): a dark disc in the game's pixels,
 // above the node, with the picture of what it gathers in it, or the game's
 // red ? when there is none (the interface's own ? until the atlas is read). It grows a little as it fades in. Its vertices follow frame
@@ -2544,6 +2630,20 @@ void draw_gather_mark(const game::GatherMark &mark) {
         const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
         const ImVec2 origin{centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f};
         draw->AddText(font, size, origin, fade(245, 236, 214, 240), label);
+    }
+    if (mark.button != 0u) draw_gather_button(draw, mark.button, centre, radius, alpha);
+    // How many of the tool the pouch holds, at the upper right as the game
+    // writes a count ("x3").
+    if (mark.carried > 0u) {
+        const std::string count = "x" + std::to_string(mark.carried);
+        const float size = shape.glyph * pixel * 0.85f;
+        ImFont *font = ImGui::GetFont();
+        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, count.c_str());
+        const ImVec2 at{centre.x + radius * 0.55f, centre.y - radius * 0.75f - extent.y * 0.5f};
+        const float edge = std::max(1.0f, pixel * 0.5f);
+        for (const ImVec2 offset : {ImVec2{-edge, 0.0f}, ImVec2{edge, 0.0f}, ImVec2{0.0f, -edge}, ImVec2{0.0f, edge}})
+            draw->AddText(font, size, {at.x + offset.x, at.y + offset.y}, fade(0, 0, 0, 200), count.c_str());
+        draw->AddText(font, size, at, fade(245, 236, 214, 245), count.c_str());
     }
     if (mark.older) {
         const ImVec2 older = screen(*mark.older);
