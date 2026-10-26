@@ -151,11 +151,13 @@ enum class LabelPart : std::uint8_t { Unknown, Badge, QuestPaper, Ready };
     }
 }
 
-// `hunter` is the hall hunter the label is drawn for: the object 0x088351F0
-// keeps in s0 for each hunter and passes to the label function, which saves
-// it at 40(sp). Every piece of one label, its letters included, has it, so a
-// label and its marks are told apart by whose they are, not by where they
-// are; 0 when not known. `part` is the piece (LabelPart).
+// `label` is which hall label the draw belongs to, numbered from 1 in the
+// order the game draws them this frame. 0x08835470 draws every hunter's
+// label in one call, each a badge, that name's text and its marks before the
+// next badge (traced with MHFU_TRACE_CAPTURE), and the player's own comes
+// first. Every piece of one label, its letters included, has its number, so a
+// label and its marks are told apart by that order, not by where they are; 0
+// when not known. `part` is the piece (LabelPart).
 struct NameDraw {
     bool is_name{};
     bool has_origin{};
@@ -164,7 +166,7 @@ struct NameDraw {
     float origin_x{};
     float origin_y{};
     bool hall{};
-    std::uint32_t hunter{};
+    std::uint32_t label{};
     LabelPart part{LabelPart::Unknown};
 };
 [[nodiscard]] NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return);

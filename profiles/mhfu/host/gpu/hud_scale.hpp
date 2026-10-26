@@ -1322,9 +1322,10 @@ struct Frame {
     // every blink. The shadow's point is a pixel off the letters', so points
     // that close are one label.
     //
-    // A label whose hunter is known (hud::NameDraw::hunter) is every draw for
-    // that hunter: its letters, and its badge, which the call that filed it
-    // names. Its marks never count. Nothing about it is matched by place.
+    // A label whose number is known (hud::NameDraw::label, its place in the
+    // order the game draws the labels) is every draw with that number: its
+    // letters, and its badge, which the call that filed it names. Its marks
+    // never count. Nothing about it is matched by place.
     struct NameLabel {
         float origin_x{};
         float origin_y{};
@@ -1333,7 +1334,7 @@ struct Frame {
         static constexpr int kIcons = 4;
         Rect icons[kIcons]{};
         int icon_count{};
-        std::uint32_t hunter{};
+        std::uint32_t number{};
     };
     // Where a label is sized about, from its point, and the frames since it
     // was last drawn. A label kept for a second after it is last drawn, and
@@ -1345,9 +1346,9 @@ struct Frame {
         float dx{};
         float dy{};
         int unseen{};
-        // The hunter, when known: the middle is then kept by whose label it
-        // is, however far its point moves.
-        std::uint32_t hunter{};
+        // The label's number, when known: the middle is then kept by which
+        // label it is, however far its point moves.
+        std::uint32_t number{};
     };
     static constexpr int kNameLabels = 16;
     static constexpr int kNameLabelKeep = 30;
@@ -1365,19 +1366,19 @@ struct Frame {
     float name_pivot_y{};
     bool name_pivot_kept{};
 
-    void note_name_label(float origin_x, float origin_y, Rect drawn, bool glyph, std::uint32_t hunter = 0u) {
+    void note_name_label(float origin_x, float origin_y, Rect drawn, bool glyph, std::uint32_t number = 0u) {
         const Rect d = normalized(drawn);
         NameLabel *label = nullptr;
         for (int i = 0; i < name_label_count && label == nullptr; ++i)
-            if (hunter != 0u ? name_labels[i].hunter == hunter
-                             : name_labels[i].hunter == 0u && std::fabs(name_labels[i].origin_x - origin_x) <= 4.0f &&
+            if (number != 0u ? name_labels[i].number == number
+                             : name_labels[i].number == 0u && std::fabs(name_labels[i].origin_x - origin_x) <= 4.0f &&
                         std::fabs(name_labels[i].origin_y - origin_y) <= 4.0f)
                 label = &name_labels[i];
         if (label == nullptr) {
             if (name_label_count == kNameLabels) return;
             label = &name_labels[name_label_count++];
             *label = NameLabel{origin_x, origin_y};
-            label->hunter = hunter;
+            label->number = number;
         }
         if (glyph) {
             label->letters = label->has_letters ? united(label->letters, d) : d;
@@ -1388,12 +1389,12 @@ struct Frame {
     }
 
     // The nearest kept middle within `max_move` pixels of a point, or -1. With
-    // a hunter, that hunter's kept middle wherever it is.
+    // a label's number, that label's kept middle wherever it is.
     [[nodiscard]] int nearest_name_centre(
-        float origin_x, float origin_y, float max_move = kNameLabelMove, std::uint32_t hunter = 0u) const {
-        if (hunter != 0u) {
+        float origin_x, float origin_y, float max_move = kNameLabelMove, std::uint32_t number = 0u) const {
+        if (number != 0u) {
             for (int i = 0; i < name_centre_count; ++i)
-                if (name_centres[i].hunter == hunter) return i;
+                if (name_centres[i].number == number) return i;
             return -1;
         }
         int best = -1;
@@ -1414,8 +1415,8 @@ struct Frame {
     // the nearest label kept within `max_move` pixels. False on a label's
     // first frame.
     [[nodiscard]] bool name_label_centre(float origin_x, float origin_y, float &x, float &y,
-        float max_move = kNameLabelMove, std::uint32_t hunter = 0u) const {
-        const int best = nearest_name_centre(origin_x, origin_y, max_move, hunter);
+        float max_move = kNameLabelMove, std::uint32_t number = 0u) const {
+        const int best = nearest_name_centre(origin_x, origin_y, max_move, number);
         if (best < 0) return false;
         x = origin_x + name_centres[best].dx;
         y = origin_y + name_centres[best].dy;
@@ -1444,17 +1445,17 @@ struct Frame {
         return true;
     }
 
-    // The point of a hunter's label: this frame's, once a piece of it with a
-    // point has been filed, otherwise the one its kept middle was last at.
-    // False when the hunter has neither.
-    [[nodiscard]] bool hunter_point(std::uint32_t hunter, float &x, float &y) const {
+    // The point of the label numbered `number`: this frame's, once a piece of
+    // it with a point has been filed, otherwise the one its kept middle was
+    // last at. False when it has neither.
+    [[nodiscard]] bool label_point(std::uint32_t number, float &x, float &y) const {
         for (int i = 0; i < name_label_count; ++i)
-            if (name_labels[i].hunter == hunter) {
+            if (name_labels[i].number == number) {
                 x = name_labels[i].origin_x;
                 y = name_labels[i].origin_y;
                 return true;
             }
-        const int kept = nearest_name_centre(0.0f, 0.0f, kNameLabelMove, hunter);
+        const int kept = nearest_name_centre(0.0f, 0.0f, kNameLabelMove, number);
         if (kept < 0) return false;
         x = name_centres[kept].origin_x;
         y = name_centres[kept].origin_y;
@@ -1526,7 +1527,7 @@ struct Frame {
         bool has_point{};
         float x{};
         float y{};
-        std::uint32_t hunter{};
+        std::uint32_t number{};
     };
     // The last hall draw filed, for frame interpolation: a mark glides with
     // its own hunter's name, not the one whose point it was filed with.
@@ -1541,16 +1542,16 @@ struct Frame {
         if (named.tag_only && !is_name_tag(game)) {
             // A plate larger than a name: neither, and not part of the label.
             piece.has_point = named.has_origin;
-        } else if (named.hunter != 0u) {
-            // Whose piece it is, and which, are known. A mark moves with its
-            // own hunter's label, whatever point it was filed with.
-            piece.hunter = named.hunter;
+        } else if (named.label != 0u) {
+            // Which label's piece it is, and which piece, are known. A mark
+            // moves with its own label, whatever point it was filed with.
+            piece.number = named.label;
             if (named.glyph || named.part == hud::LabelPart::Badge) {
                 piece.has_point = named.has_origin;
-                if (piece.has_point) note_name_label(piece.x, piece.y, drawn, named.glyph, named.hunter);
+                if (piece.has_point) note_name_label(piece.x, piece.y, drawn, named.glyph, named.label);
             } else if (named.part == hud::LabelPart::QuestPaper || named.part == hud::LabelPart::Ready) {
                 piece.mark = true;
-                piece.has_point = hunter_point(named.hunter, piece.x, piece.y);
+                piece.has_point = label_point(named.label, piece.x, piece.y);
             } else {
                 piece.has_point = named.has_origin;
             }
@@ -1569,14 +1570,14 @@ struct Frame {
     // The middle of a label's letters and the badge against them: an icon
     // whose right edge is within a few pixels of the first letter, beside the
     // letters' row. Without letters this frame, the middle the label had.
-    // A label whose hunter is known holds only its badge as an icon.
+    // A label whose number is known holds only its badge as an icon.
     [[nodiscard]] bool name_label_middle(const NameLabel &label, float &dx, float &dy) const {
         if (label.has_letters) {
             Rect box = label.letters;
             for (int i = 0; i < label.icon_count; ++i) {
                 const Rect icon = label.icons[i];
                 const float gap = label.letters.x0 - icon.x1;
-                if (label.hunter != 0u ||
+                if (label.number != 0u ||
                     (gap >= -2.0f && gap <= 8.0f && icon.y0 < label.letters.y1 && icon.y1 > label.letters.y0))
                     box = united(box, icon);
             }
@@ -1584,7 +1585,7 @@ struct Frame {
             dy = 0.5f * (box.y0 + box.y1) - label.origin_y;
             return true;
         }
-        const int kept = nearest_name_centre(label.origin_x, label.origin_y, kNameLabelMove, label.hunter);
+        const int kept = nearest_name_centre(label.origin_x, label.origin_y, kNameLabelMove, label.number);
         if (kept < 0) return false;
         dx = name_centres[kept].dx;
         dy = name_centres[kept].dy;
@@ -1598,7 +1599,7 @@ struct Frame {
             float dx = 0.0f;
             float dy = 0.0f;
             if (name_label_middle(name_labels[i], dx, dy))
-                next[count++] = {name_labels[i].origin_x, name_labels[i].origin_y, dx, dy, 0, name_labels[i].hunter};
+                next[count++] = {name_labels[i].origin_x, name_labels[i].origin_y, dx, dy, 0, name_labels[i].number};
         }
         // A label not drawn this frame keeps its middle for a while.
         for (int i = 0; i < name_centre_count && count < kNameLabels; ++i) {
@@ -1606,15 +1607,15 @@ struct Frame {
             if (old.unseen + 1 > kNameLabelKeep) continue;
             bool drawn = false;
             for (int j = 0; j < name_label_count && !drawn; ++j) {
-                if (old.hunter != 0u) {
-                    drawn = name_labels[j].hunter == old.hunter;
+                if (old.number != 0u) {
+                    drawn = name_labels[j].number == old.number;
                     continue;
                 }
                 const float dx = name_labels[j].origin_x - old.origin_x;
                 const float dy = name_labels[j].origin_y - old.origin_y;
-                drawn = name_labels[j].hunter == 0u && dx * dx + dy * dy <= kNameLabelMove * kNameLabelMove;
+                drawn = name_labels[j].number == 0u && dx * dx + dy * dy <= kNameLabelMove * kNameLabelMove;
             }
-            if (!drawn) next[count++] = {old.origin_x, old.origin_y, old.dx, old.dy, old.unseen + 1, old.hunter};
+            if (!drawn) next[count++] = {old.origin_x, old.origin_y, old.dx, old.dy, old.unseen + 1, old.number};
         }
         for (int i = 0; i < count; ++i) name_centres[i] = next[i];
         name_centre_count = count;
@@ -2094,7 +2095,7 @@ std::optional<Rect> scale_name_draw(
             // the label's first frame, the point itself, as its letters.
             float centre_x = 0.0f;
             float centre_y = 0.0f;
-            if (frame.name_label_centre(piece.x, piece.y, centre_x, centre_y, Frame::kNameLabelMove, piece.hunter)) {
+            if (frame.name_label_centre(piece.x, piece.y, centre_x, centre_y, Frame::kNameLabelMove, piece.number)) {
                 middle_x = centre_x;
                 middle_y = centre_y;
             }
@@ -2102,7 +2103,7 @@ std::optional<Rect> scale_name_draw(
         // A mark whose hunter is known but has no label yet is sized about
         // itself: it is never given to whichever label is nearest.
         if (piece.has_point ||
-            (piece.hunter == 0u &&
+            (piece.number == 0u &&
                 frame.nearest_name_middle(0.5f * (box.x0 + box.x1), 0.5f * (box.y0 + box.y1), middle_x, middle_y))) {
             scale_name(vertices, scales.names, true, middle_x, middle_y);
             frame.name_pivot_x = middle_x;
@@ -2117,7 +2118,7 @@ std::optional<Rect> scale_name_draw(
     if (named.hall && has_origin && !vertices.empty()) {
         float centre_x = 0.0f;
         float centre_y = 0.0f;
-        if (frame.name_label_centre(origin_x, origin_y, centre_x, centre_y, Frame::kNameLabelMove, named.hunter)) {
+        if (frame.name_label_centre(origin_x, origin_y, centre_x, centre_y, Frame::kNameLabelMove, named.label)) {
             origin_x = centre_x;
             origin_y = centre_y;
             frame.name_pivot_kept = true;
@@ -2155,15 +2156,15 @@ struct NamePlace {
     float v{};
     std::uint64_t texture{};
     std::uint32_t vertices{};
-    // A hall name's hunter (hud::NameDraw::hunter), 0 when not known.
-    std::uint32_t hunter{};
+    // A hall name's label number (hud::NameDraw::label), 0 when not known.
+    std::uint32_t number{};
 };
 
 // The same letter of the same name in the newer frame: the same texture,
 // texel and place within its name, on the nearest point no further than
 // `max_move` pixels. -1 when there is none: a name that appeared, left, or
 // jumped (a cut) stays where its frame drew it. A hall name's letter only
-// pairs with the same hunter's, so two hunters standing together keep their
+// pairs with the same label's, so two hunters standing together keep their
 // own names; `max_move` then only keeps a cut from gliding.
 [[nodiscard]] inline int match_name_place(
     const NamePlace &older, const std::vector<NamePlace> &newer, float max_move = 64.0f) {
@@ -2171,7 +2172,7 @@ struct NamePlace {
     float best_distance = max_move * max_move;
     for (std::size_t i = 0; i < newer.size(); ++i) {
         const NamePlace &n = newer[i];
-        if (n.texture != older.texture || n.vertices != older.vertices || n.hunter != older.hunter) continue;
+        if (n.texture != older.texture || n.vertices != older.vertices || n.number != older.number) continue;
         if (std::fabs(n.u - older.u) > 0.01f || std::fabs(n.v - older.v) > 0.01f) continue;
         if (std::fabs(n.dx - older.dx) > 0.5f || std::fabs(n.dy - older.dy) > 0.5f) continue;
         const float mx = n.origin_x - older.origin_x;
