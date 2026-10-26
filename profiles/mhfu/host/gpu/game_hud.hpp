@@ -133,6 +133,29 @@ void want_cover(bool wanted);
 // `hall` is a name over a hunter in the gathering hall: frame interpolation
 // moves it with its hunter, and it takes the Names size unless
 // MHFU_HUD_HALL_NAMES=0 (hud_scale::sizes_name).
+// A gathering-hall label's own pieces, by the call in the label function
+// (0x08835470) that files them, traced with MHFU_TRACE_CAPTURE: the weapon
+// badge at 0x088357D0, the quest paper at 0x08835C50 and the ready mark at
+// 0x08835D0C. The letters are the name's text (NameDraw::glyph).
+enum class LabelPart : std::uint8_t { Unknown, Badge, QuestPaper, Ready };
+[[nodiscard]] constexpr LabelPart label_part_of_call(std::uint32_t call) {
+    switch (call) {
+    case 0x088357D0u:
+        return LabelPart::Badge;
+    case 0x08835C50u:
+        return LabelPart::QuestPaper;
+    case 0x08835D0Cu:
+        return LabelPart::Ready;
+    default:
+        return LabelPart::Unknown;
+    }
+}
+
+// `hunter` is the hall hunter the label is drawn for: the object 0x088351F0
+// keeps in s0 for each hunter and passes to the label function, which saves
+// it at 40(sp). Every piece of one label, its letters included, has it, so a
+// label and its marks are told apart by whose they are, not by where they
+// are; 0 when not known. `part` is the piece (LabelPart).
 struct NameDraw {
     bool is_name{};
     bool has_origin{};
@@ -141,6 +164,8 @@ struct NameDraw {
     float origin_x{};
     float origin_y{};
     bool hall{};
+    std::uint32_t hunter{};
+    LabelPart part{LabelPart::Unknown};
 };
 [[nodiscard]] NameDraw name_at(std::uint32_t command_address, std::uint32_t call_return);
 
