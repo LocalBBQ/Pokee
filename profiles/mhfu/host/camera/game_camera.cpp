@@ -17,7 +17,9 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <optional>
+#include <string>
 #include <utility>
 
 namespace mhfu::camera {
@@ -66,9 +68,12 @@ constexpr float kAngleUnits = 65536.0f / 360.0f;
 // 30 degrees below the point it looks at: with the tilt lower, it raised that
 // point instead, measured at -30.0 degrees in 58 of 61 updates, and let go at
 // once when the tilt came back or a wall moved the eye, which flipped the
-// view. MHFU_CAMERA_LOW_TILT=1 allows -60 degrees, as before.
+// view. With the eye kept above the feet (place_eye), -30 looked up 44 degrees
+// with the eye 93 from the hunter, more than wanted; -20 looks up about 36,
+// 125 away. MHFU_CAMERA_LOW_TILT=1 allows -60 degrees, as before.
+constexpr float kLowestTilt = -20.0f;
 float lowest_tilt() {
-    static const float lowest = std::getenv("MHFU_CAMERA_LOW_TILT") != nullptr ? -60.0f : -30.0f;
+    static const float lowest = std::getenv("MHFU_CAMERA_LOW_TILT") != nullptr ? -60.0f : kLowestTilt;
     return lowest;
 }
 
@@ -286,8 +291,29 @@ constexpr float kMouseStockTurn = 0.5f;
 // clear. While the analog camera drives, the wrapper picks the pull-in from
 // any side. MHFU_CAMERA_WALL_SLIDE=1 leaves the choice to the game.
 constexpr std::uint32_t kPullInChoice = 0x0888FCE4u;
+// Those two sweeps are calls of 0x09C3ABA8 (game_sub) with a1 the start, a2
+// the eye wanted (camera +0x40) and v0 non-zero for a hit. The first, from
+// 0x08887C88, starts at the eye itself (camera +0); the second, from
+// 0x08887CB0, at camera +0x50. The update only looks at the second when the
+// first hit something (0x08887CB8): when it missed, the eye goes to the one
+// wanted, its height eased an eighth of the way (0x08887D08). So an eye
+// already on the far side of a wall or under the floor, where a sweep from it
+// meets nothing, stayed there while the view line from +0x50 was blocked:
+// the camera caught on walls and showed the level from under the ground. While
+// the analog camera drives, the first sweep also starts at +0x50, so a blocked
+// view line is always pulled in and a missed sweep means the eye wanted is
+// clear. MHFU_CAMERA_EYE_SWEEP=1 sweeps from the eye, as before.
+constexpr std::uint32_t kSweep = 0x09C3ABA8u;
+constexpr std::uint32_t kEyeSweepReturn = 0x08887C90u;
+constexpr std::uint32_t kViewLineStart = 0x50u;
+constexpr std::array<CodeWord, 4> kSweepSignature{{
+    {0x09C3ABA8u, 0x27BDFF80u, "addiu sp,sp,-128: the collision sweep"},
+    {0x09C3ABACu, 0xAFBF003Cu, "sw ra,60(sp)"},
+    {0x09C3ABB0u, 0xAFBE0038u, "sw fp,56(sp)"},
+    {0x09C3ABB4u, 0xAFB70034u, "sw s7,52(sp)"},
+}};
 
-constexpr std::array<CodeWord, 49> kSignature{{
+constexpr std::array<CodeWord, 53> kSignature{{
     {0x08886E50u, 0x27BDFE30u, "addiu sp,sp,-464: the camera update"},
     {0x08886EC8u, 0x26B400A0u, "addiu s4,s5,160: the camera is the parent object plus 0xA0"},
     {0x08887470u, 0x96850084u, "lhu a1,0x84(s4): the turn buttons"},
@@ -337,6 +363,10 @@ constexpr std::array<CodeWord, 49> kSignature{{
     {0x08887CCCu, 0x0E223F39u, "jal 0x0888FCE4: whether a blocked eye is pulled in along the view line"},
     {0x0888FCE4u, 0x3C02089Du, "lui v0,0x89d: that choice"},
     {0x0888FCECu, 0x9083012Du, "lbu v1,301(a0): it pulls in during a snap"},
+    {0x08887C7Cu, 0x02802821u, "addu a1,s4,zero: the first sweep starts at the eye"},
+    {0x08887C88u, 0x0E70EAEAu, "jal 0x09C3ABA8: the first sweep"},
+    {0x08887CA4u, 0x26850050u, "addiu a1,s4,80: the second starts at camera +0x50"},
+    {0x08887CB0u, 0x0E70EAEAu, "jal 0x09C3ABA8: the second sweep"},
     {0x088874E4u, 0x0E223925u, "jal 0x0888E494: the recenter check"},
     {0x0888E494u, 0x27BDFFF0u, "addiu sp,sp,-16: the recenter check"},
 }};
@@ -346,6 +376,11 @@ struct State {
     bool hooked{};
     RotationFunction original{};
     RotationFunction pull_in_original{};
+    // The generated collision sweep, and what the first sweep of the last
+    // follow update did: -1 started at the eye, 0 or 1 started at +0x50 and
+    // missed or hit.
+    RotationFunction sweep_original{};
+    int view_line_sweep{-1};
     std::uint64_t frame{};
     std::uint64_t last_update{};
     std::uint32_t address{};
@@ -625,6 +660,33 @@ void restore_preset(psprecomp::GuestMemory &memory) {
     store_float(memory, state.preset + kPresetDistance, state.saved_distance);
 }
 
+// The preset's height is measured from the hunter's feet, not from the point
+// looked at (170 above them): MHFU_TRACE_CAMERA_STATE put the eye 62 below the
+// feet at a tilt of -7.3 degrees, and nothing in the game stopped it there, so
+// any tilt under level put the eye under flat ground and the picture showed the
+// level from below. Where the tilt would take the eye lower than this above
+// the feet, it stays at this height and comes in along the same view line, so
+// the view keeps turning up (to about 36 degrees at the lowest tilt) with the eye
+// above the floor. The game itself was seen holding the eye 80 above the feet.
+// MHFU_CAMERA_LOW_EYE=1 lets the eye go lower, as before.
+constexpr float kLowestEye = 80.0f;
+
+struct EyePlacement {
+    float height;
+    float distance;
+};
+
+EyePlacement place_eye(float pitch_degrees, float radius, float look_height) {
+    static const bool low = std::getenv("MHFU_CAMERA_LOW_EYE") != nullptr;
+    const float angle = pitch_degrees * kRadians;
+    const EyePlacement wanted{radius * std::sin(angle), radius * std::cos(angle)};
+    if (low || wanted.height >= kLowestEye || !(look_height > kLowestEye)) return wanted;
+    // The point on the line from the point looked at through the eye wanted
+    // that is kLowestEye above the feet.
+    const float along = (look_height - kLowestEye) / (look_height - wanted.height);
+    return {kLowestEye, wanted.distance * along};
+}
+
 // The quest follow camera. Yaw is written to both of the game's yaw fields
 // before the update, so its quarter-step filter has nothing left to close.
 // Pitch rewrites the preset offset this update is about to read, including
@@ -809,15 +871,19 @@ void drive_follow(psprecomp::GuestMemory &memory, std::uint32_t address) {
             state.preset = preset;
             state.saved_height = height;
             state.saved_distance = distance;
-            const float angle = state.pitch * kRadians;
+            const float look_height =
+                hunter != 0u && memory.raw_pointer(hunter + game::layout::kPosition, 12u) != nullptr
+                ? load_float(memory, address + 0x14u) - load_float(memory, hunter + game::layout::kPosition + 4u)
+                : std::numeric_limits<float>::quiet_NaN();
+            const EyePlacement placed = place_eye(state.pitch, radius, look_height);
             const float sign = distance < 0.0f ? -1.0f : 1.0f;
-            store_float(memory, preset + kPresetHeight, radius * std::sin(angle));
-            store_float(memory, preset + kPresetDistance, std::copysign(radius * std::cos(angle), sign));
+            store_float(memory, preset + kPresetHeight, placed.height);
+            store_float(memory, preset + kPresetDistance, std::copysign(placed.distance, sign));
             state.preset_patched = true;
             // The ease at 0x08887D10 closes an eighth of (desired height - eye
             // height). Moving the eye by the player's own change leaves it
             // nothing of that change to close, in either direction.
-            const float delta = radius * (std::sin(angle) - std::sin(previous_pitch * kRadians));
+            const float delta = placed.height - place_eye(previous_pitch, radius, look_height).height;
             if (std::isfinite(delta) && delta != 0.0f)
                 store_float(memory, address + kEyeY, load_float(memory, address + kEyeY) + delta);
         }
@@ -1514,7 +1580,28 @@ void trace_after(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     const float dz = eye[2] - at[2];
     *out << "P," << state.frame << ',' << eye[0] << ',' << eye[1] << ',' << eye[2] << ',' << at[0] << ',' << at[1]
          << ',' << at[2] << ',' << std::sqrt(dx * dx + dy * dy + dz * dz) << ',' << std::hypot(dx, dz) << ',' << wanted
-         << ',' << memory.load16(address + kYawCurrent) << '\n';
+         << ',' << memory.load16(address + kYawCurrent);
+    // The first sweep (-1 from the eye, 0 or 1 a miss or hit from +0x50), and
+    // the eye's height above the hunter's feet: an eye through the floor.
+    *out << ',' << state.view_line_sweep;
+    const std::uint32_t hunter = followed_hunter(memory);
+    if (hunter != 0u && memory.raw_pointer(hunter + game::layout::kPosition, 12u) != nullptr)
+        *out << ',' << eye[1] - load_float(memory, hunter + game::layout::kPosition + 4u);
+    *out << '\n';
+}
+
+// The pull-in choice and the sweep are called from inside the camera update.
+// A caller does not chain into a host function, so the update came back to
+// camera_rotation at that call, unfinished, and every step meant for after it
+// (the preset put back, the wall ease, the P trace) ran in the middle of it;
+// the trace showed the first sweep as never started. Registered first under a
+// host name, which keeps the generated unit from calling the old code
+// directly, then under a unit name, so the update chains into the wrapper and
+// carries on. Neither wrapper ever switches threads.
+void register_chained(
+    psprecomp::Runtime &runtime, std::uint32_t address, RotationFunction wrapper, const std::string &name) {
+    runtime.register_function(address, wrapper, name);
+    runtime.register_function(address, wrapper, "recomp_unit_" + name);
 }
 
 void pull_in_choice(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
@@ -1527,7 +1614,68 @@ void pull_in_choice(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx
     state.pull_in_original(runtime, ctx);
 }
 
+void collision_sweep(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    static const bool from_eye = std::getenv("MHFU_CAMERA_EYE_SWEEP") != nullptr;
+    // Only the follow update's first sweep, of the camera it is updating. The
+    // game sweeps for much else through the same function.
+    const bool redirect = !from_eye && driving_allowed() && ctx.gpr[31] == kEyeSweepReturn && state.address != 0u &&
+        ctx.gpr[5] == state.address;
+    if (redirect) ctx.gpr[5] = state.address + kViewLineStart;
+    const std::uint32_t return_pc = ctx.gpr[31];
+    state.sweep_original(runtime, ctx);
+    if (redirect && ctx.pc == return_pc) state.view_line_sweep = ctx.gpr[2] != 0u ? 1 : 0;
+}
+
+// The sweep lives in game_sub, so like the aim function its wrapper is put
+// back whenever that overlay is installed again.
+void install_sweep_hook(psprecomp::Runtime &runtime) {
+    if (!state.hooked || !option_on()) return;
+    const RotationFunction current = runtime.function_at(kSweep);
+    if (current == nullptr || current == &collision_sweep) return;
+    for (const CodeWord &expected : kSweepSignature)
+        if (runtime.memory().load32(expected.address) != expected.word) return;
+    state.sweep_original = current;
+    register_chained(runtime, kSweep, &collision_sweep, "mhfu_camera_sweep");
+}
+
+// What is put back and done once the camera update has returned.
+struct AfterUpdate {
+    std::uint32_t address{};
+    std::uint32_t hunter{};
+    std::optional<RecenterWatch> watch;
+    std::optional<DpadMute> dpad;
+    std::uint8_t saved_gate{};
+    bool restore_gate{};
+    bool follow{};
+    bool fresh_wall{};
+};
+// An update that came back unfinished, at a call it could not chain into, is
+// finished later by the dispatcher; its steps wait for the next update or flip.
+std::optional<AfterUpdate> pending_after;
+
+void finish_update(psprecomp::GuestMemory &memory, const AfterUpdate &after) {
+    if (after.dpad) unmute_dpad(memory, *after.dpad);
+    if (after.restore_gate) memory.store8(after.address + kAim, after.saved_gate);
+    if (after.watch) check_recenter(memory, *after.watch);
+    restore_preset(memory);
+    if (after.follow) ease_wall(memory, after.address, after.fresh_wall);
+    if (after.follow) trace_after(memory, after.address);
+    if (state.facing_substituted) {
+        state.facing_substituted = false;
+        if (after.hunter != 0u && memory.raw_pointer(after.hunter + kFacing, 4u) != nullptr)
+            memory.store32(after.hunter + kFacing, state.saved_facing);
+    }
+}
+
+void finish_pending(psprecomp::GuestMemory &memory) {
+    if (!pending_after) return;
+    const AfterUpdate after = std::move(*pending_after);
+    pending_after.reset();
+    finish_update(memory, after);
+}
+
 void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    finish_pending(runtime.memory());
     state.facing_substituted = false;
     state.quiet_l = false;
     state.quiet_follow = false;
@@ -1546,6 +1694,7 @@ void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
     if (hunter_aiming(memory, hunter)) {
         drive_aim(memory, hunter, camera ? address : 0u);
     } else if (camera) {
+        state.view_line_sweep = -1;
         unease_wall(memory, address);
         // A camera that was not updated for a while starts its distance anew.
         fresh_wall = state.address != address || state.frame - state.last_update > 2u;
@@ -1572,18 +1721,16 @@ void camera_rotation(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
     }
     // Continue the original update with the same CPU context and return PC.
     // Do not invoke an isolated guest call: normal scheduling must be retained.
+    const std::uint32_t return_pc = ctx.gpr[31];
     state.original(runtime, ctx);
-    if (dpad) unmute_dpad(memory, *dpad);
-    if (restore_gate) memory.store8(address + kAim, saved_gate);
-    if (watch) check_recenter(memory, *watch);
-    restore_preset(memory);
-    if (follow) ease_wall(memory, address, fresh_wall);
-    if (follow) trace_after(memory, address);
-    if (state.facing_substituted) {
-        state.facing_substituted = false;
-        if (hunter != 0u && memory.raw_pointer(hunter + kFacing, 4u) != nullptr)
-            memory.store32(hunter + kFacing, state.saved_facing);
+    AfterUpdate after{address, hunter, watch, dpad, saved_gate, restore_gate, follow, fresh_wall};
+    if (ctx.pc == return_pc) {
+        finish_update(memory, after);
+        return;
     }
+    if (std::ofstream *out = state_trace())
+        *out << "U," << state.frame << ',' << std::hex << ctx.pc << std::dec << '\n';
+    pending_after = std::move(after);
 }
 
 } // namespace
@@ -1598,6 +1745,10 @@ std::span<const CodeWord> game_code_signature() {
 
 std::span<const CodeWord> aim_code_signature() {
     return kAimSignature;
+}
+
+std::span<const CodeWord> sweep_code_signature() {
+    return kSweepSignature;
 }
 
 bool game_camera_hunter_aiming() {
@@ -1620,6 +1771,7 @@ std::uint32_t game_camera_aim_dpad(int x, int y) {
 
 bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original) {
     state = State{};
+    pending_after.reset();
     reset();
     lock_on_reset();
     if (!original || !runtime.has_function(kCameraUpdate)) {
@@ -1642,6 +1794,7 @@ bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original)
 
 void game_camera_frame(psprecomp::Runtime &runtime) {
     ++state.frame;
+    finish_pending(runtime.memory());
     trace_flip(runtime.memory());
     // A step taken off in advance that no aim update has put back: the aim
     // code and the camera did not run, so it goes back now.
@@ -1660,11 +1813,12 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
         runtime.register_function(kCameraUpdate, &camera_rotation, "mhfu_camera_update");
         if (const RotationFunction choice = runtime.function_at(kPullInChoice); choice != nullptr) {
             state.pull_in_original = choice;
-            runtime.register_function(kPullInChoice, &pull_in_choice, "mhfu_camera_pull_in");
+            register_chained(runtime, kPullInChoice, &pull_in_choice, "mhfu_camera_pull_in");
         }
         state.hooked = true;
     }
     install_aim_hook(runtime);
+    install_sweep_hook(runtime);
     // The aim camera replaces the follow camera, so this update can stop
     // while the hunter is still aiming. Releasing then would drop the aim
     // step's fraction every frame.

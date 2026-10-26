@@ -34,6 +34,8 @@ struct CodeWord {
 // function is in an overlay, so it is not in memory when the camera driver
 // starts.
 [[nodiscard]] std::span<const CodeWord> aim_code_signature();
+// The prologue of the collision sweep the follow update calls, in game_sub.
+[[nodiscard]] std::span<const CodeWord> sweep_code_signature();
 
 // Checks the game's code against game_code_signature() and remembers the
 // generated function behind the camera update. Nothing is hooked yet: that
