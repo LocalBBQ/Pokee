@@ -121,6 +121,13 @@ void section(const char *title);
 
 // Focuses the next row, e.g. the first row after switching tabs.
 void focus_next_row();
+// Leaves no row focused, so that confirm or left and right change nothing
+// until a row is chosen. It also drops the first row ImGui would pick for a
+// window that has just appeared.
+void clear_focus();
+// True when a direction was pressed this frame with no row focused. ImGui's
+// own pick of a row for that press is cancelled; the caller focuses one.
+bool take_move_without_focus();
 
 // A wide button for the setup screens. Returns true when activated.
 bool big_button(const char *label, float width, bool primary = false, bool disabled = false);
