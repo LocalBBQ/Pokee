@@ -2386,6 +2386,19 @@ void test_hud_scale_draws() {
         "without that name in the newer frame, nothing far away or different is taken");
     newer.push_back({100.0f, 60.0f, 8.0f, 0.0f, 0.25f, 0.5f, 0x91874A0u, 6u});
     check(mhfu::gpu::hud_scale::match_name_place(o, newer) == -1, "another texture is not the same letter");
+    // Two hall hunters standing together: the nearest same letter is the
+    // other hunter's, and is not taken.
+    NamePlace mine = o;
+    mine.hunter = 0x09A10000u;
+    NamePlace theirs_near = o;
+    theirs_near.origin_x = 101.0f;
+    theirs_near.hunter = 0x09A20000u;
+    NamePlace mine_moved = o;
+    mine_moved.origin_x = 104.0f;
+    mine_moved.origin_y = 62.0f;
+    mine_moved.hunter = 0x09A10000u;
+    check(mhfu::gpu::hud_scale::match_name_place(mine, {theirs_near, mine_moved}) == 1,
+        "a hall name's letter pairs with its own hunter's, not the nearest");
     check(letters && letters->x0 == 42.0f && letters->x1 == 46.0f,
         "only the name's letters are reported for the scissor");
     // Under Fill the face is told apart in the game's pixels. At Status 100%

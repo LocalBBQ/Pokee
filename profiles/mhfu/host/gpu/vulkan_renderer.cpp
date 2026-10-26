@@ -2138,9 +2138,10 @@ struct VulkanRenderer::Impl {
         VkDeviceSize vertex_start, VkBuffer indices, VkDeviceSize index_start, std::uint32_t count,
         std::uint32_t vertex_count, bool joined, bool raw = false, VkBuffer vertices = VK_NULL_HANDLE);
     // The group just recorded is a name over a hunter placed at (origin_x,
-    // origin_y), drawn with `drawn` from the guest texture at `texture`.
-    void record_name_for_replay(
-        const std::vector<GpuVertex> &drawn, float origin_x, float origin_y, std::uint32_t texture) {
+    // origin_y), drawn with `drawn` from the guest texture at `texture`, for
+    // the hall hunter `hunter` (0 when not known).
+    void record_name_for_replay(const std::vector<GpuVertex> &drawn, float origin_x, float origin_y,
+        std::uint32_t texture, std::uint32_t hunter) {
         FrameRecord &frame = recording_frame;
         if (!interpolating || !frame.recorded || frame.groups.empty() || drawn.empty()) return;
         ReplayGroup &group = frame.groups.back();
@@ -2154,6 +2155,7 @@ struct VulkanRenderer::Impl {
         name.place.v = drawn.front().v;
         name.place.texture = texture;
         name.place.vertices = static_cast<std::uint32_t>(drawn.size());
+        name.place.hunter = hunter;
         name.first = static_cast<std::uint32_t>(frame.name_vertices.size());
         frame.name_vertices.insert(frame.name_vertices.end(), drawn.begin(), drawn.end());
         group.name = static_cast<std::uint32_t>(frame.names.size());
@@ -9173,7 +9175,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             if (!named.has_origin) return;
             fit.apply(origin_x, origin_y);
         }
-        impl.record_name_for_replay(corner_scaled, origin_x, origin_y, call.texture.address);
+        impl.record_name_for_replay(
+            corner_scaled, origin_x, origin_y, call.texture.address, named.hall ? named.hunter : 0u);
     };
     if (merge) {
         const Impl::DrawState state{
