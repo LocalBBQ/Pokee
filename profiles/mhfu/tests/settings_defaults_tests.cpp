@@ -2389,16 +2389,16 @@ void test_hud_scale_draws() {
     // Two hall hunters standing together: the nearest same letter is the
     // other hunter's, and is not taken.
     NamePlace mine = o;
-    mine.hunter = 0x09A10000u;
+    mine.number = 1u;
     NamePlace theirs_near = o;
     theirs_near.origin_x = 101.0f;
-    theirs_near.hunter = 0x09A20000u;
+    theirs_near.number = 2u;
     NamePlace mine_moved = o;
     mine_moved.origin_x = 104.0f;
     mine_moved.origin_y = 62.0f;
-    mine_moved.hunter = 0x09A10000u;
+    mine_moved.number = 1u;
     check(mhfu::gpu::hud_scale::match_name_place(mine, {theirs_near, mine_moved}) == 1,
-        "a hall name's letter pairs with its own hunter's, not the nearest");
+        "a hall name's letter pairs with its own label's, not the nearest");
     check(letters && letters->x0 == 42.0f && letters->x1 == 46.0f,
         "only the name's letters are reported for the scissor");
     // Under Fill the face is told apart in the game's pixels. At Status 100%
@@ -2528,12 +2528,13 @@ void test_aim_letter_is_not_the_reticle() {
     check(frame.reticles == 0, "a letter of the font is not learned as the reticle");
 }
 
-// A hall label whose hunter is known (hud::NameDraw::hunter): its letters and
-// badge are that hunter's, its marks too, whatever point they were filed
-// with, and its middle is kept by whose it is. Traced with MHFU_TRACE_CAPTURE:
-// two hunters standing together put their labels' points a pixel or two
-// apart, and the quest paper is filed with the next hunter's point.
-void test_hall_labels_by_hunter() {
+// A hall label whose number is known (hud::NameDraw::label, its place in the
+// order the game draws the labels): its letters and badge are that label's,
+// its marks too, whatever point they were filed with, and its middle is kept
+// by which label it is. Traced with MHFU_TRACE_CAPTURE: two hunters standing
+// together put their labels' points a pixel or two apart, and a quest paper
+// can be filed with another hunter's point.
+void test_hall_labels_by_number() {
     using mhfu::gpu::hud::LabelPart;
     using mhfu::gpu::hud::NameDraw;
     using mhfu::gpu::hud_scale::Frame;
@@ -2549,18 +2550,18 @@ void test_hall_labels_by_hunter() {
         return q;
     };
     const Scales names_half{1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f};
-    const auto piece = [](std::uint32_t hunter, float x, float y, bool glyph, LabelPart part) {
+    const auto piece = [](std::uint32_t number, float x, float y, bool glyph, LabelPart part) {
         NameDraw draw;
         draw.is_name = draw.has_origin = draw.tag_only = draw.hall = true;
         draw.origin_x = x;
         draw.origin_y = y;
         draw.glyph = glyph;
-        draw.hunter = hunter;
+        draw.label = number;
         draw.part = part;
         return draw;
     };
-    constexpr std::uint32_t kFirst = 0x09A10000u;
-    constexpr std::uint32_t kSecond = 0x09A20000u;
+    constexpr std::uint32_t kFirst = 1u;
+    constexpr std::uint32_t kSecond = 2u;
     Frame frame;
     std::vector<Vertex> first_badge;
     std::vector<Vertex> paper;
@@ -2592,12 +2593,12 @@ void test_hall_labels_by_hunter() {
     // The first label's box is (214, 75)-(253, 92), its middle (233.5, 83.5);
     // the second's (216, 76)-(255, 93), its middle (235.5, 84.5).
     check(first_badge[0].x == 223.75f && first_badge[0].y == 79.25f,
-        "a label two pixels from another is its own hunter's, with its own middle");
+        "a label two pixels from another keeps its own middle");
     check(second_badge[0].x == 225.75f && second_badge[0].y == 80.25f, "and so is the other");
     check(paper[0].x == 235.75f && paper[0].y == 72.25f,
-        "a quest paper filed with another point goes to its own hunter's middle");
+        "a quest paper filed with another point goes to its own label's middle");
     // A turning camera moves the second label 200 pixels in a frame: it keeps
-    // its middle, as it is still the same hunter's.
+    // its middle, as it is still the second label.
     frame.begin();
     draw(200.0f);
     check(second_badge[0].x == 425.75f && second_badge[0].y == 80.25f, "a label keeps its middle however far it moves");
@@ -2936,7 +2937,7 @@ int main() {
     test_quest_windows_keep_their_pieces();
     test_menu_over_the_party_list();
     test_hud_scale_draws();
-    test_hall_labels_by_hunter();
+    test_hall_labels_by_number();
     test_crisp_text();
     test_background_and_compact_overlay();
     test_layered_armor();
