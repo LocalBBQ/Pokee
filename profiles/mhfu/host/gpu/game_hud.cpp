@@ -1,5 +1,6 @@
 #include "gpu/game_hud.hpp"
 
+#include "game/hooks.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/runtime.hpp"
@@ -481,6 +482,9 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     // down, so they were the quest HUD's on some frames and not on others.
     // kStackFrames only stops a walk through a broken stack.
     for (int depth = 0; depth < kStackFrames; ++depth) {
+        // A wrapped HUD function returns to the wrapper's stop; its caller
+        // is where the game's stack goes on.
+        ra = game::hooks::caller_of(ra);
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
         if (line != nullptr) {
