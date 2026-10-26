@@ -1,6 +1,6 @@
 # Pokee
 
-Pokee runs **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, version 1.01) on Windows, Linux, macOS and Android.
+Pokee is a native PC port of **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, version 1.01) for Windows, Linux, the Steam Deck, macOS and Android. It is not an emulator: the game's PSP code is recompiled ahead of time into a native program and run on a reimplementation of the PSP system. On top of that it adds the things a PSP could not do: high resolutions, widescreen, a real analog camera, modern controls, HD textures and a set of optional quality-of-life changes.
 
 > **This project does not include the game.** To install or build Pokee, use the files from your own legally obtained copy of that release.
 
@@ -26,31 +26,126 @@ The license covering **Pokee** applies only to the project's own original code a
 
 **Pokee** provides the software, not the game. You must provide your own legally obtained copy.
 
-## Status
+## What Pokee adds to the PSP game
 
-Playable: a new game or a save copied from a PSP, the village and hunts, music, movies, and saves in the PSP's own format. The game runs at the PSP's 30 frames per second; frame interpolation can present it at up to the display's refresh rate. The executable (3095 functions) and all 290 code overlays are recompiled ahead of time; an interpreter covers anything they miss.
+The game itself is unchanged: the same quests, monsters, damage and timings, running at the PSP's 30 frames per second. Everything below is added around it, and almost all of it can be switched off in Pokee's menu (Esc, or L3+R3 on a gamepad). Every setting is described in the [profile README](profiles/mhfu/README.md#in-game-menu).
 
-| Done | Still open |
+### Picture
+
+- **Any resolution.** The 3D world renders at the window's size or at ×1 to ×6 of the PSP's 480×272, instead of being stretched up from the PSP's screen.
+- **Widescreen.** *Fill* gives the game's view the window's shape, so a 16:9 or 16:10 screen shows more of the world instead of black bars. *Original* (the PSP's shape) and *Stretch* are there too.
+- **Higher frame rates.** Frame interpolation presents the game at 45, 60, 90, 120 fps or the display's refresh rate. The game still runs at its own 30, so attack timings and monster behaviour are exactly as on a PSP.
+- **Field of view.** A wider (or narrower) view on hunts, 30–90°; the bowgun's zoom keeps its proportion.
+- **HD texture packs.** Packs made for PPSSPP load as they are, with an importer in the menu and a choice of Xbox, PlayStation or Nintendo button prompts when the pack has them. See [Texture pack](#recommended-texture-pack).
+- **Sharper interface.** Optional sharp text and upscaled 2D textures (sharp bilinear or MMPX), a choice of font and text weight.
+- **HUD control.** Hide the HUD for screenshots (F7), and scale the map, status bars, item bar and name tags separately, 50–150%.
+- **Fast loading.** Loads run ahead of real time, so area changes and quest starts take a fraction of the PSP's time. A fast-forward key (2×–8×) is there too.
+
+### Controls
+
+- **A real camera.** The right stick (or the mouse) turns and tilts the camera smoothly, instead of the PSP's D-pad "claw" camera. Bows and bowguns aim with the stick, in proportion to how far it is pushed.
+- **Lock-on.** R3 (or T or the middle mouse button) locks the camera on a large monster, with a marker over it and a monster icon in the HUD; a follow camera keeps it in view, and a focus style centres on a tap.
+- **Presets for every input.** Default, Modern (attacks on the triggers), Left-handed, Classic keyboard, or your own. Every control can be rebound to a key, button or a combination such as L1 + ○.
+- **Complete keyboard and mouse play.** WASD to move, the mouse for the camera and its buttons to attack.
+- **Gamepads just work.** Xbox, PlayStation, Nintendo and other SDL3 pads, with prompts that match the pad. A pad SDL does not know can be given a mapping.
+- **Touch controls on Android**, in the PSP's layout or an action layout you can rearrange.
+
+### Hunting
+
+These change nothing about the game's balance; each one has an off switch.
+
+- **Hold to gather.** Hold ○ at a gather point or on a carcass and it keeps gathering or carving.
+- **Gather with ○.** Mine and catch bugs with ○, with no need to select the pickaxe or net on the item bar first; your selection comes back afterwards.
+- **Gather icon.** A mark over each gather point shows what it gives and which button gathers it.
+- **Empty item slot.** The item bar starts each quest on an empty slot, so pressing □ by accident uses nothing.
+- **Item Sets.** Save the pouch's contents as a set and take it out of the box in one go, as *Equipment Set* does for armor.
+- **Damage numbers** (off by default). The health each hit removes, drawn where it landed, split into raw and element if you like. In multiplayer, Pokee players see each other's hits.
+- **Modern sharpness gauge.** The sharpness colour visibly shortens as it is used.
+- **True Attack Value** (off by default). Equipment screens show a weapon's real attack, element and status values, without the class multiplier.
+- **Show Key Quests** (off by default). Quests that unlock the next Urgent Quest are marked *[Key]*.
+- **Guild Hall comforts.** Eat from your Felyne Kitchen at the hall's tables and change equipment from the hall's item box. Giving items of any rarity to other hunters is there too, off by default.
+- **Layered armor.** Wear one armor's looks over another's stats, part by part. Only your screen shows it; stats, skills, the save and what other players see keep the real armor.
+- **Item box taking** in a quest no longer waits for the icon to fly to the pouch.
+
+### Saves, mods and multiplayer
+
+- **PSP saves.** Saves are in the PSP's own format: copy your save from a PSP and carry on, or take one back. The menu imports, exports and backs up saves, and reminds you to back up after an update.
+- **Downloadable content.** The download servers are long gone, but a `ULUS10391QST` folder you already have can be imported and is read by the game's download menu.
+- **Mods.** File-replacement mods in the format the community's mod loader and mod manager already use work unchanged, with a Mods page to turn them on and off and set their priority.
+- **Multiplayer.** The game's ad hoc mode works between Pokee players on a home network, over a VPN such as Tailscale or ZeroTier, or through a PSP ad hoc server. See [Multiplayer](profiles/mhfu/README.md#multiplayer-ad-hoc).
+- **Portable copy.** Keep the game, settings and saves in one folder next to the executable, on a USB stick if you like.
+
+## Recommended texture pack
+
+The recommended pack is Monkbreh's [**MHFU Texture Port**](https://github.com/Monkbreh/MHFU-Texture-Port). It is not an upscale: it swaps the PSP's textures for the higher-resolution originals of the same assets from the PS2 games, Frontier and the iOS release of Freedom Unite. It covers the interface, every map area, most monsters and most equipment, and comes with Xbox, PlayStation and Nintendo versions of the button prompts, which Pokee picks to match your controller. No pack is included with Pokee or downloaded by it.
+
+To install it:
+
+1. On the pack's GitHub page, choose **Code → Download ZIP** and extract it anywhere, for example to Downloads. Zipped packs are not read.
+2. In the game, open Pokee's menu (Esc, or L3+R3) and go to **Video → Import texture pack…**.
+3. Browse to the extracted folder and open its `ULUS10391` folder, the one with `textures.ini`. The `ULJM05500` folder beside it is for the Japanese release.
+4. Pokee checks the pack and shows what it found. Choose **Copy into Pokee's data folder**, or **Use it where it is** to read it from where you extracted it and save the space (the folder must then stay where it is).
+
+The textures change within a frame or two, without a restart. **Video → Texture pack** turns the pack off and on to compare; **Button icons** under it chooses the prompts (Auto follows your controller). Other PPSSPP packs for this release work the same way, and a pack made for Portable 3rd works if its `textures.ini` lists `ULUS10391`. Details: [HD texture packs](profiles/mhfu/README.md#hd-texture-packs).
+
+## What works and what doesn't
+
+The whole game is playable from a new character or a save copied from a PSP: the village, the Guild Hall, every kind of hunt, cutscenes, music and saving. The executable (3095 functions) and all 290 code overlays are recompiled; an interpreter covers anything they miss, so an unusual piece of code makes the game slower there rather than stopping it.
+
+| Works | Doesn't work yet |
 | --- | --- |
-| Boot, menus, character creation, the village and hunts | Save-data and message dialogs draw nothing and answer as if confirmed ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
-| PSP-format saves, including saves and downloaded quests copied from a PSP; import, export and backups | |
-| Vulkan graphics, frame interpolation, widescreen, HUD scaling and hiding | |
-| Analog camera and aim, lock-on and its marker, layered armor | |
-| PPSSPP-compatible HD texture packs | |
-| File-replacement mods ([profile README](profiles/mhfu/README.md#mods)) | Code mods |
-| Sound effects, music and cutscene movies | Download mode (`sceHttp`, `sceNetInet`) |
-| Rebindable keyboard, mouse and gamepad controls | |
-| Ad hoc between Pokee instances, on a LAN or through an ad hoc server | Play with PPSSPP and on public servers |
+| Boot, character creation, the village, the Guild Hall and hunts | **Save and message dialogs are invisible.** They work, but draw nothing and answer *Yes* at once: saving happens without the confirmation screen ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33)) |
+| Saving and loading in the PSP's format, PSP saves and DLC imported | **Download mode** (`sceHttp`, `sceNetInet`): the game's online download menu. Import DLC you already have instead |
+| Sound effects, music and cutscene movies | **Play with PPSSPP users and on public ad hoc servers**: not tested yet |
+| Vulkan graphics, lighting and fog, widescreen, up to ×6 resolution, frame interpolation | **Code mods** (cheats and patches to the game's code); file-replacement mods work |
+| HD texture packs made for PPSSPP | **Android phones**: tested on the emulator only, not yet on real devices ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127)) |
+| Keyboard, mouse, gamepad and touch controls, all rebindable | **Stutters on some PCs** when entering an area or in big fights; under investigation ([STUTTERS.md](docs/STUTTERS.md)) |
+| Ad hoc multiplayer between Pokee players: gathering hall and full quests | |
+| File-replacement mods, layered armor | |
 
-The results in [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) are from Portable 3rd, before this tree was retargeted; Freedom Unite still needs its own pass on each platform.
+### By platform
+
+| Platform | State |
+| --- | --- |
+| Windows | Plays; tested on AMD GPUs. NVIDIA GPUs have had the least testing, and are where the stutters above are reported. Slow starts come from Microsoft Defender: [exclude Pokee's folder](#windows-slow-starts-and-microsoft-defender) |
+| Steam Deck | Plays in Game Mode with the built-in controls, multiplayer included. In Desktop Mode, Steam's desktop layout sends mouse and Esc |
+| Linux desktop | Same builds as the Deck; not yet checked by hand on a desktop distribution |
+| macOS (Apple Silicon) | Plays, through MoltenVK; checked most thoroughly |
+| Android | 64-bit Android 10 or newer with Vulkan 1.1; emulator only so far |
+
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) has the detailed results, each with the commit that was tested. To report a result, open a **Test report** issue.
 
 ## Play
 
-Windows downloads are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). Building from source stays fully supported; the steps are in [Getting started](#getting-started). The first-run setup checks the image, prepares the game from it and keeps settings and saves in a per-user directory (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable).
+Downloads for Windows, Linux (Flatpak, which the Steam Deck uses, and a tarball) and macOS are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). On the first start, Pokee asks for your disc image (`.iso`) in its own window, checks it, prepares the game from it and keeps your settings and saves in a per-user folder (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable). This works with a gamepad alone.
 
-When a finished build exists, [`docs/LINUX.md`](docs/LINUX.md) and [`docs/MACOS.md`](docs/MACOS.md) cover installing, the first start and where saves live. Android targets 64-bit Android 10 or newer with Vulkan 1.1; touch controls are drawn over the game, and gamepads work too.
+- Linux and Steam Deck: [`docs/LINUX.md`](docs/LINUX.md)
+- macOS: [`docs/MACOS.md`](docs/MACOS.md)
+- Where saves live and how to bring a PSP save across: [Saving and loading](profiles/mhfu/README.md#saving-and-loading)
+- Every setting, control and environment variable: [profile README](profiles/mhfu/README.md)
 
-## Requirements
+### Windows: slow starts and Microsoft Defender
+
+Pokee is made of many files: `Pokee.exe` and 290 overlay libraries in `overlays\`. Microsoft Defender scans each of them as the program loads it, which can make a start take far longer than it should. Excluding Pokee's folders from scanning fixes it:
+
+1. Open **Windows Security → Virus & threat protection → Manage settings** (under *Virus & threat protection settings*).
+2. Scroll to **Exclusions** and choose **Add or remove exclusions → Add an exclusion → Folder**.
+3. Choose the folder you extracted Pokee into, the one with `Pokee.exe`.
+4. Optionally, add Pokee's data folder as well, `%APPDATA%\Pokee` (or the `data` folder of a portable copy), which holds the prepared game and its caches.
+
+Or, in PowerShell run as administrator:
+
+```powershell
+Add-MpPreference -ExclusionPath "C:\Games\pokee-windows-x86_64", "$env:APPDATA\Pokee"
+```
+
+Use your own folder in place of `C:\Games\pokee-windows-x86_64`. Defender no longer scans anything in an excluded folder, so exclude only a Pokee you downloaded from the [releases page](https://github.com/LocalBBQ/Pokee/releases) or built yourself, and keep nothing else in that folder.
+
+### Controls
+
+On a gamepad the buttons are where you expect them: on a PlayStation pad ○ confirms and ✕ backs out, as the game's prompts say, and the right stick drives the camera and aiming. On the keyboard, WASD moves, the mouse turns the camera and its buttons attack. Esc, or both sticks pressed together (L3+R3), opens Pokee's menu. The full tables are in the [profile README](profiles/mhfu/README.md#running).
+
+## Building from source
 
 Building from source is a fully supported way to play. It needs:
 
@@ -61,8 +156,6 @@ Building from source is a fully supported way to play. It needs:
 - `make` and a C compiler on macOS and Linux: the build makes its own FFmpeg for the music and the movies. Nothing to install for it on Windows
 - A few gigabytes of free memory for the build; the recompiled code is large
 
-## Getting started
-
 In short:
 
 1. Prepare the game's executable from your disc image: build `Pokee` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhfu/scripts/prepare_game.sh`.
@@ -70,19 +163,14 @@ In short:
 3. Recompile the code overlays with `profiles/mhfu/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
 4. Run `out/mhfu/bin/Pokee`.
 
-The full instructions, including every setting, are in [`profiles/mhfu/README.md`](profiles/mhfu/README.md). Building on every platform, Windows included, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md).
-
-## Controls
-
-On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera and aiming. Control presets (Default, Modern with attacks on the triggers, Left-handed, Classic keyboard, and your own) cover every control, and any of them can be bound to a single button or a combination such as L1 + ○. Keyboard and mouse play is complete; by default WASD moves, the mouse controls the camera, and its buttons attack. The full tables are in the [profile README](profiles/mhfu/README.md#running).
-
-Esc, or both sticks pressed together (L3+R3), opens Pokee's own menu. It holds video, audio, control, network and save settings, including aspect ratio, frame rate, internal resolution and HD texture pack import. The first start sets the game up from your disc image in the same window, and works with a gamepad alone.
+The full instructions are in [`profiles/mhfu/README.md`](profiles/mhfu/README.md). Building on every platform, how long each stage takes, and how to work on the code without full rebuilds: [`docs/BUILDING.md`](docs/BUILDING.md). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
 - Save-data dialogs that draw
 - Ad hoc play with PPSSPP and on the public servers PSP players use
 - Android on real phones: device testing, graphics drivers and performance ([upstream #127](https://github.com/TeamGDB/Yakumo/issues/127), [#17](https://github.com/TeamGDB/Yakumo/issues/17))
+- No stutters on area entry and in fights ([STUTTERS.md](docs/STUTTERS.md))
 - One consistent visual style across the setup screens, menus and overlays ([upstream #33](https://github.com/TeamGDB/Yakumo/issues/33))
 
 ## How it works
@@ -101,7 +189,7 @@ src/                 Framework: ELF loading, decoder, runtime, interpreter
 tools/               Framework: analyzer and C++ code generator
 tests/               Framework regression tests
 configs/             PSP NID data and generic examples
-profiles/mhfu/     Everything specific to this game: host, kernel, renderer,
+profiles/mhfu/       Everything specific to this game: host, kernel, renderer,
                      audio, input, configuration and build scripts
 docs/                Architecture, archive format, profile guide, source rules
 ```
