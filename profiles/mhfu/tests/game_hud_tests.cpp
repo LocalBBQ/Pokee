@@ -250,6 +250,18 @@ void test_draw_site() {
     packet_filed(runtime, filed_through(memory, {party, root}, 0x09001000u, 16u));
     check(quest_hud_filed(), "the left column again");
 
+    // A draw filed 14 frames below the quest HUD, deeper than the reticle and
+    // the Combine window's 13, is still the quest HUD's.
+    std::initializer_list<StackFrame> deep = {{0x08900000u, 0x27BDFFE0u, 0xAFBF001Cu},
+        {0x08901000u, 0x27BDFFE0u, 0xAFBF001Cu}, {0x08902000u, 0x27BDFFE0u, 0xAFBF001Cu},
+        {0x08903000u, 0x27BDFFE0u, 0xAFBF001Cu}, {0x08904000u, 0x27BDFFE0u, 0xAFBF001Cu},
+        {0x08905000u, 0x27BDFFE0u, 0xAFBF001Cu}, {0x08906000u, 0x27BDFFE0u, 0xAFBF001Cu},
+        {0x08907000u, 0x27BDFFE0u, 0xAFBF001Cu}, {0x08908000u, 0x27BDFFE0u, 0xAFBF001Cu},
+        {0x08909000u, 0x27BDFFE0u, 0xAFBF001Cu}, {0x0890A000u, 0x27BDFFE0u, 0xAFBF001Cu},
+        {0x0890B000u, 0x27BDFFE0u, 0xAFBF001Cu}, {0x0890C000u, 0x27BDFFE0u, 0xAFBF001Cu}, root};
+    packet_filed(runtime, filed_through(memory, deep, 0x0900C000u, 16u));
+    check(owner_of(0x0900C010u, 0u) == Owner::QuestHud, "a draw 14 frames below the quest HUD is the quest HUD's");
+
     // The weapon's code outside the quest HUD is no part of it.
     packet_filed(runtime, filed_through(memory, {weapon}, 0x09006000u, 16u));
     check(site_of(0x09006010u, 0u) == Site::None, "outside the quest HUD there is no site");

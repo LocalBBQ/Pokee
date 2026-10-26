@@ -146,6 +146,10 @@ constexpr NameFunction kNameFunctions[] = {
     // caller 0x088351F0 keeps the hunter in s0 (addu s0, a0, zero).
     {0x08835470u, 0x27BDFF50u, 0xAFBF004Cu, true, false, true, true, 40u},
 };
+// More frames than any call stack the game files a packet from; it only stops
+// a walk that has gone off the end of a broken stack.
+constexpr int kStackFrames = 64;
+
 // The quest HUD function whose words show that game_task is loaded.
 constexpr std::uint32_t kQuestLoaded = 0x09A60298u;
 // The lobby callback whose words show that lobby_task is loaded.
@@ -474,7 +478,12 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
     bool in_hall = false;
     Site found_site = Site::None;
     std::uint32_t found_call = 0u;
-    for (int depth = 0; depth < 12; ++depth) {
+    // To the end of the stack. A cap of 12 frames once cut chains one frame
+    // short of the quest HUD: traced with MHFU_TRACE_CAPTURE, a bowgun's
+    // reticle and the Combine window's deepest pieces are filed 13 frames
+    // down, so they were the quest HUD's on some frames and not on others.
+    // kStackFrames only stops a walk through a broken stack.
+    for (int depth = 0; depth < kStackFrames; ++depth) {
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
         if (line != nullptr) {
