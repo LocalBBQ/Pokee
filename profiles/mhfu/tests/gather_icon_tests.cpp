@@ -1,10 +1,12 @@
 // Gather marks: the game's own radius, the area list, and the picture.
 // No game data. Guest memory is a stand-in.
 #include "game/gather_icon.hpp"
+#include "game/hooks.hpp"
 #include "gpu/ui_motion.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/guest_memory.hpp"
+#include "psprecomp/runtime.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -442,7 +444,9 @@ void test_pressing_again_on_the_pad() {
     check(gather_hold(kCircle | kSquare, memory) == (kCircle | kSquare) && !gather_hold_centres_stick(),
         "walking off the point leaves the pad as it is");
 
-    // Mining is kind 3 and uses □. The same hold setting pulses □ there.
+    // Mining is kind 3 and uses □. With Gather with ○ off, the same hold
+    // setting pulses □ there.
+    settings.gather_circle = false;
     write_float(memory, hunter + 0x200u, 0.0f);
     memory.store16(nodes + 20u, 3u);
     check(gather_hold(kSquare | kCircle, memory) == kSquare && gather_hold_centres_stick(),
@@ -462,6 +466,34 @@ void test_pressing_again_on_the_pad() {
         gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(), "○ on a bug net point is left alone");
     memory.store16(nodes + 20u, 0u);
     check(gather_hold(kSquare, memory) == kSquare && !gather_hold_centres_stick(), "□ on a plant point is left alone");
+
+    // With Gather with ○ (the default) □ is never a gather on a quest: it is
+    // the item bar's and the map's. Mining and a bug net are ○ when the pouch
+    // has the tool, and the hold repeats ○ there.
+    settings.gather_circle = true;
+    (void)gather_hold(0u, memory);
+    memory.store16(nodes + 20u, 3u);
+    check(gather_hold(kSquare, memory) == kSquare && !gather_hold_centres_stick(),
+        "□ on a mining point is left to the game");
+    (void)gather_hold(0u, memory);
+    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(),
+        "without a pickaxe ○ there is not held either");
+    (void)gather_hold(0u, memory);
+    memory.store16(gamesys + 0x6AEA6u + 8u, 145u); // a pickaxe in slot 2
+    memory.store16(gamesys + 0x6AEA6u + 10u, 1u);
+    check(gather_hold(kCircle | kSquare, memory) == kCircle && gather_hold_centres_stick(),
+        "with one, holding ○ starts a ○ hold, and □ is left off");
+    check(pulse(kGatherPulseDown + kGatherPulseUp, kCircle, [&] { return gather_hold(kCircle, memory); }) ==
+            expected_pulse(kGatherPulseDown + kGatherPulseUp, 1u),
+        "the ○ pulse keeps going on the mining point");
+    (void)gather_hold(0u, memory);
+    memory.store16(nodes + 20u, 4u);
+    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(),
+        "a pickaxe is no net: ○ on a bug point is not held");
+    (void)gather_hold(0u, memory);
+    memory.store16(gamesys + 0x6AEA6u + 8u, 0u);
+    memory.store16(gamesys + 0x6AEA6u + 10u, 0u);
+    memory.store16(nodes + 20u, 0u);
 }
 
 // One 32-byte carve record. +16 empty is 0xFFFF; +20 is the id; +24 the stage.
@@ -570,6 +602,315 @@ void plant_village(psprecomp::GuestMemory &memory) {
     for (const GatherWord &word : farm_checked_words()) memory.store32(word.address, word.instruction);
 }
 
+// ○ mines and catches bugs when the pouch has the tool: the tool's slot is
+// selected and the game is shown □, and the selection goes back after ○ is
+// let go.
+void test_gathering_with_circle() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    constexpr std::uint32_t table = 0x09800000u;
+    constexpr std::uint32_t pouch = gamesys + 0x6AEA6u;
+    constexpr std::uint32_t selected = hunter + 1608u;
+    constexpr std::uint16_t kPotion = 1u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store8(gamesys + 40u, 2u); // the local hunter is slot 2
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 4u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    plant_node(memory, nodes, 0.0f, 0.0f, 0.0f, 30.0f, 7u, 3u); // a mining point
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x200u, 0.0f);
+    write_float(memory, hunter + 0x204u, 0.0f);
+    write_float(memory, hunter + 0x208u, 0.0f);
+    memory.store16(hunter + 0x29Au, 4u);
+    memory.store8(hunter + 486u, 2u);
+    memory.store32(0x09A4F1A0u, table); // no body yet
+    memory.store16(table + 4u + 16u, 0xFFFFu);
+    plant_words(memory);
+    const auto put = [&](std::uint16_t slot, std::uint16_t item, std::uint16_t count) {
+        memory.store16(pouch + slot * 4u, item);
+        memory.store16(pouch + slot * 4u + 2u, count);
+    };
+    put(0u, kPotion, 5u);
+    memory.store16(selected, 0u);
+    auto &settings = mhfu::settings::current();
+    settings.gather_circle = true;
+    const auto release = [&](unsigned reads) {
+        for (unsigned i = 0; i < reads; ++i) (void)gather_circle(0u, memory);
+    };
+
+    check(gather_circle(kCircle, memory) == kCircle && memory.load16(selected) == 0u,
+        "without a pickaxe ○ on a mining point is left alone and nothing is selected");
+    check(gather_button(memory, GatherGlyph::Mining, 3u, false) == 0u, "and the mark shows no button");
+    put(3u, 145u, 0u);
+    check(!gather_tool_slot(memory, 3u), "a pickaxe slot with none left is no tool");
+
+    put(3u, 145u, 1u);
+    check(gather_tool_slot(memory, 3u) == std::optional<std::uint16_t>{3u}, "the pickaxe in slot 3 is found");
+    check(!gather_tool_slot(memory, 4u), "a pickaxe is no bug net");
+    check(gather_button(memory, GatherGlyph::Mining, 3u, false) == kCircle, "the mark shows ○");
+    check(gather_circle(kCircle, memory) == kSquare, "with a pickaxe ○ is shown to the game as □");
+    check(memory.load16(selected) == 3u, "with the pickaxe selected");
+    check(gather_circle(kCircle, memory) == kSquare && memory.load16(selected) == 3u,
+        "holding ○ keeps both while it is held");
+    check(gather_hold(gather_circle(kCircle, memory), memory) == kSquare, "and the hold repeats it as □");
+    (void)gather_hold(0u, memory); // the hold is let go with ○
+    release(kGatherRestoreReads - 1u);
+    check(memory.load16(selected) == 3u, "the pickaxe stays selected just after ○ is let go");
+    release(1u);
+    check(memory.load16(selected) == 0u, "and the potion is selected again after that");
+
+    // A menu open over the quest: ○ is the menu's, to close it. Turned into □
+    // it reached the map and changed its size.
+    constexpr std::uint32_t hud = 0x09A00000u;
+    gather_note_hud(hud);
+    check(!gather_menu_open(memory), "no menu while the HUD's byte is 0");
+    memory.store8(hud + 1325u, 1u);
+    check(gather_menu_open(memory), "the HUD's byte says a menu is open");
+    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick(), "○ in a menu is not a hold");
+    check(gather_circle(kCircle, memory) == kCircle && memory.load16(selected) == 0u,
+        "nor is it turned into □, and nothing is selected");
+    memory.store8(hud + 1325u, 0u);
+    check(gather_hold(kCircle, memory) == kCircle && !gather_hold_centres_stick() &&
+            gather_circle(kCircle, memory) == kCircle,
+        "○ still held after the menu closed is the press that closed it");
+    (void)gather_hold(0u, memory);
+    (void)gather_circle(0u, memory);
+    check(gather_circle(kCircle, memory) == kSquare && memory.load16(selected) == 3u, "a new press mines");
+    release(kGatherRestoreReads);
+    check(memory.load16(selected) == 0u, "and gives the potion back after");
+    gather_note_hud(0u);
+
+    check(gather_circle(kCircle | kLead, memory) == (kCircle | kLead) && memory.load16(selected) == 0u,
+        "L+○ is the item bar and is left alone");
+    check(gather_circle(kCircle | 0x1000u, memory) == (kCircle | 0x1000u), "△+○ is an attack and is left alone");
+
+    (void)gather_circle(kCircle, memory);
+    memory.store16(selected, 5u); // the player scrolls the bar
+    release(kGatherRestoreReads);
+    check(memory.load16(selected) == 5u, "a selection the player moved is kept");
+
+    // The pickaxe breaks: its slot empties and the game steps the selection on.
+    memory.store16(selected, 0u);
+    (void)gather_circle(kCircle, memory);
+    put(3u, 0u, 0u);
+    memory.store16(selected, 5u);
+    release(kGatherRestoreReads);
+    check(memory.load16(selected) == 0u, "after the pickaxe breaks the potion is selected again");
+    put(3u, 145u, 1u);
+
+    memory.store16(selected, 0u);
+    (void)gather_circle(kCircle, memory);
+    put(0u, 0u, 0u); // a pack moves the potion
+    put(1u, kPotion, 5u);
+    release(kGatherRestoreReads);
+    check(memory.load16(selected) == 1u, "the selection follows the potion a pack moved");
+
+    put(7u, 146u, 2u);
+    memory.store16(selected, 7u);
+    check(gather_tool_slot(memory, 3u) == std::optional<std::uint16_t>{7u}, "a pickaxe already selected is used");
+    check(gather_button(memory, GatherGlyph::Mining, 3u, false) == kCircle, "and the mark still shows ○");
+    put(7u, 0u, 0u);
+    memory.store16(selected, 1u);
+
+    // A bug point takes a net.
+    plant_node(memory, nodes, 0.0f, 0.0f, 0.0f, 30.0f, 7u, 4u);
+    check(gather_circle(kCircle, memory) == kCircle, "a pickaxe does not catch bugs");
+    put(9u, 1226u, 1u);
+    check(gather_circle(kCircle, memory) == kSquare && memory.load16(selected) == 9u, "a bug net does");
+    release(kGatherRestoreReads);
+    check(memory.load16(selected) == 1u, "and the selection goes back after it too");
+
+    // A body ○ would carve keeps ○ a carve.
+    plant_node(memory, nodes, 0.0f, 0.0f, 0.0f, 30.0f, 7u, 3u);
+    plant_body(memory, table + 4u, 0.0f, 0.0f, 0.0f, 30.0f, 9u, 4u);
+    check(gather_circle(kCircle, memory) == kCircle && memory.load16(selected) == 1u, "○ over a carvable body carves");
+    check(gather_button(memory, GatherGlyph::Mining, 3u, true) == 0u,
+        "the point's mark shows no button while the pickaxe is not selected");
+    memory.store16(selected, 3u);
+    check(gather_button(memory, GatherGlyph::Mining, 3u, true) == kSquare, "and □ when it is");
+    memory.store16(selected, 1u);
+    memory.store16(table + 4u + 16u, 0xFFFFu);
+
+    const std::vector<GatherTarget> targets = gather_targets(memory);
+    check(!targets.empty() && targets[0].button == kCircle, "the mining point's target carries ○");
+    check(gather_button(memory, GatherGlyph::Plant, 0u, false) == kCircle &&
+            gather_button(memory, GatherGlyph::Carve, 0u, false) == kCircle &&
+            gather_button(memory, GatherGlyph::Fishing, 0u, false) == kSquare,
+        "plants and carves show ○, fishing □");
+
+    // Another console's hunter: its bar is not this pouch's.
+    memory.store8(hunter + 486u, 1u);
+    check(gather_circle(kCircle, memory) == kCircle && memory.load16(selected) == 1u,
+        "a hunter that is not the local one is left alone");
+    memory.store8(hunter + 486u, 2u);
+
+    (void)gather_circle(kCircle, memory);
+    check(memory.load16(selected) == 3u, "the pickaxe is selected again");
+    settings.gather_circle = false;
+    check(gather_circle(kCircle, memory) == kCircle && memory.load16(selected) == 1u,
+        "turning the setting off puts the selection back at once and leaves ○ alone");
+    check(gather_button(memory, GatherGlyph::Mining, 3u, false) == 0u, "and the mark shows no button");
+    memory.store16(selected, 3u);
+    check(gather_button(memory, GatherGlyph::Mining, 3u, false) == kSquare, "until the pickaxe is selected: □");
+    settings.gather_circle = true;
+}
+
+// The HUD's item bar, a stand-in: it notes the selection it read, and returns
+// where it was told to, or stops partway as a call the runtime does not chain
+// into would make it.
+constexpr std::uint32_t kBarHunter = 0x09700000u;
+std::uint16_t bar_saw{};
+bool bar_partway{};
+std::uint32_t bar_return{};
+void item_bar_stand_in(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    bar_saw = runtime.memory().load16(kBarHunter + 1608u);
+    bar_return = ctx.gpr[31];
+    ctx.pc = bar_partway ? 0x08900000u : ctx.gpr[31];
+}
+
+// While ○ has the pickaxe selected, the item bar is shown the item that was
+// selected, and the game keeps the pickaxe.
+void test_item_bar_keeps_the_selection() {
+    psprecomp::Runtime runtime;
+    psprecomp::GuestMemory &memory = runtime.memory();
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = kBarHunter;
+    constexpr std::uint32_t pouch = gamesys + 0x6AEA6u;
+    constexpr std::uint32_t selected = hunter + 1608u;
+    constexpr std::uint32_t kBar = 0x08845A34u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 4u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    plant_node(memory, nodes, 0.0f, 0.0f, 0.0f, 30.0f, 7u, 3u);
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    memory.store16(hunter + 0x29Au, 4u);
+    plant_words(memory);
+    memory.store16(pouch, 1u); // a potion in slot 0, selected
+    memory.store16(pouch + 2u, 5u);
+    memory.store16(pouch + 12u, 145u); // a pickaxe in slot 3
+    memory.store16(pouch + 14u, 1u);
+    memory.store16(selected, 0u);
+    mhfu::settings::current().gather_circle = true;
+
+    constexpr std::uint32_t kUpdate = 0x0883F270u;
+    runtime.register_function(kBar, &item_bar_stand_in, "recomp_unit_item_bar_test");
+    runtime.register_function(kUpdate, &item_bar_stand_in, "recomp_unit_hud_update_test");
+    gather_frame(runtime);
+    check(runtime.function_at(kBar) == &item_bar_stand_in && runtime.function_at(kUpdate) == &item_bar_stand_in,
+        "nothing is wrapped before the HUD's code matches");
+    memory.store32(0x08845A34u, 0x27BDFFE0u);
+    memory.store32(0x08845A38u, 0xAFBF001Cu);
+    memory.store32(0x08845AB8u, 0x96250648u);
+    memory.store32(0x0883FD20u, 0x0E21168Du);
+    gather_frame(runtime);
+    check(runtime.function_at(kBar) != &item_bar_stand_in, "the bar is wrapped once its code matches");
+    check(runtime.function_at(kUpdate) == &item_bar_stand_in, "the update waits for its own code");
+    memory.store32(0x0883F270u, 0x27BDFFE0u);
+    memory.store32(0x0883F274u, 0xAFBF001Cu);
+    memory.store32(0x0883F450u, 0x94630648u);
+    memory.store32(0x0883F464u, 0x94450648u);
+    gather_frame(runtime);
+    check(runtime.function_at(kUpdate) != &item_bar_stand_in, "and is wrapped once it matches");
+
+    // As the dispatcher runs whatever is registered at the address.
+    const auto draw = [&](std::uint32_t function) {
+        psprecomp::AllegrexContext ctx{};
+        ctx.gpr[31] = 0x0883FD28u;
+        ctx.pc = function;
+        bar_saw = 0xFFFFu;
+        runtime.function_at(function)(runtime, ctx);
+        return ctx.pc == 0x0883FD28u;
+    };
+    check(draw(kBar) && bar_saw == 0u, "with no gather the bar sees the selection as it is");
+    check(bar_return != 0x0883FD28u && bar_return != 0u,
+        "the bar returns to the wrapper's own stop, not into its caller's code");
+
+    // Item Box wraps the HUD's update too, each frame. Each keeps the other in
+    // its chain; taking each other for the game's function, the two called
+    // round each other until the stack ran out.
+    static psprecomp::Runtime::RecompiledFunction box_next{};
+    static unsigned box_calls{};
+    struct Box {
+        static void wrapper(psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
+            ++box_calls;
+            ctx.pc = 0x0883F270u;
+            box_next(rt, ctx);
+        }
+    };
+    for (int frame = 0; frame < 3; ++frame) {
+        (void)mhfu::game::hooks::wrap(runtime, kUpdate, &Box::wrapper, box_next, "item_box_test");
+        gather_frame(runtime);
+    }
+    box_calls = 0u;
+    check(draw(kUpdate) && box_calls == 1u && bar_saw == 0u,
+        "the update runs once through both wrappers, frames after both are in place");
+
+    // Stopped partway, it reaches the stop later and goes on at its caller.
+    bar_partway = true;
+    psprecomp::AllegrexContext partway{};
+    partway.gpr[31] = 0x0883FD28u;
+    partway.pc = kBar;
+    runtime.function_at(kBar)(runtime, partway);
+    bar_partway = false;
+    check(partway.pc == 0x08900000u, "a bar that stops partway goes back to the dispatcher");
+    const std::uint32_t stop = bar_return;
+    partway.pc = stop;
+    runtime.function_at(stop)(runtime, partway);
+    check(partway.pc == 0x0883FD28u && partway.gpr[31] == 0x0883FD28u,
+        "and when it reaches its stop it goes on at the caller");
+    (void)gather_circle(kCircle, memory);
+    check(memory.load16(selected) == 3u, "○ selects the pickaxe for the game");
+    check(draw(kBar), "the HUD's call reaches the wrapper and finishes there");
+    check(bar_saw == 0u, "the bar is shown the potion");
+    check(memory.load16(selected) == 3u, "and the game has the pickaxe again after it");
+    check(draw(kUpdate) && bar_saw == 0u && memory.load16(selected) == 3u,
+        "the HUD's update sees the potion too, so the bar does not move");
+    // In the game both go back to the dispatcher partway on every call
+    // (MHFU_TRACE_GATHER) and finish outside the wrapper.
+    bar_partway = true;
+    psprecomp::AllegrexContext during{};
+    during.gpr[31] = 0x0883FD28u;
+    during.pc = kBar;
+    runtime.function_at(kBar)(runtime, during);
+    bar_partway = false;
+    check(bar_saw == 0u && memory.load16(selected) == 0u,
+        "a bar that stops partway keeps showing the potion until it has finished");
+    during.pc = bar_return;
+    runtime.function_at(bar_return)(runtime, during);
+    check(during.pc == 0x0883FD28u && memory.load16(selected) == 3u,
+        "and gives the game its pickaxe back when it reaches its stop");
+    memory.store16(selected, 6u); // the player scrolls
+    check(draw(kBar) && bar_saw == 6u, "a selection the player moved is shown as it is");
+    memory.store16(selected, 3u);
+    for (unsigned i = 0; i < kGatherRestoreReads; ++i) (void)gather_circle(0u, memory);
+    check(memory.load16(selected) == 0u && draw(kBar) && bar_saw == 0u, "after ○ the potion is selected again");
+}
+
 void test_farm_spots() {
     psprecomp::GuestMemory memory(32u * 1024u * 1024u);
     constexpr std::uint32_t gamesys = 0x09100000u;
@@ -599,8 +940,10 @@ void test_farm_spots() {
     check(
         mining && mining->address == point && mining->type == kFarmMining && mining->index == 1u && mining->uses == 3u,
         "the mining outcrop in reach is found with its uses");
+    check(gather_circle(kCircle, memory) == kSquare, "○ at a farm outcrop is □, which takes no tool");
     memory.store16(farm + 8u + 8u, 0u);
     check(!farm_point(memory), "a mined-out outcrop is not a gather");
+    check(gather_circle(kCircle, memory) == kCircle, "○ at a mined-out outcrop is left alone");
     memory.store16(farm + 8u + 8u, 3u);
     memory.store16(point + 22u, 2u);
     memory.store16(farm + 8u + 16u, 4u);
@@ -642,9 +985,11 @@ void test_farm_spots() {
     plant_village(memory);
     check(farm_point(memory).has_value(), "and the farm is back");
 
-    // The hold pulses □ on the outcrop, as on a quest's mining point.
+    // The hold pulses □ on the outcrop, as on a quest's mining point with
+    // Gather with ○ off.
     auto &settings = mhfu::settings::current();
     settings.gather_hold = true;
+    settings.gather_circle = false;
     check(gather_hold(kSquare | kCircle, memory) == kSquare && gather_hold_centres_stick(),
         "holding □ at the outcrop starts a gather, and ○ is left off");
     check(pulse(kGatherPulseDown + kGatherPulseUp, kSquare, [&] { return gather_hold(kSquare, memory); }) ==
@@ -669,6 +1014,13 @@ void test_farm_spots() {
         "□ at a mined-out outcrop is left alone");
     (void)gather_hold(0u, memory);
     memory.store16(farm + 8u + 8u, 3u);
+    // With Gather with ○ the hold also repeats ○ there, and each ○ is the
+    // game's □.
+    settings.gather_circle = true;
+    const std::uint32_t held = gather_hold(kCircle, memory);
+    check(held == kCircle && gather_hold_centres_stick(), "with Gather with ○, holding ○ at the outcrop is a hold");
+    check(gather_circle(held, memory) == kSquare, "and the game is shown □ for it");
+    (void)gather_hold(0u, memory);
     settings.gather_hold = false;
     check(gather_hold(kSquare, memory) == kSquare, "hold to gather off leaves □ alone at the farm");
     settings.gather_hold = true;
@@ -1267,6 +1619,49 @@ void test_mark_shows_art() {
     const std::optional<GatherMark> mining =
         first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motions);
     check(mining && mining->art == GatherArt::of_item(kPickaxeItem), "a mining point's mark is the pickaxe");
+
+    // With a pickaxe in the pouch, the mark is the one ○ would use, and it
+    // follows the pouch from frame to frame.
+    const std::uint32_t pouch = gamesys + 0x6AEA6u;
+    const auto put = [&](std::uint16_t slot, std::uint16_t item, std::uint16_t count) {
+        memory.store16(pouch + slot * 4u, item);
+        memory.store16(pouch + slot * 4u + 2u, count);
+    };
+    const auto shown = [&] {
+        gather_note_draw(picture(), 100u);
+        const std::optional<GatherMark> now =
+            first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motions);
+        return now ? now->art : GatherArt{};
+    };
+    memory.store16(hunter + 1608u, 0u);
+    put(2u, 146u, 1u);
+    check(shown() == GatherArt::of_item(146u), "the mark is the pickaxe in the pouch");
+    put(0u, 1225u, 2u);
+    check(shown() == GatherArt::of_item(1225u), "the selected pickaxe before another one");
+    put(0u, 0u, 0u);
+    check(shown() == GatherArt::of_item(146u), "one used up gives way to the next");
+    put(2u, 146u, 0u);
+    check(shown() == GatherArt::of_item(kPickaxeItem), "with none left the plain pickaxe again");
+    memory.store16(nodes + 20u, 4u);
+    put(5u, 1226u, 1u);
+    check(shown() == GatherArt::of_item(1226u), "a bug point shows the net the pouch has");
+
+    // And how many of it: every slot holding that tool, and no other.
+    const auto carried = [&] {
+        gather_note_draw(picture(), 100u);
+        const std::optional<GatherMark> now =
+            first_mark(memory, GatherPose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f}, &motions);
+        return now ? now->carried : std::uint16_t{0xFFFFu};
+    };
+    check(carried() == 1u, "one net carried");
+    put(7u, 1226u, 2u);
+    put(8u, 149u, 5u);
+    check(carried() == 3u, "the net's stacks add up, another kind of net does not");
+    check(gather_tool_count(memory, 149u) == 5u && gather_tool_count(memory, 0u) == 0u, "the count is per item");
+    put(5u, 0u, 0u);
+    put(7u, 0u, 0u);
+    put(8u, 0u, 0u);
+    check(carried() == 0u, "no tool, no count: the plain net");
 }
 
 } // namespace
@@ -1290,6 +1685,8 @@ int main() {
     test_holding_circle();
     test_pressing_again_on_the_pad();
     test_carving_a_monster();
+    test_gathering_with_circle();
+    test_item_bar_keeps_the_selection();
     test_farm_spots();
     test_mark_over_a_carve();
     test_fishing_spots();
