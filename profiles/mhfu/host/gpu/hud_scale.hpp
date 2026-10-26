@@ -2169,6 +2169,7 @@ enum class Reason : std::uint8_t {
     MapTexture, // a window of the area-map texture outside the slot
     MapMark,    // a mark whose box crosses the map drawn this frame
     PartyName,  // the next letter of a name in the party list, off the grid
+    Site,       // the part of the quest HUD that drew it (hud::Site); with no piece, left as drawn
     // Left as drawn.
     NoPiece,      // no rule took it
     ObtainBanner, // on the obtain window ("Herb obtained.")
@@ -2190,6 +2191,8 @@ enum class Reason : std::uint8_t {
         return "map-mark";
     case Reason::PartyName:
         return "party-name";
+    case Reason::Site:
+        return "site";
     case Reason::NoPiece:
         return "no-piece";
     case Reason::ObtainBanner:
@@ -2291,15 +2294,53 @@ struct Decision {
     return {piece, reason, candidate};
 }
 
+// The piece a part of the quest HUD is sized as (hud::Site), or None when it
+// stays as the game drew it. The weapon's gauges are the stack under stamina
+// and the ammo bar sits on the item bar: placement_of keeps each with them.
+[[nodiscard]] inline Piece piece_of_site(hud::Site site) {
+    switch (site) {
+    case hud::Site::Status:
+        return Piece::Vitals;
+    case hud::Site::Weapon:
+        return Piece::LongSword;
+    case hud::Site::Map:
+        return Piece::Map;
+    case hud::Site::ItemBar:
+        return Piece::ItemBar;
+    case hud::Site::AmmoBar:
+        return Piece::Bowgun;
+    case hud::Site::None:
+    case hud::Site::Unlisted:
+    case hud::Site::Window:
+    case hud::Site::Names:
+        return Piece::None;
+    }
+    return Piece::None;
+}
+
+// Whether a quest HUD draw is decided by its site rather than its shape: the
+// site is known because the draws are watched and the code is the code it was
+// read from. The renderer passes Site::None under MHFU_HUD_SCALE_SITES=0,
+// which goes back to the shapes alone.
+[[nodiscard]] inline bool by_site(hud::Owner owner, hud::Site site) {
+    return owner == hud::Owner::QuestHud && site != hud::Site::None;
+}
+
 // One through sprite, or one through quad, is six vertices (two triangles)
 // after it is expanded. Groups of six are scaled when decide() gives them a
 // piece. Every draw is noted in `frame`, so an item list or a notice over the
 // HUD still holds the pieces under it; only a draw `owner` allows is moved.
 // `decisions`, when given, gets one Decision per quad, in order, even for a
 // draw that is not moved.
+//
+// With a site (by_site), the part of the quest HUD that drew the draw is its
+// piece, every quad of it, whatever its shape or what else is on screen. The
+// rectangles then only place it: each piece keeps its corner, and the map's
+// enlarged window is put back on the slot.
 template <typename Vertex>
 void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame, std::uint32_t texture = 0,
-    hud::Owner owner = hud::Owner::Unknown, std::vector<Decision> *decisions = nullptr) {
+    hud::Owner owner = hud::Owner::Unknown, std::vector<Decision> *decisions = nullptr,
+    hud::Site site = hud::Site::None) {
     if (decisions != nullptr) decisions->clear();
     if (!scales.any() || vertices.size() < 6u) return;
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
@@ -2317,9 +2358,11 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
     }
     if (!frame.aiming) frame.reticles = 0;
     frame.quest_owned = owner == hud::Owner::QuestHud;
+    const bool sited = by_site(owner, site);
     for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
         const Rect bounds = quad_bounds(vertices, first);
-        const Decision decision = decide(frame, bounds, texture);
+        const Decision decision =
+            sited ? Decision{piece_of_site(site), Reason::Site, piece_of_site(site)} : decide(frame, bounds, texture);
         if (decisions != nullptr) decisions->push_back(decision);
         const Piece piece = decision.piece;
         if (piece == Piece::None) continue;
