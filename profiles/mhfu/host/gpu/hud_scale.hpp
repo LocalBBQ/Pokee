@@ -2323,7 +2323,11 @@ struct Decision {
 // the window into it at 0x08843610 that the hunter's zone shows without the
 // Map item. Traced with MHFU_TRACE_CAPTURE. Every other call there draws a
 // mark on it: the camp icon at 0x088437B4, the hunters' arrows at 0x0884398C
-// and 0x08843A2C (turned quads), a monster's dot.
+// and 0x08843A2C (turned quads), a monster's dot. The quest menu's Map Zoom In
+// is drawn by 0x08842EE8 itself, at 0x08842F60: one 152 by 152 quad at about
+// five pixels a texel, under a scissor of the whole picture. It is no
+// enlarged window to put back on the slot, so it is sized as a map draw from
+// the slot's corner, as the rectangles left it too.
 [[nodiscard]] constexpr bool is_map_picture_call(std::uint32_t call) {
     return call == 0x088432E8u || call == 0x08843610u;
 }
