@@ -2185,8 +2185,12 @@ struct Decision {
         on_banner = true;
     }
     // The long notice's 16-tall border sits on its 8-tall cap. It is the
-    // size of a map mark, so the mark rule would take it.
-    if ((piece == Piece::Map || piece == Piece::Bowgun) && frame.beside_notice_edge(bounds))
+    // size of a map mark, so the mark rule would take it. The arrow turned
+    // diagonally is that size too, but it comes from the mark atlas: just
+    // above the cap of the gathering notice ("There is nothing else here.")
+    // it was taken for the border and drawn at the game's size, off the map.
+    if ((piece == Piece::Map || piece == Piece::Bowgun) && texture != kMapIconTexture &&
+        frame.beside_notice_edge(bounds))
         return {Piece::None, Reason::NoticeBorder, candidate};
     // A reticle is learned by its texture and size, and the font and the
     // HUD atlas are shared: an overhead name's letter or a 16 by 8 window
