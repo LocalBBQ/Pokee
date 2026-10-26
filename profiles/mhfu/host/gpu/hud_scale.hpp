@@ -29,12 +29,10 @@ namespace mhfu::gpu::hud_scale {
 // hunter moves. The window, the arrow and the camp icon grow from the slot's
 // top-right, (468, 32). With the Map item a texel of the area-map texture is
 // drawn at the slot's top-left plus that texel, so the picture stays put
-// while the window slides over it. Without the Map item the same texels are
-// drawn larger, 40 texels at 60 pixels from (276, 70). That draw is put back
-// on the slot's placement before the Map size, and the arrow and the camp
-// icon drawn with it come back with it. The camp icon keeps the pixel size
-// the game gave it; the arrow's vertices are in the enlarged picture. Each
-// area draws that window at its own size; the bounds are the rectangle drawn,
+// while the window slides over it. Without the Map item the window shows the
+// hunter's zone the same way, one pixel per texel; no trace, with or without
+// the Map item, has drawn it larger. Each area draws that window at its own
+// size; the bounds are the rectangle drawn,
 // not one fixed size. A panel of the same size from any other texture is not
 // it, so the shop and the return-to-town prompt stay as drawn even while the
 // quest clock is up. A mark in the slot keeps the map's size even when this
@@ -256,26 +254,11 @@ struct InterfaceFit {
         height >= 140.0f && height <= 164.0f;
 }
 
-// For a few frames as a monster is found, the same texels are drawn at 60 by
-// 60 from (276, 70). Only a pixel around that quad is accepted. The panel at
-// (280, 16), 176 by 120, starts just as far left and is not the map: it uses
-// another texture. Traced with MHFU_TRACE_SPRITES.
-[[nodiscard]] inline bool is_found_monster_window(Rect rect) {
-    const Rect r = normalized(rect);
-    const float width = r.x1 - r.x0;
-    const float height = r.y1 - r.y0;
-    if (width < 59.0f || width > 61.0f || height < 59.0f || height > 61.0f) return false;
-    return r.x0 >= 275.0f && r.x0 <= 277.0f && r.y0 >= 69.0f && r.y0 <= 71.0f &&
-        overlaps({kMapLeft, kMapTop, kMapRight, kMapBottom}, r);
-}
-
 // A map window in the area-map slot, larger than a mark. Traced samples are
 // about 34 by 40 and 40 by 40, at (432, 76)-(466, 116), (425, 78)-(465, 118)
 // and (371, 59)-(411, 99). Other areas draw other sizes from the same
 // texture, so the size is not fixed; the large tile is is_fixed_map_sprite.
-// The found-monster zoom is the one window accepted left of that slack.
 [[nodiscard]] inline bool is_travelling_map_window(Rect rect) {
-    if (is_found_monster_window(rect)) return true;
     const Rect r = normalized(rect);
     const float width = r.x1 - r.x0;
     const float height = r.y1 - r.y0;
@@ -1266,8 +1249,8 @@ struct Frame {
     // The obtain window ("Herb obtained."). It slides down from the top of
     // the picture and settles in the middle. A horizontal edge is a short
     // wide strip; on the way down the body is the taller panel the message
-    // window starts as. The right end overlaps the enlarged area map, and a
-    // cap or the item icon there was taken for a mark and pulled onto the map.
+    // window starts as. The right end can overlap the area map, and a cap or
+    // the item icon there was taken for a mark and pulled onto the map.
     Rect obtain_banner{};
     bool obtain_banner_now{};
     // The slot's top-right. The window slides inside the slot as the hunter
@@ -1278,14 +1261,6 @@ struct Frame {
     Rect map_rect{};
     Rect map_rect_live{};
     Rect travelling_rect{};
-    // Without the Map item the window is an enlargement of the slot's
-    // placement: screen = zoom * (slot + texel) + bias. Marks drawn with that
-    // window use the same enlargement. 1 means the Map item's own placement.
-    bool map_zoomed{};
-    float zoom_x{1.0f};
-    float zoom_y{1.0f};
-    float bias_x{};
-    float bias_y{};
 
     // A bow or a bowgun is aiming (camera/game_camera.hpp), set by the
     // renderer before each draw. Its reticle moves with the aim and can cross
@@ -1665,8 +1640,6 @@ struct Frame {
             travelling_now = obtain_banner_now = panel_now = party_window_now = false;
         map_rect = {};
         travelling_rect = {};
-        map_zoomed = false;
-        zoom_x = zoom_y = 1.0f;
         notice_edges_live = notice_edges;
         for (int i = 0; i < notice_edges; ++i) {
             notice_edge_x_live[i] = notice_edge_x[i];
@@ -1774,125 +1747,6 @@ struct Frame {
     static void include_rect(Rect &dest, Rect incoming, bool &now) {
         dest = now ? united(dest, incoming) : normalized(incoming);
         now = true;
-    }
-
-    // The enlarged window, traced at 60 pixels for 40 texels. A window already
-    // on the slot (pixel span matching the texels) clears it. The first vertex
-    // carries the texel drawn at its own pixel, which fixes the bias.
-    template <typename Vertex> void note_map_zoom(const std::vector<Vertex> &vertices, std::size_t first) {
-        map_zoomed = false;
-        if constexpr (requires {
-                          vertices[first].u;
-                          vertices[first].v;
-                      }) {
-            float x0 = vertices[first].x;
-            float x1 = x0;
-            float y0 = vertices[first].y;
-            float y1 = y0;
-            float u0 = vertices[first].u;
-            float u1 = u0;
-            float v0 = vertices[first].v;
-            float v1 = v0;
-            for (std::size_t i = 1; i < 6u; ++i) {
-                x0 = std::min(x0, vertices[first + i].x);
-                x1 = std::max(x1, vertices[first + i].x);
-                y0 = std::min(y0, vertices[first + i].y);
-                y1 = std::max(y1, vertices[first + i].y);
-                u0 = std::min(u0, vertices[first + i].u);
-                u1 = std::max(u1, vertices[first + i].u);
-                v0 = std::min(v0, vertices[first + i].v);
-                v1 = std::max(v1, vertices[first + i].v);
-            }
-            const float pw = x1 - x0;
-            const float ph = y1 - y0;
-            const float tw = u1 - u0;
-            const float th = v1 - v0;
-            if (pw < 8.0f || ph < 8.0f || tw < 8.0f || th < 8.0f) return;
-            const float zx = pw / tw;
-            const float zy = ph / th;
-            if (zx < 1.15f || zy < 1.15f || zx > 2.5f || zy > 2.5f) return;
-            if (zx - zy > 0.08f || zy - zx > 0.08f) return;
-            zoom_x = zx;
-            zoom_y = zy;
-            bias_x = vertices[first].x - zx * (kMapLeft + vertices[first].u);
-            bias_y = vertices[first].y - zy * (kMapTop + vertices[first].v);
-            map_zoomed = true;
-        }
-    }
-
-    // Put one quad back on the slot's placement. The map window's own texels
-    // say where it belongs. A sprite the game drew at its texel size (the camp
-    // icon) keeps that size and only its centre moves. The arrow's vertices
-    // are in the enlarged picture, so each one comes back.
-    template <typename Vertex> void unzoom_quad(std::vector<Vertex> &vertices, std::size_t first, bool window) {
-        if (!map_zoomed) return;
-        if (window) {
-            if constexpr (requires {
-                              vertices[first].u;
-                              vertices[first].v;
-                          }) {
-                for (std::size_t i = 0; i < 6u; ++i) {
-                    vertices[first + i].x = kMapLeft + vertices[first + i].u;
-                    vertices[first + i].y = kMapTop + vertices[first + i].v;
-                }
-                return;
-            }
-        }
-        const bool texel_sized = [&] {
-            if constexpr (requires {
-                              vertices[first].u;
-                              vertices[first].v;
-                          }) {
-                float x0 = vertices[first].x;
-                float x1 = x0;
-                float y0 = vertices[first].y;
-                float y1 = y0;
-                float u0 = vertices[first].u;
-                float u1 = u0;
-                float v0 = vertices[first].v;
-                float v1 = v0;
-                for (std::size_t i = 1; i < 6u; ++i) {
-                    x0 = std::min(x0, vertices[first + i].x);
-                    x1 = std::max(x1, vertices[first + i].x);
-                    y0 = std::min(y0, vertices[first + i].y);
-                    y1 = std::max(y1, vertices[first + i].y);
-                    u0 = std::min(u0, vertices[first + i].u);
-                    u1 = std::max(u1, vertices[first + i].u);
-                    v0 = std::min(v0, vertices[first + i].v);
-                    v1 = std::max(v1, vertices[first + i].v);
-                }
-                const float tw = u1 - u0;
-                const float th = v1 - v0;
-                if (tw < 4.0f || th < 4.0f) return false;
-                const float rx = (x1 - x0) / tw;
-                const float ry = (y1 - y0) / th;
-                return rx > 0.8f && rx < 1.25f && ry > 0.8f && ry < 1.25f;
-            }
-            return false;
-        }();
-        if (texel_sized) {
-            float x0 = vertices[first].x;
-            float x1 = x0;
-            float y0 = vertices[first].y;
-            float y1 = y0;
-            for (std::size_t i = 1; i < 6u; ++i) {
-                x0 = std::min(x0, vertices[first + i].x);
-                x1 = std::max(x1, vertices[first + i].x);
-                y0 = std::min(y0, vertices[first + i].y);
-                y1 = std::max(y1, vertices[first + i].y);
-            }
-            const float dx = ((0.5f * (x0 + x1) - bias_x) / zoom_x) - 0.5f * (x0 + x1);
-            const float dy = ((0.5f * (y0 + y1) - bias_y) / zoom_y) - 0.5f * (y0 + y1);
-            for (std::size_t i = 0; i < 6u; ++i) {
-                vertices[first + i].x += dx;
-                vertices[first + i].y += dy;
-            }
-            return;
-        }
-        for (std::size_t i = 0; i < 6u; ++i) {
-            vertices[first + i].x = (vertices[first + i].x - bias_x) / zoom_x;
-            vertices[first + i].y = (vertices[first + i].y - bias_y) / zoom_y;
-        }
     }
 
     void note(Rect rect, std::uint32_t texture = 0) {
@@ -2387,9 +2241,8 @@ struct Decision {
 // mark on it: the camp icon at 0x088437B4, the hunters' arrows at 0x0884398C
 // and 0x08843A2C (turned quads), a monster's dot. The quest menu's Map Zoom In
 // is drawn by 0x08842EE8 itself, at 0x08842F60: one 152 by 152 quad at about
-// five pixels a texel, under a scissor of the whole picture. It is no
-// enlarged window to put back on the slot, so it is sized as a map draw from
-// the slot's corner, as the rectangles left it too.
+// five pixels a texel, under a scissor of the whole picture. It is sized as a
+// map draw from the slot's corner, as the rectangles left it too.
 [[nodiscard]] constexpr bool is_map_picture_call(std::uint32_t call) {
     return call == 0x088432E8u || call == 0x08843610u;
 }
@@ -2411,23 +2264,15 @@ struct Decision {
 //
 // With a site (by_site), the part of the quest HUD that drew the draw is its
 // piece, every quad of it, whatever its shape or what else is on screen. The
-// rectangles then only place it: each piece keeps its corner, and the map's
-// enlarged window is put back on the slot. Which map quads are the map's
-// picture, and so measure the enlargement, is the call that drew them
-// (is_map_picture_call).
+// rectangles then only place it: each piece keeps its corner.
 template <typename Vertex>
 void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &frame, std::uint32_t texture = 0,
     hud::Owner owner = hud::Owner::Unknown, std::vector<Decision> *decisions = nullptr, hud::SiteDraw drawn = {}) {
     if (decisions != nullptr) decisions->clear();
     if (!scales.any() || vertices.size() < 6u) return;
     const bool sited = by_site(owner, drawn.site);
-    const bool picture = sited && drawn.site == hud::Site::Map && is_map_picture_call(drawn.call);
-    for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u) {
-        const Rect bounds = quad_bounds(vertices, first);
-        frame.note(bounds, texture);
-        if (sited ? picture : texture == kAreaMapTexture && is_drawn_map(bounds, texture))
-            frame.note_map_zoom(vertices, first);
-    }
+    for (std::size_t first = 0; first + 6u <= vertices.size(); first += 6u)
+        frame.note(quad_bounds(vertices, first), texture);
     frame.dismiss_false_menu();
     frame.adopt_travelling_map();
     if (!may_resize(owner)) {
@@ -2446,12 +2291,6 @@ void scale_quads(std::vector<Vertex> &vertices, const Scales &scales, Frame &fra
         if (decisions != nullptr) decisions->push_back(decision);
         const Piece piece = decision.piece;
         if (piece == Piece::None) continue;
-        // The no-map window and the marks on it are enlarged. Put them on the
-        // slot's placement first, then apply the Map size. At 100% the
-        // placement is the whole change.
-        if (piece == Piece::Map && frame.map_zoomed)
-            frame.unzoom_quad(
-                vertices, first, sited ? picture : texture == kAreaMapTexture && is_drawn_map(bounds, texture));
         const float scale = scales.of(piece);
         const Placement place = piece == Piece::Map
             ? Placement{frame.map_corner.x, frame.map_corner.y, frame.map_corner.x, frame.map_corner.y}
