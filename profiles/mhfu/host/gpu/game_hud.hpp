@@ -197,6 +197,25 @@ enum class Site : std::uint8_t { None, Unlisted, Window, Names, Status, Weapon, 
 }
 [[nodiscard]] Site site_of(std::uint32_t command_address, std::uint32_t call_return);
 
+// A draw's site, and the call in the site's function that led to it: the
+// return address into that function. The sharpness gauge tells its bar, cap,
+// spirit fill and colour apart by it (game/sharpness_gauge.hpp). The call is 0
+// for text, which is drawn away from the code that queued it.
+struct SiteDraw {
+    Site site{Site::None};
+    std::uint32_t call{};
+};
+[[nodiscard]] SiteDraw site_draw_of(std::uint32_t command_address, std::uint32_t call_return);
+
+// Whether sites can be read: the draws are watched, the code is the code the
+// table was read from, and MHFU_HUD_SCALE_SITES=0 has not turned them off.
+// Every user of sites falls back to the rectangles without them.
+[[nodiscard]] bool sites_on();
+// Whether the quest HUD's left column (Site::Status, where the clock is) was
+// filed this frame or the one before: the quest HUD is on screen. The hunt
+// icons follow it. Meaningful only while sites_on().
+[[nodiscard]] bool quest_hud_filed();
+
 // One function of the site table, and its first word (addiu sp, sp, -N),
 // which must still be there when the stack is walked.
 struct SiteFunction {
