@@ -2755,6 +2755,58 @@ void focused_widget_contracts(gpu::VulkanRenderer &renderer) {
     layer.set_interactive(false);
 }
 
+// A panel opened with clear_focus() has no row for confirm or left and right
+// to change; the first direction is handed to the caller to pick a row.
+void unfocused_open_contracts(gpu::VulkanRenderer &renderer) {
+    auto &layer = ui::Layer::get();
+    layer.set_interactive(true);
+    bool first{}, second{}, opening = true, moved{};
+    ImGuiID first_id{}, second_id{};
+    auto frame = [&] {
+        layer.begin_frame();
+        ui::begin_panel("##unfocused-open", "Unfocused open", "", false);
+        ui::begin_content();
+        first_id = ImGui::GetID("First");
+        second_id = ImGui::GetID("Second");
+        if (opening) {
+            ui::focus_next_row();
+            ui::clear_focus();
+            opening = false;
+        } else if (ui::take_move_without_focus()) {
+            moved = true;
+            ImGui::SetFocusID(second_id, ImGui::GetCurrentWindow());
+        }
+        if (ui::toggle_row("First", first)) first = !first;
+        if (ui::toggle_row("Second", second)) second = !second;
+        ui::begin_footer();
+        ui::hints({{ui::Control::Confirm, "Choose"}, {ui::Control::Back, "Back"}});
+        ui::end_panel();
+        layer.end_frame();
+        renderer.present_ui(false);
+    };
+    auto press = [&](ImGuiKey key) {
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    frame();
+    frame();
+    expect(GImGui->NavId == 0u, "clear_focus leaves an appearing panel with no row focused");
+    expect(!ui::take_move_without_focus(), "no move is reported without a direction");
+    press(ImGuiKey_Space);
+    expect(!first && !second && GImGui->NavId == 0u, "confirm with no row focused changes nothing");
+    press(ImGuiKey_DownArrow);
+    expect(moved && GImGui->NavId == second_id, "the first move goes to the row the caller picks");
+    expect(!first && !second, "the first move changes no row");
+    moved = false;
+    press(ImGuiKey_RightArrow);
+    expect(second && !first, "right then changes the picked row");
+    press(ImGuiKey_UpArrow);
+    expect(!moved && GImGui->NavId == first_id, "moves with a row focused are left to ImGui");
+    layer.set_interactive(false);
+}
+
 // One finite key gesture terminates each modal. The enclosing CTest timeout
 // bounds the real UI event loop if a regression ignores this gesture.
 void setup_screen_contracts(gpu::VulkanRenderer &renderer, const std::filesystem::path &sandbox) {
@@ -2857,6 +2909,17 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
     };
     frame();
     frame();
+    auto press = [&](ImGuiKey key) {
+        ImGui::GetIO().AddKeyEvent(key, true);
+        frame();
+        ImGui::GetIO().AddKeyEvent(key, false);
+        frame();
+    };
+    expect(GImGui->NavId == 0u, "menu opens with no row selected");
+    press(ImGuiKey_Space);
+    expect(GImGui->NavId == 0u && ui::menu_over_game(), "confirm right after opening the menu selects nothing");
+    press(ImGuiKey_DownArrow);
+    expect(GImGui->NavId != 0u, "the first move after opening the menu selects a row");
     for (int tab = 0; tab < 7; ++tab) {
         ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
         frame();
@@ -2864,6 +2927,7 @@ void menu_contracts(gpu::VulkanRenderer &renderer) {
         frame();
         expect(ui::menu_over_game() && !ui::take_quit_request(),
             "visiting each page retains menu without requesting quit");
+        expect(GImGui->NavId == 0u, "switching pages leaves no row selected");
     }
     expect(settings::current().volume == volume, "rendering all settings pages leaves volume unchanged");
     auto change_video = [&](const char *label, ImGuiKey key) {
@@ -4344,6 +4408,7 @@ int run_contracts(int scripts) {
     widget_and_browser_contracts(renderer, sandbox);
     file_browser_boundary_contracts(renderer, sandbox);
     focused_widget_contracts(renderer);
+    unfocused_open_contracts(renderer);
     font_menu_contracts(renderer, sandbox);
     menu_contracts(renderer);
     setup_screen_contracts(renderer, sandbox);

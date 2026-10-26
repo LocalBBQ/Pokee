@@ -181,6 +181,7 @@ private:
     bool paused_{}; // the game is paused behind the menu, rather than running
     int tab_{};
     bool first_frame_{true};
+    bool unselected_{}; // opened with no row selected, until a move or a click
     bool close_{};
     bool quit_{};
     bool was_editing_{};
@@ -236,9 +237,19 @@ bool Menu::frame() {
     begin_content();
     MenuPlace &place = menu_place();
     bool restoring = false;
-    if (opening && place.known && place.tab == tab_ && !font_list_was_open) {
-        // Back where the menu closed: the same scroll, the same row.
-        ImGui::SetScrollY(place.scroll);
+    // A click or a tap chose a row while none was selected.
+    if (unselected_ && ImGui::GetCurrentContext()->NavId != 0u) unselected_ = false;
+    if (opening && !font_list_was_open) {
+        // No row is selected when the menu opens, so that a press right after
+        // opening it cannot change a setting. The scroll is where the menu
+        // closed, and the first move selects the row it closed on.
+        const bool same_page = place.known && place.tab == tab_;
+        ImGui::SetScrollY(same_page ? place.scroll : 0.0f);
+        if (!same_page) place.focus = 0u;
+        clear_focus();
+        unselected_ = true;
+    } else if (unselected_ && take_move_without_focus()) {
+        unselected_ = false;
         if (place.focus != 0u) {
             ImGui::SetFocusID(place.focus, ImGui::GetCurrentWindow());
             ImGui::GetCurrentContext()->NavCursorVisible = true;
@@ -247,8 +258,12 @@ bool Menu::frame() {
             focus_next_row();
         }
     } else if (switched) {
-        focus_next_row();
+        // A new page opens with no row selected too; the first move selects
+        // its top row.
         ImGui::SetScrollY(0.0f);
+        place.focus = 0u;
+        clear_focus();
+        unselected_ = true;
     }
     switch (page()) {
     case Page::Video:
@@ -287,7 +302,7 @@ bool Menu::frame() {
         place.scroll = ImGui::GetScrollY();
         if (g.NavWindow == ImGui::GetCurrentWindow() && g.NavId != 0u)
             place.focus = g.NavId;
-        else if (switched)
+        else if (switched && !unselected_)
             place.focus = 0u;
     }
     begin_footer();

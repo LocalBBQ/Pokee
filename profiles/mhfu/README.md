@@ -398,7 +398,7 @@ The menu's text fields (*Hunter name*, *Server*, *Nickname*) open the same keybo
 
 Esc, or L3+R3 on a gamepad, opens Pokee's menu over the game; the same again, back at its top level or Start closes it. Esc never quits the game: Steam's desktop controller layout on a Steam Deck sends Esc with the B button, so an Esc that arrives together with a gamepad button is ignored.
 
-The menu opens where it was last closed: the same page, scrolled as it was, with the same row focused. The page is also kept for the next start (`ui.menu_tab` in `settings.ini`); the scroll position and the row only for the session. When that row is not there any more, the page opens at its top.
+The menu opens where it was last closed: the same page, scrolled as it was. No row is selected when it opens or when LB and RB switch to another page, so a button pressed right after changes nothing; the first press of a direction selects the row that was focused when the menu closed, or the top row of a page just switched to. The page is also kept for the next start (`ui.menu_tab` in `settings.ini`); the scroll position and the row only for the session. When that row is not there any more, the first press selects the top of the page.
 
 By default the game is paused while the menu is open: no guest code runs, emulated time stands still, the audio device stops, and the last frame stays behind the menu, dimmed. On resume the kernel's clock picks up from real time again, so the game neither races to make up the pause nor counts it in the `[perf]` statistics.
 
