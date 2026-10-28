@@ -66,6 +66,8 @@
 #include <cstring>
 #include <array>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -353,6 +355,22 @@ std::uint32_t allocate_key_quest_block(std::uint32_t size) {
     return block != nullptr ? block->address : 0u;
 }
 
+// MHFU_DUMP_RAM=<dir>: the screenshot bind also writes guest main memory, from
+// 0x08000000, to <dir>/ram_<frame>.bin, for finding the game's structures.
+void dump_guest_ram(Runtime &rt, std::uint64_t frame) {
+    static const std::filesystem::path directory = environment_path("MHFU_DUMP_RAM");
+    if (directory.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    const std::filesystem::path path = directory / ("ram_" + std::to_string(frame) + ".bin");
+    const std::uint32_t size = rt.memory().size();
+    const std::uint8_t *bytes = rt.memory().raw_pointer(psprecomp::GuestMemory::kPhysicalBase, size);
+    std::ofstream out(path, std::ios::binary);
+    if (bytes != nullptr) out.write(reinterpret_cast<const char *>(bytes), size);
+    std::cerr << "[ram] " << (bytes != nullptr && out ? "dumped to " : "could not dump to ") << path_to_utf8(path)
+              << "\n";
+}
+
 void present_frame(Runtime &rt) {
     load_trace::note_flip();
     // Overlays are swapped between frames; re-check before drawing the next one.
@@ -528,6 +546,7 @@ void present_frame(Runtime &rt) {
     if (renderer.take_screenshot_request()) {
         (void)ui::take_screenshot();
         gpu::hud::screenshot_taken();
+        dump_guest_ram(rt, renderer.frames_presented());
     }
     // The fast-forward bind as the events just pumped left it; the kernel's
     // pacing follows it from the next wait on.
