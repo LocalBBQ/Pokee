@@ -284,6 +284,8 @@ set(MHFU_HOST_SOURCES
     host/game/key_quests.cpp
     host/game/install_data.cpp
     host/game/install_data_served.cpp
+    host/game/event_quests.cpp
+    host/game/event_quests_hook.cpp
     host/game/hooks.cpp
     host/game/guest_calls.cpp
     host/game/item_sets.cpp
@@ -795,6 +797,19 @@ target_link_libraries(mhfu_key_quests_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_key_quests_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_key_quests_tests COMMAND mhfu_key_quests_tests)
+endif()
+
+# Built-in event quests: quest files, the getter and lookup on a guest memory
+# laid out as the save's slots, and the list's extension. No game data.
+add_executable(mhfu_event_quests_tests
+    tests/event_quests_tests.cpp
+    host/game/event_quests.cpp
+    host/platform/utf8_path.cpp)
+target_include_directories(mhfu_event_quests_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_event_quests_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_event_quests_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_event_quests_tests COMMAND mhfu_event_quests_tests)
 endif()
 
 # Served Data Install: the packing, reads across its ranges and the file

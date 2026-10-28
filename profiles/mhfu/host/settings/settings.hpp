@@ -258,6 +258,10 @@ struct Settings {
     // Off: the game's own ULUS10391DAT, which Data Install writes. Read at
     // start; the game looks for the install as it starts.
     bool virtual_install{true};
+    // The Guild Hall lists the quests in event_quests/ of the data directory
+    // after the save's own event quests (game/event_quests.hpp). On by
+    // default; without such quests nothing changes. Off: the save's alone.
+    bool event_quests{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};
