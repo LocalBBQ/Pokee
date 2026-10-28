@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace psprecomp {
@@ -57,6 +58,10 @@ inline constexpr std::uint32_t kSlotCount = 6u;
 inline constexpr std::uint32_t kQuestBytes = 0x6800u; // a slot's file; its name follows
 inline constexpr std::uint32_t kHiddenFlag = 0x01000000u;
 inline constexpr std::uint32_t kInfoId = 24u;
+// The offset of the quest's text: seven language tables (English first), each
+// a list of offsets to its strings, the title first. FUComplete's quests point
+// all seven at their English one.
+inline constexpr std::uint32_t kInfoText = 20u;
 
 inline constexpr std::uint32_t kLobbySlot = 0x09A5F300u;
 inline constexpr std::uint64_t kLobbyHash = 0xF431CAA134157E88ull;
@@ -71,11 +76,15 @@ inline constexpr std::uint32_t kListRoom = (kListCount - kList) / 2u;
 struct Quest {
     std::uint16_t id{};
     std::vector<std::uint8_t> bytes; // the decoded file
+    std::uint32_t flags{};           // its info block's first word
 };
 
 // A decoded quest file: "2NDG" after its info block's offset, the info block
 // inside it, and no larger than a slot's file. Nothing otherwise.
 [[nodiscard]] std::optional<Quest> parse(std::span<const std::uint8_t> bytes);
+
+// The quest's English title, or nothing when its text does not lie inside it.
+[[nodiscard]] std::string title(std::span<const std::uint8_t> bytes);
 
 // The quests in `directory`: m<id>.mib files that parse, by id, without a
 // second quest of the same id.
@@ -108,5 +117,8 @@ std::uint32_t extend_list(psprecomp::GuestMemory &memory, const Bank &bank, std:
 // is in, and keeps the two replacements registered while it is.
 using BlockAllocator = std::uint32_t (*)(std::uint32_t size);
 void frame(psprecomp::Runtime &runtime, BlockAllocator allocate);
+// Whether frame() has read event_quests/ this run, so a quest added now is
+// listed only from the next start.
+[[nodiscard]] bool loaded();
 
 } // namespace mhfu::game::event_quests
