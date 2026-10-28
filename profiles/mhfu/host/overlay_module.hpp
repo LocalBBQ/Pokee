@@ -53,4 +53,8 @@ struct OverlayModuleInfo {
 extern "C" {
 MHFU_OVERLAY_EXPORT const mhfu::OverlayModuleInfo *mhfu_overlay_info();
 MHFU_OVERLAY_EXPORT void mhfu_register_overlay(psprecomp::Runtime &runtime);
+// The addresses every call to goes through the runtime, ending in 0
+// (config/overlay_dispatch.txt). Optional: a library built before it existed
+// has none, and the host takes that as an empty list.
+MHFU_OVERLAY_EXPORT const std::uint32_t *mhfu_overlay_dispatched_calls();
 }

@@ -2,13 +2,16 @@
 """Turn an overlay dump into a shared library Pokee loads at run time.
 
     add_overlay.py [-j N] [--no-build] <build_dir> <overlay.bin> <base_address>
+    add_overlay.py --print-dispatch <base_address> <name>
 
 Steps: identify the dump from its header (name, sizes, FNV-1a hash of the header
 and the code after it), wrap only that code in a minimal ELF, run psp_recomp
-with a per-overlay symbol prefix, then build the one CMake target for that overlay with
+with a per-overlay symbol prefix and the overlay's calls to keep dispatched
+(config/overlay_dispatch.txt), then build the one CMake target for that overlay with
 N parallel jobs (default 2). The executable is not relinked. --no-build stops
 after psp_recomp and prints the target name, so a caller can build many
-overlays in one Ninja run.
+overlays in one Ninja run. --print-dispatch prints the dispatch= value a corpus
+of that overlay should record, for scripts/build_overlays.sh to compare.
 """
 
 import argparse
@@ -20,7 +23,24 @@ import sys
 
 PROFILE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OVERLAY_DIR = os.path.join(PROFILE_DIR, "overlays")
+DISPATCH_LIST = os.path.join(PROFILE_DIR, "config", "overlay_dispatch.txt")
 HEADER_BYTES = 64
+
+
+def dispatched_calls(base, name):
+    """The addresses config/overlay_dispatch.txt lists for this overlay, sorted."""
+    addresses = set()
+    with open(DISPATCH_LIST, encoding="utf-8") as listing:
+        for line in listing:
+            fields = line.split("#", 1)[0].split()
+            if len(fields) >= 2 and int(fields[0], 0) == base and fields[1] == name:
+                addresses.update(int(field, 0) for field in fields[2:])
+    return sorted(addresses)
+
+
+def dispatch_text(addresses):
+    """How meta.txt records them: the line CMake and build_overlays.sh compare."""
+    return " ".join(f"0x{address:08X}" for address in addresses)
 
 
 def fnv1a64(data):
@@ -45,6 +65,9 @@ def parse_header(data, base):
 
 
 def main(argv):
+    if len(argv) == 4 and argv[1] == "--print-dispatch":
+        print(dispatch_text(dispatched_calls(int(argv[2], 0), argv[3])))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0],
                                      usage=__doc__.strip().splitlines()[2].strip())
     parser.add_argument("-j", "--jobs", type=int, default=2, help="parallel build jobs (default 2)")
@@ -95,15 +118,18 @@ def main(argv):
     subprocess.run([sys.executable, os.path.join(PROFILE_DIR, "tools", "wrap_overlay.py"),
                     code_path, code_base_text, elf_path], check=True)
     os.remove(code_path)
+    dispatch = dispatched_calls(base, name)
+    dispatch_options = [option for address in dispatch for option in ("--dispatch", f"0x{address:08X}")]
     subprocess.run([recompiler, elf_path, "--auto", target,
-                    code_base_text, "--prefix", prefix], cwd=build_dir, check=True)
+                    code_base_text, "--prefix", prefix, *dispatch_options], cwd=build_dir, check=True)
     # The metadata the host identifies the corpus by. CMake reads it to configure
     # the library entry point. The build does not need an explicit reconfigure:
     # the CONFIGURE_DEPENDS glob over overlays/*/meta.txt notices the new
     # directory and reruns CMake on its own.
     with open(metadata_path, "w") as out:
         out.write(f"base=0x{base:08X}\nname={name}\nsize={image_size}\ncode_size={code_size}\n"
-                  f"hash=0x{digest:016X}\nsource={os.path.basename(dump_path)}\n")
+                  f"hash=0x{digest:016X}\nsource={os.path.basename(dump_path)}\n"
+                  f"dispatch={dispatch_text(dispatch)}\n")
 
     if options.no_build:
         print(f"target: overlay_{prefix}")
