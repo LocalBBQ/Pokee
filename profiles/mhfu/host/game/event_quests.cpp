@@ -44,8 +44,25 @@ std::optional<Quest> parse(std::span<const std::uint8_t> bytes) {
     if (info < 8u || info > bytes.size() - kMinimumInfo || (info & 3u) != 0u) return std::nullopt;
     Quest quest;
     quest.id = load16(bytes, info + kInfoId);
+    quest.flags = load32(bytes, info);
     quest.bytes.assign(bytes.begin(), bytes.end());
     return quest;
+}
+
+std::string title(std::span<const std::uint8_t> bytes) {
+    const auto word = [&](std::uint32_t offset) -> std::optional<std::uint32_t> {
+        if (offset > bytes.size() || bytes.size() - offset < 4u) return std::nullopt;
+        return load32(bytes, offset);
+    };
+    const std::optional<std::uint32_t> info = word(0u);
+    const std::optional<std::uint32_t> text = info ? word(*info + kInfoText) : std::nullopt;
+    const std::optional<std::uint32_t> english = text ? word(*text) : std::nullopt;
+    const std::optional<std::uint32_t> first = english ? word(*english) : std::nullopt;
+    if (!first || *first >= bytes.size()) return {};
+    const auto begin = bytes.begin() + *first;
+    const auto end = std::find(begin, bytes.end(), std::uint8_t{0u});
+    if (end == bytes.end()) return {};
+    return std::string(begin, end);
 }
 
 std::vector<Quest> load(const std::filesystem::path &directory) {

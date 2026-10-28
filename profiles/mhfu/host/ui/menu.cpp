@@ -12,6 +12,7 @@
 #include "ui/font_menu.hpp"
 #include "ui/input_script.hpp"
 #include "ui/layer.hpp"
+#include "ui/event_quests_screen.hpp"
 #include "ui/layered_armor_screen.hpp"
 #include "ui/mods_screen.hpp"
 #include "ui/save_screen.hpp"
@@ -213,7 +214,7 @@ bool Menu::frame() {
     // closes the menu.
     bool font_list_was_open = (page() == Page::Video && (font_list_open() || texture_pack_screen_open())) ||
         (page() == Page::Controls && controllers_screen_open()) ||
-        (page() == Page::Mods && (mods_screen_open() || layered_armor_screen_open())) ||
+        (page() == Page::Mods && (mods_screen_open() || layered_armor_screen_open() || event_quests_screen_open())) ||
         (page() == Page::System && save_screen_open());
     back_ = back || pad_back;
 
@@ -1885,10 +1886,12 @@ void Menu::network() {
 
 void Menu::mods() {
     if (layered_armor_screen(back_)) return;
+    if (event_quests_screen(back_)) return;
     if (!mods_screen_open()) {
         layered_armor_row();
         settings::Settings &s = settings::current();
         section("Gameplay");
+        event_quests_row();
         if (toggle_row("Give Any Rarity Item", s.give_any_rarity,
                 options_for("game.give_any_rarity",
                     "On: in the Guild Hall, Start > Item > Give hands an item of any rarity to another hunter. "
