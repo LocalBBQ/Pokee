@@ -17,6 +17,7 @@
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "kernel/kernel.hpp"
+#include "resident_code.hpp"
 #include "camera/game_aspect.hpp"
 #include "camera/field_of_view.hpp"
 #include "camera/game_camera.hpp"
@@ -491,6 +492,11 @@ int main(int argc, char **argv) {
         psprecomp::Runtime runtime(guest_ram);
         for (const EmbeddedNid &entry : kEmbeddedNids) runtime.nids().add(entry.library, entry.nid, entry.name);
         (void)elf.load_and_relocate(runtime.memory(), mhfu::kLoadBase);
+        for (const psprecomp::ElfSection &section : elf.sections())
+            if (section.name == ".text") {
+                const std::uint32_t text = elf.section_runtime_address(section, mhfu::kLoadBase);
+                mhfu::resident_code::remember(runtime.memory(), text, text + section.size);
+            }
         // generate.sh stamps the executable it translated. Registering any
         // other corpus would run that game's code at overlapping addresses.
         const bool corpus_matches = mhfu::kCorpusExecutableSha256[0] != '\0' &&

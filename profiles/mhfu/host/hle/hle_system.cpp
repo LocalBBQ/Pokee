@@ -5,6 +5,8 @@
 #include "mods/mhfu_mods.hpp"
 
 #include "overlays.hpp"
+#include "mhfu_profile.hpp"
+#include "resident_code.hpp"
 
 #include "psprecomp/common.hpp"
 
@@ -42,6 +44,8 @@ void register_utils(HleRegistrar &hle) {
     const auto flush_icache = [](Runtime &rt, AllegrexContext &ctx) {
         // An overlay has finished loading: patches that write outside it go in first.
         mods::code_loaded(rt);
+        // The game, or a patch just written, may have changed the executable's code.
+        resident_code::drop_changed_units(rt, kLoadBase);
         forget_unmatched_overlays();
         revalidate_overlays(rt);
         kernel().finish(ctx, 0u);
