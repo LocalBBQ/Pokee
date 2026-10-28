@@ -2,7 +2,7 @@
 
 This guide is for players using a prebuilt release. To build Pokee yourself instead, follow [`profiles/mhfu/README.md`](../profiles/mhfu/README.md); building from source stays fully supported.
 
-A release does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, version 1.01): its disc image, as an uncompressed `.iso` file. The first start checks that copy, accepts only that release, and sets the game up from it.
+A release does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, version 1.01): its disc image, as an uncompressed `.iso` file. The first start checks that copy, accepts only that release, and sets the game up from it. Portable 2nd G patched with FUComplete is also accepted, as an experiment that is not yet playable as a release ([profile README](../profiles/mhfu/README.md#freedom-unite-complete-experimental)).
 
 Each [release](https://github.com/LocalBBQ/Pokee/releases) has the macOS app as a disk image, `pokee-<version>-macos-arm64.dmg`.
 

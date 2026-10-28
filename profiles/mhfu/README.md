@@ -1,6 +1,6 @@
 # MHFU profile
 
-This profile builds `Pokee` for **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, disc version 1.01). It recompiles that PSP executable into a native program. No executable, game data or code generated from them is part of the repository — you supply your own copy of the game. The installer accepts this release only.
+This profile builds `Pokee` for **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, disc version 1.01). It recompiles that PSP executable into a native program. No executable, game data or code generated from them is part of the repository — you supply your own copy of the game. The installer accepts this release, and Portable 2nd G patched with FUComplete 1.4.0 as an experiment (see [Freedom Unite Complete](#freedom-unite-complete-experimental)).
 
 ## Status
 
@@ -40,6 +40,27 @@ Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Gam
 | Imports | 272 |
 
 The encrypted header uses tag `0xC0CB167C`. `generate.sh` translates the resident code (3095 functions, 67 C++ units) and stamps the executable SHA-256. Launch registers that corpus only when the prepared executable has the same hash. The ELF names overlay sections (`game_task.ovl`, `em01.ovl`, `stage000.ovl`, and the rest) but those sections have no file bytes, so they are not part of this corpus. The analog camera's follow driver, its bow and bowgun aim, lock-on, the projection, hiding the HUD and layered armor were read from this executable. The lock-on marker places the monster from the follow camera's eye and look-at. Armor names are read from the text block at `0x089CC560` (head, chest, arms, waist and legs in tables 7, 9, 11, 13 and 15). Portable 3rd, its PSP release (`ULJM-05800`), and other Freedom Unite regions are refused.
+
+### Freedom Unite Complete (experimental)
+
+[FUComplete](https://fucomplete.github.io/) is a community patch for **Monster Hunter Portable 2nd G** (`ULJM-05500`), the Japanese release Freedom Unite was made from. It carries Freedom Unite's English text over, adds the event quests and a set of quality-of-life changes, and titles the result *Monster Hunter Freedom Unite Complete*. The installer accepts a Portable 2nd G image that you patched yourself with FUCTool from FUComplete 1.4.0. The patch is not included, and nothing here needs it apart from your patched image.
+
+| Item | Value |
+| --- | --- |
+| Disc | Japan `ULJM-05500`, version 1.01, patched with FUComplete 1.4.0 |
+| `SYSDIR/EBOOT.BIN` SHA-256 | `02811bb3a529d48d707072a726e87106d0ecdab62aa7e494b23ecf1469eb662f` |
+| Load image | `0x08804000`, 32 MiB guest RAM |
+| Entry | `0x089094D4` |
+| Imports | 263 |
+
+The patched disc holds its executable unencrypted, so the installer checks that hash and keeps the file as it is. An unpatched Portable 2nd G image, or one patched with another FUComplete version, is refused with a screen that says so.
+
+What works and what does not yet:
+
+- **No recompiled code.** The executable and its overlays run in the interpreter. Without a window, the game boots to its first menu at 20 to 30 times the PSP's speed; it has not yet been played in a window.
+- **FUComplete's own code runs.** At start the game loads `PRELOAD.BIN` from the disc's `FUC` folder, copies that folder to `ms0:/PSP/SAVEDATA/FUCDAT` and loads `MODLOAD.BIN` from there. The loader then rewrites 48 words of the executable's code: jumps at `0x0884E158`, `0x0884E730` and `0x0886CFE8` into its own code, and constants between `0x088C02E4` and `0x088C4138`. A corpus generated from `EBOOT.ELF` would miss those changes, which is why there is none yet.
+- **The port's game features are off.** The analog camera, field of view, picture shape, lock-on and its marker, hunt icons, damage numbers, the gather mark and hold, the item box, item sets, layered armor, changing equipment and eating in the Guild Hall, key quests, the sharpness gauge, true attack and element, the empty item slot and giving items were traced on USA Freedom Unite. They run on that executable only (`install::traced_executable()`) until each is traced on this one. Their settings still show in the menu. Hiding the HUD and the interface sizes compare the game's code with what they expect before they hook it.
+- **Saves.** FUComplete's default reads and writes the USA save, `ULUS10391`. Installed in the same data folder as USA Freedom Unite, the two share it; use `--data-dir` to keep them apart.
 
 ## Requirements
 
@@ -97,7 +118,7 @@ The installer needs only your disc image. It runs as a few screens in the game's
 
 1. **Welcome**: what is needed and where the data goes.
 2. **Choose the disc image** in Pokee's own file browser. It starts in your home folder (later in the folder where you last found an image) and lists folders and `.iso` files with their sizes; *Showing .iso only* switches to all files. The row of places above the list holds Home, Downloads, Desktop and Documents, and every removable drive: SD cards and USB drives under `/run/media` and `/media` on Linux (a Steam Deck's SD card among them), volumes under `/Volumes` on macOS, drive letters on Windows. Confirm opens a folder or picks a file; back goes up a folder, and from the top back to the welcome screen. On a gamepad, △ (Y) switches between .iso files and all files. A file dropped onto the window is taken as well, on this screen and on the welcome screen. *System dialog…* opens the system's file dialog instead; it is not offered under gamescope (Steam Deck Game Mode), where that dialog does not appear.
-3. **Checks**: the image must be USA Freedom Unite `ULUS-10391` version 1.01 (the disc id in `PARAM.SFO` and the SHA-256 of the encrypted executable). A wrong release or region, including Portable 3rd, a modified image, a PlayStation 3 disc image, a compressed (`.cso`) image or a file that is no disc image at all each get a screen that says so plainly, with *Choose another file*. The accepted image is prepared and started on the 32 MiB layout. After `generate.sh` and a rebuild, launch registers that corpus when the executable hash matches the stamp.
+3. **Checks**: the image must be USA Freedom Unite `ULUS-10391` version 1.01 (the disc id in `PARAM.SFO` and the SHA-256 of the encrypted executable), or Portable 2nd G patched with FUComplete 1.4.0 ([experimental](#freedom-unite-complete-experimental)). A wrong release or region, including Portable 3rd, a modified image, a PlayStation 3 disc image, a compressed (`.cso`) image or a file that is no disc image at all each get a screen that says so plainly, with *Choose another file*. The accepted image is prepared and started on the 32 MiB layout. After `generate.sh` and a rebuild, launch registers that corpus when the executable hash matches the stamp.
 4. **Copy or use in place**: copying (the default) puts the image (about 1.3 GB) into the per-user directory, so the game keeps working after the original is moved or deleted; the screen shows the free space and refuses the copy when there is not enough. Using the image where it is saves the space; the program then checks on every start that the image is still there and says so if it is not, offering to run the setup again.
 5. **Progress**: a progress bar for the copy and for preparing the game's executable from the image, which is then checked against the hash in the table above. The work runs off the window's thread, so the window stays responsive; *Cancel* (or back) stops it and removes what it wrote.
 

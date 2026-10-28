@@ -30,6 +30,7 @@
 #include "game/layered_armor.hpp"
 #include "mods/mhfu_mods.hpp"
 #include "game/sharpness_gauge.hpp"
+#include "install/game_identity.hpp"
 #include "platform/utf8_path.hpp"
 
 #include "audio/audio_sink.hpp"
@@ -353,46 +354,10 @@ std::uint32_t allocate_key_quest_block(std::uint32_t size) {
     return block != nullptr ? block->address : 0u;
 }
 
-void present_frame(Runtime &rt) {
-    load_trace::note_flip();
-    // Overlays are swapped between frames; re-check before drawing the next one.
-    revalidate_overlays(rt);
-    // The menu, drawn below, reads the game's memory between frames.
-    game::attach(rt);
-    // Layered armor puts its wrappers in place here, between two frames.
-    game::layered::frame(rt);
-    game::item_box::frame(rt);
-    game::empty_item_slot::frame(rt);
-    game::gather_frame(rt);
-    game::give_rarity::frame(rt);
-    game::true_attack::frame(rt);
-    game::true_element::frame(rt);
-    game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
-    game::item_sets::frame(rt);
-    game::hall_meal::frame(rt, &call_guest_with_result);
-    game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
-    game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
-    if (!media().renderer || !media().renderer->available()) {
-        perf::end_frame(kernel().now_us());
-        return;
-    }
-    gpu::VulkanRenderer &renderer = *media().renderer;
-    // The guest passes a VRAM offset when the high byte is zero.
-    const std::uint32_t address = (media().display.framebuffer & 0xFF000000u) == 0u
-        ? (media().display.framebuffer | 0x04000000u)
-        : media().display.framebuffer;
-    const perf::Clock::time_point present_start = perf::Clock::now();
-    // The GE only draws into VRAM, so a framebuffer in main memory was
-    // written by the CPU (the movie player's sceJpegCsc) and has to be shown
-    // from memory.
-    constexpr std::uint32_t kPixelFormat8888 = 3u;
-    const DisplayState &display = media().display;
-    if ((address & 0x1F000000u) != kEdramBase && display.pixel_format == kPixelFormat8888) {
-        const std::size_t bytes = static_cast<std::size_t>(display.buffer_width) * display.height * 4u;
-        renderer.upload_frame(
-            address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
-    }
+// What the port draws over the game world: damage numbers, the lock-on marker,
+// the hunt portraits and gather marks.
+void game_overlays_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
     const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
     game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
     share_damage_numbers(rt);
@@ -468,6 +433,55 @@ void present_frame(Runtime &rt) {
         game::refresh_button_glyphs(rt.memory());
     }
     ui::set_gather_marks(std::move(gather));
+}
+#endif
+
+void present_frame(Runtime &rt) {
+    load_trace::note_flip();
+    // Overlays are swapped between frames; re-check before drawing the next one.
+    revalidate_overlays(rt);
+    // The features below were traced on USA Freedom Unite; another executable
+    // keeps other things at those addresses.
+    const bool features = install::traced_executable();
+    if (features) {
+        // The menu, drawn below, reads the game's memory between frames.
+        game::attach(rt);
+        // Layered armor puts its wrappers in place here, between two frames.
+        game::layered::frame(rt);
+        game::item_box::frame(rt);
+        game::empty_item_slot::frame(rt);
+        game::gather_frame(rt);
+        game::give_rarity::frame(rt);
+        game::true_attack::frame(rt);
+        game::true_element::frame(rt);
+        game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
+        game::item_sets::frame(rt);
+        game::hall_meal::frame(rt, &call_guest_with_result);
+        game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
+        game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
+    }
+#if defined(MHFU_HAS_RENDERER)
+    if (!media().renderer || !media().renderer->available()) {
+        perf::end_frame(kernel().now_us());
+        return;
+    }
+    gpu::VulkanRenderer &renderer = *media().renderer;
+    // The guest passes a VRAM offset when the high byte is zero.
+    const std::uint32_t address = (media().display.framebuffer & 0xFF000000u) == 0u
+        ? (media().display.framebuffer | 0x04000000u)
+        : media().display.framebuffer;
+    const perf::Clock::time_point present_start = perf::Clock::now();
+    // The GE only draws into VRAM, so a framebuffer in main memory was
+    // written by the CPU (the movie player's sceJpegCsc) and has to be shown
+    // from memory.
+    constexpr std::uint32_t kPixelFormat8888 = 3u;
+    const DisplayState &display = media().display;
+    if ((address & 0x1F000000u) != kEdramBase && display.pixel_format == kPixelFormat8888) {
+        const std::size_t bytes = static_cast<std::size_t>(display.buffer_width) * display.height * 4u;
+        renderer.upload_frame(
+            address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
+    }
+    if (features) game_overlays_frame(rt, renderer);
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more
@@ -494,12 +508,14 @@ void present_frame(Runtime &rt) {
         // of the follow camera, which game_camera_frame makes sure to drive.
         if (renderer.take_lock_on_press()) camera::lock_on_tap();
         camera::set_focus_camera_held(renderer.focus_camera_held());
-        camera::game_camera_frame(rt);
-        // The view's shape follows the picture's: the game builds its next
-        // projection with the aspect ratio of the target it will draw into.
-        camera::game_aspect_frame(rt, renderer.game_aspect());
-        // The setting's field of view, for the camera's next update.
-        camera::field_of_view_frame(rt, settings::current().field_of_view);
+        if (features) {
+            camera::game_camera_frame(rt);
+            // The view's shape follows the picture's: the game builds its next
+            // projection with the aspect ratio of the target it will draw into.
+            camera::game_aspect_frame(rt, renderer.game_aspect());
+            // The setting's field of view, for the camera's next update.
+            camera::field_of_view_frame(rt, settings::current().field_of_view);
+        }
         camera::advance(seconds, camera::game_camera_degrees_per_second());
     }
     perf::add_render_time(perf::Clock::now() - present_start);
@@ -682,8 +698,10 @@ void register_display_ctrl(HleRegistrar &hle) {
         // The hold repeats ○ on every point ○ gathers, mining and bug points
         // included; then ○ on a mining or bug point with the tool in the
         // pouch is the □ the game mines with, the tool selected.
-        buttons = game::gather_hold(buttons, rt.memory());
-        buttons = game::gather_circle(buttons, rt.memory());
+        if (install::traced_executable()) {
+            buttons = game::gather_hold(buttons, rt.memory());
+            buttons = game::gather_circle(buttons, rt.memory());
+        }
         // A stick push during the hold walks the hunter off the point, or
         // out of the carve, and the game drops the animation.
         if (game::gather_hold_centres_stick()) {

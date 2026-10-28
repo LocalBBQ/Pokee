@@ -5,9 +5,9 @@
 #include <string>
 #include <string_view>
 
-// The disc image the installer accepts, pinned by the disc id in PARAM.SFO and
-// by the SHA-256 of the encrypted executable and of the executable prepared
-// from it. USA Freedom Unite is the only accepted release.
+// The disc images the installer accepts, pinned by the disc id in PARAM.SFO and
+// by the SHA-256 of the executable on the disc and of the executable prepared
+// from it: USA Freedom Unite, and Portable 2nd G with the FUComplete patch.
 namespace mhfu::install {
 
 struct SupportedRelease {
@@ -17,12 +17,15 @@ struct SupportedRelease {
     const char *encrypted_sha256;
     const char *executable_sha256;
     // Tag at offset 0xD0 of the encrypted executable. It selects the header
-    // layout prepare_executable handles for this file.
+    // layout prepare_executable handles for this file. kPlainExecutable: the
+    // disc holds the executable unencrypted, and both hashes are the same.
     std::uint32_t header_tag;
     // Guest RAM the prepared executable's load image fits in. Portable 3rd
     // needs the 64 MiB layout; Freedom Unite fits in 32 MiB.
     std::uint32_t guest_ram_bytes;
 };
+
+inline constexpr std::uint32_t kPlainExecutable = 0u;
 
 // Monster Hunter Portable 3rd HD Ver. The installer does not accept it.
 inline constexpr SupportedRelease kPortable3rdHd{
@@ -46,7 +49,23 @@ inline constexpr SupportedRelease kFreedomUniteUsa{
     32u * 1024u * 1024u,
 };
 
-inline constexpr SupportedRelease kSupportedReleases[] = {kFreedomUniteUsa};
+// Monster Hunter Portable 2nd G (ULJM-05500, disc version 1.01) patched with
+// FUComplete 1.4.0, which titles it Freedom Unite Complete. The patch writes
+// the executable to the disc unencrypted, and loads more code of its own from
+// the disc's FUC folder at start.
+inline constexpr SupportedRelease kFreedomUniteComplete{
+    "ULJM05500",
+    "ULJM-05500",
+    "Monster Hunter Freedom Unite Complete",
+    "02811bb3a529d48d707072a726e87106d0ecdab62aa7e494b23ecf1469eb662f",
+    "02811bb3a529d48d707072a726e87106d0ecdab62aa7e494b23ecf1469eb662f",
+    kPlainExecutable,
+    32u * 1024u * 1024u,
+};
+
+// Pointers, so a release found here is the definition above and compares
+// equal to it.
+inline constexpr const SupportedRelease *kSupportedReleases[] = {&kFreedomUniteUsa, &kFreedomUniteComplete};
 
 // Names of the release this build runs. Texture packs and the in-game menu
 // use them. The analog camera, the projection, hiding the HUD, layered armor
@@ -60,21 +79,42 @@ inline constexpr const char *kExecutableSha256 = kFreedomUniteUsa.executable_sha
 inline constexpr const char *kExecutablePathOnDisc = "PSP_GAME/SYSDIR/EBOOT.BIN";
 inline constexpr const char *kParamSfoPathOnDisc = "PSP_GAME/PARAM.SFO";
 
+// The release whose executable runs, set once at launch from its hash; null
+// for an executable no release names.
+inline const SupportedRelease *&running_release_slot() {
+    static const SupportedRelease *release = nullptr;
+    return release;
+}
+inline void set_running_release(const SupportedRelease *release) {
+    running_release_slot() = release;
+}
+[[nodiscard]] inline const SupportedRelease *running_release() {
+    return running_release_slot();
+}
+
+// The host's game features (the analog camera, lock-on, the HUD's sizes,
+// layered armor, the item box and the rest) read and patch the game where USA
+// Freedom Unite keeps things. They run on that executable alone until each is
+// traced on another.
+[[nodiscard]] inline bool traced_executable() {
+    return running_release() == &kFreedomUniteUsa;
+}
+
 [[nodiscard]] inline const SupportedRelease *find_release_by_disc_id(std::string_view disc_id) {
-    for (const SupportedRelease &release : kSupportedReleases)
-        if (disc_id == release.disc_id) return &release;
+    for (const SupportedRelease *release : kSupportedReleases)
+        if (disc_id == release->disc_id) return release;
     return nullptr;
 }
 
 [[nodiscard]] inline const SupportedRelease *find_release_by_encrypted_hash(std::string_view hash) {
-    for (const SupportedRelease &release : kSupportedReleases)
-        if (hash == release.encrypted_sha256) return &release;
+    for (const SupportedRelease *release : kSupportedReleases)
+        if (hash == release->encrypted_sha256) return release;
     return nullptr;
 }
 
 [[nodiscard]] inline const SupportedRelease *find_release_by_executable_hash(std::string_view hash) {
-    for (const SupportedRelease &release : kSupportedReleases)
-        if (hash == release.executable_sha256) return &release;
+    for (const SupportedRelease *release : kSupportedReleases)
+        if (hash == release->executable_sha256) return release;
     return nullptr;
 }
 
@@ -83,9 +123,9 @@ inline constexpr const char *kParamSfoPathOnDisc = "PSP_GAME/PARAM.SFO";
     std::string text;
     for (std::size_t i = 0; i < std::size(kSupportedReleases); ++i) {
         if (i != 0u) text += i + 1u == std::size(kSupportedReleases) ? " and " : ", ";
-        text += kSupportedReleases[i].title;
+        text += kSupportedReleases[i]->title;
         text += " (";
-        text += kSupportedReleases[i].disc_id_display;
+        text += kSupportedReleases[i]->disc_id_display;
         text += ")";
     }
     return text;

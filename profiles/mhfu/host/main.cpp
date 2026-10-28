@@ -479,13 +479,14 @@ int main(int argc, char **argv) {
         const std::string sha256 = psprecomp::sha256_file(executable);
         const mhfu::install::SupportedRelease *release = mhfu::install::find_release_by_executable_hash(sha256);
         if (release == nullptr) std::cerr << "warning: unsupported executable hash " << sha256 << "\n";
+        mhfu::install::set_running_release(release);
         const std::uint32_t guest_ram = release != nullptr ? release->guest_ram_bytes : mhfu::kGuestRamBytes;
 
         const psprecomp::Elf32Image elf = psprecomp::Elf32Image::from_file(executable);
         if (elf.required_ram_size(mhfu::kLoadBase) != guest_ram)
             throw psprecomp::Error(
                 release != nullptr ? std::string(release->title) + " does not match its guest RAM layout"
-                                   : "Executable is not USA Freedom Unite");
+                                   : "Executable is not a release Pokee supports");
 
         psprecomp::Runtime runtime(guest_ram);
         for (const EmbeddedNid &entry : kEmbeddedNids) runtime.nids().add(entry.library, entry.nid, entry.name);
@@ -497,16 +498,16 @@ int main(int argc, char **argv) {
         if (corpus_matches) psprecomp::register_generated_functions(runtime);
         const std::size_t generated_functions = runtime.function_count();
         mhfu::install_profile(runtime, elf, paths);
-        // The projection was read from this executable. The signature inside
+        // The projection was read from USA Freedom Unite. The signature inside
         // prepare_game_aspect refuses it if those instructions differ.
-        if (sha256 == mhfu::install::kFreedomUniteUsa.executable_sha256)
+        if (mhfu::install::traced_executable()) {
             (void)mhfu::camera::prepare_game_aspect(runtime);
-        if (sha256 == mhfu::install::kFreedomUniteUsa.executable_sha256)
             (void)mhfu::camera::prepare_field_of_view(runtime);
+        }
 #if defined(MHFU_CAMERA_HELPER_UNIT)
         // CMake names the generated unit that holds the camera update, so a
         // new partition of the code cannot hand the camera the wrong one.
-        if (sha256 == mhfu::install::kFreedomUniteUsa.executable_sha256)
+        if (mhfu::install::traced_executable())
             (void)mhfu::camera::prepare_game_camera(runtime, &psprecomp::MHFU_CAMERA_HELPER_UNIT);
 #endif
 

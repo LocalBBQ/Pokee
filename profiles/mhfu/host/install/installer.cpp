@@ -156,7 +156,12 @@ Inspection inspect(const std::filesystem::path &path) {
             "disc.");
     Inspection result;
     result.eboot_bin = read_file(*iso, *eboot_entry);
-    if (psprecomp::sha256_bytes(result.eboot_bin) != release->encrypted_sha256)
+    const bool expected_executable = psprecomp::sha256_bytes(result.eboot_bin) == release->encrypted_sha256;
+    if (!expected_executable && release == &kFreedomUniteComplete)
+        throw InstallError("\"" + name + "\" is Portable 2nd G (" + release->disc_id_display +
+            ") without the FUComplete 1.4.0 patch, or with another version of it. Patch your image with FUCTool "
+            "from FUComplete 1.4.0, then choose the patched image.");
+    if (!expected_executable)
         throw InstallError("\"" + name + "\" is " + release->title + " (" + release->disc_id_display +
             "), but its executable is not the version Pokee supports. The image may be patched, "
             "modified or damaged; make it again from an unmodified disc.");

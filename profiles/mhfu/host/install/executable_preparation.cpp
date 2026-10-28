@@ -169,6 +169,13 @@ std::vector<std::uint8_t> prepare_executable(
     if (release == nullptr)
         throw psprecomp::Error("EBOOT.BIN is not a supported executable. Pokee accepts the executables of " +
             supported_release_list());
+    if (release->header_tag == kPlainExecutable) {
+        // The hash pins the file, which is the executable itself.
+        if (eboot_bin.size() < 4u || std::memcmp(eboot_bin.data(), "\x7F" "ELF", 4u) != 0)
+            throw psprecomp::Error("EBOOT.BIN has an unexpected header");
+        if (progress) progress(eboot_bin.size(), eboot_bin.size());
+        return {eboot_bin.begin(), eboot_bin.end()};
+    }
 
     // The hash already pins the file; these checks document the layouts
     // handled here.

@@ -2006,7 +2006,11 @@ void Menu::system() {
 
     section("About");
     info_row("Pokee", std::string(kPokeeVersion));
-    info_row("Game", std::string(install::kGameTitle) + " (" + install::kDiscIdDisplay + ")");
+    {
+        const install::SupportedRelease &game =
+            install::running_release() != nullptr ? *install::running_release() : install::kFreedomUniteUsa;
+        info_row("Game", std::string(game.title) + " (" + game.disc_id_display + ")");
+    }
     {
         std::string where = data_dir;
         try {

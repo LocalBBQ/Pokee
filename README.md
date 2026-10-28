@@ -10,7 +10,7 @@ Pokee runs **Monster Hunter Freedom Unite** (USA, `ULUS-10391`, version 1.01) on
 
 Monster Hunter, Monster Hunter Freedom Unite, CAPCOM, PlayStation, PSP, and all related trademarks, game assets, artwork, audio, characters, and other intellectual property belong to their respective owners.
 
-**Pokee** does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of Monster Hunter Freedom Unite (USA) to install or build **Pokee**; the installer checks that copy and accepts only `ULUS-10391` version 1.01.
+**Pokee** does not include any game assets or original game files: no disc image, no copy of the game's executable or data, and no textures, models, audio or video from the game. You must provide the files from your own legally obtained copy of Monster Hunter Freedom Unite (USA) to install or build **Pokee**; the installer checks that copy and accepts only `ULUS-10391` version 1.01, and, as an experiment, Portable 2nd G (`ULJM-05500`) patched with FUComplete 1.4.0 ([profile README](profiles/mhfu/README.md#freedom-unite-complete-experimental)).
 
 To use **Pokee**, users must provide the required files from their own legally obtained copy of Monster Hunter Freedom Unite (USA) for PSP.
 

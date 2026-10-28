@@ -22,7 +22,7 @@ Pokee ejecuta **Monster Hunter Freedom Unite** (EE. UU., `ULUS-10391`, versión 
 
 Monster Hunter, Monster Hunter Freedom Unite, CAPCOM, PlayStation, PSP y todas las marcas comerciales, recursos del juego, ilustraciones, audio, personajes y demás propiedad intelectual relacionados pertenecen a sus respectivos propietarios.
 
-**Pokee** no incluye ningún recurso del juego ni archivos originales del juego: ni la imagen de disco, ni una copia del ejecutable o de los datos del juego, ni texturas, modelos, audio o vídeo del juego. Para instalar o compilar **Pokee** debes aportar los archivos de tu propia copia legal de Monster Hunter Freedom Unite (EE. UU.); el instalador comprueba esa copia y solo acepta `ULUS-10391` versión 1.01.
+**Pokee** no incluye ningún recurso del juego ni archivos originales del juego: ni la imagen de disco, ni una copia del ejecutable o de los datos del juego, ni texturas, modelos, audio o vídeo del juego. Para instalar o compilar **Pokee** debes aportar los archivos de tu propia copia legal de Monster Hunter Freedom Unite (EE. UU.); el instalador comprueba esa copia y solo acepta `ULUS-10391` versión 1.01 y, de forma experimental, Portable 2nd G (`ULJM-05500`) con el parche FUComplete 1.4.0 ([README del perfil](profiles/mhfu/README.md#freedom-unite-complete-experimental), en inglés).
 
 Para usar **Pokee**, los usuarios deben aportar los archivos necesarios a partir de su propia copia adquirida legalmente de Monster Hunter Freedom Unite (EE. UU.) para PSP.
 
