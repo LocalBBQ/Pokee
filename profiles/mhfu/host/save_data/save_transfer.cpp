@@ -2,6 +2,7 @@
 
 #include "save_data/param_sfo.hpp"
 #include "save_data/savedata_crypto.hpp"
+#include "save_data/savedata_store.hpp"
 
 #include "platform/utf8_path.hpp"
 
@@ -54,25 +55,6 @@ std::string text(const fs::path &path) {
 bool has_param_sfo(const fs::path &folder) {
     std::error_code ec;
     return fs::is_regular_file(folder / kParamSfo, ec);
-}
-
-std::tm local_time(std::chrono::system_clock::time_point time) {
-    const std::time_t t = std::chrono::system_clock::to_time_t(time);
-    std::tm tm{};
-#if defined(_WIN32)
-    localtime_s(&tm, &t);
-#else
-    localtime_r(&t, &tm);
-#endif
-    return tm;
-}
-
-std::chrono::system_clock::time_point to_system(fs::file_time_type time) {
-    // file_clock has no portable conversion before every standard library
-    // implements clock_cast; the offset between the clocks now is exact
-    // enough for showing a date.
-    return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-        time - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
 }
 
 // Copies the regular files of a save folder (saves are flat), keeping their
