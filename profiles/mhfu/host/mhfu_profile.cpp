@@ -109,7 +109,7 @@ void install_profile(Runtime &runtime, const psprecomp::Elf32Image &elf, const P
     kernel().install(runtime, module->gp, image_end, user_end);
     // Freedom Unite copies its overlays into the load image, below the end of
     // the 32 MiB map. An image that stops before the first slot has none.
-    if (image_end > kOverlaySlots[0]) install_overlay_support(runtime);
+    if (image_end > overlay_slots().front()) install_overlay_support(runtime);
 
     HleRegistrar hle(runtime);
     register_threadman(hle);

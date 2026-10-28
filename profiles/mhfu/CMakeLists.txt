@@ -1,4 +1,8 @@
 set(MHFU_PROFILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+# The corpus this build links. Each release has its own, made by
+# scripts/generate.sh from that release's executable, and a build directory of
+# its own; generated-fuc holds Freedom Unite Complete's.
+set(MHFU_GENERATED_DIR "${MHFU_PROFILE_DIR}/generated" CACHE PATH "Generated AOT corpus to link")
 
 # The AOT corpus is derived from the user's executable and is not committed.
 # Until scripts/generate.sh has produced it, link an empty registry instead.
@@ -6,7 +10,7 @@ if(PSPRECOMP_COVERAGE)
     # Public coverage never compiles the user's game-derived corpus.
     set(MHFU_GENERATED)
 else()
-    file(GLOB MHFU_GENERATED CONFIGURE_DEPENDS "${MHFU_PROFILE_DIR}/generated/*.cpp")
+    file(GLOB MHFU_GENERATED CONFIGURE_DEPENDS "${MHFU_GENERATED_DIR}/*.cpp")
 endif()
 if(MHFU_GENERATED)
     list(LENGTH MHFU_GENERATED MHFU_GENERATED_COUNT)
@@ -215,6 +219,7 @@ set(MHFU_HOST_SOURCES
     host/perf/perf_overlay.cpp
     host/platform/utf8_path.cpp
     host/overlays.cpp
+    host/resident_code.cpp
     host/mhfu_profile.cpp
     host/kernel/kernel.cpp
     host/kernel/load_trace.cpp
@@ -300,7 +305,7 @@ set_source_files_properties(third_party/tiny_aes/aes.c PROPERTIES LANGUAGE CXX)
 add_library(mhfu_generated OBJECT ${MHFU_GENERATED})
 target_include_directories(mhfu_generated PRIVATE
     "${PROJECT_SOURCE_DIR}/include"
-    "${MHFU_PROFILE_DIR}/generated")
+    "${MHFU_GENERATED_DIR}")
 set_target_properties(mhfu_generated PROPERTIES JOB_POOL_COMPILE psprecomp_generated)
 
 # An Android app is a shared library, libmain.so, that SDL's Java activity
@@ -344,10 +349,10 @@ endif()
 # The host only: the generated code never sees FFmpeg.
 mhfu_use_ffmpeg(Pokee)
 target_include_directories(Pokee PRIVATE
-    # generated/ is first. main.cpp includes <corpus_identity.hpp> so this
+    # The corpus is first. main.cpp includes <corpus_identity.hpp> so this
     # directory wins over host/corpus_identity.hpp, which sits beside main.cpp
     # and would otherwise be found by a quoted include.
-    "${MHFU_PROFILE_DIR}/generated"
+    "${MHFU_GENERATED_DIR}"
     "${MHFU_PROFILE_DIR}/host"
     "${MHFU_PROFILE_DIR}/third_party")
 target_link_libraries(Pokee PRIVATE psprecomp_core ${CMAKE_DL_LIBS})
@@ -843,6 +848,16 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_guest_layout_tests COMMAND mhfu_guest_layout_tests)
 endif()
 
+# Units of the executable the game rewrites, and dropping their compiled code.
+# No game data.
+add_executable(mhfu_resident_code_tests tests/resident_code_tests.cpp host/resident_code.cpp)
+target_include_directories(mhfu_resident_code_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_resident_code_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_resident_code_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_resident_code_tests COMMAND mhfu_resident_code_tests)
+endif()
+
 # Freedom Unite overlay bases. Header only: no game data.
 add_executable(mhfu_overlay_slot_tests tests/overlay_slot_tests.cpp)
 target_include_directories(mhfu_overlay_slot_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
@@ -1248,7 +1263,10 @@ function(mhfu_add_overlay meta_path)
     endif()
 endfunction()
 
-file(GLOB MHFU_OVERLAY_METADATA CONFIGURE_DEPENDS "${MHFU_PROFILE_DIR}/overlays/*/meta.txt")
+# Like the corpus, each release has its own overlays: overlays-fuc holds
+# Freedom Unite Complete's. tools/add_overlay.py writes where this points.
+set(MHFU_OVERLAY_SOURCE_DIR "${MHFU_PROFILE_DIR}/overlays" CACHE PATH "Recompiled overlay corpora to build")
+file(GLOB MHFU_OVERLAY_METADATA CONFIGURE_DEPENDS "${MHFU_OVERLAY_SOURCE_DIR}/*/meta.txt")
 foreach(meta IN LISTS MHFU_OVERLAY_METADATA)
     mhfu_add_overlay("${meta}")
 endforeach()

@@ -183,7 +183,7 @@ class ArchiveBehaviorTests(unittest.TestCase):
         return xor.translate(databin.ENCODE_TABLE)[:len(plain)]
 
     @classmethod
-    def archive(cls, path):
+    def archive(cls, path, plain=False):
         overlay = bytearray(80)
         overlay[:4] = b"MWo3"
         struct.pack_into("<7I", overlay, 4, 1, 0x08804000, 12, 4, 8, 0x08804018, 0x08804000)
@@ -192,9 +192,36 @@ class ArchiveBehaviorTests(unittest.TestCase):
         struct.pack_into("<7I", directory, 0, 1, 2, 3, 4, 0, 80, 1)
         # Third entry is block-aligned; first two have explicit logical lengths.
         struct.pack_into("<I", directory, 28, 8)
-        path.write_bytes(cls.encrypt(directory, 0) + cls.encrypt(overlay + bytes(2048 - len(overlay)), 1) +
-                         b"PSMFtest" + bytes(2040) + cls.encrypt(bytes(2048), 3))
+        encode = (lambda data, block: bytes(data)) if plain else cls.encrypt
+        path.write_bytes(encode(directory, 0) + encode(overlay + bytes(2048 - len(overlay)), 1) +
+                         b"PSMFtest" + bytes(2040) + encode(bytes(2048), 3))
         return bytes(overlay)
+
+    def test_overlay_corpora_follow_the_build_directory(self):
+        # Each release's build names its own overlay corpora in its cache.
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary)
+            self.assertEqual(add_overlay.overlay_source_dir(str(build)), add_overlay.OVERLAY_DIR)
+            (build / "CMakeCache.txt").write_text("OTHER:PATH=/x\nMHFU_OVERLAY_SOURCE_DIR:PATH=/corpora/fuc\n")
+            self.assertEqual(add_overlay.overlay_source_dir(str(build)), "/corpora/fuc")
+            (build / "CMakeCache.txt").write_text("MHFU_GENERATED_DIR:PATH=/generated/fuc\n")
+            self.assertEqual(add_overlay.overlay_source_dir(str(build)), add_overlay.OVERLAY_DIR)
+
+    def test_plain_archive_is_read_as_stored(self):
+        # Freedom Unite Complete keeps its DATA.BIN plain; the games obfuscate it.
+        with tempfile.TemporaryDirectory() as temporary:
+            for plain in (True, False):
+                path = Path(temporary) / ("plain.bin" if plain else "obfuscated.bin")
+                overlay = self.archive(path, plain)
+                archive = databin.Archive(path)
+                try:
+                    self.assertEqual(archive.plain, plain)
+                    self.assertEqual(len(archive), 3)
+                    self.assertEqual(archive.read(0), overlay)
+                    self.assertEqual(archive.read(1), b"PSMFtest")
+                    self.assertEqual(archive.overlay(0)["name"], "public.ovl")
+                finally:
+                    archive.stream.close()
 
     def test_keystream_long_cycle_and_partial_words(self):
         for block in (0, 1, 0x12345678):

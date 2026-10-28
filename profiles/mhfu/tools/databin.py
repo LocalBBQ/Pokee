@@ -163,14 +163,23 @@ class Archive:
         return self.stream.read(length)
 
     def _read_directory(self):
+        # Freedom Unite Complete stores its archive plain; the released games
+        # obfuscate theirs. A plain reading of an obfuscated directory fails the
+        # checks below, so that one is tried first.
+        try:
+            self.plain = True
+            return self._parse_directory(lambda data: data)
+        except ValueError:
+            self.plain = False
+            return self._parse_directory(lambda data: decrypt(data, 0))
+
+    def _parse_directory(self, decode):
         # The first word is the number of blocks the directory itself occupies.
-        head = decrypt(self._raw(0, 4), 0)
+        head = decode(self._raw(0, 4))
         directory_size = struct.unpack("<I", head)[0] * BLOCK
         if not 0 < directory_size <= 1 << 20:
             raise ValueError("implausible directory size; not an MHFU DATA.BIN?")
-        words = struct.unpack(
-            "<%dI" % (directory_size // 4), decrypt(self._raw(0, directory_size), 0)
-        )
+        words = struct.unpack("<%dI" % (directory_size // 4), decode(self._raw(0, directory_size)))
 
         # Block table: entry n spans blocks[n] .. blocks[n + 1], terminated by
         # the block count of the whole archive.
@@ -209,7 +218,7 @@ class Archive:
         raw = self._raw(block * BLOCK, length)
         # A handful of entries are stored verbatim: the ~SCE PRX stubs and the
         # PSMF movies. Deobfuscating them turns them into noise.
-        if raw[:4] in VERBATIM_MAGICS:
+        if self.plain or raw[:4] in VERBATIM_MAGICS:
             return raw
         return decrypt(raw, block)
 

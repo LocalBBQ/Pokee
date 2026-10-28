@@ -23,6 +23,19 @@ OVERLAY_DIR = os.path.join(PROFILE_DIR, "overlays")
 HEADER_BYTES = 64
 
 
+def overlay_source_dir(build_dir):
+    """Where the build reads overlay corpora from: its MHFU_OVERLAY_SOURCE_DIR,
+    which each release's build sets, or profiles/mhfu/overlays."""
+    cache = os.path.join(build_dir, "CMakeCache.txt")
+    if os.path.isfile(cache):
+        with open(cache, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                match = re.match(r"MHFU_OVERLAY_SOURCE_DIR:[A-Z]+=(.+)$", line.rstrip("\n"))
+                if match:
+                    return match.group(1)
+    return OVERLAY_DIR
+
+
 def fnv1a64(data):
     value = 0xCBF29CE484222325
     for byte in data:
@@ -69,7 +82,7 @@ def main(argv):
     # data section of a loaded overlay.
     digest = fnv1a64(data[:HEADER_BYTES + code_size])
     prefix = f"ovl{base:08X}_{name}_{digest:016X}"
-    overlay_root = os.path.realpath(OVERLAY_DIR)
+    overlay_root = os.path.realpath(overlay_source_dir(build_dir))
     target = os.path.realpath(os.path.join(overlay_root, prefix))
     if not target.startswith(overlay_root + os.sep):
         parser.error("overlay directory escapes the corpus root")

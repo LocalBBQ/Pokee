@@ -1,11 +1,14 @@
 #pragma once
 
+#include "install/game_identity.hpp"
+
 #include "psprecomp/elf32.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <iterator>
+#include <span>
 #include <utility>
 
 namespace mhfu {
@@ -42,13 +45,34 @@ inline constexpr std::uint32_t kOverlaySlots[] = {
     0x0A000000u, // end of user memory
 };
 
-// The slot containing `address`, or {0, 0} when it is outside every slot.
-[[nodiscard]] inline std::pair<std::uint32_t, std::uint32_t> overlay_slot_of(std::uint32_t address) {
-    for (std::size_t i = 0; i + 1u < std::size(kOverlaySlots); ++i) {
-        if (address >= kOverlaySlots[i] && address < kOverlaySlots[i + 1u])
-            return {kOverlaySlots[i], kOverlaySlots[i + 1u]};
+// The same four bases in Freedom Unite Complete's DATA.BIN, also 298 images,
+// each a little below USA Freedom Unite's (0x4D80 to 0x5180).
+inline constexpr std::uint32_t kCompleteOverlaySlots[] = {
+    0x09A5A580u, // *_task.ovl
+    0x09C14280u, // demo_sub.ovl, game_sub.ovl
+    0x09D15100u, // em*.ovl
+    0x09D5DF80u, // stage*.ovl
+    0x0A000000u, // end of user memory
+};
+
+// The slots of the release that runs; USA Freedom Unite's before launch.
+[[nodiscard]] inline std::span<const std::uint32_t> overlay_slots() {
+    if (install::running_release() == &install::kFreedomUniteComplete) return kCompleteOverlaySlots;
+    return kOverlaySlots;
+}
+
+// The slot containing `address` in `slots`, or {0, 0} when it is outside every slot.
+[[nodiscard]] inline std::pair<std::uint32_t, std::uint32_t> overlay_slot_of(
+    std::uint32_t address, std::span<const std::uint32_t> slots) {
+    for (std::size_t i = 0; i + 1u < slots.size(); ++i) {
+        if (address >= slots[i] && address < slots[i + 1u]) return {slots[i], slots[i + 1u]};
     }
     return {0u, 0u};
+}
+
+// The slot containing `address` in the running release.
+[[nodiscard]] inline std::pair<std::uint32_t, std::uint32_t> overlay_slot_of(std::uint32_t address) {
+    return overlay_slot_of(address, overlay_slots());
 }
 
 } // namespace mhfu

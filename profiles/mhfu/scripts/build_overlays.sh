@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Extract every code overlay from DATA.BIN and build a recompiled library for each.
 #
-#   build_overlays.sh [build_dir] [jobs]
+#   build_overlays.sh [build_dir] [jobs] [image.iso]
+#
+# The image defaults to profiles/mhfu/game/disc.iso, extracted into
+# profiles/mhfu/analysis/overlays. Another release's image is extracted into
+# its build directory, and its corpora go where that build's
+# MHFU_OVERLAY_SOURCE_DIR points:
+#
+#   build_overlays.sh out/fuc 2 <FUComplete image.iso>
 #
 # The game loads its overlays into shared slots at run time, so each one needs
 # its own corpus. This builds all of them up front instead of waiting for the
@@ -17,9 +24,12 @@ profile_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_dir="$(cd "$profile_dir/../.." && pwd)"
 build_dir="${1:-$repo_dir/out/mhfu}"
 jobs="${2:-2}"
-iso="$profile_dir/game/disc.iso"
+iso="${3:-$profile_dir/game/disc.iso}"
 extract_dir="$profile_dir/analysis/overlays"
+if [[ $# -ge 3 ]]; then extract_dir="$build_dir/overlay_images"; fi
 library_dir="$build_dir/bin/overlays"
+overlay_sources="$(sed -n 's/^MHFU_OVERLAY_SOURCE_DIR:[A-Z]*=//p' "$build_dir/CMakeCache.txt" 2> /dev/null || true)"
+overlay_sources="${overlay_sources:-$profile_dir/overlays}"
 
 if [[ ! -e "$iso" ]]; then
     echo "error: $iso not found; run scripts/prepare_game.sh first" >&2
@@ -52,14 +62,14 @@ for image in "${images[@]}"; do
         skipped=$((skipped + 1))
         continue
     fi
-    if ! compgen -G "$profile_dir/overlays/ovl${base}_${name}_*/meta.txt" > /dev/null; then
+    if ! compgen -G "$overlay_sources/ovl${base}_${name}_*/meta.txt" > /dev/null; then
         echo "[$((${#targets[@]} + skipped + ${#failed[@]} + 1))/$total] recompiling $name at 0x$base"
         if ! python3 "$profile_dir/tools/add_overlay.py" --no-build "$build_dir" "$image" "0x$base" > /dev/null 2>&1; then
             failed+=("$name")
             continue
         fi
     fi
-    for meta in "$profile_dir/overlays/ovl${base}_${name}_"*/meta.txt; do
+    for meta in "$overlay_sources/ovl${base}_${name}_"*/meta.txt; do
         targets+=("overlay_$(basename "$(dirname "$meta")")")
     done
 done

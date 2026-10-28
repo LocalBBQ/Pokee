@@ -48,6 +48,8 @@ Some titles copy code into memory while they run — overlays swapped into a fix
 - `set_runtime_stale_code_hook` is called before a chained call runs a function that is already registered. Return true when that body belongs to an image that has since been overwritten: the call is not made, and dispatch looks the address up again. A jump into a newly copied overlay hits this before the game flushes its instruction cache.
 - `Runtime::unregister_functions(start, end)` drops every generated function in a range, so code compiled for the previous contents of a window cannot run against the new ones.
 
+`unregister_functions` also takes every generated unit it touches off the direct unit-to-unit path, so a fixed jump from another unit cannot enter dropped code. Code inside a unit reaches its own blocks directly, so a profile drops whole units: `profiles/mhfu/host/resident_code.hpp` drops each unit of the executable whose code the game rewrote.
+
 A profile typically builds each piece of run-time code as its own shared library, identifies which one is loaded by hashing guest memory, and swaps libraries through these calls. `profiles/mhfu/README.md` describes one such scheme in full.
 
 ## Native fast paths

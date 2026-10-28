@@ -43,9 +43,11 @@ overlay_*.bin
 /profiles/*/analysis/
 /profiles/*/progress/
 /profiles/*/captures/
-# The MHFU AOT corpora are derived from the user's executable
-/profiles/mhfu/generated/
-/profiles/mhfu/overlays/
+# The MHFU AOT corpora are derived from the user's executable, one pair of
+# folders per release (generated-fuc/ and overlays-fuc/ for Freedom Unite
+# Complete)
+/profiles/mhfu/generated*/
+/profiles/mhfu/overlays*/
 
 # Local dumps next to the repository root
 /dump/

@@ -57,8 +57,19 @@ The patched disc holds its executable unencrypted, so the installer checks that 
 
 What works and what does not yet:
 
-- **No recompiled code.** The executable and its overlays run in the interpreter. Without a window, the game boots to its first menu at 20 to 30 times the PSP's speed; it has not yet been played in a window.
-- **FUComplete's own code runs.** At start the game loads `PRELOAD.BIN` from the disc's `FUC` folder, copies that folder to `ms0:/PSP/SAVEDATA/FUCDAT` and loads `MODLOAD.BIN` from there. The loader then rewrites 48 words of the executable's code: jumps at `0x0884E158`, `0x0884E730` and `0x0886CFE8` into its own code, and constants between `0x088C02E4` and `0x088C4138`. A corpus generated from `EBOOT.ELF` would miss those changes, which is why there is none yet.
+- **A build of its own.** Each release has its own corpus and its own build directory; a build runs the release its corpus was made from at full speed, and any other in the interpreter. `MHFU_GENERATED_DIR` and `MHFU_OVERLAY_SOURCE_DIR` name the folders, `profiles/mhfu/generated-fuc` and `profiles/mhfu/overlays-fuc` by convention (both ignored by Git):
+
+  ```bash
+  profiles/mhfu/scripts/generate.sh out/mhfu <data dir>/EBOOT.ELF profiles/mhfu/generated-fuc
+  cmake -S . -B out/fuc -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhfu \
+      -DMHFU_GENERATED_DIR=$PWD/profiles/mhfu/generated-fuc -DMHFU_OVERLAY_SOURCE_DIR=$PWD/profiles/mhfu/overlays-fuc
+  cmake --build out/fuc --target Pokee -j 2
+  profiles/mhfu/scripts/build_overlays.sh out/fuc 2 <patched image.iso>
+  ```
+
+  The executable is 3037 functions in 67 units. FUComplete keeps `DATA.BIN` unobfuscated, and its 298 overlays load 0x4D80 to 0x5180 below USA Freedom Unite's (`kCompleteOverlaySlots`). Without a window the game boots to its first menu; it has been played in a window in the interpreter, not yet with this build.
+- **FUComplete's own code runs.** At start the game loads `PRELOAD.BIN` from the disc's `FUC` folder, copies that folder to `ms0:/PSP/SAVEDATA/FUCDAT` and loads `MODLOAD.BIN` from there, all of it interpreted. The loader then rewrites 48 words of the executable's code: jumps at `0x0884E158`, `0x0884E730` and `0x0886CFE8` into its own code, and constants between `0x088C02E4` and `0x088C4138`, among them the bytes of USA Freedom Unite's save key. At the instruction cache flush that follows, the four 16 KiB units holding those words are dropped from the corpus, and they run in the interpreter from memory (`[code] the game changed its code in …`; `host/resident_code.hpp`). `MHFU_DROP_CHANGED_CODE=0` keeps the compiled code instead. On USA Freedom Unite nothing is dropped. The same check makes a patch mod that changes the executable's code take effect.
+- **Mods are off.** The mods' reader does not read an unobfuscated `DATA.BIN` yet.
 - **The port's game features are off.** The analog camera, field of view, picture shape, lock-on and its marker, hunt icons, damage numbers, the gather mark and hold, the item box, item sets, layered armor, changing equipment and eating in the Guild Hall, key quests, the sharpness gauge, true attack and element, the empty item slot and giving items were traced on USA Freedom Unite. They run on that executable only (`install::traced_executable()`) until each is traced on this one. Their settings still show in the menu. Hiding the HUD and the interface sizes compare the game's code with what they expect before they hook it.
 - **Saves.** FUComplete's default reads and writes the USA save, `ULUS10391`. Installed in the same data folder as USA Freedom Unite, the two share it; use `--data-dir` to keep them apart.
 
@@ -1394,6 +1405,7 @@ The marker does not project through the view a draw uploaded. That view has no t
 | `MHFU_INPUT_LIVE` | A file read while the game runs; each line appended to it is an input-script step timed from when it is read, to drive two instances side by side |
 | `MHFU_DUMP_OVERLAYS` | Directory to dump an overlay that has no library into |
 | `PSPRECOMP_NO_INTERPRETER=1` | Stop at uncompiled code instead of interpreting it |
+| `MHFU_DROP_CHANGED_CODE=0` | Keep running the compiled code of executable units the game rewrote, instead of dropping them to the interpreter at the next instruction cache flush |
 | `PSPRECOMP_MAX_DISPATCHES` | Stop after this many dispatches |
 | `PSPRECOMP_HLE_HISTOGRAM=1` | Print import call counts on exit |
 
