@@ -121,4 +121,8 @@ void frame(psprecomp::Runtime &runtime, BlockAllocator allocate) {
     }
 }
 
+bool loaded() {
+    return state().loaded;
+}
+
 } // namespace mhfu::game::event_quests
