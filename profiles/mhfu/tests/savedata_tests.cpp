@@ -163,6 +163,68 @@ std::vector<std::uint8_t> file_bytes(const std::filesystem::path &path) {
     return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+// MAKEDATA with no file, WRITEDATA and FILES, as the install uses them.
+void test_install_modes() {
+    const auto root = std::filesystem::temp_directory_path() / "mhfu_savedata_install_tests";
+    std::filesystem::remove_all(root);
+    SaveFiles files;
+    files.game_name = "TEST00000";
+    files.save_name = "DAT";
+    std::string error;
+    check(write_data_file(root, files, {1, 2, 3}, error) == WriteStatus::NoData,
+        "WRITEDATA into a folder that does not exist reports no data");
+    check(!list_files(root, files).exists, "FILES of a folder that does not exist reports no data");
+
+    SaveContents contents;
+    contents.title = "Title";
+    contents.icon0 = {1, 2, 3};
+    contents.pic1 = {4, 5};
+    check(write_save(root, files, contents, error), "a folder is made without a data file");
+    const auto folder = root / "PSP" / "SAVEDATA" / "TEST00000DAT";
+    std::size_t made = 0;
+    for ([[maybe_unused]] const auto &entry : std::filesystem::directory_iterator(folder)) ++made;
+    check(made == 3u && std::filesystem::exists(folder / "PARAM.SFO"), "only PARAM.SFO and the icons are made");
+
+    files.file_name = "00000001";
+    check(write_data_file(root, files, std::vector<std::uint8_t>(5000u, 7u), error) == WriteStatus::Ok,
+        "WRITEDATA writes a file");
+    files.file_name = "00000000";
+    check(write_data_file(root, files, {9, 9}, error) == WriteStatus::Ok, "WRITEDATA writes a second file");
+    check(file_bytes(folder / "00000000") == std::vector<std::uint8_t>{9, 9}, "WRITEDATA stores the bytes plain");
+    files.file_name.clear();
+    check(write_data_file(root, files, {1}, error) == WriteStatus::Failed, "WRITEDATA needs a file name");
+    {
+        std::ofstream(folder / "00000002.tmp") << "partial";
+    }
+
+    const FileListing listing = list_files(root, files);
+    check(listing.exists && listing.secure.empty(), "FILES lists a plain save");
+    check(listing.system.size() == 3u, "FILES counts PARAM.SFO and the icons as system files");
+    check(listing.normal.size() == 2u && listing.normal[0].name == "00000000" && listing.normal[1].name == "00000001",
+        "FILES lists the normal files in name order, without a write in progress");
+    check(listing.normal.size() == 2u && listing.normal[0].size == 2u && listing.normal[1].size == 5000u,
+        "FILES gives the files' sizes");
+    std::filesystem::remove_all(root);
+}
+
+void test_listing_secure_files() {
+    const auto root = std::filesystem::temp_directory_path() / "mhfu_savedata_secure_tests";
+    std::filesystem::remove_all(root);
+    SaveFiles files;
+    files.game_name = "TEST00000";
+    files.file_name = "DATA.BIN";
+    files.key = block("0102030405060708090a0b0c0d0e0f10");
+    SaveContents contents;
+    contents.data = std::vector<std::uint8_t>(64u, 1u);
+    std::string error;
+    check(write_save(root, files, contents, error), "an encrypted save is written");
+    const FileListing listing = list_files(root, files);
+    check(listing.secure.size() == 1u && listing.secure[0].name == "DATA.BIN" && listing.normal.empty() &&
+            listing.system.size() == 1u,
+        "FILES counts a file PARAM.SFO hashes as secure");
+    std::filesystem::remove_all(root);
+}
+
 // Writes a save the way the game does, under <memory_stick>/PSP/SAVEDATA.
 void make_save(const std::filesystem::path &memory_stick, const std::string &game, const std::string &save,
     const Block &key, std::uint8_t fill) {
@@ -388,6 +450,8 @@ int main(int argc, char **argv) {
     test_param_sfo();
     test_encryption();
     test_store();
+    test_install_modes();
+    test_listing_secure_files();
     test_transfer();
     test_release_of();
     std::printf("%d failure(s)\n", failures);
