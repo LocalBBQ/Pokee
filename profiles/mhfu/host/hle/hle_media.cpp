@@ -26,6 +26,7 @@
 #include "game/hall_meal.hpp"
 #include "game/item_sets.hpp"
 #include "game/item_box.hpp"
+#include "game/event_quests.hpp"
 #include "game/key_quests.hpp"
 #include "game/layered_armor.hpp"
 #include "mods/mhfu_mods.hpp"
@@ -355,6 +356,14 @@ std::uint32_t allocate_key_quest_block(std::uint32_t size) {
     return block != nullptr ? block->address : 0u;
 }
 
+// The built-in event quests, from the top of user memory as well.
+std::uint32_t allocate_event_quest_block(std::uint32_t size) {
+    const std::int32_t uid = kernel().allocate_block("mhfu_event_quests", 1u, size, 0u);
+    if (uid < 0) return 0u;
+    const MemoryBlock *block = kernel().find_block(uid);
+    return block != nullptr ? block->address : 0u;
+}
+
 // MHFU_DUMP_RAM=<dir>: the screenshot bind also writes guest main memory, from
 // 0x08000000, to <dir>/ram_<frame>.bin, for finding the game's structures.
 void dump_guest_ram(Runtime &rt, std::uint64_t frame) {
@@ -389,6 +398,7 @@ void present_frame(Runtime &rt) {
     game::item_sets::frame(rt);
     game::hall_meal::frame(rt, &call_guest_with_result);
     game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
+    game::event_quests::frame(rt, &allocate_event_quest_block);
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
