@@ -1,6 +1,7 @@
 // IoFileMgrForUser and sceUmdUser: UMD access straight from the disc image
 // (including raw "sce_lbn" sector files) and a host directory for ms0:.
 #include "hle_common.hpp"
+#include "game/install_data.hpp"
 #include "game/key_quests.hpp"
 #include "kernel/fast_loading.hpp"
 #include "kernel/load_trace.hpp"
@@ -39,7 +40,7 @@ constexpr std::uint32_t kOpenTruncate = 0x0400u;
 enum class Device { Disc, MemoryStick, Unknown };
 
 struct OpenFile {
-    enum class Kind { Disc, Host, Directory } kind{};
+    enum class Kind { Disc, Host, Directory, Install } kind{};
     std::string path;
     std::uint64_t disc_offset{}; // absolute image offset of byte 0
     std::uint64_t size{};
@@ -49,6 +50,8 @@ struct OpenFile {
     // gets there (host/mods/mhfu_mods.hpp). Byte 0 is this far into it.
     bool archive{};
     std::uint64_t archive_offset{};
+    // Kind::Install: a file of the served Data Install (game/install_data.hpp).
+    const game::install_data::File *install{};
 };
 
 struct IoState {
@@ -131,11 +134,25 @@ bool trace_io() {
     return enabled;
 }
 
-std::int64_t open_file(const std::string &full_path, std::uint32_t flags) {
+// A file of the served Data Install, or null.
+const game::install_data::File *served_install_file(const psprecomp::GuestMemory &memory, const SplitPath &split) {
+    if (split.device != Device::MemoryStick) return nullptr;
+    const auto number = game::install_data::file_number(split.path);
+    if (!number) return nullptr;
+    const auto *files = game::install_data::served(memory);
+    return files != nullptr && *number < files->size() ? &(*files)[*number] : nullptr;
+}
+
+std::int64_t open_file(const psprecomp::GuestMemory &memory, const std::string &full_path, std::uint32_t flags) {
     const SplitPath split = split_path(full_path);
     OpenFile file;
     file.path = full_path;
-    if (split.device == Device::Disc) {
+    if (const auto *install = served_install_file(memory, split)) {
+        if ((flags & kOpenWrite) != 0u) return static_cast<std::int32_t>(io_error::kReadOnly);
+        file.kind = OpenFile::Kind::Install;
+        file.install = install;
+        file.size = install->size;
+    } else if (split.device == Device::Disc) {
         if (!io().disc) return static_cast<std::int32_t>(io_error::kDeviceNotFound);
         if ((flags & kOpenWrite) != 0u) return static_cast<std::int32_t>(io_error::kReadOnly);
         if (const auto lbn = parse_lbn_path(split.path)) {
@@ -215,15 +232,27 @@ void write_stat(
     memory.store32(address + 64u, lba);
 }
 
+// Reads DATA.BIN as the game sees it, at an offset into the archive.
+std::size_t read_archive(std::uint64_t offset, std::span<std::uint8_t> out) {
+    std::size_t count = 0u;
+    if (mods::serving())
+        count = mods::read_data_bin(offset, out);
+    else if (const auto data_bin = mods::data_bin_on_disc())
+        count = io().disc->read(data_bin->offset + offset, out);
+    // A quest pack read in full: its key quests get their mark once it is in place.
+    if (const auto entry = mods::entry_completed(offset, count)) game::key_quests::file_loaded(*entry);
+    return count;
+}
+
 // Reads a disc file at `offset` into it.
 std::size_t read_disc(const OpenFile &file, std::uint64_t offset, std::span<std::uint8_t> out) {
-    const std::size_t count = file.archive && mods::serving() ? mods::read_data_bin(file.archive_offset + offset, out)
-                                                              : io().disc->read(file.disc_offset + offset, out);
-    // A quest pack read in full: its key quests get their mark once it is in place.
-    if (file.archive)
-        if (const auto entry = mods::entry_completed(file.archive_offset + offset, count))
-            game::key_quests::file_loaded(*entry);
-    return count;
+    if (file.kind == OpenFile::Kind::Install) {
+        if (offset >= file.size) return 0u;
+        return game::install_data::read(
+            *file.install, offset, out.first(std::min<std::uint64_t>(out.size(), file.size - offset)), &read_archive);
+    }
+    if (file.archive) return read_archive(file.archive_offset + offset, out);
+    return io().disc->read(file.disc_offset + offset, out);
 }
 
 } // namespace
@@ -233,7 +262,7 @@ std::size_t read_open_file(std::uint32_t fd, std::uint64_t offset, std::uint8_t 
     if (found == io().files.end()) return 0u;
     OpenFile &file = found->second;
     const std::span<std::uint8_t> out(output, size);
-    if (file.kind == OpenFile::Kind::Disc) {
+    if (file.kind == OpenFile::Kind::Disc || file.kind == OpenFile::Kind::Install) {
         if (!io().disc || offset >= file.size) return 0u;
         return read_disc(file, offset, out.first(std::min<std::uint64_t>(size, file.size - offset)));
     }
@@ -256,7 +285,7 @@ void register_io(
 
     hle.add("IoFileMgrForUser", "sceIoOpen", [](Runtime &rt, AllegrexContext &ctx) {
         const std::string path = read_cstring(rt.memory(), arg(ctx, 0), 256u);
-        const std::int64_t fd = open_file(path, arg(ctx, 1));
+        const std::int64_t fd = open_file(rt.memory(), path, arg(ctx, 1));
         if (trace_io() || fd < 0)
             std::cerr << "[io] open " << path << " flags=" << psprecomp::hex32(arg(ctx, 1)) << " -> "
                       << psprecomp::hex32(static_cast<std::uint32_t>(fd)) << "\n";
@@ -275,7 +304,9 @@ void register_io(
         const std::uint32_t address = arg(ctx, 1);
         std::uint32_t requested = arg(ctx, 2);
         std::vector<std::uint8_t> buffer;
-        if (file.kind == OpenFile::Kind::Disc) {
+        // The served install's files are DATA.BIN, read as the disc is.
+        const bool from_disc = file.kind == OpenFile::Kind::Disc || file.kind == OpenFile::Kind::Install;
+        if (from_disc) {
             const std::uint64_t available = file.position < file.size ? file.size - file.position : 0u;
             requested = static_cast<std::uint32_t>(std::min<std::uint64_t>(requested, available));
             buffer.resize(requested);
@@ -290,7 +321,7 @@ void register_io(
         }
         rt.memory().copy_in(address, buffer);
         // A disc read is what tells a load from play (kernel/fast_loading.hpp).
-        if (file.kind == OpenFile::Kind::Disc) {
+        if (from_disc) {
             load_trace::note_disc_read(buffer.size());
             fast_loading::note_disc_read();
         } else {
@@ -379,6 +410,9 @@ void register_io(
                     is_data_bin ? mods::data_bin_size() : entry->size, entry->lba);
                 result = 0u;
             }
+        } else if (const auto *install = served_install_file(rt.memory(), split)) {
+            write_stat(rt.memory(), arg(ctx, 1), false, install->size, 0u);
+            result = 0u;
         } else if (split.device == Device::MemoryStick) {
             std::error_code ec;
             const auto host = host_path(split.path);
