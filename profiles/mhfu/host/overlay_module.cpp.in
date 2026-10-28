@@ -16,9 +16,15 @@ constexpr mhfu::OverlayModuleInfo kInfo{mhfu::kOverlayAbiVersion, @MHFU_OVERLAY_
                                           @MHFU_OVERLAY_SIZE@u, @MHFU_OVERLAY_CODE_SIZE@u,
                                           @MHFU_OVERLAY_HASH@ull, "@MHFU_OVERLAY_NAME@"};
 
+// The calls the generated code makes through the runtime even within a unit,
+// so a host wrapper at them sees every one; 0 ends the list.
+constexpr std::uint32_t kDispatchedCalls[] = {@MHFU_OVERLAY_DISPATCH_LIST@0u};
+
 } // namespace
 
 const mhfu::OverlayModuleInfo *mhfu_overlay_info() { return &kInfo; }
+
+const std::uint32_t *mhfu_overlay_dispatched_calls() { return kDispatchedCalls; }
 
 void mhfu_register_overlay(psprecomp::Runtime &runtime) {
     psprecomp::register_@MHFU_OVERLAY_PREFIX@_functions(runtime);

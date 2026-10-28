@@ -1003,6 +1003,58 @@ static void test_automatic_cfg_and_codegen() {
 #endif
 }
 
+// A same-unit call made through the runtime when its target is passed with
+// --dispatch, so a host wrapper there sees it; without, a local jump.
+static void test_automatic_dispatched_calls() {
+#ifndef PSPRECOMP_CODEGEN_PATH
+    throw std::runtime_error("PSPRECOMP_CODEGEN_PATH was not provided by CMake");
+#else
+    auto bytes = make_branch_delay_test_elf();
+    const std::uint32_t code[] = {
+        0x0E201004u, // jal 0x08804010
+        0x00000000u, // nop
+        0x03E00008u, // jr ra
+        0x00000000u, // nop
+        0x24020001u, // 0x08804010: addiu v0, zero, 1
+        0x03E00008u, // jr ra
+        0x00000000u, // nop
+    };
+    for (std::size_t i = 0; i < std::size(code); ++i) put32(bytes, 0x80u + i * 4u, code[i]);
+    const auto root = std::filesystem::temp_directory_path() / "psprecomp_dispatched_call_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const auto elf_path = root / "dispatched_call.elf";
+    {
+        std::ofstream out(elf_path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    const auto generate = [&](const char *directory, const char *options) {
+        const auto generated_dir = root / directory;
+        const std::string command = shell_quote(codegen_tool_path()) + " " + shell_quote(elf_path) + " --auto " +
+            shell_quote(generated_dir) + " 0x08804000 64" + options;
+        require(std::system(shell_command(command).c_str()) == 0, "psp_recomp dispatched-call fixture failed");
+        std::ifstream generated(generated_dir / "generated_unit_0000.cpp");
+        return std::string((std::istreambuf_iterator<char>(generated)), std::istreambuf_iterator<char>());
+    };
+    const auto count = [](const std::string &text, const std::string &needle) {
+        std::size_t found = 0u;
+        for (auto at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1u)) ++found;
+        return found;
+    };
+    const std::string local = generate("local", "");
+    const std::string dispatched = generate("dispatched", " --dispatch 0x08804010");
+    require(
+        count(local, "ctx.pc = 0x08804010u;") == 0u, "A same-unit call went through the runtime without --dispatch");
+    require(count(dispatched, "ctx.pc = 0x08804010u;") == 1u &&
+            dispatched.find("rt.invoke_chained_call(ctx, &aot_mem)") != std::string::npos,
+        "A --dispatch target was not called through the runtime");
+    require(count(dispatched, "goto L_08804010;") + 1u == count(local, "goto L_08804010;"),
+        "A --dispatch target is still entered by a local jump at the call");
+    require(dispatched.find("L_08804010:") != std::string::npos, "The dispatched function lost its own entry");
+    std::filesystem::remove_all(root);
+#endif
+}
+
 static void test_automatic_cross_unit_tail_chaining() {
 #ifndef PSPRECOMP_CODEGEN_PATH
     throw std::runtime_error("PSPRECOMP_CODEGEN_PATH was not provided by CMake");
@@ -1928,6 +1980,7 @@ int main() {
         test_codegen_link_branch_before_delay_slot();
         test_codegen_zero_divisor_constant_folding();
         test_codegen_vh2f_lowering();
+        test_automatic_dispatched_calls();
         test_vfpu_branch_cfg_discovery();
         test_automatic_cfg_and_codegen();
         test_automatic_cross_unit_tail_chaining();
