@@ -7,6 +7,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace psprecomp {
 class Runtime;
@@ -43,6 +44,10 @@ struct DiscRange {
 [[nodiscard]] bool serving();
 // DATA.BIN's size as the game sees it: larger when a mod's file grew it.
 [[nodiscard]] std::uint64_t data_bin_size();
+// The block each entry starts at as the game sees the archive, one more than
+// there are entries (the last is the archive's size in blocks). Empty when
+// the directory could not be read.
+[[nodiscard]] std::vector<std::uint32_t> data_bin_blocks();
 // Reads DATA.BIN as the game sees it, at an offset into the archive.
 std::size_t read_data_bin(std::uint64_t offset, std::span<std::uint8_t> out);
 
