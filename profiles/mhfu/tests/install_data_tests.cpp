@@ -8,7 +8,10 @@
 // compares every file's size with a Data Install the game made itself, and
 // the bytes of each file with what the served install reads.
 #include "game/install_data.hpp"
+#include "game/title_menu.hpp"
 #include "mods/mhfu_data_bin.hpp"
+
+#include "psprecomp/guest_memory.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -113,7 +116,8 @@ int check_install(const char *eboot_path, const char *data_bin_path, const char 
     std::ifstream archive(data_bin_path, std::ios::binary);
     const auto archive_bytes = std::filesystem::file_size(data_bin_path);
     std::vector<std::uint8_t> directory_bytes(512u * kBlock);
-    archive.read(reinterpret_cast<char *>(directory_bytes.data()), static_cast<std::streamsize>(directory_bytes.size()));
+    archive.read(
+        reinterpret_cast<char *>(directory_bytes.data()), static_cast<std::streamsize>(directory_bytes.size()));
     const auto directory = mhfu::mods::p3rd::Directory::parse(directory_bytes, archive_bytes);
     check(directory.has_value(), "DATA.BIN's directory parses");
     if (!directory) return 1;
@@ -145,19 +149,20 @@ int check_install(const char *eboot_path, const char *data_bin_path, const char 
         std::uint64_t at = 0u;
         for (const Range &range : files[i].ranges) {
             for (std::uint32_t block = static_cast<std::uint32_t>(range.offset / kBlock);
-                 block < (range.offset + range.length) / kBlock;) {
+                block < (range.offset + range.length) / kBlock;) {
                 const auto entry = static_cast<std::uint32_t>(directory->entry_at(block));
                 const std::uint64_t span = directory->span(entry);
                 const std::uint64_t used = directory->size(entry);
-                if (std::memcmp(game.data() + at, served.data() + at, static_cast<std::size_t>(used)) != 0) same = false;
+                if (std::memcmp(game.data() + at, served.data() + at, static_cast<std::size_t>(used)) != 0)
+                    same = false;
                 at += span;
                 block += static_cast<std::uint32_t>(span / kBlock);
             }
         }
         contents += same;
     }
-    std::printf("%zu files packed; %zu with the game's size, %zu with its entries' bytes\n", files.size(), sizes,
-        contents);
+    std::printf(
+        "%zu files packed; %zu with the game's size, %zu with its entries' bytes\n", files.size(), sizes, contents);
     check(sizes == files.size(), "every file has the size of the game's own");
     check(contents == files.size(), "every file reads the game's own bytes");
     std::size_t listed = 0u;
@@ -169,11 +174,53 @@ int check_install(const char *eboot_path, const char *data_bin_path, const char 
 
 } // namespace
 
+void test_title_menu() {
+    using namespace mhfu::game::title_menu;
+    // The five entries left wrap as the game's six do.
+    check(
+        cursor_before_input(0u, kUp) == kHiddenEntry, "up on NEW GAME is given the hidden entry, to land on DOWNLOAD");
+    check(cursor_before_input(4u, kDown) == kHiddenEntry, "down on DOWNLOAD likewise, to wrap to NEW GAME");
+    check(cursor_before_input(4u, kUp | kDown) == 4u, "up wins over down, as in the game");
+    check(
+        cursor_before_input(2u, kUp) == 2u && cursor_before_input(3u, kDown) == 3u && cursor_before_input(4u, 0u) == 4u,
+        "other moves are the game's");
+    check(cursor_before_input(kHiddenEntry, 0u) == 0u, "a cursor resting on the hidden entry goes to NEW GAME");
+    check(cursor_before_input(kHiddenEntry, kUp) == kHiddenEntry &&
+            cursor_before_input(kHiddenEntry, kDown) == kHiddenEntry,
+        "and one moving off it is the game's to move");
+
+    psprecomp::GuestMemory memory;
+    const std::uint32_t table = kTextBlock + 0x100u;
+    memory.store32(kTextBlock + 8u, 0x100u);
+    const std::uint32_t entry = table + 4u * (kFirstLabel + kHiddenEntry);
+    memory.store32(entry, 0x4000u);
+    const char label[] = "DATA INSTALL";
+    for (std::uint32_t i = 0; i < sizeof label; ++i)
+        memory.store8(table + 0x4000u + i, static_cast<std::uint8_t>(label[i]));
+    HiddenLabel hidden;
+    check(hide_label(memory, hidden) && memory.load32(entry) == 0x4000u + 12u &&
+            memory.load8(table + memory.load32(entry)) == 0u,
+        "the label points at its own end while hidden");
+    HiddenLabel again;
+    check(!hide_label(memory, again), "an empty label is not hidden again");
+    restore_label(memory, hidden);
+    check(memory.load32(entry) == 0x4000u, "and is put back after");
+    check(hide_label(memory, hidden), "hidden once more");
+    memory.store32(entry, 0x5000u); // the game loads its text again
+    restore_label(memory, hidden);
+    check(memory.load32(entry) == 0x5000u, "a table loaded again since is left as the game has it");
+    memory.store32(entry, 0x4000u);
+    for (std::uint32_t i = 0; i < 300u; ++i) memory.store8(table + 0x4000u + i, 'x');
+    check(!hide_label(memory, hidden) && memory.load32(entry) == 0x4000u, "a label with no end in reach is left alone");
+    check(!code_matches(memory), "without demo_task's code nothing is wrapped");
+}
+
 int main(int argc, char **argv) {
     if (argc == 5 && std::strcmp(argv[1], "--check") == 0) return check_install(argv[2], argv[3], argv[4]);
     test_pack();
     test_read();
     test_names();
+    test_title_menu();
     std::printf("%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
