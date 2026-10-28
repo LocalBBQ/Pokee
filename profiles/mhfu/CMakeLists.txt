@@ -282,6 +282,8 @@ set(MHFU_HOST_SOURCES
     host/game/hall_equipment.cpp
     host/game/hall_meal.cpp
     host/game/key_quests.cpp
+    host/game/install_data.cpp
+    host/game/install_data_served.cpp
     host/game/hooks.cpp
     host/game/guest_calls.cpp
     host/game/item_sets.cpp
@@ -793,6 +795,21 @@ target_link_libraries(mhfu_key_quests_tests PRIVATE psprecomp_core)
 set_target_properties(mhfu_key_quests_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_key_quests_tests COMMAND mhfu_key_quests_tests)
+endif()
+
+# Served Data Install: the packing, reads across its ranges and the file
+# names. No game data; --check compares the packing with a real install.
+add_executable(mhfu_install_data_tests
+    tests/install_data_tests.cpp
+    host/game/install_data.cpp
+    host/mods/mhfu_data_bin.cpp
+    host/mods/file_overlay.cpp
+    host/mods/mod_ini.cpp)
+target_include_directories(mhfu_install_data_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_install_data_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_install_data_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_install_data_tests COMMAND mhfu_install_data_tests)
 endif()
 
 # Empty item slot: the scroll with an empty stop, the code and caller checks,
