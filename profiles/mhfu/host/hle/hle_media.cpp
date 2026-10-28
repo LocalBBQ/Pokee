@@ -27,6 +27,7 @@
 #include "game/item_sets.hpp"
 #include "game/item_box.hpp"
 #include "game/event_quests.hpp"
+#include "game/title_menu.hpp"
 #include "game/key_quests.hpp"
 #include "game/layered_armor.hpp"
 #include "mods/mhfu_mods.hpp"
@@ -399,6 +400,7 @@ void present_frame(Runtime &rt) {
     game::hall_meal::frame(rt, &call_guest_with_result);
     game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
     game::event_quests::frame(rt, &allocate_event_quest_block);
+    game::title_menu::frame(rt);
     game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
