@@ -1277,7 +1277,7 @@ The marker does not project through the view a draw uploaded. That view has no t
 | Variable | Effect |
 | --- | --- |
 | `MHFU_STRICT_HLE=1` | Do not bind logging stubs; stop at the first unimplemented import |
-| `MHFU_TRACE_KERNEL=1`, `MHFU_TRACE_IO=1` | Trace thread and file activity. Each kernel `block` and `wake` line gives the emulated time (`at=`); a `block` line also gives where the wait returns to in the game's code (`ra=`) and, for a timed wait, how long it asked for (`for=`). `MHFU_TRACE_KERNEL=user_main`, or another thread's name, traces that thread only, little enough to run through a hunt |
+| `MHFU_TRACE_KERNEL=1`, `MHFU_TRACE_IO=1` | Trace thread and file activity, the memory stick's writes and renames included. Each kernel `block` and `wake` line gives the emulated time (`at=`); a `block` line also gives where the wait returns to in the game's code (`ra=`) and, for a timed wait, how long it asked for (`for=`). `MHFU_TRACE_KERNEL=user_main`, or another thread's name, traces that thread only, little enough to run through a hunt |
 | `MHFU_TRACE_LOAD=1` | Four `[loadtrace]` lines a second: real and emulated time, flips, disc and memory stick reads, the loudest audio sample, time spent holding the game to real time, and which guest threads had the CPU. What [Fast loading](#fast-loading) was measured with |
 | `MHFU_TRACE_MODS=1` | What the [mods](#mods) change at start and after each change, every `DATA.BIN` read they serve, and each write made after an overlay loads |
 | `MHFU_TRACE_DATA_BIN=1` | While a mod is on, the id of every `DATA.BIN` file the game reads (`[mods] data 034B (32768 bytes)`): how to find the file behind a model on screen |
@@ -1372,6 +1372,7 @@ The marker does not project through the view a draw uploaded. That view has no t
 | `MHFU_CAPTURE_PRESENTS=N` | Each window capture (`shot NAME` in the input script) goes on for N presents in a row, written as `NAME.bmp`, `NAME_1.bmp` and so on: with a [frame rate](#frame-rate) above 30 it shows the frames in between the game's as well, which one capture per game frame never does. With `MHFU_TRACE_INTERPOLATION=presents`, the `[render] window` line of each capture comes just before the `[interp] present` line that says whether it was blended. Each capture waits for its frame, so the run is slower while it lasts |
 | `MHFU_INPUT_LIVE` | A file read while the game runs; each line appended to it is an input-script step timed from when it is read, to drive two instances side by side |
 | `MHFU_DUMP_OVERLAYS` | Directory to dump an overlay that has no library into |
+| `MHFU_DUMP_RAM` | Directory to write the game's main memory into (`ram_<frame>.bin`, 32 MiB from `0x08000000`) each time the [screenshot](#screenshots) bind is pressed, for finding the game's structures |
 | `PSPRECOMP_NO_INTERPRETER=1` | Stop at uncompiled code instead of interpreting it |
 | `PSPRECOMP_MAX_DISPATCHES` | Stop after this many dispatches |
 | `PSPRECOMP_HLE_HISTOGRAM=1` | Print import call counts on exit |
