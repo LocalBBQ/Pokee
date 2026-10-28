@@ -1,7 +1,10 @@
 // Checks for the built-in event quests (game/event_quests.hpp) that need no
-// game data: quest files, and the getter, lookup and list extension on a
-// guest memory laid out as the save's slots and the Guild Hall's list.
+// game data: quest files, their import from a folder, and the getter, lookup
+// and list extension on a guest memory laid out as the save's slots and the
+// Guild Hall's list.
 #include "game/event_quests.hpp"
+
+#include "game/event_quest_import.hpp"
 
 #include "psprecomp/guest_memory.hpp"
 
@@ -9,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <vector>
 
 using namespace mhfu::game::event_quests;
@@ -32,6 +36,28 @@ std::vector<std::uint8_t> quest_file(std::uint16_t id, std::uint32_t flags = 0u,
     std::memcpy(bytes.data() + info, &flags, 4u);
     std::memcpy(bytes.data() + info + kInfoId, &id, 2u);
     return bytes;
+}
+
+// A quest file with a title: seven language tables, all pointing at one.
+std::vector<std::uint8_t> titled_quest(
+    std::uint16_t id, const char *name, std::uint32_t flags = 0u, std::size_t size = 0x200u) {
+    std::vector<std::uint8_t> bytes = quest_file(id, flags, size);
+    const auto put32 = [&](std::size_t at, std::uint32_t value) { std::memcpy(bytes.data() + at, &value, 4u); };
+    put32(0x4Cu + kInfoText, 0x100u);
+    for (std::uint32_t i = 0; i < 7u; ++i) put32(0x100u + 4u * i, 0x120u);
+    put32(0x120u, 0x140u);
+    std::memcpy(bytes.data() + 0x140u, name, std::strlen(name) + 1u);
+    return bytes;
+}
+
+void write_file(const std::filesystem::path &path, const std::vector<std::uint8_t> &bytes) {
+    std::ofstream(path, std::ios::binary)
+        .write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+std::vector<std::uint8_t> read_back(const std::filesystem::path &path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
 constexpr std::uint32_t kSaveObjectAt = 0x09A06BD0u;
@@ -78,6 +104,84 @@ void test_load() {
     check(quests.size() == 2u && quests[0].id == 60023u && quests[1].id == 60024u,
         "quest files load by id; a file named for another id and other files are left out");
     std::filesystem::remove_all(directory);
+}
+
+void test_title() {
+    check(title(titled_quest(60023, "Its name is \"Mega Kut-Ku\"!?")) == "Its name is \"Mega Kut-Ku\"!?",
+        "a quest's title is its first English string");
+    check(parse(titled_quest(60023, "Title"))->flags == 0u &&
+            parse(titled_quest(60023, "Title", kHiddenFlag))->flags == kHiddenFlag,
+        "parsing keeps the info block's flags");
+    auto outside = titled_quest(60023, "Title");
+    const std::uint32_t far = 0x4000u;
+    std::memcpy(outside.data() + 0x120u, &far, 4u);
+    check(title(outside).empty(), "a title outside the file is none");
+    auto unended = titled_quest(60023, "Title");
+    std::memset(unended.data() + 0x140u, 'x', unended.size() - 0x140u);
+    check(title(unended).empty(), "nor one that does not end inside it");
+    check(title(std::vector<std::uint8_t>(2u, 0u)).empty(), "a file too short for an info block has none");
+}
+
+void test_import() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "mhfu_event_quest_import_tests";
+    fs::remove_all(root);
+    const fs::path chosen = root / "download";
+    const fs::path inner = chosen / "tables";
+    const fs::path quests = root / "data" / "event_quests";
+    fs::create_directories(inner);
+
+    check(check_import(chosen, quests).problem == "No quest files here, or in the folders directly inside it.",
+        "an empty folder has nothing to import");
+
+    write_file(chosen / "Mega Kut-Ku.bin", titled_quest(60023, "Mega Kut-Ku"));
+    write_file(chosen / "jp.mib", quest_file(60001));
+    write_file(chosen / "challenge.mib", quest_file(61001, kHiddenFlag));
+    write_file(chosen / "hidden.mib", quest_file(60040, kHiddenFlag));
+    write_file(chosen / "other.mib", quest_file(1234));
+    write_file(chosen / "encrypted.mib", std::vector<std::uint8_t>(0x6810u, 0xA5u));
+    write_file(chosen / "notes.txt", std::vector<std::uint8_t>{'h', 'i'});
+    // FUComplete's table: a name, then quests 0x22B0 bytes apart from 0x30 after it.
+    std::vector<std::uint8_t> table(0x40u, 0u);
+    std::memcpy(table.data() + 0x10u, "EventQstTbl", 12u);
+    for (const std::uint16_t id : {60024, 60025, 60023, 60018}) {
+        const auto quest = titled_quest(id, "Table quest", 0u, 0x22B0u);
+        table.insert(table.end(), quest.begin(), quest.end());
+    }
+    table.resize(table.size() + 0x22B0u, 0u); // the table's end: no quest
+    write_file(inner / "6594", table);
+    fs::create_directories(quests);
+    write_file(quests / "m60024.mib", titled_quest(60024, "Table quest", 0u, 0x22B0u));
+    write_file(quests / "m60025.mib", quest_file(60025));
+
+    const ImportCheck found = check_import(chosen, quests);
+    check(found.quests.size() == 2u && found.quests[0].quest.id == 60023u && found.quests[1].quest.id == 60025u,
+        "loose quest files of any name and a table's quests are found, by id");
+    check(found.quests[0].title == "Mega Kut-Ku" && found.quests[0].from == chosen / "Mega Kut-Ku.bin",
+        "the folder's own files come before its folders' for the same id");
+    check(!found.quests[0].replaces && found.quests[1].replaces, "a different quest of an id is replaced");
+    check(found.present == 1u, "the same quest imported already is left out");
+    check(found.japan_only == 2u, "Japan-only quests are left out, loose or in a table");
+    check(found.challenges == 2u, "challenges are left out, by id or by their hidden flag");
+    check(found.other == 1u && found.unreadable == 1u, "and other quests and undecoded .mib files counted");
+    check(found.problem.empty(), "something to import is no problem");
+
+    const ImportResult result = import_quests(found, quests);
+    check(result.error.empty() && result.imported == std::vector<std::uint16_t>{60023u, 60025u},
+        "the import writes each quest");
+    check(read_back(quests / "m60023.mib") == titled_quest(60023, "Mega Kut-Ku") &&
+            read_back(quests / "m60025.mib") == titled_quest(60025, "Table quest", 0u, 0x22B0u),
+        "as m<id>.mib, replacing the old one");
+    check(load(quests).size() == 3u && !fs::exists(quests / "m60023.mib.tmp"), "where load() reads them");
+    check(check_import(chosen, quests).problem == "The event quests here are imported already.",
+        "importing again finds nothing new");
+
+    fs::remove_all(chosen);
+    fs::create_directories(chosen);
+    write_file(chosen / "jp.mib", quest_file(60001));
+    check(check_import(chosen, quests).problem == "No event quests here that can be imported.",
+        "only quests that are left out: a problem");
+    fs::remove_all(root);
 }
 
 void test_getter_and_lookup() {
@@ -135,6 +239,8 @@ void test_list() {
 int main() {
     test_parse();
     test_load();
+    test_title();
+    test_import();
     test_getter_and_lookup();
     test_list();
     std::printf("%d failure(s)\n", failures);
