@@ -1147,6 +1147,10 @@ std::string branch_condition(const psprecomp::DecodedInstruction &d) {
 // overlay corpus passes its own prefix, which names both its registration entry
 // point and its units, so corpora stay distinguishable in one process.
 std::string g_symbol_prefix = "recomp";
+// Addresses every call to goes through the runtime (--dispatch), even from the
+// same unit, where a call is otherwise a local goto. A host wrapper registered
+// at one of them then sees all its calls.
+std::set<std::uint32_t> g_dispatched_calls;
 
 std::string generated_unit_cpp_name(std::uint32_t unit) {
     std::ostringstream name;
@@ -1175,7 +1179,8 @@ void emit_target(std::ostringstream &body, std::uint32_t target, const std::set<
     const char *indent, std::uint32_t executable_base = 0u, std::uint32_t unit_span_bytes = 0u,
     const std::map<std::uint32_t, std::uint16_t> *direct_entry_ids = nullptr,
     const std::set<std::uint32_t> *import_stubs = nullptr, const std::set<std::uint32_t> *unit_indices = nullptr) {
-    if (labels.contains(target)) {
+    const bool dispatched = g_dispatched_calls.contains(target);
+    if (labels.contains(target) && !dispatched) {
         body << indent << "goto L_" << psprecomp::hex32(target).substr(2) << ";\n";
         return;
     }
@@ -1198,7 +1203,7 @@ void emit_target(std::ostringstream &body, std::uint32_t target, const std::set<
     // Only chain directly into units that were actually emitted. A fixed jump
     // outside the analyzed code (e.g. into a runtime-loaded overlay slot) has
     // no generated symbol and must go through the runtime lookup instead.
-    const bool direct_unit = unit_span_bytes != 0u && target >= executable_base &&
+    const bool direct_unit = !dispatched && unit_span_bytes != 0u && target >= executable_base &&
         (unit_indices == nullptr || unit_indices->contains((target - executable_base) / unit_span_bytes));
     if (direct_unit) {
         const std::uint32_t unit = (target - executable_base) / unit_span_bytes;
@@ -1370,7 +1375,7 @@ std::string emit_function_source(
                         emit_target(body, target, function.entry_labels, "    ", function.executable_base,
                             function.unit_span_bytes, function.direct_entry_ids, function.import_stubs,
                             function.unit_indices);
-                    } else if (function.entry_labels.contains(target)) {
+                    } else if (function.entry_labels.contains(target) && !g_dispatched_calls.contains(target)) {
                         // Fixed same-unit JAL: the destination is already a C++
                         // label. Going through ctx.pc + LOCAL_DISPATCH needlessly
                         // re-decodes a dense entry id and burns the local-transfer
@@ -1390,7 +1395,8 @@ std::string emit_function_source(
                         }
                         // Otherwise run the callee inline and resume locally only
                         // if it came back to our return address.
-                        const bool direct_unit = function.unit_span_bytes != 0u && target >= function.executable_base &&
+                        const bool direct_unit = !g_dispatched_calls.contains(target) &&
+                            function.unit_span_bytes != 0u && target >= function.executable_base &&
                             (function.unit_indices == nullptr ||
                                 function.unit_indices->contains(
                                     (target - function.executable_base) / function.unit_span_bytes));
@@ -2034,6 +2040,10 @@ int main(int argc, char **argv) {
                     g_symbol_prefix = argv[++i];
                     continue;
                 }
+                if (option == "--dispatch" && i + 1 < argc) {
+                    g_dispatched_calls.insert(static_cast<std::uint32_t>(std::stoul(argv[++i], nullptr, 0)));
+                    continue;
+                }
                 positional.emplace_back(option);
             }
             const std::uint32_t load_base = !positional.empty()
@@ -2043,7 +2053,7 @@ int main(int argc, char **argv) {
                 positional.size() > 1u ? static_cast<std::uint32_t>(std::stoul(positional[1], nullptr, 0)) : 0x4000u;
             if (positional.size() > 2u) {
                 std::cerr << "Usage: psp_recomp <ELF> --auto <generated_dir> [load_base_hex] [unit_span_bytes]"
-                          << " [--prefix <symbol_prefix>]\n";
+                          << " [--prefix <symbol_prefix>] [--dispatch <address>]...\n";
                 return 2;
             }
             if (unit_span == 0u || (unit_span & 3u) != 0u)
@@ -2054,7 +2064,7 @@ int main(int argc, char **argv) {
         std::cerr << "Usage:\n"
                   << "  psp_recomp <ELF> <functions.csv> <generated_manifest.cpp>\n"
                   << "  psp_recomp <ELF> --auto <generated_dir> [load_base_hex] [unit_span_bytes]"
-                  << " [--prefix <symbol_prefix>]\n";
+                  << " [--prefix <symbol_prefix>] [--dispatch <address>]...\n";
         return 2;
     } catch (const std::exception &e) {
         std::cerr << "psp_recomp error: " << e.what() << "\n";

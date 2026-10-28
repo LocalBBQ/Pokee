@@ -40,6 +40,7 @@ struct OverlayCorpus {
     std::uint32_t code_size{};
     std::uint64_t hash{};
     decltype(&mhfu_register_overlay) install{};
+    std::vector<std::uint32_t> dispatched; // calls generated through the runtime
 };
 
 std::vector<OverlayCorpus> &overlay_corpora() {
@@ -190,8 +191,7 @@ void load_overlay_library(const std::filesystem::path &path) {
         std::cerr << "[overlay] cannot load " << path_to_utf8(path.filename()) << ": " << library_error() << "\n";
         return;
     }
-    const auto info_of =
-        reinterpret_cast<decltype(&mhfu_overlay_info)>(library_symbol(handle, "mhfu_overlay_info"));
+    const auto info_of = reinterpret_cast<decltype(&mhfu_overlay_info)>(library_symbol(handle, "mhfu_overlay_info"));
     const auto install =
         reinterpret_cast<decltype(&mhfu_register_overlay)>(library_symbol(handle, "mhfu_register_overlay"));
     if (info_of == nullptr || install == nullptr) {
@@ -203,8 +203,14 @@ void load_overlay_library(const std::filesystem::path &path) {
         std::cerr << "[overlay] " << path_to_utf8(path.filename()) << " was built for a different host\n";
         return;
     }
-    overlay_corpora().push_back(
-        OverlayCorpus{info->name, info->base, info->size, info->code_size, info->hash, install});
+    OverlayCorpus corpus{info->name, info->base, info->size, info->code_size, info->hash, install, {}};
+    // Optional: a library built before the list existed has none.
+    if (const auto dispatched_of = reinterpret_cast<decltype(&mhfu_overlay_dispatched_calls)>(
+            library_symbol(handle, "mhfu_overlay_dispatched_calls"))) {
+        for (const std::uint32_t *address = dispatched_of(); address != nullptr && *address != 0u; ++address)
+            corpus.dispatched.push_back(*address);
+    }
+    overlay_corpora().push_back(std::move(corpus));
 }
 
 void load_overlay_libraries() {
@@ -228,8 +234,8 @@ void load_overlay_libraries() {
 void dump_slot(const psprecomp::GuestMemory &memory, std::uint32_t slot_start, std::uint32_t slot_end) {
     const std::optional<std::string> directory_text = environment_utf8("MHFU_DUMP_OVERLAYS");
     if (!directory_text) {
-        log_once("overlay-dump-hint",
-            "[overlay] set MHFU_DUMP_OVERLAYS=<dir> to dump the loaded overlay for recompilation");
+        log_once(
+            "overlay-dump-hint", "[overlay] set MHFU_DUMP_OVERLAYS=<dir> to dump the loaded overlay for recompilation");
         return;
     }
     std::vector<std::uint8_t> image;
@@ -370,6 +376,15 @@ void revalidate_overlays(Runtime &runtime) {
 
 void forget_unmatched_overlays() {
     unmatched_slots().clear();
+}
+
+bool installed_overlay_dispatches(std::uint32_t slot, std::uint64_t hash, std::uint32_t address) {
+    const auto installed = installed_overlays().find(slot);
+    if (installed == installed_overlays().end() || installed->second != hash) return false;
+    for (const OverlayCorpus &corpus : overlay_corpora())
+        if (corpus.base == slot && corpus.hash == hash)
+            return std::find(corpus.dispatched.begin(), corpus.dispatched.end(), address) != corpus.dispatched.end();
+    return false;
 }
 
 void install_overlay_support(Runtime &runtime) {
