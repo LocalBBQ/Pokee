@@ -288,6 +288,8 @@ set(MHFU_HOST_SOURCES
     host/game/event_quest_import.cpp
     host/game/event_quests.cpp
     host/game/event_quests_hook.cpp
+    host/game/title_menu.cpp
+    host/game/title_menu_hook.cpp
     host/game/hooks.cpp
     host/game/guest_calls.cpp
     host/game/item_sets.cpp
@@ -815,11 +817,12 @@ if(PSPRECOMP_BUILD_TESTS)
     add_test(NAME mhfu_event_quests_tests COMMAND mhfu_event_quests_tests)
 endif()
 
-# Served Data Install: the packing, reads across its ranges and the file
-# names. No game data; --check compares the packing with a real install.
+# Served Data Install: the packing, reads across its ranges, the file names
+# and the title menu without its entry. No game data; --check compares the packing with a real install.
 add_executable(mhfu_install_data_tests
     tests/install_data_tests.cpp
     host/game/install_data.cpp
+    host/game/title_menu.cpp
     host/mods/mhfu_data_bin.cpp
     host/mods/file_overlay.cpp
     host/mods/mod_ini.cpp)
