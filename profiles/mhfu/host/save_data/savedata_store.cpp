@@ -10,6 +10,7 @@
 #include <cstring>
 #include <fstream>
 #include <random>
+#include <string_view>
 
 namespace mhfu::savedata {
 namespace {
@@ -155,8 +156,9 @@ bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &file
             std::copy_n(list->begin(), std::min(list->size(), file_list.size()), file_list.begin());
     }
 
+    const bool has_data_file = !files.file_name.empty();
     std::vector<std::uint8_t> stored;
-    if (files.key) {
+    if (files.key && has_data_file) {
         stored = encrypt_data(contents.data, kSaveMode, &*files.key, random_block());
         const Block hash = data_file_hash(stored, kSaveMode, &*files.key);
         // Replace this file's entry, or take the first free one.
@@ -206,7 +208,7 @@ bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &file
     // The data file first and PARAM.SFO last: PARAM.SFO carries the data
     // file's hash, so a save interrupted in between is reported as broken
     // rather than loaded with mismatched contents.
-    if (!write_file(folder / files.file_name, stored)) {
+    if (has_data_file && !write_file(folder / files.file_name, stored)) {
         error = "cannot write " + files.file_name;
         return false;
     }
@@ -215,6 +217,20 @@ bool write_save(const std::filesystem::path &memory_stick, const SaveFiles &file
         return false;
     }
     return true;
+}
+
+WriteStatus write_data_file(const std::filesystem::path &memory_stick, const SaveFiles &files,
+    const std::vector<std::uint8_t> &data, std::string &error) {
+    if (!save_exists(memory_stick, files)) return WriteStatus::NoData;
+    if (files.file_name.empty()) {
+        error = "no file name";
+        return WriteStatus::Failed;
+    }
+    if (!write_file(save_folder(memory_stick, files) / files.file_name, data)) {
+        error = "cannot write " + files.file_name;
+        return WriteStatus::Failed;
+    }
+    return WriteStatus::Ok;
 }
 
 bool delete_save(const std::filesystem::path &memory_stick, const SaveFiles &files) {
@@ -231,6 +247,56 @@ std::uint64_t save_size(const std::filesystem::path &memory_stick, const SaveFil
     for (const auto &entry : std::filesystem::directory_iterator(folder, ec))
         if (entry.is_regular_file(ec)) total += entry.file_size(ec);
     return total;
+}
+
+FileListing list_files(const std::filesystem::path &memory_stick, const SaveFiles &files) {
+    FileListing listing;
+    if (!save_exists(memory_stick, files)) return listing;
+    listing.exists = true;
+    const auto folder = save_folder(memory_stick, files);
+    std::optional<ParamSfo> sfo;
+    if (const auto bytes = read_file(folder / kParamSfo)) sfo = ParamSfo::parse(*bytes);
+    static constexpr std::string_view kSystemFiles[] = {kParamSfo, "ICON0.PNG", "ICON1.PMF", "PIC1.PNG", "SND0.AT3"};
+    std::error_code ec;
+    for (const auto &entry : std::filesystem::directory_iterator(folder, ec)) {
+        if (!entry.is_regular_file(ec)) continue;
+        ListedFile file;
+        file.name = path_to_utf8(entry.path().filename());
+        // A write in progress (write_file's temporary) is not part of the save.
+        if (file.name.ends_with(".tmp")) continue;
+        file.size = entry.file_size(ec);
+        file.modified = entry.last_write_time(ec);
+        if (std::find(std::begin(kSystemFiles), std::end(kSystemFiles), file.name) != std::end(kSystemFiles))
+            listing.system.push_back(std::move(file));
+        else if (sfo && listed_hash(*sfo, file.name))
+            listing.secure.push_back(std::move(file));
+        else
+            listing.normal.push_back(std::move(file));
+    }
+    const auto by_name = [](const ListedFile &a, const ListedFile &b) { return a.name < b.name; };
+    std::sort(listing.secure.begin(), listing.secure.end(), by_name);
+    std::sort(listing.normal.begin(), listing.normal.end(), by_name);
+    std::sort(listing.system.begin(), listing.system.end(), by_name);
+    return listing;
+}
+
+std::chrono::system_clock::time_point to_system(std::filesystem::file_time_type time) {
+    // file_clock has no portable conversion before every standard library
+    // implements clock_cast; the offset between the clocks now is exact
+    // enough for showing a date.
+    return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+}
+
+std::tm local_time(std::chrono::system_clock::time_point time) {
+    const std::time_t t = std::chrono::system_clock::to_time_t(time);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    return tm;
 }
 
 } // namespace mhfu::savedata
