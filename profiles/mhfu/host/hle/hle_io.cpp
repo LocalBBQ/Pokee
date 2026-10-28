@@ -321,6 +321,9 @@ void register_io(
         std::vector<char> data(size);
         for (std::uint32_t i = 0; i < size; ++i) data[i] = static_cast<char>(rt.memory().load8(address + i));
         OpenFile &file = found->second;
+        if (trace_io())
+            std::cerr << "[io] write fd=" << fd << " " << file.path << " offset=" << file.position << " size=" << size
+                      << " <- " << psprecomp::hex32(address) << "\n";
         file.host->clear();
         file.host->seekp(static_cast<std::streamoff>(file.position));
         file.host->write(data.data(), size);
@@ -425,6 +428,8 @@ void register_io(
         }
         std::error_code ec;
         std::filesystem::rename(host_path(from.path), host_path(to.path), ec);
+        if (trace_io() || ec)
+            std::cerr << "[io] rename " << from.path << " -> " << to.path << (ec ? " failed" : "") << "\n";
         kernel().finish(ctx, ec ? io_error::kFileNotFound : 0u);
     });
     hle.add("IoFileMgrForUser", "sceIoDevctl", [](Runtime &rt, AllegrexContext &ctx) {
