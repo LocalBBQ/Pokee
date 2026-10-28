@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -1003,6 +1004,115 @@ static void test_automatic_cfg_and_codegen() {
 #endif
 }
 
+// A module whose import stub shares a generated unit with the code that calls
+// it, as in Freedom Unite Complete: the stub section follows .text closely.
+static std::vector<std::uint8_t> make_same_unit_import_test_elf() {
+    std::vector<std::uint8_t> bytes(0x220u, 0u);
+    bytes[0] = 0x7Fu;
+    bytes[1] = 'E';
+    bytes[2] = 'L';
+    bytes[3] = 'F';
+    bytes[4] = 1u;
+    bytes[5] = 1u;
+    bytes[6] = 1u;
+    put16(bytes, 16u, 2u); // ET_EXEC
+    put16(bytes, 18u, 8u); // EM_MIPS
+    put32(bytes, 20u, 1u);
+    put32(bytes, 24u, 0x08804000u);
+    put32(bytes, 28u, 52u);
+    put32(bytes, 32u, 0x180u); // section headers
+    put16(bytes, 40u, 52u);
+    put16(bytes, 42u, 32u);
+    put16(bytes, 44u, 1u);
+    put16(bytes, 46u, 40u);
+    put16(bytes, 48u, 4u);
+    put16(bytes, 50u, 3u);
+
+    put32(bytes, 52u, 1u); // PT_LOAD
+    put32(bytes, 56u, 0x80u);
+    put32(bytes, 60u, 0x08804000u);
+    put32(bytes, 64u, 0x08804000u);
+    put32(bytes, 68u, 0xC4u);
+    put32(bytes, 72u, 0xC4u);
+    put32(bytes, 76u, 7u);
+    put32(bytes, 80u, 16u);
+
+    const std::uint32_t code[] = {
+        0x0E201010u, // jal  0x08804040, the import stub
+        0x00000000u, // nop
+        0x03E00008u, // jr   ra
+        0x00000000u, // nop
+    };
+    for (std::size_t i = 0; i < std::size(code); ++i) put32(bytes, 0x80u + i * 4u, code[i]);
+    put32(bytes, 0x80u + 0x40u, 0x03E00008u); // the stub's own bytes: jr ra
+    std::memcpy(bytes.data() + 0x80u + 0x60u, "Lib", 4u);
+    put32(bytes, 0x80u + 0x68u, 0x12345678u); // NID
+    put32(bytes, 0x80u + 0x70u, 0x08804060u); // import table: library name
+    bytes[0x80u + 0x78u] = 5u;                // five words long
+    put16(bytes, 0x80u + 0x7Au, 1u);          // one function
+    put32(bytes, 0x80u + 0x7Cu, 0x08804068u);
+    put32(bytes, 0x80u + 0x80u, 0x08804040u);
+    std::memcpy(bytes.data() + 0x80u + 0x94u, "Test", 4u); // module info
+    put32(bytes, 0x80u + 0x90u + 44u, 0x08804070u);        // stub_top
+    put32(bytes, 0x80u + 0x90u + 48u, 0x08804084u);        // stub_end
+
+    const char names[] = "\0.text\0.rodata.sceModuleInfo\0.shstrtab";
+    std::memcpy(bytes.data() + 0x150u, names, sizeof(names));
+    const auto section = [&bytes](std::size_t index, std::uint32_t name, std::uint32_t type, std::uint32_t flags,
+                             std::uint32_t address, std::uint32_t offset, std::uint32_t size) {
+        const std::size_t at = 0x180u + index * 40u;
+        put32(bytes, at, name);
+        put32(bytes, at + 4u, type);
+        put32(bytes, at + 8u, flags);
+        put32(bytes, at + 12u, address);
+        put32(bytes, at + 16u, offset);
+        put32(bytes, at + 20u, size);
+    };
+    section(1u, 1u, 1u, 6u, 0x08804000u, 0x80u, 0x48u);  // .text with the stub at its end
+    section(2u, 7u, 1u, 2u, 0x08804090u, 0x110u, 0x34u); // .rodata.sceModuleInfo
+    section(3u, 29u, 3u, 0u, 0u, 0x150u, sizeof(names)); // .shstrtab
+    return bytes;
+}
+
+static void test_automatic_same_unit_import_call() {
+#ifndef PSPRECOMP_CODEGEN_PATH
+    throw std::runtime_error("PSPRECOMP_CODEGEN_PATH was not provided by CMake");
+#else
+    const auto root = std::filesystem::temp_directory_path() / "psprecomp_same_unit_import_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    const auto elf_path = root / "same_unit_import.elf";
+    const auto generated_dir = root / "generated";
+    const auto bytes = make_same_unit_import_test_elf();
+    {
+        std::ofstream out(elf_path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+
+    // One 256-byte unit holds the caller and the stub.
+    const std::string command = shell_quote(codegen_tool_path()) + " " + shell_quote(elf_path) + " --auto " +
+        shell_quote(generated_dir) + " 0x08804000 256";
+    require(std::system(shell_command(command).c_str()) == 0, "psp_recomp same-unit import fixture generation failed");
+    std::string unit;
+    std::string registry;
+    {
+        std::ifstream generated(generated_dir / "generated_unit_0000.cpp");
+        unit.assign((std::istreambuf_iterator<char>(generated)), std::istreambuf_iterator<char>());
+        std::ifstream registered(generated_dir / "generated_registry.cpp");
+        registry.assign((std::istreambuf_iterator<char>(registered)), std::istreambuf_iterator<char>());
+    }
+    require(unit.find("goto L_08804040") == std::string::npos,
+        "A call into an import stub in the same unit must not run the stub's bytes");
+    require(unit.find("ctx.pc = 0x08804040u") != std::string::npos,
+        "A call into an import stub in the same unit must hand the call to the dispatcher");
+    require(unit.find("register_function(0x08804040u") == std::string::npos,
+        "A unit must not register an import stub as its own entry");
+    require(registry.find("register_function(0x08804040u, &import_0") != std::string::npos,
+        "The import wrapper is registered at the stub");
+    std::filesystem::remove_all(root);
+#endif
+}
+
 static void test_automatic_cross_unit_tail_chaining() {
 #ifndef PSPRECOMP_CODEGEN_PATH
     throw std::runtime_error("PSPRECOMP_CODEGEN_PATH was not provided by CMake");
@@ -1931,6 +2041,7 @@ int main() {
         test_vfpu_branch_cfg_discovery();
         test_automatic_cfg_and_codegen();
         test_automatic_cross_unit_tail_chaining();
+        test_automatic_same_unit_import_call();
         test_materialized_function_pointer_discovery();
 
         auto relocation_elf = psprecomp::Elf32Image::from_bytes(make_relocation_test_prx(), "synthetic_relocation.prx");

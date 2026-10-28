@@ -114,6 +114,31 @@ void dispatch_contracts() {
             "A chain that starts after an unload must still run");
     }
     {
+        // Dropping a range takes the dense units it touches off the direct
+        // path; a unit outside it keeps chaining.
+        psprecomp::Runtime runtime;
+        runtime.register_generated_unit(0, base, 0x4000, next);
+        runtime.register_generated_unit(1, base + 0x4000, 0x4000, next);
+        runtime.register_generated_unit(2, base + 0x8000, 0x4000, next);
+        runtime.register_function(base, next, "recomp_unit_zero");
+        runtime.register_function(base + 0x4000, next, "recomp_unit_one");
+        runtime.register_function(base + 0x8000, next, "recomp_unit_two");
+        psprecomp::AllegrexContext cpu{};
+        cpu.pc = base + 0x4000;
+        check(runtime.invoke_chained_unit(cpu, 1), "A dense unit chains before its range is dropped");
+        runtime.unregister_functions(base + 0x4000, base + 0x4008);
+        cpu.pc = base + 0x4000;
+        check(!runtime.invoke_chained_unit(cpu, 1) && !runtime.invoke_chained_call(cpu),
+            "A dropped range must not run through its dense unit or the exact table");
+        cpu.pc = base;
+        check(runtime.invoke_chained_unit(cpu, 0), "The unit before a dropped range still chains");
+        cpu.pc = base + 0x8000;
+        check(runtime.invoke_chained_unit(cpu, 2), "The unit after a dropped range still chains");
+        runtime.unregister_functions(base + 0x20000, base + 0x24000);
+        cpu.pc = base + 0x8000;
+        check(runtime.invoke_chained_unit(cpu, 2), "Dropping a range with nothing in it changes no unit");
+    }
+    {
         psprecomp::Runtime runtime;
         runtime.register_function(base + 0x10000, next, "recomp_unit_far");
         runtime.register_function(base, next, "recomp_unit_low");

@@ -1169,6 +1169,22 @@ void Runtime::unregister_functions(std::uint32_t start, std::uint32_t end) {
         removed = true;
         it = functions_.erase(it);
     }
+    // Other units chain straight into a dense unit, past the exact tables
+    // cleared above. A unit the range touches leaves that path, so a chain into
+    // it goes by the exact table, which no longer has the dropped addresses.
+    if (removed && generated_unit_span_ != 0u && end > start) {
+        const std::uint32_t low = memory_.canonical(start);
+        const std::uint32_t high = low + (end - start - 1u);
+        if (high >= generated_unit_base_) {
+            const std::uint32_t first =
+                low > generated_unit_base_ ? (low - generated_unit_base_) / generated_unit_span_ : 0u;
+            const std::uint32_t last = (high - generated_unit_base_) / generated_unit_span_;
+            for (std::uint32_t unit = first; unit <= last && unit < kGeneratedUnitFastCapacity; ++unit) {
+                generated_unit_disabled_[unit] = 1u;
+                generated_units_[unit] = nullptr;
+            }
+        }
+    }
     // The dropped body may be on the host stack, waiting on a call into the
     // loader that just replaced its guest bytes. Resuming it would run the old
     // logic against the new image. Chained callers see this flag and return to

@@ -1842,6 +1842,13 @@ int generate_auto(const std::filesystem::path &elf_path, const std::filesystem::
     for (const auto &range : program.executable_ranges) {
         for (std::uint32_t pc = range.start; pc + 4u <= range.end; pc += 4u) emitted_pcs.insert(pc);
     }
+    // An import stub (two words) runs as its HLE wrapper, which the registry
+    // puts at its address. Emitted, its words would be labels, and a call from
+    // code in the same unit would jump into the stub's own bytes instead.
+    for (const auto stub : import_stubs) {
+        emitted_pcs.erase(stub);
+        emitted_pcs.erase(stub + 4u);
+    }
     const std::set<std::uint32_t> &global_entries = emitted_pcs;
 
     struct Unit {
