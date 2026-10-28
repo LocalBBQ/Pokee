@@ -59,7 +59,47 @@ constexpr std::uint32_t kUtilityData = 0x5D8u;
 constexpr std::uint32_t kKey = 0x5DCu; // char[16], firmware 2.00 and later
 constexpr std::uint32_t kSecureVersion = 0x5ECu;
 constexpr std::uint32_t kMinimumSizeWithKey = 0x5ECu;
+// The game fills these for FILES and GETSIZE (the install, and its check at
+// start); the layouts below are the ones its code reads and writes.
+constexpr std::uint32_t kFileList = 0x5F8u;
+constexpr std::uint32_t kSizeInfo = 0x5FCu;
 } // namespace param
+
+// FILES: {maxSecure, maxNormal, maxSystem, resultSecure, resultNormal,
+// resultSystem, secureEntries, normalEntries, systemEntries}, each entry 80
+// bytes: {mode, attr, u64 size, ctime, atime, mtime, char name[16]}.
+namespace file_list {
+constexpr std::uint32_t kMaxCounts = 0u;
+constexpr std::uint32_t kResultCounts = 12u;
+constexpr std::uint32_t kEntries = 24u;
+constexpr std::uint32_t kEntrySize = 80u;
+constexpr std::uint32_t kEntrySizeField = 8u;
+constexpr std::uint32_t kEntryTimes = 16u; // three ScePspDateTime of 16 bytes
+constexpr std::uint32_t kEntryName = 64u;
+constexpr std::uint32_t kRegularFileMode = 0x21FFu; // FIO_S_IFREG | 0777
+constexpr std::uint32_t kRegularFileAttr = 0x20u;   // FIO_SO_IFREG
+} // namespace file_list
+
+// GETSIZE: {numSecure, numNormal, secureEntries, normalEntries, sectorSize,
+// freeSectors, freeKB, freeString[8], neededKB, neededString[8], overwriteKB,
+// overwriteString[8]}, each entry {u64 size, char name[16]}. The game treats
+// a non-zero neededKB as "not enough space", so it is what is missing, not
+// the total.
+namespace size_info {
+constexpr std::uint32_t kNumSecure = 0u;
+constexpr std::uint32_t kNumNormal = 4u;
+constexpr std::uint32_t kSecureEntries = 8u;
+constexpr std::uint32_t kNormalEntries = 12u;
+constexpr std::uint32_t kSectorSize = 16u;
+constexpr std::uint32_t kFreeSectors = 20u;
+constexpr std::uint32_t kFreeKb = 24u;
+constexpr std::uint32_t kFreeString = 28u;
+constexpr std::uint32_t kNeededKb = 36u;
+constexpr std::uint32_t kNeededString = 40u;
+constexpr std::uint32_t kOverwriteKb = 48u;
+constexpr std::uint32_t kOverwriteString = 52u;
+constexpr std::uint32_t kEntrySize = 24u;
+} // namespace size_info
 
 enum Mode : std::uint32_t {
     kAutoLoad = 0,
@@ -73,6 +113,11 @@ enum Mode : std::uint32_t {
     kSizes = 8,
     kAutoDelete = 9,
     kSingleDelete = 10,
+    kFiles = 12,
+    kMakeDataSecure = 13,
+    kMakeData = 14,
+    kWriteData = 18,
+    kGetSize = 22,
 };
 
 const char *mode_name(std::uint32_t mode) {
@@ -88,6 +133,9 @@ constexpr std::uint32_t kOk = 0u;
 constexpr std::uint32_t kLoadDataBroken = 0x80110306u;
 constexpr std::uint32_t kLoadNoData = 0x80110307u;
 constexpr std::uint32_t kLoadParam = 0x80110308u;
+// FILES, GETSIZE and the data modes on a folder that does not exist; the
+// install takes it as "no install data yet".
+constexpr std::uint32_t kRwNoData = 0x80110327u;
 constexpr std::uint32_t kDeleteNoData = 0x80110347u;
 constexpr std::uint32_t kSaveAccessError = 0x80110385u;
 constexpr std::uint32_t kSaveParam = 0x80110388u;
@@ -238,14 +286,9 @@ std::uint32_t do_load(psprecomp::GuestMemory &memory, std::uint32_t params, cons
     return result::kOk;
 }
 
-std::uint32_t do_save(psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
-    const auto files = files_for(memory, params, save_name);
-    const std::uint32_t buffer = memory.load32(params + param::kDataBuf);
-    const std::uint32_t size = memory.load32(params + param::kDataSize);
-    if (files.game_name.empty() || files.file_name.empty() || buffer == 0u) return result::kSaveParam;
-
+// The titles and icons a save or MAKEDATA request carries, without the data.
+savedata::SaveContents contents_for(const psprecomp::GuestMemory &memory, std::uint32_t params) {
     savedata::SaveContents contents;
-    contents.data = read_guest(memory, buffer, size);
     contents.title = read_cstring(memory, params + param::kTitle, 128u);
     contents.savedata_title = read_cstring(memory, params + param::kSavedataTitle, 128u);
     contents.detail = read_cstring(memory, params + param::kDetail, 1024u);
@@ -254,6 +297,17 @@ std::uint32_t do_save(psprecomp::GuestMemory &memory, std::uint32_t params, cons
     contents.icon1 = read_file_data(memory, params + param::kIcon1);
     contents.pic1 = read_file_data(memory, params + param::kPic1);
     contents.snd0 = read_file_data(memory, params + param::kSnd0);
+    return contents;
+}
+
+std::uint32_t do_save(psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
+    const auto files = files_for(memory, params, save_name);
+    const std::uint32_t buffer = memory.load32(params + param::kDataBuf);
+    const std::uint32_t size = memory.load32(params + param::kDataSize);
+    if (files.game_name.empty() || files.file_name.empty() || buffer == 0u) return result::kSaveParam;
+
+    savedata::SaveContents contents = contents_for(memory, params);
+    contents.data = read_guest(memory, buffer, size);
 
     std::string error;
     if (!savedata::write_save(state().memory_stick, files, contents, error)) {
@@ -321,6 +375,134 @@ std::uint32_t do_sizes(psprecomp::GuestMemory &memory, std::uint32_t params) {
     return outcome;
 }
 
+// MAKEDATA(SECURE): the folder with PARAM.SFO and the icons, and the data
+// file when the request names one. The install makes its folder this way with
+// no file and adds the files with WRITEDATA.
+std::uint32_t do_make_data(
+    psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name, bool secure) {
+    auto files = files_for(memory, params, save_name);
+    if (!secure) files.key.reset();
+    if (files.game_name.empty()) return result::kSaveParam;
+    savedata::SaveContents contents = contents_for(memory, params);
+    const std::uint32_t buffer = memory.load32(params + param::kDataBuf);
+    if (!files.file_name.empty() && buffer != 0u)
+        contents.data = read_guest(memory, buffer, memory.load32(params + param::kDataSize));
+    std::string error;
+    if (!savedata::write_save(state().memory_stick, files, contents, error)) {
+        std::cerr << "[savedata] making the save failed: " << error << "\n";
+        return result::kSaveAccessError;
+    }
+    std::cerr << "[savedata] made " << path_to_utf8(savedata::save_folder(state().memory_stick, files)) << "\n";
+    return result::kOk;
+}
+
+// WRITEDATA: one plain file into a folder MAKEDATA made.
+std::uint32_t do_write_data(psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
+    auto files = files_for(memory, params, save_name);
+    files.key.reset();
+    const std::uint32_t buffer = memory.load32(params + param::kDataBuf);
+    const std::uint32_t size = memory.load32(params + param::kDataSize);
+    if (files.game_name.empty() || files.file_name.empty() || buffer == 0u) return result::kSaveParam;
+    std::string error;
+    switch (savedata::write_data_file(state().memory_stick, files, read_guest(memory, buffer, size), error)) {
+    case savedata::WriteStatus::Ok:
+        if (trace_savedata()) std::cerr << "[savedata] wrote " << size << " bytes to " << files.file_name << "\n";
+        return result::kOk;
+    case savedata::WriteStatus::NoData:
+        return result::kRwNoData;
+    case savedata::WriteStatus::Failed:
+        break;
+    }
+    std::cerr << "[savedata] write failed: " << error << "\n";
+    return result::kSaveAccessError;
+}
+
+void write_date_time(psprecomp::GuestMemory &memory, std::uint32_t address, const std::tm &tm) {
+    // ScePspDateTime: year, month, day, hour, minute, second, then microseconds.
+    const int fields[] = {tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec};
+    for (std::size_t i = 0; i < std::size(fields); ++i)
+        memory.store16(address + 2u * static_cast<std::uint32_t>(i), static_cast<std::uint16_t>(fields[i]));
+    memory.store32(address + 12u, 0u);
+}
+
+// FILES: the folder's files, as many of each kind as the game has room for.
+// The install's check at start compares the normal files' sizes, in name
+// order, with what it would have written.
+std::uint32_t do_files(psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
+    const std::uint32_t list = memory.load32(params + param::kFileList);
+    if (list == 0u) return result::kLoadParam;
+    const auto listing = savedata::list_files(state().memory_stick, files_for(memory, params, save_name));
+    const std::vector<savedata::ListedFile> *kinds[] = {&listing.secure, &listing.normal, &listing.system};
+    for (std::uint32_t kind = 0; kind < 3u; ++kind) {
+        const std::uint32_t room = memory.load32(list + file_list::kMaxCounts + 4u * kind);
+        const std::uint32_t entries = memory.load32(list + file_list::kEntries + 4u * kind);
+        const auto count =
+            static_cast<std::uint32_t>(std::min<std::size_t>(kinds[kind]->size(), entries != 0u ? room : 0u));
+        memory.store32(list + file_list::kResultCounts + 4u * kind, count);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            const savedata::ListedFile &file = (*kinds[kind])[i];
+            const std::uint32_t entry = entries + i * file_list::kEntrySize;
+            memory.store32(entry, file_list::kRegularFileMode);
+            memory.store32(entry + 4u, file_list::kRegularFileAttr);
+            memory.store32(entry + file_list::kEntrySizeField, static_cast<std::uint32_t>(file.size));
+            memory.store32(entry + file_list::kEntrySizeField + 4u, static_cast<std::uint32_t>(file.size >> 32u));
+            const std::tm modified = savedata::local_time(savedata::to_system(file.modified));
+            for (std::uint32_t t = 0; t < 3u; ++t)
+                write_date_time(memory, entry + file_list::kEntryTimes + 16u * t, modified);
+            write_cstring(memory, entry + file_list::kEntryName, file.name, 16u);
+        }
+    }
+    if (trace_savedata())
+        std::cerr << "[savedata] files: " << listing.secure.size() << " secure, " << listing.normal.size()
+                  << " normal, " << listing.system.size() << " system\n";
+    return listing.exists ? result::kOk : result::kRwNoData;
+}
+
+// GETSIZE: the free space, and how much more a save of the listed files would
+// need than is free, both to write it new and to overwrite the existing one.
+std::uint32_t do_get_size(psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
+    const std::uint32_t info = memory.load32(params + param::kSizeInfo);
+    if (info == 0u) return result::kLoadParam;
+    const auto files = files_for(memory, params, save_name);
+    const auto cluster_bytes = [](std::uint64_t bytes) {
+        return (bytes + kClusterSize - 1u) / kClusterSize * kClusterSize;
+    };
+    // The folder entry and PARAM.SFO, then the listed files and the icons.
+    std::uint64_t needed = 2u * kClusterSize;
+    for (const auto &[count_field, entries_field] : {std::pair{size_info::kNumSecure, size_info::kSecureEntries},
+             {size_info::kNumNormal, size_info::kNormalEntries}}) {
+        const std::uint32_t count = memory.load32(info + count_field);
+        const std::uint32_t entries = memory.load32(info + entries_field);
+        if (entries == 0u) continue;
+        for (std::uint32_t i = 0; i < count; ++i) {
+            const std::uint32_t entry = entries + i * size_info::kEntrySize;
+            needed +=
+                cluster_bytes(memory.load32(entry) | static_cast<std::uint64_t>(memory.load32(entry + 4u)) << 32u);
+        }
+    }
+    for (const std::uint32_t field : {param::kIcon0, param::kIcon1, param::kPic1, param::kSnd0})
+        needed += cluster_bytes(memory.load32(params + field + 8u));
+    const std::uint64_t free_bytes = static_cast<std::uint64_t>(kClusterSize) * kFreeClusters;
+    const std::uint64_t existing = savedata::save_size(state().memory_stick, files);
+    const auto missing_kb = [&](std::uint64_t bytes) {
+        return bytes > free_bytes ? (bytes - free_bytes + 1023u) / 1024u : 0u;
+    };
+    const std::uint64_t needed_kb = missing_kb(needed);
+    const std::uint64_t overwrite_kb = missing_kb(needed > existing ? needed - existing : 0u);
+    memory.store32(info + size_info::kSectorSize, kClusterSize);
+    memory.store32(info + size_info::kFreeSectors, kFreeClusters);
+    memory.store32(info + size_info::kFreeKb, static_cast<std::uint32_t>(free_bytes / 1024u));
+    write_size_string(memory, info + size_info::kFreeString, free_bytes / 1024u);
+    memory.store32(info + size_info::kNeededKb, static_cast<std::uint32_t>(needed_kb));
+    write_size_string(memory, info + size_info::kNeededString, needed_kb);
+    memory.store32(info + size_info::kOverwriteKb, static_cast<std::uint32_t>(overwrite_kb));
+    write_size_string(memory, info + size_info::kOverwriteString, overwrite_kb);
+    if (trace_savedata())
+        std::cerr << "[savedata] getsize: " << needed / 1024u << " KB for the save, " << needed_kb
+                  << " KB more than is free\n";
+    return savedata::save_exists(state().memory_stick, files) ? result::kOk : result::kRwNoData;
+}
+
 // Picks the save a list dialog would land on when the player just confirms:
 // for loading and deleting the first listed save that exists, for saving the
 // first listed name.
@@ -366,6 +548,15 @@ std::uint32_t run_request(psprecomp::GuestMemory &memory, std::uint32_t params) 
         return do_delete(memory, params, save_name);
     case kSizes:
         return do_sizes(memory, params);
+    case kFiles:
+        return do_files(memory, params, save_name);
+    case kMakeDataSecure:
+    case kMakeData:
+        return do_make_data(memory, params, save_name, mode == kMakeDataSecure);
+    case kWriteData:
+        return do_write_data(memory, params, save_name);
+    case kGetSize:
+        return do_get_size(memory, params, save_name);
     default:
         // Not used by this game. Report a parameter error so the guest takes
         // its failure path instead of reading results that were never written.
