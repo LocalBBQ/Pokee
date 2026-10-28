@@ -13,6 +13,7 @@
 #include "hle_common.hpp"
 #include "utility_dialog.hpp"
 
+#include "game/install_data.hpp"
 #include "save_data/savedata_crypto.hpp"
 #include "save_data/savedata_store.hpp"
 #include "save_data/save_transfer.hpp"
@@ -425,13 +426,28 @@ void write_date_time(psprecomp::GuestMemory &memory, std::uint32_t address, cons
     memory.store32(address + 12u, 0u);
 }
 
+// The served install as FILES lists it: the numbered files and the system
+// files a real one has.
+savedata::FileListing served_listing(const std::vector<game::install_data::File> &files) {
+    savedata::FileListing listing;
+    listing.exists = true;
+    const auto now = std::filesystem::file_time_type::clock::now();
+    char name[16];
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        std::snprintf(name, sizeof name, "%08u", static_cast<unsigned>(i));
+        listing.normal.push_back({name, files[i].size, now});
+    }
+    for (const auto &file : game::install_data::kSystemFiles)
+        listing.system.push_back({std::string(file.name), file.size, now});
+    return listing;
+}
+
 // FILES: the folder's files, as many of each kind as the game has room for.
 // The install's check at start compares the normal files' sizes, in name
 // order, with what it would have written.
-std::uint32_t do_files(psprecomp::GuestMemory &memory, std::uint32_t params, const std::string &save_name) {
+std::uint32_t do_files(psprecomp::GuestMemory &memory, std::uint32_t params, const savedata::FileListing &listing) {
     const std::uint32_t list = memory.load32(params + param::kFileList);
     if (list == 0u) return result::kLoadParam;
-    const auto listing = savedata::list_files(state().memory_stick, files_for(memory, params, save_name));
     const std::vector<savedata::ListedFile> *kinds[] = {&listing.secure, &listing.normal, &listing.system};
     for (std::uint32_t kind = 0; kind < 3u; ++kind) {
         const std::uint32_t room = memory.load32(list + file_list::kMaxCounts + 4u * kind);
@@ -503,6 +519,31 @@ std::uint32_t do_get_size(psprecomp::GuestMemory &memory, std::uint32_t params, 
     return savedata::save_exists(state().memory_stick, files) ? result::kOk : result::kRwNoData;
 }
 
+// A request for the install folder while it is served (game/install_data.hpp):
+// it is always there and complete, and the game's own Data Install writes
+// nothing. Other folders, and the install when it is not served: nullopt.
+std::optional<std::uint32_t> served_install_request(
+    psprecomp::GuestMemory &memory, std::uint32_t params, std::uint32_t mode, const std::string &save_name) {
+    if (read_cstring(memory, params + param::kGameName, 13u) + save_name != game::install_data::kFolder)
+        return std::nullopt;
+    const auto *files = game::install_data::served(memory);
+    if (files == nullptr) return std::nullopt;
+    switch (mode) {
+    case kFiles:
+        return do_files(memory, params, served_listing(*files));
+    case kGetSize:
+        (void)do_get_size(memory, params, save_name);
+        return result::kOk;
+    case kMakeDataSecure:
+    case kMakeData:
+    case kWriteData:
+        if (trace_savedata()) std::cerr << "[savedata] the install is served; nothing written\n";
+        return result::kOk;
+    default:
+        return std::nullopt;
+    }
+}
+
 // Picks the save a list dialog would land on when the player just confirms:
 // for loading and deleting the first listed save that exists, for saving the
 // first listed name.
@@ -518,6 +559,7 @@ std::optional<std::string> pick_from_list(psprecomp::GuestMemory &memory, std::u
 std::uint32_t run_request(psprecomp::GuestMemory &memory, std::uint32_t params) {
     const std::uint32_t mode = memory.load32(params + param::kMode);
     const std::string save_name = save_name_at(memory, params + param::kSaveName);
+    if (const auto served = served_install_request(memory, params, mode, save_name)) return *served;
     switch (mode) {
     case kAutoLoad:
     case kLoad:
@@ -549,7 +591,7 @@ std::uint32_t run_request(psprecomp::GuestMemory &memory, std::uint32_t params) 
     case kSizes:
         return do_sizes(memory, params);
     case kFiles:
-        return do_files(memory, params, save_name);
+        return do_files(memory, params, savedata::list_files(state().memory_stick, files_for(memory, params, save_name)));
     case kMakeDataSecure:
     case kMakeData:
         return do_make_data(memory, params, save_name, mode == kMakeDataSecure);

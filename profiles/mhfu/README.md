@@ -764,6 +764,8 @@ By hand, the same works with the game closed: copy the folder into `ms0/PSP/SAVE
 
 The saves are the folders in `ms0/PSP/SAVEDATA/` of the data directory: `ULUS10391` holds all three character slots, `ULUS10391QST` the downloaded quests, and `ULUS10391DAT` the install data, which the game can rebuild.
 
+**Install data.** The game's *Data Install* copies most of `DATA.BIN` (about 600 MB) into `ULUS10391DAT`, and the game then reads those parts from the memory stick. Pokee needs no such copy: the game finds a complete install there as it starts, served from `DATA.BIN` as the [mods](#mods) leave it, so it runs as installed from the first start and mods still change what it loads. Nothing is written for it, and *Data Install* in the title menu finishes without writing either. To use the game's own install instead, set `game.virtual_install=0` in `settings.ini` (or `MHFU_VIRTUAL_INSTALL=0`) and run *Data Install*; it applies at the next start. A `ULUS10391DAT` folder from a PSP or from an earlier version is left alone while the install is served.
+
 | Platform | Saves folder |
 | --- | --- |
 | Windows | `%APPDATA%\Pokee\MHFU\ms0\PSP\SAVEDATA\` |
@@ -935,6 +937,7 @@ The settings a player needs are in the [in-game menu](#in-game-menu). Environmen
 | `MHFU_OVERLAY_DIR` | `overlays/` next to the executable (`Contents/Frameworks/overlays` in the macOS app) | Directory of overlay libraries |
 | `MHFU_MODS_DIR` | `mods/` in the data directory | The [mods](#mods) folder |
 | `MHFU_NO_MODS` | off | `1`: no mod applies this run, whatever `mods.ini` says; the menu still lists them |
+| `MHFU_VIRTUAL_INSTALL` | on (`game.virtual_install`) | `0`: the game reads its own `ULUS10391DAT`, which *Data Install* writes, instead of the [install data](#where-saves-live-and-how-to-back-them-up) served from `DATA.BIN`. Read at start |
 | `MHFU_BACKUP_REMINDER` | unset | `0`: never ask to back up the saves this run; `1`: ask at every start, even in a scripted run or with the setting off. Unset, the reminder follows the menu setting and skips runs driven by `MHFU_INPUT_SCRIPT`, `MHFU_INPUT_LIVE` or `MHFU_AUTO_CONFIRM` |
 | `MHFU_FONT` | a system CJK font | Font to draw the game's text with: a `.ttf`, `.otf`, `.ttc` or `.otc` file, with `#N` after the path for the Nth face of a collection. Glyphs it lacks come from the default, a Japanese system font (Hiragino on macOS, Noto Sans CJK on Linux, MS Gothic or Meiryo on Windows; inside a Flatpak, the host's Noto Sans CJK under `/run/host/fonts`), and last the font a release ships in `fonts/` next to the executable |
 | `MHFU_UI_FONT` | a system font | TrueType font for Pokee's menu and setup screens |

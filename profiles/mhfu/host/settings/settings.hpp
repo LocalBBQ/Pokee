@@ -253,6 +253,11 @@ struct Settings {
     // it, the quest lists first (game/key_quests.hpp). Off by default: the
     // game's own names.
     bool key_quests{};
+    // The game finds its Data Install on the memory stick, served from
+    // DATA.BIN as the mods leave it (game/install_data.hpp). On by default.
+    // Off: the game's own ULUS10391DAT, which Data Install writes. Read at
+    // start; the game looks for the install as it starts.
+    bool virtual_install{true};
     // The mark's size, in percent of the usual disc (kMinGatherIconSize to
     // kMaxGatherIconSize). A larger mark keeps the same proportions.
     std::uint32_t gather_icon_size{100};
