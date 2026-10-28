@@ -261,6 +261,12 @@ std::uint64_t data_bin_size() {
     return s.range ? s.range->size : 0u;
 }
 
+std::vector<std::uint32_t> data_bin_blocks() {
+    State &s = state();
+    if (!s.directory) return {};
+    return s.serving && s.layout ? s.layout->directory.blocks : s.directory->blocks;
+}
+
 std::size_t read_data_bin(std::uint64_t offset, std::span<std::uint8_t> out) {
     State &s = state();
     if (!s.serving || !s.view) return raw_read(offset, out);
