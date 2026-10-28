@@ -48,6 +48,18 @@ for image in "${images[@]}"; do
     rest="${stem#overlay_}"
     base="${rest%%_*}"
     name="${rest#*_}"
+    # A corpus generated with another list of dispatched calls
+    # (config/overlay_dispatch.txt) is recompiled and its library rebuilt.
+    expected="$(python3 "$profile_dir/tools/add_overlay.py" --print-dispatch "0x$base" "$name")"
+    for meta in "$profile_dir/overlays/ovl${base}_${name}_"*/meta.txt; do
+        [[ -e "$meta" ]] || continue
+        recorded="$(sed -n 's/^dispatch=//p' "$meta")"
+        if [[ "$recorded" != "$expected" ]]; then
+            echo "regenerating $name: its dispatched calls changed"
+            rm -f "$meta"
+            rm -f "$library_dir/$(basename "$(dirname "$meta")")".*
+        fi
+    done
     if compgen -G "$library_dir/ovl${base}_${name}_*" > /dev/null; then
         skipped=$((skipped + 1))
         continue

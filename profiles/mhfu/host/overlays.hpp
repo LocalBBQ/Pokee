@@ -24,4 +24,10 @@ void revalidate_overlays(psprecomp::Runtime &runtime);
 // again at the next call into it.
 void forget_unmatched_overlays();
 
+// Whether the overlay installed at `slot` is the image with `hash` and its
+// library makes every call to `address` through the runtime
+// (config/overlay_dispatch.txt), so that a host wrapper there sees them all.
+// False for a library built before its list included the address.
+[[nodiscard]] bool installed_overlay_dispatches(std::uint32_t slot, std::uint64_t hash, std::uint32_t address);
+
 } // namespace mhfu

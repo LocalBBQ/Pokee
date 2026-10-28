@@ -1,0 +1,10 @@
+# Overlay functions that generated code calls through the runtime, even from
+# the same unit, so that a host wrapper there sees every call
+# (psp_recomp --dispatch). One line per overlay: its slot, its name, then the
+# addresses. tools/add_overlay.py passes them on and records them in the
+# corpus's meta.txt, the library reports them to the host, and
+# scripts/build_overlays.sh regenerates an overlay whose list changed.
+
+# The Guild Hall's event quests: the slot getter and the lookup by id
+# (host/game/event_quests.hpp).
+0x09A5F300 lobby_task 0x09A88470 0x09A88500
