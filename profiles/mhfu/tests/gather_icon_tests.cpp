@@ -423,16 +423,30 @@ void test_holding_circle() {
             attack.magnitude == kPushed,
         "△+○ on a point is not a gather and reaches the game whole");
     restart();
-    (void)held(kCircle, true);
-    const HunterButtons chord = held(kCircle | kTriangle, true);
-    check(!repeat.underway() && chord.held == (kCircle | kTriangle), "△ pressed during a hold ends it");
+    (void)held(kCircle | kTriangle, true);
     HunterButtons after_attack = copy(kCircle);
     check(!repeat.apply(after_attack, true, kCircle),
-        "and ○ still held after the attack is not a gather until it is pressed again");
+        "○ still held after the attack is not a gather until it is pressed again");
     restart();
     check(held(kCircle | kCross, true).held == (kCircle | kCross) && !repeat.underway(), "× with ○ is left to the game");
-    check(held(kSquare | kRight, true, kSquare).held == (kSquare | kRight) && !repeat.underway(),
-        "R with □ is left to the game");
+
+    // Once the hold runs, the gather comes first: △ and × are ignored.
+    restart();
+    (void)held(kCircle, true);
+    const HunterButtons chord = held(kCircle | kTriangle, true);
+    check(repeat.underway() && chord.held == kCircle, "△ pressed during a hold is kept from the hunter");
+    check(held(kCircle | kCross, true).held == kCircle && repeat.underway(), "and so is ×");
+    // R is the run with the weapon away: held from the start, it neither
+    // blocks the hold nor reaches the hunter.
+    restart();
+    const HunterButtons running = held(kCircle | kRight, true);
+    check(repeat.underway() && running.held == kCircle && running.fresh == kCircle,
+        "○ pressed while R is held gathers, and R is kept from the hunter");
+    check(presses(kCycle * 3u, kCircle, [&] { return held(kCircle | kRight, true); }) ==
+              expected_presses(kCycle * 3u, 1u),
+        "and keeps gathering while R stays held");
+    restart();
+    check(held(kSquare | kRight, true, kSquare).held == kSquare && repeat.underway(), "R with □ on a mining point too");
     restart();
     check(held(kCircle | kSquare, true).held == kCircle && repeat.underway(),
         "□ is not a chord: ○ with □ on a point still gathers");
@@ -660,9 +674,11 @@ void test_carving_a_monster() {
             expected_presses(kGatherPressFrames, 1u),
         "holding ○ on a body keeps carving");
     check(input(kSquare).held == kCircle, "□ alone while carving keeps the ○ hold");
+    check(input(kCircle | 0x1000u).held == kCircle, "△ while carving is ignored: the carve comes first");
+    (void)input(0u);
     const HunterButtons attack = input(kCircle | 0x1000u);
     check(attack.held == (kCircle | 0x1000u) && attack.magnitude == kPushed,
-        "△+○ beside a body is an attack: the words pass and the stick moves");
+        "△+○ pressed beside a body is an attack: the words pass and the stick moves");
     check(input(kCircle | 0x1000u).held == (kCircle | 0x1000u), "and stays an attack while held");
     (void)input(0u);
     write_float(memory, hunter + 0x200u, 80.0f);
