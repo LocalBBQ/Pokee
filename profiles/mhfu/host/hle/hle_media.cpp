@@ -31,6 +31,7 @@
 #include "mods/mhfu_mods.hpp"
 #include "game/sharpness_gauge.hpp"
 #include "install/game_identity.hpp"
+#include "install/release_addresses.hpp"
 #include "platform/utf8_path.hpp"
 
 #include "audio/audio_sink.hpp"
@@ -355,8 +356,15 @@ std::uint32_t allocate_key_quest_block(std::uint32_t size) {
 }
 
 #if defined(MHFU_HAS_RENDERER)
-// What the port draws over the game world: damage numbers, the lock-on marker,
-// the hunt portraits and gather marks.
+// The lock-on marker, on any release the camera is ported to.
+void lock_on_overlay_frame(Runtime &rt) {
+    // The draws of this frame have already named the camera they used, so the
+    // marker matches the picture about to be shown, aim camera included.
+    ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
+}
+
+// What the port draws over the game world on USA Freedom Unite: damage
+// numbers, the hunt portraits and gather marks.
 void game_overlays_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
     const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
     game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
@@ -369,9 +377,6 @@ void game_overlays_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
         bodies.frame(rt.memory(), std::cout);
         if (const std::optional<std::uint32_t> watch = bodies.take_watch()) psprecomp::set_write_watch(*watch, 4u);
     }
-    // The draws of this frame have already named the camera they used, so the
-    // marker matches the picture about to be shown, aim camera included.
-    ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
     if (!settings::current().lock_on) {
         ui::set_hunt_portraits({});
     } else {
@@ -441,8 +446,10 @@ void present_frame(Runtime &rt) {
     // Overlays are swapped between frames; re-check before drawing the next one.
     revalidate_overlays(rt);
     // The features below were traced on USA Freedom Unite; another executable
-    // keeps other things at those addresses.
+    // keeps other things at those addresses. The camera's and the HUD's are
+    // moved to Freedom Unite Complete's (install/release_addresses.hpp).
     const bool features = install::traced_executable();
+    const bool ported = install::features_ported();
     if (features) {
         // The menu, drawn below, reads the game's memory between frames.
         game::attach(rt);
@@ -481,6 +488,7 @@ void present_frame(Runtime &rt) {
         renderer.upload_frame(
             address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
     }
+    if (ported) lock_on_overlay_frame(rt);
     if (features) game_overlays_frame(rt, renderer);
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
@@ -508,7 +516,7 @@ void present_frame(Runtime &rt) {
         // of the follow camera, which game_camera_frame makes sure to drive.
         if (renderer.take_lock_on_press()) camera::lock_on_tap();
         camera::set_focus_camera_held(renderer.focus_camera_held());
-        if (features) {
+        if (ported) {
             camera::game_camera_frame(rt);
             // The view's shape follows the picture's: the game builds its next
             // projection with the aspect ratio of the target it will draw into.

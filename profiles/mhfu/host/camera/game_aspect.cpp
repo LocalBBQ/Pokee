@@ -1,6 +1,7 @@
 #include "camera/game_aspect.hpp"
 
 #include "game/guest_layout.hpp"
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <algorithm>
@@ -106,12 +107,13 @@ bool prepare_game_aspect(psprecomp::Runtime &runtime) {
     state = State{};
     const psprecomp::GuestMemory &memory = runtime.memory();
     for (const CodeWord &expected : kSignature) {
-        const std::uint32_t found = memory.load32(expected.address);
-        if (found == expected.word) continue;
+        if (install::code_matches(memory, expected.address, expected.word)) continue;
+        const std::uint32_t address = install::port(expected.address);
+        const std::uint32_t found = memory.contains(address, 4u) ? memory.load32(address) : 0u;
         std::cerr << "[aspect] game code differs at 0x" << std::hex << std::uppercase << std::setfill('0')
-                  << std::setw(8) << expected.address << ": 0x" << std::setw(8) << found << ", expected 0x"
-                  << std::setw(8) << expected.word << std::dec << std::nouppercase << std::setfill(' ') << " ("
-                  << expected.what << "); the view keeps the PSP's shape\n";
+                  << std::setw(8) << address << ": 0x" << std::setw(8) << found << ", expected 0x" << std::setw(8)
+                  << expected.word << std::dec << std::nouppercase << std::setfill(' ') << " (" << expected.what
+                  << "); the view keeps the PSP's shape\n";
         return false;
     }
     state.prepared = true;

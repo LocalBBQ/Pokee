@@ -1,6 +1,7 @@
 #include "camera/field_of_view.hpp"
 
 #include "game/guest_layout.hpp"
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <algorithm>
@@ -125,15 +126,17 @@ void smooth_update(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx)
 void wrap(psprecomp::Runtime &runtime) {
     // Only ever at the game's flip, from an import: no generated frame is
     // live on the host stack, so the dispatch tables can change here.
-    state.update = runtime.function_at(kUpdate);
-    state.smooth_update = runtime.function_at(kSmoothUpdate);
+    const std::uint32_t update_at = install::port(kUpdate);
+    const std::uint32_t smooth_at = install::port(kSmoothUpdate);
+    state.update = runtime.function_at(update_at);
+    state.smooth_update = runtime.function_at(smooth_at);
     if (state.update == nullptr || state.smooth_update == nullptr) {
         std::cerr << "[fov] the camera's update is not in the generated code; the field of view stays the game's\n";
         state.prepared = false;
         return;
     }
-    runtime.register_function(kUpdate, &update, "mhfu_fov_update");
-    runtime.register_function(kSmoothUpdate, &smooth_update, "mhfu_fov_smooth_update");
+    runtime.register_function(update_at, &update, "mhfu_fov_update");
+    runtime.register_function(smooth_at, &smooth_update, "mhfu_fov_smooth_update");
     state.wrapped = true;
 }
 
@@ -166,11 +169,12 @@ bool prepare_field_of_view(psprecomp::Runtime &runtime) {
     state = State{};
     const psprecomp::GuestMemory &memory = runtime.memory();
     for (const CodeWord &expected : kSignature) {
-        const std::uint32_t found = memory.load32(expected.address);
-        if (found == expected.word) continue;
+        if (install::code_matches(memory, expected.address, expected.word)) continue;
+        const std::uint32_t address = install::port(expected.address);
+        const std::uint32_t found = memory.contains(address, 4u) ? memory.load32(address) : 0u;
         std::cerr << "[fov] game code differs at 0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
-                  << expected.address << ": 0x" << std::setw(8) << found << ", expected 0x" << std::setw(8)
-                  << expected.word << std::dec << std::nouppercase << std::setfill(' ') << " (" << expected.what
+                  << address << ": 0x" << std::setw(8) << found << ", expected 0x" << std::setw(8) << expected.word
+                  << std::dec << std::nouppercase << std::setfill(' ') << " (" << expected.what
                   << "); the field of view stays the game's\n";
         return false;
     }

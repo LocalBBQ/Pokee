@@ -14,6 +14,7 @@
 // the empty stamp there would leave the linked corpus unregistered.
 #include <corpus_identity.hpp>
 #include "install/game_identity.hpp"
+#include "install/release_addresses.hpp"
 #include "install/installer.hpp"
 #include "install/user_data.hpp"
 #include "kernel/kernel.hpp"
@@ -461,8 +462,7 @@ int main(int argc, char **argv) {
         {
             // "Set up game data again" from the menu, left for this start.
             std::error_code ec;
-            const std::filesystem::path marker =
-                mhfu::install::user_data_directory() / mhfu::install::kSetupMarkerFile;
+            const std::filesystem::path marker = mhfu::install::user_data_directory() / mhfu::install::kSetupMarkerFile;
             if (std::filesystem::remove(marker, ec)) options.install = true;
         }
 #endif
@@ -485,9 +485,9 @@ int main(int argc, char **argv) {
 
         const psprecomp::Elf32Image elf = psprecomp::Elf32Image::from_file(executable);
         if (elf.required_ram_size(mhfu::kLoadBase) != guest_ram)
-            throw psprecomp::Error(
-                release != nullptr ? std::string(release->title) + " does not match its guest RAM layout"
-                                   : "Executable is not a release Pokee supports");
+            throw psprecomp::Error(release != nullptr
+                    ? std::string(release->title) + " does not match its guest RAM layout"
+                    : "Executable is not a release Pokee supports");
 
         psprecomp::Runtime runtime(guest_ram);
         for (const EmbeddedNid &entry : kEmbeddedNids) runtime.nids().add(entry.library, entry.nid, entry.name);
@@ -499,21 +499,20 @@ int main(int argc, char **argv) {
             }
         // generate.sh stamps the executable it translated. Registering any
         // other corpus would run that game's code at overlapping addresses.
-        const bool corpus_matches = mhfu::kCorpusExecutableSha256[0] != '\0' &&
-            sha256 == mhfu::kCorpusExecutableSha256;
+        const bool corpus_matches = mhfu::kCorpusExecutableSha256[0] != '\0' && sha256 == mhfu::kCorpusExecutableSha256;
         if (corpus_matches) psprecomp::register_generated_functions(runtime);
         const std::size_t generated_functions = runtime.function_count();
         mhfu::install_profile(runtime, elf, paths);
         // The projection was read from USA Freedom Unite. The signature inside
         // prepare_game_aspect refuses it if those instructions differ.
-        if (mhfu::install::traced_executable()) {
+        if (mhfu::install::features_ported()) {
             (void)mhfu::camera::prepare_game_aspect(runtime);
             (void)mhfu::camera::prepare_field_of_view(runtime);
         }
 #if defined(MHFU_CAMERA_HELPER_UNIT)
         // CMake names the generated unit that holds the camera update, so a
         // new partition of the code cannot hand the camera the wrong one.
-        if (mhfu::install::traced_executable())
+        if (mhfu::install::features_ported())
             (void)mhfu::camera::prepare_game_camera(runtime, &psprecomp::MHFU_CAMERA_HELPER_UNIT);
 #endif
 

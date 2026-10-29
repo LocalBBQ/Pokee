@@ -52,6 +52,10 @@ Some titles copy code into memory while they run — overlays swapped into a fix
 
 A profile typically builds each piece of run-time code as its own shared library, identifies which one is loaded by hashing guest memory, and swaps libraries through these calls. `profiles/mhfu/README.md` describes one such scheme in full.
 
+## Another release of the same game
+
+A profile's host features name addresses in the release they were traced on. Another release built from the same source keeps the same functions elsewhere. `profiles/mhfu/host/install/release_addresses.hpp` moves a traced address to the running release's, and moves an address the game hands back, such as a return address, back to the traced one, so the features keep their constants. Its table is written by `profiles/mhfu/tools/release_map.py` from both executables and their overlays. On the traced release, and in tests with no release set, every address stays as it is.
+
 ## Native fast paths
 
 `Runtime::register_native_fast_path(address, callback)` is the extension point for a profile to replace a measured guest leaf without adding title-specific code to `psprecomp_core`. Profile-generated code enters through `Runtime::invoke_native_fast_path()` and falls back to the generated function if no profile callback is registered.

@@ -150,8 +150,9 @@ float horizontal(const Vec3 &from, const Vec3 &to) {
 
 // The stage the quest has loaded, or nothing when GameSys is not up yet.
 std::optional<std::uint16_t> loaded_stage(const psprecomp::GuestMemory &memory) {
-    if (!memory.contains(kGameSysPointer, 4u)) return std::nullopt;
-    const std::uint32_t sys = memory.load32(kGameSysPointer);
+    const std::uint32_t pointer = game_sys_pointer();
+    if (!memory.contains(pointer, 4u)) return std::nullopt;
+    const std::uint32_t sys = memory.load32(pointer);
     if (!in_ram(sys) || !memory.contains(sys + kGameSysStage, 2u)) return std::nullopt;
     return memory.load16(sys + kGameSysStage);
 }
@@ -190,7 +191,7 @@ bool em_method(const psprecomp::GuestMemory &memory, std::uint32_t vtable) {
     if (!in_ram(vtable) || !memory.contains(vtable, kVtableSpan)) return false;
     for (std::uint32_t off = kVtableMethod; off < kVtableSpan; off += 4u) {
         const std::uint32_t method = memory.load32(vtable + off);
-        if (method >= kEmOverlay && method < kEmOverlayEnd) return true;
+        if (method >= em_overlay() && method < em_overlay_end()) return true;
     }
     return false;
 }
@@ -276,7 +277,7 @@ bool small_species(std::uint8_t id) {
 bool hunter_entity(const psprecomp::GuestMemory &memory, std::uint32_t entity) {
     const char *keep = std::getenv("MHFU_LOCK_ON_HUNTERS");
     if (keep != nullptr && keep[0] == '1') return false;
-    return memory.load32(entity + kVtable) == kHunterVtable;
+    return memory.load32(entity + kVtable) == hunter_vtable();
 }
 
 // Large monsters on the quest list, including one in another zone, and the
@@ -349,9 +350,10 @@ void trace_entity_list(const psprecomp::GuestMemory &memory, const char *why) {
         const std::uint32_t vtable = memory.load32(at + kVtable);
         const Vec3 position = load_vec(memory, at + kPosition);
         const std::uint8_t id = memory.load8(at + kMonsterId);
-        std::cout << " vtable 0x" << std::hex << vtable << (vtable == kHunterVtable ? " (hunter)" : "") << " method 0x"
-                  << first_method(memory, vtable) << std::dec << " em " << (em_method(memory, vtable) ? 1 : 0) << " id "
-                  << static_cast<unsigned>(id) << (small_species(id) ? " (small)" : "") << " health "
+        std::cout << " vtable 0x" << std::hex << vtable << (vtable == hunter_vtable() ? " (hunter)" : "")
+                  << " method 0x" << first_method(memory, vtable) << std::dec << " em "
+                  << (em_method(memory, vtable) ? 1 : 0) << " id " << static_cast<unsigned>(id)
+                  << (small_species(id) ? " (small)" : "") << " health "
                   << static_cast<std::int16_t>(memory.load16(at + kHealth)) << "/"
                   << static_cast<std::int16_t>(memory.load16(at + kMostHealth)) << " stage "
                   << memory.load16(at + kStageId) << " at " << position.x << "," << position.y << "," << position.z
@@ -506,13 +508,13 @@ void explain_miss(const psprecomp::GuestMemory &memory) {
         std::cout << "[lockon] no large monster to lock onto: not in a quest" << std::endl;
         return;
     }
-    if (!memory.contains(kEntityList, 4u)) {
+    if (!memory.contains(entity_list(), 4u)) {
         std::cout << "[lockon] no large monster to lock onto: entity list unreadable" << std::endl;
         return;
     }
     if (entity_manager(memory) == 0u) {
         std::cout << "[lockon] no large monster to lock onto: no entity manager at 0x" << std::hex
-                  << memory.load32(kEntityList) << std::dec << std::endl;
+                  << memory.load32(entity_list()) << std::dec << std::endl;
         return;
     }
     unsigned players = 0;
@@ -917,7 +919,7 @@ constexpr std::uint32_t kViewMatrix = 0xC80u;
 
 bool marker_instructions(const psprecomp::GuestMemory &memory) {
     const auto word = [&](std::uint32_t address, std::uint32_t expect) {
-        return memory.raw_pointer(address, 4u) != nullptr && memory.load32(address) == expect;
+        return install::code_matches(memory, address, expect);
     };
     return word(0x08812954u, 0xAC50BD04u) && // sw s0,-0x42fc(v0): the pointer at 0x089CBD04
         word(0x0881439Cu, 0x26640C80u) &&    // addiu a0,s3,0xC80: the view

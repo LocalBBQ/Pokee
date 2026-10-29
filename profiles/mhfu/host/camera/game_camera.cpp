@@ -5,6 +5,7 @@
 #include "game/guest_layout.hpp"
 #include "game/layered_armor.hpp"
 #include "input/bindings.hpp"
+#include "install/release_addresses.hpp"
 #include "platform/utf8_path.hpp"
 #include "settings/settings.hpp"
 #include "psprecomp/runtime.hpp"
@@ -524,7 +525,7 @@ struct DpadMute {
 
 std::optional<DpadMute> mute_dpad(psprecomp::GuestMemory &memory, std::uint32_t address) {
     if (settings::current().dpad_camera || !driving_allowed()) return std::nullopt;
-    DpadMute mute{memory.load32(kCameraObject)};
+    DpadMute mute{memory.load32(install::port(kCameraObject))};
     if (mute.object == 0u || memory.raw_pointer(mute.object + kObjectTurnButtons, 4u) == nullptr) return std::nullopt;
     mute.turn = memory.load16(mute.object + kObjectTurnButtons);
     mute.vertical = memory.load16(mute.object + kObjectVerticalButtons);
@@ -594,7 +595,7 @@ void trace(const psprecomp::GuestMemory &memory, std::uint32_t address, const Tu
 std::uint32_t followed_hunter(const psprecomp::GuestMemory &memory);
 
 bool placement_off(const psprecomp::GuestMemory &memory) {
-    const auto options = memory.load32(kGameOptions);
+    const auto options = memory.load32(install::port(kGameOptions));
     if (options == 0u || memory.raw_pointer(options + kPlacementOff, 1u) == nullptr) return false;
     return static_cast<std::int8_t>(memory.load8(options + kPlacementOff)) == 1;
 }
@@ -945,11 +946,13 @@ std::uint32_t followed_hunter(const psprecomp::GuestMemory &memory) {
 // The hunter carries a bow: the game's weapon switch sends its weapon to the
 // bow's case. Another overlay at that address, or another weapon, is not.
 bool carries_bow(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
-    if (memory.raw_pointer(kWeaponTable, kWeaponTypes * 4u) == nullptr || memory.raw_pointer(kBowCase, 4u) == nullptr ||
-        memory.load32(kBowCase) != kBowCaseCall)
+    const std::uint32_t table = install::port(kWeaponTable, install::Image::game_task);
+    const std::uint32_t bow_case = install::port(kBowCase, install::Image::game_task);
+    if (table == 0u || memory.raw_pointer(table, kWeaponTypes * 4u) == nullptr ||
+        !install::code_matches(memory, kBowCase, kBowCaseCall, install::Image::game_task))
         return false;
     const std::uint32_t weapon = memory.load8(hunter + kWeaponType);
-    return weapon < kWeaponTypes && memory.load32(kWeaponTable + weapon * 4u) == kBowCase;
+    return weapon < kWeaponTypes && memory.load32(table + weapon * 4u) == bow_case;
 }
 
 // The bow's aim, by the conditions 0x09BB6D98 tests before it steps.
@@ -1397,13 +1400,15 @@ void aim_step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
 // that overlay is installed again. A different image at the same address is
 // left alone.
 template <std::size_t N>
-void install_one(psprecomp::Runtime &runtime, std::uint32_t address, const std::array<CodeWord, N> &signature,
+void install_one(psprecomp::Runtime &runtime, std::uint32_t traced, const std::array<CodeWord, N> &signature,
     RotationFunction wrapper, RotationFunction &original, const char *name) {
+    const std::uint32_t address = install::port(traced, install::Image::game_task);
+    if (address == 0u) return;
     const RotationFunction current = runtime.function_at(address);
     if (current == nullptr || current == wrapper) return;
     const auto &memory = runtime.memory();
     for (const CodeWord &expected : signature)
-        if (memory.load32(expected.address) != expected.word) return;
+        if (!install::code_matches(memory, expected.address, expected.word, install::Image::game_task)) return;
     original = current;
     runtime.register_function(address, wrapper, name);
     if (aim_trace() != nullptr)
@@ -1412,7 +1417,8 @@ void install_one(psprecomp::Runtime &runtime, std::uint32_t address, const std::
 
 void install_aim_hook(psprecomp::Runtime &runtime) {
     if (option_on()) install_one(runtime, kAimFunction, kAimSignature, &aim_step, state.aim_original, "mhfu_aim_step");
-    state.aim_wrapped = runtime.function_at(kAimFunction) == &aim_step;
+    const std::uint32_t aim = install::port(kAimFunction, install::Image::game_task);
+    state.aim_wrapped = aim != 0u && runtime.function_at(aim) == &aim_step;
 }
 
 // MHFU_TRACE_WEAPON=1: on each press of R (guard, aim, draw), the followed
@@ -1468,10 +1474,9 @@ void trace_aim_state(psprecomp::Runtime &runtime, bool aiming) {
     if (!changed && !(aiming && state.frame - last_line >= 30u)) return;
     last_line = state.frame;
     std::cout << "[aim] frame=" << state.frame << (changed ? (aiming ? " start" : " end") : " held")
-              << " wrapper=" << (runtime.function_at(kAimFunction) == &aim_step ? 1 : 0)
-              << " bow=" << (state.bow_aiming ? 1 : 0) << " option=" << (option_on() ? 1 : 0)
-              << " hooked=" << (state.hooked ? 1 : 0) << " available=" << (state.available ? 1 : 0)
-              << " lock_on_drives=" << (lock_on_drives_camera() ? 1 : 0)
+              << " wrapper=" << (state.aim_wrapped ? 1 : 0) << " bow=" << (state.bow_aiming ? 1 : 0)
+              << " option=" << (option_on() ? 1 : 0) << " hooked=" << (state.hooked ? 1 : 0)
+              << " available=" << (state.available ? 1 : 0) << " lock_on_drives=" << (lock_on_drives_camera() ? 1 : 0)
               << " driving=" << (game_camera_driving() ? 1 : 0) << " boost=" << (game_camera_aim_boost() ? 1 : 0)
               << " update_age=" << (state.frame - state.last_update) << " calls=" << state.aim_calls
               << " pushes=" << state.aim_pushes << std::endl;
@@ -1618,8 +1623,8 @@ void collision_sweep(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
     static const bool from_eye = std::getenv("MHFU_CAMERA_EYE_SWEEP") != nullptr;
     // Only the follow update's first sweep, of the camera it is updating. The
     // game sweeps for much else through the same function.
-    const bool redirect = !from_eye && driving_allowed() && ctx.gpr[31] == kEyeSweepReturn && state.address != 0u &&
-        ctx.gpr[5] == state.address;
+    const bool redirect = !from_eye && driving_allowed() && ctx.gpr[31] == install::port(kEyeSweepReturn) &&
+        state.address != 0u && ctx.gpr[5] == state.address;
     if (redirect) ctx.gpr[5] = state.address + kViewLineStart;
     const std::uint32_t return_pc = ctx.gpr[31];
     state.sweep_original(runtime, ctx);
@@ -1630,12 +1635,14 @@ void collision_sweep(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
 // back whenever that overlay is installed again.
 void install_sweep_hook(psprecomp::Runtime &runtime) {
     if (!state.hooked || !option_on()) return;
-    const RotationFunction current = runtime.function_at(kSweep);
+    const std::uint32_t sweep = install::port(kSweep, install::Image::game_sub);
+    if (sweep == 0u) return;
+    const RotationFunction current = runtime.function_at(sweep);
     if (current == nullptr || current == &collision_sweep) return;
     for (const CodeWord &expected : kSweepSignature)
-        if (runtime.memory().load32(expected.address) != expected.word) return;
+        if (!install::code_matches(runtime.memory(), expected.address, expected.word, install::Image::game_sub)) return;
     state.sweep_original = current;
-    register_chained(runtime, kSweep, &collision_sweep, "mhfu_camera_sweep");
+    register_chained(runtime, sweep, &collision_sweep, "mhfu_camera_sweep");
 }
 
 // What is put back and done once the camera update has returned.
@@ -1774,17 +1781,18 @@ bool prepare_game_camera(psprecomp::Runtime &runtime, RotationFunction original)
     pending_after.reset();
     reset();
     lock_on_reset();
-    if (!original || !runtime.has_function(kCameraUpdate)) {
+    if (!original || !runtime.has_function(install::port(kCameraUpdate))) {
         std::cerr << "[camera] the camera update is not in the generated code; analog camera unavailable\n";
         return false;
     }
     for (const CodeWord &expected : kSignature) {
-        const std::uint32_t found = runtime.memory().load32(expected.address);
-        if (found == expected.word) continue;
+        if (install::code_matches(runtime.memory(), expected.address, expected.word)) continue;
+        const std::uint32_t address = install::port(expected.address);
+        const std::uint32_t found = address != 0u ? runtime.memory().load32(address) : 0u;
         std::cerr << "[camera] game code differs at 0x" << std::hex << std::uppercase << std::setfill('0')
-                  << std::setw(8) << expected.address << ": 0x" << std::setw(8) << found << ", expected 0x"
-                  << std::setw(8) << expected.word << std::dec << std::nouppercase << std::setfill(' ') << " ("
-                  << expected.what << "); analog camera unavailable\n";
+                  << std::setw(8) << address << ": 0x" << std::setw(8) << found << ", expected 0x" << std::setw(8)
+                  << expected.word << std::dec << std::nouppercase << std::setfill(' ') << " (" << expected.what
+                  << "); analog camera unavailable\n";
         return false;
     }
     state.original = original;
@@ -1810,10 +1818,11 @@ void game_camera_frame(psprecomp::Runtime &runtime) {
         // generated cross-unit camera call reaches the wrapper without
         // regeneration. It stays until exit; with the option off again the
         // wrapper only passes through.
-        runtime.register_function(kCameraUpdate, &camera_rotation, "mhfu_camera_update");
-        if (const RotationFunction choice = runtime.function_at(kPullInChoice); choice != nullptr) {
+        runtime.register_function(install::port(kCameraUpdate), &camera_rotation, "mhfu_camera_update");
+        const std::uint32_t pull_in = install::port(kPullInChoice);
+        if (const RotationFunction choice = runtime.function_at(pull_in); choice != nullptr) {
             state.pull_in_original = choice;
-            register_chained(runtime, kPullInChoice, &pull_in_choice, "mhfu_camera_pull_in");
+            register_chained(runtime, pull_in, &pull_in_choice, "mhfu_camera_pull_in");
         }
         state.hooked = true;
     }

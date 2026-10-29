@@ -1,6 +1,8 @@
 #include "gpu/game_hud.hpp"
 
+#include "game/guest_layout.hpp"
 #include "game/hooks.hpp"
+#include "install/release_addresses.hpp"
 #include "settings/settings.hpp"
 
 #include "psprecomp/runtime.hpp"
@@ -384,6 +386,23 @@ bool tracing(const State &s) {
     return s.trace_every != 0u && s.frame > s.trace_first && (s.frame - s.trace_first) % s.trace_every == 0u;
 }
 
+// The image the running release has at `address`: the executable, game_sub
+// in the sub slot, or the task overlay loaded in the task slot.
+install::Image image_at(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    if (address < install::kOverlayStart) return install::Image::executable;
+    if (address >= game::layout::sub_slot()) return install::Image::game_sub;
+    return game::layout::overlay_loaded(memory, game::layout::task_slot(), game::layout::kVillageOverlay)
+        ? install::Image::lobby_task
+        : install::Image::game_task;
+}
+
+// `address` of the running release as the tables name it, ULUS-10391's; 0
+// when that has nothing there. Unchanged on ULUS-10391.
+std::uint32_t traced(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+    if (install::running_map() == nullptr) return address;
+    return install::traced_address(address, image_at(memory, address));
+}
+
 // The frame of the function a return address points into: the nearest
 // addiu sp, sp, -N before it, and where after that it saves ra.
 const Frame *frame_of(State &s, const psprecomp::GuestMemory &memory, std::uint32_t ra) {
@@ -420,16 +439,18 @@ const Frame *frame_of(State &s, const psprecomp::GuestMemory &memory, std::uint3
 // The HUD function at `address`, when it still begins with the words it was
 // read from. A mismatch is said once: the other overlay may occupy the slot,
 // and that is not this function.
-const HudFunction *hud_function_here(State &s, const psprecomp::GuestMemory &memory, std::uint32_t address) {
+// `start` is where it is in memory, `address` the traced one.
+const HudFunction *hud_function_here(
+    State &s, const psprecomp::GuestMemory &memory, std::uint32_t start, std::uint32_t address) {
     for (std::size_t i = 0; i < kHudFunctions.size(); ++i) {
         const HudFunction &fn = kHudFunctions[i];
         if (fn.address != address) continue;
-        const std::uint32_t first = memory.load32(address);
-        const std::uint32_t saved = memory.load32(address + 4u);
+        const std::uint32_t first = memory.load32(start);
+        const std::uint32_t saved = memory.load32(start + 4u);
         if (first == fn.first && saved == fn.saved_ra) return &fn;
         if (!s.hud_word_logged[i]) {
             s.hud_word_logged[i] = true;
-            std::cout << "[hud] unexpected code at 0x" << std::hex << address << ": 0x" << first << " 0x" << saved
+            std::cout << "[hud] unexpected code at 0x" << std::hex << start << ": 0x" << first << " 0x" << saved
                       << std::dec << "; not counted as the HUD\n";
         }
         return nullptr;
@@ -439,10 +460,11 @@ const HudFunction *hud_function_here(State &s, const psprecomp::GuestMemory &mem
 
 // A name label still has to begin with the words it was read from. The quest
 // overlay and the lobby overlay share these addresses.
-const NameFunction *name_function_here(const psprecomp::GuestMemory &memory, std::uint32_t address) {
+const NameFunction *name_function_here(
+    const psprecomp::GuestMemory &memory, std::uint32_t start, std::uint32_t address) {
     for (const NameFunction &fn : kNameFunctions) {
         if (fn.address != address) continue;
-        if (memory.load32(address) != fn.first || memory.load32(address + 4u) != fn.saved_ra) return nullptr;
+        if (memory.load32(start) != fn.first || memory.load32(start + 4u) != fn.saved_ra) return nullptr;
         if (fn.quest_only && !hud_function_matches(memory, kQuestLoaded)) return nullptr;
         if (fn.lobby_only && !hud_function_matches(memory, kLobbyLoaded)) return nullptr;
         return &fn;
@@ -452,9 +474,13 @@ const NameFunction *name_function_here(const psprecomp::GuestMemory &memory, std
 
 // The site table's part for a frame of the stack, or Site::None when its
 // function is not listed or no longer begins with the word it was read from.
-Site site_here(const Frame &frame) {
+// On another release the traced address already names the function, and its
+// frame may differ: Freedom Unite Complete's Combine windows (0x088172D8)
+// keep 96 bytes, not 176.
+Site site_here(const Frame &frame, std::uint32_t address) {
+    const bool ported = install::running_map() != nullptr;
     for (const SiteFunction &fn : kSiteFunctions)
-        if (fn.address == frame.start) return fn.first == frame.start_word ? fn.site : Site::None;
+        if (fn.address == address) return ported || fn.first == frame.start_word ? fn.site : Site::None;
     return Site::None;
 }
 
@@ -487,6 +513,9 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
         ra = game::hooks::caller_of(ra);
         const Frame *frame = frame_of(s, memory, ra);
         if (frame == nullptr) break;
+        // The tables, and the calls handed on, are the traced release's.
+        const std::uint32_t start = traced(memory, frame->start);
+        const std::uint32_t at = traced(memory, ra);
         if (line != nullptr) {
             char text[24];
             std::snprintf(text, sizeof(text), " %08X@%08X", ra, frame->start);
@@ -496,21 +525,21 @@ bool from_hud(State &s, const psprecomp::GuestMemory &memory, const psprecomp::A
         // and stays on the stack for that whole interface, so the walk stops
         // there without treating it as a name.
         if (!found_name)
-            if (const NameFunction *named = name_function_here(memory, frame->start)) {
+            if (const NameFunction *named = name_function_here(memory, frame->start, start)) {
                 found_name = true;
                 limit = named->tag_only;
                 in_hall = named->hall;
                 // `ra` is the call in it.
-                label_call = ra;
+                label_call = at;
             }
         // The innermost listed function: the site table's functions are all
         // below the quest HUD's, so they are met before it.
         if (found_site == Site::None && !hud) {
-            found_site = site_here(*frame);
-            if (found_site != Site::None) found_call = ra;
+            found_site = site_here(*frame, start);
+            if (found_site != Site::None) found_call = at;
         }
         if (!hud)
-            if (const HudFunction *fn = hud_function_here(s, memory, frame->start)) {
+            if (const HudFunction *fn = hud_function_here(s, memory, frame->start, start)) {
                 hud = true;
                 from_quest = fn->quest;
                 if (line == nullptr) break;
@@ -577,7 +606,7 @@ std::string registers_text(const psprecomp::AllegrexContext &ctx) {
 // The queue entries added since the last watched call belong to the code
 // that made it: to the HUD when a HUD function was on the stack then.
 void settle_text(State &s, const psprecomp::GuestMemory &memory) {
-    const std::uint32_t context = memory.load32(kTextContextPointer);
+    const std::uint32_t context = memory.load32(install::port(kTextContextPointer));
     if (!memory.contains(context + kQueueLengths, kQueues) || !memory.contains(context + kQueueEntries, kQueues * 4u))
         return;
     for (std::uint32_t queue = 0; queue < kQueues; ++queue) {
@@ -701,8 +730,9 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
     bool glyph = false;
     float origin_x = 0.0f;
     float origin_y = 0.0f;
-    if (ctx.gpr[31] == kGlyphFiled && memory.contains(sp + kGlyphSavedRa, 4u) &&
-        memory.load32(sp + kGlyphSavedRa) == kGlyphFromQueue) {
+    const std::uint32_t ra = install::traced_address(ctx.gpr[31]);
+    if (ra == kGlyphFiled && memory.contains(sp + kGlyphSavedRa, 4u) &&
+        install::traced_address(memory.load32(sp + kGlyphSavedRa)) == kGlyphFromQueue) {
         entry = memory.load32(sp + kGlyphSavedEntry);
         // A glyph is drawn at the end of the frame, far from the code that
         // queued its text: it is the part that queued it.
@@ -722,7 +752,7 @@ void packet_filed(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext 
         }
     }
     // 0x08892A88 files an icon's packets with the list entry in s4.
-    if (ctx.gpr[31] == kIconFiled || ctx.gpr[31] == kIconFiledAgain) {
+    if (ra == kIconFiled || ra == kIconFiledAgain) {
         entry = ctx.gpr[20];
         if (const State::HudEntry *icon = hud ? nullptr : find_entry(s.icons, entry)) {
             hud = true;
@@ -779,7 +809,7 @@ void overhead_name_end(psprecomp::Runtime &runtime) {
     if (!s.overhead_quest) return;
     s.overhead_quest = false;
     const psprecomp::GuestMemory &memory = runtime.memory();
-    const std::uint32_t context = memory.load32(kTextContextPointer);
+    const std::uint32_t context = memory.load32(install::port(kTextContextPointer));
     if (!memory.contains(context + kQueueLengths, kQueues) || !memory.contains(context + kQueueEntries, kQueues * 4u))
         return;
     for (std::uint32_t queue = 0; queue < kQueues; ++queue) {
@@ -805,9 +835,9 @@ namespace {
 // icon list are the HUD's when its entry is.
 void on_character_drawn(psprecomp::Runtime &runtime, const psprecomp::AllegrexContext &ctx) {
     State &s = state();
-    if (ctx.gpr[31] != kCharacterDrawnFromQueue) return;
+    if (install::traced_address(ctx.gpr[31]) != kCharacterDrawnFromQueue) return;
     const psprecomp::GuestMemory &memory = runtime.memory();
-    const std::uint32_t context = memory.load32(kTextContextPointer);
+    const std::uint32_t context = memory.load32(install::port(kTextContextPointer));
     const std::uint32_t entry = ctx.gpr[19];
     // The lists are filled anew every frame.
     if (s.icon_frame != s.frame) {
@@ -893,8 +923,8 @@ void overhead_name_wrapper(psprecomp::Runtime &runtime, psprecomp::AllegrexConte
 
 // Each text queue's length, or nothing when the text context is not there.
 std::optional<std::array<std::uint8_t, kQueues>> queue_lengths(const psprecomp::GuestMemory &memory) {
-    if (!memory.contains(kTextContextPointer, 4u)) return std::nullopt;
-    const std::uint32_t context = memory.load32(kTextContextPointer);
+    if (!memory.contains(install::port(kTextContextPointer), 4u)) return std::nullopt;
+    const std::uint32_t context = memory.load32(install::port(kTextContextPointer));
     if (!memory.contains(context + kQueueLengths, kQueues)) return std::nullopt;
     std::array<std::uint8_t, kQueues> lengths{};
     for (std::uint32_t queue = 0; queue < kQueues; ++queue)
@@ -914,7 +944,7 @@ template <std::size_t I> void probe(psprecomp::Runtime &runtime, psprecomp::Alle
     s.probes[I].original(runtime, ctx);
     const auto after = queue_lengths(memory);
     if (!before || !after || s.probe_lines_left <= 0) return;
-    const std::uint32_t context = memory.load32(kTextContextPointer);
+    const std::uint32_t context = memory.load32(install::port(kTextContextPointer));
     for (std::uint32_t queue = 0; queue < kQueues; ++queue) {
         if ((*after)[queue] <= (*before)[queue]) continue;
         const std::uint32_t entries = memory.load32(context + kQueueEntries + queue * 4u);
@@ -973,19 +1003,20 @@ template <std::size_t... I> void install_probes(psprecomp::Runtime &runtime, std
 
 template <std::size_t... I> bool install_all(psprecomp::Runtime &runtime, std::index_sequence<I...>) {
     State &s = state();
-    ((s.originals[I] = compiled(wrapped_address(I))), ...);
+    ((s.originals[I] = compiled(install::port(wrapped_address(I)))), ...);
     for (const auto original : s.originals)
         if (original == nullptr) return false;
-    (runtime.register_function(wrapped_address(I), &wrapper<I>, "mhfu_hud"), ...);
+    (runtime.register_function(install::port(wrapped_address(I)), &wrapper<I>, "mhfu_hud"), ...);
     return true;
 }
 
 bool check_code(const psprecomp::Runtime &runtime) {
     for (const CodeWord &expected : kSignature) {
-        const std::uint32_t found = runtime.memory().load32(expected.address);
-        if (found == expected.word) continue;
-        std::cout << "[hud] game code differs at 0x" << std::hex << expected.address << ": 0x" << found
-                  << ", expected 0x" << expected.word << std::dec << "; hiding the HUD is unavailable\n";
+        if (install::code_matches(runtime.memory(), expected.address, expected.word)) continue;
+        const std::uint32_t address = install::port(expected.address);
+        const std::uint32_t found = runtime.memory().contains(address, 4u) ? runtime.memory().load32(address) : 0u;
+        std::cout << "[hud] game code differs at 0x" << std::hex << address << ": 0x" << found << ", expected 0x"
+                  << expected.word << std::dec << "; hiding the HUD is unavailable\n";
         return false;
     }
     return true;
@@ -1007,14 +1038,17 @@ std::span<const SiteFunction> site_functions() {
 
 bool code_matches(const psprecomp::Runtime &runtime) {
     for (const CodeWord &expected : kSignature)
-        if (runtime.memory().load32(expected.address) != expected.word) return false;
+        if (!install::code_matches(runtime.memory(), expected.address, expected.word)) return false;
     return true;
 }
 
 bool hud_function_matches(const psprecomp::GuestMemory &memory, std::uint32_t address) {
     for (const HudFunction &fn : kHudFunctions) {
         if (fn.address != address) continue;
-        return memory.load32(address) == fn.first && memory.load32(address + 4u) == fn.saved_ra;
+        const std::uint32_t at =
+            install::port(address, fn.quest ? install::Image::game_task : install::Image::lobby_task);
+        return at != 0u && memory.contains(at, 8u) && memory.load32(at) == fn.first &&
+            memory.load32(at + 4u) == fn.saved_ra;
     }
     return false;
 }
@@ -1092,9 +1126,9 @@ void frame(psprecomp::Runtime &runtime, std::uint64_t presented_frames) {
         // shape rules, as before it was told apart, to compare both.
         const char *overhead = std::getenv("MHFU_HUD_OVERHEAD_NAME");
         if (overhead == nullptr || *overhead != '0') {
-            s.overhead_original = runtime.function_at(kOverheadName);
+            s.overhead_original = runtime.function_at(install::port(kOverheadName));
             if (s.overhead_original != nullptr)
-                runtime.register_function(kOverheadName, &overhead_name_wrapper, "mhfu_hud");
+                runtime.register_function(install::port(kOverheadName), &overhead_name_wrapper, "mhfu_hud");
         }
     }
 }

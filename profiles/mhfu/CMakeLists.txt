@@ -26,14 +26,65 @@ if(MHFU_GENERATED)
     endif()
     set_source_files_properties(${MHFU_GENERATED} PROPERTIES COMPILE_OPTIONS "${MHFU_GENERATED_OPTIONS}")
 
+    # The functions read from the corpus below are named by their address in
+    # ULUS-10391. A corpus generated from Freedom Unite Complete's executable
+    # (generate.sh stamps its SHA-256, kFreedomUniteComplete's, into
+    # corpus_identity.hpp) has them elsewhere, where
+    # host/install/complete_addresses.inc moves them; one with no counterpart
+    # there is left out, and its feature stays off.
+    set(MHFU_CORPUS_COMPLETE OFF)
+    if(EXISTS "${MHFU_GENERATED_DIR}/corpus_identity.hpp")
+        file(STRINGS "${MHFU_GENERATED_DIR}/corpus_identity.hpp" complete_identity
+            REGEX "02811bb3a529d48d707072a726e87106d0ecdab62aa7e494b23ecf1469eb662f")
+        if(complete_identity)
+            set(MHFU_CORPUS_COMPLETE ON)
+            message(STATUS "mhfu: corpus is Freedom Unite Complete's")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                "${MHFU_PROFILE_DIR}/host/install/complete_addresses.inc")
+        endif()
+    endif()
+    function(mhfu_port_addresses out)
+        if(NOT MHFU_CORPUS_COMPLETE)
+            set(${out} ${ARGN} PARENT_SCOPE)
+            return()
+        endif()
+        file(STRINGS "${MHFU_PROFILE_DIR}/host/install/complete_addresses.inc" ranges REGEX "Image::executable")
+        set(ported "")
+        foreach(address IN LISTS ARGN)
+            math(EXPR value "0x${address}")
+            foreach(range IN LISTS ranges)
+                string(REGEX MATCH "0x([0-9A-F]+)u, 0x([0-9A-F]+)u, 0x([0-9A-F]+)u" matched "${range}")
+                math(EXPR start "0x${CMAKE_MATCH_1}")
+                math(EXPR end "0x${CMAKE_MATCH_2}")
+                if(value GREATER_EQUAL start AND value LESS end)
+                    math(EXPR moved "0x${CMAKE_MATCH_3} + ${value} - ${start}" OUTPUT_FORMAT HEXADECIMAL)
+                    string(SUBSTRING "${moved}" 2 -1 moved)
+                    string(TOUPPER "${moved}" moved)
+                    string(LENGTH "${moved}" digits)
+                    while(digits LESS 8)
+                        string(PREPEND moved "0")
+                        math(EXPR digits "${digits} + 1")
+                    endwhile()
+                    list(APPEND ported "${moved}")
+                    break()
+                endif()
+            endforeach()
+        endforeach()
+        set(${out} ${ported} PARENT_SCOPE)
+    endfunction()
+
     # The analog camera wraps the camera update, and main.cpp has to hand it
     # the generated unit that update was compiled into. Which unit that is
     # depends on how the generator partitions the code, so read it from the
     # corpus instead of naming it: a new partition then finds its own unit,
     # and a corpus without the update leaves analog camera off.
     set(MHFU_CAMERA_HELPER_UNIT "")
+    mhfu_port_addresses(camera_update 08886E50)
     foreach(unit IN LISTS MHFU_GENERATED)
-        file(STRINGS "${unit}" hit REGEX "register_function\\(0x08886E50u, &recomp_unit_[0-9]+," LIMIT_COUNT 1)
+        if(NOT camera_update)
+            break()
+        endif()
+        file(STRINGS "${unit}" hit REGEX "register_function\\(0x${camera_update}u, &recomp_unit_[0-9]+," LIMIT_COUNT 1)
         if(hit)
             string(REGEX MATCH "recomp_unit_[0-9]+" MHFU_CAMERA_HELPER_UNIT "${hit}")
             break()
@@ -47,7 +98,7 @@ if(MHFU_GENERATED)
 
     # Hiding the HUD (host/gpu/game_hud.cpp) wraps the game's 2D functions the
     # same way, so their units are read from the corpus too, in one pass.
-    set(MHFU_HUD_FUNCTIONS
+    mhfu_port_addresses(MHFU_HUD_FUNCTIONS
         088596C8 088952A4 08891474 088915B0 08891700 0889183C 0889198C)
     list(JOIN MHFU_HUD_FUNCTIONS "|" hud_pattern)
     set(hud_lines "")
@@ -66,7 +117,7 @@ if(MHFU_GENERATED)
     # lookup of an armor part's model, the cont_task hunter task, and the load
     # step. The task list is not wrapped: stepping a finished load from it
     # cleared a pointer the quest reads, and embarking then stopped.
-    set(MHFU_LAYERED_FUNCTIONS 088516A4 0885187C 08851C3C 088BC7F0 088C0E58 088D6388)
+    mhfu_port_addresses(MHFU_LAYERED_FUNCTIONS 088516A4 0885187C 08851C3C 088BC7F0 088C0E58 088D6388)
     list(JOIN MHFU_LAYERED_FUNCTIONS "|" layered_pattern)
     set(layered_lines "")
     foreach(unit IN LISTS MHFU_GENERATED)
@@ -850,6 +901,16 @@ endif()
 
 # Units of the executable the game rewrites, and dropping their compiled code.
 # No game data.
+# Moving ULUS-10391's addresses to another release's. Header only; the table
+# holds addresses, no game data.
+add_executable(mhfu_release_addresses_tests tests/release_addresses_tests.cpp)
+target_include_directories(mhfu_release_addresses_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
+target_link_libraries(mhfu_release_addresses_tests PRIVATE psprecomp_core)
+set_target_properties(mhfu_release_addresses_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+if(PSPRECOMP_BUILD_TESTS)
+    add_test(NAME mhfu_release_addresses_tests COMMAND mhfu_release_addresses_tests)
+endif()
+
 add_executable(mhfu_resident_code_tests tests/resident_code_tests.cpp host/resident_code.cpp)
 target_include_directories(mhfu_resident_code_tests PRIVATE "${MHFU_PROFILE_DIR}/host")
 target_link_libraries(mhfu_resident_code_tests PRIVATE psprecomp_core)

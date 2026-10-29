@@ -6,9 +6,15 @@
 // fields of an entity on it. Each is defined once here; a field that only one
 // feature reads stays with that feature.
 //
+// The addresses are ULUS-10391's. The accessors below them (task_slot(),
+// camera_object() and the rest) read the running release's, moved by
+// install::port (install/release_addresses.hpp).
+//
 // The functions take any memory with contains() and load8/16/32():
 // psprecomp::GuestMemory as the game runs, game::Ram (game/guest_ram.hpp)
 // for the code that reads the game's data, and the stand-ins of the tests.
+
+#include "install/release_addresses.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -39,6 +45,20 @@ inline constexpr std::string_view kQuestOverlay = "game_task.ovl";
 inline constexpr std::string_view kVillageOverlay = "lobby_task.ovl";
 inline constexpr std::string_view kSubOverlay = "game_sub.ovl";
 
+// The slots in the running release.
+[[nodiscard]] inline std::uint32_t task_slot() {
+    return install::port(kTaskSlot);
+}
+[[nodiscard]] inline std::uint32_t sub_slot() {
+    return install::port(kSubSlot);
+}
+[[nodiscard]] inline std::uint32_t em_overlay() {
+    return install::port(kEmOverlay);
+}
+[[nodiscard]] inline std::uint32_t em_overlay_end() {
+    return install::port(kEmOverlayEnd);
+}
+
 // True when the image in `slot` is `name`, terminator included, so a longer
 // name that starts the same is not it.
 template <typename Memory>
@@ -54,7 +74,7 @@ template <typename Memory>
 
 // A quest runs while game_task.ovl is in the task slot.
 template <typename Memory> [[nodiscard]] bool quest_running(const Memory &memory) {
-    return overlay_loaded(memory, kTaskSlot, kQuestOverlay);
+    return overlay_loaded(memory, task_slot(), kQuestOverlay);
 }
 
 // The camera object and the hunter it follows ----------------------------------
@@ -68,8 +88,9 @@ inline constexpr std::uint32_t kFollowedHunter = 2692u;
 
 // The camera object, or 0 when its pointer is not set yet.
 template <typename Memory> [[nodiscard]] std::uint32_t camera_object(const Memory &memory) {
-    if (!memory.contains(kCameraObject, 4u)) return 0u;
-    const std::uint32_t object = memory.load32(kCameraObject);
+    const std::uint32_t pointer = install::port(kCameraObject);
+    if (!memory.contains(pointer, 4u)) return 0u;
+    const std::uint32_t object = memory.load32(pointer);
     return in_ram(object) ? object : 0u;
 }
 
@@ -92,12 +113,20 @@ inline constexpr std::uint32_t kItemAtlas = 0x091874A0u;
 inline constexpr std::uint32_t kGameSysPointer = 0x089CC558u;
 inline constexpr std::uint32_t kGameSysStage = 0x6AF0Eu;
 
+// Where the running release keeps the GameSys pointer.
+[[nodiscard]] inline std::uint32_t game_sys_pointer() {
+    return install::port(kGameSysPointer);
+}
+
 // The quest entity list --------------------------------------------------------
 
 // The word at kEntityList is the entity manager. Its list head is the newest
 // node; +4 of a node is the next older one, +12 the entity, +36 a type byte.
 // Type 1 is a player. The insert is game_sub 0x09C57CA0.
 inline constexpr std::uint32_t kEntityList = 0x09D19860u;
+[[nodiscard]] inline std::uint32_t entity_list() {
+    return install::port(kEntityList);
+}
 inline constexpr std::uint32_t kListHead = 0x19030u;
 inline constexpr std::uint32_t kNodeOlder = 0x4u;
 inline constexpr std::uint32_t kNodeEntity = 0xCu;
@@ -118,6 +147,9 @@ inline constexpr std::uint32_t kVtableSpan = 64u;
 // hunter's health pool, and +0x1E8 is not a species: it has read 7, 10 and
 // small species, which put a Lao-Shan Lung or a Rathian icon on a hunter.
 inline constexpr std::uint32_t kHunterVtable = 0x089BB3CCu;
+[[nodiscard]] inline std::uint32_t hunter_vtable() {
+    return install::port(kHunterVtable);
+}
 // World position, three floats, y up.
 inline constexpr std::uint32_t kPosition = 0x200u;
 // Species. 0x088135D0 loads this byte and compares it with species constants.
@@ -143,8 +175,9 @@ struct EntityNode {
 // The entity manager, or 0 when the list cannot be read. Not tied to a
 // quest: callers that need one check quest_running() first.
 template <typename Memory> [[nodiscard]] std::uint32_t entity_manager(const Memory &memory) {
-    if (!memory.contains(kEntityList, 4u)) return 0u;
-    const std::uint32_t manager = memory.load32(kEntityList);
+    const std::uint32_t list = entity_list();
+    if (!memory.contains(list, 4u)) return 0u;
+    const std::uint32_t manager = memory.load32(list);
     return in_ram(manager) && memory.contains(manager + kListHead, 4u) ? manager : 0u;
 }
 
