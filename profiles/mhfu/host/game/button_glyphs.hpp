@@ -69,4 +69,36 @@ struct GlyphCell {
 };
 [[nodiscard]] GlyphCell button_glyph_cell(ButtonGlyph glyph) noexcept;
 
+// A sprite of the sheet, in the game's texels. The HUD draws the sheet's
+// sprites by number through EBOOT 0x0882AF70, which reads them from the table
+// at 0x089392C8: 12 bytes each, the halfwords u, v, width and height, then the
+// texture (0x8001, the sheet) and the palette.
+struct QuestBarSprite {
+    std::uint16_t u{};
+    std::uint16_t v{};
+    std::uint16_t width{};
+    std::uint16_t height{};
+};
+inline constexpr std::uint32_t kQuestBarSprites = 0x089392C8u;
+inline constexpr std::uint32_t kQuestBarSpriteStride = 12u;
+inline constexpr std::uint16_t kQuestBarSpriteTexture = 0x8001u;
+
+// Sprite 36: the hexagon the item bar draws behind the selected item, 40 by
+// 40, the table's only sprite of that size (traced at (372,200)-(412,240),
+// with the item's 32 by 32 icon at (376,202)-(408,234) over it).
+inline constexpr std::uint32_t kItemBarFrameSprite = 36u;
+inline constexpr QuestBarSprite kItemBarFrame{152u, 32u, 40u, 40u};
+
+// Whether the game's table holds `expected` as sprite `number` of the sheet.
+// False when the entry differs or is not mapped.
+[[nodiscard]] bool quest_bar_sprite_matches(
+    const psprecomp::GuestMemory &memory, std::uint32_t number, const QuestBarSprite &expected);
+
+// A sprite's place on a sheet of any size, as 0..1 texture coordinates.
+[[nodiscard]] GlyphCell quest_bar_cell(const QuestBarSprite &sprite) noexcept;
+
+// True once refresh_button_glyphs has found kItemBarFrame in the game's
+// table. Until then, or if the table differs, the frame is not drawn.
+[[nodiscard]] bool item_bar_frame_ready();
+
 } // namespace mhfu::game

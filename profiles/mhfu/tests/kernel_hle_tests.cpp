@@ -1521,6 +1521,23 @@ void font_contracts() {
     check(memory.load16(table) == 0xffff && memory.load16(table + 0x1000) == 0xffff &&
             memory.load16(table + (0xfff0 - 1) * 2) == 0xffff,
         "font reload invalidates complete recognized guest glyph map");
+    // At start the game draws ASCII into one row of its atlas at a line's pen
+    // positions (MHFU_TRACE_FONT: '3' at x64=4160 then 4129, y64=256). Those
+    // passes are outside a 20x20 cell; glyph_alone() brings them into one.
+    const auto has_ink = [](const std::vector<std::uint8_t> &cell) {
+        return std::any_of(cell.begin(), cell.end(), [](std::uint8_t ink) { return ink != 0u; });
+    };
+    const auto row_at = [](std::int32_t x64) {
+        mhfu::fonts::note_glyph_pass('A', x64, 256, true);
+        mhfu::fonts::note_glyph_pass('A', x64 - 31, 256, false);
+    };
+    row_at(4160);
+    check(!has_ink(mhfu::fonts::glyph_cell('A', 1)), "a glyph drawn along the atlas row is no 20x20 cell");
+    const std::vector<std::uint8_t> alone = mhfu::fonts::glyph_alone('A', 2);
+    check(alone.size() == 40u * 40u && has_ink(alone), "glyph_alone() gives it as the game drew it");
+    row_at(4160 + 37 * 64);
+    check(mhfu::fonts::glyph_alone('A', 2) == alone, "wherever along the row it was drawn");
+    check(mhfu::fonts::glyph_alone(0x2603u, 1).empty(), "nothing for a character the game never drew");
     check(call("sceFontClose", {font}) == 0 && call("sceFontDoneLib", {0xf0f000}) == 0,
         "font and library close successfully");
     mhfu::fonts::set_reload_hook(nullptr);

@@ -25,6 +25,7 @@
 #include "adhoc/discovery.hpp"
 #include "adhoc/session.hpp"
 #include "audio/audio_sink.hpp"
+#include "fonts/game_font.hpp"
 #include "game/button_glyphs.hpp"
 #include "game/damage_numbers.hpp"
 #include "game/gather_icon.hpp"
@@ -1442,8 +1443,8 @@ void Menu::game() {
     }
     {
         RowOptions o = options_for("game.gather_icon_size",
-            "How large the gather mark is, in percent of its usual size. The disc and its picture grow together, "
-            "and the ring grows with them.");
+            "How large the gather mark is, in percent of its usual size. The frame, its picture, the button and "
+            "the count grow together.");
         o.disabled = o.disabled || !s.gather_icon;
         int size = static_cast<int>(s.gather_icon_size);
         if (slider_row("Gather icon size", size, static_cast<int>(settings::kMinGatherIconSize),
@@ -2520,15 +2521,6 @@ bool draw_gather_art(ImDrawList *draw, const game::GatherMark &mark, ImVec2 cent
     return unknown();
 }
 
-// The first chord of an action that is one input on that device.
-std::optional<input::Binding> single_binding(input::Action action, bool pad) {
-    const settings::Settings &s = settings::current();
-    const input::Slots &slots = (pad ? s.controls.pad : s.controls.keys)[static_cast<std::size_t>(action)];
-    for (const input::Chord &chord : slots)
-        if (!chord.empty() && !chord.combined()) return chord.held()[0];
-    return std::nullopt;
-}
-
 // One per size: the pack's image of the sheet is larger than the game's own,
 // and upload_sheet keeps the size a texture was made with, so turning the
 // pack off copied the game's sheet into the pack's texture, row by row in the
@@ -2538,65 +2530,95 @@ SheetTexture &button_glyph_texture(std::uint32_t width, std::uint32_t height) {
     return sheets[{width, height}];
 }
 
-// The button that does what the mark shows (GatherMark::button), at the
-// disc's lower left. It is the game's own glyph from the quest bar's sheet
-// (game/button_glyphs.hpp), as the game's prompts draw it and as a texture
-// pack replaces it, in the pack's chosen button icons. Until the sheet has
-// been drawn: the pad button bound to the game's ○ or □, as the pad labels
-// it, or with no pad the key, in a small cap.
-void draw_gather_button(ImDrawList *draw, std::uint32_t button, ImVec2 disc, float radius, float alpha) {
-    const input::Action action = button == 0x8000u ? input::Action::Square : input::Action::Circle;
-    const float badge = radius * 0.5f;
-    const ImVec2 centre{disc.x - radius * 0.72f, disc.y + radius * 0.72f};
-    if (const std::optional<game::ButtonGlyph> glyph = game::button_glyph_for(button)) {
-        const game::ButtonGlyphSheet sheet = game::button_glyph_sheet();
-        SheetTexture &texture = button_glyph_texture(sheet.width, sheet.height);
-        upload_sheet(texture, sheet.ready, sheet.pixels, sheet.width, sheet.height, sheet.generation);
-        if (sheet.ready && texture.texture != nullptr && texture.generation == sheet.generation) {
-            const game::GlyphCell cell = game::button_glyph_cell(*glyph);
-            const float half = badge * 1.15f; // the glyph's art sits inside its cell
-            draw->AddImage(texture.texture->GetTexRef(), {centre.x - half, centre.y - half},
-                {centre.x + half, centre.y + half}, {cell.u0, cell.v0}, {cell.u1, cell.v1},
-                IM_COL32(255, 255, 255, static_cast<int>(255.0f * alpha)));
-            return;
-        }
-    }
-    const ImU32 fill = IM_COL32(236, 228, 208, static_cast<int>(235.0f * alpha));
-    const ImU32 ink = IM_COL32(20, 16, 12, static_cast<int>(255.0f * alpha));
-    const ImU32 edge = IM_COL32(0, 0, 0, static_cast<int>(180.0f * alpha));
-    const bool pad = Layer::get().attached() && Layer::get().renderer().gamepad() != nullptr;
-    if (pad) {
-        if (const std::optional<input::Binding> bound = single_binding(action, true); bound && input::is_pad(*bound)) {
-            const int at = input::pad_input_of(*bound);
-            const std::optional<Face> face = at == static_cast<int>(input::PadInput::South) ? std::optional{Face::South}
-                : at == static_cast<int>(input::PadInput::East)                             ? std::optional{Face::East}
-                : at == static_cast<int>(input::PadInput::West)                             ? std::optional{Face::West}
-                : at == static_cast<int>(input::PadInput::North)                            ? std::optional{Face::North}
-                                                                                            : std::nullopt;
-            if (face) {
-                draw_face_badge(draw, centre, badge, *face, fill, ink);
-                draw->AddCircle(centre, badge, edge, 0, std::max(1.0f, badge * 0.12f));
-                return;
-            }
-        }
-    }
-    const std::optional<input::Binding> key = single_binding(action, pad);
-    if (!key) return;
-    const std::string text = input::label(*key, input::PadStyle::Generic);
-    ImFont *font = ImGui::GetFont();
-    const float size = badge * 1.3f;
-    const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str());
-    const float half_w = std::max(badge, extent.x * 0.5f + badge * 0.4f);
-    const ImVec2 min{centre.x - half_w, centre.y - badge};
-    const ImVec2 max{centre.x + half_w, centre.y + badge};
-    draw->AddRectFilled(min, max, fill, badge * 0.5f);
-    draw->AddRect(min, max, edge, badge * 0.5f, 0, std::max(1.0f, badge * 0.12f));
-    draw->AddText(font, size, {centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f}, ink, text.c_str());
+// The quest bar's sheet (game/button_glyphs.hpp) as uploaded, or null until
+// it has been drawn and decoded: the game's texture, or the texture pack's
+// image of it, so a pack's button icons and frame are the ones shown.
+SheetTexture *quest_bar_texture() {
+    const game::ButtonGlyphSheet sheet = game::button_glyph_sheet();
+    SheetTexture &texture = button_glyph_texture(sheet.width, sheet.height);
+    upload_sheet(texture, sheet.ready, sheet.pixels, sheet.width, sheet.height, sheet.generation);
+    if (!sheet.ready || texture.texture == nullptr || texture.generation != sheet.generation) return nullptr;
+    return &texture;
 }
 
-// The gather mark (game/gather_icon.hpp): a dark disc in the game's pixels,
-// above the node, with the picture of what it gathers in it, or the game's
-// red ? when there is none (the interface's own ? until the atlas is read). It grows a little as it fades in. Its vertices follow frame
+// A sprite's cell pulled in by half a texel of the sheet as uploaded. The
+// interface samples bilinearly, so at the cell's own edges the quad's outer
+// pixels took half of the neighbouring sprites' texels: a faint square
+// around the hexagon.
+game::GlyphCell inside_texels(game::GlyphCell cell, const SheetTexture &sheet) {
+    const float u = 0.5f / static_cast<float>(sheet.texture->Width);
+    const float v = 0.5f / static_cast<float>(sheet.texture->Height);
+    return {cell.u0 + u, cell.v0 + v, cell.u1 - u, cell.v1 - v};
+}
+
+// The button that does what the mark shows (GatherMark::button), at the
+// frame's lower left: the game's own glyph from the quest bar's sheet, as
+// the game's prompts draw it. Nothing until the sheet has been drawn.
+void draw_gather_button(ImDrawList *draw, std::uint32_t button, ImVec2 frame, float side, float alpha) {
+    const std::optional<game::ButtonGlyph> glyph = game::button_glyph_for(button);
+    SheetTexture *const texture = quest_bar_texture();
+    if (!glyph || texture == nullptr) return;
+    // The glyph's 16 texels, at the frame's 40-texel scale and a little larger.
+    const float half = side * 0.25f;
+    const ImVec2 centre{frame.x - side * 0.36f, frame.y + side * 0.36f};
+    const game::GlyphCell cell = inside_texels(game::button_glyph_cell(*glyph), *texture);
+    draw->AddImage(texture->texture->GetTexRef(), {centre.x - half, centre.y - half}, {centre.x + half, centre.y + half},
+        {cell.u0, cell.v0}, {cell.u1, cell.v1}, IM_COL32(255, 255, 255, static_cast<int>(255.0f * alpha)));
+}
+
+// A count in the game's own letters: each character as the game drew it into
+// the glyph atlas it draws its text from (fonts::glyph_alone), as the item
+// bar's counts are, rebuilt when the count or the font changes. Null while
+// the game has not drawn one of the characters yet.
+struct CountTexture {
+    SheetTexture sheet;
+    std::string text;
+    std::uint64_t font{};
+    std::uint32_t width{};
+    std::uint32_t height{};
+};
+
+const CountTexture *count_texture(const std::string &text) {
+    constexpr int kScale = 4;
+    constexpr int kSide = fonts::kCell * kScale;
+    static CountTexture kept;
+    static std::uint64_t made{};
+    if (kept.sheet.texture != nullptr && kept.text == text && kept.font == fonts::generation()) return &kept;
+    std::vector<std::vector<std::uint8_t>> cells;
+    for (const char letter : text) {
+        std::vector<std::uint8_t> cell = fonts::glyph_alone(static_cast<unsigned char>(letter), kScale);
+        if (cell.size() != static_cast<std::size_t>(kSide) * kSide) return nullptr;
+        cells.push_back(std::move(cell));
+    }
+    if (cells.empty()) return nullptr;
+    const auto width = static_cast<std::uint32_t>(kSide * static_cast<int>(cells.size()));
+    const auto height = static_cast<std::uint32_t>(kSide);
+    std::vector<std::uint32_t> pixels(static_cast<std::size_t>(width) * height, 0u);
+    for (std::size_t n = 0; n < cells.size(); ++n)
+        for (int y = 0; y < kSide; ++y)
+            for (int x = 0; x < kSide; ++x) {
+                // 4-bit ink, white as the game's text.
+                const std::uint32_t ink = cells[n][static_cast<std::size_t>(y * kSide + x)] * 17u;
+                pixels[static_cast<std::size_t>(y) * width + n * kSide + static_cast<std::size_t>(x)] =
+                    (ink << 24u) | 0x00FFFFFFu;
+            }
+    // A new size needs a new texture: upload_sheet keeps the size it made.
+    if (kept.width != width || kept.height != height) kept.sheet = {};
+    upload_sheet(kept.sheet, true, pixels.data(), width, height, ++made);
+    kept.text = text;
+    kept.font = fonts::generation();
+    kept.width = width;
+    kept.height = height;
+    return &kept;
+}
+
+// The gather mark (game/gather_icon.hpp), made of the game's own pieces:
+// the hexagon the item bar draws behind the selected item, from the quest
+// bar's sheet, with the picture of what it gathers over it as the item bar
+// draws the item, or the game's red ? when there is none; the button's glyph
+// from the same sheet; and the tool count in the game's letters. A piece the
+// game has not drawn yet is left out, and the interface draws nothing of
+// its own. It grows a little as it fades in. Its vertices follow frame
 // interpolation (gpu/ui_motion.hpp) from where the last game frame drew it.
 // Drawn by the interface and never into the game's frames.
 void draw_gather_mark(const game::GatherMark &mark) {
@@ -2613,38 +2635,36 @@ void draw_gather_mark(const game::GatherMark &mark) {
     const float pixel = picture[3] * io.DisplaySize.y / 272.0f * grow;
     const settings::Settings &player = settings::current();
     const game::GatherShape shape = game::gather_mark_shape(player.gather_icon_size);
-    const float radius = shape.radius * pixel;
-    const float ring = std::max(1.0f, shape.ring * pixel);
-    const int segments = std::clamp(static_cast<int>(shape.radius * 3.0f), 16, 48);
-    const auto fade = [&](int r, int g, int b, int a) {
-        return IM_COL32(r, g, b, static_cast<int>(static_cast<float>(a) * alpha));
-    };
+    // The frame's side, its 40 texels.
+    const float side = 2.0f * (shape.radius + shape.ring) * pixel;
+    const float texel = side / static_cast<float>(game::kItemBarFrame.width);
+    const int opacity = static_cast<int>(255.0f * alpha);
     ImDrawList *draw = ImGui::GetBackgroundDrawList();
     const int first_vertex = draw->VtxBuffer.Size;
-    draw->AddCircleFilled(centre, radius, fade(20, 16, 12, 210), segments);
-    draw->AddCircle(centre, radius, fade(0, 0, 0, 180), segments, ring);
-    // The picture fills most of the disc; the ring stays outside it.
-    if (!draw_gather_art(draw, mark, centre, radius * 1.7f, alpha)) {
-        const char *label = "?";
-        const float size = shape.glyph * pixel;
-        ImFont *font = ImGui::GetFont();
-        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, label);
-        const ImVec2 origin{centre.x - extent.x * 0.5f, centre.y - extent.y * 0.5f};
-        draw->AddText(font, size, origin, fade(245, 236, 214, 240), label);
+    if (SheetTexture *const sheet = quest_bar_texture(); sheet != nullptr && game::item_bar_frame_ready()) {
+        const game::GlyphCell cell = inside_texels(game::quest_bar_cell(game::kItemBarFrame), *sheet);
+        const float half = side * 0.5f;
+        draw->AddImage(sheet->texture->GetTexRef(), {centre.x - half, centre.y - half},
+            {centre.x + half, centre.y + half}, {cell.u0, cell.v0}, {cell.u1, cell.v1},
+            IM_COL32(255, 255, 255, opacity));
     }
-    if (mark.button != 0u) draw_gather_button(draw, mark.button, centre, radius, alpha);
-    // How many of the tool the pouch holds, at the upper right as the game
-    // writes a count ("x3").
+    // The item bar draws the item's 32-texel icon 4 texels in from the
+    // frame's left and 2 from its top.
+    (void)draw_gather_art(draw, mark, {centre.x, centre.y - 2.0f * texel}, 32.0f * texel, alpha);
+    if (mark.button != 0u) draw_gather_button(draw, mark.button, centre, side, alpha);
+    // How many of the tool the pouch holds, as x3, at the frame's upper right,
+    // in the game's own letters: 7 by 14 of its pixels each, as the item bar's.
     if (mark.carried > 0u) {
         const std::string count = "x" + std::to_string(mark.carried);
-        const float size = shape.glyph * pixel * 0.85f;
-        ImFont *font = ImGui::GetFont();
-        const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, count.c_str());
-        const ImVec2 at{centre.x + radius * 0.55f, centre.y - radius * 0.75f - extent.y * 0.5f};
-        const float edge = std::max(1.0f, pixel * 0.5f);
-        for (const ImVec2 offset : {ImVec2{-edge, 0.0f}, ImVec2{edge, 0.0f}, ImVec2{0.0f, -edge}, ImVec2{0.0f, edge}})
-            draw->AddText(font, size, {at.x + offset.x, at.y + offset.y}, fade(0, 0, 0, 200), count.c_str());
-        draw->AddText(font, size, at, fade(245, 236, 214, 245), count.c_str());
+        if (const CountTexture *digits = count_texture(count)) {
+            const float advance = 7.0f * texel;
+            const float tall = 14.0f * texel;
+            const float right = centre.x + side * 0.5f;
+            const float top = centre.y - side * 0.5f;
+            const ImVec2 min{right - advance * static_cast<float>(count.size()), top};
+            draw->AddImage(digits->sheet.texture->GetTexRef(), min, {right, top + tall}, {0.0f, 0.0f}, {1.0f, 1.0f},
+                IM_COL32(255, 255, 255, opacity));
+        }
     }
     if (mark.older) {
         const ImVec2 older = screen(*mark.older);
@@ -2653,7 +2673,7 @@ void draw_gather_mark(const game::GatherMark &mark) {
 }
 
 // Every mark of this game frame. Two things at one place (a mining point and
-// the body over it, or a node by the water) are set side by side, a disc and
+// the body over it, or a node by the water) are set side by side, a frame and
 // the spacing apart in the game's pixels, so neither covers the other.
 void draw_gather_marks(std::vector<game::GatherMark> marks) {
     const ImGuiIO &io = ImGui::GetIO();

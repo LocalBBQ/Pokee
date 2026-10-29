@@ -38,6 +38,9 @@ struct Cache {
     std::uint32_t height{};
     std::uint64_t generation{};
     std::vector<std::uint32_t> pixels;
+    // The item bar's frame was found in the game's sprite table.
+    bool frame_found{};
+    bool frame_logged{};
 };
 
 Cache &cache() {
@@ -120,6 +123,14 @@ void note_quest_bar_image(const std::filesystem::path &file) {
 
 void refresh_button_glyphs(const psprecomp::GuestMemory &memory) {
     Cache &kept = cache();
+    if (!kept.frame_found) {
+        kept.frame_found = quest_bar_sprite_matches(memory, kItemBarFrameSprite, kItemBarFrame);
+        if (!kept.frame_found && !kept.frame_logged) {
+            kept.frame_logged = true;
+            std::cerr << "[button glyphs] the item bar's frame is not sprite " << kItemBarFrameSprite
+                      << " of the game's table; the gather mark is drawn without it" << std::endl;
+        }
+    }
     // A decode that has finished: shown if it is still the image the pack
     // gives the sheet.
     if (kept.decoding.valid() && kept.decoding.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -174,6 +185,25 @@ GlyphCell button_glyph_cell(ButtonGlyph glyph) noexcept {
     constexpr float kCell = static_cast<float>(kButtonGlyphSide) / static_cast<float>(kQuestBarSide);
     const float u = static_cast<float>(static_cast<unsigned>(glyph)) * kCell;
     return {u, 0.0f, u + kCell, kCell};
+}
+
+bool quest_bar_sprite_matches(
+    const psprecomp::GuestMemory &memory, std::uint32_t number, const QuestBarSprite &expected) {
+    const std::uint32_t entry = kQuestBarSprites + number * kQuestBarSpriteStride;
+    if (!memory.contains(entry, kQuestBarSpriteStride)) return false;
+    return memory.load16(entry) == expected.u && memory.load16(entry + 2u) == expected.v &&
+           memory.load16(entry + 4u) == expected.width && memory.load16(entry + 6u) == expected.height &&
+           memory.load16(entry + 8u) == kQuestBarSpriteTexture;
+}
+
+GlyphCell quest_bar_cell(const QuestBarSprite &sprite) noexcept {
+    constexpr float kSide = static_cast<float>(kQuestBarSide);
+    return {static_cast<float>(sprite.u) / kSide, static_cast<float>(sprite.v) / kSide,
+        static_cast<float>(sprite.u + sprite.width) / kSide, static_cast<float>(sprite.v + sprite.height) / kSide};
+}
+
+bool item_bar_frame_ready() {
+    return cache().frame_found;
 }
 
 } // namespace mhfu::game
