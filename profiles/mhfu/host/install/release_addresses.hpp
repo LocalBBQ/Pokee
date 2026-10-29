@@ -39,17 +39,17 @@ struct AddressRange {
 
 // Where the executable loads; lower addresses are not the game's own.
 inline constexpr std::uint32_t kGameCodeStart = 0x08804000u;
-// Below the overlay slots, everything is the executable's. ULUS-10391's sub
-// slot (kOverlaySlots in mhfu_profile.hpp) holds game_sub on a quest; below
-// it is the task slot's.
-inline constexpr std::uint32_t kOverlayStart = 0x09A00000u;
+// ULUS-10391's task and sub slots (kOverlaySlots in mhfu_profile.hpp). Below
+// the task slot everything is the executable's, its data and what it
+// allocates included; the sub slot holds game_sub on a quest.
+inline constexpr std::uint32_t kTracedTaskSlot = 0x09A5F300u;
 inline constexpr std::uint32_t kTracedSubSlot = 0x09C19100u;
 
 // The image a traced address is in, for code in `from` that reaches it: the
 // executable, game_sub in the sub slot, or the task overlay `from` is, else
 // game_task.
 [[nodiscard]] constexpr Image image_at(std::uint32_t traced, Image from) {
-    if (traced < kOverlayStart) return Image::executable;
+    if (traced < kTracedTaskSlot) return Image::executable;
     if (traced >= kTracedSubSlot) return Image::game_sub;
     return from == Image::lobby_task ? Image::lobby_task : Image::game_task;
 }
@@ -145,7 +145,7 @@ private:
 [[nodiscard]] inline std::uint32_t traced_code(std::uint32_t address, Image task = Image::game_task) {
     const AddressMap *map = running_map();
     if (map == nullptr) return address;
-    if (address < kOverlayStart) return map->traced(address, Image::executable);
+    if (address < map->port(kTracedTaskSlot, Image::executable)) return map->traced(address, Image::executable);
     if (address >= map->port(kTracedSubSlot, Image::executable)) return map->traced(address, Image::game_sub);
     return map->traced(address, task);
 }
@@ -201,7 +201,7 @@ constexpr bool in_ram(std::uint32_t word) {
 // overlay.
 [[nodiscard]] inline bool moves_to(std::uint32_t target, Image from, std::uint32_t found) {
     if (port(target, image_at(target, from)) == found) return true;
-    return from == Image::executable && target >= kOverlayStart && target < kTracedSubSlot &&
+    return from == Image::executable && target >= kTracedTaskSlot && target < kTracedSubSlot &&
         port(target, Image::lobby_task) == found;
 }
 

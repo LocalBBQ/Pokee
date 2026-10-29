@@ -78,6 +78,8 @@ void the_images_of_traced_addresses() {
     check(image_at(0x09AA4DD0u, Image::lobby_task) == Image::lobby_task, "and lobby_task from that");
     check(image_at(0x09AA4DD0u, Image::executable) == Image::game_task, "and game_task from the executable");
     check(image_at(0x09C3ABA8u, Image::executable) == Image::game_sub, "the sub slot is game_sub");
+    check(image_at(0x09A289BCu, Image::lobby_task) == Image::executable,
+        "below the task slot is the executable's, whatever reaches it");
 }
 
 // complete_addresses.inc is in order and its ranges do not overlap.
@@ -187,6 +189,7 @@ void moves_code_back() {
     check(port_from(0x09ADCCD0u, Image::lobby_task) == port(0x09ADCCD0u, Image::lobby_task),
         "and the task slot lobby_task");
     check(port_from(0x08886E50u, Image::lobby_task) == 0x08886B54u, "and the executable itself");
+    check(port_from(0x09A289BCu, Image::lobby_task) == 0x09A245B8u, "and what it keeps below the task slot");
     set_running_release(&kFreedomUniteUsa);
     check(traced_code(0x09A9FFA0u) == 0x09A9FFA0u, "on ULUS-10391 code stays where it is");
     set_running_release(nullptr);

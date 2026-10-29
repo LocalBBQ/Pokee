@@ -389,7 +389,7 @@ bool tracing(const State &s) {
 // The image the running release has at `address`: the executable, game_sub
 // in the sub slot, or the task overlay loaded in the task slot.
 install::Image image_at(const psprecomp::GuestMemory &memory, std::uint32_t address) {
-    if (address < install::kOverlayStart) return install::Image::executable;
+    if (address < game::layout::task_slot()) return install::Image::executable;
     if (address >= game::layout::sub_slot()) return install::Image::game_sub;
     return game::layout::overlay_loaded(memory, game::layout::task_slot(), game::layout::kVillageOverlay)
         ? install::Image::lobby_task
