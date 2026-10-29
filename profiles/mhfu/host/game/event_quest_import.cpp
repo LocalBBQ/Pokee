@@ -105,16 +105,16 @@ ImportCheck check_import(const fs::path &chosen, const fs::path &quest_folder) {
     std::map<std::uint16_t, ImportCandidate> chosen_quests; // the first of each id
     for (Found &f : found) {
         const std::uint16_t id = f.quest.id;
-        if (id >= kFirstChallengeId && id < kFirstChallengeId + 1000u) {
-            ++check.challenges;
-        } else if (id < kFirstEventId || id >= kFirstChallengeId) {
+        const bool hidden = (f.quest.flags & kHiddenFlag) != 0u;
+        const bool event = id >= kFirstEventId && id < kFirstChallengeId && !hidden;
+        const bool challenge = id >= kFirstChallengeId && id < kLastChallengeId && hidden;
+        if (!event && !challenge) {
             ++check.other;
-        } else if ((f.quest.flags & kHiddenFlag) != 0u) {
-            ++check.challenges;
         } else if (japan_only(id)) {
             ++check.japan_only;
         } else if (!chosen_quests.contains(id)) {
             ImportCandidate candidate;
+            candidate.challenge = challenge;
             candidate.title = title(f.quest.bytes);
             candidate.from = std::move(f.from);
             candidate.quest = std::move(f.quest);

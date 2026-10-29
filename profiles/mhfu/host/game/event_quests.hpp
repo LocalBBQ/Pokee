@@ -44,6 +44,18 @@ struct AllegrexContext;
 // library dispatches them (config/overlay_dispatch.txt), so nothing is
 // replaced with a library built without that.
 //
+// The Training School (arcade_task, also at 0x09A5F300) lists the save's
+// challenges, the quests with that flag, the other way round: its loop
+// (0x09A63C80) asks 0x09A6E2B8(arcade, k) for slot k's info block, which is
+// 0 unless the flag is set, and appends the quest's id to arcade + 376
+// (halfwords), the info block to + 420 and the slot to + 476 (words), one
+// more each time, counting at the halfword + 416. The arrays hold 14 before
+// + 532. A chosen challenge's slot is copied, 0x6800 bytes, into the quest
+// buffer. The loop's call crosses generated units, so the getter's
+// replacement is reached without a dispatch list; on its call for the last
+// slot it appends the built-in challenges to the three arrays, leaving room
+// for that slot's own.
+//
 // The quests are the files m<id>.mib in event_quests/ of the data directory,
 // decoded. A quest whose id the save already holds is the save's.
 namespace mhfu::game::event_quests {
@@ -72,6 +84,14 @@ inline constexpr std::uint32_t kChosenSlot = 120u;
 inline constexpr std::uint32_t kList = 2048u;
 inline constexpr std::uint32_t kListCount = 2246u;
 inline constexpr std::uint32_t kListRoom = (kListCount - kList) / 2u;
+
+inline constexpr std::uint32_t kChallengeGetter = 0x09A6E2B8u;
+inline constexpr std::uint32_t kChallengeLoopReturn = 0x09A63C94u;
+inline constexpr std::uint32_t kChallengeIds = 376u;
+inline constexpr std::uint32_t kChallengeCount = 416u;
+inline constexpr std::uint32_t kChallengeInfos = 420u;
+inline constexpr std::uint32_t kChallengeSlots = 476u;
+inline constexpr std::uint32_t kChallengeRoom = 14u;
 
 struct Quest {
     std::uint16_t id{};
@@ -113,8 +133,19 @@ Bank place(psprecomp::GuestMemory &memory, std::uint32_t base, std::uint32_t str
 std::uint32_t extend_list(psprecomp::GuestMemory &memory, const Bank &bank, std::uint32_t lobby,
     std::uint32_t write, std::uint32_t count, std::uint32_t last_slot_info);
 
+// The Training School's getter for save slot k, as 0x09A6E2B8 does it: the
+// info block of a challenge only.
+[[nodiscard]] std::uint32_t save_challenge_info(psprecomp::GuestMemory &memory, std::uint32_t k);
+// The loop's call for the last slot: appends the bank's challenges the list
+// does not hold yet to the arcade's arrays, leaving room for the last slot's
+// own (`last_slot_info`, 0 for none). Returns how many it added.
+std::uint32_t extend_challenges(
+    psprecomp::GuestMemory &memory, const Bank &bank, std::uint32_t arcade, std::uint32_t last_slot_info);
+// Whether arcade_task's list loop and getter are those this was read from.
+[[nodiscard]] bool training_school_matches(const psprecomp::GuestMemory &memory);
+
 // Once a frame: loads the quests and places them the first time lobby_task
-// is in, and keeps the two replacements registered while it is.
+// or arcade_task is in, and keeps the replacements registered while it is.
 using BlockAllocator = std::uint32_t (*)(std::uint32_t size);
 void frame(psprecomp::Runtime &runtime, BlockAllocator allocate);
 // Whether frame() has read event_quests/ this run, so a quest added now is
