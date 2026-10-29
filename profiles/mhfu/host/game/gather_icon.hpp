@@ -318,10 +318,12 @@ inline constexpr std::uint32_t kPadButtons = 0xFFFFu;
 // the pulse the hold used to send on the pad (three reads down, three up).
 inline constexpr unsigned kGatherPressFrames = 6u;
 
-// △, × and R. With ○ or □ they make the weapons' chords (△+○ is an attack
-// for most of them), which the game reads on the same press. Any of them down
-// is never a gather: the buttons pass through and a running hold ends.
-inline constexpr std::uint32_t kGatherChord = 0x1000u | 0x4000u | 0x0200u;
+// △ and ×. With ○ they make the weapons' chords (△+○ is an attack, a draw
+// attack with the weapon away), which the game reads on the same press, so
+// one down when a hold would start leaves the press to the game. R is no
+// chord: it is the run with the weapon away (RB on an Xbox pad), held while
+// gathering.
+inline constexpr std::uint32_t kGatherChord = 0x1000u | 0x4000u;
 
 // Holding ○ or □ on a gather point, or ○ on a monster that can be carved.
 // Plants and carving use ○ (B on an Xbox pad); mining and a bug net use □
@@ -338,9 +340,10 @@ inline constexpr std::uint32_t kGatherChord = 0x1000u | 0x4000u | 0x0200u;
 // after it closes until it is pressed again. One pressed and held before the
 // point came into reach presses at once. While the hold is going the hunter
 // is shown the gather button alone, with the stick centred, so movement and
-// other buttons cannot walk it off or start another action. A chord button
-// (kGatherChord) is the exception: with one down the press is an attack, so
-// the words pass through and the hold ends. Another button can take the
+// every other button, R held to run or △ and × included, cannot walk it off
+// or start another action: the gather comes first. A chord button
+// (kGatherChord) down when the hold would start makes the press an attack,
+// and the words pass through. Another button can take the
 // gather button out of the resolved pad for a few frames; the hold stays
 // until nothing is held. Away from a node and from a body, or with the
 // setting off, the words pass through. L+○ or L+□ before a hold has started
