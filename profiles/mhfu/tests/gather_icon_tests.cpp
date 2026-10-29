@@ -1157,6 +1157,96 @@ void test_mark_over_a_carve() {
     check(!first_mark(memory, pose), "nor one out of reach");
 }
 
+// Two monsters that fell together, or a monster and the tail cut beside it:
+// each body has its own mark, and only the one ○ would carve shows ○.
+void test_bodies_lying_together() {
+    psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    plant_words(memory);
+    constexpr std::uint32_t gamesys = 0x09100000u;
+    constexpr std::uint32_t object = 0x09200000u;
+    constexpr std::uint32_t ids = 0x09300000u;
+    constexpr std::uint32_t areas = 0x09400000u;
+    constexpr std::uint32_t nodes = 0x09500000u;
+    constexpr std::uint32_t hunter_list = 0x09600000u;
+    constexpr std::uint32_t hunter = 0x09700000u;
+    constexpr std::uint32_t table = 0x09800000u;
+    memory.store32(0x089CC558u, gamesys);
+    memory.store8(gamesys + 0x6AF10u, 0u);
+    memory.store32(0x09CE4808u, 1u);
+    memory.store32(0x09CE480Cu, ids);
+    memory.store16(ids, 4u);
+    memory.store32(0x08A62D9Cu, object);
+    memory.store32(object + 96u, areas);
+    memory.store32(object + 80u, 0u);
+    memory.store32(areas, nodes);
+    write_float(memory, nodes, -1.0f); // no gather point
+    memory.store32(0x089CBD04u, hunter_list);
+    memory.store32(hunter_list + 2692u, hunter);
+    write_float(memory, hunter + 0x208u, -10.0f);
+    memory.store16(hunter + 0x29Au, 4u);
+    memory.store32(0x09A4F1A0u, table);
+    for (std::uint32_t n = 0; n < 20u; ++n) memory.store16(table + 4u + n * 32u + 16u, 0xFFFFu);
+    const auto slot = [&](std::uint32_t n) { return table + 4u + n * 32u; };
+    plant_body(memory, slot(2u), 0.0f, 0.0f, -10.0f, 30.0f, 9u, 4u);
+    plant_body(memory, slot(5u), 6.0f, 0.0f, -12.0f, 30.0f, 7u, 4u);
+    plant_body(memory, slot(7u), 6.0f, 0.0f, -12.0f, 30.0f, 7u, 3u);   // another stage
+    plant_body(memory, slot(8u), 200.0f, 0.0f, -12.0f, 30.0f, 7u, 4u); // out of reach
+
+    const std::vector<CarveBody> bodies = carve_bodies(memory);
+    check(bodies.size() == 2u && bodies[0].slot == 2u && bodies[0].first && bodies[1].slot == 5u &&
+            !bodies[1].first && bodies[1].address == slot(5u) && bodies[1].x == 6.0f && bodies[1].z == -12.0f,
+        "both bodies in reach are listed in the table's order, and the first is the one ○ carves");
+    check(carve_body(memory) && carve_body(memory)->slot == 2u, "○ carves the first");
+
+    mhfu::settings::current().gather_icon = true;
+    const GatherPose pose{0.0f, 100.0f, 0.0f, 0.0f, 100.0f, -10.0f};
+    gather_note_draw(picture(), 100u);
+    std::vector<GatherMark> marks = gather_marks(memory, pose);
+    check(marks.size() == 2u && marks[0].glyph == GatherGlyph::Carve && marks[1].glyph == GatherGlyph::Carve &&
+            marks[0].world[0] == 0.0f && marks[1].world[0] == 6.0f,
+        "each body has a mark over it");
+    check(marks.size() == 2u && marks[0].button == 0x2000u && marks[1].button == 0u,
+        "and only the one ○ carves shows ○");
+
+    // The first carved out but still lying there: the search stops at it, so
+    // ○ carves nothing, and the other keeps its mark without ○.
+    memory.store16(slot(2u) + 20u, 0xFFFFu);
+    check(!carve_body(memory) && !carve_in_reach(memory), "with the first carved out, ○ carves nothing here");
+    gather_note_draw(picture(), 100u);
+    marks = gather_marks(memory, pose);
+    check(marks.size() == 1u && marks[0].world[0] == 6.0f && marks[0].button == 0u,
+        "the other body is still marked, without ○");
+    // Once it is gone from the table, ○ carves the next.
+    memory.store16(slot(2u) + 16u, 0xFFFFu);
+    check(carve_body(memory) && carve_body(memory)->slot == 5u, "once the first is gone, ○ carves the next");
+    gather_note_draw(picture(), 100u);
+    marks = gather_marks(memory, pose);
+    check(marks.size() == 1u && marks[0].button == 0x2000u, "and its mark shows ○");
+
+    // Each body's mark has its own motion: the one carved out fades where it
+    // lay, and the other stays.
+    plant_body(memory, slot(2u), 0.0f, 0.0f, -10.0f, 30.0f, 9u, 4u);
+    GatherMotions motions;
+    for (int i = 0; i < 4; ++i) {
+        gather_note_draw(picture(), 100u);
+        (void)gather_marks(memory, pose, &motions);
+    }
+    check(motions.carves[2].shown() && motions.carves[5].shown() && !motions.carves[0].shown(),
+        "each body's slot moves its own mark");
+    memory.store16(slot(2u) + 20u, 0xFFFFu);
+    gather_note_draw(picture(), 100u);
+    marks = gather_marks(memory, pose, &motions);
+    check(marks.size() == 2u && marks[0].world[0] == 0.0f && near(marks[0].alpha, 1.0f - GatherMotion::kFadeStep) &&
+            marks[1].world[0] == 6.0f && near(marks[1].alpha, 1.0f) && marks[1].button == 0u,
+        "the body carved out fades where it lay, and the other stays");
+
+    // Over a plant the carve search is not asked, so neither body is marked.
+    plant_node(memory, nodes, 0.0f, 0.0f, -10.0f, 30.0f, 1u, 0u);
+    gather_note_draw(picture(), 100u);
+    marks = gather_marks(memory, pose);
+    check(marks.size() == 1u && marks[0].glyph == GatherGlyph::Plant, "a plant over both takes the only mark");
+}
+
 // One 24-byte spot: +2 the type, +4 x, +8 y, +12 z, +16 the radius.
 void plant_spot(psprecomp::GuestMemory &memory, std::uint32_t address, std::uint16_t type, float x, float y, float z,
     float radius) {
@@ -1403,7 +1493,7 @@ void test_motion_on_the_picture() {
         "out of reach, the mark fades in place");
 
     // A frame with no world draw (a menu, a load) ends the mark.
-    check(!first_mark(memory, turned, &motions) && !motions[0].shown(), "a frame without the world resets the motion");
+    check(!first_mark(memory, turned, &motions) && !motions.node.shown(), "a frame without the world resets the motion");
     gather_note_draw(picture(), 100u);
     check(!first_mark(memory, turned, &motions), "and nothing is left to fade");
 }
@@ -1452,9 +1542,7 @@ void test_motions_by_role() {
             marks[1].glyph == GatherGlyph::Carve && near(marks[1].alpha, GatherMotion::kFadeStep),
         "a carve that comes into reach fades in beside the point, which stays");
     check(marks.size() == 2u && marks[0].older && !marks[1].older, "only the mark already shown blends from before");
-    check(motions[static_cast<std::size_t>(GatherRole::Carve)].shown().has_value() &&
-            !motions[static_cast<std::size_t>(GatherRole::Fishing)].shown(),
-        "each role keeps its own motion");
+    check(motions.carves[0].shown().has_value() && !motions.fishing.shown(), "each role keeps its own motion");
     check(gather_role(GatherGlyph::BugNet) == GatherRole::Node && gather_role(GatherGlyph::Plant) == GatherRole::Node &&
             gather_role(GatherGlyph::Fishing) == GatherRole::Fishing,
         "every node kind is the node's role");
@@ -1740,6 +1828,7 @@ int main() {
     test_wrappers();
     test_farm_spots();
     test_mark_over_a_carve();
+    test_bodies_lying_together();
     test_fishing_spots();
     std::cout << (failures ? "FAIL" : "PASS") << ": gather icon (" << failures << " failures)\n";
     return failures ? 1 : 0;
