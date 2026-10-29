@@ -707,6 +707,31 @@ std::vector<std::uint8_t> glyph_cell(std::uint32_t code, int scale) {
     return cell;
 }
 
+std::vector<std::uint8_t> glyph_alone(std::uint32_t code, int scale) {
+    const auto found = glyph_passes().find(code);
+    if (found == glyph_passes().end() || found->second.count == 0 || scale < 1) return {};
+    State &s = loaded_state();
+    const Passes &passes = found->second;
+    const Layout &layout = layout_for(s, code);
+    const int size = kCell * scale;
+    std::vector<std::uint8_t> cell(static_cast<std::size_t>(size) * static_cast<std::size_t>(size), 0u);
+    if (layout.face == nullptr || layout.metrics.width == 0) return cell;
+    std::int32_t left = passes.x64[0];
+    std::int32_t top = passes.y64[0];
+    for (int i = 1; i < passes.count; ++i) {
+        left = std::min(left, passes.x64[static_cast<std::size_t>(i)]);
+        top = std::min(top, passes.y64[static_cast<std::size_t>(i)]);
+    }
+    // The whole pixel the first pass starts on goes where the game centres a
+    // half-width glyph in its cell, the row's top 4 pixels down.
+    const std::int32_t to_x = (left & ~63) - ((kCell - layout.metrics.width) / 2) * 64;
+    const std::int32_t to_y = (top & ~63) - kAtlasRowTop * 64;
+    for (int i = 0; i < passes.count; ++i)
+        draw_pass(layout, passes.x64[static_cast<std::size_t>(i)] - to_x, passes.y64[static_cast<std::size_t>(i)] - to_y,
+            scale, cell);
+    return cell;
+}
+
 void set_game_atlas(std::uint32_t object) {
     atlas_object() = object;
 }

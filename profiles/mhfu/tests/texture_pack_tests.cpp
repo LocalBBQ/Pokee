@@ -534,9 +534,31 @@ void test_button_glyphs(const fs::path &root) {
     check(
         square.u0 == 48.0f / 256.0f && square.u1 == 64.0f / 256.0f && square.v0 == 0.0f && square.v1 == 16.0f / 256.0f,
         "□ is the fourth 16-texel cell along the sheet's top");
+    const GlyphCell frame = quest_bar_cell(kItemBarFrame);
+    check(frame.u0 == 152.0f / 256.0f && frame.v0 == 32.0f / 256.0f && frame.u1 == 192.0f / 256.0f &&
+            frame.v1 == 72.0f / 256.0f,
+        "the item bar's frame is its 40 texels at (152, 32), at any size of the sheet");
 
     psprecomp::GuestMemory memory(32u * 1024u * 1024u);
+    // The frame is drawn once the game's sprite table holds it.
+    check(!item_bar_frame_ready(), "no frame before the table is read");
     refresh_button_glyphs(memory);
+    check(!item_bar_frame_ready(), "nor while sprite 36 is something else");
+    const std::uint32_t entry = kQuestBarSprites + kItemBarFrameSprite * kQuestBarSpriteStride;
+    const auto put_frame = [&](std::uint16_t texture) {
+        memory.store16(entry, 152u);
+        memory.store16(entry + 2u, 32u);
+        memory.store16(entry + 4u, 40u);
+        memory.store16(entry + 6u, 40u);
+        memory.store16(entry + 8u, texture);
+    };
+    put_frame(0x8002u);
+    check(!quest_bar_sprite_matches(memory, kItemBarFrameSprite, kItemBarFrame), "another texture is not the sheet's");
+    check(!quest_bar_sprite_matches(memory, 0x10000000u, kItemBarFrame), "an entry out of memory is no match");
+    put_frame(kQuestBarSpriteTexture);
+    check(quest_bar_sprite_matches(memory, kItemBarFrameSprite, kItemBarFrame), "the game's entry matches");
+    refresh_button_glyphs(memory);
+    check(item_bar_frame_ready(), "and the frame is drawn from then on");
     check(!button_glyph_sheet().ready, "nothing until the sheet has been drawn");
     TextureState other{};
     other.enabled = true;

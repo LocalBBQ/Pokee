@@ -97,6 +97,16 @@ void note_glyph_pass(std::uint32_t code, std::int32_t x64, std::int32_t y64, boo
 // `scale` times as large: 20*scale squared 4-bit ink values (0..15), what the
 // buffer holds at scale 1. Empty when the character's passes are unknown.
 [[nodiscard]] std::vector<std::uint8_t> glyph_cell(std::uint32_t code, int scale);
+// At start the game draws every ASCII character into one row of its atlas,
+// at the pen positions of a line of text (MHFU_TRACE_FONT: '0' at x64=320,
+// '3' at 4160, all at y64=256, the row's top 4 pixels down), not into the
+// 20x20 buffer, so glyph_cell() puts those passes outside the cell.
+inline constexpr int kAtlasRowTop = 4;
+// The character as the game drew it, wherever that was: its noted passes,
+// kept as far apart as they were, moved into a 20x20 cell centred like a
+// half-width glyph, `scale` times as large. Empty when nothing is noted.
+[[nodiscard]] std::vector<std::uint8_t> glyph_alone(std::uint32_t code, int scale);
+
 // The object the game keeps its glyph atlas in (hle_font.cpp), 0 until the
 // game has drawn its first text.
 void set_game_atlas(std::uint32_t object);
