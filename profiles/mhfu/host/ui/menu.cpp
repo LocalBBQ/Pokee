@@ -1268,8 +1268,8 @@ void Menu::game() {
     }
     if (toggle_row("Gather with ○", s.gather_circle,
             options_for("game.gather_circle",
-                "On: ○ also mines and catches bugs when a pickaxe or a bug net is in your pouch. The tool is "
-                "selected for the gather and your item goes back to the bar after you let go. Without the tool "
+                "On: ○ also mines and catches bugs when a pickaxe or a bug net is in your pouch. The gather uses "
+                "the tool and your item bar stays on the item you chose. Without the tool "
                 "○ does nothing there, so it never uses another item. A monster you can carve on the point "
                 "keeps ○ a carve. At the Pokke Farm ○ mines and catches bugs too. "
                 "Off: mining and bug nets need the tool selected and □, as in the original game."))) {
