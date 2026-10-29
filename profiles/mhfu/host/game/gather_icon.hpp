@@ -60,21 +60,22 @@ struct GatherNode {
 
 // Above the node's origin, where the mark floats.
 inline constexpr float kGatherLift = 100.0f;
-// The usual mark, in the picture's pixels (the 272-tall frame): the disc's
-// radius and the ? drawn in it. Size is a percent of these
-// (gather_mark_shape).
+// The usual mark, in the picture's pixels (the 272-tall frame): half its
+// width, less the edge, and the size of a glyph in it. Size is a percent of
+// these (gather_mark_shape).
 inline constexpr float kGatherDisc = 8.0f;
 inline constexpr float kGatherGlyph = 9.0f;
 
-// The mark as drawn, in those same pixels. `ring` is the outline's width.
+// The mark as drawn, in those same pixels. The item bar's frame is
+// 2 * (radius + ring) across.
 struct GatherShape {
     float radius{};
     float ring{};
     float glyph{};
 };
 
-// `size_percent` is clamped to the settings range. The mark is a one-pixel
-// ring and the font's own ?, scaled with the size.
+// `size_percent` is clamped to the settings range, and every part of the
+// mark scales with it.
 [[nodiscard]] GatherShape gather_mark_shape(std::uint32_t size_percent) noexcept;
 
 struct GatherWord {
@@ -244,10 +245,10 @@ struct GatherMark {
     float alpha{1.0f};
     GatherGlyph glyph{};
     GatherArt art{};
-    // The button that does it now, shown beside the disc; 0 for none.
+    // The button that does it now, shown at the frame's lower left; 0 for none.
     std::uint32_t button{};
-    // How many of the tool the mark shows the pouch holds, shown as xn at the
-    // disc's upper right; 0 for none.
+    // How many of the tool the mark shows the pouch holds, shown in the game's
+    // digits at the frame's upper right; 0 for none.
     std::uint16_t carried{};
     // The world point it stands over, before the lift: the node, or the body
     // being carved.
@@ -257,7 +258,7 @@ struct GatherMark {
     std::optional<ItemArt> icon;
     // The game's red ? (kUnknownIcon), drawn when there is no picture: an item
     // without an icon, a monster the sheet has no picture for, a cut tail.
-    // Filled in by the caller; without it the interface draws its own ?.
+    // Filled in by the caller; without it no picture is drawn.
     std::optional<ItemArt> unknown;
 };
 
@@ -278,7 +279,7 @@ struct GatherMark {
 // 272-tall frame).
 inline constexpr float kGatherSpacing = 3.0f;
 
-// Marks whose discs would overlap, set side by side. `apart` is the distance
+// Marks whose frames would overlap, set side by side. `apart` is the distance
 // between the centres of two marks that just touch, plus the spacing, as a
 // part of the picture's width and of its height. Each group of marks closer
 // than that becomes a row at the group's middle, in the order of their x.
