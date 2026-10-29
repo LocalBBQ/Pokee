@@ -814,9 +814,10 @@ bool GatherRepeat::apply(HunterButtons &buttons, bool ready, std::uint32_t butto
     // L with ○ or □ before a hold starts scrolls the item bar. Once the hold
     // has started, L is another button and must not open that bar.
     if ((pad & kLeadButton) != 0u && !holding_ && !latched_) return false;
-    // △+○ and the other chords are attacks, not a gather, even beside a point
-    // or a body. The words go through, and a hold already running ends.
-    if ((pad & kGatherChord) != 0u) {
+    // △+○ and ×+○ are attacks, not a gather, even beside a point or a body,
+    // so with one of them down a hold does not start and the words go
+    // through. Once a hold runs, the gather comes first: they are ignored.
+    if ((pad & kGatherChord) != 0u && !holding_) {
         holding_ = false;
         latched_ = false;
         pressed_ = false;
