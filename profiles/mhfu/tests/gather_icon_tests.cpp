@@ -428,7 +428,8 @@ void test_holding_circle() {
     check(!repeat.apply(after_attack, true, kCircle),
         "○ still held after the attack is not a gather until it is pressed again");
     restart();
-    check(held(kCircle | kCross, true).held == (kCircle | kCross) && !repeat.underway(), "× with ○ is left to the game");
+    check(
+        held(kCircle | kCross, true).held == (kCircle | kCross) && !repeat.underway(), "× with ○ is left to the game");
 
     // Once the hold runs, the gather comes first: △ and × are ignored.
     restart();
@@ -443,7 +444,7 @@ void test_holding_circle() {
     check(repeat.underway() && running.held == kCircle && running.fresh == kCircle,
         "○ pressed while R is held gathers, and R is kept from the hunter");
     check(presses(kCycle * 3u, kCircle, [&] { return held(kCircle | kRight, true); }) ==
-              expected_presses(kCycle * 3u, 1u),
+            expected_presses(kCycle * 3u, 1u),
         "and keeps gathering while R stays held");
     restart();
     check(held(kSquare | kRight, true, kSquare).held == kSquare && repeat.underway(), "R with □ on a mining point too");
@@ -966,7 +967,8 @@ void test_wrappers() {
     // the wrapper has returned: they are left to the game.
     (void)copy({0u, 0u, kCircle, kPushed});
     copy_partway = true;
-    check(copy({kCircle, kCircle, 0u, kPushed}) == 0x08900000u, "a copy that stops partway goes back to the dispatcher");
+    check(
+        copy({kCircle, kCircle, 0u, kPushed}) == 0x08900000u, "a copy that stops partway goes back to the dispatcher");
     copy_partway = false;
     check(memory.load32(hunter + kHunterHeld) == kCircle && slot(0x09AA6FC0u) == pouch,
         "and its words and the selection are the game's");
@@ -1209,8 +1211,8 @@ void test_bodies_lying_together() {
     plant_body(memory, slot(8u), 200.0f, 0.0f, -12.0f, 30.0f, 7u, 4u); // out of reach
 
     const std::vector<CarveBody> bodies = carve_bodies(memory);
-    check(bodies.size() == 2u && bodies[0].slot == 2u && bodies[0].first && bodies[1].slot == 5u &&
-            !bodies[1].first && bodies[1].address == slot(5u) && bodies[1].x == 6.0f && bodies[1].z == -12.0f,
+    check(bodies.size() == 2u && bodies[0].slot == 2u && bodies[0].first && bodies[1].slot == 5u && !bodies[1].first &&
+            bodies[1].address == slot(5u) && bodies[1].x == 6.0f && bodies[1].z == -12.0f,
         "both bodies in reach are listed in the table's order, and the first is the one ○ carves");
     check(carve_body(memory) && carve_body(memory)->slot == 2u, "○ carves the first");
 
@@ -1221,8 +1223,8 @@ void test_bodies_lying_together() {
     check(marks.size() == 2u && marks[0].glyph == GatherGlyph::Carve && marks[1].glyph == GatherGlyph::Carve &&
             marks[0].world[0] == 0.0f && marks[1].world[0] == 6.0f,
         "each body has a mark over it");
-    check(marks.size() == 2u && marks[0].button == 0x2000u && marks[1].button == 0u,
-        "and only the one ○ carves shows ○");
+    check(
+        marks.size() == 2u && marks[0].button == 0x2000u && marks[1].button == 0u, "and only the one ○ carves shows ○");
 
     // The first carved out but still lying there: the search stops at it, so
     // ○ carves nothing, and the other keeps its mark without ○.
@@ -1509,7 +1511,8 @@ void test_motion_on_the_picture() {
         "out of reach, the mark fades in place");
 
     // A frame with no world draw (a menu, a load) ends the mark.
-    check(!first_mark(memory, turned, &motions) && !motions.node.shown(), "a frame without the world resets the motion");
+    check(
+        !first_mark(memory, turned, &motions) && !motions.node.shown(), "a frame without the world resets the motion");
     gather_note_draw(picture(), 100u);
     check(!first_mark(memory, turned, &motions), "and nothing is left to fade");
 }

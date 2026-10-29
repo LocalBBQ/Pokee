@@ -2565,8 +2565,9 @@ void draw_gather_button(ImDrawList *draw, std::uint32_t button, ImVec2 frame, fl
     const float half = side * 0.25f;
     const ImVec2 centre{frame.x - side * 0.36f, frame.y + side * 0.36f};
     const game::GlyphCell cell = inside_texels(game::button_glyph_cell(*glyph), *texture);
-    draw->AddImage(texture->texture->GetTexRef(), {centre.x - half, centre.y - half}, {centre.x + half, centre.y + half},
-        {cell.u0, cell.v0}, {cell.u1, cell.v1}, IM_COL32(255, 255, 255, static_cast<int>(255.0f * alpha)));
+    draw->AddImage(texture->texture->GetTexRef(), {centre.x - half, centre.y - half},
+        {centre.x + half, centre.y + half}, {cell.u0, cell.v0}, {cell.u1, cell.v1},
+        IM_COL32(255, 255, 255, static_cast<int>(255.0f * alpha)));
 }
 
 // A count in the game's own letters: each character as the game drew it into
