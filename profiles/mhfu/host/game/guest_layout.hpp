@@ -77,6 +77,47 @@ template <typename Memory> [[nodiscard]] bool quest_running(const Memory &memory
     return overlay_loaded(memory, task_slot(), kQuestOverlay);
 }
 
+// The item box's buttons ------------------------------------------------------
+
+// lobby_task's item box takes choose and back as bits of the pad word, tested
+// with andi at kBoxChoose (andi v0, s0, choose) and kBoxBack (andi v0, v0,
+// back). ULUS-10391 chooses with ✕ and backs out with ○. Freedom Unite
+// Complete, as Portable 2nd G, chooses with ○ and backs out with ✕.
+inline constexpr std::uint32_t kBoxChoose = 0x09ADCE14u;
+inline constexpr std::uint32_t kBoxBack = 0x09ADD008u;
+inline constexpr std::uint16_t kCross = 0x4000u;
+inline constexpr std::uint16_t kCircle = 0x2000u;
+
+// True when the running release's box chooses with ○.
+template <typename Memory> [[nodiscard]] bool box_chooses_with_circle(const Memory &memory) {
+    const std::uint32_t at = install::port(kBoxChoose, install::Image::lobby_task);
+    return at != 0u && memory.contains(at, 4u) && (memory.load32(at) & 0xFFFFu) == kCircle;
+}
+
+// `buttons` as ULUS-10391's box reads them: ○ and ✕ change places where the
+// box chooses with ○, so the port's menus choose and go back as the game's.
+[[nodiscard]] constexpr std::uint16_t swap_circle_and_cross(std::uint16_t buttons) noexcept {
+    const std::uint16_t rest = static_cast<std::uint16_t>(buttons & ~(kCircle | kCross));
+    return static_cast<std::uint16_t>(rest | ((buttons & kCircle) != 0u ? kCross : 0u) |
+        ((buttons & kCross) != 0u ? kCircle : 0u));
+}
+template <typename Memory>
+[[nodiscard]] std::uint16_t as_traced_box_buttons(const Memory &memory, std::uint16_t buttons) {
+    return box_chooses_with_circle(memory) ? swap_circle_and_cross(buttons) : buttons;
+}
+
+// The test of choose or back at `traced` (kBoxChoose or kBoxBack), as the
+// running release has it: the traced andi with either button, ○ or ✕.
+template <typename Memory>
+[[nodiscard]] bool box_button_test(const Memory &memory, std::uint32_t traced, std::uint32_t traced_word) {
+    if (traced != kBoxChoose && traced != kBoxBack) return false;
+    const std::uint32_t at = install::port(traced, install::Image::lobby_task);
+    if (at == 0u || !memory.contains(at, 4u)) return false;
+    const std::uint32_t found = memory.load32(at);
+    const std::uint32_t bit = found & 0xFFFFu;
+    return (found & 0xFFFF0000u) == (traced_word & 0xFFFF0000u) && (bit == kCircle || bit == kCross);
+}
+
 // The camera object and the hunter it follows ----------------------------------
 
 // The word here is the camera object (0x089D0000 - 17148). Its near and far

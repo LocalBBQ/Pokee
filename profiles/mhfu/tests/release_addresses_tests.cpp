@@ -215,6 +215,37 @@ void moves_pointers_and_overlay_calls() {
     set_running_release(nullptr);
 }
 
+// The item box's choose and back buttons (game/guest_layout.hpp).
+void swaps_the_box_buttons() {
+    using namespace mhfu::install;
+    namespace layout = mhfu::game::layout;
+    check(layout::swap_circle_and_cross(layout::kCircle) == layout::kCross, "○ becomes ✕");
+    check(layout::swap_circle_and_cross(layout::kCross | 0x10u) == (layout::kCircle | 0x10u),
+        "✕ becomes ○ and the rest stays");
+    check(layout::swap_circle_and_cross(layout::kCircle | layout::kCross) == (layout::kCircle | layout::kCross),
+        "both stay both");
+
+    constexpr std::uint32_t kChooseWord = 0x32024000u; // andi v0, s0, 0x4000
+    Words memory;
+    set_running_release(&kFreedomUniteUsa);
+    memory.words[layout::kBoxChoose] = kChooseWord;
+    check(!layout::box_chooses_with_circle(memory), "ULUS-10391 chooses with ✕");
+    check(layout::as_traced_box_buttons(memory, layout::kCircle) == layout::kCircle, "so its buttons stay");
+
+    set_running_release(&kFreedomUniteComplete);
+    const std::uint32_t choose = port(layout::kBoxChoose, Image::lobby_task);
+    memory.words[choose] = 0x32022000u; // andi v0, s0, 0x2000
+    check(layout::box_chooses_with_circle(memory), "Complete chooses with ○");
+    check(layout::as_traced_box_buttons(memory, layout::kCircle) == layout::kCross, "so its ○ is the traced ✕");
+    check(layout::box_button_test(memory, layout::kBoxChoose, kChooseWord), "its test of choose matches");
+    memory.words[choose] = 0x32021000u;
+    check(!layout::box_button_test(memory, layout::kBoxChoose, kChooseWord), "a test of another bit does not");
+    memory.words[choose] = 0x32032000u;
+    check(!layout::box_button_test(memory, layout::kBoxChoose, kChooseWord), "nor of another register");
+    check(!layout::box_button_test(memory, 0x09ADCE18u, kChooseWord), "nor a word that is no button test");
+    set_running_release(nullptr);
+}
+
 } // namespace
 
 int main() {
@@ -226,6 +257,7 @@ int main() {
     compares_instructions();
     moves_code_back();
     moves_pointers_and_overlay_calls();
+    swaps_the_box_buttons();
     if (failures != 0) return 1;
     std::cout << "release address tests passed\n";
     return 0;

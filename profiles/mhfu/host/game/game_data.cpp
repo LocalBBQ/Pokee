@@ -1,5 +1,7 @@
 #include "game/game_data.hpp"
 
+#include "install/release_addresses.hpp"
+
 #include "game/guest_ram.hpp"
 
 namespace mhfu::game {
@@ -102,13 +104,13 @@ bool is_weapon(std::uint8_t kind) { return kind >= 5u && equipment_kind(kind) !=
 std::vector<std::string> equipment_names(const Ram &ram, std::uint8_t kind) {
     const EquipmentKind *k = equipment_kind(kind);
     if (k == nullptr) return {};
-    return text_table(ram, kTextBlock, k->name_table);
+    return text_table(ram, install::port(kTextBlock), k->name_table);
 }
 
 std::string equipment_name(const Ram &ram, std::uint8_t kind, std::uint16_t id) {
     const EquipmentKind *k = equipment_kind(kind);
     if (k == nullptr) return {};
-    return text_entry(ram, kTextBlock, k->name_table, id);
+    return text_entry(ram, install::port(kTextBlock), k->name_table, id);
 }
 
 } // namespace mhfu::game

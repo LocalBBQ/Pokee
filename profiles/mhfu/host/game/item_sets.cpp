@@ -6,6 +6,7 @@
 #include "game/guest_ram.hpp"
 #include "game/hooks.hpp"
 #include "game/item_sets_menu.hpp"
+#include "install/release_addresses.hpp"
 #include "install/user_data.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
@@ -21,6 +22,12 @@
 
 namespace mhfu::game::item_sets {
 namespace {
+
+// Item Sets' addresses are the executable's, lobby_task's and the host's
+// scratch memory's, all named as ULUS-10391 has them.
+std::uint32_t ported(std::uint32_t traced) {
+    return install::port_from(traced, install::Image::lobby_task);
+}
 
 constexpr std::array<CodeWord, 13> kCodeSignature = {{
     {kCursor, 0x27BDFFE0u},      // addiu sp, sp, -32
@@ -71,8 +78,15 @@ constexpr std::array<CodeWord, 26> kOverlaySignature = {{
 
 // The menu record's row count and list, and the two lists, as the game has
 // them and as the hooks leave them.
-constexpr std::uint32_t kRecordRows = 0x00060014u; // u16 14 (row height), u16 6
-constexpr std::uint32_t kPatchedRows = 0x00070014u;
+// The record's rows word is u16 row height, then u16 rows. Only the count is
+// the hooks': ULUS-10391's rows are 0x14 high, Freedom Unite Complete's 0x12.
+constexpr std::uint32_t kRowCountShift = 16u;
+constexpr std::uint32_t row_count(std::uint32_t rows) {
+    return rows >> kRowCountShift;
+}
+constexpr std::uint32_t with_rows(std::uint32_t rows, std::uint32_t count) {
+    return (rows & 0xFFFFu) | (count << kRowCountShift);
+}
 // Each list is eight halfwords: six ids and two of padding, the first ending
 // it. Item Sets goes after Combine Items and the rest move down into the
 // padding.
@@ -204,7 +218,9 @@ std::span<const CodeWord> overlay_signature() {
 
 bool matches(const Ram &ram, std::span<const CodeWord> words) {
     for (const CodeWord &expected : words)
-        if (!ram.contains(expected.address, 4u) || ram.load32(expected.address) != expected.word) return false;
+        if (!install::code_matches(ram, expected.address, expected.word, install::Image::lobby_task) &&
+            !layout::box_button_test(ram, expected.address, expected.word))
+            return false;
     return true;
 }
 
@@ -230,8 +246,8 @@ std::uint8_t move_shown(std::uint8_t row, std::uint16_t buttons) {
 // Box and pouch --------------------------------------------------------------
 
 std::uint32_t game_sys(const Ram &ram) {
-    if (!ram.contains(kGameSysPointer, 4u)) return 0u;
-    const std::uint32_t sys = ram.load32(kGameSysPointer);
+    if (!ram.contains(ported(kGameSysPointer), 4u)) return 0u;
+    const std::uint32_t sys = ram.load32(ported(kGameSysPointer));
     if (!layout::in_ram(sys) || !ram.contains(sys, kPouch + kPouchSlots * 4u)) return 0u;
     return sys;
 }
@@ -249,7 +265,7 @@ std::uint32_t box_capacity(const Ram &ram, std::uint32_t sys) {
 }
 
 std::uint16_t carry_limit(const Ram &ram, std::uint16_t item) {
-    const std::uint32_t at = kItemTable + static_cast<std::uint32_t>(item) * kItemRecord + kCarryByte;
+    const std::uint32_t at = ported(kItemTable) + static_cast<std::uint32_t>(item) * kItemRecord + kCarryByte;
     return ram.contains(at, 1u) ? ram.load8(at) : std::uint16_t{0u};
 }
 
@@ -449,7 +465,7 @@ bool enabled() {
 }
 
 bool lobby_ready(const Ram &ram) {
-    return layout::overlay_loaded(ram, layout::kTaskSlot, layout::kVillageOverlay) && matches(ram, kOverlaySignature);
+    return layout::overlay_loaded(ram, layout::task_slot(), layout::kVillageOverlay) && matches(ram, kOverlaySignature);
 }
 
 List read_list(const Ram &ram, std::uint32_t at) {
@@ -476,26 +492,26 @@ List as_game(List list) {
 
 // The menu's data as the game left it, or as the hooks did.
 bool menu_data_known(const Ram &ram) {
-    const std::uint32_t rows = ram.load32(kMenuRecord + 8u);
-    const std::uint32_t place = ram.load32(kMenuRecord);
+    const std::uint32_t rows = ram.load32(ported(kMenuRecord) + 8u);
+    const std::uint32_t place = ram.load32(ported(kMenuRecord));
     const auto list_is = [&](std::uint32_t at, const List &a, const List &b) {
-        const List now = at == kSmallBoxList ? as_game(read_list(ram, at)) : read_list(ram, at);
+        const List now = at == ported(kSmallBoxList) ? as_game(read_list(ram, at)) : read_list(ram, at);
         return now == a || now == b;
     };
-    return (place == kRecordPlace || place == kPatchedPlace) && ram.load32(kMenuRecord + 12u) == kBoxList &&
-        (rows == kRecordRows || rows == kPatchedRows) && list_is(kBoxList, kBoxRows, kPatchedBoxRows) &&
-        list_is(kSmallBoxList, kSmallBoxRows, kPatchedSmallBoxRows);
+    return (place == kRecordPlace || place == kPatchedPlace) && ram.load32(ported(kMenuRecord) + 12u) == ported(kBoxList) &&
+        (row_count(rows) == kGameRows || row_count(rows) == kRows) && list_is(ported(kBoxList), kBoxRows, kPatchedBoxRows) &&
+        list_is(ported(kSmallBoxList), kSmallBoxRows, kPatchedSmallBoxRows);
 }
 
 void set_menu(Ram &ram, bool seven) {
-    ram.store32(kMenuRecord, seven ? kPatchedPlace : kRecordPlace);
-    ram.store32(kMenuRecord + 8u, seven ? kPatchedRows : kRecordRows);
-    write_list(ram, kBoxList, seven ? kPatchedBoxRows : kBoxRows);
-    const List hall = read_list(ram, kSmallBoxList);
+    ram.store32(ported(kMenuRecord), seven ? kPatchedPlace : kRecordPlace);
+    ram.store32(ported(kMenuRecord) + 8u, with_rows(ram.load32(ported(kMenuRecord) + 8u), seven ? kRows : kGameRows));
+    write_list(ram, ported(kBoxList), seven ? kPatchedBoxRows : kBoxRows);
+    const List hall = read_list(ram, ported(kSmallBoxList));
     List small = seven ? kPatchedSmallBoxRows : kSmallBoxRows;
     if (std::find(hall.begin(), hall.end(), kOfferedChangeEquipment) != hall.end())
         std::replace(small.begin(), small.end(), kGreyChangeEquipment, kOfferedChangeEquipment);
-    write_list(ram, kSmallBoxList, small);
+    write_list(ram, ported(kSmallBoxList), small);
 }
 
 // Text the game prints, cut to fit and ended by a 0.
@@ -558,7 +574,7 @@ void write_screen(Ram &ram, const menu::State &screen, const Sets &sets) {
 
 guest_calls::Call call(std::uint32_t function, std::initializer_list<std::uint32_t> args, std::uint32_t stack = 0u) {
     guest_calls::Call c;
-    c.function = function;
+    c.function = ported(function);
     std::size_t i = 0;
     for (std::uint32_t arg : args) c.args[i++] = arg;
     c.stack = stack;
@@ -566,15 +582,17 @@ guest_calls::Call call(std::uint32_t function, std::initializer_list<std::uint32
 }
 
 std::uint16_t buttons(const Ram &ram) {
-    const std::uint32_t owner = ram.load32(kInputOwner);
+    const std::uint32_t owner = ram.load32(ported(kInputOwner));
     if (layout::in_ram(owner) && ram.load8(owner + kInputBlocked) != 0u) return 0u;
-    return static_cast<std::uint16_t>((ram.load32(kHeldDpad) & 0xF0u) | ram.load32(kButtons));
+    const auto pressed =
+        static_cast<std::uint16_t>((ram.load32(ported(kHeldDpad)) & 0xF0u) | ram.load32(ported(kButtons)));
+    return layout::as_traced_box_buttons(ram, pressed);
 }
 
 std::vector<guest_calls::Call> draw_calls(const Ram &ram, std::uint32_t box, const menu::State &screen,
     menu::Sound sound) {
-    const std::uint32_t ui = ram.load32(kUiPointer);
-    const std::uint32_t font = ram.load32(kFontPointer);
+    const std::uint32_t ui = ram.load32(ported(kUiPointer));
+    const std::uint32_t font = ram.load32(ported(kFontPointer));
     std::vector<guest_calls::Call> calls;
     // The box as its update leaves it, then its menu dimmed, as Put In Item has it.
     calls.push_back(call(kUpdate, {box}));
@@ -591,16 +609,16 @@ std::vector<guest_calls::Call> draw_calls(const Ram &ram, std::uint32_t box, con
         calls.push_back(call(kFontColour, {font, kTitleColour}));
         calls.push_back(call(kPrint, {font, title_x(menu::list_title(screen.mode)), kListY + 7u, kListTitle}));
         calls.push_back(call(kItemWindow, {ui, kSetSlots, screen.contents * 8u, 0u, 0x10u, 0u}));
-        calls.push_back(call(kMessageDraw, {ui, kMessageRecord, kMessageText, 255u}));
+        calls.push_back(call(kMessageDraw, {ui, ported(kMessageRecord), kMessageText, 255u}));
         if (screen.page == menu::Page::Confirm) {
-            const std::uint32_t game = text_entry_address(ram, kTextBlock, 0, screen.yes ? kYesText : kNoText);
-            calls.push_back(call(kPrint, {font, kYesNoX, kYesNoY, kPrintFormat, game != 0u ? game : kYesNoText}));
+            const std::uint32_t game = text_entry_address(ram, install::port(kTextBlock), 0, screen.yes ? kYesText : kNoText);
+            calls.push_back(call(kPrint, {font, kYesNoX, kYesNoY, ported(kPrintFormat), game != 0u ? game : kYesNoText}));
         } else {
             calls.push_back(call(kPrint, {font, kHintX, kHintY, kHintText}));
         }
     }
     if (sound != menu::Sound::None)
-        calls.push_back(call(kSound, {ram.load32(kSoundPointer), menu::sound_bank(sound), menu::sound_id(sound)}));
+        calls.push_back(call(kSound, {ram.load32(ported(kSoundPointer)), menu::sound_bank(sound), menu::sound_id(sound)}));
     return calls;
 }
 
@@ -609,7 +627,7 @@ std::string short_text(const Loaded &loaded, const Ram &ram) {
     for (std::size_t i = 0; i < loaded.short_items.size() && i < 2u; ++i) {
         const Short &item = loaded.short_items[i];
         if (i > 0u) text += ", ";
-        text += text_entry(ram, kTextBlock, 1, item.item) + " " + std::to_string(item.taken) + "/" +
+        text += text_entry(ram, install::port(kTextBlock), 1, item.item) + " " + std::to_string(item.taken) + "/" +
             std::to_string(item.wanted);
     }
     if (loaded.short_items.size() > 2u) text += "...";
@@ -674,12 +692,12 @@ void text(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
         ctx.pc = ctx.gpr[31];
         return;
     }
-    ctx.pc = kText;
+    ctx.pc = ported(kText);
     s.text(runtime, ctx);
 }
 
 bool seven_rows(psprecomp::Runtime &runtime) {
-    return enabled() && runtime.memory().load32(kMenuRecord + 8u) == kPatchedRows;
+    return enabled() && row_count(runtime.memory().load32(ported(kMenuRecord) + 8u)) == kRows;
 }
 
 // The box's cursor, over the rows as they are shown: 0x0881C2E4's up and
@@ -688,9 +706,10 @@ void cursor(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     State &s = state();
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t row_at = ctx.gpr[5];
-    if (ctx.gpr[31] != kCursorReturn || ctx.gpr[7] != kGameRows || !seven_rows(runtime) ||
+    if (install::traced_code(ctx.gpr[31], install::Image::lobby_task) != kCursorReturn || ctx.gpr[7] != kGameRows ||
+        !seven_rows(runtime) ||
         !memory.contains(row_at, 1u)) {
-        ctx.pc = kCursor;
+        ctx.pc = ported(kCursor);
         s.cursor(runtime, ctx);
         return;
     }
@@ -704,15 +723,16 @@ void cursor(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     memory.store8(row_at, moved);
     GuestRam ram(memory);
     guest_calls::run(runtime, ctx,
-        {call(kSound, {ram.load32(kSoundPointer), menu::sound_bank(menu::Sound::Cursor), menu::sound_id(menu::Sound::Cursor)})}, 1u);
+        {call(kSound, {ram.load32(ported(kSoundPointer)), menu::sound_bank(menu::Sound::Cursor), menu::sound_id(menu::Sound::Cursor)})}, 1u);
 }
 
 // The box menu's highlight on the row as it is shown.
 void window(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     State &s = state();
-    if (ctx.gpr[31] == kMenuDrawReturn && seven_rows(runtime) && ctx.gpr[7] < kRows)
+    if (install::traced_code(ctx.gpr[31], install::Image::lobby_task) == kMenuDrawReturn && seven_rows(runtime) &&
+        ctx.gpr[7] < kRows)
         ctx.set_gpr(7, shown_row(static_cast<std::uint8_t>(ctx.gpr[7])));
-    ctx.pc = kWindowDraw;
+    ctx.pc = ported(kWindowDraw);
     s.window(runtime, ctx);
 }
 
@@ -753,7 +773,7 @@ void box_frame(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     if (!waiting || sys == 0u) {
         s.open = false;
         if (waiting) memory.store8(box + kPhase, 0u);
-        ctx.pc = kBoxFrame;
+        ctx.pc = ported(kBoxFrame);
         s.box_frame(runtime, ctx);
         return;
     }
@@ -764,7 +784,7 @@ void box_frame(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
         if (trace_enabled()) std::cout << "[item sets] chosen at box " << std::hex << box << std::dec << std::endl;
     }
     // The update shows the message of the box's own rows while this is set.
-    const std::uint32_t ui = ram.load32(kUiPointer);
+    const std::uint32_t ui = ram.load32(ported(kUiPointer));
     if (layout::in_ram(ui)) ram.store32(ui + kUiFlags, ram.load32(ui + kUiFlags) & ~kUiMessage);
     const std::string hunter = hunter_name(ram, sys);
     Sets sets = store().sets(hunter);
@@ -778,7 +798,7 @@ void box_frame(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
         memory.store32(box + kBoxFlags, memory.load32(box + kBoxFlags) & ~7u);
         if (trace_enabled()) std::cout << "[item sets] back to the box menu" << std::endl;
         guest_calls::run(runtime, ctx,
-            {call(kUpdate, {box}), call(kSound, {ram.load32(kSoundPointer), menu::sound_bank(step.sound), menu::sound_id(step.sound)})},
+            {call(kUpdate, {box}), call(kSound, {ram.load32(ported(kSoundPointer)), menu::sound_bank(step.sound), menu::sound_id(step.sound)})},
             1u);
         return;
     }
@@ -795,27 +815,27 @@ void box_frame(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
 void frame(psprecomp::Runtime &runtime) {
     State &s = state();
     GuestRam ram(runtime.memory());
-    if (runtime.function_at(kCursor) != &cursor && runtime.function_at(kCursor) != nullptr &&
+    if (runtime.function_at(ported(kCursor)) != &cursor && runtime.function_at(ported(kCursor)) != nullptr &&
         matches(ram, code_signature())) {
-        s.cursor = runtime.function_at(kCursor);
-        runtime.register_function(kCursor, &cursor, "mhfu_item_sets_cursor");
+        s.cursor = runtime.function_at(ported(kCursor));
+        runtime.register_function(ported(kCursor), &cursor, "mhfu_item_sets_cursor");
     }
-    if (runtime.function_at(kWindowDraw) != &window && runtime.function_at(kWindowDraw) != nullptr &&
+    if (runtime.function_at(ported(kWindowDraw)) != &window && runtime.function_at(ported(kWindowDraw)) != nullptr &&
         matches(ram, code_signature())) {
-        s.window = runtime.function_at(kWindowDraw);
-        runtime.register_function(kWindowDraw, &window, "mhfu_item_sets_window");
+        s.window = runtime.function_at(ported(kWindowDraw));
+        runtime.register_function(ported(kWindowDraw), &window, "mhfu_item_sets_window");
     }
     if (s.cursor == nullptr || !lobby_ready(ram) || !menu_data_known(ram)) {
         // The box went with lobby_task.
-        if (!layout::overlay_loaded(ram, layout::kTaskSlot, layout::kVillageOverlay)) s.open = false;
+        if (!layout::overlay_loaded(ram, layout::task_slot(), layout::kVillageOverlay)) s.open = false;
         return;
     }
     guest_calls::install(runtime);
     set_menu(ram, enabled());
     // Change Equipment in the Guild Hall wraps the box's frame too, and Eat in
     // the Guild Hall the text call (game/hooks.hpp).
-    (void)hooks::wrap(runtime, kText, &text, s.text, "mhfu_item_sets_text");
-    (void)hooks::wrap(runtime, kBoxFrame, &box_frame, s.box_frame, "mhfu_item_sets_box");
+    (void)hooks::wrap(runtime, ported(kText), &text, s.text, "mhfu_item_sets_text");
+    (void)hooks::wrap(runtime, ported(kBoxFrame), &box_frame, s.box_frame, "mhfu_item_sets_box");
     if (!s.reported) {
         s.reported = true;
         std::cout << "[item sets] box menu entry in place" << std::endl;
