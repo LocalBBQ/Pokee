@@ -139,6 +139,7 @@ void test_import() {
     write_file(chosen / "challenge.mib", quest_file(61001, kHiddenFlag));
     write_file(chosen / "hidden.mib", quest_file(60040, kHiddenFlag));
     write_file(chosen / "other.mib", quest_file(1234));
+    write_file(chosen / "shown challenge.mib", quest_file(61002));
     write_file(chosen / "encrypted.mib", std::vector<std::uint8_t>(0x6810u, 0xA5u));
     write_file(chosen / "notes.txt", std::vector<std::uint8_t>{'h', 'i'});
     // FUComplete's table: a name, then quests 0x22B0 bytes apart from 0x30 after it.
@@ -155,24 +156,27 @@ void test_import() {
     write_file(quests / "m60025.mib", quest_file(60025));
 
     const ImportCheck found = check_import(chosen, quests);
-    check(found.quests.size() == 2u && found.quests[0].quest.id == 60023u && found.quests[1].quest.id == 60025u,
+    check(found.quests.size() == 3u && found.quests[0].quest.id == 60023u && found.quests[1].quest.id == 60025u &&
+            found.quests[2].quest.id == 61001u,
         "loose quest files of any name and a table's quests are found, by id");
+    check(!found.quests[0].challenge && found.quests[2].challenge,
+        "a challenge is one of 61000 and up with the flag that keeps it out of the event list");
     check(found.quests[0].title == "Mega Kut-Ku" && found.quests[0].from == chosen / "Mega Kut-Ku.bin",
         "the folder's own files come before its folders' for the same id");
     check(!found.quests[0].replaces && found.quests[1].replaces, "a different quest of an id is replaced");
     check(found.present == 1u, "the same quest imported already is left out");
     check(found.japan_only == 2u, "Japan-only quests are left out, loose or in a table");
-    check(found.challenges == 2u, "challenges are left out, by id or by their hidden flag");
-    check(found.other == 1u && found.unreadable == 1u, "and other quests and undecoded .mib files counted");
+    check(found.other == 3u && found.unreadable == 1u,
+        "other quests (an event id with the flag, a challenge id without) and undecoded .mib files are counted");
     check(found.problem.empty(), "something to import is no problem");
 
     const ImportResult result = import_quests(found, quests);
-    check(result.error.empty() && result.imported == std::vector<std::uint16_t>{60023u, 60025u},
+    check(result.error.empty() && result.imported == std::vector<std::uint16_t>{60023u, 60025u, 61001u},
         "the import writes each quest");
     check(read_back(quests / "m60023.mib") == titled_quest(60023, "Mega Kut-Ku") &&
             read_back(quests / "m60025.mib") == titled_quest(60025, "Table quest", 0u, 0x22B0u),
         "as m<id>.mib, replacing the old one");
-    check(load(quests).size() == 3u && !fs::exists(quests / "m60023.mib.tmp"), "where load() reads them");
+    check(load(quests).size() == 4u && !fs::exists(quests / "m60023.mib.tmp"), "where load() reads them");
     check(check_import(chosen, quests).problem == "The event quests here are imported already.",
         "importing again finds nothing new");
 
@@ -211,6 +215,44 @@ void test_getter_and_lookup() {
     check(find(memory, Bank{}, kLobbyAt, 60023u) == 0u, "without a bank, only the save's");
 }
 
+void test_challenges() {
+    psprecomp::GuestMemory memory;
+    lay_out(memory);
+    fill_slot(memory, 0u, quest_file(60010));
+    fill_slot(memory, 1u, quest_file(61003, kHiddenFlag));
+    check(save_challenge_info(memory, 1u) == kBufferAt + kSlots + kSlotSize + 0x4Cu,
+        "the Training School's getter returns a challenge's info block");
+    check(save_challenge_info(memory, 0u) == 0u && save_challenge_info(memory, 2u) == 0u,
+        "and none for an event quest or an empty slot");
+
+    std::vector<Quest> quests{{60023u, quest_file(60023)}};
+    for (std::uint16_t id = 61001u; id <= 61014u; ++id) quests.push_back({id, quest_file(id, kHiddenFlag)});
+    const Bank bank = place(memory, kBankAt, 0x200u, quests);
+    // The loop has listed the save's 61003 and is asking for slot 5, which holds 61005.
+    const std::uint32_t arcade = kLobbyAt;
+    memory.store16(arcade + kChallengeIds, 61003u);
+    memory.store32(arcade + kChallengeInfos, kBufferAt + kSlots + kSlotSize + 0x4Cu);
+    memory.store16(arcade + kChallengeCount, 1u);
+    const std::uint32_t last = kBufferAt + kSlots + 5u * kSlotSize + 0x4Cu;
+    memory.store16(last + kInfoId, 61005u);
+    const std::uint32_t added = extend_challenges(memory, bank, arcade, last);
+    check(added == 12u && memory.load16(arcade + kChallengeCount) == 13u,
+        "the built-in challenges fill the list but for the save's and slot 5's, and room for slot 5's own");
+    check(memory.load16(arcade + kChallengeIds + 2u) == 61001u &&
+            memory.load16(arcade + kChallengeIds + 4u) == 61002u &&
+            memory.load16(arcade + kChallengeIds + 6u) == 61004u,
+        "in id order, without the event quest or a challenge listed already");
+    check(memory.load32(arcade + kChallengeSlots + 4u) == bank.slots[1] &&
+            memory.load32(arcade + kChallengeInfos + 4u) == bank.slots[1] + 0x4Cu,
+        "each with its slot and info block, where the game takes the chosen one from");
+    check(extend_challenges(memory, bank, arcade, last) == 0u, "a full list gains nothing");
+    memory.store16(arcade + kChallengeCount, 0u);
+    check(extend_challenges(memory, bank, arcade, 0u) == kChallengeRoom &&
+            memory.load16(arcade + kChallengeCount) == kChallengeRoom,
+        "without slot 5's, all fourteen fit");
+    check(!training_school_matches(memory), "without arcade_task's code nothing is replaced");
+}
+
 void test_list() {
     psprecomp::GuestMemory memory;
     lay_out(memory);
@@ -243,6 +285,7 @@ int main() {
     test_import();
     test_getter_and_lookup();
     test_list();
+    test_challenges();
     std::printf("%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
