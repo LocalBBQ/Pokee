@@ -790,161 +790,56 @@ void spread_gather_marks(std::span<GatherMark> marks, std::array<float, 2> apart
     }
 }
 
-std::uint32_t GatherRepeat::apply(std::uint32_t buttons, bool ready, std::uint32_t button) {
-    constexpr std::uint32_t kLead = 0x0100u; // L, held with ○ or □ for the item bar
-    constexpr unsigned kPulse = kGatherPulseDown + kGatherPulseUp;
-    centres_ = false;
+bool GatherRepeat::apply(HunterButtons &buttons, bool ready, std::uint32_t button) {
+    const std::uint32_t pad = buttons.held & kPadButtons;
     // L with ○ or □ before a hold starts scrolls the item bar. Once the hold
     // has started, L is another button and must not open that bar.
-    if ((buttons & kLead) != 0u && !holding_ && !latched_) return buttons;
+    if ((pad & kLeadButton) != 0u && !holding_ && !latched_) return false;
     // △+○ and the other chords are attacks, not a gather, even beside a point
-    // or a body. The pad goes through, and a hold already running ends.
-    if ((buttons & kGatherChord) != 0u) {
+    // or a body. The words go through, and a hold already running ends.
+    if ((pad & kGatherChord) != 0u) {
         holding_ = false;
         latched_ = false;
-        input_down_ = (buttons & button_) != 0u;
-        input_button_ = button_;
-        return buttons;
+        pressed_ = false;
+        return false;
     }
     // A hold already in progress keeps its own button. A new hold takes the
-    // caller's, so mining can pulse □ while carving pulses ○.
-    if (holding_) button = button_;
-    else button_ = button;
-    const bool down = (buttons & button) != 0u;
-    // A second button can drop the gather button from the resolved pad for a
-    // few reads. The hold continues until the pad is clear, and the game is
-    // shown the gather pulse rather than that button.
-    if (down) latched_ = true;
-    else if ((buttons & ~button) == 0u) latched_ = false;
-    if (!ready || !latched_) {
-        if (!ready) latched_ = down;
-        holding_ = false;
-        input_down_ = down;
-        input_button_ = button;
-        return buttons;
+    // caller's, so mining can press □ while carving presses ○.
+    if (holding_) {
+        button = button_;
+    } else if (button != button_) {
+        button_ = button;
+        pressed_ = false;
     }
-    // The gather button already down when the hold begins has been seen by the
-    // game, so the pulse starts on its up part and the next read down is a new
-    // press. Only the same button counts: a held ○ must not skip the first □.
+    const bool down = (pad & button) != 0u;
+    if ((buttons.fresh & button) != 0u) pressed_ = true;
+    // A second button can drop the gather button from the resolved pad for a
+    // few frames. The hold continues until nothing is held.
+    if (down) {
+        latched_ = true;
+    } else if ((pad & ~button) == 0u) {
+        latched_ = false;
+        pressed_ = false;
+    }
+    if (!ready || !latched_ || !pressed_) {
+        holding_ = false;
+        return false;
+    }
+    // A press the hunter has just seen is the hold's first. One seen before
+    // the point came into reach, or before the hunter was free, is pressed
+    // again at once.
     if (!holding_) {
         holding_ = true;
-        step_ = (input_down_ && input_button_ == button) ? kGatherPulseDown : 0u;
+        step_ = 0u;
     }
-    input_down_ = true;
-    input_button_ = button;
-    const bool show = step_ < kGatherPulseDown;
+    const bool press = step_ == 0u || (buttons.fresh & button) != 0u;
     if (step_ == 0u && trace_on()) std::cout << "[gather] hold" << std::endl;
-    step_ = (step_ + 1u) % kPulse;
-    // The game sees the gather button as this pulse wants it, and nothing else.
-    // The bit is forced on: the resolved pad may not contain it while another
-    // button is down. A stick push is stopped by the caller.
-    centres_ = true;
-    return show ? button : 0u;
-}
-
-namespace {
-bool centres_stick = false;
-
-// The HUD object, a0 of the HUD's update (0x0883F270) as it last ran.
-std::uint32_t hud_object{};
-
-// The byte of the HUD object that is not 0 while a menu is open over a
-// quest: MHFU_TRACE_GATHER showed it go 0 -> 1 as the menu opened and back as
-// it closed, each time.
-constexpr std::uint32_t kHudMenuOpen = 1325u;
-
-// While a menu is open the pad is the menu's: ○ closes it. A ○ still held
-// after it closes is the press that closed it, not a gather, until it is let go.
-class MenuLatch {
-public:
-    [[nodiscard]] bool holds(std::uint32_t buttons, const psprecomp::GuestMemory &memory) {
-        const bool circle = (buttons & kCircleButton) != 0u;
-        if (gather_menu_open(memory)) {
-            latched_ = circle;
-            return true;
-        }
-        if (latched_ && circle) return true;
-        latched_ = false;
-        return false;
-    }
-
-private:
-    bool latched_{};
-};
-} // namespace
-
-void gather_note_hud(std::uint32_t hud) {
-    hud_object = hud;
-}
-
-bool gather_menu_open(const psprecomp::GuestMemory &memory) {
-    // Only on a quest: the object is the quest HUD's, and in the village it is
-    // gone.
-    if (hud_object == 0u || !gather_code_matches(memory) || !in_ram(hud_object + kHudMenuOpen, 1u, memory))
-        return false;
-    return memory.load8(hud_object + kHudMenuOpen) != 0u;
-}
-
-bool gather_hold_centres_stick() { return centres_stick; }
-
-std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory) {
-    static GatherRepeat repeat;
-    static MenuLatch menu;
-    centres_stick = false;
-    if (!settings::current().gather_hold || menu.holds(buttons, memory)) {
-        repeat.reset();
-        return buttons;
-    }
-    constexpr std::uint32_t kCircle = 0x2000u; // ○, B: plants and carving
-    constexpr std::uint32_t kSquare = 0x8000u; // □, X: mining and a bug net
-    constexpr std::uint32_t kLead = 0x0100u;
-    bool circle_ready = false;
-    bool square_ready = false;
-    const bool look = ((buttons & kLead) == 0u && ((buttons & kCircle) != 0u || (buttons & kSquare) != 0u)) ||
-        repeat.underway();
-    if (look) {
-        const bool circle_gathers = settings::current().gather_circle;
-        if (const std::optional<GatherNode> node = gather_node(memory)) {
-            // With Gather with ○, mining and a bug net are ○ when the pouch has
-            // the tool (gather_circle turns each press into the game's □), and
-            // □ is never a gather on a quest: it is left to the item bar and
-            // the map. Off, they are □ as in the game.
-            if (!gather_uses_square(node->kind)) circle_ready = true;
-            else if (!circle_gathers) square_ready = true;
-            else if (gather_tool_slot(memory, node->kind)) circle_ready = true;
-        }
-        if (carve_in_reach(memory)) circle_ready = true;
-        // The farm's mining outcrops and bug thickets, in the village: □, and
-        // ○ as well with Gather with ○.
-        if (farm_point(memory)) {
-            square_ready = true;
-            if (circle_gathers) circle_ready = true;
-        }
-    }
-    // Even away from a point the held gather button is still tracked, so walking
-    // onto one with it already down starts on the up part of the pulse.
-    std::uint32_t button = kCircle;
-    bool ready = false;
-    if (repeat.underway()) {
-        button = repeat.button();
-        ready = button == kSquare ? square_ready : circle_ready;
-    } else if ((buttons & kLead) == 0u && (buttons & kCircle) != 0u && circle_ready) {
-        button = kCircle;
-        ready = true;
-    } else if ((buttons & kLead) == 0u && (buttons & kSquare) != 0u && square_ready) {
-        button = kSquare;
-        ready = true;
-    } else if ((buttons & kLead) == 0u && (buttons & kSquare) != 0u) {
-        button = kSquare;
-    } else if ((buttons & kLead) == 0u && (buttons & kCircle) != 0u) {
-        button = kCircle;
-    } else if (!repeat.underway()) {
-        (void)repeat.apply(buttons, false, repeat.button());
-        return buttons;
-    }
-    const std::uint32_t shown = repeat.apply(buttons, ready, button);
-    centres_stick = repeat.centres_stick();
-    return shown;
+    step_ = (step_ + 1u) % kGatherPressFrames;
+    buttons.held = button;
+    buttons.fresh = press ? button : 0u;
+    buttons.released = 0u;
+    buttons.magnitude = 0u;
+    return true;
 }
 
 namespace {
@@ -980,262 +875,7 @@ bool holds_tool(const psprecomp::GuestMemory &memory, std::uint32_t pouch, std::
         memory.load16(pouch + slot * 4u + 2u) > 0u;
 }
 
-// What gather_circle changed, to put back: the hunter, the slot it selected,
-// and the selection and the item in it before.
-struct CircleSwap {
-    bool active{};
-    std::uint32_t hunter{};
-    std::uint16_t tool_slot{};
-    std::uint16_t tool_item{};
-    std::uint16_t before_slot{};
-    std::uint16_t before_item{};
-    unsigned released{};
-};
-
-CircleSwap &circle_swap() {
-    static CircleSwap swap;
-    return swap;
-}
-
-// The selection is still the swap's: on the tool, or moved by the game
-// because the tool is gone (a pickaxe that broke leaves its slot empty, and
-// 0x088D72A4 steps the selection on to the next item). Not when the player
-// has moved it off a tool that is still there.
-bool still_swapped(const psprecomp::GuestMemory &memory, std::uint32_t pouch) {
-    const CircleSwap &swap = circle_swap();
-    if (!swap.active || !in_ram(swap.hunter + kSelectedSlot, 2u, memory)) return false;
-    if (memory.load16(swap.hunter + kSelectedSlot) == swap.tool_slot) return true;
-    return memory.load16(pouch + swap.tool_slot * 4u) != swap.tool_item ||
-        memory.load16(pouch + swap.tool_slot * 4u + 2u) == 0u;
-}
-
-// The item the selection was on before: its slot when the item is still
-// there, or wherever a pack moved it.
-std::uint16_t slot_before(const psprecomp::GuestMemory &memory, std::uint32_t pouch) {
-    const CircleSwap &swap = circle_swap();
-    if (swap.before_item == 0u || memory.load16(pouch + swap.before_slot * 4u) == swap.before_item)
-        return swap.before_slot;
-    for (std::uint16_t i = 0; i < kPouchSlots; ++i)
-        if (memory.load16(pouch + i * 4u) == swap.before_item) return i;
-    return swap.before_slot;
-}
-
-// The selection goes back to the item it was on.
-void put_back(psprecomp::GuestMemory &memory) {
-    CircleSwap &swap = circle_swap();
-    const std::optional<std::uint32_t> pouch = pouch_slots(memory);
-    const bool ours = pouch && still_swapped(memory, *pouch);
-    swap.active = false;
-    if (!ours) return;
-    const std::uint16_t slot = slot_before(memory, *pouch);
-    memory.store16(swap.hunter + kSelectedSlot, slot);
-    if (trace_on()) std::cout << "[gather] selection back to slot " << slot << std::endl;
-}
-
-// The HUD functions that read the selection at hunter +1608. While ○ has the
-// tool selected, each is shown the item the selection was on, and the tool is
-// put back as soon as it returns, so nothing the HUD draws or animates is the
-// tool.
-// - The item bar (0x08845A34): its strip (0x08845EA8), the part at 0x08845C68
-//   and the item's name all read the selection, and the bar reaches them by
-//   jumps inside its own unit, so its one wrapper sees every read. Its calls
-//   into Empty item slot's wrappers are chained (hooks::register_chained), so
-//   it returns finished.
-// - The HUD's update (0x0883F270) compares the selection with the one it saw
-//   last, kept at +1430 of the HUD object (0x0883F44C), and asks 0x0882693C
-//   whether the slot holds an item: a change of selection is what moves the
-//   bar.
-// If one ever goes back to the dispatcher partway, the tool is put back all
-// the same, and the rest of it reads the tool.
-struct HudReader {
-    std::uint32_t address{};
-    std::span<const GatherWord> words;
-    const char *name{};
-};
-constexpr GatherWord kItemBarWords[] = {
-    {0x08845A34u, 0x27BDFFE0u}, // addiu sp,sp,-32: the HUD's item bar
-    {0x08845A38u, 0xAFBF001Cu}, // sw ra,28(sp)
-    {0x08845AB8u, 0x96250648u}, // lhu a1,1608(s1): it reads the selection
-    {0x0883FD20u, 0x0E21168Du}, // jal 0x08845A34: the HUD draws the bar
-};
-constexpr GatherWord kHudUpdateWords[] = {
-    {0x0883F270u, 0x27BDFFE0u}, // addiu sp,sp,-32: the HUD's update
-    {0x0883F274u, 0xAFBF001Cu}, // sw ra,28(sp)
-    {0x0883F450u, 0x94630648u}, // lhu v1,1608(v1): the selection, to compare with +1430
-    {0x0883F464u, 0x94450648u}, // lhu a1,1608(v0): and to ask whether it holds an item
-};
-const std::array<HudReader, 2> kHudReaders{{
-    {0x08845A34u, kItemBarWords, "mhfu_gather_item_bar"},
-    {0x0883F270u, kHudUpdateWords, "mhfu_gather_hud_update"},
-}};
-
-std::array<psprecomp::Runtime::RecompiledFunction, kHudReaders.size()> &hud_originals() {
-    static std::array<psprecomp::Runtime::RecompiledFunction, kHudReaders.size()> originals{};
-    return originals;
-}
-
-// Where each wrapped function returns to (hud_reader): words in the PSP's
-// kernel area below the executable, which holds no game code, with a host
-// function of the port's own at each.
-constexpr std::array<std::uint32_t, kHudReaders.size()> kHudReturns{0x08800100u, 0x08800110u};
-
-// A call that went back to the dispatcher partway: where it returns once it
-// reaches its stop, and the selection to give the game back then.
-struct PendingReturn {
-    std::uint32_t return_pc{};
-    bool shown{};
-    std::uint32_t hunter{};
-    std::uint16_t shown_slot{};
-    std::uint16_t game_slot{};
-};
-
-// In order, per function.
-std::array<std::vector<PendingReturn>, kHudReaders.size()> &hud_pending() {
-    static std::array<std::vector<PendingReturn>, kHudReaders.size()> pending;
-    return pending;
-}
-
-// The game's selection back, unless something has moved the one the HUD was
-// shown since.
-void give_back(psprecomp::GuestMemory &memory, std::uint32_t hunter, std::uint16_t shown_slot, std::uint16_t game_slot) {
-    if (in_ram(hunter + kSelectedSlot, 2u, memory) && memory.load16(hunter + kSelectedSlot) == shown_slot)
-        memory.store16(hunter + kSelectedSlot, game_slot);
-}
-
-// MHFU_TRACE_GATHER: changes to the HUD object (a0 of the HUD's update) from
-// +1300 to +1500, a byte at a time, to find where it keeps that a menu is
-// open. A byte that has changed more than eight times is a counter and is
-// left out from then on.
-void trace_hud_object(const psprecomp::GuestMemory &memory, std::uint32_t hud) {
-    constexpr std::uint32_t kFrom = 1300u;
-    constexpr std::uint32_t kTo = 1500u;
-    static std::uint32_t last_hud{};
-    static std::array<std::uint8_t, kTo - kFrom> last{};
-    static std::array<std::uint8_t, kTo - kFrom> changes{};
-    static std::uint64_t calls{};
-    ++calls;
-    if (!in_ram(hud + kFrom, kTo - kFrom, memory)) return;
-    const bool fresh = hud != last_hud;
-    last_hud = hud;
-    std::string line;
-    for (std::uint32_t i = 0; i < kTo - kFrom; ++i) {
-        const std::uint8_t now = memory.load8(hud + kFrom + i);
-        if (!fresh && now != last[i] && changes[i] <= 8u) {
-            ++changes[i];
-            line += " +" + std::to_string(kFrom + i) + ":" + std::to_string(last[i]) + "->" + std::to_string(now);
-        }
-        last[i] = now;
-    }
-    if (fresh)
-        std::cout << "[gather] HUD object 0x" << std::hex << hud << std::dec << " at call " << calls << std::endl;
-    else if (!line.empty())
-        std::cout << "[gather] HUD call " << calls << line << std::endl;
-}
-
-template <std::size_t Reader>
-void hud_reader(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    if (Reader == 1u) {
-        gather_note_hud(ctx.gpr[4]);
-        if (trace_on()) trace_hud_object(runtime.memory(), ctx.gpr[4]);
-    }
-    psprecomp::GuestMemory &memory = runtime.memory();
-    const CircleSwap &swap = circle_swap();
-    const std::optional<std::uint32_t> pouch = pouch_slots(memory);
-    const bool shown = pouch && still_swapped(memory, *pouch);
-    const std::uint32_t hunter = swap.hunter;
-    const std::uint16_t game_slot = shown ? memory.load16(hunter + kSelectedSlot) : 0u;
-    const std::uint16_t shown_slot = shown ? slot_before(memory, *pouch) : 0u;
-    if (shown) memory.store16(hunter + kSelectedSlot, shown_slot);
-    static unsigned traced = 0u;
-    if (trace_on() && (swap.active || shown) && traced < 40u) {
-        ++traced;
-        std::cout << "[gather] " << kHudReaders[Reader].name << " called, swap "
-                  << (swap.active ? "active" : "idle") << ", shown slot "
-                  << (shown ? std::to_string(memory.load16(swap.hunter + kSelectedSlot)) : std::string("-"))
-                  << " for the game's " << (shown ? std::to_string(game_slot) : std::string("-")) << std::endl;
-    }
-    // The function returns to its own stop, not to the caller: a return into
-    // a caller in the same unit would otherwise go on running that caller in
-    // here, and its next call of this function would nest one level deeper
-    // each time, until the host's stack ran out.
-    const std::uint32_t return_pc = ctx.gpr[31];
-    ctx.gpr[31] = kHudReturns[Reader];
-    ctx.pc = kHudReaders[Reader].address;
-    hooks::enter_stop(kHudReturns[Reader], return_pc);
-    hud_originals()[Reader](runtime, ctx);
-    if (ctx.pc == kHudReturns[Reader]) {
-        hooks::leave_stop(kHudReturns[Reader]);
-        ctx.pc = return_pc;
-        ctx.gpr[31] = return_pc;
-        if (shown) give_back(memory, hunter, shown_slot, game_slot);
-        return;
-    }
-    // It went back to the dispatcher partway (in the game, both do on every
-    // call, MHFU_TRACE_GATHER) and goes on later outside this wrapper. The HUD
-    // keeps the item that was selected until it reaches its stop, where the
-    // game gets its selection back: only the dispatcher's own callee runs in
-    // between, never the item handlers, which run before the HUD in a frame.
-    hud_pending()[Reader].push_back({return_pc, shown, hunter, shown_slot, game_slot});
-    static bool partway_logged = false;
-    if (trace_on() && !std::exchange(partway_logged, true))
-        std::cout << "[gather] " << kHudReaders[Reader].name << " went back to the dispatcher partway" << std::endl;
-}
-
-// A function that went back to the dispatcher partway reaches its stop when
-// it finishes: the game gets its selection back, and it goes on at the return
-// it was called with.
-template <std::size_t Reader>
-void hud_return(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
-    std::vector<PendingReturn> &pending = hud_pending()[Reader];
-    if (pending.empty()) return; // never left without a return; nothing to go back to
-    const PendingReturn call = pending.back();
-    pending.pop_back();
-    hooks::leave_stop(kHudReturns[Reader]);
-    if (call.shown) give_back(runtime.memory(), call.hunter, call.shown_slot, call.game_slot);
-    ctx.pc = call.return_pc;
-    ctx.gpr[31] = call.return_pc;
-}
-
-constexpr std::array<psprecomp::Runtime::RecompiledFunction, kHudReaders.size()> kHudWrappers{
-    &hud_reader<0>, &hud_reader<1>};
-constexpr std::array<psprecomp::Runtime::RecompiledFunction, kHudReaders.size()> kHudReturnStops{
-    &hud_return<0>, &hud_return<1>};
-
 } // namespace
-
-// Each frame, as Item Box does for the same update (game/item_box.hpp): the
-// wrappers go through hooks::wrap, so one wrapping the other's address keeps
-// it in the chain. Taking each other for the game's function, the two called
-// round each other until the host's stack ran out.
-void gather_frame(psprecomp::Runtime &runtime) {
-    static std::array<bool, kHudReaders.size()> stops{};
-    static std::array<bool, kHudReaders.size()> logged{};
-    // The update also tells both settings when a menu is open (gather_menu_open).
-    if (!settings::current().gather_circle && !settings::current().gather_hold) return;
-    for (std::size_t i = 0; i < kHudReaders.size(); ++i) {
-        const HudReader &reader = kHudReaders[i];
-        if (runtime.function_at(reader.address) == nullptr ||
-            !words_match(runtime.memory(), reader.words, logged[i]))
-            continue;
-        if (!stops[i]) {
-            // The stop must be free: a function already there is not ours to replace.
-            if (runtime.function_at(kHudReturns[i]) != nullptr) {
-                if (!std::exchange(logged[i], true))
-                    std::cout << "[gather] 0x" << std::hex << kHudReturns[i] << std::dec
-                              << " is taken; the HUD is left showing the tool" << std::endl;
-                continue;
-            }
-            runtime.register_function(kHudReturns[i], kHudReturnStops[i], std::string(reader.name) + "_return");
-            stops[i] = true;
-        }
-        const bool was_in_place = runtime.function_at(reader.address) == kHudWrappers[i];
-        const bool wrapped = hooks::wrap(runtime, reader.address, kHudWrappers[i], hud_originals()[i], reader.name);
-        static std::array<bool, kHudReaders.size()> reported{};
-        if (trace_on() && wrapped && !was_in_place && !std::exchange(reported[i], true))
-            std::cout << "[gather] " << reader.name << " in place at 0x" << std::hex << reader.address << std::dec
-                      << std::endl;
-    }
-}
 
 std::uint16_t gather_tool_count(const psprecomp::GuestMemory &memory, std::uint16_t item) {
     const std::optional<std::uint32_t> pouch = pouch_slots(memory);
@@ -1287,51 +927,224 @@ std::uint32_t gather_button(
     return 0u;
 }
 
-std::uint32_t gather_circle(std::uint32_t buttons, psprecomp::GuestMemory &memory) {
-    CircleSwap &swap = circle_swap();
-    if (!settings::current().gather_circle) {
-        put_back(memory);
-        return buttons;
+namespace {
+
+// The copy (game/gather_icon.hpp, HunterButtons) and its one call.
+constexpr std::uint32_t kInputCopy = 0x088D61CCu;
+constexpr GatherWord kInputWords[] = {
+    {0x088D61CCu, 0x27BDFFF0u}, // addiu sp,sp,-16: the copy
+    {0x088D61DCu, 0x8C452D88u}, // lw a1,11656(v0): the pad's buttons held
+    {0x088D61ECu, 0xAC850480u}, // sw a1,1152(a0): to the hunter
+    {0x088D61F0u, 0x8C452D8Cu}, // lw a1,11660(v0): the ones new
+    {0x088D61FCu, 0xAC850484u}, // sw a1,1156(a0)
+    {0x088D6200u, 0x8C632D90u}, // lw v1,11664(v1): the ones let go
+    {0x088D620Cu, 0xAC830488u}, // sw v1,1160(a0)
+    {0x088D621Cu, 0x94E72D9Au}, // lhu a3,11674(a3): the stick's magnitude
+    {0x088D6224u, 0xA487049Eu}, // sh a3,1182(a0)
+    {0x088DB474u, 0x0E235873u}, // jal 0x088D61CC: for the local hunter
+};
+
+// 0x08856884: a pouch slot's address, a0 + 0x6AEA6 + 4 * a1, slot 0 past 24.
+constexpr std::uint32_t kPouchSlot = 0x08856884u;
+constexpr GatherWord kSlotWords[] = {
+    {0x08856884u, 0x28A20019u}, // slti v0,a1,25
+    {0x08856898u, 0x3C010006u}, // lui at,0x6
+    {0x088568A0u, 0x3421AEA6u}, // ori at,at,0xAEA6: the pouch
+};
+
+// The circle handler's reads of the selection, in game_task.
+constexpr GatherWord kToolWords[] = {
+    {0x09AA6FB8u, 0x0E215A21u}, // jal 0x08856884: mining's tool check
+    {0x09AA6FBCu, 0x96450648u}, // lhu a1,1608(s2): of the selection
+    {0x09AA7230u, 0x96450648u}, // lhu a1,1608(s2)
+    {0x09AA7234u, 0x0E215A21u}, // jal 0x08856884: the tool it keeps
+    {0x09AA7248u, 0xA6420694u}, // sh v0,1684(s2): at hunter +1684
+    {0x09AA72B0u, 0x0E215A21u}, // jal 0x08856884: the net's tool check
+    {0x09AA72B4u, 0x96450648u}, // lhu a1,1608(s2)
+};
+// Where each of those calls returns.
+constexpr std::array<std::uint32_t, 3> kToolCalls{0x09AA6FC0u, 0x09AA723Cu, 0x09AA72B8u};
+
+bool &tool_logged() {
+    static bool logged = false;
+    return logged;
+}
+
+// The press ○ made □ for a tool, for gather_slot_for until the next frame.
+struct ToolPress {
+    bool active{};
+    std::uint32_t hunter{};
+    std::uint16_t slot{};
+};
+
+ToolPress &tool_press() {
+    static ToolPress press;
+    return press;
+}
+
+// Hold to gather on one frame: what is in reach decides whether ○ or □
+// gathers, and the hold presses it.
+void hold(GatherRepeat &repeat, HunterButtons &buttons, const psprecomp::GuestMemory &memory) {
+    const std::uint32_t pad = buttons.held & kPadButtons;
+    const bool lead = (pad & kLeadButton) != 0u;
+    bool circle_ready = false;
+    bool square_ready = false;
+    if ((!lead && (pad & (kCircleButton | kSquareButton)) != 0u) || repeat.underway()) {
+        const bool circle_gathers = settings::current().gather_circle;
+        if (const std::optional<GatherNode> node = gather_node(memory)) {
+            // With Gather with ○, mining and a bug net are ○ when the pouch
+            // has the tool (gather_input turns each press into □), and □ is
+            // never a gather on a quest: it is left to the item bar and the
+            // map. Off, they are □ as in the game.
+            if (!gather_uses_square(node->kind)) circle_ready = true;
+            else if (!circle_gathers) square_ready = true;
+            else if (gather_tool_slot(memory, node->kind)) circle_ready = true;
+        }
+        if (carve_in_reach(memory)) circle_ready = true;
+        // The farm's mining outcrops and bug thickets, in the village: □, and
+        // ○ as well with Gather with ○.
+        if (farm_point(memory)) {
+            square_ready = true;
+            if (circle_gathers) circle_ready = true;
+        }
     }
-    static MenuLatch menu;
-    const bool in_menu = menu.holds(buttons, memory);
-    const bool circle = (buttons & kCircleButton) != 0u;
-    if (circle && (buttons & (kLeadButton | kGatherChord)) == 0u && !in_menu) {
-        if (farm_point(memory)) return (buttons & ~kCircleButton) | kSquareButton;
-        const std::optional<GatherNode> node = gather_node(memory);
-        if (node && gather_uses_square(node->kind) && !carve_in_reach(memory)) {
-            const std::optional<std::uint16_t> slot = gather_tool_slot(memory, node->kind);
-            const std::optional<std::uint32_t> hunter = local_hunter(memory);
-            const std::optional<std::uint32_t> pouch = pouch_slots(memory);
-            if (slot && hunter && pouch) {
-                // Another hunter's, or a selection the player has moved since:
-                // that one is the selection to come back to.
-                if (swap.active && (swap.hunter != *hunter || !still_swapped(memory, *pouch))) put_back(memory);
-                if (!swap.active) {
-                    const std::uint16_t before = memory.load16(*hunter + kSelectedSlot);
-                    swap.hunter = *hunter;
-                    swap.before_slot = before;
-                    swap.before_item = before <= kPouchSlots ? memory.load16(*pouch + before * 4u) : 0u;
-                    swap.active = true;
-                    if (trace_on())
-                        std::cout << "[gather] ○ takes the tool in slot " << *slot << " from slot " << before
-                                  << std::endl;
-                }
-                swap.tool_slot = *slot;
-                swap.tool_item = memory.load16(*pouch + *slot * 4u);
-                swap.released = 0u;
-                memory.store16(*hunter + kSelectedSlot, *slot);
-                return (buttons & ~kCircleButton) | kSquareButton;
+    // Even away from a point the held button is still tracked, so walking onto
+    // one with a press still held starts the hold there.
+    std::uint32_t button = repeat.button();
+    bool ready = false;
+    if (repeat.underway()) {
+        ready = button == kSquareButton ? square_ready : circle_ready;
+    } else if (!lead && (pad & kCircleButton) != 0u && circle_ready) {
+        button = kCircleButton;
+        ready = true;
+    } else if (!lead && (pad & kSquareButton) != 0u && square_ready) {
+        button = kSquareButton;
+        ready = true;
+    } else if (!lead && (pad & kSquareButton) != 0u) {
+        button = kSquareButton;
+    } else if (!lead && (pad & kCircleButton) != 0u) {
+        button = kCircleButton;
+    }
+    (void)repeat.apply(buttons, ready, button);
+}
+
+// Gather with ○ on one frame: each new ○ decides whether it is the game's □
+// until ○ is let go.
+void circle_as_square(bool &as_square, HunterButtons &buttons, std::uint32_t hunter,
+    const psprecomp::GuestMemory &memory) {
+    const std::uint32_t pad = buttons.held & kPadButtons;
+    if ((pad & kCircleButton) == 0u && (buttons.fresh & kCircleButton) == 0u) as_square = false;
+    std::optional<std::uint16_t> tool;
+    if ((buttons.fresh & kCircleButton) != 0u) {
+        as_square = false;
+        if ((pad & (kLeadButton | kGatherChord)) == 0u) {
+            if (farm_point(memory)) {
+                as_square = true;
+            } else if (const std::optional<GatherNode> node = gather_node(memory);
+                node && gather_uses_square(node->kind) && !carve_in_reach(memory) &&
+                words_match(memory, kToolWords, tool_logged())) {
+                tool = gather_tool_slot(memory, node->kind);
+                as_square = tool.has_value();
             }
         }
     }
-    if (swap.active) {
-        if (circle)
-            swap.released = 0u;
-        else if (++swap.released >= kGatherRestoreReads)
-            put_back(memory);
+    if (!as_square) return;
+    for (std::uint32_t *word : {&buttons.held, &buttons.fresh, &buttons.released})
+        if ((*word & kCircleButton) != 0u) *word = (*word & ~kCircleButton) | kSquareButton;
+    if (tool && (buttons.fresh & kSquareButton) != 0u) {
+        tool_press() = ToolPress{true, hunter, *tool};
+        if (trace_on()) std::cout << "[gather] ○ is □ with the tool in slot " << *tool << std::endl;
     }
-    return buttons;
+}
+
+psprecomp::Runtime::RecompiledFunction input_next{};
+psprecomp::Runtime::RecompiledFunction slot_next{};
+
+// The copy, then both settings on the words it wrote.
+void input_copy(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    const std::uint32_t hunter = ctx.gpr[4];
+    const std::uint32_t return_pc = ctx.gpr[31];
+    tool_press() = {};
+    ctx.pc = kInputCopy;
+    input_next(runtime, ctx);
+    // Back to the dispatcher partway: the rest of the copy writes the words
+    // later, so this frame is left to the game.
+    if (ctx.pc != return_pc) return;
+    psprecomp::GuestMemory &memory = runtime.memory();
+    if (!in_ram(hunter + kHunterHeld, kHunterMagnitude + 2u - kHunterHeld, memory)) return;
+    HunterButtons buttons{memory.load32(hunter + kHunterHeld), memory.load32(hunter + kHunterFresh),
+        memory.load32(hunter + kHunterReleased), memory.load16(hunter + kHunterMagnitude)};
+    const HunterButtons game = buttons;
+    gather_input(buttons, hunter, memory);
+    if (buttons.held != game.held) memory.store32(hunter + kHunterHeld, buttons.held);
+    if (buttons.fresh != game.fresh) memory.store32(hunter + kHunterFresh, buttons.fresh);
+    if (buttons.released != game.released) memory.store32(hunter + kHunterReleased, buttons.released);
+    if (buttons.magnitude != game.magnitude) memory.store16(hunter + kHunterMagnitude, buttons.magnitude);
+}
+
+// The circle handler asks for the tool's slot on the frame ○ became □ for it.
+void pouch_slot(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    if (const std::optional<std::uint16_t> slot = gather_slot_for(ctx.gpr[31], ctx.gpr[18])) ctx.gpr[5] = *slot;
+    ctx.pc = kPouchSlot;
+    slot_next(runtime, ctx);
+}
+
+} // namespace
+
+std::span<const GatherWord> gather_input_words() {
+    return kInputWords;
+}
+
+std::span<const GatherWord> gather_slot_words() {
+    return kSlotWords;
+}
+
+std::span<const GatherWord> gather_tool_words() {
+    return kToolWords;
+}
+
+void gather_input(HunterButtons &buttons, std::uint32_t hunter, psprecomp::GuestMemory &memory) {
+    static GatherRepeat repeat;
+    static bool as_square = false;
+    tool_press() = {};
+    // The searches read the hunter the camera follows.
+    if (hunter == 0u || hunter != layout::followed_hunter(memory, kSelectedSlot + 2u)) {
+        repeat.reset();
+        as_square = false;
+        return;
+    }
+    if (settings::current().gather_hold) hold(repeat, buttons, memory);
+    else repeat.reset();
+    if (settings::current().gather_circle) circle_as_square(as_square, buttons, hunter, memory);
+    else as_square = false;
+}
+
+std::optional<std::uint16_t> gather_slot_for(std::uint32_t return_address, std::uint32_t hunter) {
+    const ToolPress &press = tool_press();
+    if (!press.active || press.hunter != hunter) return std::nullopt;
+    if (std::find(kToolCalls.begin(), kToolCalls.end(), return_address) == kToolCalls.end()) return std::nullopt;
+    return press.slot;
+}
+
+void gather_frame(psprecomp::Runtime &runtime) {
+    const settings::Settings &s = settings::current();
+    if (!s.gather_hold && !s.gather_circle) return;
+    const auto install = [&](std::uint32_t address, std::span<const GatherWord> words, bool &logged,
+                             psprecomp::Runtime::RecompiledFunction wrapper,
+                             psprecomp::Runtime::RecompiledFunction &next, const char *name) {
+        if (runtime.function_at(address) == nullptr || !words_match(runtime.memory(), words, logged)) return false;
+        const bool was_in_place = runtime.function_at(address) == wrapper;
+        // The copy switches no thread and neither does the slot: chained,
+        // their callers run them inline.
+        if (!hooks::wrap(runtime, address, wrapper, next, name, true)) return false;
+        if (trace_on() && !was_in_place)
+            std::cout << "[gather] " << name << " in place at 0x" << std::hex << address << std::dec << std::endl;
+        return true;
+    };
+    static bool input_logged = false;
+    if (!install(kInputCopy, kInputWords, input_logged, &input_copy, input_next, "mhfu_gather_input")) return;
+    static bool slot_logged = false;
+    if (s.gather_circle) (void)install(kPouchSlot, kSlotWords, slot_logged, &pouch_slot, slot_next, "mhfu_gather_slot");
 }
 
 } // namespace mhfu::game

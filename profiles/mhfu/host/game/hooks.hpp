@@ -16,17 +16,15 @@
 #include "psprecomp/runtime.hpp"
 
 #include <cstdint>
-#include <iterator>
 #include <string>
-#include <vector>
 
 namespace mhfu::game::hooks {
 
 // Puts `wrapper` over the function at `address`, which `next` then holds,
 // unless the wrapper is already in the chain there. False when nothing is
-// registered at the address.
+// registered at the address. `chained` registers it as register_chained does.
 bool wrap(psprecomp::Runtime &runtime, std::uint32_t address, psprecomp::Runtime::RecompiledFunction wrapper,
-    psprecomp::Runtime::RecompiledFunction &next, const std::string &name);
+    psprecomp::Runtime::RecompiledFunction &next, const std::string &name, bool chained = false);
 
 // A host wrapper generated code calls straight into. The runtime chains a
 // call only into functions registered under a generated unit's name; any
@@ -41,46 +39,6 @@ inline void register_chained(psprecomp::Runtime &runtime, std::uint32_t address,
     psprecomp::Runtime::RecompiledFunction wrapper, const std::string &name) {
     runtime.register_function(address, wrapper, name);
     runtime.register_function(address, wrapper, "recomp_unit_" + name);
-}
-
-// A wrapper that calls the game's function with a return address of its own
-// (a stop) records the caller's here while that call is on the guest stack.
-// Code that walks the stack (gpu/game_hud.cpp) goes on from the caller: the
-// stop is in no function, and the quest HUD's draws filed under Gather with
-// ○'s HUD wrapper, cut off there, lost their interface sizes.
-struct ReturnStop {
-    std::uint32_t stop{};
-    std::uint32_t caller{};
-};
-
-inline std::vector<ReturnStop> &return_stops() {
-    static std::vector<ReturnStop> stops;
-    return stops;
-}
-
-inline void enter_stop(std::uint32_t stop, std::uint32_t caller) {
-    std::vector<ReturnStop> &stops = return_stops();
-    if (stops.size() > 64u) stops.clear(); // never expected; bounds calls that never reach their stop
-    stops.push_back({stop, caller});
-}
-
-// The innermost call returning to `stop` has finished.
-inline void leave_stop(std::uint32_t stop) {
-    std::vector<ReturnStop> &stops = return_stops();
-    for (auto it = stops.rbegin(); it != stops.rend(); ++it)
-        if (it->stop == stop) {
-            stops.erase(std::next(it).base());
-            return;
-        }
-}
-
-// Where the innermost call returning to `ra` returns in the game, or `ra`
-// itself when it is no stop.
-[[nodiscard]] inline std::uint32_t caller_of(std::uint32_t ra) {
-    const std::vector<ReturnStop> &stops = return_stops();
-    for (auto it = stops.rbegin(); it != stops.rend(); ++it)
-        if (it->stop == ra) return it->caller;
-    return ra;
 }
 
 } // namespace mhfu::game::hooks
