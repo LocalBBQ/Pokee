@@ -1,6 +1,7 @@
 #include "game/true_element.hpp"
 
 #include "game/hooks.hpp"
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -86,7 +87,7 @@ void sprintf_wrapper(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ct
                           << " \"" << asked << "\" -> \"" << guest_text(memory, format) << "\"" << std::endl;
         }
     }
-    ctx.pc = kSprintf;
+    ctx.pc = install::port(kSprintf);
     s.original(runtime, ctx);
 }
 
@@ -98,7 +99,7 @@ std::span<const CodeWord> code_signature() {
 
 bool code_matches(const psprecomp::GuestMemory &memory) {
     for (const CodeWord &expected : kSignature)
-        if (!memory.contains(expected.address, 4u) || memory.load32(expected.address) != expected.word) return false;
+        if (!install::code_matches(memory, expected.address, expected.word)) return false;
     return true;
 }
 
@@ -143,7 +144,7 @@ void frame(psprecomp::Runtime &runtime) {
     // direct calls, so it waits until the switch is first turned on.
     if (!s.reported && !settings::current().true_attack) return;
     if (!code_matches(memory)) return;
-    if (!hooks::wrap(runtime, kSprintf, &sprintf_wrapper, s.original, "mhfu_true_element")) return;
+    if (!hooks::wrap(runtime, install::port(kSprintf), &sprintf_wrapper, s.original, "mhfu_true_element")) return;
     if (!s.reported) {
         s.reported = true;
         std::cout << "[element] true element in place" << std::endl;

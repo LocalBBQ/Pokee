@@ -126,10 +126,28 @@ private:
     return map != nullptr ? map->port(traced, image) : traced;
 }
 
+// `traced` in the running release, in the image image_at() picks for it from
+// `from`: for a feature whose addresses lie in the executable, a task
+// overlay and game_sub.
+[[nodiscard]] inline std::uint32_t port_from(std::uint32_t traced, Image from) {
+    return port(traced, image_at(traced, from));
+}
+
 // The traced address of `address` in the running release, or 0.
 [[nodiscard]] inline std::uint32_t traced_address(std::uint32_t address, Image image = Image::executable) {
     const AddressMap *map = running_map();
     return map != nullptr ? map->traced(address, image) : address;
+}
+
+// The traced address of the code at `address` in the running release: the
+// executable's, game_sub's in the sub slot, or `task`'s in the task slot.
+// For a return address or a program counter the game hands over.
+[[nodiscard]] inline std::uint32_t traced_code(std::uint32_t address, Image task = Image::game_task) {
+    const AddressMap *map = running_map();
+    if (map == nullptr) return address;
+    if (address < kOverlayStart) return map->traced(address, Image::executable);
+    if (address >= map->port(kTracedSubSlot, Image::executable)) return map->traced(address, Image::game_sub);
+    return map->traced(address, task);
 }
 
 namespace detail {
@@ -172,24 +190,39 @@ constexpr bool is_low_half(std::uint32_t word) {
 // How far back a low half looks for the lui that sets its base.
 inline constexpr std::uint32_t kHighWindow = 16u;
 
+constexpr bool in_ram(std::uint32_t word) {
+    return word >= 0x08800000u && word < 0x0A000000u;
+}
+
 } // namespace detail
+
+// True when the traced address `target`, reached from `from`, is `found` in
+// the running release. From the executable, the task slot holds either task
+// overlay.
+[[nodiscard]] inline bool moves_to(std::uint32_t target, Image from, std::uint32_t found) {
+    if (port(target, image_at(target, from)) == found) return true;
+    return from == Image::executable && target >= kOverlayStart && target < kTracedSubSlot &&
+        port(target, Image::lobby_task) == found;
+}
 
 // True when `found`, at `address` in the running release, is the
 // instruction `traced_word` traced at `traced` in ULUS-10391's `image`.
 // Without a map the words are equal. Elsewhere a word may differ only in
 // what holds an address: a jump's target, which must be the traced one
 // moved; the high half of an address; or a low half whose base a nearby
-// lui loads with one, in the image's own code.
+// lui loads with one, in the image's own code. A word of a table of
+// pointers is the pointer moved. Neither a jump nor a call of this game
+// is a word in RAM's range, so the two cannot be taken for each other.
 template <typename Memory>
 [[nodiscard]] bool same_instruction(const Memory &memory, std::uint32_t address, std::uint32_t found,
     std::uint32_t traced, std::uint32_t traced_word, Image image) {
     using namespace detail;
     if (found == traced_word) return true;
     if (running_map() == nullptr) return false;
+    if (in_ram(traced_word)) return moves_to(traced_word, image, found);
     if (is_jump(traced_word)) {
         if (opcode(found) != opcode(traced_word)) return false;
-        const std::uint32_t target = jump_target(traced_word, traced);
-        return port(target, image_at(target, image)) == jump_target(found, address);
+        return moves_to(jump_target(traced_word, traced), image, jump_target(found, address));
     }
     if ((found & 0xFFFF0000u) != (traced_word & 0xFFFF0000u)) return false;
     if (is_address_high(traced_word)) return is_address_high(found);
@@ -204,10 +237,12 @@ template <typename Memory>
     return false;
 }
 
-// The word at `traced`'s counterpart is the traced instruction.
+// The word at `traced`'s counterpart is the traced instruction. `from` picks
+// the task overlay for an address in the task slot (image_at).
 template <typename Memory>
 [[nodiscard]] bool code_matches(
-    const Memory &memory, std::uint32_t traced, std::uint32_t traced_word, Image image = Image::executable) {
+    const Memory &memory, std::uint32_t traced, std::uint32_t traced_word, Image from = Image::executable) {
+    const Image image = image_at(traced, from);
     const std::uint32_t address = port(traced, image);
     if (address == 0u || !memory.contains(address, 4u)) return false;
     return same_instruction(memory, address, memory.load32(address), traced, traced_word, image);

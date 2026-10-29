@@ -174,6 +174,47 @@ void compares_instructions() {
     set_running_release(nullptr);
 }
 
+// Code the game hands back, and addresses a feature reaches from a task overlay.
+void moves_code_back() {
+    using namespace mhfu::install;
+    set_running_release(&kFreedomUniteComplete);
+    check(traced_code(0x08886B54u) == 0x08886E50u, "the executable's code moves back");
+    check(traced_code(0x09A9FFA0u) == 0x09AA4DD0u, "the task slot's is game_task's");
+    check(traced_code(0x09C35A98u) == 0x09C3ABA8u, "the sub slot's is game_sub's");
+    check(traced_code(port(0x09ADCCD0u, Image::lobby_task), Image::lobby_task) == 0x09ADCCD0u,
+        "and lobby_task's when asked");
+    check(port_from(0x09C3ABA8u, Image::lobby_task) == 0x09C35A98u, "from lobby_task the sub slot is game_sub");
+    check(port_from(0x09ADCCD0u, Image::lobby_task) == port(0x09ADCCD0u, Image::lobby_task),
+        "and the task slot lobby_task");
+    check(port_from(0x08886E50u, Image::lobby_task) == 0x08886B54u, "and the executable itself");
+    set_running_release(&kFreedomUniteUsa);
+    check(traced_code(0x09A9FFA0u) == 0x09A9FFA0u, "on ULUS-10391 code stays where it is");
+    set_running_release(nullptr);
+}
+
+void moves_pointers_and_overlay_calls() {
+    using namespace mhfu::install;
+    set_running_release(&kFreedomUniteComplete);
+    Words memory;
+    // A pointer to the aim function, as a table of game_task would keep it.
+    const std::uint32_t aim = port(0x09AA4DD0u, Image::game_task);
+    check(same_instruction(memory, 0x09C10000u, aim, 0x09C10000u, 0x09AA4DD0u, Image::game_task),
+        "a pointer is the moved pointer");
+    check(!same_instruction(memory, 0x09C10000u, aim + 4u, 0x09C10000u, 0x09AA4DD0u, Image::game_task),
+        "and not another");
+    // From the executable, the task slot may hold lobby_task: jal 0x09A7B890 (game/hall_meal.hpp's kText).
+    const std::uint32_t text = port(0x09A7B890u, Image::lobby_task);
+    check(text != 0u && moves_to(0x09A7B890u, Image::executable, text), "a call into lobby_task moves with it");
+    const std::uint32_t call = 0x0C000000u | ((text >> 2) & 0x03FFFFFFu);
+    check(same_instruction(memory, 0x08836C4Cu, call, 0x08836C4Cu, 0x0E69EE24u, Image::executable),
+        "so the executable's call to it matches");
+    check(!moves_to(0x09A7B890u, Image::game_sub, text), "but not from game_sub");
+    // code_matches finds a task-slot address in game_task.
+    memory.words[aim] = 0x27BDFFE0u;
+    check(code_matches(memory, 0x09AA4DD0u, 0x27BDFFE0u), "a task-slot address is game_task's by default");
+    set_running_release(nullptr);
+}
+
 } // namespace
 
 int main() {
@@ -183,6 +224,8 @@ int main() {
     the_table_is_sound();
     follows_the_running_release();
     compares_instructions();
+    moves_code_back();
+    moves_pointers_and_overlay_calls();
     if (failures != 0) return 1;
     std::cout << "release address tests passed\n";
     return 0;

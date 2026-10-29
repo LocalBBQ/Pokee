@@ -1,5 +1,7 @@
 #include "game/gather_art.hpp"
 
+#include "install/release_addresses.hpp"
+
 #include <iostream>
 
 namespace mhfu::game {
@@ -57,12 +59,15 @@ std::span<const GatherArtWord> gather_art_words() {
 
 bool gather_art_code_matches(const psprecomp::GuestMemory &memory) {
     for (const GatherArtWord &word : kWords) {
-        if (memory.raw_pointer(word.address, 4u) == nullptr) return false;
-        const std::uint32_t found = memory.load32(word.address);
-        if (found == word.instruction) continue;
+        const std::uint32_t address = install::port(word.address);
+        if (address == 0u || memory.raw_pointer(address, 4u) == nullptr) return false;
+        const std::uint32_t found = memory.load32(address);
+        if (install::same_instruction(memory, address, found, word.address, word.instruction,
+                install::Image::executable))
+            continue;
         if (!code_logged()) {
             code_logged() = true;
-            std::cerr << "[gather] item art code differs at 0x" << std::hex << word.address << ": 0x" << found
+            std::cerr << "[gather] item art code differs at 0x" << std::hex << address << ": 0x" << found
                       << ", expected 0x" << word.instruction << std::dec << std::endl;
         }
         return false;
@@ -71,11 +76,11 @@ bool gather_art_code_matches(const psprecomp::GuestMemory &memory) {
 }
 
 std::optional<std::vector<GatherDrop>> gather_drops(const psprecomp::GuestMemory &memory, std::uint16_t id) {
-    if (!readable(memory, kGatherObject, 4u) || !readable(memory, kPointOffset, 4u)) return std::nullopt;
-    const std::uint32_t object = memory.load32(kGatherObject);
+    if (!readable(memory, install::port(kGatherObject), 4u) || !readable(memory, install::port(kPointOffset), 4u)) return std::nullopt;
+    const std::uint32_t object = memory.load32(install::port(kGatherObject));
     if (!readable(memory, object + kGatherBase, 4u)) return std::nullopt;
     const std::uint32_t base = memory.load32(object + kGatherBase);
-    const std::uint32_t slot = base + memory.load32(kPointOffset) + static_cast<std::uint32_t>(id) * 4u;
+    const std::uint32_t slot = base + memory.load32(install::port(kPointOffset)) + static_cast<std::uint32_t>(id) * 4u;
     if (!readable(memory, slot, 4u)) return std::nullopt;
     std::uint32_t pair = base + memory.load32(slot);
     std::vector<GatherDrop> drops;
@@ -104,7 +109,7 @@ std::optional<std::uint16_t> gather_item(const psprecomp::GuestMemory &memory, s
 std::optional<std::array<std::uint8_t, 2>> item_icon_and_tint(
     const psprecomp::GuestMemory &memory, std::uint16_t item) {
     if (item >= kItems) return std::nullopt;
-    const std::uint32_t record = kItemRecords + static_cast<std::uint32_t>(item) * kItemStride;
+    const std::uint32_t record = install::port(kItemRecords) + static_cast<std::uint32_t>(item) * kItemStride;
     if (!readable(memory, record, 3u)) return std::nullopt;
     return std::array<std::uint8_t, 2>{memory.load8(record + 1u), memory.load8(record + 2u)};
 }
@@ -123,17 +128,17 @@ GatherArt gather_art_for(const psprecomp::GuestMemory &memory, std::uint16_t kin
 
 std::optional<ItemArt> item_art(const psprecomp::GuestMemory &memory, std::uint16_t item) {
     if (item >= kItems) return std::nullopt;
-    const std::uint32_t record = kItemRecords + static_cast<std::uint32_t>(item) * kItemStride;
+    const std::uint32_t record = install::port(kItemRecords) + static_cast<std::uint32_t>(item) * kItemStride;
     if (!readable(memory, record, 3u)) return std::nullopt;
     return icon_art(memory, memory.load8(record + 1u), memory.load8(record + 2u));
 }
 
 std::optional<ItemArt> icon_art(const psprecomp::GuestMemory &memory, std::uint8_t icon, std::uint8_t tint) {
     if (icon == kNoIcon || icon >= kIcons || tint >= kTintCount) return std::nullopt;
-    const std::uint32_t entry = kIconSprites + static_cast<std::uint32_t>(icon) * 2u;
+    const std::uint32_t entry = install::port(kIconSprites) + static_cast<std::uint32_t>(icon) * 2u;
     if (!readable(memory, entry, 2u)) return std::nullopt;
-    const std::uint32_t sprite = kSprites + static_cast<std::uint32_t>(memory.load16(entry)) * kSpriteStride;
-    const std::uint32_t colour = kTints + static_cast<std::uint32_t>(tint) * 4u;
+    const std::uint32_t sprite = install::port(kSprites) + static_cast<std::uint32_t>(memory.load16(entry)) * kSpriteStride;
+    const std::uint32_t colour = install::port(kTints) + static_cast<std::uint32_t>(tint) * 4u;
     if (!readable(memory, sprite, kSpriteStride) || !readable(memory, colour, 3u)) return std::nullopt;
     ItemArt art;
     art.u = memory.load16(sprite);

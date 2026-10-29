@@ -1,6 +1,7 @@
 #include "game/empty_item_slot.hpp"
 
 #include "game/hooks.hpp"
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -93,7 +94,7 @@ void trace_scroll(const psprecomp::GuestMemory &memory, const Pouch &pouch, std:
     std::cout << ", game " << (game ? std::to_string(*game) : std::string("none")) << ", empty slot "
               << (empty ? std::to_string(*empty) : std::string("none"));
     // The four bytes past the pouch, the 25th slot 0x08856884 still accepts.
-    const std::uint32_t game_sys = memory.load32(kGameSysPointer);
+    const std::uint32_t game_sys = memory.load32(install::port(kGameSysPointer));
     const std::uint32_t past = game_sys + kPouch + kSlots * 4u;
     if (memory.contains(past, 4u)) std::cout << ", past the pouch " << std::hex << memory.load32(past) << std::dec;
     std::cout << std::endl;
@@ -109,15 +110,16 @@ void step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     const psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint16_t current = static_cast<std::uint16_t>(ctx.gpr[5]);
     const std::uint32_t return_address = ctx.gpr[31];
+    const std::uint32_t traced_return = install::traced_code(return_address);
     if (s.on) {
-        if (strip_call(return_address)) {
+        if (strip_call(traced_return)) {
             // The step reads a2 as a byte: 0 forward, anything else back.
             const Direction direction = (ctx.gpr[6] & 0xFFu) == 0u ? Direction::Forward : Direction::Backward;
             if (const std::optional<Pouch> pouch = read_pouch(memory, ctx.gpr[4])) {
                 answer(ctx, strip_step(*pouch, current, direction));
                 return;
             }
-        } else if (return_address == kTakeReturn) {
+        } else if (traced_return == kTakeReturn) {
             if (s.chosen == current && current <= kSpare && read_pouch(memory, ctx.gpr[4]) &&
                 slot_empty(memory, current)) {
                 answer(ctx, current);
@@ -137,7 +139,7 @@ void step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
             }
         }
     }
-    ctx.pc = kStep;
+    ctx.pc = install::port(kStep);
     s.original(runtime, ctx);
 }
 
@@ -146,7 +148,7 @@ void step(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
 void select_first(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     State &s = state();
     const std::uint32_t hunter = ctx.gpr[4];
-    ctx.pc = kSelectFirst;
+    ctx.pc = install::port(kSelectFirst, install::Image::game_task);
     s.select_first(runtime, ctx);
     if (!s.on) return;
     psprecomp::GuestMemory &memory = runtime.memory();
@@ -169,7 +171,7 @@ void pack(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     const std::uint32_t hunter = s.hunter;
     const bool on_empty = s.on && items && hunter != 0u && memory.contains(hunter + kSelectedSlot, 2u) &&
         s.chosen == memory.load16(hunter + kSelectedSlot) && slot_empty(memory, *s.chosen);
-    ctx.pc = kPack;
+    ctx.pc = install::port(kPack);
     s.pack(runtime, ctx);
     if (!on_empty) return;
     const std::optional<Pouch> pouch = read_pouch(memory, hunter);
@@ -186,18 +188,19 @@ void pack(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
 // a1 is the slot. Only the name under the bar is answered.
 void has_item(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     State &s = state();
-    if (s.on && ctx.gpr[31] == kNameGateReturn && slot_empty(runtime.memory(), ctx.gpr[5] & 0xFFFFu)) {
+    if (s.on && install::traced_code(ctx.gpr[31]) == kNameGateReturn &&
+        slot_empty(runtime.memory(), ctx.gpr[5] & 0xFFFFu)) {
         answer(ctx, 1u);
         return;
     }
-    ctx.pc = kHasItem;
+    ctx.pc = install::port(kHasItem);
     s.has_item(runtime, ctx);
 }
 
 // a1 is the item id. Only the name under the bar is answered.
 void item_name(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     State &s = state();
-    const std::uint32_t return_address = ctx.gpr[31];
+    const std::uint32_t return_address = install::traced_code(ctx.gpr[31]);
     if (s.on && (ctx.gpr[5] & 0xFFFFu) == 0u &&
         (return_address == kNameWidthReturn || return_address == kNamePrintReturn)) {
         psprecomp::GuestMemory &memory = runtime.memory();
@@ -208,7 +211,7 @@ void item_name(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
             return;
         }
     }
-    ctx.pc = kItemName;
+    ctx.pc = install::port(kItemName);
     s.item_name(runtime, ctx);
 }
 
@@ -228,7 +231,7 @@ std::span<const CodeWord> code_signature() {
 
 bool code_matches(const psprecomp::GuestMemory &memory) {
     for (const CodeWord &expected : kSignature)
-        if (!memory.contains(expected.address, 4u) || memory.load32(expected.address) != expected.word) return false;
+        if (!install::code_matches(memory, expected.address, expected.word)) return false;
     return true;
 }
 
@@ -238,31 +241,32 @@ std::span<const CodeWord> select_first_signature() {
 
 bool select_first_matches(const psprecomp::GuestMemory &memory) {
     for (const CodeWord &expected : kSelectFirstSignature)
-        if (!memory.contains(expected.address, 4u) || memory.load32(expected.address) != expected.word) return false;
+        if (!install::code_matches(memory, expected.address, expected.word)) return false;
     return true;
 }
 
 std::optional<Direction> scroll_direction(
     const psprecomp::GuestMemory &memory, std::uint32_t return_address, std::uint32_t direction) {
+    const std::uint32_t traced = install::traced_code(return_address);
     Direction wanted{};
-    if (return_address == kForwardReturn)
+    if (traced == kForwardReturn)
         wanted = Direction::Forward;
-    else if (return_address == kBackwardReturn)
+    else if (traced == kBackwardReturn)
         wanted = Direction::Backward;
     else
         return std::nullopt;
     if (direction != static_cast<std::uint32_t>(wanted)) return std::nullopt;
     // game_task is the overlay at that address only while a quest is loaded.
-    if (!memory.contains(return_address - 8u, 8u)) return std::nullopt;
-    if (memory.load32(return_address - 8u) != kStepCall) return std::nullopt;
+    if (!install::code_matches(memory, traced - 8u, kStepCall)) return std::nullopt;
     const std::uint32_t delay = wanted == Direction::Forward ? kForwardDelay : kBackwardDelay;
-    if (memory.load32(return_address - 4u) != delay) return std::nullopt;
+    if (!install::code_matches(memory, traced - 4u, delay)) return std::nullopt;
     return wanted;
 }
 
 std::optional<Pouch> read_pouch(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
-    if (!memory.contains(kGameSysPointer, 4u) || !memory.contains(hunter + kHunterIndex, 2u)) return std::nullopt;
-    const std::uint32_t game_sys = memory.load32(kGameSysPointer);
+    const std::uint32_t game_sys_pointer = install::port(kGameSysPointer);
+    if (!memory.contains(game_sys_pointer, 4u) || !memory.contains(hunter + kHunterIndex, 2u)) return std::nullopt;
+    const std::uint32_t game_sys = memory.load32(game_sys_pointer);
     if (!memory.contains(game_sys + kLocalHunterByte, 1u)) return std::nullopt;
     if (memory.load16(hunter + kHunterIndex) != memory.load8(game_sys + kLocalHunterByte)) return std::nullopt;
     const std::uint32_t base = game_sys + kPouch;
@@ -272,7 +276,7 @@ std::optional<Pouch> read_pouch(const psprecomp::GuestMemory &memory, std::uint3
         Slot &slot = pouch[i];
         slot.item = memory.load16(base + i * 4u);
         slot.count = memory.load16(base + i * 4u + 2u);
-        const std::uint32_t record = kItemTable + std::uint32_t{slot.item} * kItemRecord;
+        const std::uint32_t record = install::port(kItemTable) + std::uint32_t{slot.item} * kItemRecord;
         slot.on_bar = i < kSlots && slot.item != 0u && memory.contains(record + 1u, 1u) &&
             (memory.load8(record + 1u) & 1u) != 0u;
     }
@@ -326,8 +330,9 @@ std::uint16_t strip_step(const Pouch &pouch, std::uint16_t current, Direction di
 }
 
 bool slot_empty(const psprecomp::GuestMemory &memory, std::uint32_t slot) {
-    if (slot > kSpare || !memory.contains(kGameSysPointer, 4u)) return false;
-    const std::uint32_t address = memory.load32(kGameSysPointer) + kPouch + slot * 4u;
+    const std::uint32_t game_sys_pointer = install::port(kGameSysPointer);
+    if (slot > kSpare || !memory.contains(game_sys_pointer, 4u)) return false;
+    const std::uint32_t address = memory.load32(game_sys_pointer) + kPouch + slot * 4u;
     return memory.contains(address, 4u) && memory.load32(address) == 0u;
 }
 
@@ -351,30 +356,35 @@ void frame(psprecomp::Runtime &runtime) {
     if (s.refused) return;
     // Only at the flip, from an import: no generated code is running, so the
     // dispatch table can change here.
+    const std::uint32_t step_at = install::port(kStep);
+    const std::uint32_t has_item_at = install::port(kHasItem);
+    const std::uint32_t item_name_at = install::port(kItemName);
+    const std::uint32_t pack_at = install::port(kPack);
     if (!s.installed) {
-        if (runtime.function_at(kStep) == nullptr || runtime.function_at(kHasItem) == nullptr ||
-            runtime.function_at(kItemName) == nullptr || runtime.function_at(kPack) == nullptr)
+        if (runtime.function_at(step_at) == nullptr || runtime.function_at(has_item_at) == nullptr ||
+            runtime.function_at(item_name_at) == nullptr || runtime.function_at(pack_at) == nullptr)
             return;
         if (!check(runtime)) {
             s.refused = true; // reported once; the game's step stays
             return;
         }
-        s.original = runtime.function_at(kStep);
-        s.has_item = runtime.function_at(kHasItem);
-        s.item_name = runtime.function_at(kItemName);
-        s.pack = runtime.function_at(kPack);
-        runtime.register_function(kPack, &pack, "mhfu_empty_item_slot_pack");
+        s.original = runtime.function_at(step_at);
+        s.has_item = runtime.function_at(has_item_at);
+        s.item_name = runtime.function_at(item_name_at);
+        s.pack = runtime.function_at(pack_at);
+        runtime.register_function(pack_at, &pack, "mhfu_empty_item_slot_pack");
         // The HUD's item bar calls these three, and Gather with ○ wraps the
         // bar (game/gather_icon.hpp): chained, the bar finishes inside that
         // wrapper. They switch no thread.
-        hooks::register_chained(runtime, kStep, &step, "mhfu_empty_item_slot");
-        hooks::register_chained(runtime, kHasItem, &has_item, "mhfu_empty_item_slot_has_item");
-        hooks::register_chained(runtime, kItemName, &item_name, "mhfu_empty_item_slot_name");
+        hooks::register_chained(runtime, step_at, &step, "mhfu_empty_item_slot");
+        hooks::register_chained(runtime, has_item_at, &has_item, "mhfu_empty_item_slot_has_item");
+        hooks::register_chained(runtime, item_name_at, &item_name, "mhfu_empty_item_slot_name");
         s.installed = true;
         std::cout << "[item bar] empty item slot in place" << std::endl;
     }
     // game_task registers its functions again each time it is installed.
-    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(kSelectFirst);
+    const std::uint32_t select_first_at = install::port(kSelectFirst, install::Image::game_task);
+    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(select_first_at);
     if (current == nullptr || current == &select_first) return;
     if (!select_first_matches(runtime.memory())) {
         if (s.trace && !s.select_first_refused)
@@ -383,7 +393,7 @@ void frame(psprecomp::Runtime &runtime) {
         return;
     }
     s.select_first = current;
-    runtime.register_function(kSelectFirst, &select_first, "mhfu_empty_item_slot_first");
+    runtime.register_function(select_first_at, &select_first, "mhfu_empty_item_slot_first");
     if (s.trace) std::cout << "[item bar] the bar starts on the empty slot" << std::endl;
 }
 

@@ -446,8 +446,12 @@ void present_frame(Runtime &rt) {
     // Overlays are swapped between frames; re-check before drawing the next one.
     revalidate_overlays(rt);
     // The features below were traced on USA Freedom Unite; another executable
-    // keeps other things at those addresses. The camera's and the HUD's are
-    // moved to Freedom Unite Complete's (install/release_addresses.hpp).
+    // keeps other things at those addresses. Those marked `ported` are moved
+    // to Freedom Unite Complete's (install/release_addresses.hpp); the rest
+    // run on USA Freedom Unite only. FUComplete has its own true attack and
+    // element, hold to gather and faster supply box, set in its CONFIG.BIN,
+    // so the port's stay off there. The order is the same on both: the item
+    // box and the gather hold wrap the same function.
     const bool features = install::traced_executable();
     const bool ported = install::features_ported();
     if (features) {
@@ -456,14 +460,22 @@ void present_frame(Runtime &rt) {
         // Layered armor puts its wrappers in place here, between two frames.
         game::layered::frame(rt);
         game::item_box::frame(rt);
+    }
+    if (ported) {
         game::empty_item_slot::frame(rt);
         game::gather_frame(rt);
         game::give_rarity::frame(rt);
+    }
+    if (features) {
         game::true_attack::frame(rt);
         game::true_element::frame(rt);
+    }
+    if (features) {
         game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
         game::item_sets::frame(rt);
-        game::hall_meal::frame(rt, &call_guest_with_result);
+    }
+    if (ported) game::hall_meal::frame(rt, &call_guest_with_result);
+    if (features) {
         game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
         game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
     }
@@ -706,10 +718,8 @@ void register_display_ctrl(HleRegistrar &hle) {
         // The hold repeats ○ on every point ○ gathers, mining and bug points
         // included; then ○ on a mining or bug point with the tool in the
         // pouch is the □ the game mines with, the tool selected.
-        if (install::traced_executable()) {
-            buttons = game::gather_hold(buttons, rt.memory());
-            buttons = game::gather_circle(buttons, rt.memory());
-        }
+        if (install::traced_executable()) buttons = game::gather_hold(buttons, rt.memory());
+        if (install::features_ported()) buttons = game::gather_circle(buttons, rt.memory());
         // A stick push during the hold walks the hunter off the point, or
         // out of the carve, and the game drops the animation.
         if (game::gather_hold_centres_stick()) {

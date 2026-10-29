@@ -3,6 +3,7 @@
 #include "game/damage_numbers.hpp"
 #include "game/guest_layout.hpp"
 #include "game/hooks.hpp"
+#include "install/release_addresses.hpp"
 #include "settings/settings.hpp"
 
 #include <algorithm>
@@ -157,23 +158,31 @@ namespace {
 
 // Every word mapped and matching. A mapped word that differs is logged once
 // per `logged` flag.
-bool words_match(const psprecomp::GuestMemory &memory, std::span<const GatherWord> words, bool &logged) {
+// `from` picks the task overlay of a word in the task slot
+// (install::image_at); a word without a counterpart differs.
+bool words_match(const psprecomp::GuestMemory &memory, std::span<const GatherWord> words, bool &logged,
+    install::Image from = install::Image::game_task) {
     bool ready = true;
     bool differs = false;
+    const auto matches = [&](const GatherWord &word) {
+        return install::code_matches(memory, word.address, word.instruction, from);
+    };
     for (const GatherWord &word : words) {
-        if (memory.raw_pointer(word.address, 4u) == nullptr) {
+        const std::uint32_t address = install::port_from(word.address, from);
+        if (address != 0u && memory.raw_pointer(address, 4u) == nullptr) {
             ready = false;
             continue;
         }
-        if (memory.load32(word.address) != word.instruction) differs = true;
+        if (!matches(word)) differs = true;
     }
     if (differs && !logged) {
         logged = true;
-        for (const GatherWord &word : words)
-            if (memory.raw_pointer(word.address, 4u) != nullptr && memory.load32(word.address) != word.instruction)
-                std::cout << "[gather] game code differs at 0x" << std::hex << word.address << ": 0x"
-                          << memory.load32(word.address) << ", expected 0x" << word.instruction << std::dec
-                          << std::endl;
+        for (const GatherWord &word : words) {
+            const std::uint32_t address = install::port_from(word.address, from);
+            if (memory.raw_pointer(address, 4u) != nullptr && !matches(word))
+                std::cout << "[gather] game code differs at 0x" << std::hex << address << ": 0x"
+                          << memory.load32(address) << ", expected 0x" << word.instruction << std::dec << std::endl;
+        }
     }
     return ready && !differs;
 }
@@ -208,13 +217,13 @@ std::optional<GatherNode> gather_from_list(const psprecomp::GuestMemory &memory,
 }
 
 std::optional<std::uint32_t> gather_list_for(const psprecomp::GuestMemory &memory, std::uint16_t stage) {
-    if (!in_ram(kGameSysPointer, 4u, memory) || !in_ram(kGatherObject, 4u, memory)) return std::nullopt;
-    const std::uint32_t gamesys = memory.load32(kGameSysPointer);
-    const std::uint32_t object = memory.load32(kGatherObject);
+    if (!in_ram(install::port(kGameSysPointer), 4u, memory) || !in_ram(install::port(kGatherObject), 4u, memory)) return std::nullopt;
+    const std::uint32_t gamesys = memory.load32(install::port(kGameSysPointer));
+    const std::uint32_t object = memory.load32(install::port(kGatherObject));
     if (!in_ram(gamesys + kAreaByte, 1u, memory) || !in_ram(object + kAreas, 4u, memory) ||
         !in_ram(object + kListBias, 4u, memory))
         return std::nullopt;
-    const std::uint32_t entry = kStageTable + static_cast<std::uint32_t>(memory.load8(gamesys + kAreaByte)) * 8u;
+    const std::uint32_t entry = install::port(kStageTable) + static_cast<std::uint32_t>(memory.load8(gamesys + kAreaByte)) * 8u;
     if (!in_ram(entry, 8u, memory)) return std::nullopt;
     const auto count = static_cast<std::int32_t>(memory.load32(entry));
     const std::uint32_t ids = memory.load32(entry + 4u);
@@ -353,8 +362,8 @@ std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
         !in_ram(*hunter + kCarveBlocked, 4u, memory))
         return std::nullopt;
     if ((memory.load32(*hunter + kCarveBlocked) & kCarveBlockBit) != 0u) return std::nullopt;
-    if (!in_ram(kCarveTable, 4u, memory)) return std::nullopt;
-    const std::uint32_t table = memory.load32(kCarveTable);
+    if (!in_ram(install::port(kCarveTable), 4u, memory)) return std::nullopt;
+    const std::uint32_t table = memory.load32(install::port(kCarveTable));
     if (!layout::in_ram(table) || !in_ram(table + kCarveFirst, kCarveStride, memory)) return std::nullopt;
     const float hunter_x = load_float(memory, *hunter + kHunterPosition);
     const float hunter_y = load_float(memory, *hunter + kHunterPosition + 4u);
@@ -390,8 +399,8 @@ std::span<const GatherWord> fishing_checked_words() {
 }
 
 std::optional<std::uint32_t> spot_table(const psprecomp::GuestMemory &memory) {
-    if (!in_ram(kCarveTable, 4u, memory)) return std::nullopt;
-    const std::uint32_t quest = memory.load32(kCarveTable);
+    if (!in_ram(install::port(kCarveTable), 4u, memory)) return std::nullopt;
+    const std::uint32_t quest = memory.load32(install::port(kCarveTable));
     if (!in_ram(quest, 4u, memory)) return std::nullopt;
     const std::uint32_t stage = memory.load32(quest);
     if (!in_ram(stage, 4u, memory)) return std::nullopt;
@@ -519,11 +528,11 @@ void trace_farm(const std::optional<FarmPoint> &point) {
 }
 
 std::optional<FarmPoint> read_farm(const psprecomp::GuestMemory &memory) {
-    if (!farm_code_matches(memory) || !in_ram(kGameSysPointer, 4u, memory) || !in_ram(kVillageState, 4u, memory))
+    if (!farm_code_matches(memory) || !in_ram(install::port(kGameSysPointer), 4u, memory) || !in_ram(install::port_from(kVillageState, install::Image::lobby_task), 4u, memory))
         return std::nullopt;
     const std::uint32_t hunter = layout::followed_hunter(memory, kPointInReach + 4u);
-    const std::uint32_t gamesys = memory.load32(kGameSysPointer);
-    const std::uint32_t state = memory.load32(kVillageState);
+    const std::uint32_t gamesys = memory.load32(install::port(kGameSysPointer));
+    const std::uint32_t state = memory.load32(install::port_from(kVillageState, install::Image::lobby_task));
     if (hunter == 0u || !in_ram(gamesys + kLocalSlot, 1u, memory) ||
         !in_ram(gamesys + kFarm, 4u, memory) || !in_ram(state, kVillageBlock + 2u, memory))
         return std::nullopt;
@@ -554,10 +563,10 @@ std::span<const GatherWord> farm_checked_words() {
 }
 
 bool farm_code_matches(const psprecomp::GuestMemory &memory) {
-    if (!layout::overlay_loaded(memory, layout::kTaskSlot, layout::kVillageOverlay) ||
-        !layout::overlay_loaded(memory, layout::kSubSlot, layout::kSubOverlay))
+    if (!layout::overlay_loaded(memory, layout::task_slot(), layout::kVillageOverlay) ||
+        !layout::overlay_loaded(memory, layout::sub_slot(), layout::kSubOverlay))
         return false;
-    return words_match(memory, kFarmWords, farm_logged());
+    return words_match(memory, kFarmWords, farm_logged(), install::Image::lobby_task);
 }
 
 std::optional<FarmPoint> farm_point(const psprecomp::GuestMemory &memory) {
@@ -952,8 +961,8 @@ namespace {
 // The pouch's first slot, or nothing when GameSys does not reach past it (the
 // empty stop, slot 24, is the word just after the 24 slots).
 std::optional<std::uint32_t> pouch_slots(const psprecomp::GuestMemory &memory) {
-    if (!in_ram(kGameSysPointer, 4u, memory)) return std::nullopt;
-    const std::uint32_t sys = memory.load32(kGameSysPointer);
+    if (!in_ram(install::port(kGameSysPointer), 4u, memory)) return std::nullopt;
+    const std::uint32_t sys = memory.load32(install::port(kGameSysPointer));
     if (!in_ram(sys, kPouch + (kPouchSlots + 1u) * 4u, memory)) return std::nullopt;
     return sys + kPouch;
 }
@@ -963,7 +972,7 @@ std::optional<std::uint32_t> pouch_slots(const psprecomp::GuestMemory &memory) {
 std::optional<std::uint32_t> local_hunter(const psprecomp::GuestMemory &memory) {
     const std::optional<std::uint32_t> hunter = followed_hunter(memory);
     if (!hunter || !in_ram(*hunter + kSelectedSlot, 2u, memory)) return std::nullopt;
-    const std::uint32_t sys = memory.load32(kGameSysPointer);
+    const std::uint32_t sys = memory.load32(install::port(kGameSysPointer));
     if (memory.load8(*hunter + kHunterPlayer) != memory.load8(sys + kLocalPlayer)) return std::nullopt;
     return hunter;
 }
@@ -1160,7 +1169,7 @@ void hud_reader(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     // each time, until the host's stack ran out.
     const std::uint32_t return_pc = ctx.gpr[31];
     ctx.gpr[31] = kHudReturns[Reader];
-    ctx.pc = kHudReaders[Reader].address;
+    ctx.pc = install::port(kHudReaders[Reader].address);
     hooks::enter_stop(kHudReturns[Reader], return_pc);
     hud_originals()[Reader](runtime, ctx);
     if (ctx.pc == kHudReturns[Reader]) {
@@ -1214,8 +1223,8 @@ void gather_frame(psprecomp::Runtime &runtime) {
     if (!settings::current().gather_circle && !settings::current().gather_hold) return;
     for (std::size_t i = 0; i < kHudReaders.size(); ++i) {
         const HudReader &reader = kHudReaders[i];
-        if (runtime.function_at(reader.address) == nullptr ||
-            !words_match(runtime.memory(), reader.words, logged[i]))
+        const std::uint32_t address = install::port(reader.address);
+        if (runtime.function_at(address) == nullptr || !words_match(runtime.memory(), reader.words, logged[i]))
             continue;
         if (!stops[i]) {
             // The stop must be free: a function already there is not ours to replace.
@@ -1228,11 +1237,11 @@ void gather_frame(psprecomp::Runtime &runtime) {
             runtime.register_function(kHudReturns[i], kHudReturnStops[i], std::string(reader.name) + "_return");
             stops[i] = true;
         }
-        const bool was_in_place = runtime.function_at(reader.address) == kHudWrappers[i];
-        const bool wrapped = hooks::wrap(runtime, reader.address, kHudWrappers[i], hud_originals()[i], reader.name);
+        const bool was_in_place = runtime.function_at(address) == kHudWrappers[i];
+        const bool wrapped = hooks::wrap(runtime, address, kHudWrappers[i], hud_originals()[i], reader.name);
         static std::array<bool, kHudReaders.size()> reported{};
         if (trace_on() && wrapped && !was_in_place && !std::exchange(reported[i], true))
-            std::cout << "[gather] " << reader.name << " in place at 0x" << std::hex << reader.address << std::dec
+            std::cout << "[gather] " << reader.name << " in place at 0x" << std::hex << address << std::dec
                       << std::endl;
     }
 }

@@ -1,5 +1,6 @@
 #include "game/true_attack.hpp"
 
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -23,8 +24,9 @@ constexpr std::array<CodeWord, 10> kSignature = {{
 }};
 
 bool table_is(const psprecomp::GuestMemory &memory, auto &&factor) {
+    const std::uint32_t factors = install::port(kFactors);
     for (std::size_t i = 0; i < kClasses; ++i)
-        if (memory.load32(kFactors + static_cast<std::uint32_t>(i) * 4u) != factor(i)) return false;
+        if (memory.load32(factors + static_cast<std::uint32_t>(i) * 4u) != factor(i)) return false;
     return true;
 }
 
@@ -36,17 +38,18 @@ std::span<const CodeWord> code_signature() {
 
 bool code_matches(const psprecomp::GuestMemory &memory) {
     for (const CodeWord &expected : kSignature)
-        if (!memory.contains(expected.address, 4u) || memory.load32(expected.address) != expected.word) return false;
+        if (!install::code_matches(memory, expected.address, expected.word)) return false;
     return true;
 }
 
 bool apply(psprecomp::GuestMemory &memory, bool on) {
-    if (!code_matches(memory) || !memory.contains(kFactors, kClasses * 4u)) return false;
+    const std::uint32_t factors = install::port(kFactors);
+    if (!code_matches(memory) || factors == 0u || !memory.contains(factors, kClasses * 4u)) return false;
     const auto game = [](std::size_t i) { return kGameFactors[i]; };
     const auto truth = [](std::size_t) { return kTrueFactor; };
     if (!table_is(memory, game) && !table_is(memory, truth)) return false;
     for (std::size_t i = 0; i < kClasses; ++i)
-        memory.store32(kFactors + static_cast<std::uint32_t>(i) * 4u, on ? kTrueFactor : kGameFactors[i]);
+        memory.store32(factors + static_cast<std::uint32_t>(i) * 4u, on ? kTrueFactor : kGameFactors[i]);
     return true;
 }
 

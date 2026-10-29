@@ -1,5 +1,6 @@
 #include "game/give_rarity.hpp"
 
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -46,7 +47,7 @@ void can_give(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     const std::uint8_t game_rarity = rarity ? memory.load8(*rarity) : std::uint8_t{0u};
     const bool lowered = rarity && game_rarity >= kGameLimit;
     if (lowered) memory.store8(*rarity, 0u);
-    ctx.pc = kCanGive;
+    ctx.pc = install::port(kCanGive);
     s.original(runtime, ctx);
     if (lowered) memory.store8(*rarity, game_rarity);
     if (s.trace)
@@ -63,20 +64,21 @@ std::span<const CodeWord> code_signature() {
 
 bool code_matches(const psprecomp::GuestMemory &memory) {
     for (const CodeWord &expected : kSignature)
-        if (!memory.contains(expected.address, 4u) || memory.load32(expected.address) != expected.word) return false;
+        if (!install::code_matches(memory, expected.address, expected.word)) return false;
     return true;
 }
 
 std::optional<std::uint32_t> rarity_address(const psprecomp::GuestMemory &memory, std::uint32_t hunter) {
-    if (!memory.contains(hunter + kSelectedSlot, 1u) || !memory.contains(kGameSysPointer, 4u)) return std::nullopt;
+    const std::uint32_t game_sys = install::port(kGameSysPointer);
+    if (!memory.contains(hunter + kSelectedSlot, 1u) || !memory.contains(game_sys, 4u)) return std::nullopt;
     std::uint32_t slot = memory.load8(hunter + kSelectedSlot);
     if (slot >= kPouchSlots) slot = 0u;
-    const std::uint32_t entry = memory.load32(kGameSysPointer) + kPouch + slot * 4u;
+    const std::uint32_t entry = memory.load32(game_sys) + kPouch + slot * 4u;
     if (!memory.contains(entry, 2u)) return std::nullopt;
     // 0x08826734 loads the id with lh and the check indexes the table with it.
     const std::int16_t id = static_cast<std::int16_t>(memory.load16(entry));
     if (id <= 0) return std::nullopt;
-    const std::uint32_t address = kItemTable + static_cast<std::uint32_t>(id) * kItemRecord + kRarity;
+    const std::uint32_t address = install::port(kItemTable) + static_cast<std::uint32_t>(id) * kItemRecord + kRarity;
     if (!memory.contains(address, 1u)) return std::nullopt;
     return address;
 }
@@ -88,11 +90,12 @@ void frame(psprecomp::Runtime &runtime) {
         return text != nullptr && *text != '\0' && std::string(text) != "0";
     }();
     s.trace = trace;
-    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(kCanGive);
+    const std::uint32_t can_give_at = install::port(kCanGive);
+    const psprecomp::Runtime::RecompiledFunction current = runtime.function_at(can_give_at);
     if (current == &can_give) return;
     if (current == nullptr || !code_matches(runtime.memory())) return;
     s.original = current;
-    runtime.register_function(kCanGive, &can_give, "mhfu_give_any_rarity");
+    runtime.register_function(can_give_at, &can_give, "mhfu_give_any_rarity");
     if (!s.reported) {
         s.reported = true;
         std::cout << "[give] any rarity in place" << std::endl;
