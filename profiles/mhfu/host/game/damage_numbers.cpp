@@ -3,6 +3,7 @@
 #include "game/damage_sync.hpp"
 #include "game/guest_layout.hpp"
 #include "game/hit_trace.hpp"
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 
 #include <algorithm>
@@ -21,6 +22,34 @@
 
 namespace mhfu::game {
 namespace {
+
+// The routines and classes the watch compares on every chained call, in the
+// running release: moved once a release, not once a call.
+struct Watched {
+    const install::SupportedRelease *release{};
+    std::uint32_t hit_adjust{};
+    std::uint32_t status_tick{};
+    std::uint32_t attack_flag_check{};
+    std::uint32_t after_damage{};
+    std::uint32_t shot_class{};
+    std::uint32_t arrow_class{};
+};
+
+const Watched &watched() {
+    static Watched w;
+    static bool set = false;
+    if (!set || w.release != install::running_release()) {
+        set = true;
+        w.release = install::running_release();
+        w.hit_adjust = install::port(kHitAdjust, install::Image::game_task);
+        w.status_tick = install::port(kStatusTick, install::Image::game_task);
+        w.attack_flag_check = install::port(kAttackFlagCheck, install::Image::game_task);
+        w.after_damage = install::port(kAfterDamage, install::Image::game_sub);
+        w.shot_class = install::port(kShotClass);
+        w.arrow_class = install::port(kArrowClass);
+    }
+    return w;
+}
 
 std::mutex &numbers_mutex() {
     static std::mutex mutex;
@@ -419,7 +448,7 @@ void trace_landing(const psprecomp::GuestMemory &memory, const ComputedHit &hit)
 // The call after the game added a hit to a monster's part.
 void note_computed(const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx) {
     if (!computed_enabled()) return;
-    const std::optional<ComputedHit> hit = computed_hit(memory, ctx, kAttackFlagCheck);
+    const std::optional<ComputedHit> hit = computed_hit(memory, ctx, watched().attack_flag_check);
     if (!hit) return;
     // Health is taken off later; a monster already down, or a hunter struck
     // by another, shows nothing.
@@ -445,18 +474,19 @@ void note_computed(const psprecomp::GuestMemory &memory, const psprecomp::Allegr
 void pre_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::uint32_t target_pc,
     std::uint32_t native_depth) {
     if (!watch_armed().load(std::memory_order_relaxed)) return;
-    if (target_pc == kAttackFlagCheck) {
-        if (ctx.gpr[31] == kAfterDamage) note_computed(runtime.memory(), ctx);
+    const Watched &at = watched();
+    if (target_pc == at.attack_flag_check) {
+        if (ctx.gpr[31] == at.after_damage) note_computed(runtime.memory(), ctx);
         return;
     }
-    if (target_pc == kStatusTick) {
+    if (target_pc == at.status_tick) {
         const std::optional<int> health = monster_health(runtime.memory(), ctx.gpr[4]);
         if (!health) return;
         std::lock_guard lock(numbers_mutex());
         open_ticks().push_back(OpenHit{native_depth, ctx.gpr[4], *health});
         return;
     }
-    if (target_pc != kHitAdjust) return;
+    if (target_pc != at.hit_adjust) return;
     const std::uint32_t object = ctx.gpr[4];
     const std::optional<int> health = monster_health(runtime.memory(), object);
     if (hit_trace::enabled()) hit_trace::note_call(runtime.memory(), ctx, native_depth, health);
@@ -471,7 +501,8 @@ void pre_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::
 void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std::uint32_t target_pc,
     std::uint32_t native_depth) {
     if (!watch_armed().load(std::memory_order_relaxed)) return;
-    if (target_pc == kStatusTick) {
+    const Watched &at = watched();
+    if (target_pc == at.status_tick) {
         std::optional<OpenHit> ticked;
         {
             std::lock_guard lock(numbers_mutex());
@@ -497,7 +528,7 @@ void post_hit(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx, std:
         }
         return;
     }
-    if (target_pc != kHitAdjust) return;
+    if (target_pc != at.hit_adjust) return;
     std::uint32_t object = 0u;
     {
         std::lock_guard lock(numbers_mutex());
@@ -1090,7 +1121,7 @@ std::optional<WorldPoint> struck_by_shot(
     if (!layout::in_ram(shot) || (shot & 3u) != 0u || !memory.contains(shot, kShotTarget + 4u)) return std::nullopt;
     if (memory.load32(shot + kShotTarget) != monster) return std::nullopt;
     const std::uint32_t kind = memory.load32(shot);
-    if (kind != kShotClass && kind != kArrowClass) {
+    if (kind != watched().shot_class && kind != watched().arrow_class) {
         // MHFU_TRACE_HITS: something else that struck it, to learn its kind.
         if (hit_trace::enabled() && layout::in_ram(memory.load32(shot + kShotOwner))) {
             static std::uint32_t reported = 0u;
@@ -1236,12 +1267,12 @@ void remember_number(std::vector<Number> &live, Number number) {
 
 void watch_hit_enter(std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t depth, std::uint32_t object,
     int health, const std::optional<WorldPoint> &contact, const char *rule) {
-    if (pc != kHitAdjust) return;
+    if (pc != watched().hit_adjust) return;
     open.push_back(OpenHit{depth, object, health, contact, rule});
 }
 
 std::optional<std::uint32_t> open_object(const std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t depth) {
-    if (pc != kHitAdjust) return std::nullopt;
+    if (pc != watched().hit_adjust) return std::nullopt;
     for (auto it = open.rbegin(); it != open.rend(); ++it)
         if (it->depth == depth) return it->object;
     return std::nullopt;
@@ -1249,7 +1280,7 @@ std::optional<std::uint32_t> open_object(const std::vector<OpenHit> &open, std::
 
 std::optional<Number> watch_hit_leave(
     std::vector<OpenHit> &open, std::uint32_t pc, std::uint32_t depth, int health, int lane) {
-    if (pc != kHitAdjust) return std::nullopt;
+    if (pc != watched().hit_adjust) return std::nullopt;
     for (auto it = open.rbegin(); it != open.rend(); ++it) {
         if (it->depth != depth) continue;
         const int before = it->health;
@@ -1285,7 +1316,7 @@ bool computed_enabled() noexcept {
 
 std::optional<ComputedHit> computed_hit(
     const psprecomp::GuestMemory &memory, const psprecomp::AllegrexContext &ctx, std::uint32_t target_pc) {
-    if (target_pc != kAttackFlagCheck || ctx.gpr[31] != kAfterDamage) return std::nullopt;
+    if (target_pc != watched().attack_flag_check || ctx.gpr[31] != watched().after_damage) return std::nullopt;
     ComputedHit hit;
     hit.monster = ctx.gpr[19];
     hit.attacker = ctx.gpr[20];
@@ -1413,7 +1444,7 @@ std::optional<WorldPoint> computed_contact(
     // only after this call.
     if (layout::in_ram(hit.attack) && (hit.attack & 3u) == 0u && memory.contains(hit.attack, kShotPlace + 12u)) {
         const std::uint32_t kind = memory.load32(hit.attack);
-        if (kind == kShotClass || kind == kArrowClass) {
+        if (kind == watched().shot_class || kind == watched().arrow_class) {
             const WorldPoint point{std::bit_cast<float>(memory.load32(hit.attack + kShotPlace)),
                 std::bit_cast<float>(memory.load32(hit.attack + kShotPlace + 4u)),
                 std::bit_cast<float>(memory.load32(hit.attack + kShotPlace + 8u))};

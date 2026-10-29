@@ -39,6 +39,7 @@ LO_OPS = {0x09, 0x20, 0x21, 0x23, 0x24, 0x25, 0x28, 0x29, 0x2B, 0x31, 0x39, 0x35
 MASKED = LO_OPS | {0x08, 0x0C, 0x0D, 0x0F}
 RAM = (0x08800000, 0x0A000000)
 HEADER_BYTES = 64
+SHORT_GAP = 64
 
 
 def shape(word):
@@ -187,7 +188,7 @@ def pair_images(usa, other):
 
 
 def merge(ranges):
-    """Joins ranges that touch and move by the same amount."""
+    """Joins ranges that touch, or lie a short gap apart, and move by the same amount."""
     out = []
     for start, end, at in sorted(ranges):
         if out and start < out[-1][1]:
@@ -195,7 +196,10 @@ def merge(ranges):
                 continue
             at += out[-1][1] - start
             start = out[-1][1]
-        if out and out[-1][1] == start and out[-1][2] + (out[-1][1] - out[-1][0]) == at:
+        # A short gap between two ranges that move by the same amount moves
+        # with them: a function of fewer words than a matched block.
+        touching = out and start - out[-1][1] <= SHORT_GAP
+        if touching and out[-1][2] - out[-1][0] == at - start:
             out[-1] = (out[-1][0], end, out[-1][2])
         else:
             out.append((start, end, at))

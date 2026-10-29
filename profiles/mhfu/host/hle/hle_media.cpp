@@ -363,8 +363,9 @@ void lock_on_overlay_frame(Runtime &rt) {
     ui::set_lock_on_marker(settings::current().lock_on_marker ? camera::lock_on_marker(rt.memory()) : std::nullopt);
 }
 
-// What the port draws over the game world on USA Freedom Unite: damage
-// numbers, the hunt portraits and gather marks.
+// What the port draws over the game world: damage numbers, and on USA Freedom
+// Unite the hunt portraits and gather marks, which draw from textures whose
+// addresses have not been read off Freedom Unite Complete.
 void game_overlays_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
     const std::optional<game::EyePose> pose = damage_numbers_pose(rt);
     game::hit_trace::set_clock([] { return kernel().now_us() / 1000u; });
@@ -377,6 +378,7 @@ void game_overlays_frame(Runtime &rt, gpu::VulkanRenderer &renderer) {
         bodies.frame(rt.memory(), std::cout);
         if (const std::optional<std::uint32_t> watch = bodies.take_watch()) psprecomp::set_write_watch(*watch, 4u);
     }
+    if (!install::traced_executable()) return;
     if (!settings::current().lock_on) {
         ui::set_hunt_portraits({});
     } else {
@@ -475,10 +477,9 @@ void present_frame(Runtime &rt) {
         game::item_sets::frame(rt);
     }
     if (ported) game::hall_meal::frame(rt, &call_guest_with_result);
-    if (features) {
-        game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
-        game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
-    }
+    // Key quests read the quest packs through the mods' DATA.BIN reader.
+    if (features) game::key_quests::frame(rt.memory(), &allocate_key_quest_block, &mods::entry_bytes);
+    if (ported) game::sharpness::gauge_frame(settings::current().sharpness_gauge, &rt.memory());
 #if defined(MHFU_HAS_RENDERER)
     if (!media().renderer || !media().renderer->available()) {
         perf::end_frame(kernel().now_us());
@@ -501,7 +502,7 @@ void present_frame(Runtime &rt) {
             address, rt.memory().raw_pointer(address, bytes), display.width, display.height, display.buffer_width);
     }
     if (ported) lock_on_overlay_frame(rt);
-    if (features) game_overlays_frame(rt, renderer);
+    if (ported) game_overlays_frame(rt, renderer);
     ui::draw_over_game();
     renderer.write_back_frame(rt.memory());
     // A load running fast, fast-forward, or Game speed Unlimited flips more

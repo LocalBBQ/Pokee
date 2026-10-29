@@ -221,7 +221,7 @@ void Tracker::frame(const psprecomp::GuestMemory &memory, std::ostream &out, std
     for_each_entity(memory, [&](const EntityNode &node) {
         const std::uint32_t at = node.entity;
         if (node.type == kPlayerNode || !entity_readable(memory, at) || !memory.contains(at, kSpan)) return;
-        if (memory.load32(at + kVtable) == kHunterVtable) return;
+        if (memory.load32(at + kVtable) == hunter_vtable()) return;
         const auto most = static_cast<std::int16_t>(memory.load16(at + kMostHealth));
         const auto health = static_cast<std::int16_t>(memory.load16(at + kHealth));
         const std::uint8_t species = memory.load8(at + kMonsterId);

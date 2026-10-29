@@ -117,7 +117,7 @@ std::uint32_t limit() noexcept {
 bool looks_like_code(std::uint32_t word) noexcept {
     if ((word & 3u) != 0u) return false;
     return (word >= kResidentStart && word < kResidentEnd) ||
-        (word >= layout::kTaskSlot && word < layout::kEmOverlayEnd);
+        (word >= layout::task_slot() && word < layout::em_overlay_end());
 }
 
 std::optional<Frame> frame_of(const psprecomp::GuestMemory &memory, std::uint32_t ra) {

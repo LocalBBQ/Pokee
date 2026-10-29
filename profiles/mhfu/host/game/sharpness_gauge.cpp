@@ -2,6 +2,7 @@
 
 #include "game/guest_layout.hpp"
 #include "game/guest_ram.hpp"
+#include "install/release_addresses.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -39,14 +40,14 @@ std::optional<Ends> weapon_ends(const Ram &ram, std::uint32_t hunter) {
     if (!ram.contains(hunter + kWeaponSlot, 4u) || ram.load8(hunter + kWeaponSlot + 1u) != kWeaponKind)
         return std::nullopt;
     const std::uint32_t id = ram.load16(hunter + kWeaponSlot + 2u);
-    const std::uint32_t record = kWeaponRecords + id * kWeaponRecordBytes;
+    const std::uint32_t record = install::port(kWeaponRecords) + id * kWeaponRecordBytes;
     if (!ram.contains(record, kWeaponRecordBytes)) return std::nullopt;
     const std::uint32_t model = ram.load16(record);
     const std::uint32_t row = ram.load8(record + kWeaponRow);
-    if (!ram.contains(kModelClasses + model, 1u)) return std::nullopt;
-    const std::uint32_t weapon_class = ram.load8(kModelClasses + model);
-    if (weapon_class >= kClassCount || !ram.contains(kClassTables + weapon_class * 4u, 4u)) return std::nullopt;
-    const std::uint32_t table = ram.load32(kClassTables + weapon_class * 4u);
+    if (!ram.contains(install::port(kModelClasses) + model, 1u)) return std::nullopt;
+    const std::uint32_t weapon_class = ram.load8(install::port(kModelClasses) + model);
+    if (weapon_class >= kClassCount || !ram.contains(install::port(kClassTables) + weapon_class * 4u, 4u)) return std::nullopt;
+    const std::uint32_t table = ram.load32(install::port(kClassTables) + weapon_class * 4u);
     const std::uint32_t at = table + row * kRowBytes;
     if (table == 0u || !ram.contains(at, kRowBytes)) return std::nullopt;
     Ends ends{};
@@ -98,7 +99,7 @@ std::uint32_t glow_alpha(std::uint32_t game_alpha) noexcept {
 
 void fill_knife_colours(Ram &ram, bool fill) {
     for (const AddedColour &added : kAddedColours) {
-        const std::uint32_t at = kKnifeColours + static_cast<std::uint32_t>(added.colour) * kKnifeColourBytes;
+        const std::uint32_t at = install::port(kKnifeColours) + static_cast<std::uint32_t>(added.colour) * kKnifeColourBytes;
         if (!ram.contains(at, kKnifeColourBytes)) continue;
         const std::uint32_t entry = ram.load32(at);
         if (fill && entry == 0u)
