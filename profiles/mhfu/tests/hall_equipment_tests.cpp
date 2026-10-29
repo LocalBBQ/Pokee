@@ -3,6 +3,8 @@
 // of this console's member entry through a stand-in guest call. No game data.
 #include "game/hall_equipment.hpp"
 
+#include "game/guest_layout.hpp"
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -907,6 +909,51 @@ void test_other_code() {
     check(runtime.memory().load16(kHallLabel) == kGreyLabel, "and its data is not written");
 }
 
+// On Freedom Unite Complete each word is at its counterpart, the box chooses
+// with ○, and the box's frame is wrapped where Complete has it.
+void test_complete() {
+    using namespace mhfu::install;
+    namespace layout = mhfu::game::layout;
+    const auto at = [](std::uint32_t traced) { return port_from(traced, Image::lobby_task); };
+    set_running_release(&kFreedomUniteComplete);
+    psprecomp::Runtime runtime(kMemory);
+    psprecomp::GuestMemory &memory = runtime.memory();
+    check(!code_matches(memory), "empty memory is not Complete's lobby_task");
+    for (const CodeWord &word : code_signature()) {
+        check(at(word.address) != 0u && at(word.address) != word.address, "each word moves to Complete");
+        memory.store32(at(word.address), word.address == layout::kBoxChoose ? 0x32022000u : word.word);
+    }
+    memory.store16(at(kHallLabel), kGreyLabel);
+    check(code_matches(memory), "Complete's words, choosing with ○, are its lobby_task");
+    memory.store32(at(code_signature()[18].address), 0x24020004u);
+    check(!code_matches(memory), "one different word is other code there too");
+    memory.store32(at(code_signature()[18].address), code_signature()[18].word);
+
+    memory.store32(at(kPadGate), kGate);
+    memory.store8(kGate + kPadGateByte, 0u);
+    memory.store32(at(kPadRepeat), 0u);
+    memory.store32(at(kPadPressed), layout::kCircle);
+    check(pressed(memory) == kConfirm, "Complete's ○ chooses");
+    memory.store32(at(kPadPressed), layout::kCross);
+    check(pressed(memory) == kCancel, "and its ✕ goes back");
+    memory.store32(at(kSessionPointer), kSession);
+    check(session(memory) == kSession, "the session from Complete's pointer");
+
+    runtime.register_function(at(kBoxUpdate), &game_box, "complete_box");
+    runtime.register_function(at(kMenuDraw), &game_draw, "complete_draw");
+    runtime.register_function(at(kLoaderFrame), &game_loader, "complete_loader");
+    runtime.register_function(at(kRequestOwnReload), &game_request, "complete_request");
+    runtime.register_function(at(kSlotReset), &game_slot_reset, "complete_reset");
+    mhfu::settings::current().hall_equipment = true;
+    frame(runtime, &guest_call, &allocate);
+    check(runtime.function_at(at(kBoxUpdate)) != &game_box, "Complete's box frame is wrapped");
+    check(runtime.function_at(at(kMenuDraw)) != &game_draw, "and its menu's draw");
+    check(runtime.function_at(at(kSlotReset)) != &game_slot_reset, "and its slot reset");
+    check(runtime.function_at(kBoxUpdate) == nullptr, "nothing at the traced address");
+    check(memory.load16(at(kHallLabel)) == kLabel, "Complete's label is the house's");
+    set_running_release(nullptr);
+}
+
 } // namespace
 
 int main() {
@@ -933,6 +980,7 @@ int main() {
     test_staging();
     test_slot_reset();
     test_full_hall();
+    test_complete();
     std::error_code ec;
     std::filesystem::remove_all(data, ec);
     if (failures != 0) {

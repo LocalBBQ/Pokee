@@ -1,6 +1,8 @@
 #include "game/hall_equipment.hpp"
 
+#include "game/guest_layout.hpp"
 #include "game/hooks.hpp"
+#include "install/release_addresses.hpp"
 #include "psprecomp/runtime.hpp"
 #include "settings/settings.hpp"
 
@@ -12,6 +14,12 @@
 
 namespace mhfu::game::hall_equipment {
 namespace {
+
+// The addresses are the executable's and lobby_task's, named as ULUS-10391
+// has them.
+std::uint32_t ported(std::uint32_t traced) {
+    return install::port_from(traced, install::Image::lobby_task);
+}
 
 constexpr std::array<CodeWord, 70> kSignature = {{
     {kSlotReset, 0x27BDFFF0u},  // addiu sp, sp, -16
@@ -172,7 +180,7 @@ void restore(psprecomp::GuestMemory &memory) {
 // return address, which the guest call has put back.
 void resume_box(psprecomp::AllegrexContext &ctx) {
     ctx.gpr[4] = state().resume;
-    ctx.pc = kBoxUpdate;
+    ctx.pc = ported(kBoxUpdate);
 }
 
 void box_update(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
@@ -193,7 +201,7 @@ void box_update(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
             if (s.trace) std::cout << "[hall equipment] refreshing this hunter's entry for the hall" << std::endl;
             s.announce = true;
             s.resume = box;
-            s.caller(ctx, kRefreshOwnEntry, net, &resume_box);
+            s.caller(ctx, ported(kRefreshOwnEntry), net, &resume_box);
             return;
         }
     }
@@ -216,7 +224,7 @@ void box_update(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     }
     // The flag comes back when the frame draws its menu (menu_draw), after the
     // choice; and at the next frame or flip if the frame never got there.
-    ctx.pc = kBoxUpdate;
+    ctx.pc = ported(kBoxUpdate);
     s.box_update(runtime, ctx);
 }
 
@@ -227,7 +235,7 @@ void request_reload(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx
         s.reload_asked = true;
         if (s.trace) std::cerr << "[hall equipment] the equipment screen asks for this hunter's models" << std::endl;
     }
-    ctx.pc = kRequestOwnReload;
+    ctx.pc = ported(kRequestOwnReload);
     s.request_reload(runtime, ctx);
 }
 
@@ -285,10 +293,11 @@ void slot_reset(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t back = ctx.gpr[31];
     SlotRows staged;
-    const bool redirect = s.staging && (ctx.gpr[5] & 0xFFu) == kStagingSlot && back != kReloadResetReturn &&
+    const bool redirect = s.staging && (ctx.gpr[5] & 0xFFu) == kStagingSlot &&
+                          install::traced_code(back, install::Image::lobby_task) != kReloadResetReturn &&
                           read_slot(memory, kStagingSlot, staged);
     if (redirect) write_slot(memory, kStagingSlot, s.kept);
-    ctx.pc = kSlotReset;
+    ctx.pc = ported(kSlotReset);
     s.slot_reset(runtime, ctx);
     if (!redirect) return;
     if (ctx.pc != back && s.trace)
@@ -305,20 +314,20 @@ void loader_frame(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) 
     psprecomp::GuestMemory &memory = runtime.memory();
     const std::uint32_t loader = ctx.gpr[4];
     stage(memory, loader);
-    ctx.pc = kLoaderFrame;
+    ctx.pc = ported(kLoaderFrame);
     s.loader_frame(runtime, ctx);
     stage(memory, loader);
 }
 
 void menu_draw(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     restore(runtime.memory());
-    ctx.pc = kMenuDraw;
+    ctx.pc = ported(kMenuDraw);
     state().menu_draw(runtime, ctx);
 }
 
 void set_label(psprecomp::GuestMemory &memory, bool on) {
     for (std::uint32_t row = 0; row < kHallLabelRows; ++row) {
-        const std::uint32_t at = kHallLabels + 2u * row;
+        const std::uint32_t at = ported(kHallLabels) + 2u * row;
         const std::uint16_t label = memory.load16(at);
         if (label != kGreyLabel && label != kLabel) continue;
         const std::uint16_t wanted = on ? kLabel : kGreyLabel;
@@ -335,16 +344,21 @@ std::span<const CodeWord> code_signature() {
 
 bool code_matches(const psprecomp::GuestMemory &memory) {
     for (const CodeWord &expected : kSignature)
-        if (!memory.contains(expected.address, 4u) || memory.load32(expected.address) != expected.word) return false;
-    return memory.contains(kHallLabel, 2u);
+        if (!install::code_matches(memory, expected.address, expected.word, install::Image::lobby_task) &&
+            !layout::box_button_test(memory, expected.address, expected.word))
+            return false;
+    return memory.contains(ported(kHallLabel), 2u);
 }
 
 std::uint16_t pressed(const psprecomp::GuestMemory &memory) {
-    if (!memory.contains(kPadGate, 4u) || !memory.contains(kPadPressed, 4u) || !memory.contains(kPadRepeat, 4u))
+    const std::uint32_t gate_at = ported(kPadGate), pressed_at = ported(kPadPressed), repeat_at = ported(kPadRepeat);
+    if (!memory.contains(gate_at, 4u) || !memory.contains(pressed_at, 4u) || !memory.contains(repeat_at, 4u))
         return 0u;
-    const std::uint32_t gate = memory.load32(kPadGate);
+    const std::uint32_t gate = memory.load32(gate_at);
     if (!memory.contains(gate + kPadGateByte, 1u) || memory.load8(gate + kPadGateByte) != 0u) return 0u;
-    return static_cast<std::uint16_t>((memory.load32(kPadRepeat) & 0xF0u) | memory.load32(kPadPressed));
+    // As ULUS-10391's box reads them, where choose and back trade places.
+    return layout::as_traced_box_buttons(
+        memory, static_cast<std::uint16_t>((memory.load32(repeat_at) & 0xF0u) | memory.load32(pressed_at)));
 }
 
 bool refused_choice(const psprecomp::GuestMemory &memory, std::uint32_t box) {
@@ -372,16 +386,16 @@ void trace_models(const psprecomp::GuestMemory &memory) {
     };
     std::ostringstream line;
     line << std::hex;
-    const std::uint32_t game = word(0x089CC558u);
+    const std::uint32_t game = word(ported(0x089CC558u));
     line << "own " << (memory.contains(game + 0x28u, 1u) ? unsigned(memory.load8(game + 0x28u)) : 0xFFu);
-    const std::uint32_t files = word(0x09A4F204u);
+    const std::uint32_t files = word(ported(0x09A4F204u));
     for (std::uint32_t i = 0; i < 4u; ++i) {
         const std::uint32_t hunter = files != 0u ? word(files + 0xCu + 4u * i) : 0u;
         line << " | h" << i << " " << hunter;
         if (hunter != 0u)
             line << " " << word(hunter + 0x190u) << " " << word(hunter + 0xF60u) << " " << word(hunter + 0x1090u);
     }
-    const std::uint32_t loader = word(0x09B23790u);
+    const std::uint32_t loader = word(ported(0x09B23790u));
     line << " | load";
     for (std::uint32_t k = 0; k < 8u && loader != 0u; ++k)
         line << " " << word(loader + 0x84u * k) << ":" << word(loader + 0x84u * k + 4u);
@@ -405,7 +419,7 @@ void trace_models(const psprecomp::GuestMemory &memory) {
     // and the size at +0x80318 + 4e; and its two bump pools (0x08866B5C:
     // base +0x80230, used +0x8022C; 0x08866BD4: base +0x80248, used +0x80244,
     // size +0x80240).
-    const std::uint32_t archive = word(0x08A62D7Cu);
+    const std::uint32_t archive = word(ported(0x08A62D7Cu));
     if (archive != 0u && memory.contains(archive + 0x80400u, 4u)) {
         line << " | pools " << word(archive + 0x80230u) << "+" << word(archive + 0x8022Cu) << " "
              << word(archive + 0x80248u) << "+" << word(archive + 0x80244u) << "/" << word(archive + 0x80240u);
@@ -428,8 +442,9 @@ bool in_equipment_screen(const psprecomp::GuestMemory &memory, std::uint32_t box
 }
 
 std::uint32_t session(const psprecomp::GuestMemory &memory) {
-    if (!memory.contains(kSessionPointer, 4u)) return 0u;
-    const std::uint32_t net = memory.load32(kSessionPointer);
+    const std::uint32_t pointer = ported(kSessionPointer);
+    if (!memory.contains(pointer, 4u)) return 0u;
+    const std::uint32_t net = memory.load32(pointer);
     return net != 0u && memory.contains(net, kSessionBytes) ? net : 0u;
 }
 
@@ -443,9 +458,10 @@ bool readied(const psprecomp::GuestMemory &memory) {
 namespace {
 
 bool slot_tables(const psprecomp::GuestMemory &memory, std::uint32_t &archive, std::uint32_t &files) {
-    if (!memory.contains(kArchivePointer, 4u) || !memory.contains(kFilesPointer, 4u)) return false;
-    archive = memory.load32(kArchivePointer);
-    files = memory.load32(kFilesPointer);
+    const std::uint32_t archive_at = ported(kArchivePointer), files_at = ported(kFilesPointer);
+    if (!memory.contains(archive_at, 4u) || !memory.contains(files_at, 4u)) return false;
+    archive = memory.load32(archive_at);
+    files = memory.load32(files_at);
     return archive != 0u && files != 0u && memory.contains(archive, kArchiveBytes) &&
            memory.contains(files, kSlotProgress + 4u * 6u);
 }
@@ -485,12 +501,13 @@ bool write_slot(psprecomp::GuestMemory &memory, std::uint32_t slot, const SlotRo
 }
 
 std::uint32_t own_entry(const psprecomp::GuestMemory &memory, std::uint32_t net) {
-    if (net == 0u || !memory.contains(net, kSessionBytes) || !memory.contains(kOwnAddress, 6u)) return 0u;
+    const std::uint32_t own = ported(kOwnAddress);
+    if (net == 0u || !memory.contains(net, kSessionBytes) || !memory.contains(own, 6u)) return 0u;
     const auto count = static_cast<std::int8_t>(memory.load8(net + kMemberCount));
     for (int m = 0; m < count && m < 16; ++m) {
         const std::uint32_t entry = net + kMembers + kMemberBytes * static_cast<std::uint32_t>(m);
         bool same = true;
-        for (std::uint32_t b = 0; b < 6u && same; ++b) same = memory.load8(entry + b) == memory.load8(kOwnAddress + b);
+        for (std::uint32_t b = 0; b < 6u && same; ++b) same = memory.load8(entry + b) == memory.load8(own + b);
         if (same) return entry;
     }
     return 0u;
@@ -503,8 +520,9 @@ bool mirrored(std::uint32_t i) {
 }
 
 std::uint32_t own_record(const psprecomp::GuestMemory &memory) {
-    if (!memory.contains(kGameSysPointer, 4u)) return 0u;
-    const std::uint32_t record = memory.load32(kGameSysPointer) + kOwnRecord;
+    const std::uint32_t pointer = ported(kGameSysPointer);
+    if (!memory.contains(pointer, 4u)) return 0u;
+    const std::uint32_t record = memory.load32(pointer) + kOwnRecord;
     return memory.contains(record + kRecordMirror, kMirrorEnd) ? record : 0u;
 }
 
@@ -558,7 +576,8 @@ int spare_slot(const psprecomp::GuestMemory &memory) {
     std::uint32_t archive{}, files{};
     SlotRows own, rows;
     if (!slot_tables(memory, archive, files) || !read_slot(memory, kOwnSlot, own)) return -1;
-    const std::uint32_t loader = memory.contains(kLoaderPointer, 4u) ? memory.load32(kLoaderPointer) : 0u;
+    const std::uint32_t loader_at = ported(kLoaderPointer);
+    const std::uint32_t loader = memory.contains(loader_at, 4u) ? memory.load32(loader_at) : 0u;
     for (std::uint32_t slot = kLastSpareSlot + 1u; slot-- > kFirstSpareSlot;) {
         if (memory.load32(files + kHunters + 4u * slot) != 0u || !read_slot(memory, slot, rows)) continue;
         bool free = true;
@@ -686,32 +705,34 @@ void frame(psprecomp::Runtime &runtime, GuestCaller caller, BlockAllocator alloc
                                   : "status not one the others keep; not announced")
                       << std::endl;
     }
-    const psprecomp::Runtime::RecompiledFunction box = runtime.function_at(kBoxUpdate);
-    const psprecomp::Runtime::RecompiledFunction draw = runtime.function_at(kMenuDraw);
-    const psprecomp::Runtime::RecompiledFunction loader = runtime.function_at(kLoaderFrame);
-    const psprecomp::Runtime::RecompiledFunction request = runtime.function_at(kRequestOwnReload);
+    const std::uint32_t box_at = ported(kBoxUpdate), draw_at = ported(kMenuDraw), loader_at = ported(kLoaderFrame),
+                        request_at = ported(kRequestOwnReload), reset_at = ported(kSlotReset);
+    const psprecomp::Runtime::RecompiledFunction box = runtime.function_at(box_at);
+    const psprecomp::Runtime::RecompiledFunction draw = runtime.function_at(draw_at);
+    const psprecomp::Runtime::RecompiledFunction loader = runtime.function_at(loader_at);
+    const psprecomp::Runtime::RecompiledFunction request = runtime.function_at(request_at);
     // The slot reset is the executable's, so it is wrapped once and stays so;
     // outside a staged reload the wrapper only calls it.
-    const psprecomp::Runtime::RecompiledFunction reset = runtime.function_at(kSlotReset);
+    const psprecomp::Runtime::RecompiledFunction reset = runtime.function_at(reset_at);
     if (reset != nullptr && reset != &slot_reset) {
         s.slot_reset = reset;
-        runtime.register_function(kSlotReset, &slot_reset, "mhfu_hall_equipment_slot_reset");
+        runtime.register_function(reset_at, &slot_reset, "mhfu_hall_equipment_slot_reset");
     }
     if (box == nullptr || draw == nullptr || loader == nullptr || request == nullptr) return;
     if (loader != &loader_frame) {
         s.loader_frame = loader;
-        runtime.register_function(kLoaderFrame, &loader_frame, "mhfu_hall_equipment_loader");
+        runtime.register_function(loader_at, &loader_frame, "mhfu_hall_equipment_loader");
     }
     if (request != &request_reload) {
         s.request_reload = request;
-        runtime.register_function(kRequestOwnReload, &request_reload, "mhfu_hall_equipment_request");
+        runtime.register_function(request_at, &request_reload, "mhfu_hall_equipment_request");
     }
     // lobby_task registers its functions again each time it is installed.
     // Item Sets wraps the box's frame too (game/hooks.hpp).
-    (void)hooks::wrap(runtime, kBoxUpdate, &box_update, s.box_update, "mhfu_hall_equipment");
+    (void)hooks::wrap(runtime, box_at, &box_update, s.box_update, "mhfu_hall_equipment");
     if (draw != &menu_draw) {
         s.menu_draw = draw;
-        runtime.register_function(kMenuDraw, &menu_draw, "mhfu_hall_equipment_draw");
+        runtime.register_function(draw_at, &menu_draw, "mhfu_hall_equipment_draw");
     }
     if (!s.reported) {
         s.reported = true;

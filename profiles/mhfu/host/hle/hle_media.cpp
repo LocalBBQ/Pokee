@@ -472,7 +472,7 @@ void present_frame(Runtime &rt) {
         game::true_attack::frame(rt);
         game::true_element::frame(rt);
     }
-    if (features) game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
+    if (ported) game::hall_equipment::frame(rt, &call_guest_function, &allocate_guest_block);
     if (ported) game::item_sets::frame(rt);
     if (ported) game::hall_meal::frame(rt, &call_guest_with_result);
     // Key quests read the quest packs through the mods' DATA.BIN reader.
