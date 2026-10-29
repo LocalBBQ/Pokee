@@ -272,62 +272,85 @@ inline constexpr float kGatherSpacing = 3.0f;
 // world. Marks apart already stay where they are.
 void spread_gather_marks(std::span<GatherMark> marks, std::array<float, 2> apart);
 
-// The pulse a hold sends, in pad reads the game takes: the gather button down
-// for kGatherPulseDown reads, then up for kGatherPulseUp. Each part is long
-// enough that a read at the game's own rate sees it.
-inline constexpr unsigned kGatherPulseDown = 3u;
-inline constexpr unsigned kGatherPulseUp = 3u;
+// The hunter's own copy of the pad, which its actions read. Each frame EBOOT
+// 0x088D61CC, called at 0x088DB474 for the local hunter (the hunter list's
+// entry for the byte at GameSys +40), copies the pad words at 0x08A62D88
+// into it: the buttons held at +1152, the ones new this frame at +1156 and
+// the ones let go at +1160, each with the stick's direction in bits
+// 0x00F00000, then the stick's angle and magnitude at +1180 and +1182 (from
+// 0x08A62D98, written by the stick reader at 0x08869404). While the hunter
+// may not act, when 0x08830F74 returns 1 or the word at +1556 has bit 1 or
+// 0x200, the copy clears the buttons itself. The quest's ○ (game_task
+// 0x09AA5424) tests bit 0x2000 of +1156 and calls the circle handler, and
+// the Pokke Farm starts a point on □ new at +1156 (lobby_task 0x09AADA40).
+// Menus, the map and the item bar read the pad, not these words, so a press
+// written here reaches the hunter's actions alone.
+struct HunterButtons {
+    std::uint32_t held{};
+    std::uint32_t fresh{};
+    std::uint32_t released{};
+    std::uint16_t magnitude{};
+};
+inline constexpr std::uint32_t kHunterHeld = 1152u;
+inline constexpr std::uint32_t kHunterFresh = 1156u;
+inline constexpr std::uint32_t kHunterReleased = 1160u;
+inline constexpr std::uint32_t kHunterMagnitude = 1182u;
+// The stick's direction in the button words; the buttons are the low half.
+inline constexpr std::uint32_t kStickDirections = 0x00F00000u;
+inline constexpr std::uint32_t kPadButtons = 0xFFFFu;
+
+// A hold presses the gather button again every this many frames: the rate of
+// the pulse the hold used to send on the pad (three reads down, three up).
+inline constexpr unsigned kGatherPressFrames = 6u;
 
 // △, × and R. With ○ or □ they make the weapons' chords (△+○ is an attack
 // for most of them), which the game reads on the same press. Any of them down
-// is never a gather: the pad passes through and a running hold ends.
+// is never a gather: the buttons pass through and a running hold ends.
 inline constexpr std::uint32_t kGatherChord = 0x1000u | 0x4000u | 0x0200u;
 
 // Holding ○ or □ on a gather point, or ○ on a monster that can be carved.
 // Plants and carving use ○ (B on an Xbox pad); mining and a bug net use □
-// (X on an Xbox pad). The game starts one when that button goes down, so a
-// bit that stays down is one gather or one carve. The hold presses the button
-// again and again, the way a player mashes it: the game starts the next
-// gather on the first press after the hunter is free and ignores the ones
-// during the animation. The hunter's action is not read. Following it broke
-// whenever the gather went through an action the hold did not expect, such as
-// stopping out of a run, and then the hold never pressed again.
-// A hold that begins with the button already down starts on the up part, so
-// the game sees a new press. Letting go stops the pulse at once. While the
-// hold is going, the game is shown the pulse only: movement and every other
-// button are left off, so they cannot walk the hunter off or start another
-// action. A chord button (kGatherChord) is the exception: with one down the
-// press is an attack, so the pad passes through and the hold ends. Another
-// button can take the gather button out of the resolved pad
-// for a few reads. The hold stays until nothing is held, and those reads
-// still show only the pulse. Away from a node and from a body, or with the
-// setting off, the buttons pass through. L+○ or L+□ before a hold has started
+// (X on an Xbox pad). The game starts one when that button is new in the
+// hunter's +1156, so a button that stays down is one gather or one carve.
+// The hold marks it new again every kGatherPressFrames frames, the way a
+// player mashes it: the game starts the next gather on the first press after
+// the hunter is free and ignores the ones during the animation. The hunter's
+// action is not read. Following it broke whenever the gather went through an
+// action the hold did not expect, such as stopping out of a run, and then the
+// hold never pressed again.
+// A hold begins only from a press the hunter's words showed: a button held
+// through a menu, which the copy clears while it is open, is not a gather
+// after it closes until it is pressed again. One pressed and held before the
+// point came into reach presses at once. While the hold is going the hunter
+// is shown the gather button alone, with the stick centred, so movement and
+// other buttons cannot walk it off or start another action. A chord button
+// (kGatherChord) is the exception: with one down the press is an attack, so
+// the words pass through and the hold ends. Another button can take the
+// gather button out of the resolved pad for a few frames; the hold stays
+// until nothing is held. Away from a node and from a body, or with the
+// setting off, the words pass through. L+○ or L+□ before a hold has started
 // is the item bar.
 class GatherRepeat {
 public:
-    // `ready` is the gather search, or the carve search, accepting `button`.
-    // `button` is ○ or □ for this hold.
-    [[nodiscard]] std::uint32_t apply(std::uint32_t buttons, bool ready, std::uint32_t button);
+    // One frame of the hunter's words. `ready` is the gather search, or the
+    // carve search, accepting `button`, ○ or □. True when the hold owns this
+    // frame: `buttons` is then the gather button held, new on a press frame,
+    // nothing let go, and the stick centred.
+    bool apply(HunterButtons &buttons, bool ready, std::uint32_t button);
     void reset() { *this = GatherRepeat{}; }
-    // The hold owns the pad, even on a read where the gather button is missing.
+    // The hold owns the words, even on a frame where the gather button is missing.
     [[nodiscard]] bool underway() const { return holding_ && latched_; }
-    // The ○ or □ bit this hold is pulsing. Meaningful while underway.
+    // The ○ or □ bit this hold presses. Meaningful while underway.
     [[nodiscard]] std::uint32_t button() const { return button_; }
-    // True after apply when this hold owns the pad, so the movement stick
-    // is reported centred for that read.
-    [[nodiscard]] bool centres_stick() const { return centres_; }
 
 private:
     bool holding_{};
-    // The gather button was down on the last read, whether or not the hold had it.
-    // Tied to input_button_: a □ hold must not treat a held ○ as already down.
-    bool input_down_{};
-    bool centres_{};
     // The gather button was down for this hold. Stays set while some other
     // button is held, so a resolved pad that dropped it does not read as a release.
     bool latched_{};
+    // The hunter saw the gather button new since it went down.
+    bool pressed_{};
     std::uint32_t button_{0x2000u}; // ○ until a hold picks □
-    std::uint32_t input_button_{0x2000u};
     unsigned step_{};
 };
 
@@ -436,25 +459,6 @@ inline constexpr std::uint16_t kFarmBugs = 16u;
 // Nothing outside the village, in a menu, or with no such spot in reach.
 [[nodiscard]] std::optional<FarmPoint> farm_point(const psprecomp::GuestMemory &memory);
 
-// The buttons the game should see for this pad read. Off, or idle with the
-// gather button up, `buttons` comes back unchanged and the gather list is not
-// read. While the hold owns the pad, every other button is cleared. A farm
-// spot (farm_point) is held with □ like a quest's mining point.
-// gather_hold_centres_stick is then true: the movement stick for that read is
-// centred, so a push does not walk the gather or the carve off.
-[[nodiscard]] std::uint32_t gather_hold(std::uint32_t buttons, const psprecomp::GuestMemory &memory);
-[[nodiscard]] bool gather_hold_centres_stick();
-
-// A menu open over a quest: the HUD object's byte at +1325 is not 0
-// (MHFU_TRACE_GATHER: 0 -> 1 as the menu opened, back as it closed). The HUD
-// object is a0 of the HUD's update (0x0883F270), noted by its wrapper
-// (gather_frame) with gather_note_hud. While one is open, gather_hold and
-// gather_circle leave the pad as it is, so ○ closes the menu: turned into □ it
-// reached the map and changed its size. A ○ still held after the menu closes
-// is not a gather until it is let go. False outside a quest.
-void gather_note_hud(std::uint32_t hud);
-[[nodiscard]] bool gather_menu_open(const psprecomp::GuestMemory &memory);
-
 // Tools. The circle handler's mining path (game_task 0x09AA6FB0) reads the
 // item in the selected pouch slot and goes on only for these: pickaxes for
 // mining (kind 3) and bug nets for a bug point (kind 4).
@@ -485,31 +489,50 @@ inline constexpr std::array<std::uint16_t, 4> kBugNets{148u, 149u, 150u, 1226u};
 [[nodiscard]] std::uint32_t gather_button(
     const psprecomp::GuestMemory &memory, GatherGlyph glyph, std::uint16_t kind, bool carve);
 
-// Pad reads after ○ is let go before the selection gather_circle changed is
-// put back: half a second at the game's 30 reads a second.
-inline constexpr unsigned kGatherRestoreReads = 15u;
-
 // ○ for every gather the pouch has the tool for (`game.gather_circle`, on by
 // default). The game mines and catches bugs only on □ with a pickaxe or a
 // bug net selected; ○ on such a point goes on to the carve search
-// (gather_targets). With the setting on, ○ on a mining point or a bug point
-// with that tool in the pouch (gather_tool_slot) selects the tool's slot and
-// the game is shown □ in place of ○, for gather_hold to repeat as it repeats
-// □. The mining path reads the selection only as the gather starts and keeps
-// the tool's id at hunter +1684 (game_task 0x09AA7248), and the pouch is taken
-// from by that id, never by the selection. So kGatherRestoreReads pad reads
-// after ○ is let go the selection goes back to the item it was on, unless the
-// player has moved it since. A body ○ would carve keeps ○ a carve. At a Pokke
-// Farm outcrop or thicket (farm_point), which takes no tool, ○ is □. Without
-// the tool ○ is left as it is, so it never uses another item. L+○ is the
-// item bar, and a chord (kGatherChord) is an attack: both are left alone.
-[[nodiscard]] std::uint32_t gather_circle(std::uint32_t buttons, psprecomp::GuestMemory &memory);
+// (gather_targets). With the setting on, ○ new on a mining point or a bug
+// point with that tool in the pouch (gather_tool_slot) is □ in the hunter's
+// words until ○ is let go, and the circle handler is given the tool's slot in
+// place of the selection (gather_slot_for). The selection itself is never
+// changed, so the item bar and the HUD go on showing the item the player
+// chose. A body ○ would carve keeps ○ a carve. At a Pokke Farm outcrop or
+// thicket (farm_point), which takes no tool, ○ is □. Without the tool ○ is
+// left as it is, so it never uses another item. L+○ is the item bar, and a
+// chord (kGatherChord) is an attack: both are left alone.
+//
+// The circle handler reads the selected slot (hunter +1608) only to pass it
+// to 0x08856884, which returns the slot's address in the pouch (GameSys +
+// 0x6AEA6 + 4 * slot): at 0x09AA6FB8 for mining's tool check, 0x09AA72B0
+// for the net's, and 0x09AA7234 for the id it keeps at hunter +1684 (stored
+// at 0x09AA7248). Every game_task call that takes the tool from the pouch
+// afterwards uses that id.
 
-// The tool gather_circle selects is the game's alone: the HUD's item bar
-// (EBOOT 0x08845A34) is shown the item the selection was on while it draws,
-// and the tool goes back as the bar returns, so the bar never shows the tool.
-// Puts that wrapper in place once Gather with ○ is first on, after a check of
-// the bar's code; at the flip, when no generated code is running.
+// Both settings on one frame of the local hunter's words, as the copy has just
+// written them: the hold (GatherRepeat) on the point, body or farm spot in
+// reach, then Gather with ○. `hunter` is the one the copy wrote; any other
+// than the one the camera follows is left alone. A press turned into □ for a
+// tool also readies gather_slot_for until the next frame.
+void gather_input(HunterButtons &buttons, std::uint32_t hunter, psprecomp::GuestMemory &memory);
+
+// The slot 0x08856884 is asked for in place of the selection: the tool's, on
+// the frame ○ became □ for it, when `return_address` is one of the circle
+// handler's three calls and `hunter` (its s2) is the one the press was for.
+// Nothing otherwise, and the game's own slot is used.
+[[nodiscard]] std::optional<std::uint16_t> gather_slot_for(std::uint32_t return_address, std::uint32_t hunter);
+
+// The instructions behind the copy and its call, behind 0x08856884, and
+// behind the circle handler's reads of the selection (checked as ○ is pressed,
+// since game_task is not always loaded).
+[[nodiscard]] std::span<const GatherWord> gather_input_words();
+[[nodiscard]] std::span<const GatherWord> gather_slot_words();
+[[nodiscard]] std::span<const GatherWord> gather_tool_words();
+
+// Puts the wrappers in place: over the copy (0x088D61CC) once Hold to gather
+// or Gather with ○ is first on, and over 0x08856884 once Gather with ○ is,
+// each after a check of its code; at the flip, when no generated code is
+// running. Both are chained (hooks::wrap), so the game's calls run them inline.
 void gather_frame(psprecomp::Runtime &runtime);
 
 } // namespace mhfu::game
