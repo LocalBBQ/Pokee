@@ -591,7 +591,8 @@ std::uint32_t run_request(psprecomp::GuestMemory &memory, std::uint32_t params) 
     case kSizes:
         return do_sizes(memory, params);
     case kFiles:
-        return do_files(memory, params, savedata::list_files(state().memory_stick, files_for(memory, params, save_name)));
+        return do_files(
+            memory, params, savedata::list_files(state().memory_stick, files_for(memory, params, save_name)));
     case kMakeDataSecure:
     case kMakeData:
         return do_make_data(memory, params, save_name, mode == kMakeDataSecure);
