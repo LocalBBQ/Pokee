@@ -9,9 +9,10 @@
 #include <string>
 #include <vector>
 
-// Importing event quests the player has as files: the event quests found in a
-// chosen folder are copied into event_quests/ of the data directory as
-// m<id>.mib, the name load() reads (game/event_quests.hpp). A file is a quest
+// Importing event quests the player has as files: the event quests and
+// Training School challenges found in a chosen folder are copied into
+// event_quests/ of the data directory as m<id>.mib, the name load() reads
+// (game/event_quests.hpp). A file is a quest
 // when it parses as one, whatever its name; FUComplete's tables of quests
 // (EventQstTbl, ArenaQstTbl), taken from its DATA.BIN, are read as the quests
 // they hold. Needs no game.
@@ -20,14 +21,17 @@ namespace mhfu::game::event_quests {
 // Event quests only Japan's Portable 2nd G had. Not imported.
 inline constexpr std::array<std::uint16_t, 13> kJapanOnly = {
     60001, 60002, 60003, 60004, 60005, 60006, 60007, 60008, 60009, 60018, 60020, 60036, 60038};
-// Event quest ids; Training School challenges follow at 61000.
+// Event quest ids, and those of the Training School's challenges, which
+// carry the flag that keeps a quest out of the event list.
 inline constexpr std::uint16_t kFirstEventId = 60000u;
 inline constexpr std::uint16_t kFirstChallengeId = 61000u;
+inline constexpr std::uint16_t kLastChallengeId = 62000u; // past the last
 
 struct ImportCandidate {
     Quest quest;
     std::string title;
     std::filesystem::path from;
+    bool challenge{}; // for the Training School
     bool replaces{}; // a different quest of that id is in event_quests/ already
 };
 
@@ -36,8 +40,7 @@ struct ImportCheck {
     std::vector<ImportCandidate> quests; // by id
     std::size_t present{};               // the same quest is in event_quests/ already
     std::size_t japan_only{};
-    std::size_t challenges{}; // Training School challenges, which the event list does not show
-    std::size_t other{};      // quests that are not event quests
+    std::size_t other{};      // quests that are neither event quests nor challenges
     std::size_t unreadable{}; // .mib files that are not decoded quests, such as a PSP's encrypted ones
     std::string problem;      // why nothing can be imported; empty when something can
 };

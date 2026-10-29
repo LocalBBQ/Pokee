@@ -32,6 +32,7 @@ enum class Screen { Closed, Page, Choose, Review, Result };
 struct Listed {
     std::uint16_t id{};
     std::string title;
+    bool challenge{};
 };
 
 struct State {
@@ -75,15 +76,15 @@ void focus_once() {
 void open_page() {
     State &s = state();
     s.listed.clear();
-    for (const eq::Quest &quest : eq::load(quest_folder())) s.listed.push_back({quest.id, eq::title(quest.bytes)});
+    for (const eq::Quest &quest : eq::load(quest_folder()))
+        s.listed.push_back({quest.id, eq::title(quest.bytes), (quest.flags & eq::kHiddenFlag) != 0u});
     s.browser.reset();
     go(Screen::Page);
 }
 
 const char *applies_note() {
-    return eq::loaded() ? "The Guild Hall has read the folder this run: quests imported now are listed from the "
-                          "next start."
-                        : "Quests imported now are listed when the Guild Hall loads.";
+    return eq::loaded() ? "The folder has been read this run: quests imported now are listed from the next start."
+                        : "Quests imported now are listed when the Guild Hall or the Training School loads.";
 }
 
 void open_browser() {
@@ -123,8 +124,9 @@ void page(bool back) {
     section("Event quests");
     focus_once();
     RowOptions o;
-    o.description = "On (default): the Guild Hall's event quests list the quests below after the ones in your "
-                    "save, and they start like the save's own. The save is not changed. Off: only the save's.";
+    o.description = "On (default): the Guild Hall's event quests and the Training School's challenges list the "
+                    "quests below after the ones in your save, and they start like the save's own. The save is not "
+                    "changed. Off: only the save's.";
     if (const char *variable = settings::overridden_by("game.event_quests")) {
         o.disabled = true;
         o.note = std::string("Set by ") + variable;
@@ -135,17 +137,23 @@ void page(bool back) {
     }
     if (button_row("Import from a folder…",
             {false, {},
-                "Choose a folder of quest files, such as FUComplete's event quests. Japan-only quests are left "
-                "out."}))
+                "Choose a folder of quest files, such as FUComplete's event quests and challenges. Japan-only "
+                "quests are left out."}))
         open_browser();
     paragraph(applies_note(), colors::kTextDim);
 
-    section(("In the folder (" + std::to_string(s.listed.size()) + ")").c_str());
-    if (s.listed.empty()) paragraph("No event quests yet.", colors::kTextDim);
-    for (const Listed &quest : s.listed) {
-        const std::string label =
-            (quest.title.empty() ? std::string("Quest") : quest.title) + "##quest" + std::to_string(quest.id);
-        info_row(label.c_str(), std::to_string(quest.id));
+    for (const bool challenges : {false, true}) {
+        std::size_t shown = 0u;
+        for (const Listed &quest : s.listed) shown += quest.challenge == challenges ? 1u : 0u;
+        section(
+            ((challenges ? "Training School challenges (" : "Event quests (") + std::to_string(shown) + ")").c_str());
+        if (shown == 0u) paragraph(challenges ? "No challenges yet." : "No event quests yet.", colors::kTextDim);
+        for (const Listed &quest : s.listed) {
+            if (quest.challenge != challenges) continue;
+            const std::string label =
+                (quest.title.empty() ? std::string("Quest") : quest.title) + "##quest" + std::to_string(quest.id);
+            info_row(label.c_str(), std::to_string(quest.id));
+        }
     }
     paragraph("The quests are kept in " + install::path_to_utf8(quest_folder()) +
             ", as m<id>.mib. A quest of an id the save holds too is the save's.",
@@ -195,13 +203,12 @@ void review(bool back) {
         const std::string label = (candidate.title.empty() ? std::string("Quest") : candidate.title) + "##import" +
             std::to_string(candidate.quest.id);
         info_row(label.c_str(),
-            std::to_string(candidate.quest.id) + (candidate.replaces ? ", replaces the one in the folder" : ""));
+            std::to_string(candidate.quest.id) + (candidate.challenge ? ", Training School" : "") +
+                (candidate.replaces ? ", replaces the one in the folder" : ""));
     }
     std::vector<std::string> left_out;
     if (c.present > 0u) left_out.push_back(count(c.present, "quest imported already", "quests imported already"));
     if (c.japan_only > 0u) left_out.push_back(count(c.japan_only, "Japan-only quest", "Japan-only quests"));
-    if (c.challenges > 0u)
-        left_out.push_back(count(c.challenges, "Training School challenge", "Training School challenges"));
     if (c.other > 0u) left_out.push_back(count(c.other, "other quest", "other quests"));
     if (c.unreadable > 0u)
         left_out.push_back(count(c.unreadable, ".mib file that is not a decoded quest (a PSP's are encrypted)",
@@ -247,8 +254,8 @@ void event_quests_row() {
     const settings::Settings &settings = settings::current();
     if (value_row("Event quests", settings.event_quests ? "On" : "Off",
             {false, {},
-                "Event quests from files, listed in the Guild Hall after the ones in your save, and importing "
-                "them."}))
+                "Event quests and Training School challenges from files, listed after the ones in your save, "
+                "and importing them."}))
         open_page();
 }
 

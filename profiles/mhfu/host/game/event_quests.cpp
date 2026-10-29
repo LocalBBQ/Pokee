@@ -155,4 +155,63 @@ std::uint32_t extend_list(psprecomp::GuestMemory &memory, const Bank &bank, std:
     return added;
 }
 
+std::uint32_t save_challenge_info(psprecomp::GuestMemory &memory, std::uint32_t k) {
+    const std::uint32_t save = memory.load32(kSaveObject);
+    const std::uint32_t slot = memory.load32(save + kSaveBuffer) + kSlots + k * kSlotSize;
+    if (memory.load32(slot) == 0u) return 0u;
+    const std::uint32_t info = info_of(memory, slot);
+    return (memory.load32(info) & kHiddenFlag) != 0u ? info : 0u;
+}
+
+std::uint32_t extend_challenges(
+    psprecomp::GuestMemory &memory, const Bank &bank, std::uint32_t arcade, std::uint32_t last_slot_info) {
+    const std::uint16_t last_id = last_slot_info != 0u ? memory.load16(last_slot_info + kInfoId) : 0u;
+    const std::uint32_t room = kChallengeRoom - (last_slot_info != 0u ? 1u : 0u);
+    std::uint32_t count = memory.load16(arcade + kChallengeCount);
+    std::uint32_t added = 0u;
+    for (const std::uint32_t slot : bank.slots) {
+        if (count >= room) break;
+        const std::uint32_t info = info_of(memory, slot);
+        if ((memory.load32(info) & kHiddenFlag) == 0u) continue;
+        const std::uint16_t id = memory.load16(info + kInfoId);
+        if (id == last_id) continue;
+        bool listed = false;
+        for (std::uint32_t i = 0; i < count && !listed; ++i)
+            listed = memory.load16(arcade + kChallengeIds + 2u * i) == id;
+        if (listed) continue;
+        memory.store16(arcade + kChallengeIds + 2u * count, id);
+        memory.store32(arcade + kChallengeInfos + 4u * count, info);
+        memory.store32(arcade + kChallengeSlots + 4u * count, slot);
+        ++count;
+        ++added;
+    }
+    memory.store16(arcade + kChallengeCount, static_cast<std::uint16_t>(count));
+    return added;
+}
+
+bool training_school_matches(const psprecomp::GuestMemory &memory) {
+    // The list loop's call, its stores to the three arrays and the count,
+    // the getter's slot address and flag test, and the copy of the chosen
+    // slot.
+    static constexpr std::uint32_t kSignature[][2] = {
+        {0x09A63C8Cu, 0x0E69B8AEu}, // jal 0x09A6E2B8
+        {0x09A63C9Cu, 0x864401A0u}, // lh a0, 416(s2)
+        {0x09A63CA4u, 0x94450018u}, // lhu a1, 24(v0)
+        {0x09A63CB4u, 0xA4850178u}, // sh a1, 376(a0)
+        {0x09A63CD8u, 0xAC6401DCu}, // sw a0, 476(v1)
+        {0x09A63CE8u, 0xAC6201A4u}, // sw v0, 420(v1)
+        {0x09A63CF4u, 0xA64201A0u}, // sh v0, 416(s2)
+        {0x09A63CFCu, 0x2A220006u}, // slti v0, s1, 6
+        {0x09A6E2B8u, 0x3C0209A4u}, // lui v0, 0x09A4
+        {0x09A6E2C8u, 0x24026810u}, // li v0, 0x6810
+        {0x09A6E2D0u, 0x34212300u}, // ori at, at, 0x2300
+        {0x09A6E2FCu, 0x3C030100u}, // lui v1, 0x0100: the flag
+        {0x09A64148u, 0x8C4501DCu}, // lw a1, 476(v0)
+        {0x09A64150u, 0x24066800u}, // li a2, 0x6800
+    };
+    for (const auto &[address, word] : kSignature)
+        if (!memory.contains(address, 4u) || memory.load32(address) != word) return false;
+    return true;
+}
+
 } // namespace mhfu::game::event_quests
