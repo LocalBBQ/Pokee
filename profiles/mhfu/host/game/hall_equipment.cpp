@@ -336,6 +336,15 @@ void set_label(psprecomp::GuestMemory &memory, bool on) {
     }
 }
 
+// The hall's call to its box as FUComplete's Full Chest option leaves it, on
+// Freedom Unite Complete: a jump out, and no word passing the flag.
+bool full_chest_call(const psprecomp::GuestMemory &memory, const CodeWord &expected) {
+    if (expected.address != kHallFlagArgument || install::running_map() == nullptr) return false;
+    const std::uint32_t call = ported(kHallBoxCall), argument = ported(kHallFlagArgument);
+    return memory.contains(call, 4u) && memory.contains(argument, 4u) && memory.load32(call) >> 26 == 2u &&
+           memory.load32(argument) == 0u;
+}
+
 } // namespace
 
 std::span<const CodeWord> code_signature() {
@@ -345,7 +354,7 @@ std::span<const CodeWord> code_signature() {
 bool code_matches(const psprecomp::GuestMemory &memory) {
     for (const CodeWord &expected : kSignature)
         if (!install::code_matches(memory, expected.address, expected.word, install::Image::lobby_task) &&
-            !layout::box_button_test(memory, expected.address, expected.word))
+            !layout::box_button_test(memory, expected.address, expected.word) && !full_chest_call(memory, expected))
             return false;
     return memory.contains(ported(kHallLabel), 2u);
 }

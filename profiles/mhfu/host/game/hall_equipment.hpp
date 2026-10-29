@@ -151,6 +151,13 @@ inline constexpr std::uint32_t kHallLabels = 0x09B05168u;
 inline constexpr std::uint32_t kHallLabelRows = 8u;
 inline constexpr std::uint16_t kGreyLabel = 0x012Fu;
 inline constexpr std::uint16_t kLabel = 0x0129u;
+// The Guild Hall's call to its box: its first word, and the one that passes
+// the hall flag (addiu a1, zr, 1) in the call's delay slot. FUComplete's
+// Guildhall Full Chest (Offline) option, set in its CONFIG.BIN, puts a jump
+// to its own code in the first word, which passes the flag itself (0 in the
+// hall offline, where the box is then the house's), and clears the second.
+inline constexpr std::uint32_t kHallBoxCall = 0x09AADF50u;
+inline constexpr std::uint32_t kHallFlagArgument = 0x09AADF5Cu;
 // The buttons as 0x0884FB6C returns them: none while the byte at
 // load32(kPadGate) + 0x74 is set, otherwise the word at kPadPressed with the
 // D-pad bits of the word at kPadRepeat.

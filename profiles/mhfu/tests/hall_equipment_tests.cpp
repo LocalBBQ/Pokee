@@ -928,6 +928,18 @@ void test_complete() {
     memory.store32(at(code_signature()[18].address), 0x24020004u);
     check(!code_matches(memory), "one different word is other code there too");
     memory.store32(at(code_signature()[18].address), code_signature()[18].word);
+    // FUComplete's Full Chest option: a jump out of the hall's call to its
+    // box, and the word that passed the hall flag cleared.
+    const std::uint32_t call = at(kHallBoxCall), argument = at(kHallFlagArgument);
+    const std::uint32_t call_word = memory.load32(call), argument_word = memory.load32(argument);
+    memory.store32(argument, 0u);
+    check(!code_matches(memory), "the flag's word cleared without the jump is other code");
+    memory.store32(call, 0x0A28D64Au); // j 0x08A35928
+    check(code_matches(memory), "with FUComplete's jump the hall's box is still Complete's");
+    memory.store32(argument, 0x24050002u);
+    check(!code_matches(memory), "another flag is other code");
+    memory.store32(call, call_word);
+    memory.store32(argument, argument_word);
 
     memory.store32(at(kPadGate), kGate);
     memory.store8(kGate + kPadGateByte, 0u);
