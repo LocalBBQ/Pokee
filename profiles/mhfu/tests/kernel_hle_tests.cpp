@@ -44,8 +44,7 @@ void memory_contracts() {
     check(low > 0 && high > 0, "low/high allocations succeed");
     check(kernel.find_block(low)->address == 0x08805000u && kernel.find_block(low)->size == 256u,
         "low allocation rounds size");
-    check(
-        kernel.find_block(high)->address == mhfu::kUserMemoryEnd - 512u, "high allocation starts at upper boundary");
+    check(kernel.find_block(high)->address == mhfu::kUserMemoryEnd - 512u, "high allocation starts at upper boundary");
     const auto middle = kernel.allocate_block("middle", 2, 512, 0x0900017fu);
     check(middle > 0 && kernel.find_block(middle)->address == 0x09000100u, "fixed allocation rounds address down");
     check(static_cast<unsigned>(kernel.allocate_block("overlap", 2, 256, 0x09000100u)) == mhfu::error::kNoMemory,
@@ -75,8 +74,7 @@ void smaller_user_memory_end() {
     const auto total = kernel.free_memory();
     check(total == user_end - 0x08805000u, "32 MiB user end follows the argument");
     const auto high = kernel.allocate_block("high", 1, 257, 0);
-    check(high > 0 && kernel.find_block(high)->address == user_end - 512u,
-        "high allocation uses the given user end");
+    check(high > 0 && kernel.find_block(high)->address == user_end - 512u, "high allocation uses the given user end");
 }
 class Fixture {
 public:
@@ -172,8 +170,7 @@ void scheduler_contracts() {
     check(f.runtime.memory().load32(ctx.gpr[26] + 0xC0) == static_cast<unsigned>(loader),
         "thread control block identifies current thread");
     for (auto entry : {0u, 0x08824001u})
-        check(
-            static_cast<unsigned>(k.create_thread("invalid", entry, 0x30, 4096, 0, 0)) == mhfu::error::kIllegalEntry,
+        check(static_cast<unsigned>(k.create_thread("invalid", entry, 0x30, 4096, 0, 0)) == mhfu::error::kIllegalEntry,
             "bad entry rejected");
     for (auto priority : {0u, 128u})
         check(static_cast<unsigned>(k.create_thread("invalid", 0x08824000, priority, 4096, 0, 0)) ==
@@ -182,8 +179,7 @@ void scheduler_contracts() {
     check(static_cast<unsigned>(k.create_thread("invalid", 0x08824000, 0x30, 511, 0, 0)) ==
             mhfu::error::kIllegalStackSize,
         "undersized stack rejected");
-    check(
-        static_cast<unsigned>(k.start_thread(ctx, -1, 0, 0)) == mhfu::error::kUnknownThid, "unknown start rejected");
+    check(static_cast<unsigned>(k.start_thread(ctx, -1, 0, 0)) == mhfu::error::kUnknownThid, "unknown start rejected");
     const auto high = k.create_thread("high", 0x08824000, 0x10, 4096, 0, 0x1234);
     f.string(Fixture::output, "arguments");
     check(k.start_thread(ctx, high, 10, Fixture::output) == 0, "start copies arguments");
@@ -192,8 +188,7 @@ void scheduler_contracts() {
         "thread argument bytes and size retained");
     check(static_cast<unsigned>(k.start_thread(ctx, high, 0, 0)) == mhfu::error::kNotDormant,
         "running thread cannot start twice");
-    check(
-        static_cast<unsigned>(k.delete_thread(high)) == mhfu::error::kNotDormant, "active thread cannot be deleted");
+    check(static_cast<unsigned>(k.delete_thread(high)) == mhfu::error::kNotDormant, "active thread cannot be deleted");
     ctx.set_gpr(31, 0x08823000);
     k.finish(ctx, 42);
     check(k.current_uid() == high && ctx.pc == 0x08824000, "higher priority thread preempts on import completion");
@@ -231,8 +226,8 @@ void scheduler_contracts() {
     check(f.thread("sceKernelWakeupThread", {static_cast<unsigned>(loader)}) == 0 &&
             f.thread("sceKernelSleepThreadCB") == 0,
         "callback-aware sleep consumes wake token");
-    check(f.thread("sceKernelWakeupThread", {0xFFFFFFFFu}) == mhfu::error::kUnknownThid,
-        "wake unknown thread rejected");
+    check(
+        f.thread("sceKernelWakeupThread", {0xFFFFFFFFu}) == mhfu::error::kUnknownThid, "wake unknown thread rejected");
     check(f.thread("sceKernelDelayThread", {50}) == 0 && k.now_us() == 3050, "delay HLE charges exact virtual time");
     check(
         f.thread("sceKernelDelayThreadCB", {50}) == 0 && k.now_us() == 3100, "callback delay has same clock semantics");
@@ -300,8 +295,8 @@ void event_flag_contracts() {
     for (auto mode : {2u, 0x30u})
         check(f.thread("sceKernelPollEventFlag", {uid, 1, mode, 0}) == mhfu::error::kIllegalMode,
             "invalid clear/match mode rejected");
-    check(f.thread("sceKernelPollEventFlag", {uid, 0, 0, 0}) == mhfu::error::kEvfIllegalPattern,
-        "zero pattern rejected");
+    check(
+        f.thread("sceKernelPollEventFlag", {uid, 0, 0, 0}) == mhfu::error::kEvfIllegalPattern, "zero pattern rejected");
     check(f.thread("sceKernelPollEventFlag", {uid, 1, 0x20, 0}) == 0 && f.kernel.event_flags.at(uid).pattern == 2,
         "clear requested bits preserves unrelated bits");
     check(f.thread("sceKernelPollEventFlag", {uid, 2, 0x10, 0}) == 0 && f.kernel.event_flags.at(uid).pattern == 0,
@@ -325,8 +320,8 @@ void event_flag_contracts() {
         "signal delivers output then clears matching bits");
     f.thread("sceKernelWaitEventFlag", {uid, 8, 0, 0, 0});
     f.thread("sceKernelDeleteEventFlag", {uid});
-    check(f.kernel.current_uid() == loader && f.ctx.gpr[2] == mhfu::error::kWaitDelete,
-        "event deletion cancels waiter");
+    check(
+        f.kernel.current_uid() == loader && f.ctx.gpr[2] == mhfu::error::kWaitDelete, "event deletion cancels waiter");
     for (const auto *name :
         {"sceKernelDeleteEventFlag", "sceKernelSetEventFlag", "sceKernelClearEventFlag", "sceKernelPollEventFlag"})
         check(f.thread(name, {uid, 1}) == mhfu::error::kUnknownEvfid, "deleted event flag rejects operations");
@@ -335,8 +330,7 @@ void event_flag_contracts() {
 void mutex_contracts() {
     Fixture f;
     const auto uid = f.thread("sceKernelCreateMutex", {Fixture::text, 0, 0});
-    check(
-        f.thread("sceKernelLockMutex", {uid, 0, 0}) == mhfu::error::kIllegalCount, "mutex zero lock count rejected");
+    check(f.thread("sceKernelLockMutex", {uid, 0, 0}) == mhfu::error::kIllegalCount, "mutex zero lock count rejected");
     check(f.thread("sceKernelLockMutex", {uid, 1, 0}) == 0, "unowned mutex locks");
     check(f.thread("sceKernelLockMutex", {uid, 1, 0}) == mhfu::error::kMutexRecursiveNotAllowed,
         "nonrecursive re-lock rejected");
@@ -645,8 +639,7 @@ void io_contracts() {
         "disc reads synthetic payload and clamps requested length");
     check(call("sceIoRead", {disc, Fixture::output, 1}) == 0 && mhfu::read_open_file(disc, 8, prefix.data(), 5) == 0,
         "disc EOF applies to both read interfaces");
-    check(
-        mhfu::read_open_file(disc, 2, prefix.data(), 5) == 5 && std::string(prefix.begin(), prefix.end()) == "xture",
+    check(mhfu::read_open_file(disc, 2, prefix.data(), 5) == 5 && std::string(prefix.begin(), prefix.end()) == "xture",
         "disc independent read addresses original extent");
     check(path_call("sceIoGetstat", "isofs0:/PUBLIC.TXT", Fixture::output) == 0 &&
             f.runtime.memory().load32(Fixture::output + 8) == 8 &&
@@ -888,8 +881,7 @@ void network_contracts() {
             f.runtime.memory().load32(length) == 5,
         "short PDP buffer reports required size without consuming datagram");
     check(net("sceNetAdhocPdpRecv", {livepdp, peer, port_out, data, length, 100, 1}) == 0 &&
-            mhfu::read_cstring(f.runtime.memory(), data, 5) == "reply" &&
-            f.runtime.memory().load16(port_out) == 10000,
+            mhfu::read_cstring(f.runtime.memory(), data, 5) == "reply" && f.runtime.memory().load16(port_out) == 10000,
         "retry receives preserved datagram and sender port");
     check(net("sceNetAdhocPtpListen") == addr && net("sceNetAdhocPtpListen", {own, 20000, 0}) == buflen,
         "PTP listener validates source and buffer");

@@ -727,8 +727,8 @@ std::vector<std::uint8_t> glyph_alone(std::uint32_t code, int scale) {
     const std::int32_t to_x = (left & ~63) - ((kCell - layout.metrics.width) / 2) * 64;
     const std::int32_t to_y = (top & ~63) - kAtlasRowTop * 64;
     for (int i = 0; i < passes.count; ++i)
-        draw_pass(layout, passes.x64[static_cast<std::size_t>(i)] - to_x, passes.y64[static_cast<std::size_t>(i)] - to_y,
-            scale, cell);
+        draw_pass(layout, passes.x64[static_cast<std::size_t>(i)] - to_x,
+            passes.y64[static_cast<std::size_t>(i)] - to_y, scale, cell);
     return cell;
 }
 
