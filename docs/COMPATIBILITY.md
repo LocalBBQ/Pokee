@@ -27,6 +27,8 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 | Saving and loading | ✅ PSP-format saves; no dialog screens yet [#33] | ❔ | ✅ a save copied from a PSP loads | ✅ a new character saves and loads after restarting the game [#13] | ✅ saves load; import and export through Android's file picker |
 | Save-data pass [#167]: create, save, load after a restart, overwrite, import, backup | ✅ all of it, the backup reminder and the import's *Back up now* included | ❔ | ❔ the Deck was offline for the pass | ✅ all of it on `main`; the backup reminder is newer than that build and was not checked | ✅ the reminder and *Back up now* through the picker, import of an encrypted PSP save with the review's backup, load after the restart; ❔ creating and overwriting a character (emulator keyboard) |
 | Downloadable content | ✅ a player's `ULUS10391QST` folder is read by the download menu | ❔ | ❔ | ❔ | ❔ |
+| Install data served from `DATA.BIN` | ❔ | ✅ `212b46a`: the game reads its install from the served files at every start and nothing is written; the 183 files matched a *Data Install* the game made, byte for byte. `391e50d`: the title menu leaves out *Data Install*, and the cursor wraps from *Download* to *New Game* and back | ❔ | ❔ | ❔ |
+| Built-in event quests and challenges | ❔ | ✅ `4ee985b`: the Guild Hall lists 25 event quests (the save's 6 and 19 from FUComplete's tables) and a built-in one starts and plays offline. `ed649fa`: imported from a folder in Mods → Event quests. `6cbf506`: Group Training lists the 14 built-in challenges (reported by the tester). ❔ online, and the game in other languages | ❔ | ❔ | ❔ |
 | Lock-on camera [#163] | ✅ `69dff80`: the small arena (event quest with Arzuros, Lagombi and Volvidon) from the full test save, the input script's virtual gamepad: R3 locks and follows the monster through its charges, the stick, the D-pad and L let go, the monster's death lets go, R3 in chords (screenshot, menu) never locks; leaving the area checked only by setting the game's flag, not by walking out | ❔ | ❔ | ❔ | ❔ |
 | Multiplayer | ✅ with a Steam Deck through an ad hoc server: hall and a full quest [#2] | ❔ | ✅ with a Mac through an ad hoc server: hall and a full quest [#2] | ❔ | ❔ |
 
@@ -61,6 +63,7 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | macOS 27 | Apple M1, 8 GB | Apple M1, MoltenVK | `65daf82` (the hot spring's glints at 60 fps, [#168]: 240 presents in a row from a scripted run, against `MHFU_INTERPOLATION_NO_NEAREST_INSTANCES`) | 2026-09-27 |
 | Android 15 emulator (API 35, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
 | Android 10 emulator (API 29, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
+| Ubuntu 26.04 | AMD Ryzen 9 6900HS | AMD Radeon RX 6700S, RADV (Mesa 26.0.3) | `6cbf506` (served install data, the title menu without *Data Install*, built-in event quests and challenges) | 2026-10-28 |
 
 ## Coverage-expansion device checks (2026-10-04)
 
