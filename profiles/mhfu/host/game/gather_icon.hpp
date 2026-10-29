@@ -150,11 +150,15 @@ struct GatherTarget {
     // At a mining or bug point whose mark is the tool from the pouch, how many
     // of that tool the pouch holds (gather_tool_count); 0 otherwise.
     std::uint16_t carried{};
+    // A carve's slot in the carve table (CarveBody::slot); 0 otherwise.
+    std::uint8_t slot{};
 };
 
-// Everything that can be done where the hunter stands, at most one of each, in
-// this order: the node (gather_node), the body ○ would carve (carve_body), and
-// the fishing spot a bait would fish at (fishing_spot). The circle handler
+// Everything that can be done where the hunter stands, in this order: the node
+// (gather_node), every body in reach with something left to carve
+// (carve_bodies), and the fishing spot a bait would fish at (fishing_spot).
+// Only the body ○ would carve has ○ as its button; the others have none, as ○
+// does not reach them from here. The circle handler
 // (game_task 0x09AA6E70) asks the gather search once and switches on the
 // kind. A plant (kind 0) starts its gather there, and the carve search is
 // never reached. Mining and a bug net start only from □, with the pickaxe or
@@ -214,12 +218,22 @@ private:
     std::optional<std::array<float, 2>> last_at_;
 };
 
-// What a mark stands for. Each has its own GatherMotion, so a node and the body
-// beside it fade and glide apart.
+// What a mark stands for.
 enum class GatherRole : std::uint8_t { Node, Carve, Fishing };
-inline constexpr std::size_t kGatherRoles = 3u;
 [[nodiscard]] GatherRole gather_role(GatherGlyph glyph) noexcept;
-using GatherMotions = std::array<GatherMotion, kGatherRoles>;
+
+// The slots of the carve table (carve_bodies).
+inline constexpr std::size_t kCarveSlots = 20u;
+
+// A GatherMotion for the node, one for each slot of the carve table, and one
+// for the fishing spot, so a node and the bodies beside it fade and glide
+// apart, and two bodies lying together each keep their own mark.
+struct GatherMotions {
+    GatherMotion node;
+    std::array<GatherMotion, kCarveSlots> carves;
+    GatherMotion fishing;
+    void reset() { *this = GatherMotions{}; }
+};
 
 // The mark for one target and one game frame.
 struct GatherMark {
@@ -248,15 +262,15 @@ struct GatherMark {
 };
 
 // Where the marks go on the picture while Gather icon is on: one over each of
-// gather_targets, in that order: the node ○ or □ would gather, the monster
-// body or cut tail ○ would carve, and the fishing spot a bait would fish at.
-// None when it is off, the code differs, there is nothing to gather, carve or
-// fish, and none for a point behind the camera or off the picture. Takes the
-// draw noted since the last call. Without `motions` each mark is where its
-// target is, at full opacity. With them, each role's motion steps once and
-// its mark is where it shows; a frame without a world draw, or the setting
-// off, resets them all. Marks over the same place are not moved apart here
-// (spread_gather_marks).
+// gather_targets, in that order: the node ○ or □ would gather, each monster
+// body or cut tail in reach with something left to carve, and the fishing spot
+// a bait would fish at. None when it is off, the code differs, there is
+// nothing to gather, carve or fish, and none for a point behind the camera or
+// off the picture. Takes the draw noted since the last call. Without `motions`
+// each mark is where its target is, at full opacity. With them, each motion
+// steps once and its mark is where it shows; a frame without a world draw, or
+// the setting off, resets them all. Marks over the same place are not moved
+// apart here (spread_gather_marks).
 [[nodiscard]] std::vector<GatherMark> gather_marks(const psprecomp::GuestMemory &memory,
     const std::optional<GatherPose> &pose, GatherMotions *motions = nullptr);
 
@@ -367,16 +381,28 @@ private:
 // village, with no hunter, or with no body in reach.
 [[nodiscard]] bool carve_in_reach(const psprecomp::GuestMemory &memory);
 
-// The body carve_in_reach finds: its record and the x, y and z at +0, +4 and
-// +8. A cut tail is carved through the same search. Nothing when there is no
-// carve.
+// The body carve_in_reach finds: its record, its slot in the table, and the x,
+// y and z at +0, +4 and +8. A cut tail is carved through the same search.
+// Nothing when there is no carve.
 struct CarveBody {
     std::uint32_t address{};
+    std::uint8_t slot{};
     float x{};
     float y{};
     float z{};
+    // The first body in reach: the one ○ carves.
+    bool first{};
 };
 [[nodiscard]] std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory);
+
+// Every body in reach with something left to carve, in the table's order:
+// two monsters that fell together, or a monster and the tail cut beside it.
+// The search stops at the first body in reach, so only that one is `first`
+// and carved by ○; a later one is carved once the bodies before it are gone
+// or the hunter steps off them. A body in reach with nothing left (+20 is
+// 0xFFFF) is not listed, and no body after it is `first`. None in the
+// village, with no hunter, or while bit 8 of hunter +1164 is set.
+[[nodiscard]] std::vector<CarveBody> carve_bodies(const psprecomp::GuestMemory &memory);
 
 // A fishing spot. Fishing is the item action, not the circle handler: with a
 // bait selected (items 136 to 143), the item handler (game_task 0x09AA7F98)

@@ -262,7 +262,6 @@ std::optional<GatherNode> read_node(const psprecomp::GuestMemory &memory) {
 // 0x0886CEA8. The circle handler asks it only after the gather search misses.
 constexpr std::uint32_t kCarveTable = 0x09A4F1A0u;
 constexpr std::uint32_t kCarveStride = 32u;
-constexpr std::uint32_t kCarveSlots = 20u;
 constexpr std::uint32_t kCarveFirst = 4u;
 constexpr std::uint32_t kCarveEmpty = 0xFFFFu;
 constexpr std::uint32_t kCarveId = 20u;
@@ -346,39 +345,45 @@ void trace_fishing(const std::optional<FishingSpot> &spot) {
 
 } // namespace
 
-std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
-    if (!gather_code_matches(memory)) return std::nullopt;
+std::vector<CarveBody> carve_bodies(const psprecomp::GuestMemory &memory) {
+    if (!gather_code_matches(memory)) return {};
     const std::optional<std::uint32_t> hunter = followed_hunter(memory);
     if (!hunter || !in_ram(*hunter + kHunterPosition, kHunterStage + 2u - kHunterPosition, memory) ||
         !in_ram(*hunter + kCarveBlocked, 4u, memory))
-        return std::nullopt;
-    if ((memory.load32(*hunter + kCarveBlocked) & kCarveBlockBit) != 0u) return std::nullopt;
-    if (!in_ram(kCarveTable, 4u, memory)) return std::nullopt;
+        return {};
+    if ((memory.load32(*hunter + kCarveBlocked) & kCarveBlockBit) != 0u) return {};
+    if (!in_ram(kCarveTable, 4u, memory)) return {};
     const std::uint32_t table = memory.load32(kCarveTable);
-    if (!layout::in_ram(table) || !in_ram(table + kCarveFirst, kCarveStride, memory)) return std::nullopt;
+    if (!layout::in_ram(table) || !in_ram(table + kCarveFirst, kCarveStride, memory)) return {};
     const float hunter_x = load_float(memory, *hunter + kHunterPosition);
     const float hunter_y = load_float(memory, *hunter + kHunterPosition + 4u);
     const float hunter_z = load_float(memory, *hunter + kHunterPosition + 8u);
-    if (!std::isfinite(hunter_x) || !std::isfinite(hunter_y) || !std::isfinite(hunter_z)) return std::nullopt;
+    if (!std::isfinite(hunter_x) || !std::isfinite(hunter_y) || !std::isfinite(hunter_z)) return {};
     const std::uint16_t stage = memory.load16(*hunter + kHunterStage);
+    std::vector<CarveBody> bodies;
+    // 0x0886CEA8 returns the first body in reach and 0x0886CF78 its +20, so
+    // ○ carves that one or nothing; the walk goes on for the marks alone.
+    bool first = true;
     std::uint32_t record = table + kCarveFirst;
-    for (std::uint32_t n = 0; n < kCarveSlots; ++n) {
-        if (!in_ram(record, kCarveStride, memory)) return std::nullopt;
-        const bool empty = memory.load16(record + 16u) == kCarveEmpty;
-        const bool here = memory.load16(record + kCarveStage) == stage;
-        if (!empty && here) {
-            if (!body_in_reach(memory, record, hunter_x, hunter_y, hunter_z)) {
-                record += kCarveStride;
-                continue;
-            }
-            if (memory.load16(record + kCarveId) == kCarveEmpty) return std::nullopt;
-            trace_carve(memory, record);
-            return CarveBody{
-                record, load_float(memory, record), load_float(memory, record + 4u), load_float(memory, record + 8u)};
+    for (std::uint32_t n = 0; n < kCarveSlots; ++n, record += kCarveStride) {
+        if (!in_ram(record, kCarveStride, memory)) break;
+        if (memory.load16(record + 16u) == kCarveEmpty || memory.load16(record + kCarveStage) != stage ||
+            !body_in_reach(memory, record, hunter_x, hunter_y, hunter_z))
+            continue;
+        if (memory.load16(record + kCarveId) != kCarveEmpty) {
+            if (first) trace_carve(memory, record);
+            bodies.push_back(CarveBody{record, static_cast<std::uint8_t>(n), load_float(memory, record),
+                load_float(memory, record + 4u), load_float(memory, record + 8u), first});
         }
-        record += kCarveStride;
+        first = false;
     }
-    return std::nullopt;
+    return bodies;
+}
+
+std::optional<CarveBody> carve_body(const psprecomp::GuestMemory &memory) {
+    const std::vector<CarveBody> bodies = carve_bodies(memory);
+    if (bodies.empty() || !bodies.front().first) return std::nullopt;
+    return bodies.front();
 }
 
 bool carve_in_reach(const psprecomp::GuestMemory &memory) {
@@ -590,8 +595,8 @@ std::vector<GatherTarget> gather_targets(const psprecomp::GuestMemory &memory) {
     std::vector<GatherTarget> targets;
     const std::optional<GatherNode> node = gather_node(memory);
     // 0x09AA6F1C: a plant is gathered, and the carve search is not asked.
-    const std::optional<CarveBody> body =
-        !node || node->kind != 0u ? carve_body(memory) : std::optional<CarveBody>{};
+    const std::vector<CarveBody> bodies = !node || node->kind != 0u ? carve_bodies(memory) : std::vector<CarveBody>{};
+    const bool carve = !bodies.empty() && bodies.front().first;
     if (node) {
         GatherArt art;
         if (gather_art_code_matches(memory)) art = gather_art_for(memory, node->kind, node->id);
@@ -607,10 +612,11 @@ std::vector<GatherTarget> gather_targets(const psprecomp::GuestMemory &memory) {
         trace_art(memory, *node, art);
         const GatherGlyph glyph = gather_glyph(node->kind);
         targets.push_back(GatherTarget{node->address, node->x, node->y, node->z, glyph, art,
-            gather_button(memory, glyph, node->kind, body.has_value()), carried});
+            gather_button(memory, glyph, node->kind, carve), carried});
     }
-    if (body)
-        targets.push_back(GatherTarget{body->address, body->x, body->y, body->z, GatherGlyph::Carve, {}, kCircleButton});
+    for (const CarveBody &body : bodies)
+        targets.push_back(GatherTarget{body.address, body.x, body.y, body.z, GatherGlyph::Carve, {},
+            body.first ? kCircleButton : 0u, 0u, body.slot});
     if (const std::optional<FishingSpot> spot = fishing_spot(memory)) {
         GatherArt art;
         if (gather_art_code_matches(memory)) art = GatherArt::of_item(kBaitItem);
@@ -670,8 +676,7 @@ std::vector<GatherMark> gather_marks(
     const std::uint32_t vertices = std::exchange(slot.vertices, 0u);
     slot.picture = {};
     if (!settings::current().gather_icon || vertices == 0u || !pose) {
-        if (motions != nullptr)
-            for (GatherMotion &motion : *motions) motion.reset();
+        if (motions != nullptr) motions->reset();
         return {};
     }
     const std::vector<GatherTarget> targets = gather_targets(memory);
@@ -709,11 +714,25 @@ std::vector<GatherMark> gather_marks(
         }
         return marks;
     }
-    for (std::size_t role = 0; role < kGatherRoles; ++role) {
+    // The node, each slot of the carve table, then the fishing spot: the
+    // order of gather_targets.
+    std::array<GatherMotion *, kCarveSlots + 2u> order{};
+    order.front() = &motions->node;
+    for (std::size_t slot = 0; slot < kCarveSlots; ++slot) order[slot + 1u] = &motions->carves[slot];
+    order.back() = &motions->fishing;
+    // The motion each target moves.
+    const auto motion_of = [&](const GatherTarget &target) -> GatherMotion * {
+        switch (gather_role(target.glyph)) {
+        case GatherRole::Carve: return &motions->carves[target.slot % kCarveSlots];
+        case GatherRole::Fishing: return &motions->fishing;
+        default: return &motions->node;
+        }
+    };
+    for (GatherMotion *const each_motion : order) {
+        GatherMotion &motion = *each_motion;
         std::optional<GatherTarget> target;
         for (const GatherTarget &each : targets)
-            if (static_cast<std::size_t>(gather_role(each.glyph)) == role) target = each;
-        GatherMotion &motion = (*motions)[role];
+            if (motion_of(each) == &motion) target = each;
         motion.step(target);
         const std::optional<GatherMotion::Shown> shown = motion.shown();
         if (!shown) {
