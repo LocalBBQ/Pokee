@@ -25,6 +25,7 @@ struct State {
     bool placed{};
     Bank bank;
     bool reported{};
+    bool reported_school{};
     bool trace{};
 };
 
@@ -67,13 +68,31 @@ void lookup(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
     return_value(ctx, info);
 }
 
+void challenge_getter(psprecomp::Runtime &runtime, psprecomp::AllegrexContext &ctx) {
+    State &s = state();
+    psprecomp::GuestMemory &memory = runtime.memory();
+    const std::uint32_t k = ctx.gpr[5] & 0xFFu;
+    const std::uint32_t info = save_challenge_info(memory, k);
+    // The list loop asks for the last slot: the built-in challenges go in
+    // before it, straight into the arrays the loop appends to.
+    if (k == kSlotCount - 1u && ctx.gpr[31] == kChallengeLoopReturn && settings::current().event_quests) {
+        const std::uint32_t added = extend_challenges(memory, s.bank, ctx.gpr[4], info);
+        if (s.trace)
+            std::cerr << "[event quests] Training School: "
+                      << memory.load16(ctx.gpr[4] + kChallengeCount) + (info != 0u ? 1u : 0u) << " with " << added
+                      << " built in\n";
+    }
+    return_value(ctx, info);
+}
+
 } // namespace
 
 void frame(psprecomp::Runtime &runtime, BlockAllocator allocate) {
     State &s = state();
-    if (!installed_overlay_dispatches(kLobbySlot, kLobbyHash, kGetter) ||
-        !installed_overlay_dispatches(kLobbySlot, kLobbyHash, kLookup))
-        return;
+    const bool hall = installed_overlay_dispatches(kLobbySlot, kLobbyHash, kGetter) &&
+        installed_overlay_dispatches(kLobbySlot, kLobbyHash, kLookup);
+    const bool school = !hall && training_school_matches(runtime.memory());
+    if (!hall && !school) return;
     if (!s.loaded) {
         s.loaded = true;
         static const bool trace = [] {
@@ -109,6 +128,16 @@ void frame(psprecomp::Runtime &runtime, BlockAllocator allocate) {
         }
         s.bank = place(memory, base, stride, s.quests);
         std::cout << "[event quests] placed at " << std::hex << base << std::dec << ", " << stride << " bytes apart\n";
+    }
+    if (school) {
+        // arcade_task registers its functions again each time it is installed.
+        if (runtime.function_at(kChallengeGetter) != &challenge_getter)
+            hooks::register_chained(runtime, kChallengeGetter, &challenge_getter, "mhfu_event_quests_challenges");
+        if (!s.reported_school) {
+            s.reported_school = true;
+            std::cout << "[event quests] Training School challenges extended" << std::endl;
+        }
+        return;
     }
     // lobby_task registers its functions again each time it is installed.
     if (runtime.function_at(kGetter) != &getter)
