@@ -83,7 +83,6 @@ def main(argv):
         parser.error("base address must be an aligned 32-bit unsigned address")
     if options.jobs < 1:
         parser.error("jobs must be positive")
-    base_text = f"0x{base:08X}"
     recompiler = os.path.join(build_dir, "psp_recomp.exe" if os.name == "nt" else "psp_recomp")
     with options.dump_path as handle:
         data = handle.read()
