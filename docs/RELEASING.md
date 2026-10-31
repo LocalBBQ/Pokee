@@ -14,7 +14,7 @@ There are two kinds of release, and players must be able to tell them apart at a
 | GitHub | a normal release, marked **Latest** | always a **pre-release**, never Latest |
 | Title | `Pokee vX.Y.Z` | `(test) Pokee vX.Y.Z-test.N` |
 | Notes | what changed | start with the notice below, then what changed |
-| Platforms | Windows, Linux and macOS | any subset, said in the notes |
+| Platforms | Windows and Linux | any subset, said in the notes |
 
 Every test build's notes start with this notice, with the link pointing at the latest stable release:
 
@@ -26,7 +26,7 @@ A test build becomes stable without being built again: when it has passed the ch
 
 A version is released as stable only when:
 
-- [TESTING.md](TESTING.md) passes on Windows, the Steam Deck (Linux) and macOS, recorded in [COMPATIBILITY.md](COMPATIBILITY.md) with the commit;
+- [TESTING.md](TESTING.md) passes on Windows and Linux (the Steam Deck included), recorded in [COMPATIBILITY.md](COMPATIBILITY.md) with the commit;
 - no issue reports a regression against the previous stable release (performance included) that is still open.
 
 The pre-releases published before this policy (`v0.6.0-alpha.5`, shown as "v0.6.5", and `v0.6.6`) are test builds under the old naming; they are titled "(unstable)" and point players back to `v0.6.0-alpha.4`, the last stable release.
@@ -39,7 +39,7 @@ All development happens on `main`, through pull requests merged by rebase.
 - **No merging back.** A release branch is never merged into `main` (it has nothing `main` lacks). It stays for the patch releases of that version (`vX.Y.1`, …).
 - **Tags** go on the release branch's commits. New features keep landing on `main` meanwhile and go out in the next `release/X.Y`.
 
-There are Linux, macOS and [Windows](#windows) builds. Android is not released for now: it has been tested on the emulator only ([#127](https://github.com/TeamGDB/Yakumo/issues/127)). The [Android](#android) section below describes how its build is packed, for when it is; a stable release that includes it also needs [TESTING.md](TESTING.md) to pass on a real Android phone.
+Releases are for [Windows](#windows) and Linux. macOS and Android are not released for now. The [macOS](#macos) section describes how its build is packed, for when it is. Android has been tested on the emulator only ([#127](https://github.com/TeamGDB/Yakumo/issues/127)). The [Android](#android) section below describes how its build is packed, for when it is; a stable release that includes it also needs [TESTING.md](TESTING.md) to pass on a real Android phone.
 
 ## Linux
 
