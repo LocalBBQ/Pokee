@@ -448,8 +448,7 @@ void GuestMemory::memory_barrier() const noexcept {
     std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 void GuestMemory::copy_in(std::uint32_t address, std::span<const std::uint8_t> source) {
-    if (!contains(address, source.size()))
-        outside_guest_memory(address);
+    if (!contains(address, source.size())) outside_guest_memory(address);
     log_write_watch(address, source.size(), "copy_in", 0u, 0u);
     std::size_t copied = 0u;
     while (copied < source.size()) {
@@ -463,8 +462,7 @@ void GuestMemory::copy_in(std::uint32_t address, std::span<const std::uint8_t> s
     }
 }
 void GuestMemory::copy_out(std::uint32_t address, std::span<std::uint8_t> destination) const {
-    if (!contains(address, destination.size()))
-        outside_guest_memory(address);
+    if (!contains(address, destination.size())) outside_guest_memory(address);
     std::size_t copied = 0u;
     while (copied < destination.size()) {
         const std::uint32_t current = address + static_cast<std::uint32_t>(copied);

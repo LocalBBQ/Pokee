@@ -362,8 +362,7 @@ void mpeg_contracts(Fixture &f) {
     memory.store32(ring + 12, 1);
     memory.copy_in(stream_data, packet);
     check(f.mpeg("sceMpegGetAvcAu", {handle, stream, au, header + 64}) == 0, "Third video access unit missing");
-    check(f.mpeg("sceMpegAvcDecode", {handle, au, 0, 0x0BFFFFF0u, header + 68}) == 0 &&
-            memory.load32(header + 68) == 0,
+    check(f.mpeg("sceMpegAvcDecode", {handle, au, 0, 0x0BFFFFF0u, header + 68}) == 0 && memory.load32(header + 68) == 0,
         "A picture that does not fit must not be written");
     check(f.mpeg("sceMpegAvcDecode", {handle, au, 16, header + 2048, header + 68}) == 0 &&
             memory.load32(header + 68) == 0,

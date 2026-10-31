@@ -122,9 +122,8 @@ Inspection inspect(const std::filesystem::path &path) {
     const auto sfo_entry = iso->find(kParamSfoPathOnDisc);
     if (!sfo_entry || sfo_entry->directory) {
         if (iso->find("PS3_GAME/PARAM.SFO"))
-            throw InstallError("\"" + name +
-                "\" is a PlayStation 3 disc image. Pokee needs a PSP disc image of " + supported_release_list() +
-                ": an .iso whose top level holds a PSP_GAME folder.");
+            throw InstallError("\"" + name + "\" is a PlayStation 3 disc image. Pokee needs a PSP disc image of " +
+                supported_release_list() + ": an .iso whose top level holds a PSP_GAME folder.");
         throw InstallError("\"" + name + "\" is not a PSP game disc image: it has no PSP_GAME/PARAM.SFO.");
     }
     const auto sfo = parse_sfo(read_file(*iso, *sfo_entry));

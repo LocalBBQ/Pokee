@@ -103,11 +103,11 @@ void test_layered_armor() {
     check(!layered::replacement_model(ram, block + 4u, 0, 3, pieces), "a block not the game's is left alone");
     check(!layered::replacement_model(ram, block, 0, 1, pieces), "the lookup's part 1 is not armor");
     pieces[1] = 1;
-    check(layered::replacement_model(ram, block, 0, 4, pieces) == std::optional<std::uint16_t>{9},
-        "part 4 is the arms");
+    check(
+        layered::replacement_model(ram, block, 0, 4, pieces) == std::optional<std::uint16_t>{9}, "part 4 is the arms");
     pieces[4] = 1;
-    check(layered::replacement_model(ram, block, 0, 2, pieces) == std::optional<std::uint16_t>{12},
-        "part 2 is the head");
+    check(
+        layered::replacement_model(ram, block, 0, 2, pieces) == std::optional<std::uint16_t>{12}, "part 2 is the head");
     check(layered::replacement_model_by_sex(ram, 2, 1, pieces) == std::optional<std::uint16_t>{12},
         "the lobby lookup draws the chosen head for her sex");
     check(layered::replacement_model_by_sex(ram, 2, 0, pieces) == std::optional<std::uint16_t>{11},
@@ -308,7 +308,8 @@ void test_layered_armor() {
     // appearing, not a change; a later set is, once. The flip records that
     // change and does not release the part files for it.
     for (std::uint8_t part = 0; part < layered::kParts; ++part)
-        bare.store16(block + layered::kHunterRecords + layered::kRecordArmorId[part], static_cast<std::uint16_t>(part + 1u));
+        bare.store16(
+            block + layered::kHunterRecords + layered::kRecordArmorId[part], static_cast<std::uint16_t>(part + 1u));
     const std::optional<layered::WornIds> first = layered::worn_ids(bare);
     check(first && (*first)[0] == 1u && (*first)[4] == 5u, "the five worn ids are what a change is compared with");
     layered::WornSet worn;

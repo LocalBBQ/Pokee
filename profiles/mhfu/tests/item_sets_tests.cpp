@@ -46,10 +46,10 @@ void set_environment(const char *name, const std::string &value) {
 }
 
 constexpr std::uint32_t kSys = 0x09000000u;
-constexpr std::uint16_t kPotion = 7u;    // carries 10
+constexpr std::uint16_t kPotion = 7u;     // carries 10
 constexpr std::uint16_t kPaintball = 64u; // carries 99
-constexpr std::uint16_t kTicket = 96u;   // byte 3 is 255: stacks of 255
-constexpr std::uint16_t kHerb = 20u;     // carries 10
+constexpr std::uint16_t kTicket = 96u;    // byte 3 is 255: stacks of 255
+constexpr std::uint16_t kHerb = 20u;      // carries 10
 
 void set_item(mhfu::game::Ram &ram, std::uint16_t item, std::uint8_t carry) {
     ram.store8(kItemTable + item * kItemRecord + kCarryByte, carry);
@@ -134,7 +134,7 @@ void test_load() {
         check(Slot{ram.load16(kSys + kBoxPouch + i * 4u), ram.load16(kSys + kBoxPouch + i * 4u + 2u)} == pouch[i],
             "the box screens' copy of the pouch is the loaded pouch");
     check(loaded.short_items.size() == 1u && loaded.short_items[0].item == kHerb &&
-              loaded.short_items[0].wanted == 5u && loaded.short_items[0].taken == 3u,
+            loaded.short_items[0].wanted == 5u && loaded.short_items[0].taken == 3u,
         "the herbs are reported short");
     // Deposits top up the paintball stack first (98 + 1), then the next empty
     // slot gets the herbs (2) and the last paintball (3); taking comes from
@@ -229,11 +229,11 @@ void test_store() {
         "readable slots are kept");
     check(sets[0].items[2] == Slot{} && sets[0].items[3] == Slot{}, "an id or count out of range is dropped");
     for (std::size_t i = 1; i + 1u < kSets; ++i) check(sets[i].empty(), "a set past the last is ignored");
-    check(sets[kSets - 1u].name == "Last" && sets[kSets - 1u].items[0] == (Slot{kPaintball, 2u}),
-        "the 24th set is read");
+    check(
+        sets[kSets - 1u].name == "Last" && sets[kSets - 1u].items[0] == (Slot{kPaintball, 2u}), "the 24th set is read");
     std::filesystem::remove(file, ec);
     check(Store(std::filesystem::temp_directory_path() / "pokee_no_such_dir" / "sets.txt").sets("A")[0].name ==
-              "Item Set 1",
+            "Item Set 1",
         "a missing file is no sets");
 }
 
@@ -324,11 +324,11 @@ void test_hooks() {
     check(memory.load32(kMenuRecord + 8u) == 0x00070014u, "the menu has seven rows");
     check(memory.load32(kMenuRecord) == 0x000C0010u, "and is raised clear of the hints");
     check(memory.load16(kBoxList + 4u) == 296u && memory.load16(kBoxList + 6u) == kTextId &&
-              memory.load16(kBoxList + 8u) == 297u && memory.load16(kBoxList + 12u) == 299u &&
-              memory.load16(kBoxList + 14u) == 0u,
+            memory.load16(kBoxList + 8u) == 297u && memory.load16(kBoxList + 12u) == 299u &&
+            memory.load16(kBoxList + 14u) == 0u,
         "the box's list has Item Sets after Combine Items");
     check(memory.load16(kSmallBoxList + 6u) == kTextId && memory.load16(kSmallBoxList + 12u) == 305u &&
-              memory.load16(kSmallBoxList + 14u) == 0u && memory.load16(kSmallBoxList + 16u) == 0u,
+            memory.load16(kSmallBoxList + 14u) == 0u && memory.load16(kSmallBoxList + 16u) == 0u,
         "so does the Small Item Box's, still ended before what follows it");
     check(runtime.function_at(kText) != &game_text && runtime.function_at(kBoxFrame) != &game_update,
         "the text and the box's frame are wrapped");
@@ -367,7 +367,7 @@ void test_hooks() {
     check(memory.load32(kMenuRecord + 8u) == 0x00060014u && memory.load32(kMenuRecord) == 0x00180010u,
         "off puts the six rows back");
     check(memory.load16(kBoxList + 6u) == 297u && memory.load32(kBoxList + 12u) == 0u &&
-              memory.load16(kSmallBoxList + 6u) == 303u && memory.load32(kSmallBoxList + 12u) == 0u,
+            memory.load16(kSmallBoxList + 6u) == 303u && memory.load32(kSmallBoxList + 12u) == 0u,
         "and the lists");
     call(runtime, kCursor, 0u, 0x09B1A97Eu, kGameRows, kCursorReturn);
     check(cursor_calls == 2 && cursor_rows == kGameRows, "the box's cursor is the game's again");
@@ -403,7 +403,7 @@ void test_hall_equipment_label() {
     mhfu::settings::current().item_sets = false;
     frame(runtime);
     check(memory.load32(kMenuRecord + 8u) == 0x00060014u && memory.load16(kSmallBoxList + 6u) == 0x129u &&
-              memory.load32(kSmallBoxList + 12u) == 0u,
+            memory.load32(kSmallBoxList + 12u) == 0u,
         "off, the six rows come back with the house's text where it was");
     mhfu::settings::current().item_sets = true;
 }
@@ -439,12 +439,12 @@ void test_menu() {
 
     // Loading: an empty set is refused, a set asks first, Yes loads it.
     check(m::step(s, m::kConfirm, sets, false).sound == m::Sound::Confirm && s.page == m::Page::List &&
-              s.mode == m::Mode::Load,
+            s.mode == m::Mode::Load,
         "the first row lists the sets to load");
     check(m::message(s) == "Please select the set to load." && m::list_title(s.mode) == "Load Item Set",
         "with the prompt and the title");
     check(m::step(s, m::kConfirm, sets, false).sound == m::Sound::Refuse && s.result_warning &&
-              m::message(s) == "~C02No set is registered here.",
+            m::message(s) == "~C02No set is registered here.",
         "an empty set cannot be loaded");
     m::step(s, m::kDown, sets, false);
     check(s.set == 1u && s.result.empty(), "moving clears what the last press said");
@@ -452,7 +452,7 @@ void test_menu() {
     m::step(s, m::kUp, sets, false);
     check(s.set == 7u, "the sets wrap too, on their page");
     check(m::step(s, m::kR, sets, false).sound == m::Sound::Page && s.set == 15u && m::set_page(s) == 1u &&
-              m::set_row_on_page(s) == 7u,
+            m::set_row_on_page(s) == 7u,
         "R is the next page of sets, on the same row");
     m::step(s, m::kDown, sets, false);
     check(s.set == 8u, "down wraps within the page");
@@ -484,7 +484,7 @@ void test_menu() {
 
     // Deleting: △ asks, on No.
     check(m::step(s, m::kDelete, sets, false).sound == m::Sound::Confirm && s.page == m::Page::Confirm &&
-              s.ask == m::Ask::Delete && !s.yes && m::message(s) == "Delete this Set?",
+            s.ask == m::Ask::Delete && !s.yes && m::message(s) == "Delete this Set?",
         "triangle asks to delete, on No");
     m::step(s, m::kLeft, sets, false);
     check(m::step(s, m::kConfirm, sets, false).act == m::Act::Delete, "Yes deletes");
@@ -514,12 +514,12 @@ void test_menu() {
     s.mode = m::Mode::Load;
     check(m::hint(s) == "~C00~B01Load Set  ~B02Delete Set", "loading's hints");
     check(m::sound_id(m::Sound::Page) == 17u && m::sound_id(m::Sound::Confirm) == 19u &&
-              m::sound_id(m::Sound::Cancel) == 20u && m::sound_id(m::Sound::Refuse) == 21u &&
-              m::sound_id(m::Sound::Cursor) == 23u && m::sound_id(m::Sound::Moved) == 136u &&
-              m::sound_id(m::Sound::Registered) == 137u && m::sound_id(m::Sound::None) == 0u,
+            m::sound_id(m::Sound::Cancel) == 20u && m::sound_id(m::Sound::Refuse) == 21u &&
+            m::sound_id(m::Sound::Cursor) == 23u && m::sound_id(m::Sound::Moved) == 136u &&
+            m::sound_id(m::Sound::Registered) == 137u && m::sound_id(m::Sound::None) == 0u,
         "the game's sound numbers");
     check(m::sound_bank(m::Sound::Moved) == 1u && m::sound_bank(m::Sound::Registered) == 1u &&
-              m::sound_bank(m::Sound::Confirm) == 0u && m::sound_bank(m::Sound::Cursor) == 0u,
+            m::sound_bank(m::Sound::Confirm) == 0u && m::sound_bank(m::Sound::Cursor) == 0u,
         "the box's item sounds are in the second bank, the menus' in the first");
 }
 
@@ -657,9 +657,8 @@ void test_screens() {
     psprecomp::GuestMemory &memory = runtime.memory();
     GuestRam ram(memory);
     mhfu::settings::current().item_sets = true;
-    for (std::uint32_t function :
-        {kCursor, kText, kBoxFrame, kUpdate, kBoxMenu, kWindowBuild, kWindowDraw, kPager, kFontSize, kFontColour, kItemWindow, kMessageDraw, kPrint,
-            kSound})
+    for (std::uint32_t function : {kCursor, kText, kBoxFrame, kUpdate, kBoxMenu, kWindowBuild, kWindowDraw, kPager,
+             kFontSize, kFontColour, kItemWindow, kMessageDraw, kPrint, kSound})
         runtime.register_function(function, &game_function, "game");
     write_words(memory, code_signature());
     install_lobby(memory);
@@ -707,7 +706,7 @@ void test_screens() {
         return logged.empty() ? 0xFFu : logged[0].args[3];
     };
     check(highlight(kRow, kMenuDrawReturn) == 3u && highlight(3u, kMenuDrawReturn) == 4u &&
-              highlight(1u, kMenuDrawReturn) == 1u,
+            highlight(1u, kMenuDrawReturn) == 1u,
         "the box menu highlights the row where it is shown");
     check(highlight(kRow, 0x09AE4D58u) == kRow, "another window's row is its own");
 
@@ -731,28 +730,29 @@ void test_screens() {
     check(screen_open() && memory.load8(kScreenBox + kPhase) == 1u, "choosing Item Sets opens the screens at once");
     check(find(calls, kBoxFrame) == nullptr && sound_of(calls) == 19u, "in place of the box's frame, with its sound");
     check(calls.size() == 5u && calls[1].function == kBoxMenu && calls[2].function == kWindowBuild &&
-              calls[2].args[1] == kChooseTemplate,
+            calls[2].args[1] == kChooseTemplate,
         "and the box's menu and the screen's menu drawn in that frame");
-    check(memory.load32(kUi + kUiFlags) == 0xFBu, "the update's message for the box's rows is turned off, nothing else");
+    check(
+        memory.load32(kUi + kUiFlags) == 0xFBu, "the update's message for the box's rows is turned off, nothing else");
     calls = press(runtime, 0u);
     check(calls.size() == 4u && find(calls, kBoxFrame) == nullptr, "the next frame is the screens' too");
     check(calls[0].function == kUpdate && calls[0].args[0] == kScreenBox, "the box's update first");
     check(calls[1].function == kBoxMenu && calls[1].args[0] == kScreenBox && calls[1].args[1] == 1u,
         "then its menu, dimmed");
-    check(calls[2].function == kWindowBuild && calls[2].args[0] == kWindowRecord && calls[2].args[1] == kChooseTemplate &&
-              calls[2].args[2] == 0u,
+    check(calls[2].function == kWindowBuild && calls[2].args[0] == kWindowRecord &&
+            calls[2].args[1] == kChooseTemplate && calls[2].args[2] == 0u,
         "the menu's window is built from its template");
     check(calls[3].function == kWindowDraw && calls[3].args[0] == kUi && calls[3].args[1] == kWindowRecord &&
-              calls[3].args[3] == 0u && calls[3].args[5] == 1u,
+            calls[3].args[3] == 0u && calls[3].args[5] == 1u,
         "and drawn on its first row with the lobby's text");
 
     check(memory.load16(kChooseTemplate) == 176u && memory.load16(kChooseTemplate + 10u) == 2u &&
-              memory.load32(kChooseTemplate + 12u) == kChooseIds && memory.load16(kChooseIds) == kChooseId &&
-              memory.load16(kChooseIds + 4u) == 0u,
+            memory.load32(kChooseTemplate + 12u) == kChooseIds && memory.load16(kChooseIds) == kChooseId &&
+            memory.load16(kChooseIds + 4u) == 0u,
         "two rows, their ids ended by 0");
     check(call(runtime, kText, 0u, kChooseId, 0u, 0x0882F884u) == kRowText &&
-              guest_text(memory, kRowText) == "Load Item Set" &&
-              guest_text(memory, call(runtime, kText, 0u, kChooseId + 1u, 0u, 0x0882F884u)) == "Register Pouch",
+            guest_text(memory, kRowText) == "Load Item Set" &&
+            guest_text(memory, call(runtime, kText, 0u, kChooseId + 1u, 0u, 0x0882F884u)) == "Register Pouch",
         "the rows' words are answered");
     check(guest_text(memory, call(runtime, kText, 0u, kTextId, 0u, 0x0882F884u)) == "Item Sets", "and the box's row");
 
@@ -773,7 +773,7 @@ void test_screens() {
         "the title is printed centred between the arrow and the page number");
     check(find(calls, kFontColour) != nullptr && find(calls, kFontColour)->args[1] == 5u, "in the titles' yellow");
     check(memory.load16(kListTemplate + 10u) == kSetsPerPage && memory.load16(kListIds + 7u * 2u) == kLastId &&
-              memory.load16(kListIds + 8u * 2u) == 0u,
+            memory.load16(kListIds + 8u * 2u) == 0u,
         "eight sets");
     check(guest_text(memory, call(runtime, kText, 0u, kSetId + 7u, 0u, 0x0882F884u)) == "Item Set 8", "named");
     const Logged *pager = find(calls, kPager);
@@ -784,23 +784,23 @@ void test_screens() {
     check(sound_of(calls) == 17u && find(calls, kPager)->args[2] == 1u && find(calls, kWindowDraw)->args[3] == 0u,
         "R shows the second page, on the same row");
     check(guest_text(memory, call(runtime, kText, 0u, kSetId, 0u, 0x0882F884u)) == "Item Set 9" &&
-              guest_text(memory, call(runtime, kText, 0u, kSetId + 7u, 0u, 0x0882F884u)) == "Item Set 16",
+            guest_text(memory, call(runtime, kText, 0u, kSetId + 7u, 0u, 0x0882F884u)) == "Item Set 16",
         "with its sets' names");
     calls = press(runtime, menu::kL);
     check(find(calls, kPager)->args[2] == 0u &&
-              guest_text(memory, call(runtime, kText, 0u, kSetId, 0u, 0x0882F884u)) == "Item Set 1",
+            guest_text(memory, call(runtime, kText, 0u, kSetId, 0u, 0x0882F884u)) == "Item Set 1",
         "L goes back");
     const Logged *items = find(calls, kItemWindow);
     check(items != nullptr && items->args[1] == kSetSlots && items->args[2] == 0u && items->args[3] == 0u &&
-              items->args[4] == 0x10u,
+            items->args[4] == 0x10u,
         "the set's items in the pouch's window, with its pages and no cursor");
     const Logged *message = find(calls, kMessageDraw);
     check(message != nullptr && message->args[1] == kMessageRecord && message->args[2] == kMessageText &&
-              guest_text(memory, kMessageText) == "Please select where to\nregister the pouch.",
+            guest_text(memory, kMessageText) == "Please select where to\nregister the pouch.",
         "the prompt in Put In Item's message window");
     const Logged *hint = print_at(calls, 0xFFFFu, kHintText);
     check(hint != nullptr && hint->args[1] == 224u && hint->args[2] == 241u && hint->args[3] == kHintText &&
-              guest_text(memory, kHintText) == "~C00~B01Register Set  ~B02Delete Set",
+            guest_text(memory, kHintText) == "~C00~B01Register Set  ~B02Delete Set",
         "with the choose button's and the triangle's hints, in the game's markup");
     calls = press(runtime, menu::kConfirm);
     check(sound_of(calls) == 137u && guest_text(memory, kMessageText) == "The pouch is registered\nas Item Set 1.",
@@ -818,12 +818,12 @@ void test_screens() {
     check(guest_text(memory, kMessageText) == "Load Item Set 1?\nThe pouch goes into the box.", "loading asks");
     const Logged *yes_no = print_at(calls, 320u);
     check(yes_no != nullptr && yes_no->args[1] == 320u && yes_no->args[2] == 240u && yes_no->args[4] == kYesNoText &&
-              guest_text(memory, kYesNoText).find("[Yes]") != std::string::npos,
+            guest_text(memory, kYesNoText).find("[Yes]") != std::string::npos,
         "with Yes and No where Put In Item has them, on Yes");
     check(print_at(calls, 0xFFFFu, kHintText) == nullptr, "and no hint");
     calls = press(runtime, menu::kConfirm);
     check(guest_text(memory, kMessageText) == "Item Set 1 loaded." && sound_of(calls) == 136u &&
-              find(calls, kSound)->args[1] == 1u,
+            find(calls, kSound)->args[1] == 1u,
         "Yes loads it, with Take Out Item's sound");
     check(guest_text(memory, kHintText) == "~C00~B01Load Set  ~B02Delete Set", "the list's hint says load");
     check(read_pouch(ram, kSys)[0] == (Slot{kPotion, 10u}), "the potions are back in the pouch");
@@ -834,13 +834,13 @@ void test_screens() {
     press(runtime, menu::kLeft);
     calls = press(runtime, menu::kConfirm);
     check(guest_text(memory, kMessageText) == "Item Set 1 is deleted." && store().sets("SETS")[0].empty() &&
-              sound_of(calls) == 19u,
+            sound_of(calls) == 19u,
         "triangle and Yes delete the set");
 
     // Back out: from the list to the menu, then the box's menu, on Item Sets.
     calls = press(runtime, menu::kCancel);
-    check(screen_open() && find(calls, kWindowBuild) != nullptr && find(calls, kWindowBuild)->args[1] == kChooseTemplate &&
-              sound_of(calls) == 20u,
+    check(screen_open() && find(calls, kWindowBuild) != nullptr &&
+            find(calls, kWindowBuild)->args[1] == kChooseTemplate && sound_of(calls) == 20u,
         "back from the list is the menu again");
     calls = press(runtime, menu::kDown);
     check(find(calls, kWindowDraw)->args[3] == 1u, "and it moves");
@@ -867,7 +867,7 @@ void test_screens() {
     memory.store8(kScreenBox + kPhase, 1u);
     calls = press(runtime, 0u);
     check(memory.load8(kScreenBox + kPhase) == 0u && calls.size() == 1u && calls[0].function == kBoxFrame &&
-              !screen_open(),
+            !screen_open(),
         "without the hunter's data there is nothing to show");
 }
 

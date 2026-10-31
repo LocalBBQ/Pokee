@@ -13,9 +13,8 @@ namespace mhfu::gpu {
 // Spans from the same frame go in the order given. `protect` is the span just
 // stored and is erased only when it is larger than the cap by itself: keeping
 // it would push every other span out on the next insert.
-[[nodiscard]] inline std::vector<std::size_t> vertex_spans_to_drop(
-    const std::uint64_t *frames, const std::uint64_t *bytes, std::size_t count, std::uint64_t used,
-    std::uint64_t cap, std::size_t protect) {
+[[nodiscard]] inline std::vector<std::size_t> vertex_spans_to_drop(const std::uint64_t *frames,
+    const std::uint64_t *bytes, std::size_t count, std::uint64_t used, std::uint64_t cap, std::size_t protect) {
     std::vector<std::size_t> drop;
     if (count == 0u || used <= cap || frames == nullptr || bytes == nullptr) return drop;
     // A span bigger than the whole cache can never be kept. Drop it before
@@ -45,12 +44,12 @@ namespace mhfu::gpu {
 
 // A draw the vertex cache missed, as the renderer sees it.
 struct HoldMiss {
-    bool enabled{};     // not MHFU_NO_MISS_TO_HOLD or MHFU_OLD_VERTEX_CACHE
-    bool hold_ready{};  // the hold buffer exists and is mapped
-    bool pending{};     // the cache is waiting to store this draw's span
-    bool direct{};      // vertices written once, with an index list
-    bool raw{};         // handed to the GPU undecoded
-    bool skinned{};     // copied each frame for frame interpolation
+    bool enabled{};    // not MHFU_NO_MISS_TO_HOLD or MHFU_OLD_VERTEX_CACHE
+    bool hold_ready{}; // the hold buffer exists and is mapped
+    bool pending{};    // the cache is waiting to store this draw's span
+    bool direct{};     // vertices written once, with an index list
+    bool raw{};        // handed to the GPU undecoded
+    bool skinned{};    // copied each frame for frame interpolation
     std::uint32_t vertex_type{};
     std::size_t count{};
 };
@@ -60,8 +59,8 @@ struct HoldMiss {
 // weights: a skinned one needs its vertices on the CPU for interpolation.
 [[nodiscard]] constexpr bool miss_goes_to_hold(const HoldMiss &miss) {
     const bool weighted = ((miss.vertex_type >> 9u) & 3u) != 0u;
-    return miss.enabled && miss.hold_ready && miss.pending && miss.direct && !miss.raw && !miss.skinned &&
-        !weighted && miss.count != 0u;
+    return miss.enabled && miss.hold_ready && miss.pending && miss.direct && !miss.raw && !miss.skinned && !weighted &&
+        miss.count != 0u;
 }
 
 // Whether a draw may be served from, or stored in, the vertex cache.
@@ -83,7 +82,7 @@ struct HoldMiss {
 // and freeing them handed the pages back to the system. At most `limit` bytes
 // of capacity are kept.
 template <class T> class SpareVectors {
-  public:
+public:
     void set_limit(std::uint64_t limit) { limit_ = limit; }
     [[nodiscard]] std::uint64_t bytes() const { return bytes_; }
     [[nodiscard]] std::size_t count() const { return spares_.size(); }
@@ -116,7 +115,7 @@ template <class T> class SpareVectors {
         into.reserve(count);
     }
 
-  private:
+private:
     std::multimap<std::size_t, std::vector<T>> spares_;
     std::uint64_t bytes_{};
     std::uint64_t limit_{};

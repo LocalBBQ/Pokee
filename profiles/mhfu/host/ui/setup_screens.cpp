@@ -392,8 +392,8 @@ bool SetupScreens::offer_retry(const std::string &message) {
             ImGui::Dummy({0.0f, font() * 0.8f});
             answer = button_pair("Choose another file", "Quit", first);
             first = false;
-            layer.set_description("Pokee supports " + install::supported_release_list() +
-                ", as an unmodified, uncompressed .iso image.");
+            layer.set_description(
+                "Pokee supports " + install::supported_release_list() + ", as an unmodified, uncompressed .iso image.");
             begin_footer();
             hints({{Control::Confirm, "Select"}, {Control::Back, "Quit"}});
             end_panel();

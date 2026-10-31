@@ -216,8 +216,8 @@ void AudioSink::initialize() {
     impl.trace = std::getenv("MHFU_TRACE_AUDIO") != nullptr;
     impl.enabled = std::getenv("MHFU_NO_AUDIO") == nullptr;
     const settings::Settings &player = settings::current();
-    impl.gain = audio::output_gain(settings_gain(player.volume, player.mute), player.background_mute,
-        impl.window_focused);
+    impl.gain =
+        audio::output_gain(settings_gain(player.volume, player.mute), player.background_mute, impl.window_focused);
 
     if (const std::filesystem::path path = environment_path("MHFU_AUDIO_DUMP"); !path.empty()) {
         if (impl.dump.open(path))

@@ -25,7 +25,8 @@ inline std::array<std::uint8_t, kOverlayFixtureBytes> overlay_fixture_image(std:
     image[11] = static_cast<std::uint8_t>(kOverlayFixtureBase >> 24u);
     image[12] = static_cast<std::uint8_t>(kOverlayFixtureCodeBytes);
     const char *name = mark == 1u ? "stageA" : "stageB";
-    for (std::size_t index = 0u; name[index] != '\0'; ++index) image[32u + index] = static_cast<std::uint8_t>(name[index]);
+    for (std::size_t index = 0u; name[index] != '\0'; ++index)
+        image[32u + index] = static_cast<std::uint8_t>(name[index]);
     image[64] = static_cast<std::uint8_t>(mark);
     return image;
 }

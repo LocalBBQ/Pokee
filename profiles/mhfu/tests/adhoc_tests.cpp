@@ -45,8 +45,8 @@ void join() {
     check(lan.server == "192.168.1.20" && !lan.this_machine, "another machine keeps the saved player address");
     check(!join_target("127host.example").this_machine && !join_target("100.101.102.103:27312").this_machine,
         "only a loopback host counts as this machine");
-    check(join_host("[fe80::1]:27312") == "fe80::1" && join_host("fe80::1") == "fe80::1" &&
-            join_host("host:1") == "host",
+    check(
+        join_host("[fe80::1]:27312") == "fe80::1" && join_host("fe80::1") == "fe80::1" && join_host("host:1") == "host",
         "the host part of an address");
     const std::string mac = made_up_mac();
     const unsigned first = static_cast<unsigned>(std::stoul(mac.substr(0, 2), nullptr, 16));

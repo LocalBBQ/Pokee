@@ -84,7 +84,7 @@ public:
 
     static constexpr std::int64_t kWorkMarginUs = 1000;
     static constexpr std::size_t kWorkWindowFrames = 60;
-    static constexpr std::size_t kWorkRank = 8; // how many of the window may be later
+    static constexpr std::size_t kWorkRank = 8;      // how many of the window may be later
     static constexpr std::size_t kRecentFrames = 15; // the frames whose longest bounds it
 
 private:

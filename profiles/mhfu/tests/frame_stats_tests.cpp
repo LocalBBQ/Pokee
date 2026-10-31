@@ -245,7 +245,8 @@ void test_compact_overlay() {
         kept = kept && measuring[i] == kSentinel;
     check(kept, "the compact line writes only its own rows");
     bool filled = true;
-    for (std::size_t i = 0; i < kOverlayWidth * kCompactOverlayHeight; ++i) filled = filled && measuring[i] != kSentinel;
+    for (std::size_t i = 0; i < kOverlayWidth * kCompactOverlayHeight; ++i)
+        filled = filled && measuring[i] != kSentinel;
     check(filled, "and every pixel of them");
 
     Summary summary{};

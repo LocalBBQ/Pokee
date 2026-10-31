@@ -38,8 +38,7 @@ int main() {
     check(!mhfu::audio::stage_guest_pcm(memory, 0u, 2u, false, staging), "null guest buffer rejected");
     check(staging == previous, "invalid ranges do not alter staging");
     memory.store16(start + size - 2u, 0x1234u);
-    check(
-        mhfu::audio::stage_guest_pcm(memory, start + size - 2u, 1u, true, staging), "exact-end mono range accepted");
+    check(mhfu::audio::stage_guest_pcm(memory, start + size - 2u, 1u, true, staging), "exact-end mono range accepted");
     check(staging == std::vector<std::int16_t>({0x1234, 0x1234}), "exact-end sample decoded");
     return failures ? 1 : 0;
 }

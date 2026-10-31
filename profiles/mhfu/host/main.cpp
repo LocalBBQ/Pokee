@@ -460,8 +460,7 @@ int main(int argc, char **argv) {
         {
             // "Set up game data again" from the menu, left for this start.
             std::error_code ec;
-            const std::filesystem::path marker =
-                mhfu::install::user_data_directory() / mhfu::install::kSetupMarkerFile;
+            const std::filesystem::path marker = mhfu::install::user_data_directory() / mhfu::install::kSetupMarkerFile;
             if (std::filesystem::remove(marker, ec)) options.install = true;
         }
 #endif
@@ -483,17 +482,16 @@ int main(int argc, char **argv) {
 
         const psprecomp::Elf32Image elf = psprecomp::Elf32Image::from_file(executable);
         if (elf.required_ram_size(mhfu::kLoadBase) != guest_ram)
-            throw psprecomp::Error(
-                release != nullptr ? std::string(release->title) + " does not match its guest RAM layout"
-                                   : "Executable is not USA Freedom Unite");
+            throw psprecomp::Error(release != nullptr
+                    ? std::string(release->title) + " does not match its guest RAM layout"
+                    : "Executable is not USA Freedom Unite");
 
         psprecomp::Runtime runtime(guest_ram);
         for (const EmbeddedNid &entry : kEmbeddedNids) runtime.nids().add(entry.library, entry.nid, entry.name);
         (void)elf.load_and_relocate(runtime.memory(), mhfu::kLoadBase);
         // generate.sh stamps the executable it translated. Registering any
         // other corpus would run that game's code at overlapping addresses.
-        const bool corpus_matches = mhfu::kCorpusExecutableSha256[0] != '\0' &&
-            sha256 == mhfu::kCorpusExecutableSha256;
+        const bool corpus_matches = mhfu::kCorpusExecutableSha256[0] != '\0' && sha256 == mhfu::kCorpusExecutableSha256;
         if (corpus_matches) psprecomp::register_generated_functions(runtime);
         const std::size_t generated_functions = runtime.function_count();
         mhfu::install_profile(runtime, elf, paths);

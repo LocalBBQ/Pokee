@@ -31,8 +31,8 @@ constexpr std::array<std::uint8_t, layered::kParts> kShownParts = {4u, 0u, 1u, 2
 struct Snapshot {
     bool loaded{};
     std::string sex;
-    std::array<std::string, layered::kParts> worn;   // names of the pieces worn
-    std::array<std::string, layered::kParts> chosen; // names of the choices
+    std::array<std::string, layered::kParts> worn;      // names of the pieces worn
+    std::array<std::string, layered::kParts> chosen;    // names of the choices
     std::array<std::uint32_t, layered::kParts> owned{}; // worn plus box copies
     std::vector<layered::Offer> offers;                 // the list screen's part
 };
@@ -197,8 +197,7 @@ void pieces(bool back) {
         }
     }
     if (n.offers.empty())
-        paragraph(n.loaded ? "No piece of this part is worn or kept in the equipment box."
-                           : "Load a character first.",
+        paragraph(n.loaded ? "No piece of this part is worn or kept in the equipment box." : "Load a character first.",
             colors::kTextDim);
 }
 

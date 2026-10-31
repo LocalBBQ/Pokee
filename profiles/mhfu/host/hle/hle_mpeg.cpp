@@ -419,8 +419,8 @@ void register_library(HleRegistrar &hle) {
 // A stride shorter than the picture is left untouched.
 // False when the rectangle is not a guest buffer this write can fill. A short
 // stack slot must not be treated as a framebuffer: that walks off the end of RAM.
-bool write_rgba_picture(psprecomp::GuestMemory &memory, std::uint32_t image, std::uint32_t stride,
-    std::uint32_t width, std::uint32_t height, const movie::Picture &picture) {
+bool write_rgba_picture(psprecomp::GuestMemory &memory, std::uint32_t image, std::uint32_t stride, std::uint32_t width,
+    std::uint32_t height, const movie::Picture &picture) {
     const std::uint32_t rows = std::min(height, picture.height);
     const std::uint32_t columns = std::min(width, picture.width);
     if (image == 0u || stride < columns || rows == 0u || columns == 0u) return false;
@@ -467,13 +467,12 @@ std::uint32_t movie_stride(std::uint32_t requested, const movie::Picture &pictur
 
 // The older decode entry is also called with the address of a pointer. A
 // direct write that does not fit tries that pointer once.
-bool write_decoded_picture(psprecomp::GuestMemory &memory, std::uint32_t buffer, std::uint32_t stride,
-    const movie::Picture &picture) {
+bool write_decoded_picture(
+    psprecomp::GuestMemory &memory, std::uint32_t buffer, std::uint32_t stride, const movie::Picture &picture) {
     if (write_rgba_picture(memory, buffer, stride, picture.width, picture.height, picture)) return true;
     if (!memory.contains(buffer, 4u)) return false;
     const std::uint32_t indirect = memory.load32(buffer);
-    return indirect != buffer &&
-        write_rgba_picture(memory, indirect, stride, picture.width, picture.height, picture);
+    return indirect != buffer && write_rgba_picture(memory, indirect, stride, picture.width, picture.height, picture);
 }
 
 // Interpreted callers pass the fifth argument on the stack. Recompiled
@@ -557,12 +556,11 @@ void register_decoding(HleRegistrar &hle) {
         const bool produced = decode_video_unit(*state);
         bool wrote = false;
         if (produced)
-            wrote = write_decoded_picture(
-                memory, arg(ctx, 3), movie_stride(arg(ctx, 2), state->picture), state->picture);
-        if (const std::uint32_t out = fifth_argument(memory, ctx); out != 0u)
-            memory.store32(out, wrote ? 1u : 0u);
-        finish_traced(ctx, "sceMpegAvcDecode", 0u,
-            produced ? "picture " + std::to_string(state->pictures) : "none", 5u);
+            wrote =
+                write_decoded_picture(memory, arg(ctx, 3), movie_stride(arg(ctx, 2), state->picture), state->picture);
+        if (const std::uint32_t out = fifth_argument(memory, ctx); out != 0u) memory.store32(out, wrote ? 1u : 0u);
+        finish_traced(
+            ctx, "sceMpegAvcDecode", 0u, produced ? "picture " + std::to_string(state->pictures) : "none", 5u);
     });
     // sceMpegAvcDecodeStop(mpeg, frameWidth, buffer, outStatus): one picture
     // the decoder still holds at the end of the stream.
@@ -577,8 +575,8 @@ void register_decoding(HleRegistrar &hle) {
         bool wrote = false;
         if (produced) {
             ++state->pictures;
-            wrote = write_decoded_picture(
-                memory, arg(ctx, 2), movie_stride(arg(ctx, 1), state->picture), state->picture);
+            wrote =
+                write_decoded_picture(memory, arg(ctx, 2), movie_stride(arg(ctx, 1), state->picture), state->picture);
         }
         if (arg(ctx, 3) != 0u && memory.contains(arg(ctx, 3), 4u)) memory.store32(arg(ctx, 3), wrote ? 1u : 0u);
         finish_traced(ctx, "sceMpegAvcDecodeStop", 0u, {}, 4u);
@@ -670,10 +668,9 @@ void register_movie_skip(HleRegistrar &hle) {
              "sceMpegUnRegistStream", "sceMpegFlushAllStream", "sceMpegInitAu", "sceMpegAvcInitYCbCr",
              "sceMpegRingbufferDestruct", "sceMpegFreeAvcEsBuf"})
         hle.try_add("sceMpeg", name, succeed);
-    for (const char *name :
-        {"sceMpegGetAvcAu", "sceMpegGetAtracAu", "sceMpegAvcDecode", "sceMpegAvcDecodeStop", "sceMpegAtracDecode",
-            "sceMpegAvcDecodeYCbCr", "sceMpegAvcDecodeStopYCbCr", "sceMpegAvcDecodeDetail",
-            "sceMpegAvcConvertToYuv420"})
+    for (const char *name : {"sceMpegGetAvcAu", "sceMpegGetAtracAu", "sceMpegAvcDecode", "sceMpegAvcDecodeStop",
+             "sceMpegAtracDecode", "sceMpegAvcDecodeYCbCr", "sceMpegAvcDecodeStopYCbCr", "sceMpegAvcDecodeDetail",
+             "sceMpegAvcConvertToYuv420"})
         hle.try_add("sceMpeg", name, no_data);
 }
 
