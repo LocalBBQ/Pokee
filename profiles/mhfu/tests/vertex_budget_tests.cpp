@@ -40,8 +40,8 @@ void budgets() {
         "a device that cannot allocate the larger buffer keeps the smaller one");
     check(choose_vertex_region(512ull << 20u, 4ull << 30u) == kVertexRegionBase,
         "a phone-sized heap and allocation stay small");
-    check(choose_vertex_region(0u, 6ull << 30u) == kVertexRegionBase,
-        "an unknown limit does not override a small heap");
+    check(
+        choose_vertex_region(0u, 6ull << 30u) == kVertexRegionBase, "an unknown limit does not override a small heap");
 }
 
 void hold_budgets() {

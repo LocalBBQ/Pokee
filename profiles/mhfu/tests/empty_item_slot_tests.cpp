@@ -133,8 +133,7 @@ void test_scroll() {
     check(scroll(none, 3, Direction::Forward) == 3u && scroll(none, 3, Direction::Backward) == 3u,
         "with nothing to select the slot stays");
     check(scroll(none, kSpare, Direction::Forward) == kSpare, "nor from the empty stop");
-    check(scroll(three, kSpare + 1u, Direction::Forward) == kSpare + 1u,
-        "a slot past the spare stays, as in the game");
+    check(scroll(three, kSpare + 1u, Direction::Forward) == kSpare + 1u, "a slot past the spare stays, as in the game");
     check(game_step(three, 2, Direction::Forward) == std::optional<std::uint16_t>{0u} &&
             game_step(three, 0, Direction::Backward) == std::optional<std::uint16_t>{2u},
         "the game's own step wraps round");

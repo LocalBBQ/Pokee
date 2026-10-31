@@ -119,8 +119,8 @@ void test_format(const fs::path &root) {
     check(mod && mod->unusable.empty() && mod->changes.size() == 1u && mod->changes[0].file == 0x601 &&
             mod->version.empty(),
         "format: no Version uses Files and Target");
-    make_mod(mods / "nohd", "Name=\"NOHD\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nType=\"File\"\nVersion=\"NOHD\"\n",
-        {"a.pac"});
+    make_mod(
+        mods / "nohd", "Name=\"NOHD\"\nFiles=\"a.pac\"\nTarget=\"0601\"\nType=\"File\"\nVersion=\"NOHD\"\n", {"a.pac"});
     mod = format.read(mods / "nohd");
     check(mod && mod->unusable.empty() && mod->changes.size() == 1u && mod->version == "PSP release",
         "format: NOHD is this game's file list");

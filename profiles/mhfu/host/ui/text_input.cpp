@@ -579,8 +579,8 @@ void text_input_frame() {
     ImGui::PopFont();
     const ImVec2 line = ImGui::GetCursorScreenPos();
     const ImU32 fade = colors::with_alpha(colors::kEmber, 0);
-    draw->AddRectFilledMultiColor(line, {line.x + inner, line.y + px(2.0f)}, colors::kEmber, fade, fade,
-        colors::kEmber);
+    draw->AddRectFilledMultiColor(
+        line, {line.x + inner, line.y + px(2.0f)}, colors::kEmber, fade, fade, colors::kEmber);
     ImGui::Dummy({0.0f, px(8.0f)});
     if (!k.request.prompt.empty()) {
         paragraph(k.request.prompt, colors::kTextDim);

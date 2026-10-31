@@ -38,8 +38,7 @@ inline constexpr std::uint64_t kVertexFullHeap = 8ull << 30u;
 inline constexpr std::uint64_t kVertexHoldFull = 384ull << 20u;
 inline constexpr std::uint64_t kVertexHoldBase = 192ull << 20u;
 
-[[nodiscard]] inline constexpr std::uint64_t choose_vertex_hold(
-    std::uint64_t max_allocation, std::uint64_t host_heap) {
+[[nodiscard]] inline constexpr std::uint64_t choose_vertex_hold(std::uint64_t max_allocation, std::uint64_t host_heap) {
     const bool allocation_fits = max_allocation == 0u || max_allocation >= kVertexHoldFull;
     return allocation_fits && host_heap >= kVertexFullHeap ? kVertexHoldFull : kVertexHoldBase;
 }

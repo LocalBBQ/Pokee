@@ -203,8 +203,8 @@ public:
     // `user_memory_end` is the first address past the user partition. The
     // default is the 64 MiB layout. A smaller runtime passes its own end so
     // allocations stay inside guest RAM.
-    void install(Runtime &runtime, std::uint32_t gp, std::uint32_t image_end,
-        std::uint32_t user_memory_end = kUserMemoryEnd);
+    void install(
+        Runtime &runtime, std::uint32_t gp, std::uint32_t image_end, std::uint32_t user_memory_end = kUserMemoryEnd);
     [[nodiscard]] Runtime &runtime() noexcept { return *runtime_; }
 
     // Clock ---------------------------------------------------------------

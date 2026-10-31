@@ -341,10 +341,10 @@ struct PadState {
     int camera_x{}; // the second stick
     int camera_y{};
     bool fast_forward{}; // the fast-forward bind is held
-    bool screenshot{}; // the screenshot bind is held
-    bool hide_hud{};   // the hide-HUD bind is held
-    bool lock_on{};        // the lock-on bind is held
-    bool focus_camera{};   // the Focus camera bind is held
+    bool screenshot{};   // the screenshot bind is held
+    bool hide_hud{};     // the hide-HUD bind is held
+    bool lock_on{};      // the lock-on bind is held
+    bool focus_camera{}; // the Focus camera bind is held
 };
 // At once, with no memory of what came before (Resolver has it): among the
 // held inputs, the longest bound chord wins and its inputs do nothing else;

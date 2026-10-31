@@ -118,8 +118,8 @@ void draw_compact_overlay(std::uint32_t *pixels, const Summary &summary) {
     char line[48];
     std::uint32_t color = kText;
     if (summary.valid) {
-        std::snprintf(line, sizeof(line), "FPS %.1f GAME %.1f SPD %.0f%%", summary.fps, summary.game_fps,
-            summary.speed * 100.0);
+        std::snprintf(
+            line, sizeof(line), "FPS %.1f GAME %.1f SPD %.0f%%", summary.fps, summary.game_fps, summary.speed * 100.0);
         color = summary.speed >= 0.985 ? kGood : summary.speed >= 0.895 ? kSlow : kBad;
     } else {
         std::snprintf(line, sizeof(line), "FPS -- GAME -- SPD --%%");

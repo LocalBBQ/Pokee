@@ -80,8 +80,8 @@ std::vector<std::uint8_t> build_pack(const std::vector<Quest> &quests) {
             put32(bytes, tables[l] + 4u, goal);
         }
         const auto languages = static_cast<std::uint32_t>(bytes.size());
-        const std::uint32_t slots[kLanguages] = {tables[0], tables[0], tables[1], tables[2], tables[3], tables[4],
-            tables[0]};
+        const std::uint32_t slots[kLanguages] = {
+            tables[0], tables[0], tables[1], tables[2], tables[3], tables[4], tables[0]};
         for (std::uint32_t l = 0; l < kLanguages; ++l) put32(bytes, languages + l * 4u, slots[l]);
         put32(bytes, record + kLanguagesWord, languages);
     }
@@ -97,8 +97,8 @@ const std::vector<Quest> kQuests = {
 
 // What the game reads as a quest's name in one language: the pack's start
 // plus the offsets.
-std::string name_in_memory(const psprecomp::GuestMemory &memory, std::uint32_t base, std::uint32_t quest,
-    std::uint32_t language) {
+std::string name_in_memory(
+    const psprecomp::GuestMemory &memory, std::uint32_t base, std::uint32_t quest, std::uint32_t language) {
     const std::uint32_t record = base + memory.load32(base + quest * 4u);
     const std::uint32_t languages = base + memory.load32(record + kLanguagesWord);
     const std::uint32_t strings = base + memory.load32(languages + language * 4u);

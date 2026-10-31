@@ -1183,8 +1183,7 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
     bool reused = false;
     if (call.raw_vertices == nullptr && vertex_reuse_ && !call.through && one_morph && positioned &&
         vertex_count != 0u && vertex_count <= 65536u) {
-        const std::uint8_t *source =
-            memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
+        const std::uint8_t *source = memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
         if (source != nullptr) {
             const std::uint32_t weight_type = (vertex_type_ >> 9u) & 3u;
             const std::uint32_t weight_count = ((vertex_type_ >> 14u) & 7u) + 1u;
@@ -1257,9 +1256,9 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
             if (texture_matrix_[i] != expected) identity = false;
         }
         static std::map<std::array<std::uint32_t, 8>, std::uint32_t> seen;
-        const std::array<std::uint32_t, 8> key{tmap, tmat, texture_.address, static_cast<std::uint32_t>(texture_.format),
-            texture_.function, blend_.enabled ? blend_.source_factor : 0xFFu, blend_.destination_factor,
-            identity ? 1u : 0u};
+        const std::array<std::uint32_t, 8> key{tmap, tmat, texture_.address,
+            static_cast<std::uint32_t>(texture_.format), texture_.function,
+            blend_.enabled ? blend_.source_factor : 0xFFu, blend_.destination_factor, identity ? 1u : 0u};
         if (++seen[key] == 1u && seen.size() <= 300u) {
             const char *modes[] = {"uv", "matrix", "env", "mode3"};
             const char *projections[] = {"position", "uv", "normalized-normal", "normal"};

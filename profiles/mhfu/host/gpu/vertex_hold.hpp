@@ -17,7 +17,7 @@ inline constexpr std::uint64_t kVertexHoldAlign = 16u;
 // becomes a hole and is reused once `ready` has been reached, so a later zone
 // does not stack on top of one that has left the screen.
 class VertexHoldHeap {
-  public:
+public:
     static constexpr std::uint64_t kNone = ~std::uint64_t{0};
 
     struct Placement {
@@ -67,7 +67,7 @@ class VertexHoldHeap {
         return reclaim_tail(frame);
     }
 
-  private:
+private:
     struct Hole {
         std::uint64_t offset;
         std::uint64_t bytes;

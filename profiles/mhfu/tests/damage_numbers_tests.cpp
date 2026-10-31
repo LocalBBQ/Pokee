@@ -197,7 +197,8 @@ void test_the_older_frame() {
     back.older_placed = false;
     check(!older_anchor(back), "a number just back on the picture does not glide in");
 
-    check(parse_smooth(nullptr) && parse_smooth("") && parse_smooth("1"), "the numbers follow interpolation by default");
+    check(
+        parse_smooth(nullptr) && parse_smooth("") && parse_smooth("1"), "the numbers follow interpolation by default");
     check(!parse_smooth("0"), "MHFU_DAMAGE_NUMBERS_SMOOTH=0 turns that off");
 }
 

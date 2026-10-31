@@ -32,8 +32,8 @@ void reuse_a_hole() {
     check(first.offset == 0u, "the first span starts at 0");
     check(first.reserved == 48u, "40 bytes reserves an aligned 48");
     check(second.offset == 48u, "the next span follows the reservation");
-    check(heap.release(first.offset, first.reserved, 0u, 0u) == 0u,
-        "a hole under a live span does not move the cursor");
+    check(
+        heap.release(first.offset, first.reserved, 0u, 0u) == 0u, "a hole under a live span does not move the cursor");
     const auto again = heap.place(40u, 0u);
     check(again.offset == first.offset, "a freed span is reused");
     check(heap.used() == second.offset + second.reserved, "reusing a hole does not grow the cursor");

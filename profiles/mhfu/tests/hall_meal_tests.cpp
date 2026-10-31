@@ -132,7 +132,8 @@ constexpr std::uint32_t kColon = 0x09900100u;
 constexpr std::uint32_t kOrderFoodCharacters = 10u;
 
 void game_bar(psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-    bar_calls.push_back({ctx.pc, {ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[8], ctx.gpr[9], ctx.gpr[10]}});
+    bar_calls.push_back(
+        {ctx.pc, {ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[8], ctx.gpr[9], ctx.gpr[10]}});
     ctx.gpr[2] = ctx.pc == kBarMeasure ? kOrderFoodCharacters : 0u;
     // What a callee leaves in the registers it need not keep.
     for (std::uint32_t r = 8u; r <= 10u; ++r) ctx.gpr[r] = 0xDEADu;
