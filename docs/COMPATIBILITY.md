@@ -65,6 +65,17 @@ Rows marked ❌ on every platform are missing features rather than platform prob
 | Android 10 emulator (API 29, arm64) | Apple M1, 8 GB | SwiftShader | `cf5af0d` (display cutout, #170) | 2026-09-27 |
 | Ubuntu 26.04 | AMD Ryzen 9 6900HS | AMD Radeon RX 6700S, RADV (Mesa 26.0.3) | `6cbf506` (served install data, the title menu without *Data Install*, built-in event quests and challenges) | 2026-10-28 |
 
+## Release candidate play: v0.4.8 (2026-10-29 to 2026-10-31)
+
+v0.4.8 (`b79cdbd`) was played by the maintainer and other players as the candidate for 1.0, on the machines below. Between them this covered hunts from start to finish, multiplayer, saving and loading the save again, and sound and music, with no regression reported; performance was reported good, on Linux especially. Coverage was reported for the release as a whole, not machine by machine, so the cells of the tables above are unchanged, and the scripted smoke test in [TESTING.md](TESTING.md) was not run as such.
+
+| Platform | Machine | GPU |
+| --- | --- | --- |
+| Windows | Intel Core i9-13900K | NVIDIA GeForce RTX 4090, NVIDIA driver |
+| Windows | A second Windows PC | Not recorded |
+| Linux (Ubuntu 26.04) | AMD Ryzen 9 6900HS | AMD Radeon RX 6700S, RADV |
+| Steam Deck (SteamOS) | Steam Deck | AMD Custom GPU 0932, RADV |
+
 ## Coverage-expansion device checks (2026-10-04)
 
 These bounded checks validate the coverage-expansion branch; they do not replace the full manual gameplay matrix above. Compatible generated code and prebuilt overlays were reused.

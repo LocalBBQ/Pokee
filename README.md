@@ -90,10 +90,10 @@ The textures change within a frame or two, without a restart. **Video → Textur
 
 ## Play
 
-Downloads for Windows, Linux (Flatpak, which the Steam Deck uses, and a tarball) and macOS are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). On the first start, Pokee asks for your disc image (`.iso`) in its own window, checks it, prepares the game from it and keeps your settings and saves in a per-user folder (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable). This works with a gamepad alone.
+Downloads for Windows and Linux (the Steam Deck included) are on the [releases page](https://github.com/LocalBBQ/Pokee/releases). On the first start, Pokee asks for your disc image (`.iso`) in its own window, checks it, prepares the game from it and keeps your settings and saves in a per-user folder (or in a [portable `data` folder](profiles/mhfu/README.md#portable-copy) next to the executable). This works with a gamepad alone.
 
 - Linux and Steam Deck: [`docs/LINUX.md`](docs/LINUX.md)
-- macOS: [`docs/MACOS.md`](docs/MACOS.md)
+- macOS: no release builds for now; it builds from source ([`docs/BUILDING.md`](docs/BUILDING.md))
 - Where saves live and how to bring a PSP save across: [Saving and loading](profiles/mhfu/README.md#saving-and-loading)
 - Every setting, control and environment variable: [profile README](profiles/mhfu/README.md)
 
