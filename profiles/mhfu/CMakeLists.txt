@@ -1393,6 +1393,15 @@ if(NOT WIN32)
         target_include_directories(${fixture_target} PRIVATE
             "${MHFU_PROFILE_DIR}/host" "${PROJECT_SOURCE_DIR}/include")
         target_compile_definitions(${fixture_target} PRIVATE "MHFU_OVERLAY_FIXTURE_MARK=${mark}")
+        # The test loads the fixtures, so it cannot be their bundle loader the
+        # way Pokee is a real overlay's: ld64 leaves the framework symbols to
+        # the loader instead, and the NDK's --no-undefined lets them through as
+        # for a real overlay.
+        if(APPLE)
+            target_link_options(${fixture_target} PRIVATE "LINKER:-undefined,dynamic_lookup")
+        elseif(ANDROID)
+            target_link_options(${fixture_target} PRIVATE "LINKER:-z,undefs")
+        endif()
         set_target_properties(${fixture_target} PROPERTIES
             CXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN ON
